@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#050607"/>
+      <stop offset="40%" stop-color="#0a1119"/>
+      <stop offset="72%" stop-color="#0f1820"/>
+      <stop offset="100%" stop-color="#172413"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#bef264"/>
+      <stop offset="100%" stop-color="#84cc16"/>
+    </linearGradient>
+    <linearGradient id="blueAccent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8be9ff"/>
+      <stop offset="42%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="bridge" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#84cc16" stop-opacity="0"/>
+      <stop offset="22%" stop-color="#84cc16" stop-opacity="0.30"/>
+      <stop offset="50%" stop-color="#f5f5f6" stop-opacity="0.42"/>
+      <stop offset="78%" stop-color="#38bdf8" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f1812"/>
+      <stop offset="46%" stop-color="#0c1118"/>
+      <stop offset="100%" stop-color="#0b1724"/>
+    </linearGradient>
+    <radialGradient id="glowGreen" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#84cc16" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBlue" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.24"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#000000" flood-opacity="0.50"/>
+    </filter>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.36"/>
+    </filter>
+    <filter id="crossGlow" x="-120%" y="-120%" width="340%" height="340%">
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#84cc16" flood-opacity="0.35"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="14" flood-color="#38bdf8" flood-opacity="0.28"/>
+    </filter>
+    <clipPath id="chainLogoClip"><circle cx="0" cy="0" r="18"/></clipPath>
+    <clipPath id="roundLogo"><rect x="0" y="0" width="178" height="178" rx="42"/></clipPath>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .muted { fill: #9ca3af; }
+      .soft { fill: #d4d4d8; }
+      .white { fill: #f5f5f6; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="230" cy="138" r="310" fill="url(#glowGreen)"/>
+  <circle cx="1010" cy="512" r="330" fill="url(#glowBlue)"/>
+  <g opacity="0.060">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200" stroke="#84cc16"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675" stroke="#84cc16"/>
+  </g>
+  <path d="M-80 146C94 44 256 66 414 128C572 190 690 168 812 98C956 16 1078 54 1280 128" fill="none" stroke="#84cc16" stroke-opacity="0.16" stroke-width="2"/>
+  <path d="M-64 534C114 466 250 492 394 552C548 616 708 600 846 514C986 426 1084 452 1264 556" fill="none" stroke="#38bdf8" stroke-opacity="0.13" stroke-width="2"/>
+
+  <g transform="translate(72 52)">
+    <rect x="0" y="0" width="162" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <g transform="translate(12 9) scale(0.53125)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="900" letter-spacing="0.8">WCORE</text>
+  </g>
+
+  <g transform="translate(1128 62)" text-anchor="end">
+    <text x="0" y="48" class="font white" font-size="39" font-weight="950" letter-spacing="-1.2">Cleaner scans across EVM chains</text>
+  </g>
+
+  <g transform="translate(72 168)" filter="url(#shadow)">
+    <path d="M280 161H810" stroke="url(#bridge)" stroke-width="2.5" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="528" cy="161" r="92" fill="#0b1117" fill-opacity="0.36"/>
+    <circle cx="528" cy="161" r="118" fill="none" stroke="url(#bridge)" stroke-width="1.5" stroke-dasharray="8 14" opacity="0.55"/>
+    <circle cx="198" cy="161" r="144" fill="#172015" stroke="#34551f" stroke-width="2"/>
+    <circle cx="198" cy="161" r="106" fill="none" stroke="#84cc16" stroke-opacity="0.20" stroke-width="2"/>
+    <circle cx="894" cy="161" r="144" fill="#0c1a24" stroke="#1e4d73" stroke-width="2"/>
+    <circle cx="894" cy="161" r="106" fill="none" stroke="#38bdf8" stroke-opacity="0.20" stroke-width="2"/>
+
+    <g transform="translate(109 72) scale(2.78125)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="url(#accent)" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="url(#accent)" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="url(#accent)" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="url(#accent)" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+
+    <g transform="translate(805 72)">
+      <rect x="0" y="0" width="178" height="178" rx="42" fill="#ffffff" clip-path="url(#roundLogo)"/>
+      <image href="https://avatars.githubusercontent.com/u/45625840?v=4" x="0" y="0" width="178" height="178" preserveAspectRatio="xMidYMid slice" clip-path="url(#roundLogo)"/>
+    </g>
+
+    <text x="528" y="113" text-anchor="middle" class="font" font-size="62" font-weight="950" fill="url(#accent)" letter-spacing="-2.5">WCORE</text>
+    <g transform="translate(528 170)" filter="url(#crossGlow)">
+      <circle cx="0" cy="0" r="25" fill="#101319" stroke="url(#bridge)" stroke-width="2.5"/>
+      <text x="0" y="14" text-anchor="middle" class="font white" font-size="45" font-weight="950" letter-spacing="-1">×</text>
+    </g>
+    <text x="528" y="244" text-anchor="middle" class="font" font-size="62" font-weight="950" fill="url(#blueAccent)" letter-spacing="-2.5">Blockscout</text>
+  </g>
+
+  <g transform="translate(116 520)" filter="url(#softShadow)">
+    <g transform="translate(0 0)">
+      <rect x="0" y="0" width="286" height="72" rx="28" fill="#12151b" stroke="#2c333f"/>
+      <rect x="20" y="18" width="36" height="36" rx="12" fill="#172015" stroke="#34551f"/>
+      <path d="M30 36L38 44L48 28" fill="none" stroke="#a3e635" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="72" y="43" class="font soft" font-size="18" font-weight="900">Contract-based tokens</text>
+    </g>
+    <g transform="translate(326 0)">
+      <rect x="0" y="0" width="252" height="72" rx="28" fill="#12151b" stroke="#2c333f"/>
+      <rect x="20" y="18" width="36" height="36" rx="12" fill="#0c1a24" stroke="#1e4d73"/>
+      <path d="M30 31H48M30 42H42" stroke="#66e3ff" stroke-width="4" stroke-linecap="round"/>
+      <text x="72" y="43" class="font soft" font-size="18" font-weight="900">Cached metadata</text>
+    </g>
+    <g transform="translate(618 0)">
+      <rect x="0" y="0" width="302" height="72" rx="28" fill="#12151b" stroke="#2c333f"/>
+      <rect x="20" y="18" width="36" height="36" rx="12" fill="#172015" stroke="#34551f"/>
+      <circle cx="38" cy="36" r="10" fill="none" stroke="#a3e635" stroke-width="4"/>
+      <text x="72" y="43" class="font soft" font-size="18" font-weight="900">Fewer broken logos</text>
+    </g>
+  </g>
+
+  <text x="1128" y="622" text-anchor="end" class="font" font-size="28" font-weight="950" fill="url(#accent)">wcore.xyz</text>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#accent)" opacity="0.62"/>
+</svg>

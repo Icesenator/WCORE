@@ -1,0 +1,54 @@
+# Backups et pulls
+.backups/
+pulls/
+
+# Node
+node_modules/
+*.log
+
+# clasp
+.clasprc.json
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Tool state
+.omc/
+.playwright-mcp/
+.temp_delete/
+.claude/
+scripts/
+
+# Debug captures
+gas-editor*.md
+gas-executions.md
+gas-filelist.md
+astar-snapshot.md
+*.png
+*.jpg
+*.jpeg
+
+# MCP local config (may contain tokens)
+.mcp.json
+
+# Windows reserved names (safety net)
+nul
+NUL
+
+# MCP runtime state
+.mcp/*-quota.json
+
+# OpenCode local config
+opencode.json
+
+# Environment files
+.env*
+
+# OAuth client secret (clasp creds — NEVER commit)
+.clasp-creds.json
+
+# Local audit/manifest artifacts
+.audits/
+.manifest/

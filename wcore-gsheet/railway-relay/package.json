@@ -1,0 +1,16 @@
+{
+  "name": "wcore-cex-relay",
+  "version": "1.1.0",
+  "description": "Relais HTTP signe multi-CEX (Binance, Bybit EU) pour WCORE Apps Script. Contourne les blocages IP/geo datacenter.",
+  "type": "commonjs",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

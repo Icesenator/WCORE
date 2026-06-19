@@ -1,0 +1,12 @@
+node_modules
+.git
+.next
+dist
+*.tsbuildinfo
+.turbo
+.backups
+pulls
+.omc
+.claude
+.clasp.json
+*.md

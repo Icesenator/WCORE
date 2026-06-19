@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 10 10 12;
+  --fg: 240 240 245;
+  --muted: 140 140 150;
+  --accent: 132 204 22;
+  --card: 22 22 28;
+  --border: 38 38 46;
+}
+
+html,
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--fg));
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+@keyframes scan {
+  0%   { left: 0; }
+  99.9% { left: calc(100% - 6px); }
+  100%  { left: 0; }
+}
+
+.animate-scan {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  animation: scan 2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 0.8s linear infinite;
+}
+
+.animate-spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+@media print {
+  :root {
+    --bg: 255 255 255;
+    --fg: 0 0 0;
+    --muted: 80 80 80;
+    --card: 255 255 255;
+    --border: 210 210 210;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  button,
+  nav,
+  header a,
+  [data-refresh] {
+    display: none !important;
+  }
+}

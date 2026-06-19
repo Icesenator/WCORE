@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#050607"/>
+      <stop offset="55%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#172016"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#bef264"/>
+      <stop offset="100%" stop-color="#84cc16"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#84cc16" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22c55e" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000000" flood-opacity="0.48"/>
+    </filter>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+    <clipPath id="chainClip"><circle cx="0" cy="0" r="19"/></clipPath>
+    <clipPath id="chainClipL"><circle cx="0" cy="0" r="23"/></clipPath>
+    <clipPath id="chainClipXL"><circle cx="0" cy="0" r="72"/></clipPath>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .muted { fill: #9ca3af; }
+      .soft { fill: #d4d4d8; }
+      .white { fill: #f5f5f6; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="980" cy="96" r="318" fill="url(#glowA)"/>
+  <circle cx="132" cy="620" r="294" fill="url(#glowB)"/>
+  <g opacity="0.055">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200" stroke="#84cc16"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675" stroke="#84cc16"/>
+  </g>
+  <path d="M-70 142C78 48 238 72 392 124C570 184 684 166 806 98C934 28 1070 54 1270 122" fill="none" stroke="#84cc16" stroke-opacity="0.14" stroke-width="2"/>
+  <path d="M-40 532C118 478 234 492 374 548C542 616 700 604 820 530C958 445 1066 462 1240 552" fill="none" stroke="#22c55e" stroke-opacity="0.10" stroke-width="2"/>
+
+  <g transform="translate(72 52)">
+    <rect x="0" y="0" width="162" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <g transform="translate(12 9) scale(0.53125)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="900" letter-spacing="0.8">WCORE</text>
+  </g>
+
+  <g transform="translate(1128 58)" text-anchor="end">
+    <text x="0" y="50" class="font white" font-size="56" font-weight="950" letter-spacing="-2.1">Today's WCORE update.</text>
+    <text x="0" y="88" class="font muted" font-size="20">Nexus mainnet is live. Sturdier balances. Mobile-ready.</text>
+  </g>
+
+  <g transform="translate(72 192)" filter="url(#shadow)">
+    <rect x="0" y="0" width="548" height="348" rx="32" fill="#101319" stroke="#2b323d"/>
+
+    <g transform="translate(32 28)">
+      <rect x="0" y="0" width="108" height="28" rx="14" fill="#84cc16"/>
+      <text x="54" y="19" text-anchor="middle" class="font" font-size="13" font-weight="950" fill="#0d1117" letter-spacing="0.8">NEW CHAIN</text>
+    </g>
+
+    <g transform="translate(168 190)">
+      <circle cx="0" cy="0" r="100" fill="none" stroke="#84cc16" stroke-opacity="0.10" stroke-width="2" stroke-dasharray="6 10"/>
+      <circle cx="0" cy="0" r="84" fill="#172015" stroke="#34551f" stroke-width="2"/>
+      <circle cx="0" cy="0" r="72" fill="#0a0a0c"/>
+      <image href="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gKgSUNDX1BST0ZJTEUAAQEAAAKQbGNtcwQwAABtbnRyUkdCIFhZWiAAAAAAAAAAAAAAAABhY3NwQVBQTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA9tYAAQAAAADTLWxjbXMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAtkZXNjAAABCAAAADhjcHJ0AAABQAAAAE53dHB0AAABkAAAABRjaGFkAAABpAAAACxyWFlaAAAB0AAAABRiWFlaAAAB5AAAABRnWFlaAAAB+AAAABRyVFJDAAACDAAAACBnVFJDAAACLAAAACBiVFJDAAACTAAAACBjaHJtAAACbAAAACRtbHVjAAAAAAAAAAEAAAAMZW5VUwAAABwAAAAcAHMAUgBHAEIAIABiAHUAaQBsAHQALQBpAG4AAG1sdWMAAAAAAAAAAQAAAAxlblVTAAAAMgAAABwATgBvACAAYwBvAHAAeQByAGkAZwBoAHQALAAgAHUAcwBlACAAZgByAGUAZQBsAHkAAAAAWFlaIAAAAAAAAPbWAAEAAAAA0y1zZjMyAAAAAAABDEoAAAXj///zKgAAB5sAAP2H///7ov///aMAAAPYAADAlFhZWiAAAAAAAABvlAAAOO4AAAOQWFlaIAAAAAAAACSdAAAPgwAAtr5YWVogAAAAAAAAYqUAALeQAAAY3nBhcmEAAAAAAAMAAAACZmYAAPKnAAANWQAAE9AAAApbcGFyYQAAAAAAAwAAAAJmZgAA8qcAAA1ZAAAT0AAACltwYXJhAAAAAAADAAAAAmZmAADypwAADVkAABPQAAAKW2Nocm0AAAAAAAMAAAAAo9cAAFR7AABMzQAAmZoAACZmAAAPXP/bAEMABQMEBAQDBQQEBAUFBQYHDAgHBwcHDwsLCQwRDxISEQ8RERMWHBcTFBoVEREYIRgaHR0fHx8TFyIkIh4kHB4fHv/bAEMBBQUFBwYHDggIDh4UERQeHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHv/CABEIAZABkAMBIgACEQEDEQH/xAAcAAEAAgMBAQEAAAAAAAAAAAAAAgMBBQcEBgj/xAAVAQEBAAAAAAAAAAAAAAAAAAAAAf/aAAwDAQACEAMQAAAB4wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAv+/Pi6u8fNHH32fyJUAAAAAAAAAAAAAAAAAAAAb40f2H3O/PB7wfNfS/P1T5Nhg53852XURzBttSAAAAAAAAAAAAAAAAC0q9/2XQj5P7LIJSIZnkr0f0OmPNj0xrzR9EDzfM/WQOQ+TsHx0fILKwAAAAAAAAAAAABnb9OPhulbMCRieZkZTkQzZIq1O71p5Y+qJ5K/ZUeSv1015q/RWav4romDjbpXwsa8AAAAAAAAAAAHXOk8364fJw+t1BqrExYsMTlYQlZIq1238J5I+us8lXsqPHT7KTx1evz15/P5NGe75LdaSNKAAAAAAAAAAADrvXOR9cJZxkp1O+kfMW7jXkLFpiU5lfj2XmPHX7ajxU+2g8dEvlDZfNV11XXbAq0m90UaUAAAAAAAAAAAHXeucj64SzjJKUZGc4keXz7Qa+y0Qp9lZ46fZ8ubD5PV+Qrpuqqqq6orhZWV6LfaGNKAAAAAAAAAAADrvXOR9cJZxklKMjMoyJZxkkSKtL9Dwo3uplGqq7KyquysqrsrK4TgV6Le6KNIAAAAAAAAAAADrvXOR9cJZxklKMjMoyJZrFs6pFvAu88DJW+aNe+HitLKp1kKp1ka5wIaHe6KNKAAAAAAAAAAADrvXOR9cJZxklKuo9EKJF0qplsqslvAu88DJRxGswRJW+WB7K6bDEJQI6Ld6SNKAAAAAAAAAAADrvXOR9WL6fKLc1zLJVyLJ1ZLZVZLOB954ETxHFZjiIiiIolsvNg9Gk2+ojSgAAAAAAAAAAA+k7J+d7D9RS451U2Mq5Fma5Fma5E815LOB944ISxHFSxHBmKIiiMV6o2Om82IAAAAAAAAAAAAAe3xDr/Rvy1vD9HS+M+wLM15LEBZwPvPAySCpYjgzjHhPZrNdRE4AAAAAAAAAAAAAAAAA+z+MH6P3P5c6Oddz4vUT4H3ngZPEYVZRrddHr8QAAAAAAAAAAAAAAAAAAAAbDqvGh+pOC+bTGx1dQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//xAAlEAABBAICAgIDAQEAAAAAAAABAAIDBAURIEAHMAZQEBIhkDH/2gAIAQEAAQUC/wADKVKxcfZrTV3fXQxSSyY348oo2RMexr23cOpGPjd9XjcFYsKnTr1I+FmvFYbdxUsP1OOxdq6cbiqtLjpaWlpXcfBZVyjPWP0lSrPbkxuBghQ/g46WlpaWkQruJjkViCWu/wCgjY+R+N+PEqCKKCPnpaWlpaWlpSxMlZdxBCe1zHd3G4SzZVGjWpM9OlpaWkQiEQiirVWGy27jJoO3jcfYvvxuHq0/RpaWlpaWlpEIhEIhFFH8XcdBZVytJVk7HjtTVAU9jmHjpaWlpaWlpaRCIRCIRCKKkc1gmtkrKf8Aex46/DmteJqZC1pBBBALS0tLS0tIhEIhEIhEJ38Vi2Anuc8rJ9nx1wliZIpa72IIIIBaWlpaWkQiEQiEVZtRxKeaSU/nJ9nx1ykga5OjcxBBALS0tIhEIhEKzPHCLVySVHjk+z469DoVrSC0tLSIRCmcyNtvIkpxJJR45Ps+OvSQCixBaRCd/BdyUbFPLJM4oooo8Mn2fHXr0iFdvwV1cuTWSUUUUUUeGU7Pjr2tkIQcCiiiiiijwynZ8de7aEi2iiiijwyfZ8dejfo2QhICiijxyfZ8dcidLe/WHEL9gUeOT7PjrhsBF/vD1vfDJ9nx1+TIt9L9/wA5Ps+Ok6QBFxPV2g5ZPs4TLTYuTF5ankG9aWZkamldKey0lrsT8mmhVO1XtxdJ72sEtknvVbM9WXE/J45FG9r2e4nSltBOcXH6DGZS5j34jP1L3tmsNYpJXyfS4n5BbpLG5OpkGeiWVkalsPf9RG98b8R8nexVbENmLg5waJbJKP8Afq6duxTlxPyaCZNIcFLZAT3OefrsXlrmPMsr5P8AA3//xAAUEQEAAAAAAAAAAAAAAAAAAACQ/9oACAEDAQE/ARx//8QAFBEBAAAAAAAAAAAAAAAAAAAAkP/aAAgBAgEBPwEcf//EADgQAAECAgUKBQIFBQAAAAAAAAECAwARBBIhQEEgIjAxUVJhgYPCEBMjMlBTwUJxkKHRYoKiseH/2gAIAQEABj8C/QMqsN1tpwEVXUS44H48IaQVqOAgOU09NP3MBDaAhIwEVVpCgcDFein+wxVWkpVsPxgXSJst/wCRiow2E7Ticmq6ifHZFZr1Efv8TNCare+rVAUE+Y7vq0MyKq94RNQrI3h8LUYbKz+wgLpMnl7PwiJDSFTHpq2YRVdQU/AhDaSpR1AQHKaao+mn7wG2kBCRgNPUcSFJ4xXoxn/QYqqBBGBvwW76LXHWYqsNyOKjrNzk6jnjFZHqI4a72QyM1PuUdQgLI813eV9rvW9jm8IqOS4EXmn9Puibdh2RJQldZqMok3YNsI53mndPu8JKE4m3aNkW3GZiTdvGJqM/Bvnead0+7IzhbtiesaeQzlbIzjZsyG+d5p3T7sqYsMWjR55t2RJOYnKb53mndPu0GbFuXWWoJEVWBIbxiZMzlt87zTun3aG2LMiZiqznq24RWcUSdC3zvNO6fdpas6690RnGSd0aNvnead0+7S22xZo2+d5p3T7tPbom+d5p3T7rhZFugb53mndPuvLfO807p92TZdG+d5p3T7vGy52+LfO807p90bYtu7fO8rLaErQ5Kuk8I9FyTmLatd3tNuyLdQ1XoKSSCMRAbpw85G+PcP5jzaO6lxPDC5zUZRJFgv3m0d1Ta9ogNU8BtX1B7f8AkBaFBSTqI09sSbt4xNRn8D6DmZihXtMBtZ8h7dUbD+R0shnGM4/Chtw+ezsUbR+RibDmdig+4aG08olqHxAWhRSoaiIDVPTXT9ROvnAdYcS4g4jJmoyiTdnH4zzKM6ptX+4DdNAZc3/wn+ICkkEHEeEkWmJqM/j/AEl1m8W1aotNmz9A3//EACsQAQEAAQIEBgIBBQEAAAAAAAEAETFBECFRcSBAYYGR8FCx0TCQocHh8f/aAAgBAQABPyH+wZkuw1eXebMx0foP4/QSUOWI7nk+nt82hWocBN9YQZLW9w/p/mUmGoY/FgrgMtzxvnhP8G3vfNmHceOLFho6d3Y2Sz9IOX23nk4fxBLrPlezrCdSC5+xt4xjAH5v+/W9LM0/fp+F684f2O1lX9M9feAAAGgccWLHgDGGiII7WfR87/FnGNnZ7P4FgOYDlbrZmTn7tva0QdDjhiCxYsWOFrWMYxolags/hOrz9mUatgwnnuepueT8R/NiATqO88QgggsWLHC1r4AAhY5F2PIe9nh9ccnc82D/AJOdq6fpuUAbWnZt4AgggiHgFr4YAIQ4ZQGbZ17m9zYc6jk+ZIgTJGbb1mlmPXAIIIIhDwC18QChCwvizZf5klVcv/Hm8xnj1udfrNbJYCPrCEOAQhxL46FWIUAN2yx59WlnPXrw1fTbzeEQ/wABrchd8hCHAIcBr4aUbNdqbd72VBoTM2r6bebwiIv8eUxj3oQ4BwHw0rJvRDVsl2k1ffgZmbV9NvN4RERIJhMkevL6WawMMI4DxkrMd2zfyI9pm5NV4jMza/pt5zCIiOAuBmU6iHE4ogBqtlTPiv5v9Ja8QGZtf0285hEcCOBIZSyq9S6d3aeHTdD/AL/QAMzavpt5vCIiIiIjh0Ageb+gAZm1fTbzeERERxGGzZshyOLb+dgmRz4gMza/pt5vCIiOGO1nMMNmzLLDcq5ByPgDMza/pt5vCIiHulwYYbNmzZlllvVSO94GZm1fTbzeESDKyPRDDDDDZs2bMssssshyedhoZmbV9NvN5kDLbXzslyuYhhhhhs2bNmzLLLM2U0iFm1fTbzWcpOaZ5oiIYYYbNmzZs2ZZZmZmEaQOvK1fTbzO10JF5sYdtWBaFsD/AD7cCIYYbNmzZs2bNmzZllmZ4AanQ1jGAaDzT4WyJhGy26P7KG90cufoTUiGGzZs2bNmzZs2bMssy2IEXz7by5cvnQABu6+j1LbhYPN3P/HaDBOV5Ehs2bNmzZs2bNmzLZiGUB6xORl1aWbBev4HIEyd17G3tc2p5aw+nKzZs2bNmzZs2bMtkuwkxsdDT8Lm6PlpP6cmxT4GeX9j/ZZs2bNmzZswm90a3KXbPxCE9yvCWTrSC5ezf7rbvMH99LNnjjwFyww6tZKyuX8Wc3oxp6E0baeWFBoNkTIygZXBfPttZQF+PNnPdy+3T2lNLoaf2Df/2gAMAwEAAgADAAAAEPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPFPPPPPPPPPPPPPPPPPPPPPOGAAKGPPPPPPPPPPPPPPPPPPOBHDEILKHPPPPPPPPPPPPPPLEAMNGGKFBCKOPPPPPPPPPPPPNKIIOJCJGPIDAvPPPPPPPPPPPFFMFGHANMFBEIvPPPPPPPPPPPFFAPECLDOhFBNvPPPPPPPPPPPFFALFOFAKKKIKvPPPPPPPPPPPFFALHIGnJEHEHvPPPPPPPPPPPFFCBGBEtGJGACvPPPPPPPPPPPFGGAJJJoLPPACvPPPPPPPPPPPOOAGGPCvLNPKDPPPPPPPPPPPPPLHCDFAqDJPvPPPPPPPPPPPPPPPPPOIDnKnPPPPPPPPPPPPPPPPPPPPDPLPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP/xAAUEQEAAAAAAAAAAAAAAAAAAACQ/9oACAEDAQE/EBx//8QAGREBAQEBAQEAAAAAAAAAAAAAAUAgEXAQ/9oACAECAQE/EPc2ll5hpYzTGaYzTGUmOynzvkP/xAAqEAEAAQMDAwUAAgMBAQAAAAABABEhYTFBcRAgUUBQgZGhscEwkNHh8P/aAAgBAQABPxD/AEGUjJB94tjjV2GUSdbd/wAB419vRLNHU+tsy4e2FrwH8QPdNDfgED31AE+GA2t1bT5/4+0R3tEEe1gkI0AKqxB1EFp4X7uwykhoVbvyt3jQ2DrVKiU/4PFm1D+IY092wcj9H1AoCI0R29ou66xclGr4t5SUcQWJD9R4vl7WHqCvqywAnDT5XyR1ctgv9y5+F9lA7CZQPKWHPxHTnRKWtw3/ACxBwsAKAGwdKLB9fjHCPUANgooqJ4ZW2t2m7wfwtiLNyQqfkLPsNVwYrsBeVO7AueBtwqck0S/COXy5b9BPRJJOm4TB0MfZVvC5Q5w5lUjXbBza8P2xL7UYRkfWhVoSl0AFq59DNHkGUaIp/wCYmChjvNSTpuEwTBMcw9qLS4ZT65/o1JV+K+g/05K/Hqwn0toa7t1bAGzBCaZpaP6eV3P+K9AnhHCYJimGYZj7pTerlBR/Vys5hvVKSib01NdE9SSZKESozRy3tTx4ifI5rkd+lbvvoMYQ4TBMcwzD08HYck2Drq8G8qYaVWvjxEfJUq1X1bX6PsNOPERUam04d5XSpogoncCWLoEOExTBMMx9DB0qODVUoBKGWilZwb//AGsaI+6048Rn5PWmlkpssD53+ZVRp7Vwybd9pHCYZi7jDcQDarZZbcaxg0aq2fxb8sMMM/J680E0R9xZ5JZ6NhcezTB04Ohjmr0qVYit18X9tpVYpavYz/Q/YIYYYZ+T2A0CsyaiVGNVqta9Phl/obPVicXXdeGC0+Dy4Iq9oIX8NuW/EbVtVqrlYIIYekz83qzTtDVCUiB/EdrX4N5spAUmCEgNVFAPKxQsWVrY3+FsxrtFVsPAaBxBBBBB2f8AN6s07Aa9Q6NXL+Zc6VPJB6R2CNX1fyxLmOrZnxXy5+KQQf4Qf8XsBoNXRo6BWBSPUbkb/cqer5NyLoX+AP8Ai9hNAIQNukQxcgjRIuj8P7jQkHciiiii7P8Am9gNARC1zBqq9QJesK4B5NmaQfkxRRR9L6fzevNCzLXwItex4OyA6LD2CrYOBhFBp4MUcccc/J600ppEt9nzvMnbQHVvaAtwmxLzvA1SY445+T1ZqggBqsMs1yjUkvLF3ECdey9gBRSsqkZWt9iAlRqYmqfk9UbUvhdCVdUNg0Ioou0AIJ59LL1Aooooovd8S13J+T1JQNPUhuB1HiS9zSgUQ1UvnoVoc1ZppBpFF2AEEEHXsMMPUCii6JDxdz/xHVlaO1aVv8HqjrMUBaIlxjA0oCAMLA+nLFwjVcPKuYQi6gQQQQdgMMPUC6CXbCurwbytE6Vev/kREVbquvrbe3bGjwaYESVuzRMr8ysleCArYZe3EsnQIIIOwGGGHoGFpUVVUCVkmhQs4N4lad17CTeqKzzMmaGUoKWhfSB5UfAwgg7gGGHoKuaO5Y5ZWK3WtD49lYoSVb7A0MhahTWGVLQebuOQzCDtAwxUOltcUrKq7l3l9orrmBf5EuQcL0Ag/CHJRwpoZ8raPgarCCdSsqxqU7rrK+zT3HBtFrkaqtV9rtIBfqXl2MIypqqCqrmtVc1MmkBiAQB0RLJGQgKqtAlYM0K9HHmKc0aHBt7etS8Q+Y7nmjNZxALA/wC/6Df/2Q==" x="-72" y="-72" width="144" height="144" clip-path="url(#chainClipXL)" preserveAspectRatio="xMidYMid slice"/>
+    </g>
+
+    <g transform="translate(296 160)">
+      <text x="0" y="0" class="font white" font-size="44" font-weight="950" letter-spacing="-1.7">Nexus</text>
+      <text x="0" y="44" class="font white" font-size="44" font-weight="950" letter-spacing="-1.7">mainnet</text>
+    </g>
+
+    <g transform="translate(296 224)" class="font">
+      <g transform="translate(0 0)">
+        <rect x="0" y="0" width="68" height="30" rx="15" fill="#0c1218" stroke="#2b3340"/>
+        <text x="34" y="20" text-anchor="middle" class="white" font-size="13" font-weight="800">EVM</text>
+      </g>
+      <g transform="translate(76 0)">
+        <rect x="0" y="0" width="124" height="30" rx="15" fill="#172015" stroke="#34551f"/>
+        <text x="62" y="20" text-anchor="middle" font-size="13" font-weight="950" fill="#a3e635">NEX native</text>
+      </g>
+    </g>
+  </g>
+
+  <g transform="translate(660 192)" filter="url(#shadow)">
+    <rect x="0" y="0" width="468" height="164" rx="30" fill="#101319" stroke="#2b323d"/>
+    <rect x="28" y="28" width="64" height="64" rx="18" fill="#172015" stroke="#34551f"/>
+    <path d="M44 64L60 64M44 52L72 52M44 76L66 76" stroke="#a3e635" stroke-width="4.5" stroke-linecap="round"/>
+    <circle cx="78" cy="78" r="7" fill="#a3e635"/>
+    <path d="M75 78L77.5 80.5L82 75.5" fill="none" stroke="#0d1117" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="112" y="56" class="font white" font-size="28" font-weight="950">Balance consensus</text>
+    <text x="112" y="86" class="font muted" font-size="15">Multi-RPC voting on native + ERC20 balances.</text>
+    <text x="112" y="115" class="font muted" font-size="13" opacity="0.85">Stale or bogus values are outvoted before they reach you.</text>
+    <g transform="translate(112 134)" class="font">
+      <rect x="0" y="0" width="78" height="22" rx="11" fill="#0c1218" stroke="#2b3340"/>
+      <text x="39" y="15" text-anchor="middle" class="white" font-size="11" font-weight="800">native</text>
+      <rect x="86" y="0" width="78" height="22" rx="11" fill="#0c1218" stroke="#2b3340"/>
+      <text x="125" y="15" text-anchor="middle" class="white" font-size="11" font-weight="800">ERC20</text>
+    </g>
+  </g>
+
+  <g transform="translate(660 376)" filter="url(#shadow)">
+    <rect x="0" y="0" width="468" height="164" rx="30" fill="#101319" stroke="#2b323d"/>
+    <rect x="28" y="28" width="64" height="64" rx="18" fill="#0c1a24" stroke="#1e4d73"/>
+    <rect x="48" y="40" width="24" height="40" rx="4" fill="none" stroke="#67e8f9" stroke-width="3"/>
+    <line x1="55" y1="74" x2="65" y2="74" stroke="#67e8f9" stroke-width="3" stroke-linecap="round"/>
+    <text x="112" y="56" class="font white" font-size="28" font-weight="950">Mobile-ready + live scan</text>
+    <text x="112" y="86" class="font muted" font-size="15">Sidebar, top bar and token table responsive.</text>
+    <text x="112" y="115" class="font muted" font-size="13" opacity="0.85">Scan phases stream in real time as they run.</text>
+    <g transform="translate(112 134)" class="font">
+      <rect x="0" y="0" width="98" height="22" rx="11" fill="#0c1a24" stroke="#1e4d73"/>
+      <text x="49" y="15" text-anchor="middle" class="white" font-size="11" font-weight="800">phone-ready</text>
+      <rect x="106" y="0" width="98" height="22" rx="11" fill="#0c1a24" stroke="#1e4d73"/>
+      <text x="155" y="15" text-anchor="middle" class="white" font-size="11" font-weight="800">live progress</text>
+    </g>
+  </g>
+
+  <g transform="translate(72 612)">
+    <text x="0" y="0" class="font muted" font-size="18" font-weight="750">Stronger balances. Smoother on mobile. One more chain.</text>
+    <text x="1056" y="0" text-anchor="end" class="font" font-size="28" font-weight="950" fill="url(#accent)">wcore.xyz</text>
+  </g>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#accent)" opacity="0.62"/>
+</svg>

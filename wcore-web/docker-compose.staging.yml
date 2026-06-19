@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wcore-staging-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-wcore}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-wcore_staging}
+      POSTGRES_DB: ${DB_NAME:-wcore}
+    ports:
+      - "${DB_PORT:-5434}:5432"
+    volumes:
+      - wcore_staging_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-wcore}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wcore-staging-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_PORT:-6381}:6379"
+    volumes:
+      - wcore_staging_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  wcore_staging_pg:
+  wcore_staging_redis:

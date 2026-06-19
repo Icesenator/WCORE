@@ -1,0 +1,42 @@
+{
+  "name": "wcore-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WCORE web - wallet analytics dashboard. Chain configs from @wcore/chains (gsheet). Web platform in apps/ and packages/.",
+  "scripts": {
+    "test": "pnpm -r typecheck && pnpm -r --filter \"./packages/*\" --if-present test && pnpm --filter @wcore/web test",
+    "test:api": "pnpm --filter @wcore/api test",
+    "dev:api": "pnpm --filter @wcore api dev",
+    "dev:web": "pnpm --filter @wcore/web dev",
+    "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm -r --filter \"./packages/*\" build && pnpm -r --filter \"./apps/*\" build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20.10.0",
+    "pnpm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
+    "sharp": "^0.34.5",
+    "solc": "0.8.19",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.59.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "^8.5.13",
+      "fast-uri": "^3.1.2",
+      "ws": "^8.20.1",
+      "qs": ">=6.15.2"
+    }
+  }
+}

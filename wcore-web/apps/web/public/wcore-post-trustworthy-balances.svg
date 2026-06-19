@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.52" stop-color="#080f14"/>
+      <stop offset="1" stop-color="#14220f"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111922"/>
+      <stop offset="1" stop-color="#091014"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#84cc16" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="26" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .white { fill: #f7f7f8; }
+      .muted { fill: #a1a1aa; }
+      .soft { fill: #d4d4d8; }
+      .lime { fill: #a3e635; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="165" cy="95" r="390" fill="url(#glow)"/>
+  <circle cx="1010" cy="595" r="340" fill="url(#glow)" opacity="0.8"/>
+  <g opacity="0.045" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+  <path d="M-80 116C112 28 318 76 526 140C716 198 844 126 1010 72C1110 40 1190 54 1280 110" fill="none" stroke="#84cc16" stroke-opacity="0.12" stroke-width="2"/>
+  <path d="M-80 558C128 470 306 518 492 574C680 630 842 590 1010 504C1100 458 1186 464 1280 524" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+
+  <g transform="translate(72 52)">
+    <rect x="0" y="0" width="164" height="52" rx="26" fill="#111722" stroke="#2a3442"/>
+    <g transform="translate(16 12) scale(0.45)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.8">WCORE</text>
+  </g>
+
+  <text x="600" y="106" text-anchor="middle" class="font lime" font-size="15" font-weight="950" letter-spacing="2.4">TODAY'S WCORE UPDATE</text>
+  <text x="600" y="184" text-anchor="middle" class="font white" font-size="68" font-weight="950" letter-spacing="-3.3">Don't trust one source.</text>
+  <text x="600" y="229" text-anchor="middle" class="font muted" font-size="22">Wallet balances need cross-checks before they deserve trust.</text>
+
+  <g transform="translate(104 276)" filter="url(#shadow)">
+    <rect x="0" y="0" width="992" height="266" rx="38" fill="url(#panel)" stroke="#2f3b49"/>
+
+    <g stroke="#84cc16" stroke-opacity="0.42" stroke-width="2" fill="none">
+      <path d="M204 82 C240 10 500 10 556 82"/>
+      <path d="M390 82 C410 26 500 10 556 82"/>
+      <path d="M204 204 C240 274 500 274 556 206"/>
+      <path d="M390 204 C410 258 500 274 556 206"/>
+    </g>
+
+    <text x="50" y="57" class="font lime" font-size="14" font-weight="950" letter-spacing="1.6">NOISY INPUTS</text>
+
+    
+  <g transform="translate(50 82)">
+    <rect x="0" y="0" width="154" height="46" rx="23" fill="#141c25" stroke="#344252"/>
+    <text x="77" y="29" text-anchor="middle" class="font soft" font-size="15" font-weight="900">RPC</text>
+  </g>
+    
+  <g transform="translate(50 158)">
+    <rect x="0" y="0" width="154" height="46" rx="23" fill="#141c25" stroke="#344252"/>
+    <text x="77" y="29" text-anchor="middle" class="font soft" font-size="15" font-weight="900">Explorer</text>
+  </g>
+    
+  <g transform="translate(236 82)">
+    <rect x="0" y="0" width="154" height="46" rx="23" fill="#141c25" stroke="#344252"/>
+    <text x="77" y="29" text-anchor="middle" class="font soft" font-size="15" font-weight="900">Price</text>
+  </g>
+    
+  <g transform="translate(236 158)">
+    <rect x="0" y="0" width="154" height="46" rx="23" fill="#141c25" stroke="#344252"/>
+    <text x="77" y="29" text-anchor="middle" class="font soft" font-size="15" font-weight="900">Cache</text>
+  </g>
+
+    <g transform="translate(464 82)">
+      <circle cx="92" cy="62" r="62" fill="#132117" stroke="#84cc16" stroke-opacity="0.7"/>
+      <circle cx="92" cy="62" r="34" fill="url(#lime)"/>
+      <path d="M78 63L89 74L109 49" fill="none" stroke="#081007" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="92" y="150" text-anchor="middle" class="font lime" font-size="15" font-weight="950" letter-spacing="1.3">CROSS-CHECKED</text>
+    </g>
+
+    <g stroke="#84cc16" stroke-opacity="0.5" stroke-width="2" fill="none">
+      <path d="M628 144C672 144 700 144 724 144"/>
+    </g>
+
+    <g transform="translate(724 62)">
+      <rect x="0" y="0" width="218" height="164" rx="30" fill="#111a14" stroke="#84cc16" stroke-opacity="0.72"/>
+      <text x="30" y="45" class="font white" font-size="26" font-weight="950" letter-spacing="-0.9">Clean wallet</text>
+      <text x="30" y="76" class="font white" font-size="26" font-weight="950" letter-spacing="-0.9">view</text>
+      <path d="M30 103H188" stroke="#2c3a2f"/>
+      
+  <g transform="translate(30 122)">
+    <circle cx="12" cy="12" r="12" fill="#84cc16"/>
+    <path d="M7 12L11 16L18 8" fill="none" stroke="#081007" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="34" y="17" class="font muted" font-size="15" font-weight="800">balances</text>
+  </g>
+      
+  <g transform="translate(122 122)">
+    <circle cx="12" cy="12" r="12" fill="#84cc16"/>
+    <path d="M7 12L11 16L18 8" fill="none" stroke="#081007" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="34" y="17" class="font muted" font-size="15" font-weight="800">prices</text>
+  </g>
+    </g>
+  </g>
+
+  <g transform="translate(72 604)">
+    <text x="0" y="0" class="font soft" font-size="18" font-weight="850">Read first. Act later.</text>
+    <text x="1056" y="0" text-anchor="end" class="font" font-size="28" font-weight="950" fill="url(#lime)">wcore.xyz</text>
+  </g>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+</svg>

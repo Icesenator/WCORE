@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#070709"/><stop offset="100%" stop-color="#171920"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#a3e635"/><stop offset="100%" stop-color="#84cc16"/></linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#84cc16" stop-opacity="0.2"/><stop offset="100%" stop-color="#84cc16" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="1000" cy="100" r="250" fill="url(#glow)"/>
+  <g opacity="0.045"><path d="M0 135H1200M0 270H1200M0 405H1200M0 540H1200" stroke="#84cc16"/><path d="M300 0V675M600 0V675M900 0V675" stroke="#84cc16"/></g>
+
+  <g transform="translate(72 52)">
+    <rect x="0" y="0" width="162" height="52" rx="26" fill="#12141a" stroke="#2b2f38"/>
+    <g transform="translate(14 12) scale(0.44)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="url(#accent)" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="url(#accent)" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="url(#accent)" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="url(#accent)" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="58" y="33" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="18" font-weight="900" fill="#f4f4f5" letter-spacing="0.8">WCORE</text>
+  </g>
+
+  <g transform="translate(100 170)">
+    <text x="0" y="0" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="58" font-weight="900" fill="url(#accent)" letter-spacing="-2">Desktop-first refresh</text>
+    <text x="0" y="66" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="48" font-weight="850" fill="#f5f5f6" letter-spacing="-1.5">Every page fills your screen</text>
+  </g>
+
+  <g transform="translate(100 310)">
+    <g>
+      <circle cx="10" cy="0" r="5" fill="#84cc16"/>
+      <text x="28" y="5" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="20" fill="#d4d4d8">Full-width layout on all pages</text>
+    </g>
+    <g transform="translate(0 38)">
+      <circle cx="10" cy="0" r="5" fill="#84cc16"/>
+      <text x="28" y="5" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="20" fill="#d4d4d8">Gnosis RealT pricing fixed</text>
+    </g>
+    <g transform="translate(0 76)">
+      <circle cx="10" cy="0" r="5" fill="#84cc16"/>
+      <text x="28" y="5" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="20" fill="#d4d4d8">50+ token &amp; chain logo updates</text>
+    </g>
+    <g transform="translate(0 114)">
+      <circle cx="10" cy="0" r="5" fill="#84cc16"/>
+      <text x="28" y="5" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="20" fill="#d4d4d8">Chain selector unified with search</text>
+    </g>
+    <g transform="translate(0 152)">
+      <circle cx="10" cy="0" r="5" fill="#84cc16"/>
+      <text x="28" y="5" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="20" fill="#d4d4d8">Home page polish + address labels</text>
+    </g>
+    <g transform="translate(0 190)">
+      <circle cx="10" cy="0" r="5" fill="#84cc16"/>
+      <text x="28" y="5" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="20" fill="#d4d4d8">SOMI, XPL, HYPE token fixes</text>
+    </g>
+  </g>
+
+  <g transform="translate(720 310)">
+    <rect x="0" y="0" width="440" height="260" rx="20" fill="#12141a" stroke="#2b2f38"/>
+    <g font-family="Inter,system-ui,-apple-system,sans-serif" font-size="16" font-weight="800">
+      <text x="30" y="45" fill="#a3e635">Desktop</text>
+      <g font-size="14" font-weight="500" fill="#9ca3af">
+        <text x="30" y="75">All pages full-width</text>
+        <text x="30" y="105">Sidebar aligned with header</text>
+        <text x="30" y="135">Hero + form compact</text>
+      </g>
+      <text x="30" y="175" fill="#a3e635">Fixes</text>
+      <g font-size="14" font-weight="500" fill="#9ca3af">
+        <text x="30" y="205">RealT pricing restored</text>
+        <text x="30" y="235">CELO native dedup</text>
+      </g>
+    </g>
+  </g>
+
+  <text x="600" y="630" text-anchor="middle" font-family="Inter,system-ui,-apple-system,sans-serif" font-size="28" font-weight="900" fill="#a3e635">wcore.xyz</text>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#accent)" opacity="0.55"/>
+</svg>

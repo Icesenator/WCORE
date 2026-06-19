@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.58" stop-color="#0b1015"/>
+      <stop offset="1" stop-color="#15220f"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#84cc16" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.44"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .white { fill: #f7f7f8; }
+      .muted { fill: #a1a1aa; }
+      .lime { fill: #a3e635; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="200" cy="110" r="360" fill="url(#glow)"/>
+  <circle cx="1060" cy="620" r="300" fill="url(#glow)" opacity="0.75"/>
+  <g opacity="0.045" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+  <path d="M-80 122C130 34 330 90 520 142C724 198 842 118 1008 70C1104 42 1188 60 1290 120" fill="none" stroke="#84cc16" stroke-opacity="0.14" stroke-width="2"/>
+  <path d="M-80 574C126 486 302 532 492 578C684 626 836 590 1010 498C1100 452 1184 464 1280 524" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+
+  <g transform="translate(72 54)">
+    <rect x="0" y="0" width="164" height="52" rx="26" fill="#111722" stroke="#2a3442"/>
+    <g transform="translate(16 12) scale(0.45)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.8">WCORE</text>
+  </g>
+
+  <g transform="translate(72 154)">
+    <text x="0" y="0" class="font lime" font-size="15" font-weight="950" letter-spacing="2.3">JUNE PRODUCT UPDATE</text>
+    <text x="0" y="76" class="font white" font-size="64" font-weight="950" letter-spacing="-3.1">Cleaner scans.</text>
+    <text x="0" y="140" class="font white" font-size="64" font-weight="950" letter-spacing="-3.1">Wider coverage.</text>
+    <text x="0" y="206" class="font muted" font-size="21">Read-only portfolio tracking across 4 VMs.</text>
+  </g>
+
+  <g transform="translate(72 456)">
+    <rect x="0" y="0" width="118" height="38" rx="19" fill="#101820" stroke="#2c3a48"/>
+    <text x="59" y="24" text-anchor="middle" class="font white" font-size="13" font-weight="900">read-only</text>
+    <rect x="134" y="0" width="128" height="38" rx="19" fill="#101820" stroke="#2c3a48"/>
+    <text x="198" y="24" text-anchor="middle" class="font white" font-size="13" font-weight="900">no sign-up</text>
+    <rect x="278" y="0" width="96" height="38" rx="19" fill="#101820" stroke="#2c3a48"/>
+    <text x="326" y="24" text-anchor="middle" class="font white" font-size="13" font-weight="900">4 VMs</text>
+  </g>
+
+  <g transform="translate(628 144)" filter="url(#shadow)">
+    <rect x="0" y="0" width="500" height="404" rx="34" fill="#101419" stroke="#2b333f"/>
+    <text x="40" y="54" class="font lime" font-size="14" font-weight="950" letter-spacing="1.8">WHAT SHIPPED</text>
+    <path d="M40 80H460" stroke="#26313d"/>
+    
+  <g transform="translate(40 100)">
+    <text x="0" y="18" class="font lime" font-size="15" font-weight="950" letter-spacing="0.6">01</text>
+    <text x="56" y="18" class="font white" font-size="22" font-weight="950" letter-spacing="-0.6">Faster batch scans</text>
+    <text x="56" y="46" class="font muted" font-size="15">One scan handles multiple wallets at once.</text>
+  </g>
+    <path d="M40 156H460" stroke="#26313d"/>
+    
+  <g transform="translate(40 176)">
+    <text x="0" y="18" class="font lime" font-size="15" font-weight="950" letter-spacing="0.6">02</text>
+    <text x="56" y="18" class="font white" font-size="22" font-weight="950" letter-spacing="-0.6">Cleaner token logos</text>
+    <text x="56" y="46" class="font muted" font-size="15">Fallbacks stay clean when images fail.</text>
+  </g>
+    <path d="M40 232H460" stroke="#26313d"/>
+    
+  <g transform="translate(40 252)">
+    <text x="0" y="18" class="font lime" font-size="15" font-weight="950" letter-spacing="0.6">03</text>
+    <text x="56" y="18" class="font white" font-size="22" font-weight="950" letter-spacing="-0.6">KCC GM support</text>
+    <text x="56" y="46" class="font muted" font-size="15">Legacy-safe coverage for pre-Shanghai chains.</text>
+  </g>
+    <path d="M40 308H460" stroke="#26313d"/>
+    
+  <g transform="translate(40 328)">
+    <text x="0" y="18" class="font lime" font-size="15" font-weight="950" letter-spacing="0.6">04</text>
+    <text x="56" y="18" class="font white" font-size="22" font-weight="950" letter-spacing="-0.6">56 GM chains</text>
+    <text x="56" y="46" class="font muted" font-size="15">Across EVM, SVM, Cosmos, and TON.</text>
+  </g>
+  </g>
+
+  <g transform="translate(72 604)">
+    <text x="0" y="0" class="font muted" font-size="16" font-weight="700">EVM · SVM · Cosmos · TON</text>
+    <text x="1056" y="0" text-anchor="end" class="font" font-size="28" font-weight="950" fill="url(#lime)">wcore.xyz</text>
+  </g>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+</svg>

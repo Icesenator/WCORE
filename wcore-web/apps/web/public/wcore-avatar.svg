@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a0a0c"/>
+      <stop offset="100%" stop-color="#16161c"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#84cc16"/>
+      <stop offset="100%" stop-color="#a3e635"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#84cc16" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="400" height="400" rx="24" fill="url(#bg)"/>
+  <circle cx="200" cy="200" r="185" fill="url(#glow)"/>
+  <g transform="translate(50 50) scale(4.6875)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="url(#accent)" stroke-width="4"/>
+    <circle cx="32" cy="33" r="5" fill="url(#accent)" stroke="none"/>
+    <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="url(#accent)" stroke-width="3"/>
+    <circle cx="32" cy="20" r="3.5" fill="url(#accent)" stroke="none"/>
+    <circle cx="21" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+    <circle cx="43" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+    <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+    <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+  </g>
+</svg>

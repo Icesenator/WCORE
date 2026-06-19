@@ -1,0 +1,218 @@
+[
+  {
+    "text": "",
+    "tid": "",
+    "aria": "Aller au fil d'actualités",
+    "x": 0,
+    "y": 0,
+    "w": 36
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "Aller aux tendances",
+    "x": 0,
+    "y": 0,
+    "w": 36
+  },
+  {
+    "text": "",
+    "tid": "AppTabBar_More_Menu",
+    "aria": "Plus d'options de menu",
+    "x": 100.5,
+    "y": 640.5,
+    "w": 72
+  },
+  {
+    "text": "",
+    "tid": "SideNav_AccountSwitcher_Button",
+    "aria": "Menu du compte",
+    "x": 104.5,
+    "y": 1194,
+    "w": 64
+  },
+  {
+    "text": "Tous",
+    "tid": "dm-inbox-dropdown-trigger",
+    "aria": "",
+    "x": 439.03125,
+    "y": 14,
+    "w": 81.46875
+  },
+  {
+    "text": "",
+    "tid": "dm-new-chat-button",
+    "aria": "Nouveau message",
+    "x": 528.5,
+    "y": 14,
+    "w": 36
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 337.8125,
+    "y": 151,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 376.421875,
+    "y": 231,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 319.96875,
+    "y": 311,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 431.265625,
+    "y": 391,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 337.578125,
+    "y": 471,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 386.40625,
+    "y": 551,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 366.40625,
+    "y": 631,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 433.28125,
+    "y": 711,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 350.328125,
+    "y": 791,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 434.09375,
+    "y": 871,
+    "w": 15
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 731.53125,
+    "y": 31.5,
+    "w": 17
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 983.5,
+    "y": 16,
+    "w": 48
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 1039.5,
+    "y": 16,
+    "w": 48
+  },
+  {
+    "text": "",
+    "tid": "dm-conversation-more-button",
+    "aria": "",
+    "x": 1095.5,
+    "y": 16,
+    "w": 48
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "",
+    "x": 901.578125,
+    "y": 217.5,
+    "w": 17
+  },
+  {
+    "text": "Voir le profil",
+    "tid": "",
+    "aria": "",
+    "x": 809.84375,
+    "y": 300,
+    "w": 121.3125
+  },
+  {
+    "text": "",
+    "tid": "",
+    "aria": "Annuler la note vocale",
+    "x": 597.5,
+    "y": 1218,
+    "w": 24
+  },
+  {
+    "text": "",
+    "tid": "dm-composer-attachment-button",
+    "aria": "",
+    "x": 597.5,
+    "y": 1206,
+    "w": 48
+  },
+  {
+    "text": "",
+    "tid": "dm-composer-gif-button",
+    "aria": "",
+    "x": 653.5,
+    "y": 1206,
+    "w": 48
+  },
+  {
+    "text": "",
+    "tid": "dm-composer-emoji-button",
+    "aria": "",
+    "x": 709.5,
+    "y": 1206,
+    "w": 48
+  },
+  {
+    "text": "",
+    "tid": "dm-composer-send-button",
+    "aria": "",
+    "x": 1103.5,
+    "y": 1214,
+    "w": 32
+  }
+]

@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  '@prisma/client': false
+  '@prisma/engines': false
+  prisma: false
+# rebuild 2026-05-15
+
+# CACHE_BUST_20260519_1930
+# CACHE_BUST=2026-05-21T14-30-force-rebuild-v2

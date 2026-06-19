@@ -1,0 +1,28 @@
+title = "WCORE gitleaks rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "google-oauth-client-secret"
+description = "Google OAuth client secret"
+regex = '''GOCSPX-[A-Za-z0-9_-]{20,}'''
+keywords = ["GOCSPX-"]
+
+[[rules]]
+id = "blockscout-pro-api-key"
+description = "Blockscout Pro API key"
+regex = '''proapi_[A-Za-z0-9_-]{16,}'''
+keywords = ["proapi_"]
+
+[[rules]]
+id = "postgres-url-with-credentials"
+description = "Postgres connection URL with embedded credentials"
+regex = '''postgres(?:ql)?://[^\s:@/]+:[^\s@/]+@[^\s]+'''
+keywords = ["postgres://", "postgresql://"]
+
+[[rules]]
+id = "redis-url-with-credentials"
+description = "Redis connection URL with embedded credentials"
+regex = '''rediss?://[^\s:@/]+:[^\s@/]+@[^\s]+'''
+keywords = ["redis://", "rediss://"]

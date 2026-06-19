@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wcore-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wcore
+      POSTGRES_PASSWORD: wcore_dev
+      POSTGRES_DB: wcore
+    ports:
+      - "5433:5432"
+    volumes:
+      - wcore_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wcore"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wcore-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - wcore_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  wcore_pg:
+  wcore_redis:

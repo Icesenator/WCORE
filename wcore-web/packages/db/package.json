@@ -1,0 +1,25 @@
+{
+  "name": "@wcore/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "node scripts/premigrate-warn.cjs && prisma migrate dev",
+    "db:migrate:no-backup": "prisma migrate dev",
+    "db:backup": "powershell -File scripts/backup-db.ps1",
+    "db:seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "prisma": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.22.1",
+    "typescript": "^5.6.3"
+  }
+}

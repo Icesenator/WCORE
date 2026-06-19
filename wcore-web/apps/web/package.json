@@ -1,0 +1,40 @@
+{
+  "name": "@wcore/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "postbuild": "node -e \"const fs=require('fs');const s='.next/static',d='.next/standalone/apps/web/.next/static';fs.cpSync(s,d,{recursive:true});console.log('[postbuild] static copied to standalone')\"",
+    "start": "next start -p 3000",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"__tests__/**/*.test.ts\"",
+    "test:e2e": "npx playwright test --config playwright.config.ts",
+    "test:e2e:ui": "npx playwright test --config playwright.config.ts --ui"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.100.9",
+    "@wagmi/connectors": "^8.0.9",
+    "@wagmi/core": "^3.4.8",
+    "@wcore/shared": "workspace:*",
+    "bs58": "^6.0.0",
+    "next": "^16.2.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "viem": "^2.48.7",
+    "wagmi": "^3.6.9",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.9.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "tsx": "^4.21.0",
+    "typescript": "^5.6.3"
+  }
+}

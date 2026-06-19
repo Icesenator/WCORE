@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  address       String    @unique
+  createdAt     DateTime  @default(now())
+  lastLoginAt   DateTime  @default(now())
+  gmStreak      Int       @default(0)
+  lastGmDate    DateTime?
+  longestStreak Int       @default(0)
+  score         Int       @default(0)
+  plan          String    @default("free")
+  referralCode  String?   @unique
+  referredById  String?
+  referralEarnings Int   @default(0)
+  welcomeCompleted Boolean @default(false)
+
+  wallets      LinkedWallet[]
+  scans        WalletScan[]
+  cexAccounts  CexAccount[]
+  quests       UserQuest[]
+  badges       UserBadge[]
+  customTokens CustomToken[]
+  chainGms       UserChainGm[]
+  ownedContracts GmContract[]
+  onchainGms     OnchainGm[]
+  notifications  Notification[]
+  tickets        Ticket[]
+  referrer      User?       @relation("Referral", fields: [referredById], references: [id])
+  referredUsers User[]      @relation("Referral")
+
+  @@index([score])
+  @@map("users")
+}
+
+model LinkedWallet {
+  id                 String   @id @default(cuid())
+  userId             String
+  address            String
+  label              String?
+  chainType          String   @default("EVM")
+  verificationStatus String   @default("SIGNED")
+  createdAt          DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, address])
+  @@map("linked_wallets")
+}
+
+model WalletScan {
+  id        String   @id @default(cuid())
+  userId    String
+  address   String
+  chains    String[]
+  totalEur  Float
+  tokenCount Int
+  result    Json
+  shareToken String?   @unique
+  sharedAt   DateTime?
+  expiresAt  DateTime?
+  lastAccessedAt DateTime?
+  accessCount Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("wallet_scans")
+}
+
+model CexAccount {
+  id                   String   @id @default(cuid())
+  userId               String
+  provider             String
+  label                String?
+  encryptedCredentials Json
+  lastSyncAt           DateTime?
+  lastSyncStatus       String?
+  lastSyncError        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings CexHolding[]
+
+  @@unique([userId, provider])
+  @@index([userId, provider])
+  @@map("cex_accounts")
+}
+
+model CexHolding {
+  id        String   @id @default(cuid())
+  accountId String
+  provider  String
+  symbol    String
+  bucket    String
+  balance   Float
+  priceEur  Float?
+  valueEur  Float?
+  source    String
+  updatedAt DateTime @default(now())
+
+  account CexAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, symbol, bucket])
+  @@index([accountId])
+  @@index([provider, symbol])
+  @@map("cex_holdings")
+}
+
+model Quest {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  title       String
+  description String
+  scoreReward Int      @default(10)
+  type        String   @default("daily")
+
+  completions UserQuest[]
+
+  @@map("quests")
+}
+
+model UserQuest {
+  id        String   @id @default(cuid())
+  userId    String
+  questId   String
+  completedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quest Quest @relation(fields: [questId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questId])
+  @@map("user_quests")
+}
+
+model Badge {
+  id          String @id @default(cuid())
+  key         String @unique
+  title       String
+  description String
+  icon        String @default("🏆")
+
+  users UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  unlockedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model CustomToken {
+  id        String   @id @default(cuid())
+  userId    String
+  contract  String
+  label     String?
+  chainType String   @default("EVM")
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contract])
+  @@map("custom_tokens")
+}
+
+model ScamOverride {
+  id        String   @id @default(cuid())
+  symbol    String
+  contract  String?
+  approved  Boolean  // true=always legit, false=always scam
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([symbol, contract])
+  @@map("scam_overrides")
+}
+
+model GmContract {
+  id              String   @id @default(cuid())
+  chainKey        String
+  contractAddress String
+  creatorAddress  String?
+  ownerId         String?
+  deployTxHash    String?
+  chainId         Int?
+  network         String?
+  explorerUrl     String?
+  createdAt       DateTime @default(now())
+
+  owner User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  gms   OnchainGm[]
+
+  @@unique([chainKey, contractAddress])
+  @@index([ownerId])
+  @@index([creatorAddress])
+  @@map("gm_contracts")
+}
+
+model OnchainGm {
+  id         String   @id @default(cuid())
+  userId     String
+  txHash     String
+  chainKey   String   @default("base")
+  contractId String
+  tipWei     String?
+  createdAt  DateTime @default(now())
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contract GmContract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([chainKey, txHash])
+  @@index([userId, createdAt])
+  @@index([userId, chainKey])
+  @@index([contractId])
+  @@map("onchain_gms")
+}
+
+model UserChainGm {
+  id            String   @id @default(cuid())
+  userId        String
+  chainKey      String
+  lastGmDate    DateTime
+  gmStreak      Int      @default(1)
+  longestStreak Int      @default(1)
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chainKey])
+  @@map("user_chain_gms")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model Ticket {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String
+  type        String   @default("bug")
+  status      String   @default("open")
+  response    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@map("tickets")
+}
+
+model SystemMetricSnapshot {
+  id           String   @id @default(cuid())
+  createdAt    DateTime @default(now())
+  status       String
+  dbOk         Boolean
+  redisOk      Boolean
+  openCircuits Int
+  rpcErrors    Int
+  pricingErrors Int
+  scanCount    Int
+  gm24h        Int
+  gm7d         Int
+  gm30d        Int
+
+  @@index([createdAt])
+  @@map("system_metric_snapshots")
+}
+
+model OpsEvent {
+  id        String   @id @default(cuid())
+  type      String
+  severity  String   @default("info")
+  message   String   @default("")
+  data      Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([type])
+  @@map("ops_events")
+}

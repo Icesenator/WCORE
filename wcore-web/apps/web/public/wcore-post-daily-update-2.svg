@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#060708"/>
+      <stop offset="54%" stop-color="#0d1014"/>
+      <stop offset="100%" stop-color="#171b22"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#bef264"/>
+      <stop offset="100%" stop-color="#84cc16"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#84cc16" stop-opacity="0.26"/>
+      <stop offset="100%" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22c55e" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#22c55e" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000000" flood-opacity="0.48"/>
+    </filter>
+    <clipPath id="roundLogo">
+      <circle cx="28" cy="29" r="17"/>
+    </clipPath>
+    <clipPath id="bubbleLogo">
+      <circle cx="28" cy="28" r="22"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="1030" cy="92" r="300" fill="url(#glowA)"/>
+  <circle cx="180" cy="632" r="310" fill="url(#glowB)"/>
+  <g opacity="0.052">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200" stroke="#84cc16"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675" stroke="#84cc16"/>
+  </g>
+  <path d="M-70 138C74 44 238 72 392 124C570 184 684 166 806 98C934 28 1070 54 1270 122" fill="none" stroke="#84cc16" stroke-opacity="0.14" stroke-width="2"/>
+
+  <g transform="translate(72 52)">
+    <rect x="0" y="0" width="162" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <g transform="translate(12 9) scale(0.53125)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="60" y="33" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="900" fill="#f4f4f5" letter-spacing="0.8">WCORE</text>
+  </g>
+
+  <g transform="translate(1128 58)" text-anchor="end">
+    <text x="0" y="50" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="56" font-weight="950" fill="#f5f5f6" letter-spacing="-2.1">Today's WCORE update.</text>
+    <text x="0" y="88" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="20" fill="#9ca3af">More chains, cleaner icons, safer scans.</text>
+  </g>
+
+  <g transform="translate(72 188)" filter="url(#softShadow)">
+    <rect x="0" y="0" width="508" height="360" rx="32" fill="#101319" stroke="#2b323d"/>
+    <rect x="28" y="28" width="74" height="74" rx="22" fill="#172015" stroke="#34551f"/>
+    <text x="65" y="61" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="28" font-weight="950" fill="url(#accent)">130</text>
+    <text x="65" y="82" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="12" font-weight="850" fill="#a3e635">chains</text>
+    <text x="124" y="58" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="30" font-weight="950" fill="#f5f5f6">New scan chains</text>
+    <text x="124" y="88" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="15" fill="#9ca3af">More chains added. 130 total supported.</text>
+
+    <g transform="translate(28 132)">
+      <g transform="translate(0 0)">
+        <rect x="0" y="0" width="142" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+        <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+        <image href="https://assets.coingecko.com/coins/images/31967/standard/tia.jpg" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+        <text x="55" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="16" font-weight="850" fill="#f5f5f6">Celestia</text>
+      </g>
+      <g transform="translate(156 0)">
+        <rect x="0" y="0" width="142" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+        <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+        <image href="https://icons.llamao.fi/icons/chains/rsz_conflux.jpg" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+        <text x="55" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="16" font-weight="850" fill="#f5f5f6">Conflux</text>
+      </g>
+      <g transform="translate(312 0)">
+        <rect x="0" y="0" width="140" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+        <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+        <image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/kava/info/logo.png" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+        <text x="55" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="16" font-weight="850" fill="#f5f5f6">Kava</text>
+      </g>
+      <g transform="translate(0 78)">
+        <rect x="0" y="0" width="142" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+        <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+        <image href="https://icons.llamao.fi/icons/chains/rsz_dydx.jpg" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+        <text x="55" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="16" font-weight="850" fill="#f5f5f6">dYdX</text>
+      </g>
+      <g transform="translate(156 78)">
+        <rect x="0" y="0" width="142" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+        <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+        <image href="https://icons.llamao.fi/icons/chains/rsz_noble.jpg" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+        <text x="55" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="16" font-weight="850" fill="#f5f5f6">Noble</text>
+      </g>
+      <g transform="translate(312 78)">
+        <rect x="0" y="0" width="140" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+        <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+        <image href="https://icons.llamao.fi/icons/chains/rsz_xdc.jpg" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+        <text x="55" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="16" font-weight="850" fill="#f5f5f6">XDC</text>
+      </g>
+    </g>
+
+    <g transform="translate(28 292)">
+      <rect x="0" y="0" width="452" height="38" rx="19" fill="#151a22" stroke="#303845"/>
+      <text x="226" y="25" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="15" font-weight="760" fill="#9ca3af">+ Codex, Neutron, Stargaze, Stride, OG and more</text>
+    </g>
+  </g>
+
+  <g transform="translate(620 188)" filter="url(#softShadow)">
+    <rect x="0" y="0" width="508" height="160" rx="30" fill="#101319" stroke="#2b323d"/>
+    <rect x="24" y="24" width="56" height="56" rx="17" fill="#172015" stroke="#34551f"/>
+    <text x="52" y="61" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="24" font-weight="950" fill="url(#accent)">GM</text>
+    <text x="98" y="47" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="28" font-weight="950" fill="#f5f5f6">GM network upgraded</text>
+    <text x="98" y="77" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="15" fill="#9ca3af">8 chains added today for on-chain streaks.</text>
+    <g transform="translate(28 94)">
+      <rect x="0" y="0" width="100" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+      <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+      <image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/blast/info/logo.png" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+      <text x="56" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="13" font-weight="850" fill="#f5f5f6">Blast</text>
+    </g>
+    <g transform="translate(140 94)">
+      <rect x="0" y="0" width="96" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+      <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+      <image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/celo/info/logo.png" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+      <text x="56" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="13" font-weight="850" fill="#f5f5f6">Celo</text>
+    </g>
+    <g transform="translate(248 94)">
+      <rect x="0" y="0" width="110" height="58" rx="18" fill="#151a22" stroke="#303845"/>
+      <circle cx="28" cy="29" r="18" fill="#f5f5f6"/>
+      <image href="https://icons.llamao.fi/icons/chains/rsz_fraxtal.jpg" x="11" y="12" width="34" height="34" clip-path="url(#roundLogo)"/>
+      <text x="56" y="35" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="13" font-weight="850" fill="#f5f5f6">Fraxtal</text>
+    </g>
+    <g transform="translate(370 94)">
+      <rect x="0" y="0" width="110" height="58" rx="18" fill="#172015" stroke="#34551f"/>
+      <text x="55" y="25" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="13" font-weight="950" fill="#a3e635">+5 more</text>
+      <text x="55" y="42" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="11" font-weight="750" fill="#9ca3af">Ink, Abstract...</text>
+    </g>
+  </g>
+
+  <g transform="translate(620 384)" filter="url(#softShadow)">
+    <rect x="0" y="0" width="508" height="164" rx="30" fill="#101319" stroke="#2b323d"/>
+    <rect x="24" y="24" width="56" height="56" rx="17" fill="#182014" stroke="#34551f"/>
+    <path d="M39 53L49 63L66 42" fill="none" stroke="#a3e635" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="98" y="47" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="28" font-weight="950" fill="#f5f5f6">Reliability fixes</text>
+    <text x="98" y="77" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="15" fill="#9ca3af">Small fixes that make scans and GM feel solid.</text>
+    <g transform="translate(28 110)">
+      <rect x="0" y="0" width="214" height="34" rx="17" fill="#151a22" stroke="#303845"/>
+      <circle cx="21" cy="17" r="5" fill="#84cc16"/>
+      <text x="40" y="23" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="15" font-weight="760" fill="#f5f5f6">Unified icons</text>
+    </g>
+    <g transform="translate(266 110)">
+      <rect x="0" y="0" width="214" height="34" rx="17" fill="#151a22" stroke="#303845"/>
+      <circle cx="21" cy="17" r="5" fill="#84cc16"/>
+      <text x="40" y="23" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="15" font-weight="760" fill="#f5f5f6">ERC20 cache fallback</text>
+    </g>
+  </g>
+
+  <g transform="translate(72 612)">
+    <text x="0" y="0" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="750" fill="#9ca3af">Scan wallets, say GM, track everything from one place.</text>
+    <text x="1056" y="0" text-anchor="end" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="28" font-weight="950" fill="url(#accent)">wcore.xyz</text>
+  </g>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#accent)" opacity="0.62"/>
+</svg>

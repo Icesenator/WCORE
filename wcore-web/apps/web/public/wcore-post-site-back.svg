@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#050607"/>
+      <stop offset="58%" stop-color="#0c1017"/>
+      <stop offset="100%" stop-color="#172313"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#bef264"/>
+      <stop offset="100%" stop-color="#84cc16"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c4b5fd"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#84cc16" stop-opacity="0.31"/>
+      <stop offset="100%" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#67e8f9" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#67e8f9" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#000000" flood-opacity="0.44"/>
+    </filter>
+    <filter id="softShadow" x="-28%" y="-28%" width="156%" height="156%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .white { fill: #f5f5f6; }
+      .soft { fill: #d4d4d8; }
+      .muted { fill: #9ca3af; }
+      .lime { fill: #a3e635; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="985" cy="104" r="360" fill="url(#glowA)" opacity="0.82"/>
+  <circle cx="146" cy="610" r="340" fill="url(#glowB)" opacity="0.92"/>
+  <g opacity="0.055">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200" stroke="#84cc16"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675" stroke="#84cc16"/>
+  </g>
+  <path d="M-70 128C82 54 246 74 402 124C570 178 690 158 828 88C970 16 1088 52 1260 118" fill="none" stroke="#84cc16" stroke-opacity="0.11" stroke-width="2"/>
+  <path d="M-60 540C120 470 246 500 402 552C556 604 718 598 856 520C998 446 1080 468 1240 548" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+
+  <g transform="translate(72 52)">
+    <rect x="0" y="0" width="162" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <g transform="translate(12 9) scale(0.53125)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="900" letter-spacing="0.8">WCORE</text>
+  </g>
+
+  <g transform="translate(744 54)">
+    <rect x="0" y="0" width="190" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <circle cx="29" cy="26" r="6" fill="#84cc16"/>
+    <text x="52" y="32" class="font lime" font-size="14" font-weight="950" letter-spacing="1.1">wcore.xyz LIVE</text>
+    <rect x="206" y="0" width="178" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <text x="295" y="32" text-anchor="middle" class="font white" font-size="14" font-weight="950" letter-spacing="0.8">READ-ONLY</text>
+  </g>
+
+  <g transform="translate(72 182)">
+    <text x="0" y="0" class="font white" font-size="68" font-weight="950" letter-spacing="-3">WCORE is back.</text>
+    <text x="2" y="50" class="font muted" font-size="23" font-weight="720">wcore.xyz is live again. Cleaner access, cleaner scans.</text>
+  </g>
+
+  <g transform="translate(72 292)" filter="url(#shadow)">
+    <rect x="0" y="0" width="536" height="276" rx="36" fill="#0b0f15" stroke="#334155"/>
+    <rect x="1" y="1" width="534" height="274" rx="35" fill="none" stroke="#84cc16" stroke-opacity="0.10"/>
+    <rect x="30" y="28" width="150" height="30" rx="15" fill="#172015" stroke="#34551f"/>
+    <text x="105" y="48" text-anchor="middle" class="font lime" font-size="13" font-weight="950" letter-spacing="1.1">MAIN DOMAIN</text>
+
+    <g transform="translate(44 82)">
+      <rect x="0" y="0" width="448" height="130" rx="30" fill="#101620" stroke="#344052"/>
+      <rect x="20" y="20" width="408" height="90" rx="23" fill="#0b0f15" stroke="#25303c"/>
+      <g transform="translate(38 31)">
+        <circle cx="34" cy="34" r="33" fill="#172015" stroke="#34551f" stroke-width="2"/>
+        <path d="M19 35L30 46L53 23" fill="none" stroke="#a3e635" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+      <text x="130" y="55" class="font white" font-size="31" font-weight="950">wcore.xyz</text>
+      <text x="130" y="86" class="font muted" font-size="15" font-weight="720">Main URL restored. Read-only scans live.</text>
+    </g>
+
+    <g transform="translate(44 238)">
+      <circle cx="8" cy="-5" r="4" fill="#84cc16"/>
+      <text x="24" y="0" class="font soft" font-size="17" font-weight="760">Paste a wallet. See one clean multichain dashboard.</text>
+    </g>
+  </g>
+
+  <g transform="translate(644 292)" filter="url(#shadow)">
+    <rect x="0" y="0" width="484" height="276" rx="36" fill="#101319" stroke="#2b323d"/>
+    <rect x="1" y="1" width="482" height="274" rx="35" fill="none" stroke="#67e8f9" stroke-opacity="0.08"/>
+
+    <g transform="translate(28 28)">
+      <rect x="0" y="0" width="428" height="60" rx="23" fill="#0b0f15" stroke="#25303c"/>
+      <rect x="18" y="15" width="30" height="30" rx="10" fill="#172015" stroke="#34551f"/>
+      <path d="M26 30L32 36L42 24" fill="none" stroke="#a3e635" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="66" y="26" class="font white" font-size="18" font-weight="950">WalletConnect fallback</text>
+      <text x="66" y="46" class="font muted" font-size="13">QR code path for tricky browser wallets.</text>
+    </g>
+
+    <g transform="translate(28 106)">
+      <rect x="0" y="0" width="428" height="60" rx="23" fill="#0b0f15" stroke="#25303c"/>
+      <rect x="18" y="15" width="30" height="30" rx="10" fill="#101620" stroke="#344052"/>
+      <circle cx="33" cy="30" r="9" fill="none" stroke="#67e8f9" stroke-width="3"/>
+      <path d="M40 37L47 44" stroke="#67e8f9" stroke-width="3" stroke-linecap="round"/>
+      <text x="66" y="26" class="font white" font-size="18" font-weight="950">Cleaner sign-in</text>
+      <text x="66" y="46" class="font muted" font-size="13">SIWE messages now match wcore.xyz.</text>
+    </g>
+
+    <g transform="translate(28 184)">
+      <rect x="0" y="0" width="428" height="60" rx="23" fill="#0b0f15" stroke="#25303c"/>
+      <rect x="18" y="15" width="30" height="30" rx="10" fill="#191426" stroke="#4c3672"/>
+      <text x="33" y="35" text-anchor="middle" class="font" font-size="14" font-weight="950" fill="url(#violet)">180</text>
+      <text x="66" y="26" class="font white" font-size="18" font-weight="950">180+ tracked chains</text>
+      <text x="66" y="46" class="font muted" font-size="13">EVM, Solana and Cosmos in one view.</text>
+    </g>
+  </g>
+
+  <g transform="translate(72 612)">
+    <text x="0" y="0" class="font muted" font-size="18" font-weight="750">No wallet connection required to scan. Connect only for GM, profile, and saved wallets.</text>
+    <text x="1056" y="0" text-anchor="end" class="font" font-size="30" font-weight="950" fill="url(#accent)">wcore.xyz</text>
+  </g>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#accent)" opacity="0.66"/>
+</svg>

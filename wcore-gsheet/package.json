@@ -1,0 +1,26 @@
+{
+  "name": "wcore-gsheet",
+  "version": "1.0.0",
+  "description": "``` wcore/ ├── .clasp.json              ← Config clasp ├── src/                     ← TES FICHIERS .gs (tu travailles ici) │   ├── 01_INIT.gs │   ├── 02_UTILS.gs │   └── ... ├── pulls/                   ← Historique des pulls (créé automatiquement) │   ├── pull_20260122_2100/ │   └── pull_20260123_0900/ ├── .backups/                ← Backups avant chaque push (créé automatiquement) ├── pull-all.ps1             ← Télécharger le projet distant └── safe-push.ps1            ← Envoyer src/ vers le projet ```",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm run validate:static",
+    "validate:static": "node tools/validate-static.js",
+    "test:cache-keys": "node scripts/test-cache-keys.js",
+    "test:chain-config": "node scripts/test-chain-config.js",
+    "build:chains": "node tools/extract-chains.mjs",
+    "clean:chains": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist/chains',{recursive:true,force:true}))\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "google-auth-library": "^10.6.2",
+    "googleapis": "^171.4.0",
+    "playwright": "^1.58.2"
+  },
+  "devDependencies": {
+    "mcp-google-sheets": "^2.0.1"
+  }
+}

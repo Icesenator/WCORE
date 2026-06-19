@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+<defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.52" stop-color="#080f14"/>
+      <stop offset="1" stop-color="#14220f"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <linearGradient id="topPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2a0c"/>
+      <stop offset="1" stop-color="#0f1a08"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#84cc16" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="topShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#84cc16" flood-opacity="0.5"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .white { fill: #f7f7f8; }
+      .muted { fill: #a1a1aa; }
+      .soft { fill: #d4d4d8; }
+      .lime { fill: #a3e635; }
+      .limeDark { fill: #84cc16; }
+      .label { fill: #71717a; }
+    </style>
+  </defs>
+<rect width="1200" height="675" fill="url(#bg)"/>
+<circle cx="165" cy="95" r="390" fill="url(#glow)"/>
+<circle cx="1010" cy="595" r="340" fill="url(#glow)" opacity="0.8"/>
+<g opacity="0.045" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+<path d="M-80 116C112 28 318 76 526 140C716 198 844 126 1010 72C1110 40 1190 54 1280 110" fill="none" stroke="#84cc16" stroke-opacity="0.12" stroke-width="2"/>
+<path d="M-80 558C128 470 306 518 492 574C680 630 842 590 1010 504C1100 458 1186 464 1280 524" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+<g>
+    <text x="600" y="74" text-anchor="middle" class="font white" font-size="58" font-weight="950" letter-spacing="-2.4">The tower.</text>
+    <text x="600" y="104" text-anchor="middle" class="font muted" font-size="20" font-weight="500" letter-spacing="-0.2">What it takes to clean a wallet across 182 chains.</text>
+  </g>
+<g transform="translate(964 50)">
+    <rect x="0" y="0" width="164" height="52" rx="26" fill="#111722" stroke="#2a3442"/>
+    <g transform="translate(16 12) scale(0.45)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.8">WCORE</text>
+  </g>
+<line x1="100" y1="130" x2="1100" y2="130" stroke="#1a2332" stroke-width="1"/>
+<rect x="70" y="160" width="460" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<rect x="70" y="166" width="3" height="48" rx="1.5" fill="#ef4444"/>
+<text x="88" y="186" class="font white" font-size="15" font-weight="900" letter-spacing="1.4">182 CHAINS</text>
+<text x="88" y="206" class="font muted" font-size="11" font-weight="500" letter-spacing="0.4">no wallet to connect</text>
+<rect x="100" y="228" width="400" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<rect x="100" y="234" width="3" height="48" rx="1.5" fill="#a78bfa"/>
+<text x="118" y="254" class="font white" font-size="15" font-weight="900" letter-spacing="1.4">4 VMs</text>
+<text x="118" y="274" class="font muted" font-size="11" font-weight="500" letter-spacing="0.4">EVM · SVM · Cosmos · TON</text>
+<rect x="130" y="296" width="340" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<rect x="130" y="302" width="3" height="48" rx="1.5" fill="#60a5fa"/>
+<text x="148" y="322" class="font white" font-size="15" font-weight="900" letter-spacing="1.4">CONSENSUS</text>
+<text x="148" y="342" class="font muted" font-size="11" font-weight="500" letter-spacing="0.4">majority of endpoints</text>
+<rect x="160" y="364" width="280" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<rect x="160" y="370" width="3" height="48" rx="1.5" fill="#fbbf24"/>
+<text x="178" y="390" class="font white" font-size="15" font-weight="900" letter-spacing="1.4">LIQUIDITY</text>
+<text x="178" y="410" class="font muted" font-size="11" font-weight="500" letter-spacing="0.4">real depth only</text>
+<rect x="190" y="432" width="220" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<rect x="190" y="438" width="3" height="48" rx="1.5" fill="#22d3ee"/>
+<text x="208" y="458" class="font white" font-size="15" font-weight="900" letter-spacing="1.4">FRESH</text>
+<text x="208" y="478" class="font muted" font-size="11" font-weight="500" letter-spacing="0.4">≤ 24h staleness</text>
+<g filter="url(#topShadow)">
+<rect x="200" y="500" width="200" height="64" rx="12" fill="url(#topPanel)" stroke="#84cc16" stroke-width="2"/>
+<circle cx="232" cy="532" r="14" fill="url(#lime)"/>
+<path d="M225 532 l 4 5 l 9 -11" fill="none" stroke="#081007" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="260" y="537" class="font lime" font-size="16" font-weight="950" letter-spacing="2.4">ONE TRUTH</text>
+</g>
+<rect x="600" y="152" width="540" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<text x="624" y="190" class="font" font-size="22" font-weight="950" fill="url(#lime)">01</text>
+<line x1="670" y1="164" x2="670" y2="200" stroke="#1f2937" stroke-width="1"/>
+<text x="688" y="176" class="font white" font-size="15" font-weight="900" letter-spacing="1.6">CHAINS</text>
+<text x="688" y="196" class="font muted" font-size="12" font-weight="500">182 networks in. No wallet to connect.</text>
+<circle cx="1102" cy="176" r="2" fill="#9ca3af" opacity="0.4"/>
+<circle cx="1108" cy="176" r="2" fill="#9ca3af" opacity="0.6000000000000001"/>
+<circle cx="1114" cy="176" r="2" fill="#9ca3af" opacity="0.8"/>
+<circle cx="1102" cy="182" r="2" fill="#9ca3af" opacity="0.6000000000000001"/>
+<circle cx="1108" cy="182" r="2" fill="#f87171" opacity="0.8"/>
+<circle cx="1114" cy="182" r="2" fill="#9ca3af" opacity="0.4"/>
+<circle cx="1102" cy="188" r="2" fill="#9ca3af" opacity="0.8"/>
+<circle cx="1108" cy="188" r="2" fill="#9ca3af" opacity="0.4"/>
+<circle cx="1114" cy="188" r="2" fill="#9ca3af" opacity="0.6000000000000001"/>
+<rect x="600" y="216" width="540" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<text x="624" y="254" class="font" font-size="22" font-weight="950" fill="url(#lime)">02</text>
+<line x1="670" y1="228" x2="670" y2="264" stroke="#1f2937" stroke-width="1"/>
+<text x="688" y="240" class="font white" font-size="15" font-weight="900" letter-spacing="1.6">VMs</text>
+<text x="688" y="260" class="font muted" font-size="12" font-weight="500">EVM. SVM. Cosmos. TON. One interface, four runtimes.</text>
+<circle cx="1097.5" cy="246" r="3.5" fill="#a1a1aa"/>
+<circle cx="1104.5" cy="246" r="3.5" fill="#a78bfa"/>
+<circle cx="1111.5" cy="246" r="3.5" fill="#60a5fa"/>
+<circle cx="1118.5" cy="246" r="3.5" fill="#22d3ee"/>
+<rect x="600" y="280" width="540" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<text x="624" y="318" class="font" font-size="22" font-weight="950" fill="url(#lime)">03</text>
+<line x1="670" y1="292" x2="670" y2="328" stroke="#1f2937" stroke-width="1"/>
+<text x="688" y="304" class="font white" font-size="15" font-weight="900" letter-spacing="1.6">CONSENSUS</text>
+<text x="688" y="324" class="font muted" font-size="12" font-weight="500">Endpoints vote. Majority wins. No lies.</text>
+<circle cx="1101" cy="306" r="2.5" fill="#ef4444"/>
+<circle cx="1101" cy="314" r="2.5" fill="#84cc16"/>
+<circle cx="1115" cy="310" r="2.5" fill="#84cc16"/>
+<path d="M 1104 310 L 1112 310" stroke="#84cc16" stroke-width="1.2" stroke-dasharray="2 1.5"/>
+<rect x="600" y="344" width="540" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<text x="624" y="382" class="font" font-size="22" font-weight="950" fill="url(#lime)">04</text>
+<line x1="670" y1="356" x2="670" y2="392" stroke="#1f2937" stroke-width="1"/>
+<text x="688" y="368" class="font white" font-size="15" font-weight="900" letter-spacing="1.6">LIQUIDITY</text>
+<text x="688" y="388" class="font muted" font-size="12" font-weight="500">Only pools with real depth pass the price filter.</text>
+<path d="M 1096 367 L 1105 367 L 1107 372 L 1107 379 L 1109 379 L 1109 372 L 1111 367 L 1120 367 Z" fill="none" stroke="#84cc16" stroke-width="1.5"/>
+<rect x="600" y="408" width="540" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<text x="624" y="446" class="font" font-size="22" font-weight="950" fill="url(#lime)">05</text>
+<line x1="670" y1="420" x2="670" y2="456" stroke="#1f2937" stroke-width="1"/>
+<text x="688" y="432" class="font white" font-size="15" font-weight="900" letter-spacing="1.6">FRESH</text>
+<text x="688" y="452" class="font muted" font-size="12" font-weight="500">Recomputed every scan. Staleness capped at 24h.</text>
+<circle cx="1108" cy="438" r="13" fill="none" stroke="#84cc16" stroke-width="1.5"/>
+<line x1="1108" y1="438" x2="1108" y2="431" stroke="#84cc16" stroke-width="1.8" stroke-linecap="round"/>
+<line x1="1108" y1="438" x2="1113" y2="441" stroke="#84cc16" stroke-width="1.8" stroke-linecap="round"/>
+<rect x="600" y="472" width="540" height="60" rx="10" fill="#0d1117" stroke="#1a2332"/>
+<text x="624" y="510" class="font" font-size="22" font-weight="950" fill="url(#lime)">06</text>
+<line x1="670" y1="484" x2="670" y2="520" stroke="#1f2937" stroke-width="1"/>
+<text x="688" y="496" class="font white" font-size="15" font-weight="900" letter-spacing="1.6">TRUTH</text>
+<text x="688" y="516" class="font muted" font-size="12" font-weight="500">One source. One answer. Always cross-checked.</text>
+<circle cx="1108" cy="502" r="13" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M1102 502 l 4 4 l 8 -8" fill="none" stroke="#84cc16" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<line x1="100" y1="600" x2="1100" y2="600" stroke="#1a2332" stroke-width="1"/>
+<g>
+    <text x="100" y="638" class="font soft" font-size="18" font-weight="900" letter-spacing="-0.4">Read the wallet. Prove the wallet.</text>
+    <text x="1100" y="638" text-anchor="end" class="font" font-size="20" font-weight="950" letter-spacing="2.4" fill="url(#lime)">wcore.xyz</text>
+  </g>
+<rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+</svg>

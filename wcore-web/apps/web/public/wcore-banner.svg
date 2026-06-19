@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" width="1500" height="500">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#060607"/>
+      <stop offset="55%" stop-color="#0c0e12"/>
+      <stop offset="100%" stop-color="#16191f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a3e635"/>
+      <stop offset="100%" stop-color="#84cc16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#84cc16" stop-opacity="0.24"/>
+      <stop offset="70%" stop-color="#84cc16" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="coinShadow" x="-45%" y="-45%" width="190%" height="190%">
+      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <clipPath id="coinClip"><circle cx="28" cy="28" r="20"/></clipPath>
+  </defs>
+
+  <rect width="1500" height="500" fill="url(#bg)"/>
+  <circle cx="1160" cy="80" r="360" fill="url(#glow)"/>
+  <circle cx="250" cy="470" r="290" fill="url(#glow)" opacity="0.45"/>
+
+  <g opacity="0.06">
+    <path d="M0 100H1500M0 200H1500M0 300H1500M0 400H1500" stroke="#84cc16"/>
+    <path d="M250 0V500M500 0V500M750 0V500M1000 0V500M1250 0V500" stroke="#84cc16"/>
+  </g>
+  <path d="M-80 136C92 42 262 76 430 128C612 186 730 166 852 98C994 24 1138 52 1580 126" fill="none" stroke="#84cc16" stroke-opacity="0.13" stroke-width="2"/>
+
+  <!-- Decorative chain coins. Bottom-left is kept quiet for the X avatar overlay. -->
+  <g opacity="0.72" filter="url(#coinShadow)">
+    <g transform="translate(78 60)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(210 172) scale(0.92)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(198 42) scale(0.88)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/cosmos/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(805 56) scale(0.78)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/osmosis/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(708 58) scale(0.74)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ronin/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(930 68) scale(0.78)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/sei/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(560 398) scale(0.72)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/sonic/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1078 44) scale(1.02)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1228 60)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1390 84) scale(0.92)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/optimism/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1046 216) scale(0.82)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/polygon/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1366 360) scale(0.84)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/smartchain/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(984 414) scale(0.74)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/scroll/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1094 174) scale(0.78)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/linea/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1110 392) scale(0.76)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/avalanchec/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(818 420) scale(0.68)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xdai/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(940 238) scale(0.78)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/zksync/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(748 388) scale(0.7)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/rootstock/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(88 246) scale(0.72)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/moonbeam/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(290 258) scale(0.68)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/cronos/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(78 368) scale(0.62)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/moonriver/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(176 394) scale(0.6)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/aurora/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(292 390) scale(0.58)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/celo/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(660 386) scale(0.66)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/fantom/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(430 396) scale(0.62)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/blast/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1456 338) scale(0.62)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/metis/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+    <g transform="translate(1334 234) scale(0.68)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/mantle/info/logo.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
+  </g>
+
+  <g transform="translate(1156 116)" filter="url(#shadow)">
+    <rect x="0" y="0" width="240" height="240" rx="46" fill="#101217" stroke="#2b2f38"/>
+    <g transform="translate(48 48) scale(2.25)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="url(#accent)" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="url(#accent)" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="url(#accent)" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="url(#accent)" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="url(#accent)" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+  </g>
+
+  <g transform="translate(350 122)">
+    <text x="0" y="0" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="94" font-weight="950" fill="#f4f4f5" letter-spacing="-3">WCORE</text>
+    <text x="4" y="66" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="37" font-weight="850" fill="url(#accent)" letter-spacing="-0.8">Your crypto. Every chain. One view.</text>
+    <text x="6" y="116" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="20" fill="#a1a1aa">Read only wallet analytics across EVM, Solana and Cosmos.</text>
+  </g>
+
+  <g transform="translate(350 294)">
+    <g><rect x="0" y="0" width="174" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="87" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#a3e635">116+ chains</text></g>
+    <g transform="translate(198 0)"><rect x="0" y="0" width="166" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="83" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#f4f4f5">3 VMs</text></g>
+    <g transform="translate(388 0)"><rect x="0" y="0" width="188" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="94" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#f4f4f5">multi wallet</text></g>
+    <g transform="translate(600 0)"><rect x="0" y="0" width="186" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="93" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#f4f4f5">on chain GM</text></g>
+  </g>
+
+  <g transform="translate(1276 395)">
+    <text x="0" y="0" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="25" font-weight="900" fill="#a3e635">wcore.xyz</text>
+    <text x="0" y="30" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="19" fill="#71717a">@WCORExyz</text>
+  </g>
+
+  <rect x="0" y="496" width="1500" height="4" fill="url(#accent)" opacity="0.58"/>
+</svg>

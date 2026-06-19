@@ -1,0 +1,56 @@
+# WCORE
+
+WCORE is a read-only multi-chain wallet tracking system. It helps users inspect balances, pricing, scam-token risk, CEX holdings, and cross-chain GM activity without requiring wallet connection for portfolio scans.
+
+Production site: https://wcore.xyz
+
+## Repository Layout
+
+```text
+wcore-web/
+├── wcore-web/      # Next.js web app, Fastify API, Prisma DB, shared packages
+└── wcore-gsheet/   # Google Apps Script runtime and canonical chain configs
+```
+
+## Main Components
+
+- `wcore-web/apps/web` — Next.js 16 frontend.
+- `wcore-web/apps/api` — Fastify API, scan orchestration, auth, GM, CEX integrations.
+- `wcore-web/packages/core` — wallet scan engines and pricing cascade for EVM, SVM, Cosmos, and TON.
+- `wcore-web/packages/shared` — shared cache keys, chain metadata helpers, factories, types.
+- `wcore-gsheet/src` — Google Apps Script source and canonical chain configs.
+- `wcore-gsheet/dist` — generated `@wcore/chains` package consumed by the web runtime.
+
+## What WCORE Tracks
+
+- 180+ chain configs across EVM, Solana/SVM, Cosmos SDK, and TON.
+- Read-only wallet scans, multi-wallet portfolio views, and public share reports.
+- Multi-source pricing cascade: stablecoin fast-path, cache, DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko fallback.
+- Scam-token filtering and clean-total calculations.
+- Optional CEX account imports using read-only API keys.
+- Cross-chain GM contracts, streaks, and leaderboard features.
+
+## Local Development
+
+```powershell
+cd wcore-web
+pnpm install
+pnpm build
+pnpm test
+```
+
+For detailed setup, see:
+
+- `wcore-web/README.md` for the web/API runtime.
+- `wcore-gsheet/README.md` for the Google Sheets + Apps Script runtime.
+- `wcore-web/ROADMAP.md` for current product status and active backlog.
+
+## Security Notes
+
+- Do not commit secrets, API keys, private keys, Railway tokens, database URLs, or `.env*` files.
+- CEX keys must be read-only and stored through runtime secrets, never in source code.
+- Public scans are read-only. Portfolio scanning does not require wallet signing.
+
+## License
+
+No license file is currently provided. All rights reserved unless a license is added later.

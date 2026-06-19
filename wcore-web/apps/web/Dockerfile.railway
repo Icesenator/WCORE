@@ -1,0 +1,54 @@
+FROM node:22-alpine AS builder
+
+# Parent-context Railway build. Includes wcore-gsheet/dist for @wcore/chains.
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10 --activate
+
+COPY wcore-gsheet/dist /wcore-gsheet/dist
+COPY wcore-web/pnpm-workspace.yaml wcore-web/tsconfig.base.json wcore-web/package.json wcore-web/pnpm-lock.yaml ./
+COPY wcore-web/packages/shared/package.json wcore-web/packages/shared/tsconfig.json packages/shared/
+COPY wcore-web/packages/core/package.json wcore-web/packages/core/tsconfig.json packages/core/
+COPY wcore-web/apps/web/package.json wcore-web/apps/web/tsconfig.json wcore-web/apps/web/next.config.mjs wcore-web/apps/web/postcss.config.mjs wcore-web/apps/web/tailwind.config.ts apps/web/
+
+RUN pnpm install --frozen-lockfile
+RUN node -e "const fs=require('fs');fs.writeFileSync('/tmp/wcore-chains-tsconfig.json',JSON.stringify({compilerOptions:{target:'ES2022',module:'NodeNext',moduleResolution:'NodeNext',declaration:true,skipLibCheck:true,rootDir:'/wcore-gsheet/dist',outDir:'/tmp/wcore-chains-out'},include:['/wcore-gsheet/dist/types.ts','/wcore-gsheet/dist/chains/**/*.ts']},null,2))" && \
+    pnpm exec tsc -p /tmp/wcore-chains-tsconfig.json && \
+    cp -R /tmp/wcore-chains-out/* /wcore-gsheet/dist/ && \
+    rm -rf node_modules/@wcore/chains && mkdir -p node_modules/@wcore/chains && cp -R /wcore-gsheet/dist/* node_modules/@wcore/chains/ && cp -R /tmp/wcore-chains-out/* node_modules/@wcore/chains/ && \
+    node -e "const fs=require('fs');for(const dir of ['/wcore-gsheet/dist','node_modules/@wcore/chains']){const p=dir+'/package.json';const pkg=JSON.parse(fs.readFileSync(p,'utf8'));pkg.main='./chains/index.js';pkg.types='./chains/index.d.ts';pkg.exports={'.':{types:'./chains/index.d.ts',default:'./chains/index.js'},'./types':{types:'./types.d.ts',default:'./types.js'}};fs.writeFileSync(p,JSON.stringify(pkg,null,2))}"
+
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_WC_PROJECT_ID=3090760ada2bf4a459a27506fcdc16ec
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_WC_PROJECT_ID=${NEXT_PUBLIC_WC_PROJECT_ID}
+
+COPY wcore-web/packages/shared/src packages/shared/src
+COPY wcore-web/packages/core/src packages/core/src
+COPY wcore-web/apps/web/app apps/web/app
+COPY wcore-web/apps/web/components apps/web/components
+COPY wcore-web/apps/web/hooks apps/web/hooks
+COPY wcore-web/apps/web/lib apps/web/lib
+COPY wcore-web/apps/web/public apps/web/public
+
+RUN echo "BUILD_TS $(date +%s)"
+RUN pnpm --filter "@wcore/shared" build
+RUN pnpm --filter "@wcore/core" build
+RUN pnpm --filter "@wcore/web" build
+
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+ARG NODE_ENV=production
+ENV NODE_ENV=${NODE_ENV}
+ENV PORT=${PORT:-3000}
+ENV HOSTNAME=0.0.0.0
+
+COPY --chown=node:node --from=builder /app/apps/web/.next/standalone ./
+COPY --chown=node:node --from=builder /app/apps/web/.next/static ./apps/web/.next/static
+COPY --chown=node:node --from=builder /app/apps/web/public ./apps/web/public
+
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 --start-period=15s \
+  CMD node -e "const http=require('http');const port=process.env.PORT||3000;const req=http.get('http://127.0.0.1:'+port,{timeout:4000},r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>{process.exit(r.statusCode===200&&d.includes('WCORE')?0:1)});});req.on('timeout',()=>{req.destroy();process.exit(1)});req.on('error',()=>process.exit(1));"
+CMD ["node", "apps/web/server.js"]

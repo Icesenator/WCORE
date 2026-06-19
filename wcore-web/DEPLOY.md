@@ -2,22 +2,21 @@
 
 ## Production deploys — Railway (wcore.xyz / api-production-b5bf.up.railway.app)
 
-The Railway project has **two services** (`web` and `api`) and a single root `railway.json`. That JSON has only one `dockerfilePath` at a time — `apps/web/Dockerfile` by default. `scripts/deploy.ps1` swaps the path according to `-Service`, runs `railway up --service <name>`, and restores the file in a `finally` block.
+The Railway project has **two services** (`web` and `api`). Since `@wcore/core` depends on `@wcore/chains` from `../wcore-gsheet/dist`, deploys use the parent repo context `C:\Users\strau\WCORE\wcore-web` and the parent `railway.json`. `scripts/deploy.ps1` swaps `dockerfilePath` according to `-Service`, runs `railway up <parent> --path-as-root --service <name> --ci`, restores the JSON in a `finally` block, and propagates Railway's exit code.
 
 ```powershell
-# Deploy web (wcore.xyz)
-pwsh scripts/deploy.ps1 -Service web
+# From wcore-web/wcore-web
+powershell -File scripts\deploy.ps1 -Service api
 
-# Deploy api (api-production-b5bf.up.railway.app)
-pwsh scripts/deploy.ps1 -Service api
+powershell -File scripts\deploy.ps1 -Service web
 
 # Deploy both (sequentially)
-pwsh scripts/deploy.ps1 -Service web; pwsh scripts/deploy.ps1 -Service api
+powershell -File scripts\deploy.ps1 -Service api; powershell -File scripts\deploy.ps1 -Service web
 ```
 
 ### ⚠️ Do not run `railway up` directly
 
-Bare `railway up` (no `--service` flag) deploys to the currently linked service with whatever `dockerfilePath` is in `railway.json`. The default currently points to the Web Dockerfile, but the linked service can drift. A naked `railway up` can still deploy the wrong image to the wrong service. Always use `scripts/deploy.ps1`.
+Bare `railway up` (no `--service` flag) deploys to the currently linked service with whatever `dockerfilePath` is in `railway.json`. Running it from `wcore-web/wcore-web` can also exclude `wcore-gsheet/dist`, breaking `@wcore/chains`. Always use `scripts/deploy.ps1`.
 
 ### Verification after deploy
 
@@ -44,10 +43,29 @@ A stuck "Deploying" status without runtime logs from the new container usually m
 
 | Service | URL | Dockerfile |
 |---------|-----|------------|
-| `web` | https://wcore.xyz | `apps/web/Dockerfile` |
-| `api` | https://api-production-b5bf.up.railway.app | `apps/api/Dockerfile` |
+| `web` | https://wcore.xyz | `wcore-web/apps/web/Dockerfile.railway` |
+| `api` | https://api-production-b5bf.up.railway.app | `wcore-web/apps/api/Dockerfile.railway` |
 
 Project ID: `cbb16f4a-79c1-46ef-92b2-019c9c9940d7` · Environment: `production` · Region: `sfo`
+
+### `@wcore/chains` Docker gotcha
+
+`@wcore/chains` is generated under `wcore-gsheet/dist` and its package source is TypeScript. The Railway Dockerfiles compile it to JavaScript and patch both `/wcore-gsheet/dist/package.json` and `node_modules/@wcore/chains/package.json` to point at `chains/index.js`. Do not remove this step unless `@wcore/chains` is published or generated as JS before install; Node 22 refuses to strip TypeScript under `node_modules`.
+
+### API Dockerfile import rewrite gotcha
+
+`apps/api/Dockerfile.railway` rewrites extensionless compiled ESM imports in `packages/shared/dist` and `packages/core/dist`. The replacement string must escape the capture group as `./\$1.js` inside the `RUN node -e "..."` command. If it is written as `./$1.js`, `/bin/sh` expands `$1` to an empty string during the Docker build and the API crashes at runtime with `ERR_MODULE_NOT_FOUND` for `/app/packages/shared/dist/.js`.
+
+Quick verification after changing this line:
+
+```powershell
+docker build --target builder -f wcore-web/apps/api/Dockerfile.railway -t wcore-api-railway-builder-check .
+docker run --rm wcore-api-railway-builder-check node -e "const fs=require('fs');const s=fs.readFileSync('/app/packages/shared/dist/index.js','utf8');if(s.includes('./.js')) process.exit(1);console.log(s)"
+```
+
+### GitHub autodeploy note
+
+The `web` service can stay connected to `Icesenator/WCORE@master` because the committed `railway.json` points at the web Dockerfile. Keep the `api` service disconnected from GitHub until Railway has a service-level config or separate config file pointing at `wcore-web/apps/api/Dockerfile.railway`; otherwise a GitHub deploy can build the web image for the API service.
 
 ---
 

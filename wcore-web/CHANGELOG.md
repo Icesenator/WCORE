@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-06-19 — GitHub public + API Railway restaurée après crash Dockerfile
+
+- **Repo public propre** : `https://github.com/Icesenator/WCORE` publié sur `master` depuis un snapshot à historique neuf, pour éviter de publier l'ancien historique privé contenant des secrets réels. Les secrets historiques doivent rester considérés compromis côté fournisseurs.
+- **Railway web OK** : `https://wcore.xyz` vérifié `200 OK` après déploiement depuis le snapshot public.
+- **API crash corrigé** : l'API Railway crashait avec `ERR_MODULE_NOT_FOUND: Cannot find module '/app/packages/shared/dist/.js'`. Cause racine : dans `apps/api/Dockerfile.railway`, le rewrite post-build des imports ESM utilisait `$1` dans un `RUN node -e "..."`; `/bin/sh` expandait `$1` en vide dans Docker/Alpine, générant `from "./.js"`.
+- **Fix Dockerfile** : remplacement changé en `from "./\$1.js"`. Build Docker `builder` validé localement et artefact `packages/shared/dist/index.js` inspecté (`./address.js`, `./cache-key-registry.js`, etc., aucun `./.js`).
+- **Déployé et vérifié** : API `/health` `200` (`service=wcore-api`, `chainCount=182`) et Web `https://wcore.xyz` `200`. Railway status : `api`, `web`, `cex-relay`, Postgres et Redis `Online`.
+- **Ops follow-up** : garder l'autodeploy GitHub API désactivé tant que Railway n'a pas une config service-level séparée pour le Dockerfile API. Le `railway.json` unique reste dangereux pour deux services.
+
+## 2026-06-19 — Phase 3 : consolidation configs chaînes (182/182 extractibles) + TON → ChainFactory
+
+- **Portage massif web-only → gsheet** : les configs de chaînes qui n'existaient que côté web ont été portées vers `wcore-gsheet/src/*.gs` via `tools/port-web-chains-to-gsheet.cjs`.
+- **TON.gs → ChainFactory** : ajout de `ChainFactory.createTonChain()` pour rendre TON extractible sans réécrire le moteur TON standalone.
+- **Résultat final** : 182/182 configs web ont une source `.gs` extractible.
+- **Validations** : `validate:static` OK, `build:chains` OK, `test:phase3-chains` OK.
+- **ROADMAP.md** : Phase 3 clôturée ; restent les chain sunsets après deadlines publiques.
+
 ## 2026-06-18 — Refactor mirror .gs éliminé + monorepo unifié (v0.3.0)
 
 - **Élimination du mirror `.gs`** : les 170 fichiers `.gs` dupliqués dans `wcore-web/src/` sont supprimés. La source unique est `wcore-gsheet/src/*.gs`. Les configs de chaînes sont extraites via `wcore-gsheet/tools/extract-chains.mjs` → `wcore-gsheet/dist/chains/*.ts` → package `@wcore/chains` → consommé par `wcore-web/packages/core` via pnpm `file:` protocol. Plus aucun doublon de code métier entre les deux runtimes.

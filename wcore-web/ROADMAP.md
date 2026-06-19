@@ -17,13 +17,32 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ---
 
-## État courant : v0.3.0 🟢 — Refactor mirror .gs éliminé + toutes les phases d'harmonisation Phase 1 à 2 complétées (2026-06-18)
+## État courant : v0.3.1 🟢 — Cache scan `scan:result` + déploiement Railway parent-context stabilisé (2026-06-19)
 
 ### ✅ Phase 1 : Fondations cross-runtime — FX cascade + cache-key registry + drift detector
 ### ✅ Phase 1.5 : Mirror .gs éliminé + package @wcore/chains + monorepo unifié
 ### ✅ Phase 2 : CEX Coinbase + OKX (web multi-user, déjà livré le 2026-06-15)
+### ✅ Phase 3 : Consolidation configs chaînes (182/182 extractibles, chain sunsets à suivre)
 
-### ⏳ Phase 3 : Consolidation (port 69 chains gsheet, TON → ChainFactory, chain sunsets)
+### ✅ Déploiement Railway public restauré
+
+- **Repo public** : `https://github.com/Icesenator/WCORE` publié sur `master` depuis un snapshot à historique neuf. L'ancien historique privé contenait des secrets réels et ne doit pas être publié ; les secrets historiques doivent rester considérés compromis côté fournisseurs.
+- **Railway web** : `https://wcore.xyz` vérifié `200 OK`.
+- **Railway API** : `https://api-production-b5bf.up.railway.app/health` vérifié `200 OK` (`service=wcore-api`, `chainCount=182`).
+- **Cause racine crash API** : `apps/api/Dockerfile.railway` réécrivait les imports ESM avec un remplacement `./$1.js` dans `RUN node -e "..."`. Dans Docker/Alpine, `/bin/sh` expandait `$1` en vide, générant `from "./.js"` dans `packages/shared/dist/index.js`, puis crash runtime `ERR_MODULE_NOT_FOUND: /app/packages/shared/dist/.js`.
+- **Fix** : remplacement échappé en `./\$1.js`. Build Docker `builder` validé et artefact inspecté (`./address.js`, `./cache-key-registry.js`, aucun `./.js`).
+- **Autodeploy API** : garder désactivé tant que Railway n'a pas une config service-level ou config-file séparée pointant vers `wcore-web/apps/api/Dockerfile.railway`. Le `railway.json` unique committé pointe vers le web.
+
+### ✅ Fix cache scan Ethereum + namespace `scan:result` (v0.3.1)
+
+- **Fix API** : `shouldCacheAssets()` accepte maintenant les scans dégradés mais utiles après les garde-fous critiques existants. Les scans avec wallet vide douteux, natif positif sans prix, token majeur positif sans prix, ou erreurs critiques SVM/Cosmos restent refusés.
+- **Namespace Redis** : le cache résultat haut niveau est renommé vers `scan:result:{address}:{chain}` via la cache-key registry. `forceRefresh=true` bypass ce cache haut niveau.
+
+### ✅ Phase 3 : Consolidation configs chaînes
+
+- **Port des chaînes web-only** vers `wcore-gsheet/src/*.gs` terminé. 182/182 configs web ont une source `.gs` extractible.
+- **TON.gs → ChainFactory** terminé via `ChainFactory.createTonChain`, sans remplacer le moteur TON standalone existant.
+- **Outillage** : `tools/port-web-chains-to-gsheet.cjs`, `tools/test-phase3-chain-port.cjs`, scripts npm `port:web-chains` + `test:phase3-chains`.
 
 ### ✅ FX cascade EUR/USD sans fallback fixe (v0.2.47)
 
@@ -49,10 +68,11 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ### ⚠️ Dette restante
 
-- **Scan results cached avec ancien FX** : les résultats Redis `scan:v2:*` peuvent encore utiliser le FX 0.918 (ETH) même si le FX live est 0.864, jusqu'à expiration 5min. Symptôme : sur la même chaîne, ETH et WBTC peuvent montrer des prix calculés avec des FX différents s'ils ont été scannés à des moments différents. Fix : `WALLET_SCAN_CACHE_VERSION` bump ou `forceRefresh=true` sur les chaînes concernées.
+- **Scan results cached avec ancien FX** : les résultats Redis `scan:result:*` peuvent encore utiliser un ancien FX jusqu'à expiration du TTL. Symptôme : sur la même chaîne, ETH et WBTC peuvent montrer des prix calculés avec des FX différents s'ils ont été scannés à des moments différents. Fix : `forceRefresh=true` sur les chaînes concernées.
 - **CSRF wildcard** : si on ajoute de nouvelles routes `/api/gsheet/*`, elles sont automatiquement exclues du CSRF (wildcard). C'est intentionnel mais à garder en tête.
 - **Chain sunset calendar / suppressions après deadlines** : plusieurs chaînes supportées ou observées par WCORE ont annoncé une fermeture ou une phase de retrait. Règle produit : garder la couverture active jusqu'à la deadline publique pour aider les users à voir ce qu'ils doivent sortir, puis retirer/désactiver la chaîne après la date limite (pas avant). Ne jamais supprimer une chaîne sur un post tiers non vérifié : utiliser l'annonce officielle ci-dessous.
   - **Swell Chain / Swellchain** : bridge avant le **23 juin 2026**. Source officielle Swell : `https://x.com/swellnetworkio/status/2067031459731570952`. Après le 23 juin, retirer `SWELLCHAIN` de WCORE : configs core (`packages/core/src/chains/*` + index), factory `swellchain` dans `packages/shared/src/factories.ts`, UI GM/wagmi/DeployClient/chain-data/explorers, manifests icônes/symboles, compteurs/docs GM, tests GM/wagmi de garde.
+  - **Corn / Corn Maizenet** : réseau arrêté le **30 juin 2026**. Source officielle Corn : `https://x.com/use_corn/status/2054914084840042967` et help center `https://help.usecorn.com/en/collections/19631033-corn-chain-wind-down`. Les assets restants après shutdown ne seront plus récupérables ; BTCN doit sortir via l'app legacy/LayerZero avec RPC wallet fonctionnel `https://maizenet-rpc.usecorn.com` si Ankr renvoie `API key is not allowed to access blockchain`. Après le 30 juin, retirer/désactiver `CORN` (chainId `21000000`) de la couverture active WCORE et des surfaces GM/dev deploy si la chaîne n'est plus utile pour claims.
   - **Polygon zkEVM Mainnet Beta** : sequencer sunset le **1 juillet 2026**. Source officielle Polygon forum : `https://forum.polygon.technology/t/polygon-zkevm-mainnet-beta-sunset-claim-your-funds/21856`. Nuance importante : assets en wallet non bridgés avant le 1 juillet seront auto-migrés vers Ethereum L1 et claimables via UI dédiée, mais les fonds locked en DeFi/protocoles ne peuvent pas être auto-migrés. Bridge officiel : `https://ui.agglayer.dev/`. Après le 1 juillet, retirer/désactiver `POLYGON_ZKEVM` de la couverture active WCORE si la chaîne n'est plus utile pour claims.
   - **Botanix** : retirer Bitcoin et autres assets avant le **9 juillet 2026**. Source officielle Botanix : `https://x.com/botanix/status/2064420116578590941`. Après la deadline, la federation sweep le Bitcoin restant et les autres tokens/assets deviennent unrecoverable. Ne pas publier de lien de bridge non vérifié : renvoyer vers les canaux/app officiels `@botanix` uniquement. Après le 9 juillet, retirer/désactiver `BOTANIX` si présent dans la couverture WCORE.
   - **ZERϴ / ZERO Network** : bridge out avant le **31 juillet 2026**. Source officielle ZERO : `https://x.com/zerodotnetwork/status/2057529617385201702` (+ follow-up `https://x.com/zerodotnetwork/status/2057529619671142829`). Après le 31 juillet, retirer/désactiver `ZERO` / `ZERO_NETWORK` selon la clé core effective, après vérification des dépendances UI/GM.
@@ -61,7 +81,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ### Fichiers
 
-- **Web** : `packages/core/src/fx.ts` (refactored), `apps/api/src/plugins/gsheet.ts` (telemetry + parity), `apps/api/src/plugins/chains.ts` (self-telemetry), `apps/api/src/server-helpers.ts` (CSRF wildcard), `scripts/test-fx-parity.cjs`.
+- **Web** : `packages/core/src/fx.ts` (refactored), `apps/api/src/plugins/gsheet.ts` (telemetry + parity), `apps/api/src/plugins/chains.ts` (self-telemetry), `apps/api/src/server-helpers.ts` (CSRF wildcard), `scripts/test-fx-parity.cjs`, `packages/shared/src/cache-key-registry.ts`, `apps/api/Dockerfile.railway`, `apps/web/Dockerfile.railway`, `scripts/deploy.ps1`.
 - **Gsheet** : `src/04C_CACHE_GLOBAL.gs` v4.15.50, callers durcis (`10_OUTPUT.gs`, `15_COSMOS_ENGINE.gs`, `FOGO.gs`, `26_OPTIMIZATIONS.gs`), `scripts/fx-cascade-spec.cjs` + `.test.cjs`, `scripts/gsheet-fx-telemetry.cjs`.
 - **Doc** : `docs/fx-cascade.md` (focalisé), entrées `CHANGELOG.md` et `ROADMAP.md` (ce fichier).
 
@@ -115,7 +135,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Package `@wcore/chains`** v4.15.50 : self-contained (types `VmType` + `ChainConfig`, pas de dépendance à `@wcore/shared`).
 - **Monorepo GitHub** : `wcore-web/` + `wcore-gsheet/` dans la même branche, même repo.
 - **Outillage unifié** : `tools/extract-chains.mjs` + `tools/validate-static.js` dans wcore-gsheet, `build-index.mjs` dans wcore-web pour le merge.
-- **Dette** : 69 chaînes web-only à porter vers gsheet, TON.gs → ChainFactory.
+- **Dette soldée (2026-06-19)** : les 68 configs web-only ont été portées vers `wcore-gsheet/src/*.gs`. `TON.gs` utilise `ChainFactory.createTonChain` et est extractible (182/182). Prochaine étape : retirer les chaînes après leurs deadlines sunset (Swell 23 juin → premier retrait).
 
 ### ✅ Phase 2 — CEX Coinbase + OKX web multi-user (complété le 2026-06-15)
 - **Modules GAS** : `39_COINBASE_SYNC.gs` et `40_OKX_SYNC.gs` opérationnels (sync horaire central, refresh manuel A1, B1=REQUEST).
@@ -125,11 +145,11 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Frontend** : `cex-display.ts` (meta + logos CMC), `useCexHoldings`, `ChainCard`, `ChainIcon.CONTAIN_LOGOS`, formulaire Profile > CEX.
 - **Refresh** : `CEX_HOURLY_REFRESH()` (Bitpanda/Binance/Bitfinex/Bybit/Coinbase/OKX) + checkboxes `A1` par onglet CEX.
 
-### ⏳ Phase 3 — Consolidation et couverture
-- **Port 69 chaînes web-only** vers `wcore-gsheet/src/*.gs` (source unique complète).
-- **TON.gs → ChainFactory** pour extraction automatique (actuellement TON utilise un pattern `TON_CONFIG` non standard).
-- **Chain sunset** : Swell (23 juin), Polygon zkEVM (1 juillet), Botanix (9 juillet), ZERO (31 juillet).
-- **Docs** : mise à jour `AGENTS.md` / `AUDIT.md` post-refactor.
+### ✅ Phase 3 — Consolidation configs chaînes (complété le 2026-06-19)
+- **Port des chaînes web-only** vers `wcore-gsheet/src/*.gs` terminé. 182/182 configs web ont une source `.gs` extractible.
+- **TON.gs → ChainFactory** terminé via `ChainFactory.createTonChain`, sans remplacer le moteur TON standalone existant.
+- **Chain sunsets à suivre** : Swell (23 juin), Corn (30 juin), Polygon zkEVM (1 juillet), Botanix (9 juillet), ZERO (31 juillet), Mint (20 octobre), Cronos zkEVM (3 juin 2027).
+- **Docs** : ROADMAP, CHANGELOG, AGENTS.md mis à jour.
 
 ---
 

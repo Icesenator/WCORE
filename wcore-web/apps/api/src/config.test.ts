@@ -123,4 +123,23 @@ describe("getApiConfig", () => {
       fromUrl: false,
     });
   });
+
+  it("derives SIWE allowed hosts from CORS origins", () => {
+    const config = getApiConfig({
+      NODE_ENV: "production",
+      JWT_SECRET: STRONG_SECRET,
+      CORS_ORIGIN: "https://wcore.xyz,https://web-production-e72584.up.railway.app",
+    });
+
+    const hosts = config.cors.origins.map((origin) => new URL(origin).hostname);
+    assert.deepEqual(hosts, ["wcore.xyz", "web-production-e72584.up.railway.app"]);
+  });
+
+  it("marks when development JWT fallback is used", () => {
+    const fallbackConfig = getApiConfig({ NODE_ENV: "test" });
+    const explicitConfig = getApiConfig({ NODE_ENV: "test", JWT_SECRET: STRONG_SECRET });
+
+    assert.equal(fallbackConfig.auth.usedDevelopmentJwtFallback, true);
+    assert.equal(explicitConfig.auth.usedDevelopmentJwtFallback, false);
+  });
 });

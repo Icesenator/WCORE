@@ -26,6 +26,7 @@ export interface ApiConfig {
     authAllowBearer: boolean;
     cookieSecure: boolean;
     cookieSameSite: "none" | "lax";
+    usedDevelopmentJwtFallback: boolean;
   };
   cors: {
     origins: string[];
@@ -137,6 +138,7 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
   const redisConfig = parseRedisConfig(env);
   const scanConcurrency = readNumber(env, "SCAN_CONCURRENCY", 50, { min: 1 });
   const nonEvmScanConcurrency = readNumber(env, "NON_EVM_SCAN_CONCURRENCY", 5, { min: 1 });
+  const usedDevelopmentJwtFallback = env.JWT_SECRET == null && isDevelopmentLike;
 
   return {
     runtime: {
@@ -157,6 +159,7 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       authAllowBearer: env.AUTH_ALLOW_BEARER === "true" || (!isProduction && env.AUTH_ALLOW_BEARER !== "false"),
       cookieSecure: isProduction,
       cookieSameSite: isProduction ? "none" : "lax",
+      usedDevelopmentJwtFallback,
     },
     cors: {
       origins,

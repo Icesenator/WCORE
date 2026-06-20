@@ -21,23 +21,13 @@ import {
   LinkedWalletPatchBodySchema,
 } from "./schemas.js";
 import { buildPerChainGmPoints } from "./gamification/gm-points.js";
+import { apiConfig } from "./config.js";
 
 // --- JWT Config ---
 
-const _devEnvs = new Set(["development", "test"]);
-const _isDevEnv = _devEnvs.has(process.env.NODE_ENV ?? "");
-const JWT_SECRET = process.env.JWT_SECRET ?? (_isDevEnv
-  ? "wcore-dev-secret-change-in-prod"
-  : (() => { throw new Error(`JWT_SECRET must be set when NODE_ENV is "${process.env.NODE_ENV ?? "<unset>"}"`); })());
+const JWT_SECRET = apiConfig.auth.jwtSecret;
 
-if (!_isDevEnv) {
-  const _weakPatterns = [/change-in-(prod|real-deploy)/i, /placeholder/i, /^wcore-staging-/i, /^test-/i, /^dev-/i];
-  if (JWT_SECRET.length < 32 || _weakPatterns.some(rx => rx.test(JWT_SECRET))) {
-    throw new Error(`JWT_SECRET is too weak or a known placeholder (NODE_ENV="${process.env.NODE_ENV ?? "<unset>"}"). Rotate to a 32+ char random secret.`);
-  }
-}
-
-if (!process.env.JWT_SECRET && _isDevEnv) {
+if (apiConfig.auth.usedDevelopmentJwtFallback) {
   console.warn("[AUTH] JWT_SECRET not set. Using development secret. All existing tokens will be invalidated on server restart. Set JWT_SECRET to persist sessions across restarts.");
 }
 
@@ -50,8 +40,8 @@ const REVOCATION_TTL_S = 604800; // 7d — matches REFRESH_TOKEN_TTL so revoked 
 
 const COOKIE_OPTS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: (process.env.NODE_ENV === "production" ? "none" : "lax") as "none" | "lax",
+  secure: apiConfig.auth.cookieSecure,
+  sameSite: apiConfig.auth.cookieSameSite,
   path: "/",
 };
 
@@ -141,10 +131,7 @@ async function revokeJwtIfPresent(cacheStore: CacheStore, token: string | undefi
 // --- Allowed SIWE domains ---
 
 const _siweAllowedDomains = new Set<string>(
-  (process.env.CORS_ORIGIN ?? "")
-    .split(",")
-    .map(s => s.trim())
-    .filter(Boolean)
+  apiConfig.cors.origins
     .map(origin => {
       try { return new URL(origin).hostname; } catch { return ""; }
     })
@@ -170,8 +157,7 @@ export async function authPlugin(app: FastifyInstance, prisma: PrismaClient, cac
     // Fall back to Bearer header for backward compat (dev/staging tooling).
     // Deny-by-default in production (XSS exfil hardening): the web app is fully
     // on httpOnly cookies. Re-enable explicitly with AUTH_ALLOW_BEARER=true.
-    const allowBearer = process.env.AUTH_ALLOW_BEARER === "true"
-      || (process.env.NODE_ENV !== "production" && process.env.AUTH_ALLOW_BEARER !== "false");
+    const allowBearer = apiConfig.auth.authAllowBearer;
     if (!allowBearer) return;
     const auth = req.headers.authorization;
     if (auth?.startsWith("Bearer ")) {
@@ -195,7 +181,7 @@ export async function authPlugin(app: FastifyInstance, prisma: PrismaClient, cac
 
     // Use the web app's domain for the SIWE message, not the API host.
     // The user signs in from the web app, so the domain should match the web origin.
-    const corsOrigins = process.env.CORS_ORIGIN?.split(",").map(s => s.trim()).filter(Boolean) ?? [];
+    const corsOrigins = apiConfig.cors.origins;
     const requestOrigin = typeof req.headers.origin === "string" ? req.headers.origin : "";
     let webOrigin = corsOrigins[0] ?? `https://localhost`;
     if (requestOrigin) {

@@ -135,7 +135,7 @@ Priority: medium.
 Before declaring harmonization work complete, run the relevant subset:
 
 ```powershell
-# From wcore-web/wcore-web
+# From WCORE
 pnpm typecheck
 pnpm --filter @wcore/core build
 pnpm --filter @wcore/api build

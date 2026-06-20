@@ -2,21 +2,21 @@
 
 ## Production deploys — Railway (wcore.xyz / api-production-b5bf.up.railway.app)
 
-The Railway project has **two services** (`web` and `api`). Since `@wcore/core` depends on `@wcore/chains` from `../wcore-gsheet/dist`, deploys use the parent repo context `C:\Users\strau\WCORE\wcore-web` and the parent `railway.json`. `scripts/deploy.ps1` swaps `dockerfilePath` according to `-Service`, runs `railway up <parent> --path-as-root --service <name> --ci`, restores the JSON in a `finally` block, and propagates Railway's exit code.
+The Railway project has **two services** (`web` and `api`). Since `@wcore/core` depends on `@wcore/chains` from `wcore-gsheet/dist`, deploys use the repo root context `C:\Users\strau\WCORE` and the root `railway.json`. `wcore-web/scripts/deploy.ps1` swaps `dockerfilePath` according to `-Service`, runs `railway up <root> --path-as-root --service <name> --ci`, restores the JSON in a `finally` block, and propagates Railway's exit code.
 
 ```powershell
-# From wcore-web/wcore-web
-powershell -File scripts\deploy.ps1 -Service api
+# From WCORE
+powershell -File wcore-web\scripts\deploy.ps1 -Service api
 
-powershell -File scripts\deploy.ps1 -Service web
+powershell -File wcore-web\scripts\deploy.ps1 -Service web
 
 # Deploy both (sequentially)
-powershell -File scripts\deploy.ps1 -Service api; powershell -File scripts\deploy.ps1 -Service web
+powershell -File wcore-web\scripts\deploy.ps1 -Service api; powershell -File wcore-web\scripts\deploy.ps1 -Service web
 ```
 
 ### ⚠️ Do not run `railway up` directly
 
-Bare `railway up` (no `--service` flag) deploys to the currently linked service with whatever `dockerfilePath` is in `railway.json`. Running it from `wcore-web/wcore-web` can also exclude `wcore-gsheet/dist`, breaking `@wcore/chains`. Always use `scripts/deploy.ps1`.
+Bare `railway up` (no `--service` flag) deploys to the currently linked service with whatever `dockerfilePath` is in `railway.json`. Running it from the wrong directory can also exclude `wcore-gsheet/dist`, breaking `@wcore/chains`. Always use `wcore-web/scripts/deploy.ps1`.
 
 ### Verification after deploy
 
@@ -37,7 +37,7 @@ curl https://api-production-b5bf.up.railway.app/health
 curl -I https://wcore.xyz
 ```
 
-A stuck "Deploying" status without runtime logs from the new container usually means the new container is failing healthcheck — open the Railway dashboard for exit codes and restart counts. Re-running `scripts/deploy.ps1 -Service <name>` queues a fresh build and Railway replaces the stuck one once the new build is healthy.
+A stuck "Deploying" status without runtime logs from the new container usually means the new container is failing healthcheck — open the Railway dashboard for exit codes and restart counts. Re-running `wcore-web/scripts/deploy.ps1 -Service <name>` queues a fresh build and Railway replaces the stuck one once the new build is healthy.
 
 ### Railway link
 
@@ -298,7 +298,7 @@ The nonce endpoint now returns a SIWE-formatted message with domain, URI, chainI
 
 ### Legacy Docker Compose Path
 
-This section is kept for historical/self-hosted reference. The active production path is Railway via `scripts/deploy.ps1 -Service api|web`. Do not use this Docker Compose path as the source of truth without first applying the open audit fixes in `docs/AUDIT.md` (P2-20: `NEXT_PUBLIC_*` build args, Web Dockerfile `chown`, DB/Redis exposure review).
+This section is kept for historical/self-hosted reference. The active production path is Railway via `wcore-web/scripts/deploy.ps1 -Service api|web` from the repo root. Do not use this Docker Compose path as the source of truth without first applying the open audit fixes in `docs/AUDIT.md` (P2-20: `NEXT_PUBLIC_*` build args, Web Dockerfile `chown`, DB/Redis exposure review).
 
 ### 1. Environment Setup
 

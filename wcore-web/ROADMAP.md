@@ -42,7 +42,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ### Ô£à D├®ploiement Railway parent-context stabilis├®
 
-- **Cause racine infra** : `@wcore/core` d├®pend de `@wcore/chains` via `file:../../../wcore-gsheet/dist`. Un upload depuis `wcore-web/wcore-web` excluait `wcore-gsheet/dist`; un upload parent sans config ignorait le bon `railway.json`.
+- **Cause racine infra** : `@wcore/core` depend de `@wcore/chains` via `file:../../../wcore-gsheet/dist`. Un upload depuis le mauvais repertoire excluait `wcore-gsheet/dist`; un upload parent sans config ignorait le bon `railway.json`.
 - **Fix deploy** : `scripts/deploy.ps1` utilise le `railway.json` parent avec `--path-as-root`, un lock `.deploy.lock`, et restaure le JSON en `finally` en propageant le code de sortie Railway.
 - **Dockerfiles Railway** : `apps/api/Dockerfile.railway` et `apps/web/Dockerfile.railway` utilisent le contexte parent, incluent `wcore-gsheet/dist`, compilent `@wcore/chains` en JS, puis patchent aussi `node_modules/@wcore/chains/package.json` pour ├®viter le crash Node 22 `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
 - **Incident API public snapshot r├®solu (2026-06-19)** : le service API Railway crashait avec `ERR_MODULE_NOT_FOUND: /app/packages/shared/dist/.js`. Cause racine : le `RUN node -e "... '$1' ..."` du Dockerfile API laissait `/bin/sh` expand `$1` en vide dans le remplacement regex ESM, g├®n├®rant `from "./.js"`. Fix : ├®chapper `$1` en `\$1` dans `apps/api/Dockerfile.railway`.

@@ -58,13 +58,13 @@ Ne pas faire de merge automatique. `wcore-gsheet` est la source Apps Script/Shee
 - **Conclusion** : pas de port code à pousser. Le pattern Apps Script `cold-start probe` est déjà représenté par `loadChainlist()` + `warmDynamicRpcEndpoints()` au boot API et par le probe `eth_blockNumber` à la demande dans `getRecentLogRange`. Un probe boot complet sur 180+ chaînes ajouterait ~180 HTTP calls au démarrage Railway ; pas recommandé.
 
 ### OutputSnapshotCache equivalent
-- Le cache résultat scan `apps/api/src/plugins/scan.ts` utilise `scan:v2:{address}:{chain}` (TTL 6h).
-- `getScanResultCacheKey` (`apps/api/src/plugins/scan-utils.ts:30`) gère la version.
+- Le cache résultat scan `apps/api/src/plugins/scan.ts` utilise `scan:result:{address}:{chain}` via la cache-key registry (TTL serveur).
+- `getScanResultCacheKey` (`apps/api/src/plugins/scan-utils.ts`) délègue à `cacheKey("scanResult", ...)`.
 - `shouldCacheAssets` (l.67) refuse d'écrire les scans partiels/avec erreurs bloquantes : `balances fetch:`, `balances HTTP`, `native balance failed on all`, `token accounts: no data`, balance native positive sans prix.
 - `hasCachedValue` (l.39) refuse de servir un cache vide/erroné et force un re-scan propre.
-- Le cache résultat `scan:v2:*` peut être bypassé par `forceRefresh`. Vérifié le 2026-06-11 (cf. `docs/AUDIT.md` §2) : `forceRefresh` EST propagé aux engines (`scan.ts:116,315,394,513`). L'ancien P0 « propagation non garantie » est clos.
-- Le frontend `apps/web/components/scan-cache.ts` (versionné) est aligné via bump de `WALLET_SCAN_CACHE_VERSION` à chaque fix scan.
-- **Conclusion** : pas de port code à pousser pour l'OutputSnapshot Apps Script lui-même. L'équivalent `scan:v2:*` côté web est déjà implémenté et plus moderne (versionné, conditions d'écriture strictes), mais le bypass `forceRefresh` engine est un P0 ouvert dans l'audit 2026-06-05.
+- Le cache résultat `scan:result:*` peut être bypassé par `forceRefresh`. Vérifié le 2026-06-11 (cf. `docs/AUDIT.md` §2) : `forceRefresh` EST propagé aux engines (`scan.ts:116,315,394,513`). L'ancien P0 « propagation non garantie » est clos.
+- Le cache navigateur portfolio est désactivé; les fixes scan se vérifient côté API/Redis, pas via `WALLET_SCAN_CACHE_VERSION`.
+- **Conclusion** : pas de port code à pousser pour l'OutputSnapshot Apps Script lui-même. L'équivalent `scan:result:*` côté web est déjà implémenté et plus moderne (clé registry, conditions d'écriture strictes).
 
 ## Prochaines actions concrètes
 

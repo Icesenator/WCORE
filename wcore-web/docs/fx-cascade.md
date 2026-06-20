@@ -94,9 +94,9 @@ Bumper `_CURRENT_VERSION` a chaque deploy gsheet qui change la cascade.
 ## Problemes connus / dette
 
 - **Scan resultats caches avec ancien FX** : quand on deploy un nouveau code FX, les
-  scan results (Redis `scan:v2:*`) sont encore caches avec l'ancien FX. Symptome :
+  scan results (Redis `scan:result:*`) peuvent encore etre caches avec l'ancien FX. Symptome :
   ETH sur Ethereum scan a 1623.96 EUR (FX 0.918) alors que WBTC a 143 EUR (FX 0.855).
-  Fix : `WALLET_SCAN_CACHE_VERSION` bump ou forceRefresh sur les chains concernees.
+  Fix : `forceRefresh=true` sur les chains concernees.
   Ou attendre que les caches resultats expirent (5min scan TTL).
 
 - **CSRF : gsheet routes exclues** : `requiresCsrfOriginCheck` exclut `/api/gsheet/*`

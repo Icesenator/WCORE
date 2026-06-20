@@ -20,48 +20,31 @@ import { gsheetPlugin } from "./plugins/gsheet.js";
 import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
+import { apiConfig } from "./config.js";
 
-const PORT = Number(process.env.PORT ?? 4000);
-const HOST = process.env.HOST ?? "127.0.0.1";
-
-const _isDevLogger = process.env.NODE_ENV === "development" || (!process.env.NODE_ENV);
-const _trustProxyEnv = process.env.TRUST_PROXY?.trim().toLowerCase();
 // `true` would trust any X-Forwarded-For chain hop (IP spoofing surface for rate-limiting).
 // In prod Railway routes through a single proxy, so `1` (single hop) is the correct default
 // when the user opts in via TRUST_PROXY=true. Explicit hop counts (e.g. TRUST_PROXY=2) and
 // loopback fallback are preserved.
-const trustProxy: number | string =
-  _trustProxyEnv === "true" ? 1
-    : _trustProxyEnv === "false" || !_trustProxyEnv ? "loopback"
-    : /^\d+$/.test(_trustProxyEnv) ? Number(_trustProxyEnv)
-    : _trustProxyEnv;
+const PORT = apiConfig.server.port;
+const HOST = apiConfig.server.host;
+const trustProxy = apiConfig.server.trustProxy;
 
 const app = Fastify({
   trustProxy,
-  logger: process.env.NODE_ENV === "test"
+  logger: apiConfig.runtime.isTest
     ? false
-    : (_isDevLogger
-      ? { level: process.env.LOG_LEVEL ?? "info", transport: { target: "pino-pretty" } }
-      : { level: process.env.LOG_LEVEL ?? "info" }),
+    : (apiConfig.server.usePrettyLogger
+      ? { level: apiConfig.server.logLevel, transport: { target: "pino-pretty" } }
+      : { level: apiConfig.server.logLevel }),
 });
 
-function getRedisConfig(): { host: string; port: number; password: string } | null {
-  if (process.env.REDIS_URL) {
-    const url = new URL(process.env.REDIS_URL);
-    return { host: url.hostname, port: Number(url.port || 6379), password: decodeURIComponent(url.password || "") };
-  }
-  if (process.env.REDIS_HOST) {
-    return { host: process.env.REDIS_HOST, port: Number(process.env.REDIS_PORT ?? 6379), password: process.env.REDIS_PASSWORD ?? "" };
-  }
-  return null;
-}
-
-const redisConfig = getRedisConfig();
+const redisConfig = apiConfig.redis.config;
 const sharedCache = redisConfig
   ? await createCacheStore({
     ...redisConfig,
     onFallback: (err) => {
-      app.log.warn({ err: err instanceof Error ? err.message : String(err), redisUrlConfigured: !!process.env.REDIS_URL, redisHost: redisConfig.host, redisPort: redisConfig.port },
+      app.log.warn({ err: err instanceof Error ? err.message : String(err), redisUrlConfigured: apiConfig.redis.configuredViaUrl, redisHost: redisConfig.host, redisPort: redisConfig.port },
         "redis unreachable — falling back to in-memory cache");
     },
   })
@@ -96,8 +79,8 @@ function getCircuitBreaker(chain: string): CircuitBreaker {
 
 // --- Plan & Rate Limit ---
 
-const MAX_CHAINS_PER_SCAN = Number(process.env.MAX_CHAINS_PER_SCAN ?? 120);
-const ANONYMOUS_MAX_CHAINS_PER_SCAN = Number(process.env.ANONYMOUS_MAX_CHAINS_PER_SCAN ?? 20);
+const MAX_CHAINS_PER_SCAN = apiConfig.limits.maxChainsPerScan;
+const ANONYMOUS_MAX_CHAINS_PER_SCAN = apiConfig.limits.anonymousMaxChainsPerScan;
 const PLAN_LIMITS: Record<string, { maxChains: number; maxScansPerDay: number; multiWalletPdf: boolean }> = {
   free: { maxChains: 120, maxScansPerDay: 9999, multiWalletPdf: true },
   pro: { maxChains: 120, maxScansPerDay: 9999, multiWalletPdf: true },
@@ -128,17 +111,17 @@ async function getScanLimit(userId: string): Promise<number> {
   return (PLAN_LIMITS[plan] ?? PLAN_LIMITS["free"]!).maxChains;
 }
 
-const RATE_LIMIT_SCAN = Number(process.env.RATE_LIMIT_SCAN ?? 2000);
-const RATE_LIMIT_SCAN_ANON = Number(process.env.RATE_LIMIT_SCAN_ANON ?? 100);
-const RATE_LIMIT_AUTH = Number(process.env.RATE_LIMIT_AUTH ?? 30);
-const RATE_LIMIT_LEADERBOARD = Number(process.env.RATE_LIMIT_LEADERBOARD ?? 30);
-const RATE_LIMIT_CATCH_ALL = Number(process.env.RATE_LIMIT_CATCH_ALL ?? 120);
+const RATE_LIMIT_SCAN = apiConfig.limits.rateLimitScan;
+const RATE_LIMIT_SCAN_ANON = apiConfig.limits.rateLimitScanAnon;
+const RATE_LIMIT_AUTH = apiConfig.limits.rateLimitAuth;
+const RATE_LIMIT_LEADERBOARD = apiConfig.limits.rateLimitLeaderboard;
+const RATE_LIMIT_CATCH_ALL = apiConfig.limits.rateLimitCatchAll;
 // The /gm page renders ~30 chain cards; even after the per-card global-fetch
 // fix, deployed-but-undone cards each do a targeted status-onchain reconcile.
 // Keep this generous so a single page load can never 429 the header's GM reads.
 // Lower for unauthenticated requests to prevent RPC amplification.
-const RATE_LIMIT_GM_READ = Number(process.env.RATE_LIMIT_GM_READ ?? 300);
-const RATE_LIMIT_GM_READ_ANON = Number(process.env.RATE_LIMIT_GM_READ_ANON ?? 60);
+const RATE_LIMIT_GM_READ = apiConfig.limits.rateLimitGmRead;
+const RATE_LIMIT_GM_READ_ANON = apiConfig.limits.rateLimitGmReadAnon;
 
 function rateLimitIdentity(req: { ip: string; headers: Record<string, string | string[] | undefined> }): string {
   // Always use IP for rate-limit identity. Do NOT derive a bucket from an
@@ -199,7 +182,7 @@ async function snapshotMetrics() {
 // --- Middleware ---
 
 await app.register(cors, {
-  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(",").map(s => s.trim()) : (process.env.NODE_ENV === "production" ? false : true),
+  origin: apiConfig.cors.fastifyOrigin,
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-admin-token"],
@@ -224,12 +207,11 @@ app.addHook("onRequest", async (req, reply) => {
   if (requiresCsrfOriginCheck(method, path)) {
       // Fail fast in production if CORS_ORIGIN is not set — a missing origin
       // allowlist silently disables CSRF protection (fail-open).
-      if (!process.env.CORS_ORIGIN && process.env.NODE_ENV === "production") {
+      if (apiConfig.cors.origins.length === 0 && apiConfig.runtime.isProduction) {
         return reply.code(500).send({ error: "csrf_config_missing", message: "CORS_ORIGIN must be set in production." });
       }
-      const corsOrigin = process.env.CORS_ORIGIN;
-      if (corsOrigin) {
-      const allowedHosts = corsOrigin.split(",")
+      if (apiConfig.cors.origins.length > 0) {
+      const allowedHosts = apiConfig.cors.origins
         .map(s => {
           try { return new URL(s.trim()).hostname.toLowerCase(); } catch { return s.trim().toLowerCase(); }
         });
@@ -243,7 +225,7 @@ app.addHook("onRequest", async (req, reply) => {
                       (refererHost && allowedHosts.includes(refererHost));
       // Dev-bypass is explicit: only when running tests. NODE_ENV unset in prod must NOT
       // fail open.
-      const allowDevBypass = process.env.NODE_ENV === "test";
+      const allowDevBypass = apiConfig.runtime.isTest;
       if (!allowed && !allowDevBypass) {
         return reply.code(403).send({ error: "csrf_origin_mismatch", message: "Origin not in allowlist" });
       }
@@ -334,7 +316,7 @@ await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized });
 // without the token keep their existing route set untouched. The wrapper
 // narrows sharedCache.get<T>(): T | undefined -> string | null to match the
 // plugin's expected cacheStore contract.
-const gsheetApiToken = process.env.GSHEET_API_TOKEN;
+const gsheetApiToken = apiConfig.integrations.gsheetApiToken;
 if (gsheetApiToken) {
   await gsheetPlugin(app, {
     token: gsheetApiToken,
@@ -382,7 +364,7 @@ function warnSingleRpcChains(): void {
 
 const isMainModule = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (process.env.NODE_ENV !== "test" && isMainModule) {
+if (!apiConfig.runtime.isTest && isMainModule) {
   try {
     warnSingleRpcChains();
     seedGmContracts(prisma).catch((e) => { console.error("seedGmContracts error:", (e).message || String(e)); });

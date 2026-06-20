@@ -489,14 +489,14 @@ export async function getEvmWalletAssets(
   // discovery, RPC failure — means the scan may be incomplete and the wallet might
   // not actually be empty.
   if (cache && emptyCacheKey && native.balance === 0 && tokens.length === 0 && errors.length === 0) {
-      const EMPTY_TTL_MS = 60 * 60 * 1000; // 1h — avoid re-scanning truly empty wallets every 10min
-      await cache.set(emptyCacheKey, {
-        chain: chain.key.toLowerCase(),
-        chainName: String(chain.CHAIN?.NAME ?? chain.key),
-        nativeSymbol: native.symbol,
-        nativeLogo: native.logoUrl,
-      }, EMPTY_TTL_MS);
-    }
+    const EMPTY_TTL_MS = 10 * 60 * 1000;
+    await cache.set(emptyCacheKey, {
+      chain: chain.key.toLowerCase(),
+      chainName: String(chain.CHAIN?.NAME ?? chain.key),
+      nativeSymbol: native.symbol,
+      nativeLogo: native.logoUrl,
+    }, EMPTY_TTL_MS);
+  }
 
   // Fire-and-forget: cache balances for no-TX shortcut on next scan
   if (cache && !hasCustomTokens) {

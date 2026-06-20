@@ -3,7 +3,7 @@
 //  - deps are injected (prisma stub, MemoryCacheStore, fake circuit breakers)
 //  - engine calls use a fake chain key ("X_TEST_FAKE") that getWalletAssets
 //    rejects instantly with "unknown chain" (no RPC involved)
-//  - cache-served paths use seeded scan:v2:* entries so the engine is never hit
+//  - cache-served paths use seeded scan:result:* entries so the engine is never hit
 //
 // Run: node --import tsx --test apps/api/test/scan-plugin-routes.test.ts
 import { test, describe, before, after } from "node:test";
@@ -89,7 +89,7 @@ function seedableAssets(chain: string, valueEur: number): WalletAssets & { ts: n
 }
 
 function scanCacheKey(address: string, chain: string): string {
-  return `scan:v2:${address.toLowerCase()}:${chain.toLowerCase()}`;
+  return `scan:result:${address.toLowerCase()}:${chain.toLowerCase()}`;
 }
 
 async function pollJob(app: FastifyInstance, jobId: string, opts: { user?: string; remoteAddress?: string } = {}) {

@@ -1,4 +1,4 @@
-import { getChain } from "../chains/index.js";
+﻿import { getChain } from "../chains/index.js";
 import { EvmRpc, RpcDispatcher, multicall, type MulticallCall, type MulticallResult } from "../rpc/index.js";
 import { getRpcEndpoints } from "../rpc/endpoints.js";
 import {
@@ -40,7 +40,7 @@ import { getRecentLogRange, readNativeBalance, canServeEmptyCache, readErc20Bala
 import { sharedPriceCache, buildSources, priceNative, priceCacheKey } from "./evm-pricing.js";
 import { cacheKey } from "@wcore/shared";
 
-// ─── Multi-Wallet Batch Scan ────────────────────────────────────────────────
+// ÔöÇÔöÇÔöÇ Multi-Wallet Batch Scan ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 // Some EVM chains expose their native balance through precompile-like ERC-20
 // addresses. They duplicate the native row and must not be shown as tokens.
@@ -56,7 +56,7 @@ export interface EvmWalletsAssetsResult {
 
 /**
  * Scan multiple wallets on the same chain in a single pass.
- * Key optimization: ONE Multicall3 call for ALL wallets × ALL tokens
+ * Key optimization: ONE Multicall3 call for ALL wallets ├ù ALL tokens
  * instead of N separate multicall batches.
  */
 export async function getEvmWalletsAssets(
@@ -105,7 +105,7 @@ export async function getEvmWalletsAssets(
   const disableNative = chain.FLAGS?.DISABLE_NATIVE_BALANCE === true;
 
   // Compute log range respecting chain's MAX_LOG_RANGE (e.g. BASE=2000 blocks).
-  // Called once per chain — the block number is cached for 30s across wallets.
+  // Called once per chain ÔÇö the block number is cached for 30s across wallets.
   const logBlockWindow = opts.logBlockRange ?? DEFAULT_LOG_SCAN_BLOCKS;
   const chainMaxLogRange = typeof chain.RPC?.MAX_LOG_RANGE === "number" ? chain.RPC.MAX_LOG_RANGE : undefined;
   const logRange = await getRecentLogRange(dispatcher, rpc, effectiveEndpoints, logBlockWindow, [], key, chainMaxLogRange);
@@ -131,11 +131,11 @@ export async function getEvmWalletsAssets(
             walletErrors.set(addr, ["[CACHED_EMPTY] wallet/chain has no assets within TTL"]);
             return { address: addr, tokens: [] as DiscoveredToken[], nativeSymbol: chain.CHAIN?.NATIVE_SYMBOL ?? "NATIVE", nativeLogo: getNativeLogo(chain), isEmpty: true, _empty: true };
           }
-        } catch { /* cache miss — proceed with discovery */ }
+        } catch { /* cache miss ÔÇö proceed with discovery */ }
       }
 
       // Read discovery cache (tokens + block cursor) for incremental scanning.
-      // Skip when tokenDiscovery is provided (tests, custom providers) — same guard as single-wallet path.
+      // Skip when tokenDiscovery is provided (tests, custom providers) ÔÇö same guard as single-wallet path.
       const discoveryCacheKey = opts.cache && !opts.tokenDiscovery ? getDiscoveryCacheKey(addr, key) : undefined;
       let cachedTokens: DiscoveredToken[] | undefined;
       let cachedBlock: number | undefined;
@@ -193,7 +193,7 @@ export async function getEvmWalletsAssets(
               }),
             });
 
-        // Merge previously-cached tokens — same pattern as single-wallet.
+        // Merge previously-cached tokens ÔÇö same pattern as single-wallet.
         // The union is re-persisted so cached tokens survive even if the
         // new fetch is empty or partial.
         const merged = [...tokens];
@@ -235,7 +235,7 @@ export async function getEvmWalletsAssets(
   for (const res of discoveryResults) {
     const addr = res.address;
     if (res._empty) {
-      // Negative cache hit — wallet is empty on this chain
+      // Negative cache hit ÔÇö wallet is empty on this chain
       completedResults.set(addr, {
         chain: key,
         chainName: chain.CHAIN?.NAME ?? key,
@@ -256,7 +256,7 @@ export async function getEvmWalletsAssets(
       if (tokenSet) res.tokens = res.tokens.filter((t) => tokenSet.has(t.contract.toLowerCase()));
       const hasTokens = res.tokens.length > 0;
     if (!hasTokens && !hasCustomTokens && opts.cache) {
-      // No tokens discovered — try balance cache shortcut
+      // No tokens discovered ÔÇö try balance cache shortcut
       const balCacheKey = `bal_cache:${key.toLowerCase()}:${addr}`;
       try {
         const cachedBal = await opts.cache.get<{
@@ -288,11 +288,11 @@ export async function getEvmWalletsAssets(
           });
           continue;
         }
-      } catch { /* cache miss — proceed with full scan */ }
+      } catch { /* cache miss ÔÇö proceed with full scan */ }
       cacheStats.misses++;
     }
 
-    // Active wallet — needs fresh balances
+    // Active wallet ÔÇö needs fresh balances
     activeAddresses.push(addr);
     for (const t of res.tokens) {
       const c = t.contract.toLowerCase();
@@ -385,7 +385,7 @@ export async function getEvmWalletsAssets(
           balanceResults[missIndices[i]!] = r;
         }
       }
-    } catch { /* retry failed — per-token fallback handles them */ }
+    } catch { /* retry failed ÔÇö per-token fallback handles them */ }
   }
   const balancesMs = Date.now() - balancesStart;
 
@@ -410,10 +410,10 @@ export async function getEvmWalletsAssets(
 
         let raw: bigint | null = null;
         if (result?.success && result.returnData && result.returnData !== "0x") {
-          try { raw = decodeUint256(result.returnData); } catch { /* decode failed — fall through */ }
+          try { raw = decodeUint256(result.returnData); } catch { /* decode failed ÔÇö fall through */ }
         }
 
-        // Per-token fallback: Multicall3 missed (or returned "0x") → consensus eth_call.
+        // Per-token fallback: Multicall3 missed (or returned "0x") ÔåÆ consensus eth_call.
         // This mirrors the single-wallet behavior where tokens whose Multicall3 result
         // is empty get a full per-token RPC consensus read.
         if (raw === null) {
@@ -429,7 +429,7 @@ export async function getEvmWalletsAssets(
               walletErrors.set(addr, wErrs);
             }
           } catch {
-            return null; // readErc20Balance threw — skip this token
+            return null; // readErc20Balance threw ÔÇö skip this token
           }
         }
 
@@ -583,7 +583,7 @@ export async function getEvmWalletsAssets(
         if (priced.reason) pricingErrors.push(`${token.symbol} price: ${priced.reason}`);
         // Resolve a logo for tokens discovered without one (e.g. via log scanning),
         // mirroring the single-wallet path (evm-pricing.ts). Without this, the batch
-        // engine — used by the multi-wallet scan table — returned logoUrl=undefined
+        // engine ÔÇö used by the multi-wallet scan table ÔÇö returned logoUrl=undefined
         // for well-known tokens, leaving a blank colored circle in the UI.
         let logoUrl = token.logoUrl;
         if (!logoUrl) {
@@ -605,7 +605,7 @@ export async function getEvmWalletsAssets(
 
   const pricingMs = Date.now() - pricingStart;
 
-  // Step 7: Build wallet assets — merge completed (cache-hit) + active results.
+  // Step 7: Build wallet assets ÔÇö merge completed (cache-hit) + active results.
   // Per-wallet errors = walletErrors[addr] (discovery) + pricing errors.
   // Write negative cache for truly empty wallets + balance cache for active wallets.
   const wallets: Array<{ address: string; assets: EvmWalletAssets }> = [];
@@ -658,7 +658,7 @@ export async function getEvmWalletsAssets(
     // the scan may be incomplete and the wallet might not actually be empty.
     const emptyCacheKey = opts.cache && !hasCustomTokens ? cacheKey("emptyWallet", { chainKey: key.toLowerCase(), address: addr }) : undefined;
     if (opts.cache && emptyCacheKey && nativePrice.balance === 0 && tokens.length === 0 && allErrs.length === 0) {
-        const EMPTY_TTL_MS = 60 * 60 * 1000; // 1h — avoid re-scanning truly empty wallets every 10min
+        const EMPTY_TTL_MS = 10 * 60 * 1000;
         cacheWrites.push({ key: emptyCacheKey, value: {
           chain: key.toLowerCase(),
           chainName: String(chain.CHAIN?.NAME ?? key),

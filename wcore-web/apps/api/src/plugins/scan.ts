@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+﻿import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
 import pLimit from "p-limit";
 import type { PrismaClient } from "@wcore/db";
@@ -118,7 +118,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             cachedChains.push(assets);
             return;
           }
-          // Cached result has no value (empty or errored) — skip and re-scan
+          // Cached result has no value (empty or errored) ÔÇö skip and re-scan
         }
         uncachedChains.push(chain);
       });
@@ -239,7 +239,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const body = bodyParsed.data;
 
     // Validate every address up-front: a bad address must be a 400, not an
-    // unhandled throw (previously a raw Error inside .map() → 500).
+    // unhandled throw (previously a raw Error inside .map() ÔåÆ 500).
     const addresses: string[] = [];
     for (const a of body.addresses as string[]) {
       const parsed = AnyAddress.safeParse(a);
@@ -278,7 +278,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const intraScanPriceCache = new Map<string, Promise<any>>();
 
     // Group chains by VM type for batching. Previously used require() which
-    // throws "require is not defined" under ESM → evmChains stayed empty and
+    // throws "require is not defined" under ESM ÔåÆ evmChains stayed empty and
     // every chain fell through to the non-EVM individual-scan path (no
     // Multicall3 batching, BASE timing out on multi-wallet scans).
     const evmChains = activeChains.filter(c => getChain(c)?.vm === "EVM");
@@ -296,7 +296,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const cachedEvmByAddr = new Map<string, Map<string, WalletAssets>>();
     const uncachedEvmPairs: Array<{ chain: string; uncachedAddrs: string[] }> = [];
     if (!forceRefresh) {
-      // Single mget round-trip for all (chain, address) pairs instead of N×M gets.
+      // Single mget round-trip for all (chain, address) pairs instead of N├ùM gets.
       const pairs: Array<{ chain: string; addr: string }> = [];
       for (const chain of evmChains) for (const addr of addresses) pairs.push({ chain, addr });
       let cachedEntries: ((WalletAssets & { ts: number }) | undefined)[] = [];
@@ -316,7 +316,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             cachedEvmByAddr.get(addr)!.set(chain, assets);
             return;
           }
-          // Cached result has no value — skip and re-scan
+          // Cached result has no value ÔÇö skip and re-scan
         }
         if (!uncachedByChain.has(chain)) uncachedByChain.set(chain, []);
         uncachedByChain.get(chain)!.push(addr);
@@ -338,7 +338,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       }
     }
 
-    // EVM batch scan with per-chain timeout — only for uncached pairs
+    // EVM batch scan with per-chain timeout ÔÇö only for uncached pairs
     const evmScanPool = pLimit(SCAN_CONCURRENCY);
     const evmResults = await Promise.all(uncachedEvmPairs.map(({ chain, uncachedAddrs }) => evmScanPool(async () => {
       const timeoutMsg = `chain_timeout: ${chain} exceeded ${BATCH_CHAIN_TIMEOUT_MS}ms`;
@@ -399,7 +399,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       const NON_EVM_MAX_ATTEMPTS = Number(process.env.NON_EVM_SCAN_RETRIES) || 3;
       await Promise.all(addresses.flatMap(addr =>
         nonEvmChains.map((chain) => nonEvmScanPool(async () => {
-          // Check scan:v2 cache before hitting RPCs (unless forceRefresh)
+          // Check scan result cache before hitting RPCs (unless forceRefresh)
           if (!forceRefresh) {
             const scanCacheKey = getScanResultCacheKey(addr, chain);
             try {
@@ -409,9 +409,9 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
                 const assets = result as WalletAssets;
                 if (hasCachedValue(assets)) {
                   walletChainResults.get(addr)?.set(chain, assets);
-                  return; // skip RPC — serve cached result with value
+                  return; // skip RPC ÔÇö serve cached result with value
                 }
-                // Cached result has no value — skip and re-scan
+                // Cached result has no value ÔÇö skip and re-scan
               }
             } catch { /* cache read failure is non-fatal */ }
           }
@@ -445,7 +445,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
 
           const assets = best ?? ({ chain, chainName: chain, native: { symbol: "NATIVE", balance: 0, priceEur: null, valueEur: null }, tokens: [], errors: ["scan_failed"], totalValueEur: 0, scanMs: 0 } as WalletAssets);
           walletChainResults.get(addr)?.set(chain, assets);
-          // Write scan:v2 cache so future scans can skip this (addr, chain) pair
+          // Write scan result cache so future scans can skip this (addr, chain) pair
           if (shouldCacheAssets(assets)) {
             const scanCacheKey = getScanResultCacheKey(addr, chain);
             sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});

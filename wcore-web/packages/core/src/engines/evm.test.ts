@@ -1,4 +1,4 @@
-// Run: node --import tsx --test packages/core/src/engines/evm.test.ts
+﻿// Run: node --import tsx --test packages/core/src/engines/evm.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getEvmWalletAssets, getEvmWalletsAssets } from "./evm.js";
@@ -339,6 +339,50 @@ test("getEvmWalletAssets serves negative cache after native liveness confirms em
   assert.equal(nativeCalls, 2, "second call should verify native liveness before serving empty cache");
 });
 
+test("getEvmWalletAssets writes empty cache with a 10 minute TTL", async () => {
+  const emptyDiscovery: TokenDiscovery = {
+    async discoverTokensForWallet(): Promise<DiscoveredToken[]> {
+      return [];
+    },
+  };
+  const dispatcher = {
+    async run<T>(
+      _endpoints: ReadonlyArray<string>,
+      call: (endpoint: string, opts: RpcCallOptions) => Promise<T>,
+    ) {
+      const value = await call("https://rpc.example", {});
+      return { consensus: true, value, votes: 1, total: 1, attempts: [] };
+    },
+  };
+  const rpc = {
+    async getBalance(): Promise<bigint> { return 0n; },
+    async ethCall(): Promise<string> { return "0x"; },
+  };
+  const sources = makeNativeSources(3000);
+  const store = new Map<string, unknown>();
+  const ttls = new Map<string, number>();
+  const cache = {
+    async get<T>(key: string): Promise<T | undefined> { return store.get(key) as T | undefined; },
+    async set<T>(key: string, value: T, ttlMs: number): Promise<void> { store.set(key, value); ttls.set(key, ttlMs); },
+    async add<T>(key: string, value: T, ttlMs: number): Promise<boolean> { if (store.has(key)) return false; store.set(key, value); ttls.set(key, ttlMs); return true; },
+    async delete(key: string): Promise<void> { store.delete(key); },
+    async clear(): Promise<void> { store.clear(); },
+    async mget<T>(keys: string[]): Promise<(T | undefined)[]> { return keys.map((key) => store.get(key) as T | undefined); },
+  };
+
+  const result = await getEvmWalletAssets(OWNER, "base", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources,
+    tokenDiscovery: emptyDiscovery,
+    fxRate: 1,
+    cache,
+  });
+
+  assert.equal(result.errors.length, 0);
+  assert.equal(ttls.get(`empty:base:${OWNER.toLowerCase()}`), 10 * 60 * 1000);
+});
+
 test("getEvmWalletAssets forceRefresh bypasses the empty cache for a fresh re-scan", async () => {
   const emptyDiscovery: TokenDiscovery = {
     async discoverTokensForWallet(): Promise<DiscoveredToken[]> {
@@ -586,7 +630,7 @@ test("getEvmWalletAssets reads per-token balance fallbacks concurrently when mul
 
 // Creates a dispatcher mock that returns realistic `attempts` arrays (not empty).
 // The actual `call` function from dispatcher.run is invoked per attempt, which means
-// getBalance → rpc.getBalance, blockNumber → rpc.blockNumber, ethCall → rpc.ethCall.
+// getBalance ÔåÆ rpc.getBalance, blockNumber ÔåÆ rpc.blockNumber, ethCall ÔåÆ rpc.ethCall.
 function mockDispatcherWithAttempts(
   spec: Array<{ endpoint: string; ok: boolean; error?: string }>,
 ) {
@@ -678,8 +722,8 @@ test("readNativeBalance: consensus RPC beats stale cache", async () => {
     async call(): Promise<string> { return "0x"; },
   };
 
-  // Stale cache: 48h old, 50 ETH → age > 24h → confidence capped at 0.25
-  // Consensus RPC 100 ETH with confidence 0.9 → resolveBalance picks live_consensus
+  // Stale cache: 48h old, 50 ETH ÔåÆ age > 24h ÔåÆ confidence capped at 0.25
+  // Consensus RPC 100 ETH with confidence 0.9 ÔåÆ resolveBalance picks live_consensus
   const store = new Map<string, unknown>([[
     `native:base:${OWNER}`,
     { balance: STALE_ETH_50.toString(), ts: Date.now() - 48 * 60 * 60 * 1000, confidence: 0.8 },
@@ -717,7 +761,7 @@ test("readNativeBalance: RPC all-fail + fresh cache returns degraded fallback", 
     async call(): Promise<string> { return "0x"; },
   };
 
-  // Fresh cache: 5 min old, 50 ETH, confidence 0.8 → resolveBalance returns cache_fallback_live_failed
+  // Fresh cache: 5 min old, 50 ETH, confidence 0.8 ÔåÆ resolveBalance returns cache_fallback_live_failed
   const store = new Map<string, unknown>([[
     `native:base:${OWNER}`,
     { balance: CACHED_ETH.toString(), ts: Date.now() - 5 * 60 * 1000, confidence: 0.8 },
@@ -758,7 +802,7 @@ test("readErc20Balance: consensus RPC beats stale token cache", async () => {
   const rpc = {
     async getBalance(): Promise<bigint> { return 0n; },
     async blockNumber(): Promise<number> { return 20_000_000; },
-    // Multicall returns 0x → triggers per-token fallback
+    // Multicall returns 0x ÔåÆ triggers per-token fallback
     async call(): Promise<string> { return "0x"; },
     // Per-token ethCall returns consensus balance
     async ethCall(): Promise<string> {
@@ -766,7 +810,7 @@ test("readErc20Balance: consensus RPC beats stale token cache", async () => {
     },
   };
 
-  // Stale cache: 48h old, 0.1 token → age > 24h → confidence capped at 0.25
+  // Stale cache: 48h old, 0.1 token ÔåÆ age > 24h ÔåÆ confidence capped at 0.25
   const store = new Map<string, unknown>([[
     `token:base:${CONTRACT.toLowerCase()}:${OWNER}`,
     { balance: STALE_BALANCE_WEI.toString(), ts: Date.now() - 48 * 60 * 60 * 1000, confidence: 0.8 },
@@ -913,7 +957,7 @@ test("multicall confirmed zero overwrites positive token cache", async () => {
   assert.equal(cached?.balance, "0");
 });
 
-test("readErc20Balance: non-ERC20 all-revert → token skipped", async () => {
+test("readErc20Balance: non-ERC20 all-revert ÔåÆ token skipped", async () => {
   const CONTRACT = "0x1111111111111111111111111111111111111111";
 
   const discovery: TokenDiscovery = {
@@ -922,7 +966,7 @@ test("readErc20Balance: non-ERC20 all-revert → token skipped", async () => {
     },
   };
 
-  // All RPCs revert → non_erc20_revert → token skipped
+  // All RPCs revert ÔåÆ non_erc20_revert ÔåÆ token skipped
   const dispatcher = mockDispatcherWithAttempts([
     { endpoint: "https://rpc1.example", ok: true },
     { endpoint: "https://rpc2.example", ok: true },
@@ -953,7 +997,7 @@ test("readErc20Balance: non-ERC20 all-revert → token skipped", async () => {
   assert.ok(store.has(skipKey), "skip cache should be written for non-ERC20");
 });
 
-// ─── getEvmWalletsAssets (multi-wallet batch) tests ──────────────────────────
+// ÔöÇÔöÇÔöÇ getEvmWalletsAssets (multi-wallet batch) tests ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 const WALLET_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const WALLET_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -1000,6 +1044,42 @@ test("getEvmWalletsAssets: negative cache hit uses native liveness before servin
   assert.equal(discoveryCalls, 0, "discovery should be skipped for cached-empty wallet");
 });
 
+test("getEvmWalletsAssets writes empty cache with a 10 minute TTL", async () => {
+  const store = new Map<string, unknown>();
+  const ttls = new Map<string, number>();
+  const cache = {
+    async get<T>(key: string): Promise<T | undefined> { return store.get(key) as T | undefined; },
+    async set<T>(key: string, value: T, ttlMs: number): Promise<void> { store.set(key, value); ttls.set(key, ttlMs); },
+    async delete(key: string): Promise<void> { store.delete(key); },
+    async clear(): Promise<void> { store.clear(); },
+    async mget<T>(keys: string[]): Promise<(T | undefined)[]> { return keys.map((key) => store.get(key) as T | undefined); },
+    async add<T>(key: string, value: T, ttlMs: number): Promise<boolean> { if (store.has(key)) return false; store.set(key, value); ttls.set(key, ttlMs); return true; },
+  };
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc.example", ok: true },
+  ]);
+  const rpc = {
+    async blockNumber(): Promise<number> { return 20_000_000; },
+    async getBalance(): Promise<bigint> { return 0n; },
+    async getLogs(): Promise<any[]> { return []; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+    async batch(): Promise<any[]> { return []; },
+  };
+
+  const result = await getEvmWalletsAssets([WALLET_A], "base", {
+    cache,
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(3000),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+    fxRate: 1,
+  });
+
+  assert.equal(result.wallets[0]!.assets.errors.length, 0);
+  assert.equal(ttls.get(`empty:base:${WALLET_A.toLowerCase()}`), 10 * 60 * 1000);
+});
+
 test("getEvmWalletsAssets: negative cache is bypassed when native liveness detects funds", async () => {
   const store = new Map<string, unknown>([
     [`empty:base:${WALLET_A.toLowerCase()}`, { chain: "base", chainName: "Base", nativeSymbol: "ETH" }],
@@ -1038,9 +1118,9 @@ test("getEvmWalletsAssets: negative cache is bypassed when native liveness detec
   assert.equal(discoveryCalls, 1, "discovery should run after empty cache is bypassed");
 });
 
-test("getEvmWalletsAssets: multiple wallets — negative cache + active discovery mixed", async () => {
-  // Wallet A: negative cache hit → skips RPC
-  // Wallet B: no cache → runs discovery (mock returns empty)
+test("getEvmWalletsAssets: multiple wallets ÔÇö negative cache + active discovery mixed", async () => {
+  // Wallet A: negative cache hit ÔåÆ skips RPC
+  // Wallet B: no cache ÔåÆ runs discovery (mock returns empty)
   const store = new Map<string, unknown>([
     [`empty:base:${WALLET_A.toLowerCase()}`, { chain: "base", chainName: "Base", nativeSymbol: "ETH" }],
   ]);
@@ -1074,7 +1154,7 @@ test("getEvmWalletsAssets: multiple wallets — negative cache + active discover
   assert.equal(walletA.assets.tokens.length, 0);
   assert.equal(walletA.assets.totalValueEur, 0);
 
-  // Wallet B: active scan (discovery returned empty → no tokens, native=0)
+  // Wallet B: active scan (discovery returned empty ÔåÆ no tokens, native=0)
   const walletB = result.wallets.find((w) => w.address === WALLET_B)!;
   assert.ok(walletB, "wallet B should be present");
   assert.equal(walletB.assets.tokens.length, 0);
@@ -1089,7 +1169,7 @@ test("getEvmWalletsAssets: multiple wallets — negative cache + active discover
 });
 
 test("getEvmWalletsAssets: custom tokens added to results even when discovery is empty", async () => {
-  // No cached tokens, but customTokens are provided → they go into activeTokenMap
+  // No cached tokens, but customTokens are provided ÔåÆ they go into activeTokenMap
   // Discovery mock returns empty, but custom token should still appear in results
   const CUSTOM = "0x9999999999999999999999999999999999999999";
   const store = new Map<string, unknown>();
@@ -1102,7 +1182,7 @@ test("getEvmWalletsAssets: custom tokens added to results even when discovery is
     async blockNumber(): Promise<number> { return 20_000_000; },
     async getBalance(): Promise<bigint> { return 0n; },
     async getLogs(): Promise<any[]> { return []; },
-    // Multicall3 returns 0 balance for the custom token → falls through to ethCall
+    // Multicall3 returns 0 balance for the custom token ÔåÆ falls through to ethCall
     async call(): Promise<string> { return "0x"; },
     // Per-token ethCall returns 1 token balance for the custom contract
     async ethCall(_endpoint: string, to: string): Promise<string> {
@@ -1129,7 +1209,7 @@ test("getEvmWalletsAssets: custom tokens added to results even when discovery is
     rpc: rpc as never,
     customTokens: [CUSTOM],
     sources,
-    sharedPriceCache: new MemoryPricingCache(), // fresh cache — isolate from other tests
+    sharedPriceCache: new MemoryPricingCache(), // fresh cache ÔÇö isolate from other tests
     fxRate: 1,
   });
 
@@ -1331,9 +1411,9 @@ test("getEvmWalletsAssets: skips native precompile tokens", async () => {
   }
 });
 
-// ─── P0-4/P0-5 regression tests — batch native-only + bal_cache v2 ──────────
+// ÔöÇÔöÇÔöÇ P0-4/P0-5 regression tests ÔÇö batch native-only + bal_cache v2 ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
-test("getEvmWalletsAssets: batch EVM native-only — wallet without tokens still reads native balance", async () => {
+test("getEvmWalletsAssets: batch EVM native-only ÔÇö wallet without tokens still reads native balance", async () => {
   const store = new Map<string, unknown>();
   const cache = makeCacheStore(store);
   // Fresh pricing cache to avoid pollution from other tests (module-level sharedPriceCache)
@@ -1407,13 +1487,13 @@ test("getEvmWalletsAssets: batch EVM respects DISABLE_NATIVE_BALANCE", async () 
   assert.equal(wallet.assets.tokens.length, 0);
 });
 
-test("getEvmWalletAssets (single): bal_cache v2 — cross-read from batch written cache", async () => {
+test("getEvmWalletAssets (single): bal_cache v2 ÔÇö cross-read from batch written cache", async () => {
   const CONTRACT = "0x1111111111111111111111111111111111111111";
   const NATIVE_WEI = 500_000_000_000_000_000n;  // 0.5 ETH (18 decimals)
 
   const discovery: TokenDiscovery = {
     async discoverTokensForWallet(): Promise<DiscoveredToken[]> {
-      return []; // bal_cache v2 provides all data — no new tokens needed
+      return []; // bal_cache v2 provides all data ÔÇö no new tokens needed
     },
   };
 
@@ -1458,7 +1538,7 @@ test("getEvmWalletAssets (single): bal_cache v2 — cross-read from batch writte
   // Token should have 1.0 balance (formatted string "1" from cache)
   assert.equal(result.tokens.length, 1);
   assert.equal(result.tokens[0]?.balance, 1);
-  // bal_cache shortcut activated (native RPC runs in parallel — unavoidable)
+  // bal_cache shortcut activated (native RPC runs in parallel ÔÇö unavoidable)
   assert.ok(result.errors.some((e: string) => e.includes("[BAL_CACHE]")), "should have BAL_CACHE marker");
 });
 
@@ -1466,7 +1546,7 @@ test("getEvmWalletsAssets: batch path resolves a logoUrl for tokens discovered w
   // Regression: the batch engine (multi-wallet scan, used by the wallet results
   // table) passed token.logoUrl straight through without resolving a fallback,
   // unlike the single-wallet path. Tokens discovered via log scanning (no logoUrl)
-  // reached the frontend with logoUrl=undefined → blank colored circle even for
+  // reached the frontend with logoUrl=undefined ÔåÆ blank colored circle even for
   // well-known tokens. The batch path must resolve a fallback logo like the
   // single-wallet path does.
   const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"; // real USDC on Base (TrustWallet-indexed)
@@ -1527,7 +1607,7 @@ test("getEvmWalletsAssets: batch path resolves a logoUrl for tokens discovered w
 
 test("registry tokens do not use broken spothq SVG logos for major assets", async () => {
   // Regression: registry LOGO() pointed at spothq cryptocurrency-icons SVGs which
-  // render naturalWidth=0 in browsers for USDC/USDT/WETH/WBTC/ARB → blank circle.
+  // render naturalWidth=0 in browsers for USDC/USDT/WETH/WBTC/ARB ÔåÆ blank circle.
   // Registry entries for major tokens must either omit logoUrl (so the resolver
   // falls back to CMC/TrustWallet) or use a non-spothq URL.
   const { TOKEN_REGISTRY } = await import("../tokens/registry.js");

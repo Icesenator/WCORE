@@ -9,7 +9,7 @@ describe("cacheKey", () => {
 
   it("builds web scanResult key", () => {
     expect(cacheKey("scanResult", { address: "0x123", chainKey: "BASE" }))
-      .toBe("scan:v2:0x123:BASE");
+      .toBe("scan:result:0x123:BASE");
   });
 
   it("throws on missing var", () => {

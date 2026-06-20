@@ -13,6 +13,11 @@ var _COSMOS_HUB = ChainFactory.createCosmosChain("COSMOS_HUB", {
  CACHE_VERSION: 67, // Bumped for v4.9.6 fix - invalidates broken caches
  API: {
  REST_URL: "https://cosmos-rest.publicnode.com",
+ REST_URLS: [
+  "https://cosmos-rest.publicnode.com",
+  "https://rest.cosmos.directory/cosmoshub",
+  "https://cosmoshub-api.lavenderfive.com"
+ ],
  LCD_URL: "https://cosmos-rest.publicnode.com",
  RPC_URL: "https://cosmos-rpc.publicnode.com"
  },

@@ -1,12 +1,12 @@
 /**
- * TON.gs - TON / The Open Network (v4.15.80)
+ * TON.gs - TON / The Open Network (v4.15.81)
  * Native TON + jettons via TonAPI, quota-safe standalone engine.
  */
 
-var TON_VERSION = "4.15.80";
+var TON_VERSION = "4.15.81";
 
 var TON_CONFIG = {
-  VERSION: "TON_v4.15.80",
+  VERSION: "TON_v4.15.81",
   CACHE_VERSION: 5,
   TIMEOUTS: { MAX_EXECUTION_MS: 30000, HTTP_MS: 4000 },
   CACHE: { WALLET_CACHE_TTL_SECONDS: 86400, WALLET_TTL_MS: 86400000, PRICE_TTL_MS: 43200000 },
@@ -48,13 +48,40 @@ CHAIN_CONFIG_SCHEMA.validate({
   llamaIdMap: TON_CONFIG.LLAMA_ID_MAP
 });
 
-var _TON = {
-  getConfig: function() { return TON_CONFIG; },
-  getWalletAssets: function(a,r,t,f,g) { return GET_WALLET_ASSETS_TON(a,r,t,f,g); },
-  getCachedWalletAssets: function(a) { return CACHED_WALLET_ASSETS_TON(a); },
-  getRefreshStatus: function(a,r,t,f,g) { return TON_REFRESH_STATUS(a,r,t,f,g); },
-  getStats: function(a,t) { return TON_STATS(a,t); }
-};
+var _TON = ChainFactory.createTonChain("TON", {
+  VERSION: "TON_v4.15.81",
+  CACHE_VERSION: 5,
+  RPC: {
+    ENDPOINTS: [
+      "https://tonapi.io/v2",
+      "https://toncenter.com/api/v2"
+    ],
+    TIMEOUT_MS: 4000
+  },
+  TIMEOUTS: { MAX_EXECUTION_MS: 30000, HTTP_MS: 4000 },
+  CACHE: { WALLET_CACHE_TTL_SECONDS: 86400, WALLET_TTL_MS: 86400000, PRICE_TTL_MS: 43200000 },
+  KEYS: { WALLET_CACHE_PREFIX: "TON_CACHE_WALLET_", NATIVE_PRICE: "native" },
+  CHAIN: {
+    VM: "TON",
+    NAME: "TON",
+    DISPLAY_NAME: "Space - TON",
+    NATIVE_SYMBOL: "GRAM",
+    NATIVE_NAME: "Gram",
+    NATIVE_DECIMALS: 9,
+    NATIVE_LLAMA_ID: "coingecko:the-open-network",
+    NATIVE_GECKO_ID: "the-open-network"
+  },
+  API: {
+    TONAPI_BASE: "https://tonapi.io/v2",
+    TONCENTER_BALANCE: "https://toncenter.com/api/v2/getAddressBalance"
+  },
+  LLAMA_ID_MAP: {
+    "GRAM": "coingecko:the-open-network",
+    "TON": "coingecko:the-open-network",
+    "USDT": "coingecko:tether",
+    "USD₮": "coingecko:tether"
+  }
+});
 
 function _tonNow_() { return (typeof Format !== "undefined" && Format.now) ? Format.now() : Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss"); }
 function _tonDisplayName_() { return TON_CONFIG.CHAIN.DISPLAY_NAME || "Space - TON"; }

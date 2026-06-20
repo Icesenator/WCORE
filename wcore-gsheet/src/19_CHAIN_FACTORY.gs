@@ -1,6 +1,7 @@
 /************************************************************
- * 19_CHAIN_FACTORY.gs - Chain Factory Pattern (v4.15.14)
+ * 19_CHAIN_FACTORY.gs - Chain Factory Pattern (v4.15.51)
  *
+ * v4.15.51 - Added TON registration wrapper for @wcore/chains extraction.
  * v4.15.14 - ChainFactory registry for background workers.
  *   Workers can resolve chain configs deterministically without relying on
  *   global variable enumeration in Apps Script.
@@ -37,7 +38,7 @@
  * function GET_WALLET_ASSETS_BASE(a,r,t,f,g){return _BASE.getWalletAssets(a,r,t,f,g);}
  ************************************************************/
 
-var CHAIN_FACTORY_VERSION = "4.15.14";
+var CHAIN_FACTORY_VERSION = "4.15.51";
 
 var ChainFactory = ChainFactory || {};
 
@@ -200,6 +201,38 @@ ChainFactory.createEvmChain = function(chainName, chainConfig) {
  cacheStats: function(){return Diagnostic.cacheStats(getConfig());},
  clearCache: function(w,c){return Diagnostic.clearCache(getConfig(),w,c);}
  }
+ };
+ return ChainFactory.registerChain(name, api);
+};
+
+// ============================================================
+// TON CHAIN FACTORY
+// ============================================================
+
+ChainFactory.createTonChain = function(chainName, chainConfig) {
+ var _config = null;
+ var name = String(chainName).toUpperCase();
+
+ var getConfig = function() {
+  if (_config) return _config;
+  var cfg = {};
+  for (var k in chainConfig) {
+   if (chainConfig.hasOwnProperty(k)) cfg[k] = chainConfig[k];
+  }
+  if (!cfg.VERSION) cfg.VERSION = name + "_TON_v" + ChainFactory.VERSION;
+  if (!cfg.CACHE_VERSION) cfg.CACHE_VERSION = 1;
+  _config = cfg;
+  return _config;
+ };
+
+ var api = {
+  name: name,
+  type: 'TON',
+  getConfig: getConfig,
+  getWalletAssets: function(a,r,t,f,g){ return GET_WALLET_ASSETS_TON(a,r,t,f,g); },
+  getCachedWalletAssets: function(a){ return CACHED_WALLET_ASSETS_TON(a); },
+  getRefreshStatus: function(a,r,t,f,g){ return TON_REFRESH_STATUS(a,r,t,f,g); },
+  getStats: function(a,t){ return TON_STATS(a,t); }
  };
  return ChainFactory.registerChain(name, api);
 };

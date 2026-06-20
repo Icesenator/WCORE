@@ -21,11 +21,16 @@ Ces outils sont configurés globalement dans `~/.codex/config.toml` + `~/.codex/
 ## Projet
 
 Système de suivi de portefeuilles crypto multi-chaînes sur Google Sheets + Apps Script.
-- **116+ blockchains** (EVM, SVM/Solana, Cosmos SDK)
+- **182 blockchains** (EVM, SVM/Solana, Cosmos SDK, TON) — toutes extractibles vers `@wcore/chains`
 - **120 combinaisons wallet-chaîne**
-- Version actuelle : **v4.15.49**
+- Version actuelle : **v4.15.50+** (gsheet) / **v0.3.1** (web) — voir `ROADMAP.md` et `CHANGELOG.md` (web)
 - Langue du développeur : **français** — répondre en français
 - Spreadsheet ID : `1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4`
+- **GitHub** : `https://github.com/Icesenator/WCORE`
+- **Email projet** : `wcorexyz@gmail.com`
+- **Docker Hub** : `wcorexyz`
+- **Domaine** : `wcore.xyz` (Railway)
+- **Railway** : projet `WCORE` (`cbb16f4a-79c1-46ef-92b2-019c9c9940d7`)
 
 ## Démarrage rapide (checklist autonomie)
 
@@ -85,21 +90,27 @@ node scripts/connect-google.js
 
 ```
 wcore-gsheet/
-├── src/               ← Fichiers .gs (source de vérité)
+├── src/               ← Fichiers .gs (source de vérité, 182 chaînes)
+├── dist/              ← Package @wcore/chains (généré par extract-chains.mjs)
 ├── pulls/             ← Tirages depuis Apps Script (clasp pull)
 ├── .backups/          ← Sauvegardes automatiques
 ├── .clasp.json        ← Config clasp (lien projet GAS)
+├── tools/
+│   ├── extract-chains.mjs            ← Extraction src/*.gs → dist/chains/*.ts
+│   ├── validate-static.js            ← Validation statique GAS
+│   ├── port-web-chains-to-gsheet.cjs ← Générateur web→gsheet (Phase 3)
+│   └── test-phase3-chain-port.cjs    ← Vérification ports Phase 3
 ├── scripts/
-│   ├── chrome-cdp.js           ← Helper Chrome CDP (start/connect)
-│   ├── connect-google.js       ← Login Google automatique
-│   ├── clasp-login-auto.js     ← OAuth clasp
-│   └── validate-static.js      ← Validation statique
+│   ├── chrome-cdp.js                 ← Helper Chrome CDP (start/connect)
+│   ├── connect-google.js             ← Login Google automatique
+│   ├── clasp-login-auto.js           ← OAuth clasp
+│   └── fx-cascade-spec.cjs+test.cjs  ← Tests cross-runtime FX
 ├── safe-push.ps1      ← Script PowerShell de déploiement sécurisé
 ├── pull-all.ps1       ← Script PowerShell de récupération
 └── AGENTS.md          ← Ce fichier
 ```
 
-Les fichiers `.gs` sont dans `src/`. C'est là qu'on travaille.
+Les fichiers `.gs` sont dans `src/`. C'est là qu'on travaille. Les configs sont extraites vers `dist/` pour le package `@wcore/chains` consommé par `wcore-web`.
 
 ## Architecture des fichiers core (ordre de chargement)
 
@@ -130,6 +141,7 @@ Les fichiers `.gs` sont dans `src/`. C'est là qu'on travaille.
 | `13_DIAGNOSTIC.gs` | Fonctions de diagnostic |
 | `14_SVM_ENGINE.gs` | Moteur Solana |
 | `15_COSMOS_ENGINE.gs` | Moteur Cosmos |
+| `TON.gs` | Moteur TON (standalone, enregistré via `ChainFactory.createTonChain`) |
 | `16_REFRESH.gs` | Watchdog de refresh + triggers |
 | `17_LISTING.gs` | Listing des onglets Ledger + SHEET_LINK() |
 | `18_CLEANUP.gs` | Nettoyage de cache |
@@ -164,6 +176,34 @@ function CHAINNAME_REFRESH_STATUS(a,r,t,f,g){return _CHAINNAME.getRefreshStatus(
 function CHAINNAME_STATS(a,t){return _CHAINNAME.getStats(a,t);}
 // + fonctions DIAG_CHAINNAME_*
 ```
+
+## Phase 3 — Portage & extraction chaînes
+
+Les configs de chaînes suivent un cycle unifié :
+
+1. **Source de vérité** : `wcore-gsheet/src/*.gs` (fichiers Apps Script avec `ChainFactory.create*Chain`)
+2. **Extraction** : `npm run build:chains` → `tools/extract-chains.mjs` parse les `.gs` → `dist/chains/*.ts` → package `@wcore/chains`
+3. **Vérification** : `npm run test:phase3-chains` → `tools/test-phase3-chain-port.cjs` vérifie présence `.gs`, extraction, factory, équivalence
+4. **Portage web→gsheet** : `npm run port:web-chains` → `tools/port-web-chains-to-gsheet.cjs` génère les `.gs` manquants depuis les configs TS web
+5. **Validation statique** : `npm run validate:static` → `tools/validate-static.js` vérifie les fonctions globales
+
+### Commandes
+
+```bash
+npm run validate:static      # Vérifie les fonctions globales GAS (2904+)
+npm run build:chains         # Extrait src/*.gs → dist/chains/*.ts (182 chaînes)
+npm run test:phase3-chains   # Vérifie tous les ports Phase 3
+npm run port:web-chains      # Génère les .gs manquants depuis les configs web
+```
+
+### Extraction supportée
+
+| Factory method | VM | Nombre |
+|---------------|-----|--------|
+| `createEvmChain` | EVM | 168 |
+| `createSvmChain` | SVM | 2 |
+| `createCosmosChain` | Cosmos | 11 |
+| `createTonChain` | TON | 1 |
 
 ## Contraintes Apps Script (CRITIQUES)
 

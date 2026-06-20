@@ -8,6 +8,8 @@
     "validate:static": "node tools/validate-static.js",
     "test:cache-keys": "node scripts/test-cache-keys.js",
     "test:chain-config": "node scripts/test-chain-config.js",
+    "test:phase3-chains": "node tools/test-phase3-chain-port.cjs",
+    "port:web-chains": "node tools/port-web-chains-to-gsheet.cjs",
     "build:chains": "node tools/extract-chains.mjs",
     "clean:chains": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist/chains',{recursive:true,force:true}))\""
   },

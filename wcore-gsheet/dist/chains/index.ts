@@ -4,14 +4,19 @@ export type { ChainConfig } from "../types.js";
 export { VmType } from "../types.js";
 
 import { ABSTRACT } from "./ABSTRACT.js";
+import { AEVO } from "./AEVO.js";
+import { AIRDAO } from "./AIRDAO.js";
 import { ANCIENT8 } from "./ANCIENT8.js";
 import { APECHAIN } from "./APECHAIN.js";
 import { APPCHAIN } from "./APPCHAIN.js";
 import { ARBITRUM_NOVA } from "./ARBITRUM_NOVA.js";
 import { ARBITRUM_ONE } from "./ARBITRUM_ONE.js";
+import { ARENA_Z } from "./ARENA_Z.js";
 import { ASTAR } from "./ASTAR.js";
 import { AURORA } from "./AURORA.js";
 import { AVALANCHE } from "./AVALANCHE.js";
+import { AVES_NETWORK } from "./AVES_NETWORK.js";
+import { AWAJI } from "./AWAJI.js";
 import { B2 } from "./B2.js";
 import { B3 } from "./B3.js";
 import { BASE } from "./BASE.js";
@@ -23,41 +28,73 @@ import { BOB } from "./BOB.js";
 import { BOBA } from "./BOBA.js";
 import { BOTANIX } from "./BOTANIX.js";
 import { BSC } from "./BSC.js";
+import { BXN } from "./BXN.js";
 import { CAMP } from "./CAMP.js";
+import { CELESTIA } from "./CELESTIA.js";
 import { CELO } from "./CELO.js";
 import { CITREA } from "./CITREA.js";
 import { CORE } from "./CORE.js";
 import { CORN } from "./CORN.js";
 import { COSMOS_HUB } from "./COSMOS_HUB.js";
+import { CREDITCOIN } from "./CREDITCOIN.js";
 import { CRONOS } from "./CRONOS.js";
+import { CROSS_MAINNET } from "./CROSS_MAINNET.js";
+import { CROSSBELL } from "./CROSSBELL.js";
 import { CYBER } from "./CYBER.js";
+import { CYSIC } from "./CYSIC.js";
 import { DBK_CHAIN } from "./DBK_CHAIN.js";
 import { DEGEN } from "./DEGEN.js";
+import { DOGECHAIN } from "./DOGECHAIN.js";
 import { DOMA } from "./DOMA.js";
+import { DOS_CHAIN } from "./DOS_CHAIN.js";
 import { DUCKCHAIN } from "./DUCKCHAIN.js";
+import { DYDX } from "./DYDX.js";
+import { EDEN } from "./EDEN.js";
+import { EDGELESS } from "./EDGELESS.js";
+import { EDU_CHAIN } from "./EDU_CHAIN.js";
+import { ENDURANCE } from "./ENDURANCE.js";
 import { ETHEREUM } from "./ETHEREUM.js";
+import { ETHEREUM_CLASSIC } from "./ETHEREUM_CLASSIC.js";
 import { ETHERLINK } from "./ETHERLINK.js";
+import { ETHO_PROTOCOL } from "./ETHO_PROTOCOL.js";
+import { FANTOM } from "./FANTOM.js";
 import { FLARE } from "./FLARE.js";
 import { FLOW } from "./FLOW.js";
 import { FOGO } from "./FOGO.js";
+import { FORMA } from "./FORMA.js";
 import { FRAXTAL } from "./FRAXTAL.js";
 import { FUSE } from "./FUSE.js";
+import { FVM } from "./FVM.js";
 import { GEB } from "./GEB.js";
+import { GENSYN } from "./GENSYN.js";
 import { GNOSIS } from "./GNOSIS.js";
 import { GRAVITY } from "./GRAVITY.js";
+import { HARMONY } from "./HARMONY.js";
 import { HASHKEY } from "./HASHKEY.js";
+import { HAVEN1 } from "./HAVEN1.js";
 import { HEMI } from "./HEMI.js";
+import { HORIZEN_EON } from "./HORIZEN_EON.js";
+import { HYCHAIN } from "./HYCHAIN.js";
 import { HYPEREVM } from "./HYPEREVM.js";
+import { ICB_NETWORK } from "./ICB_NETWORK.js";
 import { IMMUTABLE } from "./IMMUTABLE.js";
+import { INEVM } from "./INEVM.js";
 import { INJECTIVE } from "./INJECTIVE.js";
 import { INK } from "./INK.js";
 import { INTUITION } from "./INTUITION.js";
+import { IOTA_EVM } from "./IOTA_EVM.js";
 import { KAIA } from "./KAIA.js";
 import { KATANA } from "./KATANA.js";
+import { KAVA } from "./KAVA.js";
 import { KCC } from "./KCC.js";
+import { KITEAI } from "./KITEAI.js";
+import { LAYERAI } from "./LAYERAI.js";
 import { LENS } from "./LENS.js";
+import { LIGHTLINK } from "./LIGHTLINK.js";
 import { LINEA } from "./LINEA.js";
 import { LISK } from "./LISK.js";
+import { LORENZO } from "./LORENZO.js";
+import { LUMIO } from "./LUMIO.js";
 import { MANTA_PACIFIC } from "./MANTA_PACIFIC.js";
 import { MANTLE } from "./MANTLE.js";
 import { MATCHAIN } from "./MATCHAIN.js";
@@ -66,67 +103,104 @@ import { MERLIN } from "./MERLIN.js";
 import { METAL_L2 } from "./METAL_L2.js";
 import { METIS } from "./METIS.js";
 import { MEZO } from "./MEZO.js";
+import { MIND } from "./MIND.js";
 import { MITOSIS } from "./MITOSIS.js";
+import { MOCA_CHAIN } from "./MOCA_CHAIN.js";
 import { MODE } from "./MODE.js";
 import { MONAD } from "./MONAD.js";
 import { MOONBEAM } from "./MOONBEAM.js";
+import { MOONCHAIN } from "./MOONCHAIN.js";
 import { MOONRIVER } from "./MOONRIVER.js";
 import { MORPH } from "./MORPH.js";
+import { NEO_X } from "./NEO_X.js";
+import { NEON } from "./NEON.js";
+import { NEUTRON } from "./NEUTRON.js";
+import { NEXI_CHAIN } from "./NEXI_CHAIN.js";
+import { NEXUS } from "./NEXUS.js";
+import { NOBLE } from "./NOBLE.js";
+import { NUMINE } from "./NUMINE.js";
 import { OPBNB } from "./OPBNB.js";
 import { OPENLEDGER } from "./OPENLEDGER.js";
 import { OPTIMISM } from "./OPTIMISM.js";
 import { OSMOSIS } from "./OSMOSIS.js";
 import { PLASMA } from "./PLASMA.js";
+import { PLAYNANCE_PLAYBLOCK } from "./PLAYNANCE_PLAYBLOCK.js";
 import { PLUME } from "./PLUME.js";
 import { POLYGON } from "./POLYGON.js";
 import { POLYGON_ZKEVM } from "./POLYGON_ZKEVM.js";
 import { POLYNOMIAL } from "./POLYNOMIAL.js";
+import { PROOF_OF_PLAY_APEX } from "./PROOF_OF_PLAY_APEX.js";
 import { PULSECHAIN } from "./PULSECHAIN.js";
 import { RACE } from "./RACE.js";
 import { RARI } from "./RARI.js";
+import { REDSTONE } from "./REDSTONE.js";
+import { REI_NETWORK } from "./REI_NETWORK.js";
 import { REYA } from "./REYA.js";
+import { RIVALZ } from "./RIVALZ.js";
+import { ROLLUX } from "./ROLLUX.js";
 import { RONIN } from "./RONIN.js";
 import { ROOTSTOCK } from "./ROOTSTOCK.js";
+import { RSS3 } from "./RSS3.js";
 import { SCROLL } from "./SCROLL.js";
 import { SEI } from "./SEI.js";
 import { SHAPE } from "./SHAPE.js";
 import { SHIBARIUM } from "./SHIBARIUM.js";
+import { SHIDO_NETWORK } from "./SHIDO_NETWORK.js";
+import { SHIMMER_EVM } from "./SHIMMER_EVM.js";
+import { SKALE } from "./SKALE.js";
 import { SOLANA } from "./SOLANA.js";
 import { SOMNIA } from "./SOMNIA.js";
 import { SONEIUM } from "./SONEIUM.js";
 import { SONIC } from "./SONIC.js";
 import { STABLE } from "./STABLE.js";
+import { STACK } from "./STACK.js";
+import { STARGAZE } from "./STARGAZE.js";
+import { STEP_NETWORK } from "./STEP_NETWORK.js";
 import { STORY } from "./STORY.js";
+import { STRIDE } from "./STRIDE.js";
 import { SUPERPOSITION } from "./SUPERPOSITION.js";
 import { SUPERSEED } from "./SUPERSEED.js";
+import { SURFLAYER } from "./SURFLAYER.js";
 import { SWAN } from "./SWAN.js";
 import { SWELLCHAIN } from "./SWELLCHAIN.js";
 import { SYNDICATE_COMMONS } from "./SYNDICATE_COMMONS.js";
 import { TAC } from "./TAC.js";
 import { TAIKO_ALETHIA } from "./TAIKO_ALETHIA.js";
+import { TANGLE } from "./TANGLE.js";
+import { TARAXA } from "./TARAXA.js";
 import { TEMPO } from "./TEMPO.js";
 import { TERRA } from "./TERRA.js";
+import { TON } from "./TON.js";
 import { UNICHAIN } from "./UNICHAIN.js";
 import { VANA } from "./VANA.js";
+import { WORLD_MOBILE } from "./WORLD_MOBILE.js";
 import { WORLDCHAIN } from "./WORLDCHAIN.js";
 import { X_LAYER } from "./X_LAYER.js";
 import { XRPLEVM } from "./XRPLEVM.js";
+import { ZERO } from "./ZERO.js";
 import { ZETACHAIN } from "./ZETACHAIN.js";
+import { ZILLIQA_EVM } from "./ZILLIQA_EVM.js";
 import { ZIRCUIT } from "./ZIRCUIT.js";
+import { ZKFAIR } from "./ZKFAIR.js";
 import { ZKLINKNOVA } from "./ZKLINKNOVA.js";
 import { ZKSYNC_ERA } from "./ZKSYNC_ERA.js";
 import { ZORA } from "./ZORA.js";
 
 export const chains = {
   ABSTRACT,
+  AEVO,
+  AIRDAO,
   ANCIENT8,
   APECHAIN,
   APPCHAIN,
   ARBITRUM_NOVA,
   ARBITRUM_ONE,
+  ARENA_Z,
   ASTAR,
   AURORA,
   AVALANCHE,
+  AVES_NETWORK,
+  AWAJI,
   B2,
   B3,
   BASE,
@@ -138,41 +212,73 @@ export const chains = {
   BOBA,
   BOTANIX,
   BSC,
+  BXN,
   CAMP,
+  CELESTIA,
   CELO,
   CITREA,
   CORE,
   CORN,
   COSMOS_HUB,
+  CREDITCOIN,
   CRONOS,
+  CROSS_MAINNET,
+  CROSSBELL,
   CYBER,
+  CYSIC,
   DBK_CHAIN,
   DEGEN,
+  DOGECHAIN,
   DOMA,
+  DOS_CHAIN,
   DUCKCHAIN,
+  DYDX,
+  EDEN,
+  EDGELESS,
+  EDU_CHAIN,
+  ENDURANCE,
   ETHEREUM,
+  ETHEREUM_CLASSIC,
   ETHERLINK,
+  ETHO_PROTOCOL,
+  FANTOM,
   FLARE,
   FLOW,
   FOGO,
+  FORMA,
   FRAXTAL,
   FUSE,
+  FVM,
   GEB,
+  GENSYN,
   GNOSIS,
   GRAVITY,
+  HARMONY,
   HASHKEY,
+  HAVEN1,
   HEMI,
+  HORIZEN_EON,
+  HYCHAIN,
   HYPEREVM,
+  ICB_NETWORK,
   IMMUTABLE,
+  INEVM,
   INJECTIVE,
   INK,
   INTUITION,
+  IOTA_EVM,
   KAIA,
   KATANA,
+  KAVA,
   KCC,
+  KITEAI,
+  LAYERAI,
   LENS,
+  LIGHTLINK,
   LINEA,
   LISK,
+  LORENZO,
+  LUMIO,
   MANTA_PACIFIC,
   MANTLE,
   MATCHAIN,
@@ -181,53 +287,85 @@ export const chains = {
   METAL_L2,
   METIS,
   MEZO,
+  MIND,
   MITOSIS,
+  MOCA_CHAIN,
   MODE,
   MONAD,
   MOONBEAM,
+  MOONCHAIN,
   MOONRIVER,
   MORPH,
+  NEO_X,
+  NEON,
+  NEUTRON,
+  NEXI_CHAIN,
+  NEXUS,
+  NOBLE,
+  NUMINE,
   OPBNB,
   OPENLEDGER,
   OPTIMISM,
   OSMOSIS,
   PLASMA,
+  PLAYNANCE_PLAYBLOCK,
   PLUME,
   POLYGON,
   POLYGON_ZKEVM,
   POLYNOMIAL,
+  PROOF_OF_PLAY_APEX,
   PULSECHAIN,
   RACE,
   RARI,
+  REDSTONE,
+  REI_NETWORK,
   REYA,
+  RIVALZ,
+  ROLLUX,
   RONIN,
   ROOTSTOCK,
+  RSS3,
   SCROLL,
   SEI,
   SHAPE,
   SHIBARIUM,
+  SHIDO_NETWORK,
+  SHIMMER_EVM,
+  SKALE,
   SOLANA,
   SOMNIA,
   SONEIUM,
   SONIC,
   STABLE,
+  STACK,
+  STARGAZE,
+  STEP_NETWORK,
   STORY,
+  STRIDE,
   SUPERPOSITION,
   SUPERSEED,
+  SURFLAYER,
   SWAN,
   SWELLCHAIN,
   SYNDICATE_COMMONS,
   TAC,
   TAIKO_ALETHIA,
+  TANGLE,
+  TARAXA,
   TEMPO,
   TERRA,
+  TON,
   UNICHAIN,
   VANA,
+  WORLD_MOBILE,
   WORLDCHAIN,
   X_LAYER,
   XRPLEVM,
+  ZERO,
   ZETACHAIN,
+  ZILLIQA_EVM,
   ZIRCUIT,
+  ZKFAIR,
   ZKLINKNOVA,
   ZKSYNC_ERA,
   ZORA,

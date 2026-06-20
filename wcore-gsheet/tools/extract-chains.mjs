@@ -17,7 +17,7 @@ const SRC_DIR = join(ROOT, "src");
 const OUT_DIR = join(ROOT, "dist", "chains");
 
 const FACTORY_RE =
-  /var\s+_([A-Z][A-Z0-9_]*)\s*=\s*ChainFactory\.create(Evm|Svm|Cosmos)Chain\s*\(\s*["']([A-Z][A-Z0-9_]*)["']\s*,\s*\{/;
+  /var\s+_([A-Z][A-Z0-9_]*)\s*=\s*ChainFactory\.create(Evm|Svm|Cosmos|Ton)Chain\s*\(\s*["']([A-Z][A-Z0-9_]*)["']\s*,\s*\{/;
 
 function findChainFiles() {
   return readdirSync(SRC_DIR)
@@ -180,6 +180,7 @@ function vmTypeFor(factoryKind) {
   if (factoryKind === "Evm") return "EVM";
   if (factoryKind === "Svm") return "SVM";
   if (factoryKind === "Cosmos") return "COSMOS";
+  if (factoryKind === "Ton") return "TON";
   throw new Error(`unknown factory kind: ${factoryKind}`);
 }
 

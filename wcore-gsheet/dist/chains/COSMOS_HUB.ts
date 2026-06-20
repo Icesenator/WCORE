@@ -10,6 +10,11 @@ export const COSMOS_HUB: ChainConfig = {
   CACHE_VERSION: 67,
   API: {
     REST_URL: "https://cosmos-rest.publicnode.com",
+    REST_URLS: [
+      "https://cosmos-rest.publicnode.com",
+      "https://rest.cosmos.directory/cosmoshub",
+      "https://cosmoshub-api.lavenderfive.com",
+    ],
     LCD_URL: "https://cosmos-rest.publicnode.com",
     RPC_URL: "https://cosmos-rpc.publicnode.com",
   },

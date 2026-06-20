@@ -116,7 +116,7 @@ Redis-backed rate limiter. Treat it as a privileged switch.
 - Stored in **Redis** under key `empty:<chainKey>:<address>` with **TTL 10 min**. Survives API restarts.
 - Only written when the scan is clean (no `[DEGRADED]`, no `consensus failed` in `errors`) AND the wallet truly has zero native + zero tokens. A flaky-RPC empty result will not poison the cache.
 - Hits surface as `errors: ["[CACHED_EMPTY] wallet/chain has no assets within TTL"]` in the `ChainScan`. UI may want to special-case this string to avoid showing it as a real error.
-- To invalidate manually: `redis-cli DEL "empty:<chain>:<address>"`. `forceRefresh=true` bypasses the top-level `scan:v2:*` result cache; as of the 2026-06-05 audit, propagation to engine-level short-circuits is an open P0 and must not be assumed for manual cache invalidation.
+- To invalidate manually: `redis-cli DEL "empty:<chain>:<address>"`. `forceRefresh=true` bypasses the top-level `scan:result:*` result cache and engine-level empty-cache short-circuits.
 
 ### Per-phase metrics
 
@@ -126,7 +126,7 @@ Redis-backed rate limiter. Treat it as a privileged switch.
 ### Cache layers, do not confuse
 
 - **Frontend portfolio scan cache**: disabled. Portfolio scan results are no longer persisted in browser `localStorage`.
-- **Backend Redis (sharedCache)**: stores scan result cache `scan:v2:{address}:{chain}`, discovery cache, ERC-20 metadata, native balance fallback, and negative empty-cache. Survives API restarts.
+- **Backend Redis (sharedCache)**: stores scan result cache `scan:result:{address}:{chain}`, discovery cache, ERC-20 metadata, native balance fallback, and negative empty-cache. Survives API restarts.
 - A stale scan result now usually means Redis/API cache, not browser cache. Use `forceRefresh=true` to bypass the top-level scan result cache.
 
 ### Tests
@@ -146,7 +146,7 @@ Redis-backed rate limiter. Treat it as a privileged switch.
 - Deep scan loading progress is computed from `chain checks`: the sum of VM-compatible chains per enabled wallet. Do not use raw selected-chain count or current-wallet chain count as the global denominator.
 - Active deep scans show at least `1%` after the first completed chain check, even when the weighted denominator is large.
 - Header on-chain GM status is local-first. If a ChainCard GM succeeds, `wc_gm_onchain_date` must gray the Header on-chain action without a refresh.
-- Browser portfolio scan cache is disabled. If a browser still misses a newly fixed asset after deploy, verify the API response first, then inspect Redis `scan:v2:*` and engine-level caches.
+- Browser portfolio scan cache is disabled. If a browser still misses a newly fixed asset after deploy, verify the API response first, then inspect Redis `scan:result:*` and engine-level caches.
 
 ### EVM scan performance
 

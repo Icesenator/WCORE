@@ -37,7 +37,7 @@ export const CACHE_KEY_REGISTRY = {
   scanResult: {
     vars: ["address", "chainKey"],
     gsheet: "WALLET_CACHE_{chainKey}_{address}",
-    web: "scan:v2:{address}:{chainKey}",
+    web: "scan:result:{address}:{chainKey}",
     storage: "local" as const,
     ttl: "24h",
   },

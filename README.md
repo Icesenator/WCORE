@@ -7,7 +7,7 @@ Production site: https://wcore.xyz
 ## Repository Layout
 
 ```text
-wcore-web/
+WCORE/
 ├── wcore-web/      # Next.js web app, Fastify API, Prisma DB, shared packages
 └── wcore-gsheet/   # Google Apps Script runtime and canonical chain configs
 ```

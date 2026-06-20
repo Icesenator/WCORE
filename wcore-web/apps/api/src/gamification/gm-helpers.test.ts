@@ -48,15 +48,19 @@ test("fetchOnChainContracts uses chain MAX_LOG_RANGE for eth_getLogs chunks (MOO
 
 test("syncOnChainContracts targets only missing chains and upserts discovered contracts", async () => {
   const scannedChains: string[] = [];
-  const upserts: Array<{ chainKey: string; contractAddress: string }> = [];
+  const created: Array<{ chainKey: string; contractAddress: string }> = [];
   const prisma = {
     gmContract: {
       // Legacy lowercase row — must be matched case-insensitively as "known".
-      findMany: async () => [{ chainKey: "base" }],
-      findFirst: async () => null,
-      upsert: async (args: { create: { chainKey: string; contractAddress: string } }) => {
-        upserts.push(args.create);
-        return args.create;
+      findMany: async (args?: { select?: { chainKey?: boolean; contractAddress?: boolean } }) => {
+        if (args?.select?.chainKey) return [{ chainKey: "base" }];
+        if (args?.select?.contractAddress) return [];
+        return [];
+      },
+      updateMany: async () => ({ count: 0 }),
+      createMany: async (args: { data: Array<{ chainKey: string; contractAddress: string }> }) => {
+        created.push(...args.data);
+        return { count: args.data.length };
       },
     },
   };
@@ -80,9 +84,59 @@ test("syncOnChainContracts targets only missing chains and upserts discovered co
   const synced = await syncOnChainContracts("0x17d518736ee9341dcdc0a2498e013d33cfcdd080", "user1");
 
   assert.deepEqual(scannedChains, ["MERLIN"], "BASE is known in DB (case-insensitive) and must not be rescanned");
-  assert.equal(upserts.length, 1);
-  assert.equal(upserts[0]!.chainKey, "MERLIN", "upserts use the canonical UPPERCASE chainKey");
-  assert.equal(upserts[0]!.contractAddress, "0xabc0000000000000000000000000000000000001", "contract address is lowercased");
+  assert.equal(created.length, 1);
+  assert.equal(created[0]!.chainKey, "MERLIN", "created rows use the canonical UPPERCASE chainKey");
+  assert.equal(created[0]!.contractAddress, "0xabc0000000000000000000000000000000000001", "contract address is lowercased");
+  assert.deepEqual(synced, ["MERLIN"]);
+});
+
+test("syncOnChainContracts batches discovered contract persistence", async () => {
+  let findFirstCalls = 0;
+  let upsertCalls = 0;
+  let createManyCalls = 0;
+  const createManyRows: Array<{ chainKey: string; contractAddress: string; creatorAddress: string; ownerId: string }> = [];
+  const prisma = {
+    gmContract: {
+      findMany: async (args?: { select?: { chainKey?: boolean; contractAddress?: boolean; ownerId?: boolean } }) => {
+        if (args?.select?.chainKey) return [];
+        if (args?.select?.contractAddress) return [];
+        return [];
+      },
+      findFirst: async () => { findFirstCalls++; return null; },
+      upsert: async () => { upsertCalls++; return {}; },
+      createMany: async (args: { data: typeof createManyRows; skipDuplicates: boolean }) => {
+        createManyCalls++;
+        createManyRows.push(...args.data);
+        return { count: args.data.length };
+      },
+    },
+  };
+  const deps = makeDeps({
+    FACTORIES: {
+      merlin: { address: "0xf200000000000000000000000000000000000002", chainId: 4200 },
+    },
+    extractDeployedContractAddresses: () => [
+      "0xAbC0000000000000000000000000000000000001",
+      "0xDeF0000000000000000000000000000000000002",
+    ],
+  });
+  (deps as { prisma: unknown }).prisma = prisma;
+  deps.rpcFetch = (async (_rpcs: string[], body: { method: string }) => {
+    if (body.method === "eth_blockNumber") return { result: "0x4c4b40" };
+    if (body.method === "eth_getLogs") return { result: [{ topics: [] }] };
+    return { result: "0x0" };
+  }) as GmHelpersDeps["rpcFetch"];
+
+  const { syncOnChainContracts } = createGmHelpers(deps);
+  const synced = await syncOnChainContracts("0x17d518736ee9341dcdc0a2498e013d33cfcdd080", "user1");
+
+  assert.equal(findFirstCalls, 0, "must not do one ownership lookup per contract");
+  assert.equal(upsertCalls, 0, "must not do one upsert per contract");
+  assert.equal(createManyCalls, 1, "new contracts should be inserted in one batch");
+  assert.deepEqual(createManyRows.map((row) => row.contractAddress), [
+    "0xabc0000000000000000000000000000000000001",
+    "0xdef0000000000000000000000000000000000002",
+  ]);
   assert.deepEqual(synced, ["MERLIN"]);
 });
 

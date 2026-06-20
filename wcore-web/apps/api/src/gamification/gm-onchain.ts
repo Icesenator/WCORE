@@ -6,6 +6,28 @@ import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
 
+const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
+const statusOnchainCache = new Map<string, { value: boolean; expiresAt: number }>();
+
+function statusOnchainCacheKey(chainKey: string, address: string, now = new Date()): string {
+  const day = now.toISOString().slice(0, 10);
+  return `${canonicalChainKey(chainKey)}:${address.toLowerCase()}:${day}`;
+}
+
+function getStatusOnchainCache(key: string): boolean | undefined {
+  const cached = statusOnchainCache.get(key);
+  if (!cached) return undefined;
+  if (Date.now() > cached.expiresAt) {
+    statusOnchainCache.delete(key);
+    return undefined;
+  }
+  return cached.value;
+}
+
+function setStatusOnchainCache(key: string, value: boolean): void {
+  statusOnchainCache.set(key, { value, expiresAt: Date.now() + STATUS_ONCHAIN_CACHE_TTL_MS });
+}
+
 export async function registerGmOnchainRoutes(
   app: FastifyInstance,
   prisma: PrismaClient,
@@ -375,6 +397,9 @@ export async function registerGmOnchainRoutes(
       return reply.code(403).send({ error: "address_mismatch" });
     }
     const address = addressQuery.toLowerCase();
+    const cacheKey = statusOnchainCacheKey(chainQuery, address);
+    const cached = getStatusOnchainCache(cacheKey);
+    if (cached !== undefined) return { chainGmDone: cached };
 
     const factory = getFactory(chainQuery);
     if (!factory) return reply.code(400).send({ error: "unsupported_chain" });
@@ -392,7 +417,10 @@ export async function registerGmOnchainRoutes(
         contracts.push("0x" + addrData.result.slice(26));
       }
 
-      if (contracts.length === 0) return { chainGmDone: false };
+      if (contracts.length === 0) {
+        setStatusOnchainCache(cacheKey, false);
+        return { chainGmDone: false };
+      }
 
       // Check GmCheckedIn events from ALL contracts for this address today
       const gmEventSig = GM_EVENT_SIG;
@@ -423,7 +451,10 @@ export async function registerGmOnchainRoutes(
         if (logsData?.result?.length) logs.push(...logsData.result);
         if (logs.length > 0) break;
       }
-      if (logs.length === 0) return { chainGmDone: false };
+      if (logs.length === 0) {
+        setStatusOnchainCache(cacheKey, false);
+        return { chainGmDone: false };
+      }
 
       // Check if any event has timestamp >= today
       let gmDone = false;
@@ -433,6 +464,7 @@ export async function registerGmOnchainRoutes(
         if (eventTs >= todayStart) { gmDone = true; break; }
       }
 
+      setStatusOnchainCache(cacheKey, gmDone);
       return { chainGmDone: gmDone };
     } catch (e) {
       console.error("GM status-onchain RPC error:", (e as Error).message || String(e));

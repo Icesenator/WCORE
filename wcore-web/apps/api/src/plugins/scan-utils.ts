@@ -1,4 +1,4 @@
-// Shared scan utilities extracted from scan.ts for reuse across endpoints.
+﻿// Shared scan utilities extracted from scan.ts for reuse across endpoints.
 import type { CacheStore, WalletAssets } from "@wcore/core";
 import { cacheKey, type ChainScan } from "@wcore/shared";
 
@@ -56,7 +56,7 @@ export function runWithTimeout<T>(factory: (signal: AbortSignal) => Promise<T>, 
   };
 }
 
-const MAJOR_PRICEABLE_SYMBOLS = new Set(["AAVE", "BTC", "CBETH", "DAI", "ETH", "ETHFI", "LINK", "PENDLE", "RETH", "STETH", "UNI", "USDC", "USDT", "WBTC", "WETH", "WSTETH"]);
+const MAJOR_PRICEABLE_SYMBOLS = new Set(["AAVE", "AIXBT", "B3", "BNKR", "BTC", "CBETH", "CLANKER", "DAI", "EIGEN", "ETH", "ETHFI", "EURC", "LINK", "MOG", "PENDLE", "RETH", "SOLVBTC", "STETH", "UNI", "USDC", "USDT", "WBTC", "WETH", "WSTETH", "ZORA"]);
 
 export const BALANCE_CACHE_TTL_MS = 3600_000;
 
@@ -136,6 +136,7 @@ export function hasCachedValue(assets: WalletAssets): boolean {
   const nativeBalance = Number(assets.native?.balance ?? 0);
   const hasNativePrice = assets.native?.priceEur != null;
   if (nativeBalance > 0 && !hasNativePrice) return false;
+  if (hasMajorPriceableTokenWithoutPrice(assets)) return false;
   return tokenCount > 0 || totalValue > 0 || nativeBalance > 0;
 }
 
@@ -178,7 +179,7 @@ export function shouldCacheAssets(assets: WalletAssets): boolean {
   if (nativeBalance > 0 && assets.native?.priceEur == null) return false;
   if (tokenCount === 0 && totalValue === 0 && nativeValue === 0 && nativeBalance === 0) return false;
 
-  return (assets.errors?.length ?? 0) === 0;
+  return true;
 }
 
 function hasMajorPriceableTokenWithoutPrice(assets: WalletAssets): boolean {

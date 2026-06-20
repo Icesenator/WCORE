@@ -62,7 +62,7 @@ function makeChainScan(overrides: Partial<ChainScan> = {}): ChainScan {
 describe("getScanResultCacheKey", () => {
   it("normalizes address and chain to lowercase", () => {
     const key = getScanResultCacheKey("0xABC123", "ETHEREUM");
-    assert.equal(key, "scan:v2:0xabc123:ethereum");
+    assert.equal(key, "scan:result:0xabc123:ethereum");
   });
 });
 
@@ -116,6 +116,19 @@ describe("shouldCacheAssets", () => {
   });
   it("returns false for errors", () => {
     assert.equal(shouldCacheAssets(makeAssets({ errors: ["token accounts: no data"] })), false);
+  });
+  it("returns true for valuable degraded results with only non-critical errors", () => {
+    assert.equal(shouldCacheAssets(makeAssets({
+      tokens: [
+        { contract: "0x1", symbol: "WBTC", name: "Wrapped BTC", balance: 0.002, decimals: 8, priceEur: 54000 } as any,
+        { contract: "0x2", symbol: "SPAM", name: "Airdropped Spam", balance: 1, decimals: 18, priceEur: null } as any,
+      ],
+      totalValueEur: 108,
+      errors: [
+        "https://1rpc.io/eth: RPC error -32001: usage limit",
+        "SPAM price: NO_PRICE",
+      ],
+    })), true);
   });
   it("returns false for empty wallet", () => {
     assert.equal(shouldCacheAssets(makeAssets()), false);

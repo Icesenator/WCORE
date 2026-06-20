@@ -3,7 +3,7 @@ param(
   [string]$Service = "web"
 )
 
-$jsonPath = Join-Path $PSScriptRoot "..\railway.json"
+$jsonPath = Join-Path $PSScriptRoot "..\..\railway.json"
 $lockPath = Join-Path $PSScriptRoot "..\.deploy.lock"
 
 # Prevent concurrent deploys from racing on railway.json (documented incident 2026-05-19).
@@ -19,14 +19,14 @@ if (Test-Path $lockPath) {
 New-Item -ItemType File -Path $lockPath -Force | Out-Null
 
 $original = Get-Content -LiteralPath $jsonPath -Raw
-$dockerfile = if ($Service -eq "web") { "apps/web/Dockerfile" } else { "apps/api/Dockerfile" }
+$dockerfile = if ($Service -eq "web") { "wcore-web/apps/web/Dockerfile.railway" } else { "wcore-web/apps/api/Dockerfile.railway" }
 
 $deployExitCode = 0
 try {
   $updated = $original -replace '"dockerfilePath":\s*"[^"]*"', """dockerfilePath"": ""$dockerfile"""
   Set-Content -LiteralPath $jsonPath -Value $updated -NoNewline
 
-  railway up --service $Service
+  railway up (Join-Path $PSScriptRoot "..\..") --path-as-root --service $Service --ci
   $deployExitCode = $LASTEXITCODE
 } finally {
   Set-Content -LiteralPath $jsonPath -Value $original -NoNewline

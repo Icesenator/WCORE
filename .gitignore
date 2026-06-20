@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.tmp/
+.backups/
+.claude/
+.playwright-mcp/
+.mcp.json
+.env*
+backups/
+nul
+opencode.json

@@ -1,0 +1,28 @@
+{
+  "name": "wcore",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WCORE — Multi-chain wallet tracker. wcore-gsheet (Google Sheets + Apps Script) + wcore-web (Next.js 16 + Fastify + PostgreSQL)",
+  "scripts": {
+    "dev": "pnpm --dir wcore-web dev",
+    "dev:api": "pnpm --dir wcore-web dev:api",
+    "dev:web": "pnpm --dir wcore-web dev:web",
+    "build": "pnpm --dir wcore-web build",
+    "typecheck": "pnpm --dir wcore-web typecheck",
+    "lint": "pnpm --dir wcore-web lint",
+    "test": "pnpm --dir wcore-web test",
+    "test:api": "pnpm --dir wcore-web test:api",
+    "validate:static": "pnpm --dir wcore-gsheet validate:static",
+    "push": "pnpm --dir wcore-gsheet validate:static && powershell -File wcore-gsheet/safe-push.ps1",
+    "pull": "powershell -File wcore-gsheet/pull-all.ps1",
+    "sync:chains": "Copy-Item -LiteralPath 'wcore-gsheet\\src\\*.gs' -Destination 'wcore-web\\src\\' -Force && node wcore-web/tools/migrate/extract-chains.mjs",
+    "install": "pnpm --dir wcore-web install"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=20.10.0",
+    "pnpm": ">=9.0.0"
+  }
+}

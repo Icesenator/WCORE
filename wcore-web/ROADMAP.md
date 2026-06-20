@@ -17,7 +17,15 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ---
 
-## ├ëtat courant : v0.3.1 ­ƒƒó ÔÇö Cache scan `scan:result` + d├®ploiement Railway parent-context stabilis├® (2026-06-19)
+## ├ëtat courant : v0.3.1 ­ƒƒó ÔÇö Cache scan `scan:result` + d├®ploiement Railway parent-context stabilis├® (2026-06-20)
+
+### Ô£à Session 2026-06-20 ÔÇö master public nettoy├®, API/Web red├®ploy├®s
+
+- **Git public nettoy├®** : les commits v0.3.1 ont ├®t├® rejou├®s sur une branche propre issue de `origin/master`, puis `origin/master` a ├®t├® mis ├á jour en fast-forward (`946bcef`). La branche temporaire `v0.3.1-public` a ├®t├® supprim├®e en local et sur GitHub. La vieille branche locale divergente `web` a ├®t├® supprim├®e ; backup conserv├® localement : `backup/web-before-public-rebase`.
+- **D├®ploiement prod** : API et Web red├®ploy├®s via `scripts/deploy.ps1` parent-context, s├®quentiellement pour ├®viter la race sur `railway.json`. Smoke checks post-deploy : `https://wcore.xyz` `200`, `/health` `status:"ok"`, `chainCount:182`, `/api/chains` `count:182` (`EVM=168`, `COSMOS=11`, `SVM=2`, `TON=1`).
+- **Scan cache durci** : garde-fou `hasCachedValue()` contre les snapshots contenant un natif positif sans prix ou un token majeur positif sans prix ; `MAJOR_PRICEABLE_SYMBOLS` ├®tendu pour les majors Base/EVM (`AIXBT`, `B3`, `BNKR`, `CLANKER`, `EIGEN`, `EURC`, `MOG`, `SOLVBTC`, `ZORA`, etc.).
+- **GM on-chain optimis├®** : `syncOnChainContracts()` passe en batch DB (`findMany`, `createMany({ skipDuplicates: true })`, `updateMany`) sans ├®craser un `ownerId` existant d'un autre user. `/api/gm/status-onchain` a maintenant un cache m├®moire court 5 min par `(chain,address,UTC day)` pour ├®viter les `eth_getLogs` r├®p├®t├®s.
+- **V├®rifications locales** : `pnpm typecheck`, builds `@wcore/core`, `@wcore/api`, `@wcore/web`, `validate:static`, `build:chains`, `test:phase3-chains`, `git diff --check` tous verts avant push/deploy.
 
 ### Ô£à Phase 1 : Fondations cross-runtime ÔÇö FX cascade + cache-key registry + drift detector
 ### Ô£à Phase 1.5 : Mirror .gs ├®limin├® + package @wcore/chains + monorepo unifi├®
@@ -364,13 +372,13 @@ Audit transversal (5 agents en parall├¿le sur structure/code/s├®curit├®
 | P0 | Sujet | Action minimale |
 |---|-------|-----------------|
 | P0-1 | `AUTH_ALLOW_BEARER=true` d├®faut prod | Ô£à Corrig├® : deny-by-default en prod, override explicite `AUTH_ALLOW_BEARER=true` seulement |
-| P0-2 | `/api/gm/status-onchain` amplification RPC | Partiel : auth/ownership/zod OK, cache court `(chain,address,date)` reste en backlog |
+| P0-2 | `/api/gm/status-onchain` amplification RPC | Ô£à Corrig├® : auth/ownership/zod OK + cache court m├®moire 5 min par `(chain,address,UTC day)` |
 | P0-3 | `scan.ts` routes async/batch sans tests | Ô£à Corrig├® : `apps/api/test/scan-plugin-routes.test.ts` 23/23 |
 
 | P1 principaux | Action |
 |---|---|
 | P1-1 ConnectButton TDZ bug | Ô£à Corrig├® + lint workspace 0 erreur / 0 warning |
-| P1-2 N+1 upsert loops GM | `prisma.gmContract.createMany({ skipDuplicates: true })` |
+| P1-2 N+1 upsert loops GM | Ô£à Corrig├® : batch `findMany` + `createMany({ skipDuplicates: true })` + `updateMany`, protection owner existant |
 | P1-3 `@fastify/rate-limit` mort | Ô£à Retir├® |
 | P1-4 EVM empty cache 1h | Ô£à Corrig├® : TTL empty EVM 10 min + liveness check |
 | P1-5 RealT cache permanent | Ô£à Cap Redis 7j safety sur `realt:registry:v2` |
@@ -383,7 +391,7 @@ Voir `docs/AUDIT.md` section ┬º3 (P2/P3). Points saillants :
 
 - **P2-1** : `/api/stats` et `/api/circuit` exposent metrics publics (h├®rit├®e de audit 06-05, non r├®solu)
 - **P2-3** : 18 fichiers acc├¿dent `process.env` directement ÔåÆ centraliser dans `src/config.ts` avec zod validation
-- **P2-5** : cache court `status-onchain` encore ├á ajouter pour ├®viter des `eth_getLogs` r├®p├®t├®s
+- **P2-5** : Ô£à r├®solu 2026-06-20 ÔÇö cache court `status-onchain` 5 min par `(chain,address,UTC day)` pour ├®viter des `eth_getLogs` r├®p├®t├®s
 - **P2-6/P2-7** : Ô£à `prisma.walletScan.create` fire-and-forget + cache scan `mget`
 - **P2-10** : `AGENTS.md` = 2 docs en 1 (Apps Script legacy + Web moderne) ÔåÆ split en `docs/apps-script.md` + `docs/wcore-web-guide.md`
 - **P2-12** : Ô£à scripts contracts rendus portables (`__dirname`/`path.join`), plus cleanup du g├®n├®rateur X v15 historique.

@@ -326,7 +326,7 @@ export async function registerGmOnchainRoutes(
         });
         if (allGms.length > 0) {
           const DAY_MS = 86_400_000;
-          const dayMsSet = new Set(allGms.map((g) => {
+          const dayMsSet = new Set<number>(allGms.map((g) => {
             const d = new Date(g.createdAt);
             d.setUTCHours(0, 0, 0, 0);
             return d.getTime();

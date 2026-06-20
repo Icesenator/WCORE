@@ -43,7 +43,8 @@ For detailed setup, see:
 
 - `wcore-web/README.md` for the web/API runtime.
 - `wcore-gsheet/README.md` for the Google Sheets + Apps Script runtime.
-- `wcore-web/ROADMAP.md` for current product status and active backlog.
+- `ROADMAP.md` for cross-runtime WCORE status and harmonization backlog.
+- `wcore-web/ROADMAP.md` for web/API runtime status and release history.
 
 ## Security Notes
 

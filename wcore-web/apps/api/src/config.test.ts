@@ -142,4 +142,33 @@ describe("getApiConfig", () => {
     assert.equal(fallbackConfig.auth.usedDevelopmentJwtFallback, true);
     assert.equal(explicitConfig.auth.usedDevelopmentJwtFallback, false);
   });
+
+  it("parses server, rate-limit, and integration values", () => {
+    const config = getApiConfig({
+      NODE_ENV: "test",
+      PORT: "4100",
+      HOST: "0.0.0.0",
+      TRUST_PROXY: "true",
+      LOG_LEVEL: "debug",
+      MAX_CHAINS_PER_SCAN: "77",
+      ANONYMOUS_MAX_CHAINS_PER_SCAN: "9",
+      RATE_LIMIT_SCAN: "200",
+      RATE_LIMIT_GM_READ: "333",
+      GSHEET_API_TOKEN: "token-1",
+      INTERNAL_API_URL: "https://api.internal",
+      PUBLIC_URL: "https://wcore.xyz",
+    });
+
+    assert.equal(config.server.port, 4100);
+    assert.equal(config.server.host, "0.0.0.0");
+    assert.equal(config.server.trustProxy, 1);
+    assert.equal(config.server.logLevel, "debug");
+    assert.equal(config.limits.maxChainsPerScan, 77);
+    assert.equal(config.limits.anonymousMaxChainsPerScan, 9);
+    assert.equal(config.limits.rateLimitScan, 200);
+    assert.equal(config.limits.rateLimitGmRead, 333);
+    assert.equal(config.integrations.gsheetApiToken, "token-1");
+    assert.equal(config.integrations.internalApiUrl, "https://api.internal");
+    assert.equal(config.integrations.publicUrl, "https://wcore.xyz");
+  });
 });

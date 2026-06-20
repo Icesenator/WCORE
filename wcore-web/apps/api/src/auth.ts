@@ -278,10 +278,10 @@ export async function authPlugin(app: FastifyInstance, prisma: PrismaClient, cac
         return { error: "siwe_domain_missing" };
       }
       // In production/staging, require siweDomain to be in the CORS allowlist.
-      if (!_isDevEnv && _siweAllowedDomains.size === 0) {
+      if (!apiConfig.runtime.isDevelopmentLike && _siweAllowedDomains.size === 0) {
         return { error: "siwe_domain_allowlist_missing" };
       }
-      if (!_isDevEnv && !_siweAllowedDomains.has(siweDomainHost)) {
+      if (!apiConfig.runtime.isDevelopmentLike && !_siweAllowedDomains.has(siweDomainHost)) {
         return { error: "siwe_domain_not_allowed" };
       }
       // URI must parse and its hostname must match the same domain.
@@ -350,7 +350,7 @@ export async function authPlugin(app: FastifyInstance, prisma: PrismaClient, cac
     } catch (error) {
       console.error("[AUTH] login failed:", error instanceof Error ? error.message : String(error));
       // Never expose internal error details to the client outside dev.
-      if (_isDevEnv) return { error: "auth_failed", message: error instanceof Error ? error.message : String(error) };
+      if (apiConfig.runtime.isDevelopmentLike) return { error: "auth_failed", message: error instanceof Error ? error.message : String(error) };
       return { error: "auth_failed" };
     }
   });

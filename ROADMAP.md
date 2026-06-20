@@ -124,7 +124,7 @@ Priority: medium.
 ## Open Backlog Snapshot
 
 - Protect or reduce public metrics endpoints (`/api/stats`, `/api/circuit`) if still exposed.
-- Centralize web API environment reads through a typed config module.
+- Continue API environment centralization: boot, auth, scan, and metrics now use a typed config module; CEX/GM env reads remain for a later pass.
 - Reduce API Docker image size with a pruned production deploy flow.
 - Add `.nvmrc` to remove Node version ambiguity.
 - Add or finish onboarding docs (`CONTRIBUTING.md`, `TESTING.md`) if the project is opened to more contributors.

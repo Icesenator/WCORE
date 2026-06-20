@@ -9,12 +9,13 @@ import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
 import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout } from "./scan-utils.js";
 import { scanJobs, startJobCleanup } from "./scan-job.js";
+import { apiConfig } from "../config.js";
 
-const SCAN_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.SCAN_CONCURRENCY) || 50));
-const NON_EVM_SCAN_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.NON_EVM_SCAN_CONCURRENCY) || 5));
-const SCAN_RESULT_CACHE_TTL_MS = Number(process.env.SCAN_RESULT_CACHE_TTL_MS) || 6 * 60 * 60 * 1000;
-const CHAIN_TIMEOUT_MS = Number(process.env.SCAN_CHAIN_TIMEOUT_MS) || 90_000;
-const BATCH_CHAIN_TIMEOUT_MS = Number(process.env.SCAN_BATCH_CHAIN_TIMEOUT_MS) || 180_000;
+const SCAN_CONCURRENCY = apiConfig.scan.scanConcurrency;
+const NON_EVM_SCAN_CONCURRENCY = apiConfig.scan.nonEvmScanConcurrency;
+const SCAN_RESULT_CACHE_TTL_MS = apiConfig.scan.scanResultCacheTtlMs;
+const CHAIN_TIMEOUT_MS = apiConfig.scan.chainTimeoutMs;
+const BATCH_CHAIN_TIMEOUT_MS = apiConfig.scan.batchChainTimeoutMs;
 
 async function fetchFxRate(): Promise<number | { code: 503; body: { error: string; message: string } }> {
   try {
@@ -396,7 +397,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     // inconsistent results between retries (no consensus on SVM/Cosmos).
     if (nonEvmChains.length > 0) {
       const nonEvmScanPool = pLimit(NON_EVM_SCAN_CONCURRENCY);
-      const NON_EVM_MAX_ATTEMPTS = Number(process.env.NON_EVM_SCAN_RETRIES) || 3;
+      const NON_EVM_MAX_ATTEMPTS = apiConfig.scan.nonEvmMaxAttempts;
       await Promise.all(addresses.flatMap(addr =>
         nonEvmChains.map((chain) => nonEvmScanPool(async () => {
           // Check scan result cache before hitting RPCs (unless forceRefresh)

@@ -171,4 +171,24 @@ describe("getApiConfig", () => {
     assert.equal(config.integrations.internalApiUrl, "https://api.internal");
     assert.equal(config.integrations.publicUrl, "https://wcore.xyz");
   });
+
+  it("parses scan timeout, cache, retry, and job TTL values", () => {
+    const config = getApiConfig({
+      NODE_ENV: "test",
+      SCAN_RESULT_CACHE_TTL_MS: "1234",
+      SCAN_CHAIN_TIMEOUT_MS: "2222",
+      SCAN_BATCH_CHAIN_TIMEOUT_MS: "3333",
+      NON_EVM_SCAN_RETRIES: "4",
+      JOB_TTL_RUNNING_MS: "4444",
+      JOB_TTL_DONE_MS: "5555",
+    });
+
+    assert.equal(config.scan.scanResultCacheTtlMs, 1234);
+    assert.equal(config.scan.chainTimeoutMs, 2222);
+    assert.equal(config.scan.batchChainTimeoutMs, 3333);
+    assert.equal(config.scan.nonEvmMaxAttempts, 4);
+    assert.equal(config.scan.jobTtlRunningMs, 4444);
+    assert.equal(config.scan.jobTtlDoneMs, 5555);
+    assert.equal(config.scan.jobTtlNoProgressMs, 10 * 60 * 1000);
+  });
 });

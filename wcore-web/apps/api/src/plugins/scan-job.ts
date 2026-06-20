@@ -1,10 +1,11 @@
 // Async scan job management: type, store, and TTL cleanup.
 import type { ChainScan } from "@wcore/shared";
+import { apiConfig } from "../config.js";
 
-const CHAIN_TIMEOUT_MS = Number(process.env.SCAN_CHAIN_TIMEOUT_MS) || 90_000;
-const JOB_TTL_RUNNING_MS = Number(process.env.JOB_TTL_RUNNING_MS) || 30 * 60 * 1000;
-const JOB_TTL_DONE_MS = Number(process.env.JOB_TTL_DONE_MS) || 30 * 60 * 1000;
-const JOB_TTL_NO_PROGRESS_MS = 10 * 60 * 1000;
+const CHAIN_TIMEOUT_MS = apiConfig.scan.chainTimeoutMs;
+const JOB_TTL_RUNNING_MS = apiConfig.scan.jobTtlRunningMs;
+const JOB_TTL_DONE_MS = apiConfig.scan.jobTtlDoneMs;
+const JOB_TTL_NO_PROGRESS_MS = apiConfig.scan.jobTtlNoProgressMs;
 
 export interface ScanJob {
   jobId: string;

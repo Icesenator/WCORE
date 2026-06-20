@@ -224,7 +224,7 @@ export async function registerGmContractsRoutes(
     const userAddress = (gmRandom.address || "").trim().toLowerCase();
 
     const where: Record<string, unknown> = chain ? { chainKey: { equals: canonicalChainKey(chain), mode: "insensitive" } } : {};
-    const contracts = filterDisabledGmContracts(await prisma.gmContract.findMany({ where, select: { chainKey: true, contractAddress: true, id: true, creatorAddress: true } }));
+    const contracts: GmRandomContract[] = filterDisabledGmContracts(await prisma.gmContract.findMany({ where, select: { chainKey: true, contractAddress: true, id: true, creatorAddress: true } }));
     if (contracts.length === 0) return reply.code(404).send({ error: "no_contracts_available" });
 
     const today = new Date();

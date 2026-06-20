@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { registerGmOnchainRoutes } from "./gm-onchain.js";
 
 const USER = "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
+const USER2 = "0x27d518736ee9341dcdc0a2498e013d33cfcdd081";
 const CONTRACT = "0xc9fd9b0b3936916b12a91bacd2267a8750cd99ad";
 
 function topicAddress(address: string): string {
@@ -84,6 +85,46 @@ test("status-onchain respects chain MAX_LOG_RANGE when scanning GM logs", async 
     for (const range of logRanges) {
       assert.ok(range.to - range.from <= 1024, `range ${range.from}..${range.to} exceeds 1024`);
     }
+    await app.close();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("status-onchain caches same chain and address for the current UTC day", async () => {
+  const originalFetch = globalThis.fetch;
+  let logCalls = 0;
+  const todayTs = Math.floor(Date.now() / 1000);
+  const eventData = `0x${todayTs.toString(16).padStart(64, "0")}`;
+
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string; params?: unknown[] };
+    if (body.method === "eth_call") {
+      const call = (body.params?.[0] ?? {}) as { data?: string };
+      if (call.data === "0x9399869d") return Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" });
+      if (call.data?.startsWith("0x474da79a")) return Response.json({ jsonrpc: "2.0", id: 1, result: topicAddress(CONTRACT) });
+    }
+    if (body.method === "eth_blockNumber") return Response.json({ jsonrpc: "2.0", id: 2, result: "0x10000" });
+    if (body.method === "eth_getLogs") {
+      logCalls++;
+      return Response.json({ jsonrpc: "2.0", id: 1, result: [{ data: eventData }] });
+    }
+    return Response.json({ jsonrpc: "2.0", id: 1, result: null });
+  }) as typeof fetch;
+
+  try {
+    const app = buildApp({ user: { id: "u2", address: USER2 } });
+    await registerRoutes(app);
+
+    const url = `/api/gm/status-onchain?chain=moonriver&address=${USER2}`;
+    const first = await app.inject({ method: "GET", url });
+    const second = await app.inject({ method: "GET", url });
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(second.statusCode, 200);
+    assert.deepEqual(first.json(), { chainGmDone: true });
+    assert.deepEqual(second.json(), { chainGmDone: true });
+    assert.equal(logCalls, 1, "second status check should be served from cache");
     await app.close();
   } finally {
     globalThis.fetch = originalFetch;

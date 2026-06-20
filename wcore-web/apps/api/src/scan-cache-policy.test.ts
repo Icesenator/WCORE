@@ -18,8 +18,8 @@ function assets(overrides: Partial<WalletAssets>): WalletAssets {
 }
 
 describe("scan result cache policy", () => {
-  test("uses a versioned scan-result cache namespace", () => {
-    assert.equal(getScanResultCacheKey("0xABC", "GNOSIS"), "scan:v2:0xabc:gnosis");
+  test("uses a semantic scan-result cache namespace", () => {
+    assert.equal(getScanResultCacheKey("0xABC", "GNOSIS"), "scan:result:0xabc:gnosis");
   });
 
   test("keeps engine fallback cache when forceRefresh is not requested", () => {
@@ -85,14 +85,15 @@ describe("scan result cache policy", () => {
     assert.deepEqual(deletes, ["native:eth:0xfeed"]);
   });
 
-  test("does not cache degraded scans — only perfect results (0 errors) are cached", () => {
-    // Even when the scan has useful value, errors make it unreliable.
-    // A bad fresh scan could overwrite a good previous cache.
+  test("caches valuable degraded scans when errors are non-critical", () => {
+    // Ethereum can return useful fresh prices while also reporting long-tail
+    // NO_PRICE entries or one failed RPC endpoint. Cache the useful result so a
+    // force-refresh can replace stale scan snapshots.
     assert.equal(shouldCacheAssets(assets({
       tokens: [{ symbol: "SOL", name: "SOL", denom: "native", decimals: 9, balance: 1, priceEur: 10, valueEur: 10 }],
       totalValueEur: 10,
       errors: ["SOL price: NO_PRICE"],
-    })), false);
+    })), true);
   });
 
   test("does not cache scans where a major priceable token has no price", () => {
@@ -129,6 +130,28 @@ describe("scan result cache policy", () => {
       native: { symbol: "SOL", balance: 0.046470656, priceEur: null, valueEur: null },
       tokens: [{ symbol: "DOOD", name: "DOOD", contract: "0x...", decimals: 6, balance: 1368, priceEur: 0.0023, valueEur: 3.11 }],
       totalValueEur: 3.11,
+    })), false);
+  });
+
+  test("refuses stale cache where a major positive token has no price", () => {
+    // Old scan:result snapshots could contain useful native value but miss
+    // priceable Base tokens like WETH/SOLVBTC/EURC. Serving that stale cache
+    // leaves the UI stuck on native-only value until a manual force refresh.
+    assert.equal(hasCachedValue(assets({
+      chain: "BASE",
+      chainName: "Base",
+      native: { symbol: "ETH", balance: 0.005, priceEur: 1500, valueEur: 7.5 },
+      tokens: [{
+        symbol: "WETH",
+        name: "Wrapped Ether",
+        contract: "0x4200000000000000000000000000000000000006",
+        decimals: 18,
+        balance: 0.01,
+        priceEur: null,
+        valueEur: null,
+      }],
+      totalValueEur: 7.5,
+      errors: ["WETH price: NO_PRICE"],
     })), false);
   });
 

@@ -145,21 +145,36 @@ export function createGmHelpers(deps: GmHelpersDeps) {
     const syncedKeys: string[] = [];
     await Promise.allSettled(missing.map(async (chainKey) => {
       const onChain = await fetchOnChainContracts(chainKey, userAddress);
-      for (const addr of onChain) {
-        try {
-          const existing = await prisma.gmContract.findFirst({
-            where: { chainKey: { equals: chainKey, mode: "insensitive" }, contractAddress: addr.toLowerCase() },
-            select: { ownerId: true },
+      const addresses = Array.from(new Set(onChain.map((addr) => addr.toLowerCase())));
+      if (addresses.length === 0) return;
+      try {
+        const existing = await prisma.gmContract.findMany({
+          where: { chainKey: { equals: chainKey, mode: "insensitive" }, contractAddress: { in: addresses } },
+          select: { contractAddress: true, ownerId: true },
+        });
+        const existingByAddress = new Map(existing.map((row: { contractAddress: string; ownerId: string | null }) => [row.contractAddress.toLowerCase(), row]));
+        const recoverableExisting = existing
+          .filter((row: { ownerId: string | null }) => !row.ownerId || row.ownerId === userId)
+          .map((row: { contractAddress: string }) => row.contractAddress.toLowerCase());
+        const createRows = addresses
+          .filter((addr) => !existingByAddress.has(addr))
+          .map((addr) => ({ chainKey, contractAddress: addr, creatorAddress: userAddress, ownerId: userId }));
+
+        if (recoverableExisting.length > 0) {
+          await prisma.gmContract.updateMany({
+            where: {
+              chainKey: { equals: chainKey, mode: "insensitive" },
+              contractAddress: { in: recoverableExisting },
+              OR: [{ ownerId: null }, { ownerId: userId }],
+            },
+            data: { ownerId: userId, creatorAddress: userAddress },
           });
-          if (existing?.ownerId && existing.ownerId !== userId) continue;
-          await prisma.gmContract.upsert({
-            where: { chainKey_contractAddress: { chainKey, contractAddress: addr.toLowerCase() } },
-            update: { ownerId: userId, creatorAddress: userAddress },
-            create: { chainKey, contractAddress: addr.toLowerCase(), creatorAddress: userAddress, ownerId: userId },
-          });
-          syncedKeys.push(chainKey);
-        } catch (e) { console.error("syncOnChainContracts gmContract.upsert DB error:", (e as Error).message || String(e)); /* ignore duplicates */ }
-      }
+        }
+        if (createRows.length > 0) {
+          await prisma.gmContract.createMany({ data: createRows, skipDuplicates: true });
+        }
+        if (recoverableExisting.length > 0 || createRows.length > 0) syncedKeys.push(chainKey);
+      } catch (e) { console.error("syncOnChainContracts gmContract batch DB error:", (e as Error).message || String(e)); /* ignore duplicates */ }
     }));
     return syncedKeys;
   }

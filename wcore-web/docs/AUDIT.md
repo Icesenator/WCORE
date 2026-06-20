@@ -11,7 +11,7 @@
 | Axe | Note | Tendance | Commentaire |
 |-----|------|----------|-------------|
 | Sécurité | A- | ↗ | 0 vuln deps, CSRF/SIWE/cookies durcis, status-onchain authentifié. Reliquat : Bearer par défaut, metrics publics, DNS rebinding. |
-| Fiabilité scan | A- | ↗ | forceRefresh propagé, liveness empty-cache, consensus zéro durci, per-chain timeout. Reliquat : TTL asymétriques, jobs en mémoire. |
+| Fiabilité scan | A- | ↗ | forceRefresh propagé, liveness empty-cache, TTL empty EVM harmonisé à 10 min, consensus zéro durci, per-chain timeout. Reliquat : jobs en mémoire. |
 | Tests | B+ | ↗ | 71 fichiers / ~350 tests. Trous : routes `/api/scan/async|batch`, `useScanOrchestrator`, POST `/api/gm/onchain` E2E. |
 | Performance | B+ | → | compress + mget partiel + intraScanCache. Reliquat : writes Redis non pipelinés, AllTokensTable non virtualisée. |
 | Qualité code | B | ↘ | Régression lint (34 erreurs vs 0 au 05-30). Duplications QUAL connues. scan.ts 612 LOC. |
@@ -43,7 +43,7 @@
 | error.tsx 1 seul global | **PARTIEL** (4 routes : global, history, gm, profile) | `apps/web/app/**/error.tsx` |
 | .nvmrc absent | **CORRIGÉ** | `.nvmrc` = `20` |
 | rate-limit pré-auth (06-05 P1-2) | **CORRIGÉ** | `rate-limit-hook-order.test.ts` |
-| EVM empty cache sans liveness | **PARTIEL** (liveness ✅ `canServeEmptyCache`, TTL 1h asymétrique) | `evm-balances.ts:115-131`, `evm-scan.ts:480` |
+| EVM empty cache sans liveness | **CORRIGÉ** (liveness ✅ `canServeEmptyCache`, TTL EVM 10 min) | `evm-balances.ts:115-131`, `evm-scan.ts`, `evm-batch.ts` |
 | RealT cache sans TTL | **CORRIGÉ** | `realt.ts` — `REGISTRY_REDIS_SAFETY_TTL_MS` 7 j appliqué à `realt:registry:v2` |
 | @tanstack/react-query mort | **INVALIDÉ** — peer requirement wagmi (QueryClientProvider) | `Web3Provider.tsx:3,10,15` |
 | @fastify/rate-limit mort | **CORRIGÉ** | retiré de `apps/api/package.json` + `pnpm-lock.yaml` |
@@ -86,7 +86,7 @@
 - [ ] **P2-8 · Writes Redis non pipelinés / intraScanCache non partagé cross-batch / RpcHealth instance par scan** — `redis-store.ts:70-80`, `scan.ts:229,410,676`. *1-2 j cumulés.*
 - [ ] **P2-9 · AllTokensTable sans virtualisation ni memo** — `AllTokensTable.tsx:32-68` (110k DOM nodes potentiels) ; `TokenTable` non memoizé. *1 j.*
 - [ ] **P2-10 · `RpcHealthTracker` sans decay** — `rpc/rpc-health.ts:32-50` : échecs accumulés à vie, pool RPC rétrécit sur session longue (le decay existe sur CircuitBreaker, pas ici). *½ j.*
-- [ ] **P2-11 · EVM empty cache TTL 1h asymétrique** — `evm-scan.ts:480`, `evm-batch.ts:599` vs SVM/Cosmos 2-10 min. Liveness native OK ; cas limite restant = wallet token-only sans natif. **Décision tranchée** : réduire à 10 min (l'argument PERF du 05-30-ext est caduc depuis le liveness check). *2 h.*
+- [x] **P2-11 · EVM empty cache TTL 1h asymétrique** — ✅ corrigé 2026-06-19 : TTL réduit à 10 min dans `evm-scan.ts` et `evm-batch.ts`, avec tests de garde single-wallet + batch dans `evm.test.ts`. Liveness native inchangée via `canServeEmptyCache`.
 - [ ] **P2-12 · `snapshotMetrics` 3 COUNT + 2 deleteMany / 5 min** — `server.ts:190-194`. *1-2 h.*
 
 **Qualité / cohérence**
@@ -114,7 +114,7 @@
 - [ ] ROADMAP.md (209 KB) : extraire l'historique vers CHANGELOG, garder ~300 lignes vivantes. *½ j.*
 - [ ] CI : `needs:` sur le job e2e, job release/deploy. *2 h.*
 - [ ] Surveillance des 8-12 chaînes single-RPC (ANCIENT8, B3, CITREA, FOGO, INTUITION, MITOSIS, OPENLEDGER, STABLE, TAC, TEMPO, VANA, ZIRCUIT) — alerting si RPC unique down. *1 j.*
-- [ ] `src/*.gs` (169 fichiers legacy Apps Script trackés) : uniquement consommés par `tools/migrate/extract-chains.mjs` et `scripts/validate-static.js`. **Décision documentée** : conservés tant que le pipeline d'extraction des chain configs vit ici ; à déplacer dans `wcore-gsheet` (upstream) avec l'outillage le jour où l'extraction est figée. Ne PAS supprimer sans migrer l'outillage.
+- [x] ~~`src/*.gs` (169 fichiers legacy Apps Script trackés)~~ — ✅ supprimés (Phase 1.5, 2026-06-18). L'extraction vit maintenant dans `wcore-gsheet/tools/extract-chains.mjs`. Le package `@wcore/chains` est généré depuis `wcore-gsheet/src/*.gs`.
 - [ ] `next/image` : tradeoff Docker standalone assumé — documenter dans DEPLOY.md, pas d'action code.
 - [ ] GT API key ($50/mo) pour lever le throttle 40 calls/60s vs 174 chaînes actives (décision produit/budget).
 
@@ -125,7 +125,7 @@
 Détails complets dans l'historique git des rapports datés. Synthèse :
 
 - **Auth/SIWE** : nonce binding, chainId `> 0`, Expiration+ChainId obligatoires, URI matching multi-origin, cookies httpOnly, CSRF deny-by-default prod, rate-limit per-address pré-auth, rate-limit ordonné après auth (test de garde), token tolerant (clear sur 401 explicite uniquement).
-- **Scan/Engines** : forceRefresh propagé aux engines (bypass `empty:*`), liveness `canServeEmptyCache`, consensus strict zéro-vs-cache (zéro non-consensus n'écrase plus), per-chain timeout 90s, partial cache writes async, job TTL 3-guards, negative/native/balance/per-token caches alignés 3 VMs, scan result cache versionné v2, batch multi-wallet Multicall3, cache engine préservé SVM/Cosmos en forceRefresh.
+- **Scan/Engines** : forceRefresh propagé aux engines (bypass `empty:*`), liveness `canServeEmptyCache`, consensus strict zéro-vs-cache (zéro non-consensus n'écrase plus), per-chain timeout 90s, partial cache writes async, job TTL 3-guards, negative/native/balance/per-token caches alignés 3 VMs, scan result cache `scan:result:*`, batch multi-wallet Multicall3, cache engine préservé SVM/Cosmos en forceRefresh.
 - **Pricing** : RealT registry bulk + Woo fallback + short-circuit cascade, GT bulk pre-fetch, RedisPricingCache partagé inter-workers, stablecoin peg `isStable === true` only, scam-detector contract-aware + overrides 3 niveaux persistés.
 - **GM** : chainKey canonique uppercase + lookups insensibles, anti-replay case-insensitive, N+1 random batché, status-onchain auth+ownership+zod, factories source unique `factories.ts`, RPC résolus via `@wcore/core`, KCC build Paris (PUSH0), 8 chaînes activées pattern unifié.
 - **API/Infra** : compress global, indexes DB + test de garde, migrate deploy (jamais db push prod), Docker non-root, secrets retirés des docs/CI (`job.env`), `.env.staging` untracké, backup quotidien + rotation 7j, smoke test ≥180 chaînes.
@@ -180,7 +180,7 @@ Priorisation impact × effort. Une case cochée = vérifiée dans le code, pas s
 
 ### 🟡 Mois — chantiers de fond (~5 j)
 - `config.ts` central zod (P2-18) → prérequis pour tuer les drifts env.
-- EVM empty TTL → 10 min + harmonisation 3 VMs (P2-11) + Cosmos decimals/staking (P2-15).
+- Cosmos decimals/staking (P2-15).
 - Dédup QUAL (`calcCleanChainValue`, `detectChainType`, `AuthUser`) (P2-13) + stables EUR (P2-14).
 - Docker prune API + `.dockerignore` + compose args web (P2-20).
 - CONTRIBUTING.md + TESTING.md (P2-21) ; split AGENTS.md (P2-22) ; aligner DEPLOY.md `SCAN_CONCURRENCY` (P2-23).
@@ -194,7 +194,7 @@ Priorisation impact × effort. Une case cochée = vérifiée dans le code, pas s
 - **Schema test 182 chain configs** + alerting chaînes single-RPC.
 - **GT API key** (décision budget) ou cache GT plus agressif.
 - **Pipelining Redis + intraScanCache cross-batch** (P2-8) si le scaling multi-user le justifie.
-- **Migration `src/*.gs` + outillage vers wcore-gsheet** quand l'extraction des chain configs est figée.
+- [x] ~~Migration `src/*.gs` + outillage vers wcore-gsheet~~ — ✅ extraction figée (182/182 extractibles, Phase 3 terminée 2026-06-19).
 
 ### Règles de maintenance de ce fichier
 1. **Un seul fichier d'audit.** Pas de nouveau `audit-YYYY-MM-DD.md` : on met à jour les sections 3, 4 et 6 ici.

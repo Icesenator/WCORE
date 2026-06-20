@@ -32,7 +32,7 @@
 
 ### `error: "scan timed out"` en async
 **Cause** : job > 30min (TTL hard cap) ou stuck > 180s.  
-**Fix** : relancer avec `forceRefresh=true` (bypass cache `scan:v2:*`). Si ça persiste, vérifier que la chaîne n'est pas dans `FLAGS.DISABLE_CHAIN=true` (8 chaînes désactivées : `CROSS_MAINNET, ETHO_PROTOCOL, HAVEN1, MOCA_CHAIN, POLYNOMIAL, RIVALZ, STACK, SURFLAYER`).
+**Fix** : relancer avec `forceRefresh=true` (bypass cache `scan:result:*`). Si ça persiste, vérifier que la chaîne n'est pas dans `FLAGS.DISABLE_CHAIN=true` (8 chaînes désactivées : `CROSS_MAINNET, ETHO_PROTOCOL, HAVEN1, MOCA_CHAIN, POLYNOMIAL, RIVALZ, STACK, SURFLAYER`).
 
 ## 💰 GM / Pricing
 

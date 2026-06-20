@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { metrics } from "@wcore/core";
 import type { CircuitBreaker } from "@wcore/core";
+import { apiConfig } from "../config.js";
 
 interface MetricsPluginDeps {
   getCircuitBreaker: (chain: string) => CircuitBreaker;
@@ -47,11 +48,11 @@ export async function metricsPlugin(app: FastifyInstance, deps: MetricsPluginDep
         lastTrip: snapshot.circuitBreaker.lastTrip,
       },
       cache: {
-        backend: process.env.REDIS_URL ? "redis" : "memory",
+        backend: apiConfig.redis.config ? "redis" : "memory",
         redis: snapshot.cache.redis,
         session: snapshot.cache.session,
       },
-      scanConcurrency: Number(process.env.SCAN_CONCURRENCY) || 50,
+      scanConcurrency: apiConfig.scan.scanConcurrency,
       uptime: snapshot.uptimeSec,
       startedAt: snapshot.startTime,
     };

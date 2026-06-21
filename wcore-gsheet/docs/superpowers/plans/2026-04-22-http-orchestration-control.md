@@ -1,5 +1,7 @@
 # HTTP Orchestration Control Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; current orchestration behavior lives in `AGENTS.md` and source.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reduce WCORE UrlFetch usage by controlling which work is allowed to start.

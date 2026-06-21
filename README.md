@@ -32,6 +32,16 @@ WCORE/
 
 ## Local Development
 
+Generate the chain package first when starting from a fresh clone or after changing `wcore-gsheet/src/*.gs`:
+
+```powershell
+cd wcore-gsheet
+npm install
+npm run build:chains
+```
+
+Then install and verify the web workspace:
+
 ```powershell
 cd wcore-web
 pnpm install
@@ -39,12 +49,27 @@ pnpm build
 pnpm test
 ```
 
+From the repo root, the wrapper scripts delegate into `wcore-web` and `wcore-gsheet`:
+
+```powershell
+pnpm typecheck
+pnpm test
+pnpm sync:chains
+```
+
+## Deployment Safety
+
+- Use `wcore-web/scripts/deploy.ps1 -Service api|web` for Railway deploys.
+- Do not run `railway up` manually from the repo root: `railway.json` is a shared mutable deploy config and defaults to the web Dockerfile.
+- Do not deploy API and web in parallel; the deploy script temporarily rewrites `railway.json`.
+
 For detailed setup, see:
 
 - `wcore-web/README.md` for the web/API runtime.
 - `wcore-gsheet/README.md` for the Google Sheets + Apps Script runtime.
 - `ROADMAP.md` for cross-runtime WCORE status and harmonization backlog.
 - `wcore-web/ROADMAP.md` for web/API runtime status and release history.
+- `wcore-web/docs/AUDIT.md` for the current web audit backlog.
 
 ## Security Notes
 

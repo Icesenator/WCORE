@@ -2,7 +2,7 @@
 
 Google Sheets + Apps Script runtime for WCORE.
 
-- **182 chain configs** across EVM, SVM/Solana, Cosmos SDK, and TON.
+- **182 generated chain configs** across EVM, SVM/Solana, Cosmos SDK, and TON (`npm run build:chains` is the source for the current count).
 - Canonical chain source for the web runtime via generated `dist/` package `@wcore/chains`.
 - Apps Script wallet tracking, pricing, cache, CEX sync, watchdog, and diagnostics.
 - Reference documentation: [AGENTS.md](./AGENTS.md).
@@ -48,6 +48,8 @@ wcore-gsheet/
 ## Chain Extraction
 
 `wcore-gsheet/src/*.gs` is the source of truth for chain configs. The web runtime consumes the generated `@wcore/chains` package from `dist/`.
+
+Do not edit `dist/` by hand. Change `src/*.gs`, run the extractor, then consume the generated package from `wcore-web`.
 
 ```powershell
 npm run validate:static

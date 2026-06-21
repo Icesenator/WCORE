@@ -90,6 +90,10 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Gsheet** : `src/04C_CACHE_GLOBAL.gs` v4.15.50, callers durcis (`10_OUTPUT.gs`, `15_COSMOS_ENGINE.gs`, `FOGO.gs`, `26_OPTIMIZATIONS.gs`), `scripts/fx-cascade-spec.cjs` + `.test.cjs`, `scripts/gsheet-fx-telemetry.cjs`.
 - **Doc** : `docs/fx-cascade.md` (focalis├®), entr├®es `CHANGELOG.md` et `ROADMAP.md` (ce fichier).
 
+---
+
+> **Historical sections below.** The current state is the v0.3.1 section above. Older sections are retained for traceability and release archaeology; do not treat any later `Etat courant` / `Etat actuel` heading below this banner as the current roadmap.
+
 ## ├ëtat courant : v0.2.46 ­ƒƒó ÔÇö Bitpanda stocks pric├®s via relais + logos stocks + Refresh All CEX (2026-06-15)
 
 ### Ô£à Pricing stocks Bitpanda fiabilis├® (relais Yahoo)

@@ -1,6 +1,6 @@
 {
   "name": "wcore",
-  "version": "1.0.0",
+  "version": "0.0.0-private",
   "private": true,
   "description": "WCORE - Multi-chain wallet tracker. wcore-gsheet (Google Sheets + Apps Script) + wcore-web (Next.js 16 + Fastify + PostgreSQL)",
   "scripts": {
@@ -12,15 +12,16 @@
     "lint": "pnpm --dir wcore-web lint",
     "test": "pnpm --dir wcore-web test",
     "test:api": "pnpm --dir wcore-web test:api",
-    "validate:static": "pnpm --dir wcore-gsheet validate:static",
-    "push": "pnpm --dir wcore-gsheet validate:static && powershell -File wcore-gsheet/safe-push.ps1",
+    "validate:static": "npm --prefix wcore-gsheet run validate:static",
+    "push": "npm --prefix wcore-gsheet run validate:static && powershell -File wcore-gsheet/safe-push.ps1",
     "pull": "powershell -File wcore-gsheet/pull-all.ps1",
-    "sync:chains": "pnpm --dir wcore-gsheet build:chains && node wcore-web/packages/core/src/chains/build-index.mjs",
+    "sync:chains": "npm --prefix wcore-gsheet run build:chains && node wcore-web/packages/core/src/chains/build-index.mjs",
     "bootstrap": "pnpm --dir wcore-web install"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.34.4",
   "engines": {
     "node": ">=20.10.0",
     "pnpm": ">=9.0.0"

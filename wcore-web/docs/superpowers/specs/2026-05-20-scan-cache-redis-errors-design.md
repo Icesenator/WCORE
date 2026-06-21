@@ -1,5 +1,7 @@
 # Design — Scan/Cache/Redis/Errors Optimization
 
+> **Historical/completed design.** Kept for implementation history only; current scan/cache state lives in `../../../ROADMAP.md` and `../../AUDIT.md`.
+
 **Date** : 2026-05-20
 **Status** : Draft — en attente de review
 **Auteur** : opencode

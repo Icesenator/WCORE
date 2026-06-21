@@ -1,5 +1,7 @@
 # Token Logo Resolution Design
 
+> **Historical/completed design.** Kept for implementation history only; verify current icon behavior in code and `AGENTS.md` gotchas.
+
 **Status:** Shipped on 2026-05-19. API deployed to Railway and verified against Ethereum wallet `0x17d518736ee9341dcdc0a2498e013d33cfcdd080`.
 
 ## Goal

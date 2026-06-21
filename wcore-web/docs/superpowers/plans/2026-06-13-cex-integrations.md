@@ -1,5 +1,7 @@
 # CEX Integrations Implementation Plan
 
+> **Historical/completed plan.** CEX integrations have moved into live docs and roadmap; keep this file for implementation history only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Binance and Bitpanda CEX holdings to WCORE web as user-scoped, server-synced portfolio sources.

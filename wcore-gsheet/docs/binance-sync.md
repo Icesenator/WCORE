@@ -48,24 +48,19 @@ Le relais normalise les stablecoins :
   (`BITPANDA_REFRESH_WATCHDOG()`) traite la demande.
 - Au succes, `B1` devient le timestamp final et les rows sont reecrites avec le meme timestamp.
 - En cas de `BUSY`, `B1` reste en `REQUEST: BUSY retry ...` et le cycle suivant retry.
-- `Portefeuille Crypto!AC2` pose le flag CEX commun via `BITPANDA_ON_EDIT()`, traite par `BITPANDA_REFRESH_WATCHDOG()` : refresh `CEX - Bitpanda Crypto`, `CEX - Bitpanda Fiat` et `CEX - Binance`.
+- `Portefeuille Crypto!AC2` pose le flag CEX commun via `BITPANDA_ON_EDIT()`, traite par `BITPANDA_REFRESH_WATCHDOG()` : refresh `CEX - Bitpanda Crypto`, `CEX - Bitpanda Fiat`, `CEX - Binance`, `CEX - Bitfinex`, `CEX - Bybit`, `CEX - Coinbase`, `CEX - OKX`.
 
 Ne pas mettre la checkbox `AC2` dans `Action Rebalancing` ni dans `Portefeuille Crypto Details`.
 
 ## Triggers
 
-```javascript
-INSTALL_BINANCE_SYNC_TRIGGER()
-```
+Le flux courant est centralise :
 
-Legacy seulement. Le flux manuel standard est centralise par `BITPANDA_REFRESH_WATCHDOG()`.
+- `CEX_HOURLY_REFRESH()` met a jour Binance avec les autres CEX toutes les heures.
+- `BITPANDA_REFRESH_WATCHDOG()` traite `CEX - Binance!A1` et `Portefeuille Crypto!AC2`.
+- `WCORE_AUTO_HEAL` supprime les anciens triggers `UPDATE_BINANCE_SPOT` / `BINANCE_REFRESH_WATCHDOG` s'ils existent encore.
 
-Installe :
-
-- `UPDATE_BINANCE_SPOT()` toutes les heures.
-- `BINANCE_REFRESH_WATCHDOG()` chaque minute.
-
-Le refresh `Portefeuille Crypto!AC2` utilise le watchdog Bitpanda car il coordonne Bitpanda + Binance en une seule action utilisateur.
+`INSTALL_BINANCE_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
 
 ## Statut
 

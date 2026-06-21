@@ -1,5 +1,7 @@
 # RPC harmonization wcore-gsheet ↔ wcore-web (2026-06-03)
 
+> **Historical snapshot.** This audit reflects RPC state on 2026-06-03. Keep it for rationale and patterns, but verify current chain/RPC status from code and fresh probes before making changes.
+
 Stratégie unique pour gérer la **couche RPC** des deux produits, adaptée à chaque contexte.
 
 ## Audit (2026-06-03)

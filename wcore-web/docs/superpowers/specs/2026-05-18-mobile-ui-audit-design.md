@@ -1,5 +1,7 @@
 # Mobile UI Audit — WCORE Web
 
+> **Historical/completed design.** Kept for implementation history only; verify current UI behavior before acting on it.
+
 **Date** : 2026-05-18
 **Version** : v0.2.10
 **Objectif** : WCORE utilisable sur mobile au quotidien, sans perdre la qualité desktop

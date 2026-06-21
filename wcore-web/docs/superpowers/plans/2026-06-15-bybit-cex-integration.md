@@ -1,5 +1,7 @@
 # Bybit CEX Integration Implementation Plan
 
+> **Historical/completed plan.** Bybit CEX is already documented in live CEX docs and roadmap; keep this file for implementation history only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Bybit read-only CEX holdings to WCORE web using the existing Railway EU CEX relay.

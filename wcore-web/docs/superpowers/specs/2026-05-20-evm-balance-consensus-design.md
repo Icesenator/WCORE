@@ -1,5 +1,7 @@
 # Design - EVM Balance Consensus
 
+> **Historical/completed design.** Kept for implementation history only; verify current consensus behavior in `packages/core` before acting on it.
+
 **Date** : 2026-05-20
 **Status** : Draft - en attente de review utilisateur
 **Auteur** : opencode

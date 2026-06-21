@@ -99,8 +99,9 @@ fiscaux/portfolio.
 ```javascript
 SET_BYBIT_RELAY("https://cex-relay-production.up.railway.app", "<relay-token>")
 SETUP_BYBIT_SHEET()
-INSTALL_BYBIT_SYNC_TRIGGER()
 ```
+
+Les triggers actifs sont installes par `WCORE_AUTO_HEAL` : `CEX_HOURLY_REFRESH()` pour l'horaire et `BITPANDA_REFRESH_WATCHDOG()` pour les demandes manuelles. `INSTALL_BYBIT_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
 
 Diagnostics :
 
@@ -131,7 +132,7 @@ Voir `docs/cex-sync.md` pour l'architecture commune CEX.
 - `src/38_BYBIT_SYNC.gs` - connecteur GAS, version `4.15.95`.
 - `railway-relay/server.js` - endpoint `GET /bybit?token=...` du relais `cex-relay`.
 - `tests/bybit-signature.test.js` - test HMAC SHA-256 Bybit V5.
-- `docs/cex-sync.md` - architecture commune des 4 connecteurs CEX.
+- `docs/cex-sync.md` - architecture commune des 6 connecteurs CEX.
 - AGENTS.md - section "Gotchas Bybit EU" / "Connecteurs CEX".
 - Spreadsheet : `1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4`,
   onglet `CEX - Bybit`.

@@ -1,5 +1,7 @@
 # Mobile UI Audit Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; verify current UI behavior before acting on any task here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make WCORE usable on mobile (<640px) without losing desktop quality, by fixing 4 critical UI blockers and auditing remaining pages.

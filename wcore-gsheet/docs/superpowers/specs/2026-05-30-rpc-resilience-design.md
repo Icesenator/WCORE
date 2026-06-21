@@ -1,5 +1,7 @@
 # RPC Resilience — Design (2026-05-30)
 
+> **Historical/completed design.** Kept for implementation history only; verify current RPC behavior in `AGENTS.md` and source before acting on it.
+
 ## Contexte
 
 Trois incidents récents ont révélé des faiblesses systémiques dans la sélection et la

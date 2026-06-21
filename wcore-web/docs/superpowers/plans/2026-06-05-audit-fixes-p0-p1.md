@@ -1,5 +1,7 @@
 # Audit 2026-06-05 — Plan de correction P0/P1
 
+> **Historical/completed plan.** Current audit state lives in `../../AUDIT.md`; keep this plan for traceability only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Traiter les 2 P0 et 5 P1 de l’audit 2026-06-05 (sécurité API, propagation de cache, durcissement GM, hygiène). Chaque task = TDD rouge → vert → refactor → commit.

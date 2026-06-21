@@ -1,5 +1,7 @@
 # WCORE — Community Manager Strategy
 
+> **Historical strategy archive.** This file is retained for marketing/X-cycle context and older operational patterns. It is not the source of current product or engineering state.
+
 ## Account @WCORExyz
 
 ### State (2026-05-15)

@@ -1,5 +1,7 @@
 # Connecteur Binance (Spot + Earn) Implementation Plan
 
+> **Historical/completed plan.** Binance sync is documented in live CEX docs; keep this file for implementation history only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Recuperer les soldes Binance Spot + Simple Earn (flexible/locked) via l'API officielle et les ecrire dans un onglet `Binance Spot Crypto`, avec refresh par checkbox A1 et triggers automatiques.

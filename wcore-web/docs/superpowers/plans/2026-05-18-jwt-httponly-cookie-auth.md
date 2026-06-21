@@ -1,5 +1,7 @@
 # JWT HttpOnly Cookie Auth Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; verify current auth behavior in code, `AGENTS.md`, and `docs/AUDIT.md` before acting on any task here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace Bearer token in localStorage with HttpOnly cookie-based JWT auth (access + refresh tokens) with Redis revocation.

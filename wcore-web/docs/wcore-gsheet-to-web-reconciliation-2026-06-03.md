@@ -1,5 +1,7 @@
 # WCORE Final → WCORE Web reconciliation — 2026-06-03
 
+> **Historical snapshot.** This reconciliation predates the v0.3.x monorepo and `@wcore/chains` extraction cleanup. It is retained for context only. Current source-of-truth rules live in `../README.md`, `../ROADMAP.md`, and `../../wcore-gsheet/README.md`.
+
 Objectif : décider quoi porter de `C:\Users\strau\wcore-gsheet` vers `C:\Users\strau\wcore-web` après les améliorations Apps Script récentes.
 
 ## Résumé

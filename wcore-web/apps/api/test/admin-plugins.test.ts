@@ -70,6 +70,20 @@ describe("admin plugin — privilege guards", () => {
     assert.equal(data.error, "unauthorized");
   });
 
+  test("GET /api/stats returns 401 without admin token", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/stats" });
+    assert.equal(res.statusCode, 401);
+    const data = JSON.parse(res.payload) as { error?: string };
+    assert.equal(data.error, "unauthorized");
+  });
+
+  test("GET /api/circuit returns 401 without admin token", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/circuit" });
+    assert.equal(res.statusCode, 401);
+    const data = JSON.parse(res.payload) as { error?: string };
+    assert.equal(data.error, "unauthorized");
+  });
+
   // --- /api/admin/scam-override ---
   test("POST /api/admin/scam-override returns 401 without admin token", async () => {
     const res = await app.inject({

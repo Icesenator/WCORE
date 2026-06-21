@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { CircuitBreaker, CacheStore } from "@wcore/core";
 import { NativePriceQuerySchema } from "../schemas.js";
+import { isAdminAuthorized } from "../admin-auth.js";
 
 export interface ChainsPluginDeps {
   circuitBreakers: Map<string, CircuitBreaker>;
@@ -10,6 +11,11 @@ export interface ChainsPluginDeps {
 export async function chainsPlugin(app: FastifyInstance, deps: ChainsPluginDeps) {
   const { circuitBreakers, cache } = deps;
   const { chainList, getChain, getChainlistEntry, getExplorerUrl, metrics, getEurUsdRate, isChainDisabled } = await import("@wcore/core");
+  const requireAdmin = (req: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => unknown }) => {
+    if (isAdminAuthorized(req)) return true;
+    reply.code(401);
+    return false;
+  };
 
   // --- Chains List ---
 
@@ -42,11 +48,14 @@ export async function chainsPlugin(app: FastifyInstance, deps: ChainsPluginDeps)
 
   // --- Stats ---
 
-  app.get("/api/stats", async () => ({
-    ...metrics.snapshot(),
-    chainCount: chainList.length,
-    circuits: Object.fromEntries(Array.from(circuitBreakers.entries()).map(([k, v]) => [k, v.getStatus()])),
-  }));
+  app.get("/api/stats", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return { error: "unauthorized" };
+    return {
+      ...metrics.snapshot(),
+      chainCount: chainList.length,
+      circuits: Object.fromEntries(Array.from(circuitBreakers.entries()).map(([k, v]) => [k, v.getStatus()])),
+    };
+  });
 
   // --- Single Chain ---
 
@@ -59,9 +68,12 @@ export async function chainsPlugin(app: FastifyInstance, deps: ChainsPluginDeps)
 
   // --- Circuit Breakers ---
 
-  app.get("/api/circuit", async () => ({
-    circuits: Object.fromEntries(Array.from(circuitBreakers.entries()).map(([k, v]) => [k, v.getStatus()])),
-  }));
+  app.get("/api/circuit", async (req, reply) => {
+    if (!requireAdmin(req, reply)) return { error: "unauthorized" };
+    return {
+      circuits: Object.fromEntries(Array.from(circuitBreakers.entries()).map(([k, v]) => [k, v.getStatus()])),
+    };
+  });
 
   // --- Pricing: ETH ---
 

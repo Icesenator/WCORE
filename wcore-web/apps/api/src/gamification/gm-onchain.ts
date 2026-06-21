@@ -293,7 +293,7 @@ export async function registerGmOnchainRoutes(
       });
     } catch (error) {
       if (error instanceof Error && error.message === "tx_already_used") {
-        return reply.code(400).send({ error: "tx_already_used" });
+        return reply.code(400).send({ error: "duplicate_tx" });
       }
       if (error instanceof Error && error.message === "user_not_found") {
         return reply.code(404).send({ error: "user_not_found" });

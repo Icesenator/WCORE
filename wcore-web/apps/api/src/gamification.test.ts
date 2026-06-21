@@ -323,6 +323,41 @@ describe("GM API regressions", () => {
     assert.equal(count, 2);
   });
 
+  test("POST /api/gm/onchain rejects replay of the same txHash on the same chain", async () => {
+    await prisma.gmContract.upsert({
+      where: { chainKey_contractAddress: { chainKey: "base", contractAddress: CONTRACT_A } },
+      update: { ownerId: userA.id, creatorAddress: ADDR_A },
+      create: { chainKey: "base", contractAddress: CONTRACT_A, ownerId: userA.id, creatorAddress: ADDR_A },
+    });
+    globalThis.fetch = async () => jsonResponse({
+      result: {
+        from: ADDR_A,
+        to: CONTRACT_A,
+        status: "0x1",
+        logs: [{ address: CONTRACT_A, topics: [GM_EVENT_SIG, topicAddress(ADDR_A)], data: gmEventData(333n, 3n, 777n) }],
+      },
+    });
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/gm/onchain",
+      headers: { authorization: `Bearer ${token(userA.id, ADDR_A)}`, "x-forwarded-for": "198.51.100.31" },
+      payload: { chainKey: "base", contractAddress: CONTRACT_A, txHash: "0xabc123" },
+    });
+    const replay = await app.inject({
+      method: "POST",
+      url: "/api/gm/onchain",
+      headers: { authorization: `Bearer ${token(userA.id, ADDR_A)}`, "x-forwarded-for": "198.51.100.31" },
+      payload: { chainKey: "BASE", contractAddress: CONTRACT_A, txHash: "0xabc123" },
+    });
+
+    assert.equal(first.statusCode, 200);
+    assert.equal(replay.statusCode, 400);
+    assert.equal(replay.json().error, "duplicate_tx");
+    const count = await prisma.onchainGm.count({ where: { txHash: "0xabc123" } });
+    assert.equal(count, 1);
+  });
+
   test("GET /api/gm/has-deployed preserves existing owners and self-heals newly discovered user contracts", async () => {
     await prisma.gmContract.deleteMany({ where: { ownerId: userA.id, chainKey: { equals: "base", mode: "insensitive" } } });
     await prisma.gmContract.upsert({

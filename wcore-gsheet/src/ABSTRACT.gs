@@ -1,7 +1,8 @@
 /**
- * ABSTRACT.gs - Abstract (v4.9.6)
+ * ABSTRACT.gs - Abstract (v4.9.7)
  * ChainFactory pattern with explicit function declarations
  *
+ * v4.9.7 - Added native ETH pricing IDs for web GM native price endpoint
  * v4.9.6 - Added 3 RPC endpoints for redundancy and consensus (was single endpoint causing stale cache)
  * v4.9.5 - Initial ChainFactory implementation
  */
@@ -15,14 +16,16 @@ var _ABSTRACT = ChainFactory.createEvmChain("ABSTRACT", {
    "https://2741.rpc.thirdweb.com"
  ] },
  CHAIN: {
- NAME: "Abstract",
- CHAIN_ID: 2741,
- NATIVE_SYMBOL: "ETH",
- NATIVE_NAME: "Ether",
- NATIVE_DECIMALS: 18,
- DEX_SLUG: "abstract",
- GT_NETWORK: "abstract"
- }
+  NAME: "Abstract",
+  CHAIN_ID: 2741,
+  NATIVE_SYMBOL: "ETH",
+  NATIVE_NAME: "Ether",
+  NATIVE_DECIMALS: 18,
+  NATIVE_LLAMA_ID: "coingecko:ethereum",
+  NATIVE_GECKO_ID: "ethereum",
+  DEX_SLUG: "abstract",
+  GT_NETWORK: "abstract"
+  }
 });
 
 // Main functions

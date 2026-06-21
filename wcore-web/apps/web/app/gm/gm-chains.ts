@@ -52,6 +52,14 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   swan: "Swan",
   vana: "Vana",
   story: "Story",
+  intuition: "Intuition",
+  plume: "Plume",
+  superposition: "Superposition",
+  monad: "Monad",
+  megaeth: "MegaETH",
+  doma: "Doma",
+  b2: "B2",
+  katana: "Katana",
 };
 
 const SOON_CHAIN_CANDIDATES: GmChain[] = [

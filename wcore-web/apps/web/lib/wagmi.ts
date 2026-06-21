@@ -163,6 +163,46 @@ const intuition: Chain = {
   blockExplorers: { default: { name: "Intuition Explorer", url: "https://explorer.intuition.systems" } },
 };
 
+const plume: Chain = {
+  id: 98866,
+  name: "Plume",
+  nativeCurrency: { name: "Plume", symbol: "PLUME", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.plume.org", "https://plume.drpc.org", "https://plume-mainnet.gateway.tatum.io"] }, public: { http: ["https://rpc.plume.org", "https://plume.drpc.org", "https://plume-mainnet.gateway.tatum.io"] } },
+  blockExplorers: { default: { name: "Plume Explorer", url: "https://explorer.plume.org" } },
+};
+
+const superposition: Chain = {
+  id: 55244,
+  name: "Superposition",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.superposition.so", "https://55244.rpc.thirdweb.com"] }, public: { http: ["https://rpc.superposition.so", "https://55244.rpc.thirdweb.com"] } },
+  blockExplorers: { default: { name: "Superposition Explorer", url: "https://explorer.superposition.so" } },
+};
+
+const monad: Chain = {
+  id: 143,
+  name: "Monad",
+  nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.monad.xyz", "https://rpc1.monad.xyz", "https://rpc3.monad.xyz", "https://rpc-mainnet.monadinfra.com"] }, public: { http: ["https://rpc.monad.xyz", "https://rpc1.monad.xyz", "https://rpc3.monad.xyz", "https://rpc-mainnet.monadinfra.com"] } },
+  blockExplorers: { default: { name: "Monad Explorer", url: "https://monadexplorer.com" } },
+};
+
+const megaeth: Chain = {
+  id: 4326,
+  name: "MegaETH",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://mainnet.megaeth.com/rpc", "https://megaeth.drpc.org", "https://rpc-megaeth-mainnet.globalstake.io"] }, public: { http: ["https://mainnet.megaeth.com/rpc", "https://megaeth.drpc.org", "https://rpc-megaeth-mainnet.globalstake.io"] } },
+  blockExplorers: { default: { name: "MegaETH Explorer", url: "https://www.megaexplorer.xyz" } },
+};
+
+const katana: Chain = {
+  id: 747474,
+  name: "Katana",
+  nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.katana.network/", "https://katana.drpc.org/", "https://katana.gateway.tenderly.co", "https://747474.rpc.thirdweb.com/"] }, public: { http: ["https://rpc.katana.network/", "https://katana.drpc.org/", "https://katana.gateway.tenderly.co", "https://747474.rpc.thirdweb.com/"] } },
+  blockExplorers: { default: { name: "Katana Explorer", url: "https://katanascan.com" } },
+};
+
 const syndicateCommons: Chain = {
   id: 510003,
   name: "Syndicate Commons",
@@ -509,7 +549,7 @@ const wagmiConnectors = [
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, polygonZkEvm, zora, mode, sei, superseed, shape, ancient8, bob, lisk, metalL2, redstone, appchain, camp, duckchain, cyber, rari, zircuit,
-    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, syndicateCommons, race, doma, b2, juchain, mind, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
+    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, syndicateCommons, race, doma, b2, juchain, mind, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story],
   // as any needed — wagmi connector types mismatch with custom chain list
@@ -561,6 +601,11 @@ export const config = createConfig({
     [mantaPacific.id]: http(),
     [reya.id]: http(),
     [intuition.id]: http(),
+    [plume.id]: http(),
+    [superposition.id]: http(),
+    [monad.id]: http(),
+    [megaeth.id]: http(),
+    [katana.id]: http(),
     [syndicateCommons.id]: http(),
     [race.id]: http(),
     [doma.id]: http(),

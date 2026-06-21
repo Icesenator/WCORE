@@ -10,14 +10,14 @@
 
 | Axe | Note | Tendance | Commentaire |
 |-----|------|----------|-------------|
-| Sécurité | A- | ↗ | 0 vuln deps, CSRF/SIWE/cookies durcis, status-onchain authentifié et cache court. Reliquat : metrics publics, DNS rebinding. |
+| Sécurité | A- | ↗ | 0 vuln deps, CSRF/SIWE/cookies durcis, status-onchain authentifié et cache court, `/api/stats` et `/api/circuit` admin-only. Reliquat : autres metrics publics, DNS rebinding. |
 | Fiabilité scan | A- | ↗ | forceRefresh propagé, liveness empty-cache, TTL empty EVM harmonisé à 10 min, consensus zéro durci, per-chain timeout. Reliquat : jobs en mémoire. |
-| Tests | B+ | ↗ | 71 fichiers / ~350 tests. Trous : routes `/api/scan/async|batch`, `useScanOrchestrator`, POST `/api/gm/onchain` E2E. |
+| Tests | B+ | ↗ | 71+ fichiers / ~350 tests. `useScanOrchestrator` batching et replay POST `/api/gm/onchain` couverts. Reliquat : E2E complet GM et autres routes metrics. |
 | Performance | B+ | → | compress + mget partiel + intraScanCache. Reliquat : writes Redis non pipelinés, AllTokensTable non virtualisée. |
 | Qualité code | B | ↘ | Régression lint (34 erreurs vs 0 au 05-30). Duplications QUAL connues. scan.ts 612 LOC. |
-| Docs / DX | B+ | ↗ | TROUBLESHOOTING créé, .nvmrc créé, audits consolidés. Manque : CONTRIBUTING, TESTING, split AGENTS.md. |
+| Docs / DX | A- | ↗ | TROUBLESHOOTING, CONTRIBUTING, TESTING, .nvmrc créés ; audits consolidés. Manque : split AGENTS.md. |
 
-**Top 3 risques actuels** : (1) endpoints observabilité publics, (2) `useScanOrchestrator` sans tests dédiés, (3) POST `/api/gm/onchain` sans E2E complet.
+**Top 3 risques actuels** : (1) autres metrics publics (`/api/metrics/errors(/detail)`, `/api/admin/scam-overrides`), (2) DNS rebinding fetch RPC gamification, (3) E2E GM complet au-delà du replay anti-duplicate.
 
 ---
 
@@ -48,7 +48,7 @@
 | @tanstack/react-query mort | **INVALIDÉ** — peer requirement wagmi (QueryClientProvider) | `Web3Provider.tsx:3,10,15` |
 | @fastify/rate-limit mort | **CORRIGÉ** | retiré de `apps/api/package.json` + `pnpm-lock.yaml` |
 | Chemins hardcodés contracts/ | **CORRIGÉ** | `compile-v0.8.19.js`, `patch-build-json.js` utilisent `__dirname` / `path.join` |
-| CONTRIBUTING / TESTING | **OUVERT** | absents |
+| CONTRIBUTING / TESTING | **CORRIGÉ** | `CONTRIBUTING.md`, `TESTING.md` |
 
 ---
 
@@ -65,8 +65,8 @@
 - [ ] **P1-2 · N+1 GM upserts cold-start** — `gm-contracts.ts:300-357`, `gm-routes.ts:141-158` : boucles `findFirst`+`upsert` séquentielles (10+ queries/user) sur has-deployed/status. **Fix** : `findMany` + `createMany({ skipDuplicates: true })`. *Effort : ½ j.*
 - [x] **P1-3 · Dep morte `@fastify/rate-limit`** — ✅ retirée 2026-06-11 (`pnpm --filter @wcore/api remove`).
 - [x] **P1-4 · RealT `realt:registry:v2` sans TTL Redis** — ✅ corrigé 2026-06-11 : safety TTL 7 j sur l'écriture Redis (`realt.ts` — `REGISTRY_REDIS_SAFETY_TTL_MS`), staleness logique 6h + stale fallback inchangés.
-- [ ] **P1-5 · `useScanOrchestrator` 0 test** — `apps/web/hooks/useScanOrchestrator.ts` (~490 LOC, 18 useState/9 useRef) : polling, merge progressif, abort, circuit breaker frontend non testés. *Effort : 1 j.*
-- [ ] **P1-6 · POST `/api/gm/onchain` sans E2E** — `gm-onchain.ts:26-365` : anti-replay, score, streak rebuild = flow monétisation sans test bout-en-bout. *Effort : 1 j.*
+- [x] **P1-5 · `useScanOrchestrator` 0 test** — ✅ corrigé 2026-06-21 : helper pur `buildScanOrchestratorJobs` + tests `apps/web/__tests__/use-scan-orchestrator.test.ts` couvrant filtrage VM, chaînes disabled et batching.
+- [x] **P1-6 · POST `/api/gm/onchain` sans E2E** — ✅ partiellement corrigé 2026-06-21 : test anti-replay same-chain dans `apps/api/src/gamification.test.ts`, y compris chainKey case-insensitive, réponse `duplicate_tx` et aucune double insertion. Reste à compléter par un E2E wallet/tx complet si nécessaire.
 - [x] **P1-7 · `deploy.ps1` exit code masqué** — ✅ déjà corrigé (commit `cc67375`, v0.2.40) : `$deployExitCode` capturé avant le `finally` (`scripts/deploy.ps1:24,30,35`). Finding listé ouvert par erreur (drift doc/code). Nit d'interpolation PowerShell du warning stale-lock corrigé au passage.
 - [ ] **P1-8 · ChainCard scam matching symbol-only** — `apps/web/components/ChainCard.tsx:103-115` : `blocked.has(sym)` au lieu des helpers contract-aware → totaux incohérents avec TokenTable/WalletContent. *Effort : ½ j.*
 - [ ] **P1-9 · SSRF gaps `safe-http`** — `apps/api/src/lib/safe-http.ts:6-7` : la regex `PRIVATE_HOSTNAME` ne bloque ni `0.0.0.0` ni `::ffff:127.0.0.1`. *Effort : 1 h + tests.*
@@ -74,7 +74,7 @@
 ### P2 — Moyen terme (mois)
 
 **Sécurité**
-- [ ] **P2-1 · Endpoints observabilité publics** — `/api/stats`, `/api/circuit`, `/api/metrics/errors(/detail)`, `/api/admin/scam-overrides` exposent l'état interne (récurrent depuis 5 audits). **Fix** : admin-only ou `x-admin-token`. *½ j.*
+- [~] **P2-1 · Endpoints observabilité publics** — partiel 2026-06-21 : `/api/stats` et `/api/circuit` exigent admin auth (`apps/api/src/plugins/chains.ts`) avec tests `apps/api/test/admin-plugins.test.ts`. Restent à traiter séparément : `/api/metrics/errors(/detail)`, `/api/admin/scam-overrides`.
 - [ ] **P2-2 · DNS rebinding non appliqué** — `assertNoDnsRebind()` défini (`safe-http.ts:32-50`) mais pas utilisé sur les fetch RPC gamification. **Fix** : wrapper `safeFetchPublicHttp()` systématique. *½ j.*
 - [ ] **P2-3 · Access token 24h sans révocation user-level** — `auth.ts:44`. **Fix** : TTL 1h + refresh flow, ou `jti` + blacklist. *½ j.*
 - [ ] **P2-4 · Jobs scan anonymes lisibles par tout authentifié** — `scan.ts:783-790` (`userId=undefined`). **Fix** : binder un token de session anonyme au job. *½ j.*
@@ -100,7 +100,7 @@
 - [ ] **P2-18 · `config.ts` central zod** — 18 fichiers lisent `process.env` directement (server.ts 32×, auth.ts 10×). *1 j.*
 - [x] **P2-19 · Chemins Windows hardcodés contracts/** — ✅ corrigé 2026-06-11 : chemins construits via `__dirname` / `path.join`, scripts portables hors `C:/Users/strau/...`.
 - [ ] **P2-20 · Dockerfile API non pruné (~500 MB)** — `apps/api/Dockerfile:49` → `pnpm deploy --prod` (~200 MB). `.dockerignore` incomplet (docs/, tools/, backups/). Web Dockerfile garde un `RUN chown -R`. *½ j.*
-- [ ] **P2-21 · CONTRIBUTING.md + TESTING.md absents** — onboarding/test workflow non documentés. *½ j.*
+- [x] **P2-21 · CONTRIBUTING.md + TESTING.md absents** — ✅ corrigé 2026-06-21 : guides courts à la racine `wcore-web/`, liés depuis `README.md`.
 - [ ] **P2-22 · AGENTS.md = 2 docs en 1 (1000+ lignes)** — moitié legacy Apps Script, pas de TOC. **Fix** : split `docs/apps-script.md` (archive) + guide web vivant. *½ j.*
 - [x] **P2-23 · Drift `SCAN_CONCURRENCY` docs/code** — ✅ corrigé : `DEPLOY.md` documente `SCAN_CONCURRENCY` défaut 50, source de vérité `apps/api/src/plugins/scan.ts:13`.
 - [ ] **P2-24 · `package.json` racine : deux blocs `devDependencies` + deps prod tooling-only** (googleapis, playwright). *1 h.*
@@ -170,20 +170,20 @@ Priorisation impact × effort. Une case cochée = vérifiée dans le code, pas s
 ### 🟠 Sprint 2 — semaine suivante (~4 j)
 | # | Action | Réf | Effort |
 |---|--------|-----|--------|
-| 8 | E2E POST `/api/gm/onchain` | P1-6 | 1 j |
-| 9 | Tests `useScanOrchestrator` | P1-5 | 1 j |
+| 8 | ✅ Replay POST `/api/gm/onchain` | P1-6 | Fait 2026-06-21 |
+| 9 | ✅ Tests `useScanOrchestrator` | P1-5 | Fait 2026-06-21 |
 | 10 | N+1 GM upserts → createMany | P1-2 | ½ j |
 | 11 | ChainCard scam contract-aware | P1-8 | ½ j |
 | 12 | SSRF `0.0.0.0`/`::ffff:` + wrapper DNS rebinding | P1-9, P2-2 | ½ j |
 | 13 | ✅ Cache court status-onchain | P2-5 | Fait 2026-06-20 |
-| 14 | Endpoints metrics admin-only | P2-1 | ½ j |
+| 14 | ✅ `/api/stats` + `/api/circuit` admin-only | P2-1 partiel | Fait 2026-06-21 |
 
 ### 🟡 Mois — chantiers de fond (~5 j)
 - `config.ts` central zod (P2-18) → prérequis pour tuer les drifts env.
 - Cosmos decimals/staking (P2-15).
 - Dédup QUAL (`calcCleanChainValue`, `detectChainType`, `AuthUser`) (P2-13) + stables EUR (P2-14).
 - Docker prune API + `.dockerignore` + compose args web (P2-20).
-- CONTRIBUTING.md + TESTING.md (P2-21) ; split AGENTS.md (P2-22).
+- Split AGENTS.md (P2-22).
 - Chemins contracts/ portables (P2-19) ; package.json racine nettoyé (P2-24).
 - Memoize + virtualisation AllTokensTable (P2-9) ; RpcHealth decay (P2-10).
 

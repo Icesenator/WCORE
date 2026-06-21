@@ -27,6 +27,14 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **GM on-chain optimise** : `syncOnChainContracts()` passe en batch DB (`findMany`, `createMany({ skipDuplicates: true })`, `updateMany`) sans ecraser un `ownerId` existant d'un autre user. `/api/gm/status-onchain` a maintenant un cache memoire court 5 min par `(chain,address,UTC day)` pour eviter les `eth_getLogs` repetes.
 - **Verifications locales** : `pnpm typecheck`, builds `@wcore/core`, `@wcore/api`, `@wcore/web`, `validate:static`, `build:chains`, `test:phase3-chains`, `git diff --check` tous verts avant push/deploy.
 
+### Session 2026-06-21 - sprint roadmap securite/tests/docs
+
+- **Observabilite admin-only** : `/api/stats` et `/api/circuit` exigent maintenant l'admin auth via `isAdminAuthorized(req)`. Tests `apps/api/test/admin-plugins.test.ts` couvrent les 401 sans token.
+- **Scan orchestrator couvert** : `buildScanOrchestratorJobs()` isole la logique pure du hook et les tests `apps/web/__tests__/use-scan-orchestrator.test.ts` couvrent le filtrage VM, les chaines disabled et le batching.
+- **GM on-chain anti-replay renforce** : test same-chain/casse mixte sur `/api/gm/onchain`; la reponse duplicate utilise maintenant `error: "duplicate_tx"` et la DB ne double-insere pas le `txHash`.
+- **Docs onboarding** : `CONTRIBUTING.md` et `TESTING.md` ajoutes et lies depuis `README.md` ; `docs/TROUBLESHOOTING.md` existait deja.
+- **Swellchain sunset** : aucune suppression avant la deadline officielle du 23 juin 2026 ; Task 5 stoppee volontairement au gate date.
+
 ### Ô£à Phase 1 : Fondations cross-runtime ÔÇö FX cascade + cache-key registry + drift detector
 ### Ô£à Phase 1.5 : Mirror .gs ├®limin├® + package @wcore/chains + monorepo unifi├®
 ### Ô£à Phase 2 : CEX Coinbase + OKX (web multi-user, d├®j├á livr├® le 2026-06-15)
@@ -393,7 +401,7 @@ Audit transversal (5 agents en parall├¿le sur structure/code/s├®curit├®
 
 Voir `docs/AUDIT.md` section ┬º3 (P2/P3). Points saillants :
 
-- **P2-1** : `/api/stats` et `/api/circuit` exposent metrics publics (h├®rit├®e de audit 06-05, non r├®solu)
+- **P2-1** : Resolu partiellement 2026-06-21 - `/api/stats` et `/api/circuit` admin-only ; restent `/api/metrics/errors(/detail)` et `/api/admin/scam-overrides` a traiter separement.
 - **P2-3** : 18 fichiers acc├¿dent `process.env` directement ÔåÆ centraliser dans `src/config.ts` avec zod validation
 - **P2-5** : resolu 2026-06-20 - cache court `status-onchain` 5 min par `(chain,address,UTC day)` pour eviter des `eth_getLogs` repetes
 - **P2-6/P2-7** : Ô£à `prisma.walletScan.create` fire-and-forget + cache scan `mget`

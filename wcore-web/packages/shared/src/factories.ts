@@ -162,6 +162,14 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // London (baseFeePerGas present) → standard build, no Paris fallback needed.
   // Factory implementation() → 0xcf7ec8bbf7c6352d33ff5e9b5b26750cc5a9632c (GmOnChain impl, 2237 bytes).
   story: { address: "0xaaf9c75f5cc4c8b001f2562173993445ed8946fa", chainId: 1514 },
+  intuition: { address: "0xb6a0615caf1fc1d27688f77de251411776404110", chainId: 1155 },
+  plume: { address: "0xc019e086f795661213b11884b52338e8752468d3", chainId: 98866 },
+  superposition: { address: "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f", chainId: 55244 },
+  monad: { address: "0xd4930a277986021da6db82db18fd26e6c6c4a763", chainId: 143 },
+  megaeth: { address: "0xc357a4e3741e57a9bf53a3ae1c7584e16413dd07", chainId: 4326 },
+  doma: { address: "0x405376616102772a6045b5ad61f877fb31bafb93", chainId: 97477 },
+  b2: { address: "0x4a36400e6717d4201e22baf66832f06d8ad54bb1", chainId: 223 },
+  katana: { address: "0x79113a6c0517a2e748b87bab6e4058ad75eb4352", chainId: 747474 },
 };
 
 export function getFactoryChainIds(): number[] {

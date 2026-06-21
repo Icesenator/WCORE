@@ -22,6 +22,8 @@ export const ABSTRACT: ChainConfig = {
     NATIVE_SYMBOL: "ETH",
     NATIVE_NAME: "Ether",
     NATIVE_DECIMALS: 18,
+    NATIVE_LLAMA_ID: "coingecko:ethereum",
+    NATIVE_GECKO_ID: "ethereum",
     DEX_SLUG: "abstract",
     GT_NETWORK: "abstract",
   },

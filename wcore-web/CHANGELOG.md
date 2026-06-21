@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 2026-06-21 — Roadmap sprint: observability guards, scan/GM tests, contributor docs
+
+- **Observability guards**: `/api/stats` and `/api/circuit` now require admin authorization. Regression tests cover unauthenticated 401 responses.
+- **Scan orchestrator tests**: added pure job-building coverage for VM filtering, disabled chains, and batching.
+- **GM on-chain replay guard**: added same-chain replay coverage for `/api/gm/onchain`; duplicate transactions now return `error: "duplicate_tx"` and are not inserted twice.
+- **Contributor docs**: added `CONTRIBUTING.md` and `TESTING.md`, linked from `README.md`.
+- **Swellchain sunset gate**: no chain removal before the public 2026-06-23 deadline.
+
 ## 2026-06-19 ÔÇö GitHub public + API Railway restaur├®e apr├¿s crash Dockerfile
 
 - **Repo public propre** : `https://github.com/Icesenator/WCORE` publi├® sur `master` depuis un snapshot ├á historique neuf, pour ├®viter de publier l'ancien historique priv├® contenant des secrets r├®els. Les secrets historiques doivent rester consid├®r├®s compromis c├┤t├® fournisseurs.

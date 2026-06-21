@@ -91,8 +91,8 @@
 **Fix** : cap à 7j en defense-in-depth (audit 2026-06-07 P1-5). Si pollué, `redis-cli DEL realt:price:<contract>`.
 
 ### EVM empty cache stale pour un wallet nouvellement fundé
-**Cause** : cache EVM 1h masque wallet token-only.  
-**Fix** : utiliser `forceRefresh=true` ou attendre 1h. Réduction EVM empty cache à 10min prévu (P1-4 audit 2026-06-07).
+**Cause** : cache EVM empty peut temporairement masquer un wallet token-only nouvellement fundé.  
+**Fix** : utiliser `forceRefresh=true` pour bypass immédiat, ou attendre le TTL courant de 10 min. L'ancien TTL 1h est historique.
 
 ### GM score double-compté après rebuild
 **Cause** : `OnchainGm @@unique([chainKey, txHash])` case-sensitive en Postgres. Rows legacy lowercase `chainKey="base"` ne collisionnent pas avec nouvelles UPPERCASE.  
@@ -118,7 +118,7 @@
 - `AGENTS.md` — 200+ gotchas détaillées
 - `CHANGELOG.md` — changements release
 - `docs/AUDIT.md` — audit consolidé unique (findings + roadmap)
-- `docs/CM-STRATEGY.md` — communication X (95 KB)
+- `docs/superpowers/specs/CM-STRATEGY.md` — communication X historique/stratégie
 - `docs/rpc-harmonization-2026-06-03.md` — défense RPC 11 couches
 - `docs/wcore-gsheet-to-web-reconciliation-2026-06-03.md` — apps-script vs web
 

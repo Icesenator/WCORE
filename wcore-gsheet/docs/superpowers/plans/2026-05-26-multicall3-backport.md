@@ -1,5 +1,7 @@
 # Multicall3 Backport Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; verify current Multicall3 behavior in source before acting on it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Multicall3 as an optimized EVM RPC transport in `wcore-gsheet` while preserving identical balance decisions and output behavior.

@@ -1,5 +1,7 @@
 # 2026-05-13 Audit Fixes Report
 
+> **Historical/completed report.** Current audit state lives in `../../AUDIT.md`; keep this report for traceability only.
+
 ## Scope
 
 This document records the audit fixes applied after the complete WCORE Web review on 2026-05-13. The changes target value-inflation bugs, security hardening, frontend state correctness, deployment safety, and validation coverage.

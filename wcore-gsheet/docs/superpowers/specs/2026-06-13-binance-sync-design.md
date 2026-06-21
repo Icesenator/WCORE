@@ -1,5 +1,7 @@
 # Connecteur Binance (Spot + Earn) — Design
 
+> **Historical/completed design.** Binance sync is documented in live CEX docs; keep this file for implementation history only.
+
 Date: 2026-06-13
 Statut: validé (en attente revue spec)
 

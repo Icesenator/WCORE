@@ -10,14 +10,14 @@
 
 | Axe | Note | Tendance | Commentaire |
 |-----|------|----------|-------------|
-| Sécurité | A- | ↗ | 0 vuln deps, CSRF/SIWE/cookies durcis, status-onchain authentifié. Reliquat : Bearer par défaut, metrics publics, DNS rebinding. |
+| Sécurité | A- | ↗ | 0 vuln deps, CSRF/SIWE/cookies durcis, status-onchain authentifié et cache court. Reliquat : metrics publics, DNS rebinding. |
 | Fiabilité scan | A- | ↗ | forceRefresh propagé, liveness empty-cache, TTL empty EVM harmonisé à 10 min, consensus zéro durci, per-chain timeout. Reliquat : jobs en mémoire. |
 | Tests | B+ | ↗ | 71 fichiers / ~350 tests. Trous : routes `/api/scan/async|batch`, `useScanOrchestrator`, POST `/api/gm/onchain` E2E. |
 | Performance | B+ | → | compress + mget partiel + intraScanCache. Reliquat : writes Redis non pipelinés, AllTokensTable non virtualisée. |
 | Qualité code | B | ↘ | Régression lint (34 erreurs vs 0 au 05-30). Duplications QUAL connues. scan.ts 612 LOC. |
 | Docs / DX | B+ | ↗ | TROUBLESHOOTING créé, .nvmrc créé, audits consolidés. Manque : CONTRIBUTING, TESTING, split AGENTS.md. |
 
-**Top 3 risques actuels** : (1) `AUTH_ALLOW_BEARER` permissif par défaut en prod, (2) zéro test sur `/api/scan/async` et `/api/scan/batch` (revenue path), (3) régression lint qui masque un bug réel (TDZ ConnectButton).
+**Top 3 risques actuels** : (1) endpoints observabilité publics, (2) `useScanOrchestrator` sans tests dédiés, (3) POST `/api/gm/onchain` sans E2E complet.
 
 ---
 
@@ -32,7 +32,7 @@
 | Finding (audit 06-07) | Verdict 06-11 | Preuve |
 |---|---|---|
 | P0-1 Bearer permissif | **CORRIGÉ** | `apps/api/src/auth.ts:170-174` — deny-by-default en prod, Bearer seulement si `AUTH_ALLOW_BEARER === "true"` |
-| P0-2 status-onchain non protégé | **PARTIEL** (auth+ownership+zod ✅, cache court ❌) | `gm-onchain.ts:368-376` |
+| P0-2 status-onchain non protégé | **CORRIGÉ** (auth+ownership+zod + cache court 5 min) | `gm-onchain.ts` + roadmap 2026-06-20 |
 | P0-3 tests routes scan | **CORRIGÉ** | `apps/api/test/scan-plugin-routes.test.ts` — async/batch couverts (23/23), bugs `forceRefresh` async + batch invalid address corrigés |
 | forceRefresh non propagé (06-05 P0-1) | **CORRIGÉ** | `scan.ts:116,315,394,513` + `evm-scan.ts:125`, `svm.ts:102`, `cosmos.ts:128` |
 | `strict:false` web | **CORRIGÉ** | `apps/web/tsconfig.json:14` |
@@ -78,7 +78,7 @@
 - [ ] **P2-2 · DNS rebinding non appliqué** — `assertNoDnsRebind()` défini (`safe-http.ts:32-50`) mais pas utilisé sur les fetch RPC gamification. **Fix** : wrapper `safeFetchPublicHttp()` systématique. *½ j.*
 - [ ] **P2-3 · Access token 24h sans révocation user-level** — `auth.ts:44`. **Fix** : TTL 1h + refresh flow, ou `jti` + blacklist. *½ j.*
 - [ ] **P2-4 · Jobs scan anonymes lisibles par tout authentifié** — `scan.ts:783-790` (`userId=undefined`). **Fix** : binder un token de session anonyme au job. *½ j.*
-- [ ] **P2-5 · Cache court manquant sur status-onchain** — reliquat P0-2 du 06-07 : auth/ownership faits, mais chaque appel refait l'énumération factory + getLogs. **Fix** : cache `(chain,address,date)` TTL 5 min. *2 h.*
+- [x] **P2-5 · Cache court manquant sur status-onchain** — ✅ corrigé 2026-06-20 : cache mémoire 5 min par `(chain,address,UTC day)` pour éviter les `eth_getLogs` répétés.
 
 **Performance**
 - [x] **P2-6 · `prisma.walletScan.create` await dans le response path** — ✅ corrigé 2026-06-11 : persistence historique fire-and-forget avec `.catch`, sans bloquer la réponse.
@@ -102,7 +102,7 @@
 - [ ] **P2-20 · Dockerfile API non pruné (~500 MB)** — `apps/api/Dockerfile:49` → `pnpm deploy --prod` (~200 MB). `.dockerignore` incomplet (docs/, tools/, backups/). Web Dockerfile garde un `RUN chown -R`. *½ j.*
 - [ ] **P2-21 · CONTRIBUTING.md + TESTING.md absents** — onboarding/test workflow non documentés. *½ j.*
 - [ ] **P2-22 · AGENTS.md = 2 docs en 1 (1000+ lignes)** — moitié legacy Apps Script, pas de TOC. **Fix** : split `docs/apps-script.md` (archive) + guide web vivant. *½ j.*
-- [ ] **P2-23 · Drift `SCAN_CONCURRENCY` docs/code** — code 50 (`scan.ts:13`) vs DEPLOY.md 30. Source de vérité = code ; aligner DEPLOY.md. *30 min.*
+- [x] **P2-23 · Drift `SCAN_CONCURRENCY` docs/code** — ✅ corrigé : `DEPLOY.md` documente `SCAN_CONCURRENCY` défaut 50, source de vérité `apps/api/src/plugins/scan.ts:13`.
 - [ ] **P2-24 · `package.json` racine : deux blocs `devDependencies` + deps prod tooling-only** (googleapis, playwright). *1 h.*
 - [ ] **P2-25 · `scripts/validate-static.js` rouge** — SYNC_J1_ALL_SHEETS, WCORE_AUTO_HEAL manquants (upstream `wcore-gsheet`, hors scope web mais le script vit ici). *à traiter upstream.*
 
@@ -127,7 +127,7 @@ Détails complets dans l'historique git des rapports datés. Synthèse :
 - **Auth/SIWE** : nonce binding, chainId `> 0`, Expiration+ChainId obligatoires, URI matching multi-origin, cookies httpOnly, CSRF deny-by-default prod, rate-limit per-address pré-auth, rate-limit ordonné après auth (test de garde), token tolerant (clear sur 401 explicite uniquement).
 - **Scan/Engines** : forceRefresh propagé aux engines (bypass `empty:*`), liveness `canServeEmptyCache`, consensus strict zéro-vs-cache (zéro non-consensus n'écrase plus), per-chain timeout 90s, partial cache writes async, job TTL 3-guards, negative/native/balance/per-token caches alignés 3 VMs, scan result cache `scan:result:*`, batch multi-wallet Multicall3, cache engine préservé SVM/Cosmos en forceRefresh.
 - **Pricing** : RealT registry bulk + Woo fallback + short-circuit cascade, GT bulk pre-fetch, RedisPricingCache partagé inter-workers, stablecoin peg `isStable === true` only, scam-detector contract-aware + overrides 3 niveaux persistés.
-- **GM** : chainKey canonique uppercase + lookups insensibles, anti-replay case-insensitive, N+1 random batché, status-onchain auth+ownership+zod, factories source unique `factories.ts`, RPC résolus via `@wcore/core`, KCC build Paris (PUSH0), 8 chaînes activées pattern unifié.
+- **GM** : chainKey canonique uppercase + lookups insensibles, anti-replay case-insensitive, N+1 random batché, status-onchain auth+ownership+zod+cache court, factories source unique `factories.ts`, RPC résolus via `@wcore/core`, KCC build Paris (PUSH0), 8 chaînes activées pattern unifié.
 - **API/Infra** : compress global, indexes DB + test de garde, migrate deploy (jamais db push prod), Docker non-root, secrets retirés des docs/CI (`job.env`), `.env.staging` untracké, backup quotidien + rotation 7j, smoke test ≥180 chaînes.
 - **Frontend** : strict:true web, RSC server-shell pattern complet, splits WalletContent/evm.ts, next/dynamic ×4, error.tsx ×4, TokenIcon broken-image overlay, FX fetch via apiFetch, useGmContracts cross-user publication fixée.
 - **Findings invalidés** : `@tanstack/react-query` (peer wagmi, pas mort), code-splitting "absent" (faux positif dès 05-29, confirmé corrigé 06-11), fallback 2000 fetchNativePrice (déjà retiré).
@@ -175,7 +175,7 @@ Priorisation impact × effort. Une case cochée = vérifiée dans le code, pas s
 | 10 | N+1 GM upserts → createMany | P1-2 | ½ j |
 | 11 | ChainCard scam contract-aware | P1-8 | ½ j |
 | 12 | SSRF `0.0.0.0`/`::ffff:` + wrapper DNS rebinding | P1-9, P2-2 | ½ j |
-| 13 | Cache court status-onchain | P2-5 | 2 h |
+| 13 | ✅ Cache court status-onchain | P2-5 | Fait 2026-06-20 |
 | 14 | Endpoints metrics admin-only | P2-1 | ½ j |
 
 ### 🟡 Mois — chantiers de fond (~5 j)
@@ -183,7 +183,7 @@ Priorisation impact × effort. Une case cochée = vérifiée dans le code, pas s
 - Cosmos decimals/staking (P2-15).
 - Dédup QUAL (`calcCleanChainValue`, `detectChainType`, `AuthUser`) (P2-13) + stables EUR (P2-14).
 - Docker prune API + `.dockerignore` + compose args web (P2-20).
-- CONTRIBUTING.md + TESTING.md (P2-21) ; split AGENTS.md (P2-22) ; aligner DEPLOY.md `SCAN_CONCURRENCY` (P2-23).
+- CONTRIBUTING.md + TESTING.md (P2-21) ; split AGENTS.md (P2-22).
 - Chemins contracts/ portables (P2-19) ; package.json racine nettoyé (P2-24).
 - Memoize + virtualisation AllTokensTable (P2-9) ; RpcHealth decay (P2-10).
 

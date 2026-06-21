@@ -71,18 +71,20 @@ UPDATE_BITPANDA_CRYPTO_FIAT()
 Les `onEdit` simples ne peuvent pas faire de `UrlFetchApp`. Les checkboxes posent donc un flag `ScriptProperties`, puis `BITPANDA_REFRESH_WATCHDOG()` traite le flag via trigger installable.
 
 - `Action Rebalancing!Z1` -> `UPDATE_BITPANDA_STOCKS_FIAT()` : refresh `CEX - Bitpanda Stocks` + `CEX - Bitpanda Fiat` uniquement.
-- `Portefeuille Crypto!AC2` -> `UPDATE_BITPANDA_CRYPTO_FIAT()` + `UPDATE_BINANCE_SPOT()` : refresh `CEX - Bitpanda Crypto` + `CEX - Bitpanda Fiat` + `CEX - Binance`.
+- `Portefeuille Crypto!AC2` -> bloc CEX crypto commun : `CEX - Bitpanda Crypto`, `CEX - Bitpanda Fiat`, `CEX - Binance`, `CEX - Bitfinex`, `CEX - Bybit`, `CEX - Coinbase`, `CEX - OKX`.
 - Les checkboxes des onglets Bitpanda en `A1` gardent le comportement global `UPDATE_BITPANDA_SPOT()`.
 
 `CEX - Bitpanda Commodity` n'est touche que par le refresh global `UPDATE_BITPANDA_SPOT()`.
 
-## Trigger
+## Triggers
 
-Installer un trigger horaire :
+Le flux courant est centralise :
 
-```javascript
-INSTALL_BITPANDA_SYNC_TRIGGER()
-```
+- `CEX_HOURLY_REFRESH()` : trigger horaire qui met a jour les 6 CEX.
+- `BITPANDA_REFRESH_WATCHDOG()` : watchdog central 1 min pour les refresh manuels.
+- `WCORE_AUTO_HEAL` installe ces triggers et supprime les anciens triggers horaires individuels.
+
+Ne pas reinstaller de triggers horaires individuels pour `UPDATE_*_SPOT()`.
 
 ## Statut
 

@@ -1,5 +1,7 @@
 # Roadmap Execution Plan — WCORE v0.2.25
 
+> **Historical/completed plan.** Kept for implementation history only; current roadmap state lives in `../../../ROADMAP.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Execute the consolidated TODO from `ROADMAP.md` (2026-05-22 reconsolidée) in 6 independent lots, each committable separately.

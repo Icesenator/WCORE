@@ -1,5 +1,7 @@
 ﻿# Coinbase Sync Design
 
+> **Historical/completed design.** Coinbase sync is documented in live CEX docs; keep this file for implementation history only.
+
 ## Goal
 
 Add a Coinbase CEX connector that fills a new `Coinbase Crypto` sheet and lets `Portefeuille Crypto Details` consume Coinbase balances through the same CEX pattern used by Binance, Bitfinex, and Bybit.

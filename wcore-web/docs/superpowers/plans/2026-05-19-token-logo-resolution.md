@@ -1,5 +1,7 @@
 # Token Logo Resolution Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; current icon behavior lives in code and `AGENTS.md` gotchas.
+
 **Status:** Implemented, tested, deployed to API Railway, pushed to `master`, and posted to X on 2026-05-19.
 
 **Post X:** `https://x.com/WCORExyz/status/2056711198687539418` — `WCORE × Blockscout` avec tag `@blockscoutcom`. Image : `apps/web/public/wcore-blockscout-post.png`.

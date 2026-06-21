@@ -54,6 +54,9 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
 - `POST /binance/account` -> flux multi-user (WCORE web), cles user signees ici.
 - `POST /bybit/account` -> flux multi-user (WCORE web), cles user signees ici,
   symboles exacts non fusionnes.
+- `POST /coinbase/account` -> flux multi-user (WCORE web), signature CDP ES256 avec la cle utilisateur.
+- `POST /okx/account` -> flux multi-user (WCORE web), signature HMAC OKX avec les secrets utilisateur.
+- `POST /stock/prices` -> pricing actions/ETFs Bitpanda pour WCORE web, avec conversion FX vers EUR.
 
 ## Variables Railway
 
@@ -74,13 +77,15 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
 
 ## Deploiement (CLI)
 
-```bash
-cd railway-relay
-railway link        # selectionner le projet WCORE
-railway up          # build + deploy
-railway variables   # verifier/definir les variables
-railway domain      # generer l'URL publique
+```powershell
+# Depuis wcore-gsheet/railway-relay
+railway link
+railway up --service cex-relay --ci
+railway variables
+railway domain
 ```
+
+Ne pas deployer ce service depuis la racine du monorepo : la source canonique du relais est ce dossier.
 
 ## Securite
 

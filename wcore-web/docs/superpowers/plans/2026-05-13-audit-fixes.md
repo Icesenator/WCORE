@@ -1,5 +1,7 @@
 # Audit Fixes Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; current audit state lives in `../../AUDIT.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the confirmed audit findings that can inflate portfolio values, weaken security, or break critical frontend/deploy flows.

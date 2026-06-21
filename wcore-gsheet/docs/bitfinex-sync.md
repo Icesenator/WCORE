@@ -86,19 +86,18 @@ Les soldes des codes consolides sont cumules sur la ligne cible (`USDT` / `EURC`
 - Au succes, `B1` devient le timestamp final et les rows sont reecrites avec le meme timestamp.
 - En cas de `BUSY`, `B1` reste en `REQUEST: BUSY retry ...` et le cycle suivant retry.
 - `Portefeuille Crypto!AC2` (flag CEX commun, watchdog Bitpanda) refresh
-  desormais `CEX - Bitpanda Crypto` + `CEX - Bitpanda Fiat` + `CEX - Binance`
-  + `CEX - Bitfinex` en une seule action utilisateur.
+  `CEX - Bitpanda Crypto`, `CEX - Bitpanda Fiat`, `CEX - Binance`,
+  `CEX - Bitfinex`, `CEX - Bybit`, `CEX - Coinbase`, `CEX - OKX` en une seule action utilisateur.
 
 ## Triggers
 
-```javascript
-INSTALL_BITFINEX_SYNC_TRIGGER()
-```
+Le flux courant est centralise :
 
-Installe :
+- `CEX_HOURLY_REFRESH()` met a jour Bitfinex avec les autres CEX toutes les heures.
+- `BITPANDA_REFRESH_WATCHDOG()` traite `CEX - Bitfinex!A1` et `Portefeuille Crypto!AC2`.
+- `WCORE_AUTO_HEAL` supprime les anciens triggers `UPDATE_BITFINEX_SPOT` / `BITFINEX_REFRESH_WATCHDOG` s'ils existent encore.
 
-- `UPDATE_BITFINEX_SPOT()` toutes les heures.
-- `BITFINEX_REFRESH_WATCHDOG()` chaque minute.
+`INSTALL_BITFINEX_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
 
 ## Statut
 

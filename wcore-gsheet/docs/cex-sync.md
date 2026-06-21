@@ -78,9 +78,11 @@ absent/stale apres un push.
 Binance, Bybit, Coinbase et OKX passent par le relais Railway multi-CEX (region EU West) :
 
 - Domaine : `https://cex-relay-production.up.railway.app`.
-- Endpoints : `GET /health`, `GET /binance?token=...`, `GET /bybit?token=...`, `GET /coinbase?token=...`, `GET /okx?token=...`, `POST /binance/account`.
-- Secrets CEX cote Railway uniquement; GAS n'envoie que le `RELAY_TOKEN`.
-- Setup GAS : `SET_BINANCE_RELAY(url, token)` et `SET_BYBIT_RELAY(url, token)`. Coinbase peut utiliser `SET_COINBASE_RELAY(url, token)`, mais retombe aussi sur le relais Bybit/Binance existant si configure.
+- Endpoints legacy Apps Script : `GET /binance?token=...`, `GET /bybit?token=...`, `GET /coinbase?token=...`, `GET /okx?token=...`.
+- Endpoints web multi-user : `POST /binance/account`, `POST /bybit/account`, `POST /coinbase/account`, `POST /okx/account`.
+- Endpoint pricing stocks web : `POST /stock/prices`.
+- Secrets CEX cote Railway uniquement pour les endpoints legacy; GAS n'envoie que le `RELAY_TOKEN`. Les endpoints web multi-user recoivent les cles read-only de l'utilisateur depuis l'API web, jamais depuis le navigateur.
+- Setup GAS : `SET_BINANCE_RELAY(url, token)`, `SET_BYBIT_RELAY(url, token)`, `SET_COINBASE_RELAY(url, token)`, `SET_OKX_RELAY(url, token)`. Coinbase/OKX retombent aussi sur le relais Bybit/Binance existant si configure.
 - Source : `railway-relay/` (package `wcore-cex-relay`).
 
 ## Integration Portefeuille Crypto Details
@@ -88,7 +90,7 @@ Binance, Bybit, Coinbase et OKX passent par le relais Railway multi-CEX (region 
 L'onglet `Portefeuille Crypto Details` agrege wallets on-chain ET positions CEX.
 
 - Colonne `E` (`Position :`) = libelle : `Ledger - X`, `Binance Web3 Wallet - X`
-  (on-chain) ou `CEX - Bitpanda` / `CEX - Binance` / `CEX - Bitfinex` / `CEX - Bybit`.
+  (on-chain) ou `CEX - Bitpanda` / `CEX - Binance` / `CEX - Bitfinex` / `CEX - Bybit` / `CEX - Coinbase` / `CEX - OKX`.
 - Colonne `H` (Libre), `I` (Flex), `J` (Lock), `K` (Total = somme), `L` (Valorisation).
 
 ### Wallets on-chain (formule generique)
@@ -118,7 +120,7 @@ Bybit a ete branche en formules SUMIFS le 2026-06-15 (5 lignes : BTC, USDT, CC,
 LINK, EURC) — auparavant les valeurs etaient saisies en dur et ne se mettaient
 jamais a jour.
 
-### CEX sans connecteur
+### Connecteurs Coinbase / OKX
 
 `CEX - Coinbase` est formule depuis `CEX - Coinbase` depuis v4.15.96.
 `CEX - OKX` est formule depuis `CEX - OKX` depuis v4.15.97.

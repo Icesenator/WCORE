@@ -1,5 +1,7 @@
 # HTTP Quota Optimization Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; current quota behavior lives in `AGENTS.md` and source.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reduce WCORE UrlFetch burn while preserving cache correctness and current GAS behavior.

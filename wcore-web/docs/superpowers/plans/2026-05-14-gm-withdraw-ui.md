@@ -1,5 +1,7 @@
 # GM Withdraw UI Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; verify current GM behavior in code, `AGENTS.md`, and `docs/AUDIT.md` before acting on any task here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Improve GM Contracts UI and expose withdraw actions in `/gm` and wallet `ChainCard` only when a creator balance is withdrawable.

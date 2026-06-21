@@ -1,23 +1,22 @@
 # WCORE Roadmap
 
-Root roadmap for the unified WCORE project. This file tracks the work shared by both runtimes:
+Root roadmap for cross-runtime WCORE work. This file is intentionally short: volatile product status, release history, and implementation details live in runtime-specific docs.
 
-- `wcore-gsheet/` - Google Apps Script + Google Sheets runtime.
-- `wcore-web/` - Next.js + Fastify + Prisma + Railway runtime.
+## Runtime Ownership
 
-Use this file first when resuming cross-runtime work. Runtime-specific details stay in:
+- `wcore-gsheet/` is the Google Apps Script + Google Sheets runtime and the canonical source for chain configs in `src/*.gs`.
+- `wcore-gsheet/dist/` is the generated `@wcore/chains` package.
+- `wcore-web/` is the Next.js + Fastify + Prisma + Railway runtime and consumes `@wcore/chains`.
 
-- `wcore-web/ROADMAP.md` - web/API product, deploy, audit, GM, CEX, UI.
-- `wcore-gsheet/README.md` and `wcore-gsheet/AGENTS.md` - Apps Script constraints and operations.
-- `wcore-web/docs/AUDIT.md` - current web audit backlog.
+## Current Sources Of Truth
 
-## Current State - 2026-06-20
-
-- Production web is live at `https://wcore.xyz`.
-- Production API health is OK with `chainCount=182`.
-- GitHub public branch is clean: `origin/master` at `946bcef` after v0.3.1 deploy.
-- Temporary branch `v0.3.1-public` was removed locally and remotely.
-- Local safety backup branch kept: `backup/web-before-public-rebase`.
+- Web/API product status and active backlog: `wcore-web/ROADMAP.md`.
+- Web audit backlog: `wcore-web/docs/AUDIT.md`.
+- Web deployment: `wcore-web/DEPLOY.md`.
+- Web release history: `wcore-web/CHANGELOG.md`.
+- GSheet runtime setup and operations: `wcore-gsheet/README.md` and `wcore-gsheet/AGENTS.md`.
+- CEX architecture: `wcore-gsheet/docs/cex-sync.md` and `wcore-gsheet/railway-relay/README.md`.
+- Exact current chain count: `/api/chains` in prod, or `npm run build:chains` in `wcore-gsheet`.
 
 ## Completed Harmonization Phases
 
@@ -56,7 +55,7 @@ Status: done.
 - Web consumes all configs from the generated chain package.
 - TON is represented through `ChainFactory.createTonChain` on the gsheet side while keeping the web TON engine standalone.
 
-## Active Cross-Runtime Work
+## Active Cross-Runtime Guardrails
 
 ### 1. Chain Sunset Calendar
 
@@ -64,15 +63,7 @@ Priority: high, date-driven.
 
 Keep affected chains active until the public deadline so users can see and move funds. After the deadline, disable or remove the chain from both runtimes and all dependent surfaces.
 
-Known deadlines tracked in `wcore-web/ROADMAP.md`:
-
-- Swell Chain: 2026-06-23.
-- Corn: 2026-06-30.
-- Polygon zkEVM: 2026-07-01.
-- Botanix: 2026-07-09.
-- ZERO Network: 2026-07-31.
-- Mint Blockchain: 2026-10-20.
-- Cronos zkEVM Alpha: 2027-06-03.
+Known deadlines are tracked in `wcore-web/ROADMAP.md`; do not duplicate the full calendar here.
 
 Required removal checklist per chain:
 
@@ -103,11 +94,11 @@ Recent v0.3.1 work fixed web-side scan result caching and stale major-token pric
 - Do not serve major positive tokens without price as a final healthy result.
 - Keep empty-wallet TTLs short enough to avoid hiding newly funded wallets.
 
-### 4. Docs Split and Source of Truth
+### 4. Docs Split and Source Of Truth
 
 Priority: medium.
 
-- Root `ROADMAP.md`: cross-runtime work and project-wide state.
+- Root `ROADMAP.md`: cross-runtime index and guardrails only.
 - `wcore-web/ROADMAP.md`: web/API runtime details and release history.
 - `wcore-gsheet/README.md` or future `wcore-gsheet/ROADMAP.md`: Apps Script runtime details if needed.
 - Planned cleanup: split large mixed guidance from `AGENTS.md` into focused docs while keeping agent-critical gotchas accessible.
@@ -137,14 +128,16 @@ Before declaring harmonization work complete, run the relevant subset:
 ```powershell
 # From WCORE
 pnpm typecheck
-pnpm --filter @wcore/core build
-pnpm --filter @wcore/api build
-pnpm --filter @wcore/web build
+pnpm test
+pnpm build
+pnpm --dir wcore-web --filter @wcore/core build
+pnpm --dir wcore-web --filter @wcore/api build
+pnpm --dir wcore-web --filter @wcore/web build
 
-# From wcore-web/wcore-gsheet
-npm run validate:static
-npm run build:chains
-npm run test:phase3-chains
+# From WCORE, for Apps Script / generated chains
+npm --prefix wcore-gsheet run validate:static
+npm --prefix wcore-gsheet run build:chains
+npm --prefix wcore-gsheet run test:phase3-chains
 ```
 
 ## Navigation

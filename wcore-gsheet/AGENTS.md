@@ -536,7 +536,7 @@ const {chromium}=require('playwright');
 - **Tax API** : clé Bybit EU Tax API validée via relais. Comptes lus : `UNIFIED` + `FUND`, fusionnés en `USDT`, `CC`, `LINK`, `EURC`, `BTC` au moment de l'intégration.
 - **Apps tierces évaluées (non exploitables)** : Gainium, Finestel, Wick Hunter, HaasOnline, Siebly SDKs, Botty EU, SIGNUM EU, Bothub Trade EU. Aucune n'expose d'API portfolio publique exploitable par WCORE.
 - **Secret** : ne pas stocker la clé Bybit dans GAS pour le flux actif. `SET_BYBIT_API_KEYS(apiKey, apiSecret)` reste seulement comme fallback direct/debug.
-- **Refresh manuel** : `Bybit Crypto!A1` (flag) ou `BYBIT_REFRESH_WATCHDOG()` (trigger 1min). `UPDATE_BYBIT_SPOT()` toutes les heures via `INSTALL_BYBIT_SYNC_TRIGGER()`.
+- **Refresh manuel** : `CEX - Bybit!A1` pose `B1=REQUEST: ...`, puis le watchdog CEX central `BITPANDA_REFRESH_WATCHDOG()` traite la demande. Le refresh horaire passe par `CEX_HOURLY_REFRESH()` garanti par `WCORE_AUTO_HEAL`; les triggers Bybit individuels sont legacy.
 - **Inclus dans Recap** : `_isLedgerLike_()` et `_wd_isCexSheet_()` couvrent `bybit` (affichage seul, pas de pulse watchdog).
 - **Statut** : opérationnel via `cex-relay`. `UPDATE_BYBIT_SPOT()` retry 3 fois les erreurs transitoires `UrlFetchApp.fetch` vers le relais. Si `ScriptProperties` est saturé, l'écriture de `BYBIT_SYNC_STATUS` peut être skippee sans bloquer l'onglet; le flag manuel `CEX - Bybit!A1` fallback en `UserProperties`.
 
@@ -577,21 +577,17 @@ const {chromium}=require('playwright');
 
 ## Synchronisation wcore-web
 
-Le projet `wcore-web` (Next.js + Fastify) est le pendant web de `wcore-gsheet`. Les fichiers `.gs` sont copiés manuellement de `wcore-gsheet/src/` vers `wcore-web/src/`, puis `tools/migrate/extract-chains.mjs` génère les configs TypeScript.
+`wcore-gsheet/src/*.gs` est la source canonique des configs chaînes. Le package généré `wcore-gsheet/dist/` (`@wcore/chains`) est consommé par `wcore-web`.
 
-**Risque de désynchronisation** : `wcore-web/src/` est souvent en retard de plusieurs patches. Les corrections critiques (configs chain, consensus SVM, cache) doivent être propagées.
-
-**Procédure de sync** :
+**Procédure courante** :
 ```powershell
-# 1. Copier les fichiers .gs
-Copy-Item C:\Users\strau\wcore-gsheet\src\*.gs C:\Users\strau\wcore-web\src\ -Force
-
-# 2. Régénérer les configs TS
-node C:\Users\strau\wcore-web\tools\migrate\extract-chains.mjs
-
-# 3. Vérifier
-node C:\Users\strau\wcore-web\scripts\verify-migration.js
+# Depuis wcore-gsheet
+npm run validate:static
+npm run build:chains
+npm run test:phase3-chains
 ```
+
+Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette ancienne procédure est historique et crée du drift. Toute correction de config chaîne doit être faite dans `wcore-gsheet/src/*.gs`, puis extraite dans `dist/`.
 
 ## Fonctions diagnostic utiles
 

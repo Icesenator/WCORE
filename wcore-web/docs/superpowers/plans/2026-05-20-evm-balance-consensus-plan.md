@@ -1,5 +1,7 @@
 # EVM Balance Consensus Implementation Plan
 
+> **Historical/completed plan.** Kept for implementation history only; verify current consensus behavior in `packages/core` before acting on any task here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make EVM token/native balances resilient to unstable RPCs by resolving explicit votes from live RPC, Multicall, and cache.

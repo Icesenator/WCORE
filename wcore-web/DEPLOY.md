@@ -71,6 +71,8 @@ The `web` service can stay connected to `Icesenator/WCORE@master` because the co
 
 ## Process supervisor (pm2)
 
+> **Historical/local-ops notes.** Production Railway deploys are documented above and must use `wcore-web/scripts/deploy.ps1`. The sections below are retained for staging, local operations, and historical troubleshooting; do not treat older Docker Compose/pm2 snippets as the production deploy path.
+
 `scripts/deploy-staging.ps1 -AutoStart` launches the API and Web as
 PowerShell `Start-Job` background jobs that die with the host shell.
 For anything longer-lived than a manual demo, use pm2:

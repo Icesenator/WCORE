@@ -38,6 +38,49 @@ function loadChainMetaMap(): Promise<Record<string, ChainScanMeta>> {
 
 type ScanResult = { address: string; label: string; chains: ChainScan[]; totalEur: number; error?: string };
 
+export type ScanOrchestratorTask = { index: number; addr: string; vm: string; chains: string[] };
+export type ScanOrchestratorJob = { vm: ScanVm; chains: string[]; tasks: ScanOrchestratorTask[] };
+
+export function buildScanOrchestratorJobs({
+  enabledAddresses,
+  chains,
+  chainMetaMap,
+  batchSize,
+}: {
+  enabledAddresses: string[];
+  chains: string[];
+  chainMetaMap: Record<string, ChainScanMeta>;
+  batchSize: number;
+}): ScanOrchestratorJob[] {
+  const walletTasks: ScanOrchestratorTask[] = [];
+  for (let i = 0; i < enabledAddresses.length; i++) {
+    const addr = enabledAddresses[i]!;
+    const addrVm = detectChainType(addr);
+    const matchingChains = matchCompatibleChains(addrVm, chains, chainMetaMap);
+    if (matchingChains.length > 0) walletTasks.push({ index: i, addr, vm: addrVm, chains: matchingChains });
+  }
+
+  const byVm = new Map<ScanVm, { chains: Set<string>; tasks: ScanOrchestratorTask[] }>();
+  for (const task of walletTasks) {
+    const vm = task.vm as ScanVm;
+    let entry = byVm.get(vm);
+    if (!entry) { entry = { chains: new Set(), tasks: [] }; byVm.set(vm, entry); }
+    entry.tasks.push(task);
+    for (const chain of task.chains) entry.chains.add(chain);
+  }
+
+  const jobs: ScanOrchestratorJob[] = [];
+  for (const [vm, entry] of byVm) {
+    const vmChains = Array.from(entry.chains);
+    for (let i = 0; i < vmChains.length; i += batchSize) {
+      const chunk = vmChains.slice(i, i + batchSize);
+      const chunkTasks = entry.tasks.filter(t => t.chains.some(ch => chunk.includes(ch)));
+      if (chunkTasks.length > 0) jobs.push({ vm, chains: chunk, tasks: chunkTasks });
+    }
+  }
+  return jobs;
+}
+
 export interface ScanOrchestratorParams {
   addresses: string[];
   chains: string[];
@@ -131,36 +174,21 @@ export function useScanOrchestrator({
       const chainMetaMap = await loadChainMetaMap();
       if (c || myRunId !== scanRunIdRef.current) return;
 
-      const matchChains = (addrVm: string, chainKeys: string[]) => matchCompatibleChains(addrVm, chainKeys, chainMetaMap);
-
       // Build scan tasks per wallet
-      const walletTasks: Array<{ index: number; addr: string; vm: string; chains: string[]; cached?: boolean }> = [];
+      const jobs = buildScanOrchestratorJobs({
+        enabledAddresses,
+        chains,
+        chainMetaMap,
+        batchSize: CHAIN_BATCH_SIZE,
+      });
+      const walletTasks = Array.from(new Map(jobs.flatMap(job => job.tasks).map(task => [task.index, task])).values());
       let doneChainChecks = 0;
       // Pre-calculate total chain checks for non-cached wallets
-      const calcTotalChainChecks = () => {
-        let total = 0;
-        for (let i = 0; i < enabledAddresses.length; i++) {
-          const addr = enabledAddresses[i]!;
-          const addrVm = detectChainType(addr);
-          const matchingChains = matchChains(addrVm, chains);
-          total += matchingChains.length;
-        }
-        return total;
-      };
-      const totalChainChecks = calcTotalChainChecks();
+      const totalChainChecks = walletTasks.reduce((sum, task) => sum + task.chains.length, 0);
       setOverallChainProgress({ done: 0, total: totalChainChecks });
 
-      for (let i = 0; i < enabledAddresses.length; i++) {
-        const addr = enabledAddresses[i]!;
-        const addrVm = detectChainType(addr);
-        const matchingChains = matchChains(addrVm, chains);
-        if (matchingChains.length > 0) {
-          walletTasks.push({ index: i, addr, vm: addrVm, chains: matchingChains });
-        } else {
-          done++;
-          setProgress({ done, total });
-        }
-      }
+      done += enabledAddresses.length - walletTasks.length;
+      if (done > 0) setProgress({ done, total });
       setOverallChainProgress({ done: 0, total: totalChainChecks });
 
       // One global sliding scheduler across EVM/SVM/Cosmos. Each job covers a
@@ -168,34 +196,6 @@ export function useScanOrchestrator({
       // sent as a single /api/scan/batch request (PERF-8). The API batch endpoint
       // optimizes EVM with a single Multicall3 and falls back internally for
       // SVM/Cosmos, while GLOBAL_CHAIN_CONCURRENCY caps total active chains.
-      type ScanJob = { vm: ScanVm; chains: string[]; tasks: typeof walletTasks };
-
-      // Group tasks + chains by VM. Within one VM, matchChains() returns the same
-      // list for every wallet (it depends only on addrVm), so the chain set and
-      // wallet set are consistent per VM.
-      const byVm = new Map<ScanVm, { chains: Set<string>; tasks: typeof walletTasks }>();
-      for (const task of walletTasks) {
-        const vm = task.vm as ScanVm;
-        let entry = byVm.get(vm);
-        if (!entry) { entry = { chains: new Set(), tasks: [] }; byVm.set(vm, entry); }
-        entry.tasks.push(task);
-        for (const chain of task.chains) entry.chains.add(chain);
-      }
-
-      // Chunk each VM's chains into batches of CHAIN_BATCH_SIZE. Each chunk is a
-      // job. Tasks are filtered per-chunk to those that actually requested at
-      // least one chain in the chunk (a wallet may not match every chain).
-      const jobsByKey = new Map<string, ScanJob>();
-      for (const [vm, entry] of byVm) {
-        const vmChains = Array.from(entry.chains);
-        for (let i = 0; i < vmChains.length; i += CHAIN_BATCH_SIZE) {
-          const chunk = vmChains.slice(i, i + CHAIN_BATCH_SIZE);
-          const chunkTasks = entry.tasks.filter(t => t.chains.some(ch => chunk.includes(ch)));
-          if (chunkTasks.length === 0) continue;
-          jobsByKey.set(`${vm}:${i}`, { vm, chains: chunk, tasks: chunkTasks });
-        }
-      }
-
       const remainingByWallet = new Map<number, number>();
       for (const task of walletTasks) remainingByWallet.set(task.index, task.chains.length);
       const errorsByWallet = new Map<number, string>();
@@ -234,9 +234,9 @@ export function useScanOrchestrator({
       }
 
       let completedJobs = 0;
-      const scanOneJob = async (job: ScanJob): Promise<void> => {
+      const scanOneJob = async (job: ScanOrchestratorJob): Promise<void> => {
         const addressesForJob = job.tasks.map(t => t.addr);
-        setScanningAddr(`${job.vm} batch ${completedJobs + 1}/${jobsByKey.size}`);
+        setScanningAddr(`${job.vm} batch ${completedJobs + 1}/${jobs.length}`);
         setScanningSince(Date.now());
         setActiveScanChains(prev => {
           const next = new Map(prev);
@@ -293,7 +293,7 @@ export function useScanOrchestrator({
         } finally {
           if (!c && myRunId === scanRunIdRef.current) {
             completedJobs++;
-            setScanningAddr(`${job.vm} batch ${completedJobs}/${jobsByKey.size}`);
+            setScanningAddr(`${job.vm} batch ${completedJobs}/${jobs.length}`);
             setActiveScanChains(prev => {
               const next = new Map(prev);
               for (const addr of addressesForJob) {
@@ -314,7 +314,7 @@ export function useScanOrchestrator({
       // concurrency to keep the number of chains in flight ≈ GLOBAL_CHAIN_CONCURRENCY
       // (don't multiply RPC pressure on the server by batching).
       const jobConcurrency = Math.max(1, Math.floor(GLOBAL_CHAIN_CONCURRENCY / CHAIN_BATCH_SIZE));
-      await runWithConcurrency(orderScanJobsForExecution(Array.from(jobsByKey.values())), jobConcurrency, scanOneJob, cancelSignal);
+      await runWithConcurrency(orderScanJobsForExecution(jobs), jobConcurrency, scanOneJob, cancelSignal);
       // Final flush: ensure all batched updates are applied before processing results
       if (flushPending) {
         flushPending = false;

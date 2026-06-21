@@ -13,6 +13,11 @@ Current product status and active action items live in [ROADMAP.md](./ROADMAP.md
 - `/leaderboard` — GM leaderboard
 - `/share/:token` — Shared scan reports (public)
 
+## Contributor Docs
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md) - contribution rules and workflow.
+- [TESTING.md](./TESTING.md) - test commands and environment requirements.
+
 ## Architecture
 
 ```

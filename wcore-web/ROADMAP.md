@@ -400,7 +400,7 @@ Voir `docs/AUDIT.md` section ┬º3 (P2/P3). Points saillants :
 - **P2-10** : `AGENTS.md` = 2 docs en 1 (Apps Script legacy + Web moderne) ÔåÆ split en `docs/apps-script.md` + `docs/wcore-web-guide.md`
 - **P2-12** : Ô£à scripts contracts rendus portables (`__dirname`/`path.join`), plus cleanup du g├®n├®rateur X v15 historique.
 - **P2-13** : API Docker image ~500 MB unpruned ÔåÆ `pnpm deploy --prod` (~200 MB)
-- **P2-14** : Pas de `CONTRIBUTING.md` / `TESTING.md` / `TROUBLESHOOTING.md`
+- **P2-14** : Resolu 2026-06-21 - `CONTRIBUTING.md` et `TESTING.md` ajoutes ; `docs/TROUBLESHOOTING.md` existe deja.
 - **P2-15** : Pas de `.nvmrc` (Node 20 CI / 22 Docker / >=20.10 engines ÔÇö 3-voies mismatch)
 - **P2-16** : Ô£à R├®solu (2026-06-13) ÔÇö `scripts/check-backup-freshness.ps1` v├®rifie que le backup le plus r├®cent (`backups/wcore-backup-*.json|.sql`) a moins de 48h. Si p├®rim├®/absent : ├®crit `backups/LAST_ERROR.txt` (cause + fix) + toast Windows + exit 1. Self-clear du marqueur quand sain. T├óche planifi├®e s├®par├®e `WCORE_DB_Backup_Check` (quotidienne 11:00, apr├¿s le backup de 03:00) via `scripts/setup-backup-check-task.ps1`. Test├® : sain ÔåÆ exit 0 + marqueur supprim├®, p├®rim├® ÔåÆ exit 1 + `LAST_ERROR.txt`, `LastTaskResult: 0`.
 

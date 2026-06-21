@@ -36,4 +36,11 @@ describe("chain icon manifest", () => {
       assert.notEqual(src, `/chains/${chainKey}.png`, `${chainKey} should not point to the old local question-mark placeholder`);
     }
   });
+
+  test("Intuition uses the official logo instead of the text placeholder", () => {
+    assert.equal(
+      (manifest as Record<string, string>).INTUITION,
+      "https://cdn.prod.website-files.com/65cdf366e68587fd384547f0/65cdf4b15329ddf9e0f63848_webclip.jpg",
+    );
+  });
 });

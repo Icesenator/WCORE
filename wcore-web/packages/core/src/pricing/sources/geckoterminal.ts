@@ -12,7 +12,7 @@ function envInt(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
 }
-const DEFAULT_MAX_CALLS = envInt("GT_THROTTLE_MAX_CALLS", 120);
+const DEFAULT_MAX_CALLS = envInt("GT_THROTTLE_MAX_CALLS", 300);
 const DEFAULT_WINDOW_MS = envInt("GT_THROTTLE_WINDOW_MS", 60_000);
 // Small inter-call delay to avoid burst 429s (esp. when multiple concurrent scans
 // happen to fire calls at the same instant).

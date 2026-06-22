@@ -3,7 +3,8 @@
  *
  * SIMPLE & STABLE - Cache via ScriptProperties
  *
- * Version : LISTING_v4.5.15
+ * Version : LISTING_v4.5.16
+ * v4.5.16 - FEAT: include Startale wallet sheets in Recap Portfolio
  * v4.5.15 - FEAT: include OKX Crypto sync tab in Recap Portfolio
  * v4.5.14 - FEAT: include Coinbase Crypto sync tab in Recap Portfolio
  * v4.5.13 - FEAT: include Bybit Crypto sync tab in Recap Portfolio
@@ -57,6 +58,7 @@ function _isLedgerLike_(name) {
   n.indexOf("smart") >= 0 ||
    n.indexOf("safepal") >= 0 ||
    n.indexOf("space") >= 0 ||
+   n.indexOf("startale") >= 0 ||
    // v4.15.85: include CEX sync tabs (display-only in Recap, B1 self-managed).
    n.indexOf("bitpanda") >= 0 ||
    n.indexOf("bitfinex") >= 0 ||

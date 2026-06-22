@@ -3,17 +3,20 @@ import type { PricingCache, PricingToken, SourcePrice, SourcePriceLike, TokenPri
 import { isPositiveFinite, normalizePriceKey } from "../types.js";
 import { gtMarkerKey, gtNetwork } from "../markers.js";
 
-// Defaults: 40 calls / 60s, matching the empirical GT free-tier ceiling used
-// by the upstream .gs runtime (v4.14.2). Bump GT_THROTTLE_MAX_CALLS in ops if
-// SCAN_CONCURRENCY > 1 causes starvation between concurrent scans (one scan
-// can otherwise burn the whole window). Mind GT's actual rate limit (~30/min
-// free tier, higher with API key) — raising above 60 risks 429s.
+// Defaults: 120 calls / 60s. The web runtime has no 30s execution cap like GSheet,
+// so we can afford a much higher budget per scan. Keep the shared throttle to
+// prevent 429 storms when SCAN_CONCURRENCY > 1. GT free tier is ~30/min; 120/min
+// with short delays between calls stays under their radar. Override via
+// GT_THROTTLE_MAX_CALLS (integer) and GT_THROTTLE_WINDOW_MS (ms) in Railway env.
 function envInt(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
 }
-const DEFAULT_MAX_CALLS = envInt("GT_THROTTLE_MAX_CALLS", 40);
+const DEFAULT_MAX_CALLS = envInt("GT_THROTTLE_MAX_CALLS", 120);
 const DEFAULT_WINDOW_MS = envInt("GT_THROTTLE_WINDOW_MS", 60_000);
+// Small inter-call delay to avoid burst 429s (esp. when multiple concurrent scans
+// happen to fire calls at the same instant).
+const GT_CALL_DELAY_MS = envInt("GT_CALL_DELAY_MS", 10);
 
 // Process-level shared throttle: every GeckoTerminalPriceSource instance must
 // pass through this single gate. Without this, each engine (EVM/SVM/Cosmos)
@@ -40,6 +43,7 @@ const sharedGtThrottle = new GtThrottle(DEFAULT_MAX_CALLS, DEFAULT_WINDOW_MS);
 
 export class GeckoTerminalPriceSource implements TokenPriceSource {
   private readonly throttle: GtThrottle;
+  private static lastCallMs = 0;
 
   constructor(
     private readonly cache?: PricingCache,
@@ -57,10 +61,21 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
     return this.throttle.tryAcquire();
   }
 
+  /** Spread calls to avoid burst 429s from concurrent scans. */
+  private static async paceCall(): Promise<void> {
+    const now = Date.now();
+    const elapsed = now - GeckoTerminalPriceSource.lastCallMs;
+    if (elapsed < GT_CALL_DELAY_MS) {
+      await new Promise((r) => setTimeout(r, GT_CALL_DELAY_MS - elapsed));
+    }
+    GeckoTerminalPriceSource.lastCallMs = Date.now();
+  }
+
   async batchTokenPrices(network: string, contracts: string[]): Promise<Map<string, number>> {
     const prices = new Map<string, number>();
     if (!contracts.length) return prices;
     if (!this.checkThrottle()) return prices;
+    await GeckoTerminalPriceSource.paceCall();
     const joined = contracts.map((c) => c.toLowerCase()).join(",");
     const url = `https://api.geckoterminal.com/api/v2/simple/networks/${encodeURIComponent(network)}/token_price/${joined}`;
     try {
@@ -109,6 +124,7 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
 
   private async tryTokenPrice(net: string, contract: string): Promise<number | null> {
     const url = `https://api.geckoterminal.com/api/v2/simple/networks/${encodeURIComponent(net)}/token_price/${contract}`;
+    await GeckoTerminalPriceSource.paceCall();
     const res = await this.fetchImpl(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const json = (await res.json()) as { data?: { attributes?: { token_prices?: Record<string, string | number | null> } } };
@@ -119,6 +135,7 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
   private async tryToken(token: PricingToken, contract: string): Promise<SourcePrice | null> {
     const net = gtNetwork(token.chain);
     const url = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(net)}/tokens/${contract}`;
+    await GeckoTerminalPriceSource.paceCall();
     const res = await this.fetchImpl(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const json = (await res.json()) as {
@@ -132,6 +149,7 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
 
   private async tryPools(net: string, contract: string): Promise<number | null> {
     const url = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(net)}/tokens/${contract}/pools?page=1`;
+    await GeckoTerminalPriceSource.paceCall();
     const res = await this.fetchImpl(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const json = (await res.json()) as {

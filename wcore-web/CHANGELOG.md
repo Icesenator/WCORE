@@ -1,5 +1,14 @@
 ﻿# Changelog
 
+## 2026-06-22 — Web pricing fix: GT throttle + cache policy + error logging
+
+- **GT throttle bumped (40→300 calls/60s)** : le web n'a pas la limite 30s de GSheet. Le throttle à 40 était un copier-coller inadapté qui empêchait le pricing de >40 tokens par scan. Ajout d'un inter-call pacing de 10ms pour éviter les burst 429. (`packages/core/src/pricing/sources/geckoterminal.ts`)
+- **Cache write error logging** : `cache.setPrice()` était fire-and-forget (`void`), avalant les erreurs Redis silencieusement. Ajout de `.catch()` avec log dans `cascade.ts` et `try/catch` dans `RedisPricingCache.setPrice()`. (`packages/core/src/pricing/cascade.ts`, `redis-pricing-cache.ts`)
+- **Cache policy fix — object-style errors** : `shouldCacheAssets()` et `hasMajorPriceableTokenWithoutPrice()` appelaient `.toLowerCase()` sur des objets `{message, stage}` (bug), donc les checks d'erreur ne matérialisaient jamais. Ajout d'un helper `errorMessage()` + rejet du cache si >50% des tokens (balance>0) sont sans prix. (`apps/api/src/plugins/scan-utils.ts`)
+- **GSheet tag `startale`** : ajouté dans `_isLedgerLike_()` (17_LISTING.gs) pour que l'onglet "Startale - Soneium" soit inclus dans le Recap Portfolio et le watchdog. Wallet `0xe9c0...` nommé "Startale" dans `WALLET_REGISTRY` (12_WALLET_NAMES.gs).
+- **safe-push.ps1 v3.2** : ajout d'une étape 7 post-push qui ouvre l'éditeur Apps Script et rappelle de lancer `WCORE_AUTO_HEAL_FORCE()`.
+- **opencode gsheets MCP** : configuré dans `.opencode/opencode.json` (projet) via `cmd /c set ... &&`. Le champ `env` d'opencode ne passe pas les variables d'environnement aux processus MCP sur Windows.
+
 ## 2026-06-21 — Roadmap sprint: observability guards, scan/GM tests, contributor docs
 
 - **Observability guards**: `/api/stats` and `/api/circuit` now require admin authorization. Regression tests cover unauthenticated 401 responses.

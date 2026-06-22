@@ -23,7 +23,11 @@ export class RedisPricingCache implements PricingCache {
 
   async setPrice(key: string, value: CachedPrice): Promise<void> {
     // 6h TTL matches the staleness window of MemoryPricingCache
-    await this.store.set(PRICE_PREFIX + normalizePriceKey(key), value, 6 * 60 * 60 * 1000);
+    try {
+      await this.store.set(PRICE_PREFIX + normalizePriceKey(key), value, 6 * 60 * 60 * 1000);
+    } catch (e) {
+      console.error("[RedisPricingCache] setPrice failed for key:", key, e);
+    }
   }
 
   async getMarker(key: string): Promise<PricingMarker | null> {

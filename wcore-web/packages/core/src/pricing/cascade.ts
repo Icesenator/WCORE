@@ -12,6 +12,7 @@ import type {
 import { isPositiveFinite, normalizePriceKey } from "./types.js";
 
 const DEFAULT_PRICE_STALE_MS = 60 * 60 * 1000;
+let _setPriceLogged = false;
 
 export async function priceTokenCascade(options: PriceTokenCascadeOptions): Promise<PricingResult> {
   const key = normalizePriceKey(options.token.key);
@@ -199,8 +200,11 @@ function commitSourcePrice(
   const rawPriceEur = source.priceUsd * options.fxRate;
   const priceEur = sanitizeStableEur(rawPriceEur, options.token, previousPriceEur);
   if (!isPositiveFinite(priceEur)) return result(key, null, source.priceUsd, source.source, "STABLE_SANITY_REJECTED", _trail);
-  // Fire-and-forget: setPrice is best-effort, awaiting blocks the cascade return.
-  void options.cache.setPrice(key, { priceEur, ts: nowMs, source: source.source });
+  // Best-effort cache write: awaiting blocks the cascade return, but we log failures
+  // so silent Redis outages don't go undetected.
+  Promise.resolve(options.cache.setPrice(key, { priceEur, ts: nowMs, source: source.source })).catch((e) => {
+    if (!_setPriceLogged) { _setPriceLogged = true; console.error("[cascade] cache.setPrice failed:", e?.message ?? e); }
+  });
   return result(key, priceEur, source.priceUsd, source.source, null, _trail, source.marker);
 }
 

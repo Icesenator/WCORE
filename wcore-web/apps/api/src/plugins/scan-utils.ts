@@ -159,11 +159,18 @@ export function isRetriableNonEvmResult(assets: WalletAssets): boolean {
   });
 }
 
+// Errors are either strings (legacy) or { message: string } objects (current engines).
+function errorMessage(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) return String((error as { message: unknown }).message);
+  return String(error ?? "");
+}
+
 // Cache-write criterion: a scan result is safe to cache when it has no errors.
 export function shouldCacheAssets(assets: WalletAssets): boolean {
   const errors = assets.errors ?? [];
   if (errors.some((error) => {
-    const message = error.toLowerCase();
+    const message = errorMessage(error).toLowerCase();
     return message.includes("token accounts: no data") ||
       message.includes("balances fetch:") ||
       message.includes("balances http") ||
@@ -179,17 +186,27 @@ export function shouldCacheAssets(assets: WalletAssets): boolean {
   if (nativeBalance > 0 && assets.native?.priceEur == null) return false;
   if (tokenCount === 0 && totalValue === 0 && nativeValue === 0 && nativeBalance === 0) return false;
 
+  // Don't cache results where >50% of tokens (with positive balance) have no price.
+  // This forces re-scanning until prices fill in via the pricing cache.
+  const tokensWithBalance = ((assets.tokens ?? []) as Array<Record<string, unknown>>).filter(
+    (t) => Number(t.balance ?? 0) > 0,
+  );
+  if (tokensWithBalance.length > 0) {
+    const unpricedCount = tokensWithBalance.filter((t) => t.priceEur == null || !(Number(t.priceEur) > 0)).length;
+    if (unpricedCount / tokensWithBalance.length > 0.5) return false;
+  }
+
   return true;
 }
 
 function hasMajorPriceableTokenWithoutPrice(assets: WalletAssets): boolean {
-  const errors = assets.errors ?? [];
+  const errors = (assets.errors ?? []).map((e) => errorMessage(e).toUpperCase());
   for (const token of (assets.tokens ?? []) as Array<Record<string, unknown>>) {
     const symbol = String(token.symbol ?? "").toUpperCase();
     if (!MAJOR_PRICEABLE_SYMBOLS.has(symbol)) continue;
     if (Number(token.balance ?? 0) <= 0) continue;
     if (token.priceEur != null) continue;
-    if (errors.some((error) => error.toUpperCase().includes(`${symbol} PRICE: NO_PRICE`))) return true;
+    if (errors.some((error) => error.includes(`${symbol} PRICE: NO_PRICE`))) return true;
   }
   return false;
 }

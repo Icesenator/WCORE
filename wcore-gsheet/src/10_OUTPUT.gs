@@ -20,7 +20,7 @@
  * v4.5.x - Ajout buildOutput() pour CosmosEngine/SVM light outputs
  * v4.11.2 - Nettoyage UTF-8 complet
  ************************************************************/
-var OUTPUT_VERSION = "4.15.62";
+var OUTPUT_VERSION = "4.15.100";
 
 var OutputSnapshotCache = {
  key: function(config, walletKey) {
@@ -97,8 +97,8 @@ var OutputSnapshotCache = {
    try {
     props = props || PropertiesService.getScriptProperties();
     var all = props.getProperties();
-    var MAX_ENTRIES = 30;
-    var MAX_AGE_MS = 24 * 3600 * 1000;
+    var MAX_ENTRIES = 15;
+    var MAX_AGE_MS = 12 * 3600 * 1000;
     var now = Date.now();
     var snaps = [];
     for (var k in all) {
@@ -153,7 +153,7 @@ var OutputBuilder = {
  assetRow: function(chainName, asset, price) {
  var balance = Num.parseOr(asset.balance, 0);
  var priceVal = Num.isValidPositive(price) ? price : "";
- var value = (priceVal && balance > 0) ? (balance * priceVal) : "";
+ var value = (priceVal && balance !== 0) ? (balance * priceVal) : "";
  return [
  chainName,
  asset.symbol || "",
@@ -258,7 +258,7 @@ var OutputBuilder = {
  if (rowAsset.contract === "native") {
  nativeRow = this.assetRow(chainName, rowAsset, nativePriceEur);
  } else {
- if (!Num.isPositive(rowAsset.balance)) continue;
+  if (Num.parseOr(rowAsset.balance, 0) === 0) continue;
  // Pas de pricing IBC/denoms pour l'instant
  otherRows.push(this.assetRow(chainName, rowAsset, ""));
  }
@@ -285,7 +285,7 @@ var OutputBuilder = {
  var total = 0;
  for (var k = 1; k < out.length; k++) {
  var v = out[k][6];
- if (Num.isValidPositive(v)) total += v;
+  if (Num.isValid(v)) total += Num.parseOr(v, 0);
  }
 
  // INFO / META
@@ -395,11 +395,11 @@ var OutputBuilder = {
  out.push(this.assetRow(chainName, native, nativePrice));
  }
  
- // Ajouter les ERC20 avec balance positive
+  // Ajouter les ERC20 avec balance non nulle (inclut les dettes negatives)
  for (var j = 0; j < erc20.length; j++) {
  var asset = erc20[j];
  if (!asset || asset.contract === "native") continue;
- if (!Num.isPositive(asset.balance)) continue;
+  if (Num.parseOr(asset.balance, 0) === 0) continue;
  var key = Addr.normalize(asset.contract);
  var price = this._getPrice(key, asset, priceMap);
  out.push(this.assetRow(chainName, asset, price));
@@ -421,7 +421,7 @@ var OutputBuilder = {
  var total = 0;
  for (var i = 1; i < out.length; i++) {
  var val = out[i][6];
- if (Num.isValidPositive(val)) total += val;
+  if (Num.isValid(val)) total += Num.parseOr(val, 0);
  }
  
  // Override du solde natif si fourni
@@ -505,12 +505,12 @@ var OutputBuilder = {
  for (var j = 0; j < erc20.length; j++) {
  var asset = erc20[j];
  if (!asset || asset.contract === "native") continue;
- if (!Num.isPositive(asset.balance)) continue;
+  if (Num.parseOr(asset.balance, 0) === 0) continue;
  var key = Addr.normalize(asset.contract);
  var price = this._getPrice(key, asset, priceMap);
  var row = this.assetRow(chainName, asset, price);
  out.push(row);
- if (Num.isValidPositive(row[6])) total += row[6];
+  if (Num.isValid(row[6])) total += Num.parseOr(row[6], 0);
  }
  
  // Trier par value_eur decroissant (native en premier)
@@ -520,7 +520,7 @@ var OutputBuilder = {
  total = 0;
  for (var k = 1; k < out.length; k++) {
  var val = out[k][6];
- if (Num.isValidPositive(val)) total += val;
+  if (Num.isValid(val)) total += Num.parseOr(val, 0);
  }
  
  // Statistiques de deduplication

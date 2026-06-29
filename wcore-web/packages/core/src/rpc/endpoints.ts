@@ -38,7 +38,7 @@ function getStaticRpcEndpoints(chainKey: string): string[] {
   if (chain.vm === "COSMOS") {
     return dedupe([chain.API?.RPC_URL, chain.API?.REST_URL, chain.API?.LCD_URL].filter((x): x is string => typeof x === "string"));
   }
-  return dedupe(chain.RPC?.ENDPOINTS ?? []);
+  return dedupe([...(chain.RPC?.ENDPOINTS ?? []), chain.RPC?.BLOCKSCOUT_RPC].filter((x): x is string => typeof x === "string"));
 }
 
 export { getStaticRpcEndpoints };

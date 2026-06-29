@@ -23,6 +23,10 @@ const USD_STABLES = new Set([
 
 const EUR_STABLES = new Set(["EURC", "EURS", "EUROC", "AGEUR", "EURE"]);
 
+const STABLE_CONTRACTS = new Map<string, StablecoinType>([
+  ["arbitrum_one:0xd1be1f98991cf69355e468ad15b6d0b6429bcfcb", "USD"], // aRUSDC, Ample Arbitrum USDC
+]);
+
 export function getStablecoinType(symbol?: string | null): StablecoinType | null {
   const s = String(symbol || "").trim().toUpperCase();
   if (!s) return null;
@@ -32,6 +36,11 @@ export function getStablecoinType(symbol?: string | null): StablecoinType | null
 }
 
 export function getTokenStablecoinType(token: PricingToken): StablecoinType | null {
+  const contractKey = token.contract ? `${String(token.chain.key).toLowerCase()}:${token.contract.toLowerCase()}` : null;
+  if (contractKey) {
+    const byContract = STABLE_CONTRACTS.get(contractKey);
+    if (byContract) return byContract;
+  }
   if (token.isStable === true) {
     const bySymbol = getStablecoinType(token.symbol);
     if (bySymbol) return bySymbol;

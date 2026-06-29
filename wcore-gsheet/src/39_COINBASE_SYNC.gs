@@ -99,6 +99,7 @@ function _cbFetchBucketsViaRelay_() {
   var relay = _cbGetRelay_();
   var url = relay.url + "/coinbase?token=" + encodeURIComponent(relay.token);
   var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
+  if (!resp) throw new Error("Coinbase relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();
   if (code < 200 || code >= 300) {

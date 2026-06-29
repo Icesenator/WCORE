@@ -168,6 +168,31 @@ test("GeckoTerminal batchTokenPrices fetches multiple tokens in one call", async
   assert.deepEqual(prices, new Map([[CT1.toLowerCase(), 1.5], [CT2.toLowerCase(), 3.2]]));
 });
 
+test("GeckoTerminal batchTokenPrices chunks large token lists", async () => {
+  const cache = new MemoryPricingCache();
+  const contracts = Array.from({ length: 65 }, (_, i) => `0x${String(i + 1).padStart(40, "0")}`);
+  const seenBatchSizes: number[] = [];
+  const source = new GeckoTerminalPriceSource(
+    cache,
+    fetchMock((url) => {
+      const list = String(url).split("/token_price/")[1]?.split("?")[0]?.split(",") ?? [];
+      seenBatchSizes.push(list.length);
+      return {
+        data: {
+          attributes: {
+            token_prices: Object.fromEntries(list.map((contract, i) => [contract.toLowerCase(), String(i + 1)])),
+          },
+        },
+      };
+    }),
+  );
+
+  const prices = await source.batchTokenPrices("base", contracts);
+
+  assert.deepEqual(seenBatchSizes, [30, 30, 5]);
+  assert.equal(prices.size, 65);
+});
+
 test("GeckoTerminal Try3 scans pools and keeps the highest reserve price", async () => {
   const cache = new MemoryPricingCache();
   const source = new GeckoTerminalPriceSource(

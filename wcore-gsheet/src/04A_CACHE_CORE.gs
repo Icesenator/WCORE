@@ -1,7 +1,7 @@
 /************************************************************
  * 04A_CACHE_CORE.gs - Cache Manager Core
  * 
- * Version: v4.15.72 - Emergency purge clears expired activity force flags
+ * Version: v4.15.100 - Emergency purge: add ACTIVITY_RPC_LOOKUP/NONCE_MAP, stale HTTP_CATEGORY_TRACKER, ACTIVITY_NONCE_MAP
  * 
  * v4.15.75 - Purge global price cache before wallet data in storage emergency
  * - GLOBAL_PRICE_CACHE_V2 is reconstructible and can free ~50KB immediately.
@@ -48,7 +48,7 @@
  * DEPENDANCES: 01_INIT.gs, 02_UTILS.gs
  * CHARGE AVANT: 04B, 04C, 04D
  ************************************************************/
-var CACHE_CORE_VERSION = "4.15.75";
+var CACHE_CORE_VERSION = "4.15.100";
 
 // ============================================================
 // DEPENDENCY CHECK (v4.8.0)
@@ -478,8 +478,15 @@ CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(target
  // v4.15.62: WCORE_HTTP_* daily counters and OUTSNAP_* output snapshots accumulate
  // without bound and were the overflow tipping ScriptProperties past 500KB
  // (2026-06-01 storage-quota freeze). Purge them FIRST — they are reconstructible.
- pushIf(function(k){ return k.indexOf("WCORE_HTTP_") === 0; }, 5);
- pushIf(function(k){ return k.indexOf("OUTSNAP_") === 0; }, 8);
+  pushIf(function(k){ return k.indexOf("WCORE_HTTP_") === 0; }, 5);
+  pushIf(function(k){ return k.indexOf("OUTSNAP_") === 0; }, 8);
+  // v4.15.100: stale activity data stored in ScriptProperties (should be SheetCache/memory)
+  // HTTP category tracker from Feb 2026 (4+ months stale, reconstructible)
+  pushIf(function(k){ return k === "HTTP_CATEGORY_TRACKER_v1" || k === "HTTP_CATEGORY_DATE_v1"; }, 5);
+  // Old RPC_LOOKUP (now memory-only, ~28KB wasted quota)
+  pushIf(function(k){ return k === "ACTIVITY_RPC_LOOKUP"; }, 45);
+  // Large NONCE_MAP (15KB, can be rebuilt from scratch on next watchdog cycle)
+  pushIf(function(k){ return k === "ACTIVITY_NONCE_MAP"; }, 47);
  for (var af = 0; af < keys.length; af++) {
  var afk = keys[af];
  if (!afk || afk.indexOf("ACTIVITY_FORCE_") !== 0) continue;

@@ -487,8 +487,11 @@ test("getEvmWalletAssets scans user custom tokens even when discovery is empty",
   const rpc = {
     async getBalance(): Promise<bigint> { return 0n; },
     async call(): Promise<string> { return "0x"; },
-    async ethCall(_endpoint: string, to: string): Promise<string> {
+    async ethCall(_endpoint: string, to: string, data = ""): Promise<string> {
       assert.equal(to, custom);
+      if (data.startsWith("0x95d89b41")) return encodeAbiString("MOCK");
+      if (data.startsWith("0x06fdde03")) return encodeAbiString("Mock Token");
+      if (data.startsWith("0x313ce567")) return "0x" + 18n.toString(16).padStart(64, "0");
       return "0x" + 2_000_000_000_000_000_000n.toString(16).padStart(64, "0");
     },
   };
@@ -512,6 +515,8 @@ test("getEvmWalletAssets scans user custom tokens even when discovery is empty",
 
   assert.equal(result.tokens.length, 1);
   assert.equal(result.tokens[0]?.contract, custom);
+  assert.equal(result.tokens[0]?.symbol, "MOCK");
+  assert.equal(result.tokens[0]?.name, "Mock Token");
   assert.equal(result.tokens[0]?.balance, 2);
   assert.equal(result.tokens[0]?.valueEur, 6);
 });
@@ -690,6 +695,14 @@ function makeNativeSources(nativePrice: number | null): PricingSourceSet {
 
 function word(hex: string): string {
   return hex.replace(/^0x/i, "").padStart(64, "0");
+}
+
+function encodeAbiString(value: string): string {
+  const bytes = Buffer.from(value, "utf8");
+  return "0x"
+    + word("20")
+    + word(bytes.length.toString(16))
+    + bytes.toString("hex").padEnd(Math.ceil(bytes.length / 32) * 64, "0");
 }
 
 function encodeSingleMulticallResult(raw: bigint): string {
@@ -997,6 +1010,63 @@ test("readErc20Balance: non-ERC20 all-revert ÔåÆ token skipped", async () => 
   assert.ok(store.has(skipKey), "skip cache should be written for non-ERC20");
 });
 
+test("readErc20Balance: custom balanceSelector reads from non-standard contract", async () => {
+  const CONTRACT = "0x521b4c065bbdbe3e20b3727340730936912dfa46";
+  // locks(address) returns (uint128,uint64) — ABI encodes the first 32 bytes
+  // with the uint128 amount, second 32 bytes with the unlock time.
+  // For 71.20 WCT the first word is 0x3dc1e8a73f0fd0962.
+  const AMOUNT_HEX = "0x000000000000000000000000000000000000000000000003dc1e8a73f0fd0962";
+
+  const discovery: TokenDiscovery = {
+    async discoverTokensForWallet(): Promise<DiscoveredToken[]> {
+      return [
+        {
+          contract: CONTRACT,
+          symbol: "WCT Stake",
+          name: "WCT Stake Weight",
+          decimals: 18,
+          balanceSelector: "0x5de9a137", // locks(address)
+        },
+      ];
+    },
+  };
+
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc1.example", ok: true },
+    { endpoint: "https://rpc2.example", ok: true },
+  ]);
+
+  let receivedData: string | null = null;
+  const rpc = {
+    async getBalance(): Promise<bigint> { return 0n; },
+    async blockNumber(): Promise<number> { return 20_000_000; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(_e: string, _t: string, data: string, _b: string): Promise<string> {
+      receivedData = data;
+      return AMOUNT_HEX;
+    },
+  };
+
+  const store = new Map<string, unknown>();
+  const result = await getEvmWalletAssets(OWNER, "optimism", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(null),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: discovery,
+    cache: makeCacheStore(store),
+    fxRate: 1,
+  });
+
+  // The custom selector must have been used (locks(address) starts with 0x5de9a137).
+  assert.ok(receivedData, "ethCall must have been called");
+  assert.ok(receivedData!.startsWith("0x5de9a137"), `expected custom selector 0x5de9a137, got ${receivedData}`);
+  assert.equal(result.tokens.length, 1, "expected one token via custom selector");
+  const stake = result.tokens[0] as { symbol: string; balance: number };
+  assert.equal(stake.symbol, "WCT Stake");
+  assert.ok(Math.abs(stake.balance - 71.2) < 0.01, `expected ~71.2 WCT, got ${stake.balance}`);
+});
+
 // ÔöÇÔöÇÔöÇ getEvmWalletsAssets (multi-wallet batch) tests ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 const WALLET_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -1056,7 +1126,8 @@ test("getEvmWalletsAssets writes empty cache with a 10 minute TTL", async () => 
     async add<T>(key: string, value: T, ttlMs: number): Promise<boolean> { if (store.has(key)) return false; store.set(key, value); ttls.set(key, ttlMs); return true; },
   };
   const dispatcher = mockDispatcherWithAttempts([
-    { endpoint: "https://rpc.example", ok: true },
+    { endpoint: "https://rpc-1.example", ok: true },
+    { endpoint: "https://rpc-2.example", ok: true },
   ]);
   const rpc = {
     async blockNumber(): Promise<number> { return 20_000_000; },
@@ -1176,7 +1247,8 @@ test("getEvmWalletsAssets: custom tokens added to results even when discovery is
   const cache = makeCacheStore(store);
 
   const dispatcher = mockDispatcherWithAttempts([
-    { endpoint: "https://rpc.example", ok: true },
+    { endpoint: "https://rpc-1.example", ok: true },
+    { endpoint: "https://rpc-2.example", ok: true },
   ]);
   const rpc = {
     async blockNumber(): Promise<number> { return 20_000_000; },
@@ -1185,8 +1257,11 @@ test("getEvmWalletsAssets: custom tokens added to results even when discovery is
     // Multicall3 returns 0 balance for the custom token ÔåÆ falls through to ethCall
     async call(): Promise<string> { return "0x"; },
     // Per-token ethCall returns 1 token balance for the custom contract
-    async ethCall(_endpoint: string, to: string): Promise<string> {
+    async ethCall(_endpoint: string, to: string, data = ""): Promise<string> {
       if (to.toLowerCase() === CUSTOM.toLowerCase()) {
+        if (data.startsWith("0x95d89b41")) return encodeAbiString("MOCK");
+        if (data.startsWith("0x06fdde03")) return encodeAbiString("Mock Token");
+        if (data.startsWith("0x313ce567")) return "0x" + 18n.toString(16).padStart(64, "0");
         return "0x" + 1_000_000_000_000_000_000n.toString(16).padStart(64, "0");
       }
       return "0x";
@@ -1218,10 +1293,81 @@ test("getEvmWalletsAssets: custom tokens added to results even when discovery is
   const wallet = result.wallets[0]!;
   const customToken = wallet.assets.tokens.find((t) => t.contract.toLowerCase() === CUSTOM.toLowerCase());
   assert.ok(customToken, "custom token should be in results");
+  assert.equal(customToken!.symbol, "MOCK");
+  assert.equal(customToken!.name, "Mock Token");
   assert.equal(customToken!.balance, 1);
   // Price comes from DefiLlama mock (42 USD * 1 fxRate = 42 EUR)
   assert.equal(customToken!.priceEur, 42);
   assert.equal(customToken!.valueEur, 42);
+});
+
+test("getEvmWalletsAssets: preserves custom selector variants on the same contract", async () => {
+  const COMET = "0xE36A30D249f7761327fd973001A32010b521b6Fd";
+  const COLLATERAL_ARG = "0x00000000000000000000000087eEE96D50Fb761AD85B1c982d28A042169d61b1";
+  const borrowRaw = 2_000_000_000_000_000_000n;
+  const collateralRaw = 3_000_000_000_000_000_000n;
+  const ethCalls: string[] = [];
+  const expectedCollateralCall = `0x5c2549ee${WALLET_A.toLowerCase().replace(/^0x/, "").padStart(64, "0")}${COLLATERAL_ARG.toLowerCase().replace(/^0x/, "")}`;
+
+  const discovery: TokenDiscovery = {
+    async discoverTokensForWallet(): Promise<DiscoveredToken[]> {
+      return [
+        {
+          contract: COMET,
+          symbol: "Comp WETH Borrow",
+          name: "Compound V3 cWETHv3 Borrowed",
+          decimals: 18,
+          balanceSelector: "0x374c49b4",
+        },
+        {
+          contract: COMET,
+          symbol: "Comp wrsETH",
+          name: "Compound V3 cWETHv3 Collateral",
+          decimals: 18,
+          balanceSelector: "0x5c2549ee",
+          balanceSelectorExtraArgs: [COLLATERAL_ARG],
+        },
+      ];
+    },
+  };
+
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc-1.example", ok: true },
+    { endpoint: "https://rpc-2.example", ok: true },
+  ]);
+  const rpc = {
+    async blockNumber(): Promise<number> { return 20_000_000; },
+    async getBalance(): Promise<bigint> { return 0n; },
+    async getLogs(): Promise<any[]> { return []; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(_endpoint: string, _to: string, data = ""): Promise<string> {
+      ethCalls.push(data);
+      if (data.startsWith("0x374c49b4")) return "0x" + borrowRaw.toString(16).padStart(64, "0");
+      if (data.toLowerCase() === expectedCollateralCall) return "0x" + collateralRaw.toString(16).padStart(64, "0");
+      return "0x";
+    },
+    async batch(): Promise<any[]> { return []; },
+  };
+
+  const result = await getEvmWalletsAssets([WALLET_A], "optimism", {
+    cache: makeCacheStore(new Map<string, unknown>()),
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    tokenDiscovery: discovery,
+    sources: makeNativeSources(null),
+    sharedPriceCache: new MemoryPricingCache(),
+    fxRate: 1,
+  });
+
+  const wallet = result.wallets[0]!;
+  assert.deepEqual(wallet.assets.tokens.map((t) => t.symbol).sort(), ["Comp WETH Borrow", "Comp wrsETH"]);
+  assert.equal(wallet.assets.tokens.find((t) => t.symbol === "Comp WETH Borrow")?.balance, 2);
+  assert.equal(wallet.assets.tokens.find((t) => t.symbol === "Comp wrsETH")?.balance, 3);
+  assert.ok(ethCalls.some((data) => data.startsWith("0x374c49b4")), "borrow selector should be called");
+  assert.ok(
+    ethCalls.some((data) => data.toLowerCase() === expectedCollateralCall),
+    "collateral selector should encode wallet before the extra collateral argument",
+  );
 });
 
 test("getEvmWalletAssets bulk pre-fetches GT prices before per-token cascade", async () => {

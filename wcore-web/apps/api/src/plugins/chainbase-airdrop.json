@@ -1,0 +1,10 @@
+{
+  "_comment": "Chainbase airdrop claimable amounts per wallet. Amounts in C (18 decimals). Update when the user claims or when a new airdrop project is added. The merkle proof + amount are off-chain; this file is the single source of truth that the gsheet can read.",
+  "_source": "https://stake.chainbase.com/ — values taken from the user's pending claimRewards(uint256,uint256,bytes32[]) calldata",
+  "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080": {
+    "amount": 15.357840691300827409,
+    "projectId": 2,
+    "txHash": "0xf4331a53ec9882d02bf6495b4f95d982579b09bdaf683dfd1815fd768de2dabb",
+    "note": "Pending claim from BaseScan 2026-06-28 16:30:00"
+  }
+}

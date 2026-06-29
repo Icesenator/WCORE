@@ -13,6 +13,7 @@ import {
   getDiscoveryCacheKey,
   hasExplorerDiscovery,
   registryTokenDiscovery,
+  getKnownTokensForChain,
 } from "../tokens/index.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
 import {
@@ -171,6 +172,25 @@ export async function getEvmWalletAssets(
   }
   const hasCachedDiscovery = Array.isArray(cachedDiscoveryTokens);
 
+  // Always include the local registry tokens (covers non-ERC-20 contracts that
+  // need a custom balanceSelector and would otherwise be skipped). New registry
+  // entries appear on the next scan without needing to bust the 24h discovery
+  // cache. Existing entries are deduplicated against the discovered set below.
+  if (!opts.tokenDiscovery) {
+    const registryTokens = await getKnownTokensForChain(key);
+    const merged = Array.isArray(cachedDiscoveryTokens) ? [...cachedDiscoveryTokens] : [];
+    const tokenDedupKey = (t: { contract: string; balanceSelector?: string; balanceSelectorExtraArgs?: string[] }) =>
+      `${t.contract.toLowerCase()}:${t.balanceSelector || ""}:${(t.balanceSelectorExtraArgs || []).join(",")}`;
+    const seen = new Set(merged.map((t) => tokenDedupKey(t)));
+    for (const t of registryTokens) {
+      const k = tokenDedupKey(t);
+      if (seen.has(k)) continue;
+      merged.push(t);
+      seen.add(k);
+    }
+    cachedDiscoveryTokens = merged;
+  }
+
   const discoveryStart = Date.now();
   const discoveryPromise: Promise<{ discovered: DiscoveredToken[]; discoveryMs: number; usedIncremental: boolean; currentBlock: number }> = (async () => {
     let discoveredTokens: DiscoveredToken[];
@@ -231,13 +251,15 @@ export async function getEvmWalletAssets(
   // Merge previously-cached tokens whenever any are present — independent of
   // whether the new fetch was incremental — so the union is always re-persisted.
   if (cachedDiscoveryTokens && cachedDiscoveryTokens.length > 0) {
-    const seen = new Set(discoveredTokens.map((t) => t.contract.toLowerCase()));
+    const cdKey = (t: { contract: string; balanceSelector?: string; balanceSelectorExtraArgs?: string[] }) =>
+      `${t.contract.toLowerCase()}:${t.balanceSelector || ""}:${(t.balanceSelectorExtraArgs || []).join(",")}`;
+    const seen = new Set(discoveredTokens.map((t) => cdKey(t)));
     for (const cached of cachedDiscoveryTokens) {
-      if (!seen.has(cached.contract.toLowerCase())) {
+      if (!seen.has(cdKey(cached))) {
         // Skip stale UNKNOWN entries from before the metadata fix
         if (cached.symbol === "UNKNOWN" || cached.name === "Unknown Token") continue;
         discoveredTokens.push(cached);
-        seen.add(cached.contract.toLowerCase());
+        seen.add(cdKey(cached));
       }
     }
   }
@@ -273,12 +295,33 @@ export async function getEvmWalletAssets(
   if (opts.customTokens) {
     for (const ct of opts.customTokens) {
       const addr = ct.trim().toLowerCase();
-      if (!/^0x[0-9a-f]{40}$/.test(addr) || seenContracts.has(addr)) continue;
+      if (!/^0x[0-9a-f]{40}$/.test(addr) || SKIP_NATIVE_PRECOMPILES.has(addr)) continue;
+      const existing = seenContracts.get(addr);
+      if (existing?.symbol && existing.name) continue;
       const customDecimals = chain.RPC?.TOKEN_DECIMALS?.[addr] != null ? chain.RPC.TOKEN_DECIMALS[addr] : 18;
-      const t: DiscoveredToken = { contract: addr, symbol: "CUSTOM", name: addr.slice(0, 10), decimals: customDecimals, source: "indexer" };
-      discoveredTokens.push(t);
-      filteredTokens.push(t);
-      seenContracts.set(addr, t);
+      const meta = await getErc20Metadata({
+        contract: addr,
+        endpoints,
+        dispatcher,
+        rpc,
+        cache,
+        chainKey: key,
+        tokenDecimals: chain.RPC?.TOKEN_DECIMALS,
+      });
+      if (meta.token) {
+        if (existing) {
+          Object.assign(existing, meta.token);
+        } else {
+          discoveredTokens.push(meta.token);
+          filteredTokens.push(meta.token);
+          seenContracts.set(addr, meta.token);
+        }
+      } else if (!existing) {
+        const t: DiscoveredToken = { contract: addr, symbol: "CUSTOM", name: addr.slice(0, 10), decimals: customDecimals, source: "indexer" };
+        discoveredTokens.push(t);
+        filteredTokens.push(t);
+        seenContracts.set(addr, t);
+      }
     }
   }
 
@@ -329,9 +372,13 @@ export async function getEvmWalletAssets(
     } catch { /* balance cache miss or error — proceed with full scan */ }
   }
 
-  // Phase 1: Batch all balanceOf calls via Multicall3 (1 RPC instead of N)
+  // Phase 1: Batch all balanceOf calls via Multicall3 (1 RPC instead of N).
+  // Tokens with a custom balanceSelector (non-standard ERC-20) are read
+  // per-token after the multicall phase.
   const balancesStart = Date.now();
-  const balanceCalls: MulticallCall[] = filteredTokens.map((t) => ({
+  const standardTokens = filteredTokens.filter((t) => !t.balanceSelector);
+  const customSelectorTokens = filteredTokens.filter((t) => !!t.balanceSelector);
+  const balanceCalls: MulticallCall[] = standardTokens.map((t) => ({
     target: t.contract,
     callData: encodeBalanceOf(normalizedAddress),
   }));
@@ -363,11 +410,13 @@ export async function getEvmWalletAssets(
     }
   }
 
-  // Phase 2: Decode + filter > 0, with per-token fallback if multicall result failed
+  // Phase 2: Decode + filter > 0, with per-token fallback if multicall result failed.
+  // Standard tokens use multicall + indexed balanceResults; custom-selector
+  // tokens are read per-token with their custom selector.
   const withBalances: Array<{ known: DiscoveredToken; balance: number }> = [];
   const BALANCE_FALLBACK_CONCURRENCY = 10;
-  for (let i = 0; i < filteredTokens.length; i += BALANCE_FALLBACK_CONCURRENCY) {
-    const group = filteredTokens.slice(i, i + BALANCE_FALLBACK_CONCURRENCY);
+  for (let i = 0; i < standardTokens.length; i += BALANCE_FALLBACK_CONCURRENCY) {
+    const group = standardTokens.slice(i, i + BALANCE_FALLBACK_CONCURRENCY);
     const resolved = await Promise.all(group.map(async (known, offset) => {
       const result = balanceResults[i + offset];
       let raw: bigint;
@@ -398,6 +447,27 @@ export async function getEvmWalletAssets(
         raw = ercDecision.decision.raw;
         pushBalanceDecisionError(errors, known.symbol, ercDecision.decision);
       }
+      const explicitDecimals = chain.RPC?.TOKEN_DECIMALS?.[known.contract.toLowerCase()];
+      const effectiveDecimals = explicitDecimals != null ? explicitDecimals : known.decimals;
+      const balance = formatUnits(raw, effectiveDecimals);
+      return balance > 0 ? { known, balance } : null;
+    }));
+    for (const item of resolved) {
+      if (item) withBalances.push(item);
+    }
+  }
+
+  // Custom-selector tokens: per-token balance read with their own selector
+  for (let i = 0; i < customSelectorTokens.length; i += BALANCE_FALLBACK_CONCURRENCY) {
+    const group = customSelectorTokens.slice(i, i + BALANCE_FALLBACK_CONCURRENCY);
+    const resolved = await Promise.all(group.map(async (known) => {
+      const ercDecision = await readErc20Balance(
+        dispatcher, rpc, effectiveEndpoints, known.contract, normalizedAddress, key, cache, known.balanceSelector,
+        known.balanceSelectorExtraArgs,
+      );
+      if (ercDecision.skipped) return null;
+      const raw = ercDecision.decision.raw;
+      pushBalanceDecisionError(errors, known.symbol, ercDecision.decision);
       const explicitDecimals = chain.RPC?.TOKEN_DECIMALS?.[known.contract.toLowerCase()];
       const effectiveDecimals = explicitDecimals != null ? explicitDecimals : known.decimals;
       const balance = formatUnits(raw, effectiveDecimals);

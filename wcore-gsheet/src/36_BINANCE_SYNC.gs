@@ -61,6 +61,7 @@ function _binFetchBucketsViaRelay_() {
   var relay = _binGetRelay_();
   var url = relay.url + "/binance?token=" + encodeURIComponent(relay.token);
   var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
+  if (!resp) throw new Error("Binance relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();
   if (code < 200 || code >= 300) {
@@ -168,6 +169,7 @@ function _binSignedGet_(path, params, creds) {
     muteHttpExceptions: true,
     headers: { "X-MBX-APIKEY": creds.key }
   });
+  if (!resp) throw new Error("Binance " + path + " HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();
   if (code === 451 || code === 403) {

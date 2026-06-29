@@ -197,7 +197,7 @@ DegradedMode.returnCacheOnly = function(address, config, chainName, reason, engi
  } else if (reason === "TIMEOUT_LIKELY_QUOTA") {
  userMessage = "[!] TIMEOUT (quota probable) - Donnees du cache affichees. Reessayez dans 2-3 minutes.";
  } else if (reason === "CIRCUIT_BREAKER_ACTIVE") {
- userMessage = "[!] QUOTA RECEMMENT EPUISE - Donnees du cache affichees. Attente automatique en cours.";
+  userMessage = "[!] MODE PRUDENCE QUOTA - Cache affiche pour economiser Apps Script. Un scan WCORE Web peut quand meme mettre a jour si disponible.";
  } else if (reason === "RECENT_ERROR") {
  userMessage = "[!] ERREUR RECENTE DETECTEE - Donnees du cache affichees. Reessayez dans 30 secondes.";
  } else if (reason === "REPEATED_ERRORS") {
@@ -386,7 +386,7 @@ DegradedMode._buildEmptyOutput = function(chainName, reason, timer, config, isQu
  } else if (reason === "TIMEOUT_LIKELY_QUOTA") {
  emptyMsg = "[!] TIMEOUT (quota probable) - Aucune donnee en cache. Reessayez dans 2-3 minutes.";
  } else if (reason === "CIRCUIT_BREAKER_ACTIVE") {
- emptyMsg = "[!] QUOTA RECEMMENT EPUISE - Aucune donnee en cache. Attente automatique.";
+  emptyMsg = "[!] MODE PRUDENCE QUOTA - Aucun cache disponible. Attente auto avant nouvel appel Apps Script.";
  } else if (reason === "RECENT_ERROR") {
  emptyMsg = "[!] ERREUR RECENTE - Aucune donnee en cache. Reessayez dans 30 secondes.";
  } else if (reason === "REPEATED_ERRORS") {
@@ -636,7 +636,7 @@ DegradedMode._appendDegradedInfo = function(output, cache, config, circuitBreake
  var msg;
  
  if (circuitBreakerActive && (!cache || !cache.degraded_message)) {
- msg = "[!] QUOTA RECEMMENT EPUISE - Donnees du cache affichees. Attente automatique en cours.";
+  msg = "[!] MODE PRUDENCE QUOTA - Cache affiche pour economiser Apps Script. Un scan WCORE Web peut quand meme mettre a jour si disponible.";
  } else if (cache && cache.degraded_message) {
  msg = "[!] " + cache.degraded_message + " (donnees du cache affichees)";
  } else {

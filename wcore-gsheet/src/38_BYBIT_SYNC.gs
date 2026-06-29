@@ -97,6 +97,7 @@ function _bybitFetchBucketsViaRelay_(relay) {
     }
   }
   if (lastErr) throw lastErr;
+  if (!resp) throw new Error("ByBit relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();
   if (code < 200 || code >= 300) {
@@ -202,6 +203,7 @@ function _bybitAuthGet_(path, queryObj, creds) {
       "x-referer": BYBIT_SYNC_CONFIG.API_ID_EU
     }
   });
+  if (!resp) throw new Error("ByBit " + path + " HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();
   if (code === 451 || code === 403) throw new Error("ByBit IP/geo blocked (HTTP " + code + "): " + text.substring(0, 200));

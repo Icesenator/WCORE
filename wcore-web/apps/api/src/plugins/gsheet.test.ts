@@ -1,9 +1,26 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { gsheetPlugin } from "./gsheet.js";
+import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors } from "./gsheet.js";
+
+test("mapWithConcurrencyLimit bounds parallel work", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const result = await mapWithConcurrencyLimit([1, 2, 3, 4, 5], 2, async (n) => {
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active--;
+    return n * 2;
+  });
+
+  assert.deepEqual(result, [2, 4, 6, 8, 10]);
+  assert.equal(maxActive, 2);
+});
 
 describe("gsheetPlugin", () => {
+  const noChainbaseStakingProvider = async () => ({ locked: 0, claimable: 0 });
+
   test("returns 401 without token", async () => {
     const app = Fastify();
     await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
@@ -61,5 +78,724 @@ describe("gsheetPlugin", () => {
     assert.equal(res.statusCode, 200);
     assert.deepEqual(JSON.parse(res.body), { ok: true });
     await app.close();
+  });
+
+  test("returns batch prices for gsheet tokens with valid token", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      priceBatcher: async (input) => ({
+        fxRate: 0.88,
+        prices: Object.fromEntries(input.tokens.map((token) => [token.toLowerCase(), {
+          priceEur: token.toLowerCase().endsWith("94") ? 0.0000066264 : null,
+          priceUsd: token.toLowerCase().endsWith("94") ? 0.00000753 : null,
+          source: token.toLowerCase().endsWith("94") ? "gt-batch" : null,
+        }])),
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/prices",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        chain: "base",
+        tokens: [
+          "0x8A9CF9AE6536127129727938CB1A6438273E4F94",
+          "0xb2f5ff8516b1f231d778d249e8a488667c66bfc0",
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), {
+      ok: true,
+      chain: "BASE",
+      fxRate: 0.88,
+      prices: {
+        "0x8a9cf9ae6536127129727938cb1a6438273e4f94": {
+          priceEur: 0.0000066264,
+          priceUsd: 0.00000753,
+          source: "gt-batch",
+        },
+      },
+      missing: ["0xb2f5ff8516b1f231d778d249e8a488667c66bfc0"],
+    });
+    await app.close();
+  });
+
+  test("rejects invalid gsheet price requests", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/prices",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { chain: "base", tokens: ["not-a-contract"] },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(JSON.parse(res.body), { error: "invalid_tokens" });
+    await app.close();
+  });
+
+  test("returns gsheet scan results with valid token", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [{ symbol: "USDC", name: "USD Coin", contract: "0x0000000000000000000000000000000000000001", balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 }],
+        totalValueEur: 29.6,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+        cacheStats: { hits: 1, misses: 2, stale: 0, skipped: 0 },
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
+        chain: "base",
+        forceRefresh: true,
+        strictTokens: true,
+        customTokens: ["0x0000000000000000000000000000000000000001"],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), {
+      ok: true,
+      chain: "BASE",
+      chainName: "Base",
+      vm: "EVM",
+      timestamp: "2026-06-26T17:00:00.000Z",
+      native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+      tokens: [{ symbol: "USDC", name: "USD Coin", contract: "0x0000000000000000000000000000000000000001", balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 }],
+      totalValueEur: 29.6,
+      errors: [],
+      degraded: false,
+      fxRate: 0.86,
+      scanMs: 123,
+      cacheStats: { hits: 1, misses: 2, stale: 0, skipped: 0 },
+    });
+    await app.close();
+  });
+
+  test("filters scam tokens from gsheet scan responses", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "USDC", name: "USD Coin", contract: "0x0000000000000000000000000000000000000001", balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 },
+          { symbol: "ETHG", name: "Ethereum Games", contract: "0x0000000000000000000000000000000000000002", balance: 2_000_000, decimals: 18, priceEur: 0.25, valueEur: 500_000 },
+        ],
+        totalValueEur: 500_029.6,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["USDC"]);
+    assert.equal(body.totalValueEur, 29.6);
+    await app.close();
+  });
+
+  test("filters non-fungible badges from gsheet scan responses", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Scroll",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "USDC", name: "USD Coin", contract: "0x0000000000000000000000000000000000000001", balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 },
+          { symbol: "RSH", name: "rhino.fi Scroll Hunter", contract: "0x0000000000000000000000000000000000000002", balance: 3, decimals: 0, priceEur: null, valueEur: null, type: "ERC721" },
+          { symbol: "NMSS", name: "NomisScore", contract: "0x0000000000000000000000000000000000000003", balance: 1, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "HANFT", name: "hypAtlasNFT", contract: "0x0000000000000000000000000000000000000004", balance: 13, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "CUBE", name: "Layer3 CUBE", contract: "0x0000000000000000000000000000000000000005", balance: 94, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "NMSSO", name: "NomisONFT", contract: "0x0000000000000000000000000000000006", balance: 1, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "ORI", name: "originscroll", contract: "0x0000000000000000000000000000000000000007", balance: 1, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "CWN-SCROLL", name: "Galxe - CWN on SCROLL", contract: "0x0000000000000000000000000000000000000008", balance: 6, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "VILLAG", name: "Villager", contract: "0x0000000000000000000000000000000000000010", balance: 1, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "SIDARB", name: "SPACE ID .arb Name", contract: "0x0000000000000000000000000000000000000011", balance: 1, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "POWER", name: "Layer3 Infinity CUBE", contract: "0x0000000000000000000000000000000000000012", balance: 1, decimals: 0, priceEur: null, valueEur: null },
+          { symbol: "SCR", name: "Scroll", contract: "0x0000000000000000000000000000000000000009", balance: 2, decimals: 18, priceEur: 0.5, valueEur: 1 },
+        ],
+        totalValueEur: 30.6,
+        errors: ["RSH price: NO_PRICE", "NMSS price: NO_PRICE", "HANFT price: NO_PRICE", "CUBE price: NO_PRICE", "NMSSO price: NO_PRICE", "ORI price: NO_PRICE", "CWN-SCROLL price: NO_PRICE", "VILLAG price: NO_PRICE", "SIDARB price: NO_PRICE", "POWER price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.86,
+        scanMs: 123,
+        cacheStats: { hits: 1, misses: 2, stale: 0, skipped: 0 },
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "scroll" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["USDC", "SCR"]);
+    assert.equal(body.totalValueEur, 30.6);
+    assert.equal(body.cacheStats.nonFungibleFiltered, 10);
+    assert.deepEqual(body.errors, []);
+    assert.equal(body.degraded, false);
+    await app.close();
+  });
+
+  test("filters generic no-price ERC20 airdrops without hiding known escrow tokens", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Arbitrum One",
+        vm: "EVM",
+        timestamp: "2026-06-28T15:27:02.000Z",
+        native: { symbol: "ETH", balance: 0.001, priceEur: 1385, valueEur: 1.39 },
+        tokens: [
+          { symbol: "MOLE", name: "Molecular Token", contract: "0x19d0899464dea847ad0a5b7d42f3ce0592542f9a", balance: 100, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "Runes", name: "Runes Token", contract: "0x5667a1dcc1e9a9f5e41bd040856c26cba474017d", balance: 47240, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "xGRAIL", name: "Camelot escrowed token", contract: "0x3caae25ee616f2c8e13c74da0813402eae3f496b", balance: 0.00000058, decimals: 18, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 1.39,
+        errors: ["MOLE price: NO_PRICE", "Runes price: NO_PRICE", "xGRAIL price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "arbitrum_one" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["xGRAIL"]);
+    assert.deepEqual(body.errors, ["xGRAIL price: NO_PRICE"]);
+    await app.close();
+  });
+
+  test("filters no-market Base tokens and reports them via cacheStats badge", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-28T16:30:00.000Z",
+        native: { symbol: "ETH", balance: 0.05, priceEur: 1385, valueEur: 69.25 },
+        tokens: [
+          { symbol: "USDC", name: "USD Coin", contract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", balance: 100, decimals: 6, priceEur: 0.88, valueEur: 88 },
+          { symbol: "Surprise", name: "Surprise", contract: "0xa973bc7ff3a4b05a8fde036b33a4431e3bc582c4", balance: 224253, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "BARAN", name: "Baran Bakery", contract: "0x0dfd116f3b94062de121836550559836efdfec4f", balance: 109341, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "STRETCH", name: "STRETCH", contract: "0x8b8c85c61d33a7f7df7661ea4e69a34502aafca3", balance: 138432, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "JRA", name: "TwyneFamily$", contract: "0xf37d0e4ea93aca7e0d3afa9df2a7774cf5bdd583", balance: 102232, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "ZAY", name: "Zay61", contract: "0x26095fbf2a0f8332408198e7a89b7d54fae19bb7", balance: 97315, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "FLIPIT", name: "Flip It", contract: "0xea6b729919db1ea6b7aeb5e69b9b9ef746fa5d90", balance: 29500, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "WC", name: "Warplet Community", contract: "0x2632ca8e93ad5ea63beb1a480d4b73589993db07", balance: 100000, decimals: 18, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 157.25,
+        errors: [
+          "Surprise price: NO_PRICE",
+          "BARAN price: NO_PRICE",
+          "STRETCH price: NO_PRICE",
+          "JRA price: NO_PRICE",
+          "ZAY price: NO_PRICE",
+          "FLIPIT price: NO_PRICE",
+          "WC price: NO_PRICE",
+        ],
+        degraded: true,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["USDC"]);
+    assert.equal(body.cacheStats.noMarketFiltered, 7);
+    assert.deepEqual(body.cacheStats.noMarketSymbols, ["Surprise", "BARAN", "STRETCH", "JRA", "ZAY", "FLIPIT", "WC"]);
+    assert.deepEqual(body.errors, []);
+    assert.equal(body.totalValueEur, 157.25);
+    await app.close();
+  });
+
+  test("does not filter custom tokens even when they have no price", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-28T16:30:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 1385, valueEur: 13.85 },
+        tokens: [
+          { symbol: "CUSTOM", name: "Custom Token", contract: "0x1111111111111111111111111111111111111111", balance: 1000, decimals: 18, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 13.85,
+        errors: ["CUSTOM price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
+        chain: "base",
+        customTokens: ["0x1111111111111111111111111111111111111111"],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["CUSTOM"]);
+    assert.equal(body.cacheStats, undefined, "no cacheStats in original, noMarketFiltered must not be added");
+    await app.close();
+  });
+
+  test("repairs missing gsheet scan token prices with the price batcher", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "TELL", name: "tell you straight", contract: "0xed9bba84974a06e3886fa6228b27de43c93b4147", balance: 19500, decimals: 18, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 21,
+        errors: ["TELL price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+      priceBatcher: async () => ({
+        fxRate: 0.86,
+        prices: {
+          "0xed9bba84974a06e3886fa6228b27de43c93b4147": { priceEur: 0.00002, priceUsd: 0.000023, source: "gt-retry" },
+        },
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.tokens[0].priceEur, 0.00002);
+    assert.equal(body.tokens[0].valueEur, 0.39);
+    assert.equal(body.totalValueEur, 21.39);
+    await app.close();
+  });
+
+  test("limits gsheet scan price repair work while covering Base long-tail gaps", async () => {
+    const app = Fastify();
+    let requestedTokens: string[] = [];
+    const missingTokens = Array.from({ length: 25 }, (_, i) => `0x${String(i + 1).padStart(40, "0")}`);
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: missingTokens.map((contract, i) => ({ symbol: `M${i}`, name: `Missing ${i}`, contract, balance: 1, decimals: 18, priceEur: null, valueEur: null })),
+        totalValueEur: 21,
+        errors: missingTokens.map((_, i) => `M${i} price: NO_PRICE`),
+        degraded: true,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+      priceBatcher: async (input) => {
+        requestedTokens = input.tokens;
+        return { fxRate: 0.86, prices: {} };
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(requestedTokens.length, 24);
+    await app.close();
+  });
+
+  test("rejects invalid gsheet scan requests", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "", chain: "base" },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(JSON.parse(res.body), { error: "missing_address" });
+    await app.close();
+  });
+
+  test("injects Chainbase Staking locked + claimable tokens on Base", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: async () => ({
+        stakingContract: "0x0297e997b56017164110f75f71ecd58da823085b",
+        airdropContract: "0x3f2061547174d206613bc70869a454c25f84a0df",
+        locked: 58.58143972,
+        claimable: 15.357840691300827409,
+        tokenSymbol: "C",
+        tokenAddress: "0xba12bc7b210e61e5d3110b997a63ea216e0e18f7",
+        sources: { locked: "rpc", claimable: "config" },
+        fetchedAt: "2026-06-28T16:00:00.000Z",
+      }),
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-28T16:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.05, priceEur: 1385, valueEur: 69.25 },
+        tokens: [
+          { symbol: "USDC", name: "USD Coin", contract: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", balance: 100, decimals: 6, priceEur: 0.86, valueEur: 86 },
+        ],
+        totalValueEur: 155.25,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    const symbols = body.tokens.map((t: { symbol: string }) => t.symbol);
+    assert.ok(symbols.includes("USDC"), "USDC should remain");
+    const locked = body.tokens.find((t: { symbol: string }) => t.symbol === "C-Locked");
+    const claimable = body.tokens.find((t: { symbol: string }) => t.symbol === "C-Airdrop");
+    assert.ok(locked, "C-Locked must be injected");
+    assert.ok(claimable, "C-Airdrop must be injected");
+    assert.equal(locked.balance, 58.58143972);
+    assert.equal(claimable.balance, 15.357840691300827);
+    assert.equal(locked.contract.toLowerCase(), "0x0297e997b56017164110f75f71ecd58da823085b");
+    assert.equal(claimable.contract.toLowerCase(), "0x3f2061547174d206613bc70869a454c25f84a0df");
+    assert.ok(body.chainbaseStaking, "chainbaseStaking summary must be present");
+    assert.equal(body.chainbaseStaking.locked, 58.58143972);
+    assert.equal(body.chainbaseStaking.claimable, 15.357840691300827);
+    await app.close();
+  });
+
+  test("uses the default Chainbase provider on Base when no provider override is supplied", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: "0x" + (58_581_439_720_000_000_000n).toString(16),
+    }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    const app = Fastify();
+    try {
+      await app.register(gsheetPlugin, {
+        token: "secret",
+        cacheStore: { get: async () => null },
+        scanRunner: async (input) => ({
+          ok: true,
+          chain: input.chain,
+          chainName: "Base",
+          vm: "EVM",
+          timestamp: "2026-06-28T16:00:00.000Z",
+          native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+          tokens: [],
+          totalValueEur: 0,
+          errors: [],
+          degraded: false,
+          fxRate: 0.86,
+          scanMs: 123,
+        }),
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/gsheet/scan",
+        headers: { "x-gsheet-token": "secret" },
+        payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "base" },
+      });
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body);
+      const symbols = body.tokens.map((t: { symbol: string }) => t.symbol);
+      assert.ok(symbols.includes("C-Locked"), "C-Locked must be injected by the default provider");
+      assert.ok(symbols.includes("C-Airdrop"), "C-Airdrop must be injected by the default provider");
+    } finally {
+      await app.close();
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test("does not inject Chainbase Staking on non-Base chains", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Arbitrum One",
+        vm: "EVM",
+        timestamp: "2026-06-28T16:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 1385, valueEur: 13.85 },
+        tokens: [],
+        totalValueEur: 13.85,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "arbitrum_one" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    const symbols = body.tokens.map((t: { symbol: string }) => t.symbol);
+    assert.ok(!symbols.includes("C-Locked"), "C-Locked must not be injected off-Base");
+    assert.ok(!symbols.includes("C-Airdrop"), "C-Airdrop must not be injected off-Base");
+    assert.equal(body.chainbaseStaking, undefined);
+    await app.close();
+  });
+
+  test("maps missing web scan chain to 404", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async () => { throw new Error("chain_not_found"); },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "missing" },
+    });
+    assert.equal(res.statusCode, 404);
+    assert.deepEqual(JSON.parse(res.body), { error: "chain_not_found" });
+    await app.close();
+  });
+});
+
+describe("applyStakedPriceMirrors", () => {
+  const SDAYS = "0x8a337e3f2b63e869b085354ce28dd5902a5db038";
+  const SSWEET = "0x9ebe195d685f90b9be3449fe0628af20e15f729b";
+  const DAYS = "0xb58372a5bb18e10229e680d8bcc4201ca3c98301";
+  const SWEET = "0x8da2a47f76d928a97a8f44498db25aa787198087";
+
+  test("mirrors priced underlying to staked variants on the same chain", () => {
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "BASE",
+      chainName: "Base",
+      vm: "EVM",
+      timestamp: "2026-06-28T18:00:00.000Z",
+      native: { symbol: "ETH", balance: 0.01, priceEur: 1385, valueEur: 13.85 },
+      tokens: [
+        { symbol: "DAYS", name: "Chrystal - The Days", contract: DAYS, balance: 126400, decimals: 18, priceEur: 0.000010670443, valueEur: 1.348743995 },
+        { symbol: "SWEET", name: "Sweet Memories", contract: SWEET, balance: 148500.1962, decimals: 18, priceEur: 0.000009004185, valueEur: 1.337123239 },
+        { symbol: "SDAYS", name: "Staked Chrystal - The Days (NOTION Remix)", contract: SDAYS, balance: 203143, decimals: 18, priceEur: null, valueEur: null },
+        { symbol: "SSWEET", name: "Staked Sweet Memories", contract: SSWEET, balance: 146325, decimals: 18, priceEur: null, valueEur: null },
+      ],
+      totalValueEur: 14.0432,
+      errors: [],
+      degraded: false,
+      fxRate: 0.878,
+      scanMs: 123,
+    });
+    const sdays = (result.tokens as Array<{ symbol: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "SDAYS");
+    const ssweet = (result.tokens as Array<{ symbol: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "SSWEET");
+    assert.equal(sdays?.priceEur, 0.000010670443);
+    assert.equal(ssweet?.priceEur, 0.000009004185);
+    assert.equal(sdays?.source, "staked-mirror:DAYS");
+    assert.equal(ssweet?.source, "staked-mirror:SWEET");
+  });
+
+  test("skips staked variant when underlying is missing or unpriced", () => {
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "BASE",
+      chainName: "Base",
+      vm: "EVM",
+      timestamp: "2026-06-28T18:00:00.000Z",
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [
+        { symbol: "SDAYS", name: "Staked Chrystal - The Days (NOTION Remix)", contract: SDAYS, balance: 203143, decimals: 18, priceEur: null, valueEur: null },
+      ],
+      totalValueEur: 0,
+      errors: [],
+      degraded: true,
+      fxRate: 0.878,
+      scanMs: 123,
+    });
+    const sdays = (result.tokens as Array<{ symbol: string; priceEur: number | null; valueEur: number | null }>).find((t) => t.symbol === "SDAYS");
+    assert.equal(sdays?.priceEur, null);
+    assert.equal(sdays?.valueEur, null);
+  });
+
+  test("does nothing on non-Base chains", () => {
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "ETHEREUM",
+      chainName: "Ethereum",
+      vm: "EVM",
+      timestamp: "2026-06-28T18:00:00.000Z",
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [
+        { symbol: "SDAYS", name: "SDAYS", contract: SDAYS, balance: 1, decimals: 18, priceEur: null, valueEur: null },
+        { symbol: "DAYS", name: "DAYS", contract: DAYS, balance: 1, decimals: 18, priceEur: 0.01, valueEur: 0.01 },
+      ],
+      totalValueEur: 0.01,
+      errors: [],
+      degraded: false,
+      fxRate: 0.878,
+      scanMs: 123,
+    });
+    const sdays = (result.tokens as Array<{ symbol: string; priceEur: number | null }>).find((t) => t.symbol === "SDAYS");
+    assert.equal(sdays?.priceEur, null);
+  });
+
+  test("mirrors WCT underlying to WCT claimable and stake weight on Optimism", () => {
+    const WCT = "0xef4461891dfb3ac8572ccf7c794664a8dd927945";
+    const WCT_CLAIMABLE = "0xf368f535e329c6d08dff0d4b2da961c4e7f3fcaf";
+    const WCT_STAKE = "0x521b4c065bbdbe3e20b3727340730936912dfa46";
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "OPTIMISM",
+      chainName: "Optimism",
+      vm: "EVM",
+      timestamp: "2026-06-28T18:00:00.000Z",
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [
+        { symbol: "WCT", name: "WalletConnect Token", contract: WCT, balance: 45.38886228, decimals: 18, priceEur: 0.03725997343, valueEur: 1.691187803 },
+        { symbol: "WCT Claimable", name: "WCT Staking Reward Distributor", contract: WCT_CLAIMABLE, balance: 1.69, decimals: 18, priceEur: null, valueEur: null },
+        { symbol: "WCT Stake", name: "WCT Stake Weight", contract: WCT_STAKE, balance: 71.2, decimals: 18, priceEur: null, valueEur: null },
+      ],
+      totalValueEur: 1.691187803,
+      errors: [],
+      degraded: false,
+      fxRate: 0.878,
+      scanMs: 123,
+    });
+    const claimable = (result.tokens as Array<{ symbol: string; name: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "WCT Claimable");
+    const stake = (result.tokens as Array<{ symbol: string; name: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "WCT Stake");
+    assert.equal(claimable?.name, "WCT Staking Reward Distributor [Flex]");
+    assert.equal(stake?.name, "WCT Stake Weight [Lock]");
+    assert.equal(claimable?.priceEur, 0.03725997343);
+    assert.equal(claimable?.source, "staked-mirror:WCT");
+    assert.equal(stake?.priceEur, 0.03725997343);
+    assert.equal(stake?.source, "staked-mirror:WCT");
+  });
+
+  test("uses symbol-specific mirror before contract-level debt mirror for Compound collateral", () => {
+    const COMET = "0xe36a30d249f7761327fd973001a32010b521b6fd";
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "OPTIMISM",
+      chainName: "Optimism",
+      vm: "EVM",
+      timestamp: "2026-06-29T05:00:00.000Z",
+      native: { symbol: "ETH", balance: 0.01, priceEur: 1376.91, valueEur: 13.77 },
+      tokens: [
+        { symbol: "Comp WETH Borrow", name: "Compound V3 cWETHv3 Borrowed", contract: COMET, balance: 0.006, decimals: 18, priceEur: null, valueEur: null },
+        { symbol: "Comp wrsETH", name: "Compound V3 cWETHv3 Collateral", contract: COMET, balance: 0.007, decimals: 18, priceEur: null, valueEur: null },
+      ],
+      totalValueEur: 151.46,
+      errors: [],
+      degraded: false,
+      fxRate: 0.878,
+      scanMs: 123,
+    });
+    const tokens = result.tokens as Array<{ symbol: string; name: string; balance: number; priceEur: number | null; valueEur: number | null; source: string | null }>;
+    const borrow = tokens.find((t) => t.symbol === "Comp WETH Borrow");
+    const collateral = tokens.find((t) => t.symbol === "Comp wrsETH");
+    assert.equal(borrow?.name, "Compound V3 cWETHv3 Borrowed [Flex]");
+    assert.equal(collateral?.name, "Compound V3 cWETHv3 Collateral [Flex]");
+    assert.equal(borrow?.balance, -0.006);
+    assert.equal(borrow?.source, "staked-mirror:ETH (debt)");
+    assert.equal(collateral?.balance, 0.007);
+    assert.equal(collateral?.priceEur, 1376.91);
+    assert.equal(collateral?.valueEur, 9.64);
+    assert.equal(collateral?.source, "staked-mirror:wrsETH");
   });
 });

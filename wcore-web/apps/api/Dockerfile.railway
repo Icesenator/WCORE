@@ -29,6 +29,7 @@ RUN pnpm --filter "@wcore/shared" build
 RUN pnpm --filter "@wcore/db" db:generate
 RUN rm -rf packages/core/dist && pnpm --filter "@wcore/core" build
 RUN rm -rf apps/api/dist && pnpm --filter "@wcore/api" build
+RUN cp apps/api/src/plugins/chainbase-airdrop.json apps/api/dist/plugins/chainbase-airdrop.json
 
 RUN node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('packages/shared/package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':'./dist/index.js'}; fs.writeFileSync('packages/shared/package.json',JSON.stringify(p,null,2))"
 RUN node -e "const fs=require('fs');const path=require('path');function fix(f){const files=fs.readdirSync(f,{recursive:true}).filter(x=>x.endsWith('.js')).map(x=>path.join(f,x));for(const file of files){let c=fs.readFileSync(file,'utf8');const before=c;c=c.replace(/from\s+\"\.\/([\w\/-]+)(?<!\.js)\"/g,'from \"./\$1.js\"');if(c!==before)fs.writeFileSync(file,c)}} fix('packages/shared/dist'); fix('packages/core/dist')"

@@ -3,13 +3,16 @@ import { EvmRpc, RpcDispatcher, multicall, type MulticallCall, type MulticallRes
 import { getRpcEndpoints } from "../rpc/endpoints.js";
 import {
   decodeUint256,
+  decodeUint256FirstWord,
   discoverTokensByTransferLogs,
   discoverTokensForWallet,
   discoverTokensFromExplorer,
   encodeBalanceOf,
+  encodeCustomBalanceCall,
   formatUnits,
   getErc20Metadata,
   getDiscoveryCacheKey,
+  getKnownTokensForChain,
   hasExplorerDiscovery,
 } from "../tokens/index.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
@@ -48,6 +51,16 @@ const SKIP_NATIVE_PRECOMPILES = new Set([
   "0x0000000000000000000000000000000000001010", // POL/MATIC precompile (Polygon)
   "0x471ece3750da237f93b8e339c536989b8978a438", // CELO native token (Celo)
 ]);
+
+function tokenVariantKey(token: Pick<DiscoveredToken, "contract" | "balanceSelector" | "balanceSelectorExtraArgs">): string {
+  return `${token.contract.toLowerCase()}:${token.balanceSelector || ""}:${(token.balanceSelectorExtraArgs || []).join(",")}`;
+}
+
+function tokenBalanceCacheKey(chainKey: string, token: DiscoveredToken, owner: string): string {
+  const base = `token:${chainKey.toLowerCase()}:${token.contract.toLowerCase()}`;
+  if (!token.balanceSelector) return `${base}:${owner}`;
+  return `${base}:${token.balanceSelector.toLowerCase()}:${(token.balanceSelectorExtraArgs || []).join(",").toLowerCase()}:${owner}`;
+}
 
 export interface EvmWalletsAssetsResult {
   wallets: Array<{ address: string; assets: EvmWalletAssets }>;
@@ -297,27 +310,52 @@ export async function getEvmWalletsAssets(
     for (const t of res.tokens) {
       const c = t.contract.toLowerCase();
       if (SKIP_NATIVE_PRECOMPILES.has(c)) continue;
-      if (!activeTokenMap.has(c)) activeTokenMap.set(c, t);
+      const tokenKey = tokenVariantKey(t);
+      if (!activeTokenMap.has(tokenKey)) activeTokenMap.set(tokenKey, t);
     }
   }
 
-  // Add registry tokens to active token pool
-  const tokenRegistry = chain.TOKEN_REGISTRY;
-  const registryEntries = tokenRegistry && typeof tokenRegistry === "object" ? Object.entries(tokenRegistry) : [];
-  for (const [contract, info] of registryEntries) {
-    const c = contract.toLowerCase();
-    if (SKIP_NATIVE_PRECOMPILES.has(c)) continue;
-    if (!activeTokenMap.has(c) && info && typeof info === "object") {
-      const meta = info as { symbol?: string; name?: string; decimals?: number };
-      activeTokenMap.set(c, { contract: c, symbol: meta.symbol || "", name: meta.name || "", decimals: meta.decimals ?? 18 });
+  // Add registry tokens to active token pool (uses the local registry.ts so
+  // non-ERC-20 contracts with custom balanceSelector are picked up).
+  // Skipped when a custom tokenDiscovery is injected (test isolation).
+  if (!opts.tokenDiscovery) {
+    const tokenRegistry = await getKnownTokensForChain(key);
+    for (const t of tokenRegistry) {
+      const c = t.contract.toLowerCase();
+      if (SKIP_NATIVE_PRECOMPILES.has(c)) continue;
+      const tokenKey = tokenVariantKey(t);
+      if (!activeTokenMap.has(tokenKey)) {
+        activeTokenMap.set(tokenKey, {
+          contract: c,
+          symbol: t.symbol || "",
+          name: t.name || "",
+          decimals: t.decimals ?? 18,
+          ...(t.balanceSelector ? { balanceSelector: t.balanceSelector } : {}),
+          ...(t.balanceSelectorExtraArgs ? { balanceSelectorExtraArgs: t.balanceSelectorExtraArgs } : {}),
+        });
+      }
     }
   }
   if (opts.customTokens?.length) {
     for (const c of opts.customTokens) {
       const contract = c.toLowerCase();
       if (SKIP_NATIVE_PRECOMPILES.has(contract)) continue;
-      if (!activeTokenMap.has(contract)) {
-        activeTokenMap.set(contract, { contract, symbol: "", name: "", decimals: 18 });
+      const existing = activeTokenMap.get(contract);
+      if (!existing || !existing.symbol || !existing.name) {
+        const meta = await getErc20Metadata({
+          contract,
+          endpoints,
+          dispatcher,
+          rpc,
+          cache: opts.cache,
+          chainKey: key,
+          tokenDecimals: chain.RPC?.TOKEN_DECIMALS,
+        });
+        if (meta.token) {
+          activeTokenMap.set(contract, meta.token);
+        } else if (!existing) {
+          activeTokenMap.set(contract, { contract, symbol: "", name: "", decimals: 18 });
+        }
       }
     }
   }
@@ -348,7 +386,10 @@ export async function getEvmWalletsAssets(
   const balanceCalls: MulticallCall[] = [];
   for (const addr of activeAddresses) {
     for (const t of allTokens) {
-      balanceCalls.push({ target: t.contract, callData: encodeBalanceOf(addr) });
+      const callData = t.balanceSelector
+        ? encodeCustomBalanceCall(addr, t.balanceSelector, t.balanceSelectorExtraArgs)
+        : encodeBalanceOf(addr);
+      balanceCalls.push({ target: t.contract, callData });
     }
   }
 
@@ -410,7 +451,9 @@ export async function getEvmWalletsAssets(
 
         let raw: bigint | null = null;
         if (result?.success && result.returnData && result.returnData !== "0x") {
-          try { raw = decodeUint256(result.returnData); } catch { /* decode failed ÔÇö fall through */ }
+          try {
+            raw = token.balanceSelector ? decodeUint256FirstWord(result.returnData) : decodeUint256(result.returnData);
+          } catch { /* decode failed ÔÇö fall through */ }
         }
 
         // Per-token fallback: Multicall3 missed (or returned "0x") ÔåÆ consensus eth_call.
@@ -418,7 +461,17 @@ export async function getEvmWalletsAssets(
         // is empty get a full per-token RPC consensus read.
         if (raw === null) {
           try {
-            const ercDecision = await readErc20Balance(dispatcher, rpc, effectiveEndpoints, token.contract, addr, key, opts.cache);
+            const ercDecision = await readErc20Balance(
+              dispatcher,
+              rpc,
+              effectiveEndpoints,
+              token.contract,
+              addr,
+              key,
+              opts.cache,
+              token.balanceSelector,
+              token.balanceSelectorExtraArgs,
+            );
             if (ercDecision.skipped) return null;
             raw = ercDecision.decision.raw;
             // P1-7: Propagate [DEGRADED] balance errors into per-wallet errors,
@@ -440,7 +493,7 @@ export async function getEvmWalletsAssets(
             raw: 0n, source: "multicall", confidence: 0.9, degraded: false, reason: "live_consensus",
             votes: [liveVote("multicall", 0n, true, 0.9)],
           };
-          opts.cache.set(`token:${key.toLowerCase()}:${token.contract.toLowerCase()}:${addr}`, cacheEntry(zeroDecision), 3600_000).catch(() => {});
+          opts.cache.set(tokenBalanceCacheKey(key, token, addr), cacheEntry(zeroDecision), 3600_000).catch(() => {});
         }
 
         if (raw === 0n) return null;
@@ -451,7 +504,7 @@ export async function getEvmWalletsAssets(
             raw, source: "multicall", confidence: 0.9, degraded: false, reason: "live_consensus",
             votes: [liveVote("multicall", raw, true, 0.9)],
           };
-          opts.cache.set(`token:${key.toLowerCase()}:${token.contract.toLowerCase()}:${addr}`, cacheEntry(decision), 3600_000).catch(() => {});
+          opts.cache.set(tokenBalanceCacheKey(key, token, addr), cacheEntry(decision), 3600_000).catch(() => {});
         }
         const explicitDecimals = chain.RPC?.TOKEN_DECIMALS?.[token.contract.toLowerCase()];
         const effectiveDecimals = explicitDecimals != null ? explicitDecimals : token.decimals;
@@ -504,13 +557,13 @@ export async function getEvmWalletsAssets(
   for (const addr of activeAddresses) {
     const balances = walletBalances.get(addr) ?? [];
     for (const { token } of balances) {
-      const c = token.contract.toLowerCase();
-      if (!tokensToPrice.has(c)) tokensToPrice.set(c, token);
+      const tokenKey = tokenVariantKey(token);
+      if (!tokensToPrice.has(tokenKey)) tokensToPrice.set(tokenKey, token);
     }
   }
 
   const tokensToPriceArray = Array.from(tokensToPrice.values());
-  const pricedTokens: Array<{ contract: string; priceEur: number | null; symbol: string; name: string; logoUrl?: string }> = [];
+  const pricedTokens: Array<{ key: string; priceEur: number | null; symbol: string; name: string; logoUrl?: string }> = [];
 
   const livePrefetchedPriceContracts = new Set<string>();
   const skipBulkLlama = chain.CHAIN?.SKIP_LLAMA_BATCH === true || chain.key === "GNOSIS";
@@ -593,14 +646,14 @@ export async function getEvmWalletsAssets(
           // high-quality logo (Blockscout/DexScreener) without blocking this scan.
           prefetchTokenLogo(logoParams);
         }
-        return { contract: token.contract.toLowerCase(), priceEur: priced.priceEur, symbol: token.symbol || "", name: token.name || "", logoUrl };
+        return { key: tokenVariantKey(token), priceEur: priced.priceEur, symbol: token.symbol || "", name: token.name || "", logoUrl };
       }),
     );
     pricedTokens.push(...resolvedGroup);
   }
 
   for (const p of pricedTokens) {
-    priceMap.set(p.contract, p);
+    priceMap.set(p.key, p);
   }
 
   const pricingMs = Date.now() - pricingStart;
@@ -630,7 +683,7 @@ export async function getEvmWalletsAssets(
     let totalValueEur = nativePrice.valueEur ?? 0;
 
     for (const { token, balance } of balances) {
-      const priceInfo = priceMap.get(token.contract.toLowerCase());
+      const priceInfo = priceMap.get(tokenVariantKey(token));
       if (!priceInfo) continue;
 
       const priceEur = priceInfo.priceEur;

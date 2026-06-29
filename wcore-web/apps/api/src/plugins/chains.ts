@@ -10,7 +10,7 @@ export interface ChainsPluginDeps {
 
 export async function chainsPlugin(app: FastifyInstance, deps: ChainsPluginDeps) {
   const { circuitBreakers, cache } = deps;
-  const { chainList, getChain, getChainlistEntry, getExplorerUrl, metrics, getEurUsdRate, isChainDisabled } = await import("@wcore/core");
+  const { chainList, getChain, getChainlistEntry, getExplorerUrl, getRpcEndpoints, metrics, getEurUsdRate, isChainDisabled } = await import("@wcore/core");
   const requireAdmin = (req: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => unknown }) => {
     if (isAdminAuthorized(req)) return true;
     reply.code(401);
@@ -38,7 +38,7 @@ export async function chainsPlugin(app: FastifyInstance, deps: ChainsPluginDeps)
         chainId,
         disabled: isChainDisabled(c.key),
         nativeSymbol: c.CHAIN?.NATIVE_SYMBOL,
-        rpcCount: Array.isArray(c.RPC?.ENDPOINTS) ? c.RPC.ENDPOINTS.length : 0,
+        rpcCount: getRpcEndpoints(c.key, { includeDynamic: false, useHealth: false }).length,
         explorerUrl: chainId ? getExplorerUrl(Number(chainId)) : null,
         iconUrl: entry?.icon && chainId ? `https://raw.githubusercontent.com/ethereum-lists/chains/master/_data/chains/eip155-${chainId}.json` : null,
       };

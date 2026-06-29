@@ -6,6 +6,7 @@ export * from "./rpc/index.js";
 export * from "./pricing/index.js";
 export * from "./engines/index.js";
 export * from "./tokens/index.js";
+export * from "./defi/index.js";
 export * from "./cache/index.js";
 export * from "./balances/index.js";
 export * from "./circuit-breaker.js";

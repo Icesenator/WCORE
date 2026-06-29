@@ -37,6 +37,7 @@ export const OPTIMISM: ChainConfig = {
     "USDC.e": "coingecko:bridged-usd-coin-optimism",
     USDT: "coingecko:tether",
     WBTC: "coingecko:wrapped-bitcoin",
+    WCT: "coingecko:walletconnect",
     WETH: "coingecko:weth",
   },
 } as Omit<ChainConfig, "key" | "vm">),

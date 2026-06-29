@@ -1155,11 +1155,15 @@ var EvmEngine = {
  budget.diagRpc = "rpcCalls=" + (ls.calls|0) + "; batch=" + (ls.batchCalls|0) +
  "; rpcAvg=" + (ls.avgMs|0) + "ms; rpcMax=" + (ls.maxMs|0) + "ms";
  }
- var hs = (typeof Http !== 'undefined' && Http.getStats) ? Http.getStats() : null;
- if (hs) {
- budget.diagHttp = "httpCalls=" + (hs.calls|0) + "; fetchAllItems=" + (hs.fetchAllItems|0) +
- "; hosts=" + (hs.hosts && hs.hosts.length ? hs.hosts.slice(0, 5).join(",") : "none");
- }
+  var hs = (typeof Http !== 'undefined' && Http.getStats) ? Http.getStats() : null;
+  if (hs) {
+  budget.diagHttp = "httpCalls=" + (hs.calls|0) + "; fetchAllItems=" + (hs.fetchAllItems|0) +
+  "; hosts=" + (hs.hosts && hs.hosts.length ? hs.hosts.slice(0, 5).join(",") : "none");
+  if (state._scanStats) {
+    state._scanStats.httpCalls = hs.calls | 0;
+    state._scanStats.fetchAllItems = hs.fetchAllItems | 0;
+  }
+  }
  
  var output = OutputBuilder.full(
  chainName, state.assets, state.priceMap, state.fxRate,
@@ -1584,7 +1588,7 @@ var EvmEngine = {
  var recalcTotal = 0;
  for (var t = 1; t < out.length; t++) {
  var val = out[t] && out[t][6];
- if (Num.isValidPositive(val)) recalcTotal += val;
+  if (Num.isValid(val)) recalcTotal += Num.parseOr(val, 0);
  }
 
  // Add INFO/META rows, patching INFO_TOTAL with recalculated value
@@ -1680,11 +1684,24 @@ var EvmEngine = {
    
    // v4.13.3: Centralized quota pre-check via BaseEngine
    // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
-   var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
-    if (!forceBypass) {
-      var quotaBlocked = BaseEngine.quotaPreCheck(addrLower, config);
-      if (quotaBlocked) return quotaBlocked;
+    var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
+     try {
+       if (typeof _webScanWallet_ === "function") {
+         var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
+         if (webScan && webScan.ok && webScan.status) return webScan.status;
+       }
+     } catch (eWebScan) {}
+     if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {
+       return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
+     }
+     if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
+      var webQuotaBlocked = BaseEngine.quotaPreCheck(addrLower, config);
+      if (webQuotaBlocked) return webQuotaBlocked;
     }
+     if (!forceBypass) {
+       var quotaBlocked = BaseEngine.quotaPreCheck(addrLower, config);
+       if (quotaBlocked) return quotaBlocked;
+     }
 
     // v4.15.50: Busy-guard — when system is under heavy load, return last cache
     // timestamp instead of risking a 30s GAS timeout (#ERROR!). forceFull bypasses.
@@ -1761,10 +1778,17 @@ var EvmEngine = {
      return "[BLOCKED:" + reason + "] " + existingDate;
    }
    
-   // Cache was updated - return actual timestamp
-   // v4.15.19: Add [CACHE_ONLY] marker if no HTTP calls were made during scan
-   return BaseEngine.wrapCacheOnlyMarker(Format.datetime(actualTs), _httpBefore);
- },
+    // Cache was updated - return actual timestamp.
+    // If the saved scan stats prove HTTP activity, avoid a false [CACHE_ONLY]
+    // marker when the global counter snapshot misses per-execution Http stats.
+    var actualDate = Format.datetime(actualTs);
+    try {
+      var ss = cacheAfter && (cacheAfter.scanStats || cacheAfter.ss);
+      if (ss && ((ss.httpCalls | 0) > 0 || (ss.fetchAllItems | 0) > 0)) return actualDate;
+    } catch (eStats) {}
+    // v4.15.19: Add [CACHE_ONLY] marker if no HTTP calls were made during scan
+    return BaseEngine.wrapCacheOnlyMarker(actualDate, _httpBefore);
+  },
  
  /**
  * getStats - Diagnostic information

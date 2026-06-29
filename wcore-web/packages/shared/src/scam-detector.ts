@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 8;
+export const SCAM_RULES_VERSION = 10;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -52,7 +52,7 @@ const _KNOWN_TOKENS = new Set([
   "UNI", "AAVE", "CRV", "SNX", "COMP", "MKR", "LDO", "STETH", "RETH",
   "ATOM", "OSMO", "INJ", "SEI", "TIA", "DOT", "NEAR", "FLOW", "SUI", "APT",
   "PEPE", "SHIB", "FLOKI", "DOGE", "BONK", "WIF",
-  "SOLVBTC", "CBBTC", "BTCB",
+  "SOLVBTC", "CBBTC", "BTCB", "XGRAIL", "ARUSDC", "RSTONE", "LSTONE", "RE7USDC",
 ]);
 
 // Permanently blocked contracts — known scams that bypass heuristic detection
@@ -62,6 +62,9 @@ const _BLOCKED_CONTRACTS = new Set([
   "0x59828f30a4ad35d1d0b85c734d48ac6de04e314c", // BASE: scam token
   "0x260b9ac75753fbd67f2ea6d10724dd89a52c1913", // BASE: scam token
   "0xd546040f08e6b3a4f1d21683b9bd9935d73bd9e9", // BASE: stkAVNT scam (fake price 4308€)
+  "0x290b3b9f7661a6834135be44c3475aef987fa3b2", // Ethereum: Trump Doge impersonator
+  "0x05cd8430676f04b63b33c1ece124818858edfc4f", // Ethereum: Royal Doge impersonator
+  "0x5497b1ab5bb59b194e25764ea0b61871b122a43f", // Ethereum: Trump Shib impersonator
 ]);
 
 // Admin overrides — tokens explicitly marked as scam/legit by platform owner
@@ -83,6 +86,11 @@ function isKnownToken(symbol: string, contract?: string): boolean {
   if (contract && _adminApprovedContracts.has(contract.toLowerCase())) return true;
   if (contract && _adminBlockedContracts.has(contract.toLowerCase())) return false;
   return _KNOWN_TOKENS.has(s);
+}
+
+export function isWhitelistedToken(symbol: string, contract?: string): boolean {
+  if (contract && _adminApprovedContracts.has(contract.toLowerCase())) return true;
+  return isKnownToken(symbol, contract);
 }
 
 export type ScamLevel = "clean" | "warning" | "suspicious" | "scam";
@@ -187,7 +195,7 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
   }
 
   // 8. No-price token with suspicious generic name (moderate)
-  if (priceEur == null) {
+  if (priceEur == null && !isKnownToken(s.toUpperCase(), contract)) {
     const badPatterns = /coin|token|swap|finance|protocol|chain|network|defi|web3|ai|crypto|bridge|dao|pad|game|meme/i;
     if (badPatterns.test(n) && balance > 0) {
       signals.push({ reason: `generic name, no price: "${n}"`, weight: 2 });

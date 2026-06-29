@@ -372,6 +372,33 @@ const samplePayload = JSON.stringify({
 }
 
 {
+  const degradedNativeZeroPayload = JSON.stringify({
+    ok: true,
+    chain: 'MANTLE',
+    chainName: 'Mantle',
+    vm: 'EVM',
+    timestamp: '2026-06-29T12:34:23.000Z',
+    native: { symbol: 'MNT', balance: 0, priceEur: 0.37, valueEur: 0 },
+    tokens: [],
+    totalValueEur: 0,
+    errors: ['native balance: no consensus'],
+    degraded: true,
+    fxRate: 0.877,
+    scanMs: 2805,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, degradedNativeZeroPayload);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'MANTLE', NAME: 'Mantle', NATIVE_SYMBOL: 'MNT' } }, 'mantle_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_PRESERVED/, 'unsafe degraded native-zero web scan should be reported as preserved');
+  assert.equal(ctx.__saved.length, 0, 'unsafe degraded native-zero web scan must not overwrite an existing wallet cache');
+}
+
+{
   let attempts = 0;
   const ctx = makeContext({
     GSHEET_WEB_SCAN_ENABLED: 'true',

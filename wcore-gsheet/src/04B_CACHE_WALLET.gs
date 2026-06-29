@@ -1,7 +1,26 @@
 /************************************************************
  * 04B_CACHE_WALLET.gs - Packed Wallet Cache System
  * 
- * Version: v4.15.13
+ * Version: v4.15.17
+ *
+ * v4.15.17 - Preserve web scan stats and price timestamps through packed
+ *   deflate/inflate so Rotation.status can report price_missing accurately.
+ *
+ * v4.15.16 - AGGRESSIVE ADMIN COMPACTION: if regular forced prune cannot
+ *   reach the recovery target because all old entries contain balances, the
+ *   admin compactor may evict the oldest packed entries. Normal saves still
+ *   preserve balance entries during quota exhaustion.
+ *
+ * v4.15.15 - COMPACTION FORMULA COMPAT: LockService can be unavailable when
+ *   invoked through a sheet cell during recovery. Continue best-effort without
+ *   a lock because the operation is explicit/admin-only and writes one compacted
+ *   GLOBAL_WALLET blob.
+ *
+ * v4.15.14 - ADMIN COMPACTION: add COMPACT_PACKED_WALLET_CACHE()
+ *   ScriptProperties can exceed 500KB while quota is tripped because normal
+ *   size prune intentionally skips during quota exhaustion. Admin compaction
+ *   can force size prune to recover storage without deleting the whole packed
+ *   wallet cache. Default packed target lowered to 455KB for durable headroom.
  *
  * v4.15.13 - FIX: packed read always retries ScriptProperties before null
  *   Post-redeploy CacheService misses must still re-read GLOBAL_WALLET from
@@ -94,7 +113,7 @@
  * 
  * DEPENDANCES: 04A_CACHE_CORE.gs
  ************************************************************/
-var CACHE_WALLET_VERSION = "4.15.13";
+var CACHE_WALLET_VERSION = "4.15.17";
 
 // ============================================================
 // STORAGE VIRTUALIZATION LAYER
@@ -267,6 +286,7 @@ CacheManager._deflateWalletPayload_ = function(obj) {
  }
  }
  if (obj.priceTsMap && typeof obj.priceTsMap === "object") out.pt = obj.priceTsMap;
+ if (obj.scanStats && typeof obj.scanStats === "object") out.ss = obj.scanStats;
 
  return out;
  } catch (e) {
@@ -324,6 +344,8 @@ CacheManager._inflateWalletPayload_ = function(compact) {
  if (compact.bt) out.balanceTsMap = compact.bt;
  if (compact.im) out.lastInfoMetaRows = compact.im;
  if (compact.pm) out.priceMap = compact.pm;
+ if (compact.pt) out.priceTsMap = compact.pt;
+ if (compact.ss) out.scanStats = compact.ss;
 
  return out;
  } catch (e) {
@@ -420,7 +442,7 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  // v4.15.7: Skip size prune when quota is exhausted — evicting cache
  // entries is pointless if we can't rescan to rebuild them.
  // Without this, overnight quota exhaustion causes permanent "No cache available".
- if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) {
+  if (!CacheManager._FORCE_PACKED_SIZE_PRUNE && typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) {
  packed._pruned = { at: nowSec, ttl: removedTtl, fixedTs: fixedTs, protectedBalanceTtl: protectedBalanceTtl, size: size, skippedSizePrune: true, reason: "quota_exhausted" };
  return packed;
  }
@@ -541,7 +563,102 @@ CacheManager._loadPackedWalletCache_ = function() {
 // v4.15.42: Reduced packed cache limit from 495KB to 485KB
 // 119 wallets with some having 50+ assets need more space
 // ScriptProperties hard limit is 500KB, keeping 15KB safety margin
-CacheManager._PACKED_CACHE_MAX_BYTES = 485000;
+CacheManager._PACKED_CACHE_MAX_BYTES = 455000;
+
+/**
+ * Admin recovery: compact GLOBAL_WALLET_CACHE_V1 under storage pressure.
+ * Use only with confirm=true. Unlike normal saves, this forces size prune even
+ * while the quota breaker is tripped, because the goal is to recover from a
+ * ScriptProperties storage overflow.
+ */
+function COMPACT_PACKED_WALLET_CACHE(targetKb, confirm) {
+  if (confirm !== true) return "Usage: COMPACT_PACKED_WALLET_CACHE(455, TRUE)";
+  var targetBytes = Math.max(380000, Math.min(480000, Math.floor((Number(targetKb) || 455) * 1024)));
+  var lock = null;
+  var lockStatus = "locked";
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(10000)) { lock = null; lockStatus = "no_lock"; }
+  } catch (eLock) {
+    lock = null;
+    lockStatus = "lock_unavailable";
+  }
+
+  try {
+    CacheManager.init();
+    var raw = CacheManager._props.getProperty(GLOBAL_CACHE_KEYS.GLOBAL_WALLET) || "";
+    var before = raw.length;
+    var packed = raw ? JSON.parse(raw) : { v: 2, m: {} };
+    CacheManager._FORCE_PACKED_SIZE_PRUNE = true;
+    packed = CacheManager._prunePackedWalletCache_(packed, targetBytes);
+    CacheManager._FORCE_PACKED_SIZE_PRUNE = false;
+    var aggressiveRemoved = 0;
+    if (CacheManager._jsonSizeBytes_(packed) > targetBytes && packed && packed.m) {
+      var nowSec = Math.floor(Date.now() / 1000);
+      var recentCutoff = nowSec - 3600;
+      var entries = [];
+      Obj.forEach(packed.m, function(h, ent) {
+        function hasBalanceData(e) {
+          if (!e || typeof e !== "object") return false;
+          var payload = e.v || e;
+          var assets = payload.a || payload.assets || [];
+          if (!Array.isArray(assets)) return false;
+          for (var ai = 0; ai < assets.length; ai++) {
+            var asset = assets[ai];
+            var bal = Array.isArray(asset) ? parseFloat(asset[1]) : parseFloat(asset && asset.balance);
+            if (bal > 0) return true;
+          }
+          return false;
+        }
+        function pushEntry(e, idx) {
+          var ts = (e && typeof e === "object") ? Number(e.ts || e.t || 0) : 0;
+          entries.push({ h: h, idx: idx, k: e && e.k ? e.k : null, ts: ts, hasBalance: hasBalanceData(e), isRecent: ts >= recentCutoff });
+        }
+        if (Array.isArray(ent)) {
+          for (var i = 0; i < ent.length; i++) pushEntry(ent[i], i);
+        } else {
+          pushEntry(ent, -1);
+        }
+      });
+      entries.sort(function(a, b) {
+        if (a.hasBalance !== b.hasBalance) return a.hasBalance ? 1 : -1;
+        if (a.isRecent !== b.isRecent) return a.isRecent ? 1 : -1;
+        return (a.ts || 0) - (b.ts || 0);
+      });
+      for (var ri = 0; ri < entries.length && CacheManager._jsonSizeBytes_(packed) > targetBytes; ri++) {
+        var item = entries[ri];
+        var cur = packed.m[item.h];
+        if (!cur) continue;
+        if (Array.isArray(cur)) {
+          var kept = [];
+          var removedThis = false;
+          for (var ci = 0; ci < cur.length; ci++) {
+            var ce = cur[ci];
+            var match = item.k ? (ce && ce.k === item.k) : (ci === item.idx);
+            if (match && !removedThis) { removedThis = true; aggressiveRemoved++; continue; }
+            kept.push(ce);
+          }
+          if (kept.length === 0) delete packed.m[item.h];
+          else if (kept.length === 1) packed.m[item.h] = kept[0];
+          else packed.m[item.h] = kept;
+        } else {
+          delete packed.m[item.h];
+          aggressiveRemoved++;
+        }
+      }
+      packed._adminCompact = { at: nowSec, aggressiveRemoved: aggressiveRemoved, size: CacheManager._jsonSizeBytes_(packed), target: targetBytes };
+    }
+    var s = JSON.stringify(packed || { v: 2, m: {} });
+    CacheManager._props.setProperty(GLOBAL_CACHE_KEYS.GLOBAL_WALLET, s);
+    try { CacheManager._cache.put(GLOBAL_CACHE_KEYS.GLOBAL_WALLET, s, 21600); } catch (eCache) {}
+    return "OK before=" + Math.round(before / 1024) + "KB after=" + Math.round(s.length / 1024) + "KB target=" + Math.round(targetBytes / 1024) + "KB lock=" + lockStatus + " aggressiveRemoved=" + aggressiveRemoved + " pruned=" + JSON.stringify((packed && packed._pruned) || {});
+  } catch (e) {
+    CacheManager._FORCE_PACKED_SIZE_PRUNE = false;
+    return "ERROR " + String((e && e.message) || e);
+  } finally {
+    try { if (lock) lock.releaseLock(); } catch (eRel) {}
+  }
+}
 
 CacheManager._packedEntryAssetCount_ = function(e) {
  try {

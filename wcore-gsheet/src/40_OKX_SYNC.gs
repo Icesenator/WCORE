@@ -92,6 +92,7 @@ function _okxFetchBucketsViaRelay_() {
   var relay = _okxGetRelay_();
   var url = relay.url + "/okx?token=" + encodeURIComponent(relay.token);
   var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
+  if (!resp) throw new Error("OKX relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();
   if (code < 200 || code >= 300) throw new Error("Relay HTTP " + code + ": " + text.substring(0, 300));

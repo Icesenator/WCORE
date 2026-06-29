@@ -55,6 +55,30 @@ Status: done.
 - Web consumes all configs from the generated chain package.
 - TON is represented through `ChainFactory.createTonChain` on the gsheet side while keeping the web TON engine standalone.
 
+### Phase 4 - GSheet-to-Web Scan Delegation
+
+Status: implemented, hardening in progress.
+
+Goal: let GSheet optionally delegate wallet scans to `wcore-web` API instead of running the full Apps Script engine. This reduces HTTP quota consumption and `ScriptProperties` pressure.
+
+- **Increment 1**: `POST /api/gsheet/scan` web endpoint + `DIAG_WEB_SCAN_*` in GSheet, guarded behind global kill-switch and chain allowlist.
+- **Increment 2**: EVM/SVM/Cosmos/TON refresh paths attempt WCORE Web first and save a compatible wallet cache with `scanStats.source=wcore-web`.
+- **Increment 3 (active)**: converge to Web-required scans. `GSHEET_WEB_SCAN_REQUIRE=true` makes allowlisted Web chains retry Web and stop before native fallback on failure, returning `[WEB_SCAN_ERROR]` while preserving the last displayed cache through `J1`/A1.
+- **Increment 4 (future)**: after Web-required mode is stable across all chains, remove native fallback from Web-enabled refresh paths to avoid mixed-source wallet caches.
+- Spec: `wcore-gsheet/docs/superpowers/specs/2026-06-25-gsheet-web-scan-proxy-design.md`.
+
+### Phase 5 - Web-Backed GSheet Cache
+
+Status: design captured (2026-06-26), implementation deferred to a later session.
+
+Goal: prevent GSheet `ScriptProperties` saturation by moving all reconstructible cache/state to WCORE Web-backed storage. GSheet should become a lightweight UI/orchestration runtime that keeps only secrets, kill-switches, minimal trigger/UI flags, and last-known display timestamps locally.
+
+- **Chosen direction**: option 3, migrate all reconstructible cache out of GSheet where practical.
+- **Primary backend**: WCORE Web API backed by Redis/Postgres, not Apps Script `ScriptProperties`.
+- **Priority data classes**: pricing/FX caches, HTTP counters, attempt cooldowns, output snapshots, scan results, wallet/asset cache references, and activity bookkeeping.
+- **Local GSheet guardrail**: keep GSheet autonomous enough to degrade gracefully if WCORE Web is unavailable; do not hard-fail visible sheets because web cache is down.
+- **Spec**: `wcore-gsheet/docs/superpowers/specs/2026-06-26-gsheet-web-backed-cache-design.md`.
+
 ## Active Cross-Runtime Guardrails
 
 ### 1. Chain Sunset Calendar
@@ -114,6 +138,8 @@ Priority: medium.
 
 ## Open Backlog Snapshot
 
+- **Phase 4 Increment 1**: GSheet web scan proxy (spec ready, see above).
+- **Phase 5**: Web-backed GSheet cache migration to eliminate `ScriptProperties` saturation scenarios (spec captured, implementation deferred).
 - Protect or reduce public metrics endpoints (`/api/stats`, `/api/circuit`) if still exposed.
 - Continue API environment centralization: boot, auth, scan, and metrics now use a typed config module; CEX/GM env reads remain for a later pass.
 - Reduce API Docker image size with a pruned production deploy flow.
@@ -138,7 +164,21 @@ pnpm --dir wcore-web --filter @wcore/web build
 npm --prefix wcore-gsheet run validate:static
 npm --prefix wcore-gsheet run build:chains
 npm --prefix wcore-gsheet run test:phase3-chains
+
+# GSheet-specific targeted tests
+node --prefix wcore-gsheet tests/cex-null-fetch-guard.test.js
 ```
+
+## Recent Sessions
+
+### 2026-06-25 — Quota recovery + CEX hardening
+
+- **Cache compaction**: `COMPACT_PACKED_WALLET_CACHE` reduced `GLOBAL_WALLET_CACHE_V1` from 491KB to 444KB (target 454KB). `_PACKED_CACHE_MAX_BYTES` lowered to 455000.
+- **Quota breaker**: recovered from tripped state; now OK with `TEST_QUOTA_NOW()` returning available.
+- **CEX fetch guards**: Added `!resp` null-response guards in all 6 CEX connectors (`_bpFetch_`, `_binFetchBucketsViaRelay_`, `_bfxAuthPost_`, `_bybitFetchBucketsViaRelay_`, `_cbFetchBucketsViaRelay_`, `_okxFetchBucketsViaRelay_`) to prevent silent `TypeError: Cannot read properties of null (reading 'getResponseCode')`.
+- **CEX_HOURLY_REFRESH logging**: Now logs summary to Cloud Logs for post-execution diagnostics.
+- **`[CACHE_ONLY]` false-positive fix**: `11_EVM_ENGINE.gs` now stores `httpCalls` in `scanStats` and skips the `[CACHE_ONLY]` marker when the cache proves HTTP activity occurred.
+- **Test**: Added `tests/cex-null-fetch-guard.test.js` for regression. Passed before push.
 
 ## Navigation
 

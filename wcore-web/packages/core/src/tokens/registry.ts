@@ -115,6 +115,57 @@ export const TOKEN_REGISTRY: Record<string, DiscoveredToken[]> = {
     T("0x4200000000000000000000000000000000000006", "WETH", "Wrapped Ether", 18, LOGO("eth")),
     T("0x68f180fcce6836688e9084f035309e29bf0a2095", "WBTC", "Wrapped BTC", 8, LOGO("wbtc")),
     T("0x4200000000000000000000000000000000000042", "OP", "Optimism", 18, LOGO("op")),
+    T("0xef4461891dfb3ac8572ccf7c794664a8dd927945", "WCT", "WalletConnect Token", 18),
+    {
+      ...T("0xf368f535e329c6d08dff0d4b2da961c4e7f3fcaf", "WCT Claimable", "WCT Staking Reward Distributor", 18),
+      balanceSelector: "0x1e83409a", // claim(address) -> uint256
+      defi: {
+        protocol: "walletconnect-staking",
+        type: "claimable",
+        underlying: "0xef4461891dfb3ac8572ccf7c794664a8dd927945",
+        liquidityStatus: "flex",
+        confidence: "high",
+        pricing: { mode: "mirror_underlying", sign: "asset" },
+      },
+    },
+    {
+      ...T("0x521b4c065bbdbe3e20b3727340730936912dfa46", "WCT Stake", "WCT Stake Weight", 18),
+      balanceSelector: "0x5de9a137", // locks(address) -> (uint128,uint64), first 32 bytes = amount
+      defi: {
+        protocol: "walletconnect-staking",
+        type: "staking_locked",
+        underlying: "0xef4461891dfb3ac8572ccf7c794664a8dd927945",
+        liquidityStatus: "lock",
+        confidence: "high",
+        pricing: { mode: "mirror_underlying", sign: "asset" },
+      },
+    },
+    {
+      ...T("0xE36A30D249f7761327fd973001A32010b521b6Fd", "Comp WETH Borrow", "Compound V3 cWETHv3 Borrowed", 18),
+      balanceSelector: "0x374c49b4",
+      defi: {
+        protocol: "compound-v3",
+        type: "lending_debt",
+        underlying: "native",
+        liquidityStatus: "flex",
+        confidence: "high",
+        pricing: { mode: "mirror_native", sign: "debt" },
+      },
+    },
+    {
+      ...T("0xE36A30D249f7761327fd973001A32010b521b6Fd", "Comp wrsETH", "Compound V3 cWETHv3 Collateral", 18),
+      balanceSelector: "0x5c2549ee",
+      balanceSelectorExtraArgs: ["0x00000000000000000000000087eEE96D50Fb761AD85B1c982d28A042169d61b1"],
+      defi: {
+        protocol: "compound-v3",
+        type: "lending_collateral",
+        underlying: "native",
+        liquidityStatus: "flex",
+        confidence: "high",
+        pricing: { mode: "mirror_native", sign: "asset" },
+      },
+    },
+    T("0x87eEE96D50Fb761AD85B1c982d28A042169d61b1", "wrsETH", "Wrapped rsETH (Kelp DAO)", 18),
   ],
 
   POLYGON: [

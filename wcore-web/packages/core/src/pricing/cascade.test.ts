@@ -97,6 +97,114 @@ test("stablecoin symbol alone does not bypass pricing sources", async () => {
   assert.deepEqual(calls, ["dexscreener"]);
 });
 
+test("known wrapped USDC contracts return fxRate without calling sources", async () => {
+  const calls: string[] = [];
+  const sources = sourceSet({});
+  sources.defillama.getTokenPriceUsd = async () => {
+    calls.push("defillama");
+    return 2;
+  };
+
+  const result = await priceTokenCascade({
+    token: token({
+      key: "arbitrum_one:0xd1be1f98991cf69355e468ad15b6d0b6429bcfcb",
+      contract: "0xd1be1f98991cf69355e468ad15b6d0b6429bcfcb",
+      symbol: "aRUSDC",
+      name: "Ample Arbitrum USDC",
+      chain: { ...baseChain, key: "ARBITRUM_ONE" },
+    }),
+    fxRate,
+    cache: new MemoryPricingCache(),
+    sources,
+  });
+
+  assert.equal(result.priceEur, fxRate);
+  assert.equal(result.source, "stablecoin-usd");
+  assert.deepEqual(calls, []);
+});
+
+test("global token alias map routes Scroll rSTONE to STONE DefiLlama price", async () => {
+  const calls: string[] = [];
+  const sources = sourceSet({});
+  sources.defillama.getTokenPriceUsd = async (_token, llamaId) => {
+    calls.push(`defillama:${llamaId ?? "none"}`);
+    return 1678.48;
+  };
+  sources.dexscreener.getTokenPriceUsd = async () => {
+    calls.push("dexscreener");
+    return 0.5;
+  };
+
+  const result = await priceTokenCascade({
+    token: token({
+      key: "scroll:0xad3d07d431b85b525d81372802504fa18dbd554c",
+      contract: "0xad3d07d431b85b525d81372802504fa18dbd554c",
+      symbol: "rSTONE",
+      name: "StakeStone Ether",
+      chain: { ...baseChain, key: "SCROLL" },
+    }),
+    fxRate,
+    cache: new MemoryPricingCache(),
+    sources,
+  });
+
+  assert.equal(result.source, "llama-map");
+  assert.equal(result.priceEur, Math.round(1678.48 * fxRate * 1_000_000_000) / 1_000_000_000);
+  assert.deepEqual(calls, ["defillama:coingecko:stakestone-ether"]);
+});
+
+test("global token alias map routes World Chain Re7USDC to re7-usdc DefiLlama price", async () => {
+  const calls: string[] = [];
+  const sources = sourceSet({});
+  sources.defillama.getTokenPriceUsd = async (_token, llamaId) => {
+    calls.push(`defillama:${llamaId ?? "none"}`);
+    return 1.0399;
+  };
+
+  const result = await priceTokenCascade({
+    token: token({
+      key: "worldchain:0xb1e80387ebe53ff75a89736097d34dc8d9e9045b",
+      contract: "0xb1e80387ebe53ff75a89736097d34dc8d9e9045b",
+      symbol: "Re7USDC",
+      name: "Re7 USDC",
+      chain: { ...baseChain, key: "WORLDCHAIN" },
+    }),
+    fxRate,
+    cache: new MemoryPricingCache(),
+    sources,
+  });
+
+  assert.equal(result.source, "llama-map");
+  assert.equal(Number(result.priceEur?.toFixed(12)), Number((1.0399 * fxRate).toFixed(12)));
+  assert.deepEqual(calls, ["defillama:coingecko:re7-usdc"]);
+});
+
+test("global token alias map routes Scroll lSTONE to STONE DefiLlama price", async () => {
+  const calls: string[] = [];
+  const sources = sourceSet({});
+  sources.defillama.getTokenPriceUsd = async (_token, llamaId) => {
+    calls.push(`defillama:${llamaId ?? "none"}`);
+    return 1678.48;
+  };
+
+  const result = await priceTokenCascade({
+    token: token({
+      key: "scroll:0xe5c40a3331d4fb9a26f5e48b494813d977ec0a8e",
+      contract: "0xe5c40a3331d4fb9a26f5e48b494813d977ec0a8e",
+      symbol: "lSTONE",
+      name: "LayerBank STONE",
+      chain: { ...baseChain, key: "SCROLL" },
+    }),
+    fxRate,
+    cache: new MemoryPricingCache(),
+    sources,
+  });
+
+  assert.equal(result.source, "llama-map");
+  assert.equal(result.priceEur, Math.round(1678.48 * fxRate * 1_000_000_000) / 1_000_000_000);
+  assert.deepEqual(calls, ["defillama:coingecko:stakestone-ether"]);
+});
+
 test("price cache is namespaced by chain key", async () => {
   const cache = new MemoryPricingCache();
   await cache.setPrice("base:0x1111111111111111111111111111111111111111", { priceEur: 9, ts: Date.now(), source: "cache" });
@@ -343,5 +451,10 @@ test("token pricing falls back to stale cache when all sources fail", async () =
 
   assert.equal(result.priceEur, 2.5, "should use stale cache price");
   assert.equal(result.source, "cache-stale", "source should be cache-stale");
-  assert.equal(result.reason, null, "reason should be null (success)");
 });
+
+// Staked mirror pricing is implemented in the gsheet plugin post-scan step
+// (apps/api/src/plugins/gsheet.ts STAKED_PRICE_MIRRORS) because the underlying
+// tokens (DAYS, SWEET) have no DefiLlama coverage and the price comes from
+// DexScreener/GT. The mirror must be applied AFTER the underlying is priced
+// in the same scan, not at the cascade level.

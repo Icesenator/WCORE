@@ -14,6 +14,7 @@ function envInt(name: string, fallback: number): number {
 }
 const DEFAULT_MAX_CALLS = envInt("GT_THROTTLE_MAX_CALLS", 300);
 const DEFAULT_WINDOW_MS = envInt("GT_THROTTLE_WINDOW_MS", 60_000);
+const GT_BATCH_SIZE = envInt("GT_BATCH_SIZE", 30);
 // Small inter-call delay to avoid burst 429s (esp. when multiple concurrent scans
 // happen to fire calls at the same instant).
 const GT_CALL_DELAY_MS = envInt("GT_CALL_DELAY_MS", 10);
@@ -74,22 +75,25 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
   async batchTokenPrices(network: string, contracts: string[]): Promise<Map<string, number>> {
     const prices = new Map<string, number>();
     if (!contracts.length) return prices;
-    if (!this.checkThrottle()) return prices;
-    await GeckoTerminalPriceSource.paceCall();
-    const joined = contracts.map((c) => c.toLowerCase()).join(",");
-    const url = `https://api.geckoterminal.com/api/v2/simple/networks/${encodeURIComponent(network)}/token_price/${joined}`;
-    try {
-      const res = await this.fetchImpl(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
-      if (!res.ok) return prices;
-      const json = (await res.json()) as { data?: { attributes?: { token_prices?: Record<string, string | number | null> } } };
-      const tokenPrices = json.data?.attributes?.token_prices;
-      if (!tokenPrices) return prices;
-      for (const [address, raw] of Object.entries(tokenPrices)) {
-        const p = Number(raw);
-        if (isPositiveFinite(p)) prices.set(address.toLowerCase(), p);
+    const normalized = [...new Set(contracts.map((c) => c.toLowerCase()))];
+    for (let i = 0; i < normalized.length; i += GT_BATCH_SIZE) {
+      if (!this.checkThrottle()) return prices;
+      await GeckoTerminalPriceSource.paceCall();
+      const joined = normalized.slice(i, i + GT_BATCH_SIZE).join(",");
+      const url = `https://api.geckoterminal.com/api/v2/simple/networks/${encodeURIComponent(network)}/token_price/${joined}`;
+      try {
+        const res = await this.fetchImpl(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
+        if (!res.ok) continue;
+        const json = (await res.json()) as { data?: { attributes?: { token_prices?: Record<string, string | number | null> } } };
+        const tokenPrices = json.data?.attributes?.token_prices;
+        if (!tokenPrices) continue;
+        for (const [address, raw] of Object.entries(tokenPrices)) {
+          const p = Number(raw);
+          if (isPositiveFinite(p)) prices.set(address.toLowerCase(), p);
+        }
+      } catch {
+        // keep other chunks usable on network/timeout errors
       }
-    } catch {
-      // return empty map on network/timeout errors
     }
     return prices;
   }

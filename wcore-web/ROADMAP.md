@@ -52,6 +52,32 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 - **Cause racine infra** : `@wcore/core` depend de `@wcore/chains` via `file:../../../wcore-gsheet/dist`. Un upload depuis le mauvais repertoire excluait `wcore-gsheet/dist`; un upload parent sans config ignorait le bon `railway.json`.
 - **Fix deploy** : `scripts/deploy.ps1` utilise le `railway.json` parent avec `--path-as-root`, un lock `.deploy.lock`, et restaure le JSON en `finally` en propageant le code de sortie Railway.
+
+### Session 2026-06-28 — Non-standard ERC-20 balance selectors + staked/debt mirrors + Compound V3
+
+#### Mirror system
+- `applyStakedPriceMirrors` extended: per-chain, `negate: true`, native underlying, `contract|symbol` fallback key
+- **BASE**: SDAYS/SWEET live ✓
+- **OPTIMISM**: WCT Stake/Claimable, Comp WETH Borrow (negated → ETH native), Comp wrsETH (→ wrsETH) + WCT live ✓
+
+#### Custom balance selectors
+- `DiscoveredToken.balanceSelector` + `balanceSelectorExtraArgs` for multi-arg ABI calls
+- `encodeCustomBalanceCall()`, `decodeUint256FirstWord()` (struct responses)
+- `readErc20Balance()` split standard/custom-selector tokens
+- Composite dedup key `contract:selector:extraArgs`
+- Registry merge into `cachedDiscoveryTokens` before cache read
+
+#### Registry OPTIMISM: WCT×3, Comp WETH Borrow (`0x374c49b4`), Comp wrsETH (`0x5c2549ee` + extraArgs), wrsETH
+
+#### Compound V3
+- Comet `0xE36A30D249f7761327fd973001A32010b521b6Fd` (cWETHv3, Optimism)
+- On-chain: borrow=0.006384 WETH, collateral=0.007411 wrsETH — confirmed
+
+#### Tests: core 33/33, api 25/25, cascade 18/18 — all green
+
+#### Production: BASE SDAYS/SSWEET ✓, OPTIMISM WCT ✓, Compounds deployed but suppressed by `bal_cache` (1h TTL). Comp WETH Borrow appeared briefly then vanished — production RPC `errors:3`. Registry merge 10 tokens locally confirmed.
+
+#### Key files: `tokens/types.ts`, `tokens/abi.ts`, `tokens/registry.ts`, `engines/evm-balances.ts`, `engines/evm-scan.ts`, `engines/evm-batch.ts`, `plugins/gsheet.ts`
 - **Dockerfiles Railway** : `apps/api/Dockerfile.railway` et `apps/web/Dockerfile.railway` utilisent le contexte parent, incluent `wcore-gsheet/dist`, compilent `@wcore/chains` en JS, puis patchent aussi `node_modules/@wcore/chains/package.json` pour ├®viter le crash Node 22 `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`.
 - **Incident API public snapshot r├®solu (2026-06-19)** : le service API Railway crashait avec `ERR_MODULE_NOT_FOUND: /app/packages/shared/dist/.js`. Cause racine : le `RUN node -e "... '$1' ..."` du Dockerfile API laissait `/bin/sh` expand `$1` en vide dans le remplacement regex ESM, g├®n├®rant `from "./.js"`. Fix : ├®chapper `$1` en `\$1` dans `apps/api/Dockerfile.railway`.
 - **Validation prod** : API `/health` `200` (`chainCount=182`) et Web `https://wcore.xyz` `200` apr├¿s d├®ploiements API + Web. Derni├¿re v├®rification post-fix Dockerfile : `https://api-production-b5bf.up.railway.app/health` `200`, `uptimeSec` live, `chainCount=182` ; `https://wcore.xyz` `200`.

@@ -18,7 +18,7 @@
  *   when waiting for WATCHDOG_FROM_RECAP probe window.
  ************************************************************/
 
-var WCORE_AUTO_HEAL_VERSION = "4.15.85";
+var WCORE_AUTO_HEAL_VERSION = "4.15.100";
 var WCORE_AUTO_HEAL_COOLDOWN_MS = 10 * 60 * 1000;
 var WCORE_AUTO_HEAL_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
@@ -27,7 +27,7 @@ var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
 // and revives the trigger. Spec bumped to force a clean trigger reinstall.
 // v4.15.99: MASTER_ON_EDIT re-enabled — A1 checkbox manual refresh for Ledger sheets.
 // Installable onEdit trigger pulses B1 then resets A1=FALSE when user checks A1.
-var WCORE_AUTO_HEAL_TRIGGER_SPEC = "v4.15.99:activity10:recap5:recovery30:syncJ1Script:ledgerChange:pricingWorker:cexWatchdogCentralOnly:cexHourlyRefresh:masterOnEdit:j1staleness:ssAccessProbe:quotaSelfReset:wdDiagHeartbeat";
+var WCORE_AUTO_HEAL_TRIGGER_SPEC = "v4.15.100:activity10:recap5:recovery30:syncJ1Script:ledgerChange:pricingWorker:cexWatchdogCentralOnly:cexHourlyRefresh:topMarketcapWeekly:masterOnEdit:j1staleness:ssAccessProbe:quotaSelfReset:wdDiagHeartbeat";
 
 function _wcoreAutoHealRow_(out, step, status, details) {
   out.push([step, status, details || ""]);
@@ -82,6 +82,9 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   // v4.15.98: refresh horaire centralise de TOUS les onglets CEX.
   ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(1).create();
   stats.timeTriggers++;
+  // v4.15.100: Top 300 market cap (Google Finance) refresh hebdomadaire (lundi ~06h).
+  ScriptApp.newTrigger("UPDATE_TOP_MARKETCAP").timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).create();
+  stats.timeTriggers++;
 
   var ss = null;
   try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch (eActive) { stats.spreadsheetSkipped = eActive.message; }
@@ -117,8 +120,8 @@ function _wcoreAutoHealWatchdogDiagAgeMs_(props) {
 }
 
 function _wcoreAutoHealEnsureTriggers_(out, props, force) {
-  var managed = ["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "_runPricingWorker", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "UPDATE_BITPANDA_SPOT", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG"];
-  var required = ["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "_runPricingWorker", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "MASTER_ON_EDIT"];
+  var managed = ["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "_runPricingWorker", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "UPDATE_TOP_MARKETCAP", "UPDATE_BITPANDA_SPOT", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG"];
+  var required = ["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "_runPricingWorker", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "UPDATE_TOP_MARKETCAP", "MASTER_ON_EDIT"];
   var spec = props.getProperty("WCORE_AUTO_HEAL_TRIGGER_SPEC") || "";
   var counts = _wcoreAutoHealCountHandlers_(required);
   var needsInstall = force || spec !== WCORE_AUTO_HEAL_TRIGGER_SPEC;
@@ -344,9 +347,11 @@ function WCORE_AUTO_HEAL(reason, force) {
     _wcoreAutoHealEnsureTriggers_(out, props, force === true);
     _wcoreAutoHealEnsurePricingWorker_(out, props);
     _wcoreAutoHealBootstrapState_(out, force === true);
-    props.setProperty("WCORE_AUTO_HEAL_LAST_MS", String(nowMs));
-    props.setProperty("WCORE_AUTO_HEAL_LAST_REASON", String(reason || "auto"));
-    props.setProperty("WCORE_AUTO_HEAL_LAST_RESULT", JSON.stringify(out).substring(0, 8000));
+    // v4.15.100: wrap each setProperty individually so one quota error
+    // doesn't crash the entire heal (triggers are already reinstalled by line 347).
+    try { props.setProperty("WCORE_AUTO_HEAL_LAST_MS", String(nowMs)); } catch (eW1) {}
+    try { props.setProperty("WCORE_AUTO_HEAL_LAST_REASON", String(reason || "auto")); } catch (eW2) {}
+    try { props.setProperty("WCORE_AUTO_HEAL_LAST_RESULT", JSON.stringify(out).substring(0, 8000)); } catch (eW3) {}
     return out;
   } finally {
     try { lock.releaseLock(); } catch (eRelease) {}

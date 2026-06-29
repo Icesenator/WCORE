@@ -320,6 +320,7 @@ const gsheetApiToken = apiConfig.integrations.gsheetApiToken;
 if (gsheetApiToken) {
   await gsheetPlugin(app, {
     token: gsheetApiToken,
+    cache: sharedCache,
     cacheStore: {
       get: async (key: string): Promise<string | null> => {
         const v = await sharedCache.get<string>(key);

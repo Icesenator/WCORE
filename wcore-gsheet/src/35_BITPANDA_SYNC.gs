@@ -1,3 +1,4 @@
+// v4.15.100 - Action Rebalancing Z1 checkbox also rebuilds Top Marketcap (Google Finance + Action Rebalancing) before refreshing Bitpanda Stocks/Fiat.
 // v4.15.93 - External refresh checkboxes must not write REQUEST into business B1 cells.
 // v4.15.92 - On BUSY, prefer fresh row timestamp over keeping REQUEST in B1.
 // v4.15.91 - Do not let a concurrent BUSY overwrite a successful B1 timestamp.
@@ -66,6 +67,7 @@ function _bpFetch_(path, apiKey) {
     muteHttpExceptions: true,
     headers: { "X-Api-Key": apiKey, "Accept": "application/json" }
   });
+  if (!resp) throw new Error("Bitpanda " + path + " HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();
   if (code < 200 || code >= 300) {
@@ -394,7 +396,7 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
 }
 
 // v4.15.81: cellules de refresh manuel hors onglets Bitpanda.
-// Z1 = Action Rebalancing (Stocks + Fiat).
+// Z1 = Action Rebalancing (v4.15.100: Top Marketcap puis Stocks + Fiat).
 // Portefeuille Crypto!AC2 = Crypto CEX (Bitpanda Crypto/Fiat + Binance + Bitfinex).
 var BITPANDA_REFRESH_CELLS = {
   "Action Rebalancing": {
@@ -457,9 +459,25 @@ function BITPANDA_REFRESH_WATCHDOG() {
 
   var actionFlag = _bpGetRefreshFlag_(BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP);
   if (actionFlag) {
-    _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP);
     didWork = true;
-    results.push("bitpandaStocksFiat=" + UPDATE_BITPANDA_STOCKS_FIAT());
+    // v4.15.100: Z1 reconstruit d'abord Top Marketcap (Google Finance +
+    // Action Rebalancing) pour que rang/structure soient a jour, PUIS rafraichit
+    // les soldes Bitpanda Stocks + Fiat.
+    // v4.15.101: Delete flag ONLY after successful execution. If UPDATE_TOP_MARKETCAP
+    // returns BUSY or fails, the flag survives and will be retried next cycle.
+    var tmResult = "SKIPPED_MISSING_UPDATE_TOP_MARKETCAP";
+    if (typeof UPDATE_TOP_MARKETCAP === "function") {
+      tmResult = String(UPDATE_TOP_MARKETCAP());
+      results.push("topMarketcap=" + tmResult);
+    } else {
+      results.push("topMarketcap=" + tmResult);
+    }
+    if (tmResult === "BUSY") {
+      results.push("topMarketcap=BUSY_FLAG_KEPT_FOR_RETRY");
+    } else {
+      _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP);
+      results.push("bitpandaStocksFiat=" + UPDATE_BITPANDA_STOCKS_FIAT());
+    }
   }
 
   var cryptoCexFlag = _bpGetRefreshFlag_(BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP);
@@ -568,7 +586,9 @@ function CEX_HOURLY_REFRESH() {
   run("bybit", typeof UPDATE_BYBIT_SPOT === "function" ? UPDATE_BYBIT_SPOT : null);
   run("coinbase", typeof UPDATE_COINBASE_SPOT === "function" ? UPDATE_COINBASE_SPOT : null);
   run("okx", typeof UPDATE_OKX_SPOT === "function" ? UPDATE_OKX_SPOT : null);
-  return results.join("\n");
+  var summary = results.join("\n");
+  Logger.log("CEX_HOURLY_REFRESH\n" + summary);
+  return summary;
 }
 
 function INSTALL_CEX_HOURLY_REFRESH() {

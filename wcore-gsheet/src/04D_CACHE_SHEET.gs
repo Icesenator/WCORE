@@ -648,10 +648,124 @@ function LIST_CACHE_KEYS(prefix) {
  }
  } catch (e) {}
  
- out.props.sort();
- out.sheetcache.sort();
- out.index.sort();
- 
- return out;
+  out.props.sort();
+  out.sheetcache.sort();
+  out.index.sort();
+  
+  return out;
+}
+
+function DIAG_STORAGE_BREAKDOWN() {
+  var props = PropertiesService.getScriptProperties();
+  var all = props.getProperties();
+  var keys = Object.keys(all);
+  var total = 0;
+  var byPrefix = {};
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var v = all[k] || "";
+    var sz = k.length + v.length;
+    total += sz;
+    var prefix = "OTHER";
+    if (k === "GLOBAL_WALLET_CACHE_V1") prefix = "GLOBAL_WALLET_CACHE_V1";
+    else if (/^OUTSNAP_/.test(k)) prefix = "OUTSNAP_*";
+    else if (/^WCORE_HTTP_/.test(k)) prefix = "WCORE_HTTP_*";
+    else if (/^WCORE_ERROR_RETRY_/.test(k)) prefix = "WCORE_ERROR_RETRY_*";
+    else if (/^WCORE_WD_/.test(k)) prefix = "WCORE_WD_*";
+    else if (/^WCORE_AUTO_HEAL_/.test(k)) prefix = "WCORE_AUTO_HEAL_*";
+    else if (/^CK_/.test(k)) prefix = "CK_*";
+    else if (/^(BITPANDA|BINANCE|BITFINEX|BYBIT|COINBASE|OKX)_/.test(k)) prefix = "CEX_*";
+    else if (/^attemptTsMap_/.test(k)) prefix = "attemptTsMap_*";
+    else if (/^RPC_HEALTH/.test(k)) prefix = "RPC_HEALTH_*";
+    else if (/^FX_/.test(k)) prefix = "FX_*";
+    else if (/^DYN_RPC/.test(k)) prefix = "DYN_RPC_*";
+    else if (/^GLOBAL_PRICE/.test(k)) prefix = "GLOBAL_PRICE_*";
+    else if (/^BUDGET/.test(k)) prefix = "BUDGET_*";
+    else if (/^WALLET/.test(k) && /CACHE/.test(k)) prefix = "WALLET_CACHE_*";
+    else if (/^PHASE_C/.test(k)) prefix = "PHASE_C_*";
+    
+    if (!byPrefix[prefix]) byPrefix[prefix] = { count: 0, size: 0, sample: k.substring(0, 50) };
+    byPrefix[prefix].count++;
+    byPrefix[prefix].size += sz;
+  }
+
+  var QUOTA_KB = 500;
+  console.log(JSON.stringify({ totalKeys: keys.length, totalKB: (total / 1024).toFixed(2), pct: ((total / (QUOTA_KB * 1024)) * 100).toFixed(1) + "%" }));
+
+  var sorted = Object.keys(byPrefix).sort(function(a, b) { return byPrefix[b].size - byPrefix[a].size; });
+  for (var j = 0; j < sorted.length; j++) {
+    var p = sorted[j];
+    var d = byPrefix[p];
+    console.log(p + " count=" + d.count + " KB=" + (d.size / 1024).toFixed(2) + " pct=" + ((d.size / (QUOTA_KB * 1024)) * 100).toFixed(1) + "% sample=" + d.sample);
+  }
+  // Dump all OTHER keys individually for diagnosis
+  var otherKeys = [];
+  for (var i2 = 0; i2 < keys.length; i2++) {
+    var k2 = keys[i2];
+    var v2 = all[k2] || "";
+    var prefix2 = "OTHER";
+    if (k2 === "GLOBAL_WALLET_CACHE_V1") prefix2 = "GLOBAL_WALLET_CACHE_V1";
+    else if (/^OUTSNAP_/.test(k2)) prefix2 = "OUTSNAP_*";
+    else if (/^WCORE_HTTP_/.test(k2)) prefix2 = "WCORE_HTTP_*";
+    else if (/^WCORE_ERROR_RETRY_/.test(k2)) prefix2 = "WCORE_ERROR_RETRY_*";
+    else if (/^WCORE_WD_/.test(k2)) prefix2 = "WCORE_WD_*";
+    else if (/^WCORE_AUTO_HEAL_/.test(k2)) prefix2 = "WCORE_AUTO_HEAL_*";
+    else if (/^CK_/.test(k2)) prefix2 = "CK_*";
+    else if (/^(BITPANDA|BINANCE|BITFINEX|BYBIT|COINBASE|OKX)_/.test(k2)) prefix2 = "CEX_*";
+    else if (/^attemptTsMap_/.test(k2)) prefix2 = "attemptTsMap_*";
+    else if (/^RPC_HEALTH/.test(k2)) prefix2 = "RPC_HEALTH_*";
+    else if (/^FX_/.test(k2)) prefix2 = "FX_*";
+    else if (/^DYN_RPC/.test(k2)) prefix2 = "DYN_RPC_*";
+    else if (/^GLOBAL_PRICE/.test(k2)) prefix2 = "GLOBAL_PRICE_*";
+    else if (/^BUDGET/.test(k2)) prefix2 = "BUDGET_*";
+    else if (/^WALLET/.test(k2) && /CACHE/.test(k2)) prefix2 = "WALLET_CACHE_*";
+    else if (/^PHASE_C/.test(k2)) prefix2 = "PHASE_C_*";
+    if (prefix2 === "OTHER") otherKeys.push({ key: k2, size: k2.length + v2.length, preview: v2.substring(0, 80) });
+  }
+  otherKeys.sort(function(a, b) { return b.size - a.size; });
+  console.log("--- OTHER keys (" + otherKeys.length + ") ---");
+  for (var j2 = 0; j2 < otherKeys.length; j2++) {
+    var o = otherKeys[j2];
+    console.log(o.key + " KB=" + (o.size / 1024).toFixed(2) + " preview=" + o.preview);
+  }
+  return "OK total=" + (total / 1024).toFixed(1) + "KB keys=" + keys.length;
+}
+
+function CLEAN_OBSOLETE_PROPERTIES() {
+  var props = PropertiesService.getScriptProperties();
+  var toDelete = [];
+  // v4.15.100: RPC lookup now memory-only, old ScriptProperties key is wasted quota
+  toDelete.push("ACTIVITY_RPC_LOOKUP");
+  // Stale HTTP category tracker from Feb 2026
+  toDelete.push("HTTP_CATEGORY_TRACKER_v1");
+  toDelete.push("HTTP_CATEGORY_DATE_v1");
+  // Purge excess OUTSNAP_* keys (keep most recent 15, delete all others)
+  var all = props.getProperties();
+  var snaps = [];
+  for (var k in all) {
+    if (k.indexOf("OUTSNAP_") !== 0) continue;
+    var ts = 0;
+    try { ts = JSON.parse(all[k] || "{}").ts || 0; } catch (eP) {}
+    snaps.push({ k: k, ts: ts });
+  }
+  snaps.sort(function(a, b) { return b.ts - a.ts; });
+  var MAX_SNAPS = 15;
+  for (var s = MAX_SNAPS; s < snaps.length; s++) { toDelete.push(snaps[s].k); }
+  var deleted = [];
+  for (var i = 0; i < toDelete.length; i++) {
+    try {
+      if (props.getProperty(toDelete[i]) !== null) {
+        props.deleteProperty(toDelete[i]);
+        deleted.push(toDelete[i]);
+      }
+    } catch (e) { Logger.log("CLEAN: error deleting " + toDelete[i] + ": " + e); }
+  }
+  // Also trigger emergency purge for remaining cleanup
+  try {
+    if (typeof CacheManager !== "undefined" && CacheManager._emergencyPurge_) {
+      CacheManager._emergencyPurge_(81920);
+    }
+  } catch (e2) {}
+  return "Deleted " + deleted.length + " keys: " + deleted.join(", ");
 }
 

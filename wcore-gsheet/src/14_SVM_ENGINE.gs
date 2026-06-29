@@ -872,11 +872,24 @@ var SvmEngine = {
    
    // v4.13.3: Centralized quota pre-check via BaseEngine
    // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
-   var svmForce = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
-    if (!svmForce) {
-      var quotaBlocked = BaseEngine.quotaPreCheck(_svmWalletKey(addr), config);
-      if (quotaBlocked) return quotaBlocked;
-    }
+    var svmForce = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
+      try {
+        if (typeof _webScanWallet_ === "function") {
+          var svmWebScan = _webScanWallet_(addr, tokensRange, forceFull, config, _svmWalletKey(addr));
+          if (svmWebScan && svmWebScan.ok && svmWebScan.status) return svmWebScan.status;
+        }
+      } catch (eWebScan) {}
+      if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {
+        return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
+      }
+      if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
+       var svmWebQuotaBlocked = BaseEngine.quotaPreCheck(_svmWalletKey(addr), config);
+       if (svmWebQuotaBlocked) return svmWebQuotaBlocked;
+     }
+     if (!svmForce) {
+       var quotaBlocked = BaseEngine.quotaPreCheck(_svmWalletKey(addr), config);
+       if (quotaBlocked) return quotaBlocked;
+     }
 
     // v4.15.50: Busy-guard — avoid 30s GAS timeout (#ERROR!) under heavy load.
     if (!svmForce && BaseEngine.isBusy && BaseEngine.isBusy(config)) {

@@ -14,6 +14,16 @@ import { isPositiveFinite, normalizePriceKey } from "./types.js";
 const DEFAULT_PRICE_STALE_MS = 60 * 60 * 1000;
 let _setPriceLogged = false;
 
+// Global contract -> DefiLlama alias map. Used when a chain's LLAMA_CONTRACT_MAP
+// (auto-generated from chain configs) does not cover a known token variant
+// (e.g. liquid-staking wrappers like rSTONE/lSTONE on Scroll that share the
+// underlying STONE price 1:1). Keys are case-insensitive (normalized at lookup).
+const TOKEN_LLAMA_ALIASES: Record<string, string> = {
+  "scroll:0xad3d07d431b85b525d81372802504fa18dbd554c": "coingecko:stakestone-ether", // rSTONE (StakeStone Ether)
+  "scroll:0xe5c40a3331d4fb9a26f5e48b494813d977ec0a8e": "coingecko:stakestone-ether", // lSTONE (LayerBank STONE)
+  "worldchain:0xb1e80387ebe53ff75a89736097d34dc8d9e9045b": "coingecko:re7-usdc", // Re7USDC (Re7 USDC, yield-bearing)
+};
+
 export async function priceTokenCascade(options: PriceTokenCascadeOptions): Promise<PricingResult> {
   const key = normalizePriceKey(options.token.key);
 
@@ -232,9 +242,13 @@ function result(
 
 function getContractLlamaId(token: PricingToken): string | null {
   const map = token.chain.LLAMA_CONTRACT_MAP;
-  if (!map) return null;
-  const contract = normalizePriceKey(token.contract ?? token.key);
-  return stringField(map[contract]) ?? stringField(map[token.contract ?? token.key]);
+  if (map) {
+    const contract = normalizePriceKey(token.contract ?? token.key);
+    const direct = stringField(map[contract]) ?? stringField(map[token.contract ?? token.key]);
+    if (direct) return direct;
+  }
+  const aliasKey = `${String(token.chain.key).toLowerCase()}:${normalizePriceKey(token.contract ?? token.key)}`;
+  return stringField(TOKEN_LLAMA_ALIASES[aliasKey]);
 }
 
 function getSymbolLlamaId(symbol: unknown, chain: ChainConfig): string | null {

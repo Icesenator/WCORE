@@ -10,8 +10,31 @@ export function encodeBalanceOf(address: string): string {
   return `${BALANCE_OF_SELECTOR}${normalized.replace(/^0x/, "").padStart(64, "0")}`;
 }
 
+export function encodeCustomBalanceCall(address: string, selector: string, extraArgs?: string[]): string {
+  const normalized = normalizeEvmAddress(address);
+  if (!normalized) throw new Error("invalid EVM address");
+  if (!/^0x[0-9a-fA-F]{8}$/.test(selector)) throw new Error("invalid 4-byte selector");
+  const extra = Array.isArray(extraArgs) ? extraArgs.map((a) => {
+    const hex = String(a).replace(/^0x/, "");
+    if (!/^[0-9a-fA-F]{64}$/.test(hex)) throw new Error("invalid 32-byte extra arg");
+    return hex;
+  }).join("") : "";
+  return `${selector.toLowerCase()}${normalized.replace(/^0x/, "").padStart(64, "0")}${extra}`;
+}
+
 export function decodeUint256(hex: string): bigint {
   const clean = String(hex || "0x0").trim();
+  return BigInt(clean === "0x" ? "0x0" : clean);
+}
+
+export function decodeUint256FirstWord(hex: string): bigint {
+  const clean = String(hex || "0x0").trim();
+  // For responses longer than 32 bytes (e.g. struct returns), extract only the
+  // first 32-byte word (66 hex chars including "0x" prefix).
+  const MAX_HEX_LEN = 66; // "0x" + 64 hex chars = 32 bytes
+  if (clean.startsWith("0x") && clean.length > MAX_HEX_LEN) {
+    return BigInt(clean.slice(0, MAX_HEX_LEN));
+  }
   return BigInt(clean === "0x" ? "0x0" : clean);
 }
 

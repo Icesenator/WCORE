@@ -1,7 +1,12 @@
 ﻿/************************************************************
  * 04C_CACHE_GLOBAL.gs - Global Caches (Price, FX, Meta)
  *
- * Version: v4.15.50
+ * Version: v4.15.51
+ *
+ * v4.15.51 - WALLET_CACHE: preserved partial scans merge positive incoming prices.
+ *   When the last-line guard keeps a fuller previous cache (partial_less_assets),
+ *   do not discard valid prices discovered by WCORE Web. Merge positive incoming
+ *   priceMap/priceTsMap entries into the preserved cache before returning.
  *
  * v4.15.50 - FX: cascade 4 sources (frankfurter, open-er-api, coinbase, defillama-eurc)
  *   with median consensus, no fixed fallback. Mirror of @wcore/core/src/fx.ts web side.
@@ -112,7 +117,7 @@
  * 
  * DEPENDANCES: 04A_CACHE_CORE.gs, 04B_CACHE_WALLET.gs
  ************************************************************/
-var CACHE_GLOBAL_VERSION = "4.15.50";
+var CACHE_GLOBAL_VERSION = "4.15.51";
 
 // ============================================================
 // AUTO-REGISTRATION (v4.13.0)
@@ -918,9 +923,9 @@ WalletCache = (function(existing) {
  var balance = parseFloat(String(balanceRaw || 0).replace(",", "."));
  if (!isFinite(balance)) balance = 0;
  
- // v4.9.2 FIX: Always keep native, even with balance = 0
- // For other tokens, skip if balance <= 0
- if (balance <= 0 && !isNative) return null;
+  // v4.9.2 FIX: Always keep native, even with balance = 0
+  // For other tokens, skip only exact zero; negative balances are debt positions.
+  if (balance === 0 && !isNative) return null;
 
  var contractShort = isNative ? "n" : contract;
 
@@ -991,11 +996,11 @@ WalletCache = (function(existing) {
  n++;
  }
  }
- } catch (ePm) {
- pmCompact = pmSrc || {};
- }
+  } catch (ePm) {
+  pmCompact = pmSrc || {};
+  }
 
- return {
+  return {
  v: 5,
  cv: obj.version || obj.cv || null, // preserve logical cache version
  u: obj.u || obj.updatedAt || 0,
@@ -1022,15 +1027,35 @@ WalletCache = (function(existing) {
  
  var compactAssets = compact.a || compact.assets || [];
  var expandedAssets = [];
- var total = 0;
+  var total = 0;
+  var priceMap = compact.pm || compact.priceMap || {};
+
+  function _priceForExpandedAsset_(asset) {
+  try {
+  if (!asset) return null;
+  var c = String(asset.contract || asset.c || "");
+  var key = (c === "n" || c === "native") ? "native" : c;
+  var p = parseFloat(priceMap[key]);
+  if ((!isFinite(p) || p <= 0) && key && typeof key === "string") p = parseFloat(priceMap[key.toLowerCase()]);
+  return (isFinite(p) && p > 0) ? p : null;
+  } catch (e) {
+  return null;
+  }
+  }
  
  for (var i = 0; i < compactAssets.length; i++) {
  var ea = _expandAsset(compactAssets[i]);
- if (ea) {
- expandedAssets.push(ea);
- if (ea.price_eur && ea.balance) {
- var val = ea.price_eur * ea.balance;
- if (typeof val === "number" && isFinite(val) && val > 0) {
+  if (ea) {
+  var restoredPrice = _priceForExpandedAsset_(ea);
+  if (restoredPrice != null) {
+  ea.price_eur = restoredPrice;
+  var restoredValue = parseFloat(ea.balance) * restoredPrice;
+  ea.value_eur = isFinite(restoredValue) ? restoredValue : null;
+  }
+  expandedAssets.push(ea);
+  if (ea.value_eur || (ea.price_eur && ea.balance)) {
+  var val = ea.value_eur || (ea.price_eur * ea.balance);
+  if (typeof val === "number" && isFinite(val)) {
  total += val;
  }
  }
@@ -1058,16 +1083,33 @@ WalletCache = (function(existing) {
  reconstructedInfoMeta = [];
  reconstructedInfoMeta.push(["", "INFO_FX", fx ? ("USD->EUR=" + fx.toFixed(4)) : "USD->EUR=N/A", "", "", "", ""]);
  reconstructedInfoMeta.push(["", "INFO_TOTAL", "Total portefeuille (sum value_eur).", "", "", "", total]);
- reconstructedInfoMeta.push(["META", "last_cache_update", lastCacheUpdate, "", "", "", ""]);
- reconstructedInfoMeta.push(["META", "script_version", "", "", "", "", ""]);
- }
+  reconstructedInfoMeta.push(["META", "last_cache_update", lastCacheUpdate, "", "", "", ""]);
+  reconstructedInfoMeta.push(["META", "script_version", "", "", "", "", ""]);
+  } else {
+  var hasFx = false;
+  var hasTotal = false;
+  for (var im = 0; im < reconstructedInfoMeta.length; im++) {
+  var row = reconstructedInfoMeta[im] || [];
+  if (row[1] === "INFO_FX") {
+  row[2] = fx ? ("USD->EUR=" + fx.toFixed(4)) : "USD->EUR=N/A";
+  hasFx = true;
+  }
+  if (row[1] === "INFO_TOTAL") {
+  row[2] = "Total portefeuille (sum value_eur).";
+  row[6] = total;
+  hasTotal = true;
+  }
+  }
+  if (!hasFx) reconstructedInfoMeta.push(["", "INFO_FX", fx ? ("USD->EUR=" + fx.toFixed(4)) : "USD->EUR=N/A", "", "", "", ""]);
+  if (!hasTotal) reconstructedInfoMeta.push(["", "INFO_TOTAL", "Total portefeuille (sum value_eur).", "", "", "", total]);
+  }
  
  return {
  version: compact.cv || compact.v || 0, // prefer cv (logical cache version) over v (format)
  updatedAt: updatedAt,
  last_cache_update: lastCacheUpdate,
  assets: expandedAssets,
- priceMap: compact.pm || compact.priceMap || {},
+  priceMap: priceMap,
  priceTsMap: compact.pt || {},
  balanceTsMap: compact.bt || {},
  attemptTsMap: compact.at || {},
@@ -1167,8 +1209,22 @@ WalletCache = (function(existing) {
    // array exists) AND .a (if compact array exists). Also reads old assets in
    // either format. Concrete repro: ZERO Network WBTC kept ping-ponging despite
    // no on-chain activity — fix lets the merge actually persist the stale token.
-   function _mergeAssetsPreservingCached(existingCache, cacheObj, config) {
-   if (!existingCache || !cacheObj) return cacheObj;
+    function _mergeAssetsPreservingCached(existingCache, cacheObj, config) {
+    try {
+    if (cacheObj) {
+    var ss = cacheObj.scanStats || cacheObj.ss;
+    if (ss && ss.source === "wcore-web" && ss.fullCycleComplete === true) {
+    if (!cacheObj._webScanAuthoritative) {
+    cacheObj._webScanAuthoritative = true;
+    try {
+    Logger.log("[WalletCache.save] SKIP_MERGE wcore-web fullCycleComplete — replacing asset list with " + (Array.isArray(cacheObj.assets) ? cacheObj.assets.length : Array.isArray(cacheObj.a) ? cacheObj.a.length : 0) + " assets");
+    } catch (eLog) {}
+    }
+    return cacheObj;
+    }
+    }
+    } catch (eAuth) {}
+    if (!existingCache || !cacheObj) return cacheObj;
 
   var oldAssets = (existingCache.assets || existingCache.a || []);
   if (!oldAssets || !oldAssets.length) return cacheObj;
@@ -1300,7 +1356,13 @@ WalletCache = (function(existing) {
   return cacheObj;
   }
 
-  function _shouldPreserveWalletCacheWrite(existingCache, cacheObj, config) {
+   function _shouldPreserveWalletCacheWrite(existingCache, cacheObj, config) {
+  try {
+  var webSs = cacheObj && (cacheObj.scanStats || cacheObj.ss);
+  if (webSs && webSs.source === "wcore-web" && webSs.fullCycleComplete === true) {
+  return { preserve: false, reason: "wcore_web_authoritative" };
+  }
+  } catch (eWebAuth) {}
   var force = !!(cacheObj && (cacheObj._forceFull || cacheObj.forceFull));
   if (!force && config && (config.FORCE_FULL || config._forceFull)) force = true;
   if (force) return { preserve: false };
@@ -1331,10 +1393,44 @@ WalletCache = (function(existing) {
  return { preserve: true, reason: "http_error_less_assets", prevAssetsCount: prevCount, newAssetsCount: newCount };
  }
 
-  return { preserve: false, prevAssetsCount: prevCount, newAssetsCount: newCount };
-  }
+   return { preserve: false, prevAssetsCount: prevCount, newAssetsCount: newCount };
+   }
 
-  WC.shouldPreserveWrite = WC.shouldPreserveWrite || function(existingCache, cacheObj, config) {
+   function _mergePositivePricesIntoPreservedCache(existingCache, cacheObj) {
+   try {
+   if (!existingCache || !cacheObj) return 0;
+   var incomingPm = cacheObj.priceMap || cacheObj.pm || {};
+   var incomingPt = cacheObj.priceTsMap || cacheObj.pt || {};
+   if (!incomingPm || typeof incomingPm !== "object") return 0;
+
+   var targetPm = existingCache.priceMap || existingCache.pm || {};
+   var targetPt = existingCache.priceTsMap || existingCache.pt || {};
+   var merged = 0;
+
+   for (var k in incomingPm) {
+   if (!Object.prototype.hasOwnProperty.call(incomingPm, k)) continue;
+   var price = parseFloat(incomingPm[k]);
+   if (!isFinite(price) || price <= 0) continue;
+   var key = String(k);
+   targetPm[key] = price;
+   if (Object.prototype.hasOwnProperty.call(incomingPt, k)) {
+   var ts = parseInt(incomingPt[k], 10);
+   if (isFinite(ts) && ts > 0) targetPt[key] = ts;
+   }
+   merged++;
+   }
+
+   existingCache.priceMap = targetPm;
+   existingCache.pm = targetPm;
+   existingCache.priceTsMap = targetPt;
+   existingCache.pt = targetPt;
+   return merged;
+   } catch (e) {
+   return 0;
+   }
+   }
+
+   WC.shouldPreserveWrite = WC.shouldPreserveWrite || function(existingCache, cacheObj, config) {
   return _shouldPreserveWalletCacheWrite(existingCache, cacheObj, config);
   };
 
@@ -1347,13 +1443,19 @@ WalletCache = (function(existing) {
   var ttlSeconds = (config && config.CACHE && config.CACHE.WALLET_CACHE_TTL_SECONDS) || 86400;
   var existingCache = null;
   try { existingCache = WC.load(walletAddr, null, config); } catch (eLoad) {}
-  var preserve = _shouldPreserveWalletCacheWrite(existingCache, cacheObj, config);
-  if (preserve && preserve.preserve) {
-  try {
-  Logger.log("[WalletCache.save] PRESERVED " + String(walletAddr).substring(0, 10) + "... reason=" + preserve.reason);
-  } catch (eLog) {}
-  return { preserved: true, reason: preserve.reason, prevAssetsCount: preserve.prevAssetsCount || 0, newAssetsCount: preserve.newAssetsCount || 0 };
-  }
+   var preserve = _shouldPreserveWalletCacheWrite(existingCache, cacheObj, config);
+   if (preserve && preserve.preserve) {
+   var mergedPrices = _mergePositivePricesIntoPreservedCache(existingCache, cacheObj);
+   if (mergedPrices > 0) {
+   try {
+   CacheManager.safeSetJson(key, _migrate(existingCache, config) || _empty(config), config, ttlSeconds);
+   } catch (eMergeSave) {}
+   }
+   try {
+   Logger.log("[WalletCache.save] PRESERVED " + String(walletAddr).substring(0, 10) + "... reason=" + preserve.reason + (mergedPrices > 0 ? " mergedPrices=" + mergedPrices : ""));
+   } catch (eLog) {}
+   return { preserved: true, reason: preserve.reason, prevAssetsCount: preserve.prevAssetsCount || 0, newAssetsCount: preserve.newAssetsCount || 0, mergedPrices: mergedPrices };
+   }
    // v4.15.33: Pre-check storage before save — if above 85%, purge expired/stale entries
    // to prevent silent ScriptProperties write failures that cause "No cache available"
    try {
@@ -1546,4 +1648,3 @@ var GlobalPriceCacheAdapter = GlobalPriceCacheAdapter || {
  return GlobalPriceCache.getMulti(chainId, contracts);
  }
 };
-

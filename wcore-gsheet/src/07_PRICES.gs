@@ -638,6 +638,78 @@ if (typeof HTTP.fetchJsonWithRetry !== 'function') {
 
 var PriceSources = PriceSources || {};
 
+function _pxWcoreWebChainKey(config) {
+  try {
+  var prefix = config && config.KEYS && config.KEYS.PREFIX ? String(config.KEYS.PREFIX) : "";
+  if (/_CACHE_$/i.test(prefix)) return prefix.replace(/_CACHE_$/i, "").toUpperCase();
+  } catch (ePrefix) {}
+  try {
+  var c = config && config.CHAIN ? config.CHAIN : null;
+  var name = c && (c.KEY || c.CHAIN_KEY || c.NAME || c.CHAIN_NAME);
+  if (name) return String(name).trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  } catch (eName) {}
+  return "";
+}
+
+/**
+ * Delegated batch pricing through WCORE Web. This is intentionally best-effort:
+ * if the web API is unavailable, local Dex/GT/Llama fallbacks continue unchanged.
+ * Returns: { [tokenLower]: {priceUsd, source:'wcore-web:*'} }
+ */
+PriceSources.wcoreWebBatchPrices = PriceSources.wcoreWebBatchPrices || function(tokenAddresses, timer, config) {
+  var out = {};
+  try {
+  if (timer && timer.isLow && timer.isLow(2500)) return out;
+  if (_pxHttpBlocked("wcore-web-prices")) return out;
+
+  var chain = _pxWcoreWebChainKey(config);
+  if (!chain) return out;
+
+  var props = PropertiesService.getScriptProperties();
+  var baseUrl = props.getProperty("WCORE_WEB_API_URL");
+  var token = props.getProperty("GSHEET_API_TOKEN");
+  if (!baseUrl || !token) return out;
+
+  var seen = {};
+  var addrs = [];
+  for (var i = 0; i < (tokenAddresses || []).length; i++) {
+   var a = String(tokenAddresses[i] || "").trim().toLowerCase();
+   if (!/^0x[0-9a-f]{40}$/.test(a)) continue;
+   if (!seen[a]) { seen[a] = true; addrs.push(a); }
+  }
+  if (!addrs.length) return out;
+
+  var endpoint = baseUrl.replace(/\/$/, "") + "/api/gsheet/prices";
+  for (var off = 0; off < addrs.length; off += 100) {
+   if (timer && timer.isLow && timer.isLow(1800)) break;
+   var chunk = addrs.slice(off, off + 100);
+   var resp = Http.post(endpoint, { chain: chain, tokens: chunk }, {
+    headers: { "x-gsheet-token": token, accept: "application/json" },
+    timeoutMs: _pxHttpTimeoutMs(config, 12000),
+    muteHttpExceptions: true
+   }, config);
+   var json = Http.parseJson(resp);
+   if (!json || json.ok !== true || !json.prices) continue;
+   var fx = Number(json.fxRate || 0);
+   for (var k in json.prices) {
+    if (!json.prices.hasOwnProperty(k)) continue;
+    var kl = _pxKeyLower(k);
+    var rec = json.prices[k] || {};
+    var usd = Number(rec.priceUsd);
+    if (!_pxIsFinitePos(usd) && _pxIsFinitePos(Number(rec.priceEur)) && _pxIsFinitePos(fx)) {
+     usd = Number(rec.priceEur) / fx;
+    }
+    if (!_pxIsFinitePos(usd)) continue;
+    out[kl] = { priceUsd: Number(usd), source: "wcore-web" + (rec.source ? ":" + String(rec.source) : "") };
+   }
+  }
+  try { Logger.log("[WcoreWebBatch] priced " + Object.keys(out).length + "/" + addrs.length + " on " + chain); } catch (eLog) {}
+  } catch (e) {
+  try { Logger.log("[WcoreWebBatch] skipped: " + String(e && e.message ? e.message : e)); } catch (eLog2) {}
+  }
+  return out;
+};
+
 /**
  * DexScreener bulk token lookup.
  * Endpoint used: {BASE_URL}/{dexSlug}/{token1,token2,...}
@@ -2191,11 +2263,21 @@ BulkPriceFetch.fetch = BulkPriceFetch.fetch || function(targetKeys, opts, timer,
  }
  if (!list.length) return out;
 
- var useDex = !!(opts && opts.dex);
- var useGt = !!(opts && opts.gt);
+  var useDex = !!(opts && opts.dex);
+  var useGt = !!(opts && opts.gt);
 
- // Dex bulk works for EVM tokens and for Solana mints (SVM)
- if (useDex) {
+  // Try WCORE Web first: one authenticated batch call can replace many GAS-side API calls.
+  if (!isSvm && (useDex || useGt)) {
+  try {
+  var webMap = PriceSources.wcoreWebBatchPrices(list, timer, cfg);
+  Obj.forEach(webMap, function(k, v) {
+   if (v && _pxIsFinitePos(v.priceUsd)) out[_pxKeyLower(k)] = v;
+  });
+  } catch (eWebBatch) {}
+  }
+
+  // Dex bulk works for EVM tokens and for Solana mints (SVM)
+  if (useDex) {
  var dexSlug = _pxGetDexSlug(cfg);
  if (dexSlug || isSvm) {
  var dexMap = PriceSources.dexBulkTokens(list, timer, cfg);

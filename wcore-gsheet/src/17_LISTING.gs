@@ -3,7 +3,8 @@
  *
  * SIMPLE & STABLE - Cache via ScriptProperties
  *
- * Version : LISTING_v4.5.16
+ * Version : LISTING_v4.5.17
+ * v4.5.17 - FIX: label Recap I1 status column and clarify B1 as pulse timestamp
  * v4.5.16 - FEAT: include Startale wallet sheets in Recap Portfolio
  * v4.5.15 - FEAT: include OKX Crypto sync tab in Recap Portfolio
  * v4.5.14 - FEAT: include Coinbase Crypto sync tab in Recap Portfolio
@@ -148,6 +149,13 @@ function _setRecapHyperlinks_(ss, names, map) {
     ]);
    }
   }
+
+  recap.getRange("D1:G1").setValues([[
+   "PULSE (B1)",
+   "FORCEFULL (C1)",
+   "STATUS (I1)",
+   "LAST SCAN (J1)"
+  ]]);
 
   // Write hyperlinks and clear stale rows below
   recap.getRange(2, 1, richTexts.length, 1).setRichTextValues(richTexts);

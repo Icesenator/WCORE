@@ -2,7 +2,7 @@ import { EvmRpc, RpcDispatcher } from "../rpc/index.js";
 import { rpcHealth } from "../rpc/rpc-health.js";
 import { resolveBalance, type BalanceDecision, type BalanceVote } from "../balances/index.js";
 import type { CacheStore } from "../cache/index.js";
-import { decodeUint256, encodeBalanceOf } from "../tokens/index.js";
+import { decodeUint256, decodeUint256FirstWord, encodeBalanceOf, encodeCustomBalanceCall } from "../tokens/index.js";
 import { cacheVote, liveVote, failedLiveVote, cacheEntry, type BalanceCacheEntry } from "./evm-types.js";
 
 // Per-chain block number cache — avoids N × eth_blockNumber calls when
@@ -10,6 +10,24 @@ import { cacheVote, liveVote, failedLiveVote, cacheEntry, type BalanceCacheEntry
 // advance every ~12s (Ethereum) and the log window is thousands of blocks.
 export const _blockCache = new Map<string, { block: number; ts: number }>();
 export const _BLOCK_CACHE_TTL_MS = 30_000;
+
+function erc20BalanceCacheKey(
+  chainKey: string,
+  contract: string,
+  owner: string,
+  customSelector?: string,
+  customSelectorExtraArgs?: string[],
+): string {
+  const base = `token:${chainKey.toLowerCase()}:${contract.toLowerCase()}`;
+  if (!customSelector) return `${base}:${owner}`;
+  return `${base}:${customSelector.toLowerCase()}:${(customSelectorExtraArgs || []).join(",").toLowerCase()}:${owner}`;
+}
+
+function erc20SkipCacheKey(chainKey: string, contract: string, customSelector?: string, customSelectorExtraArgs?: string[]): string {
+  const base = `meta:skip:${chainKey.toLowerCase()}:${contract.toLowerCase()}`;
+  if (!customSelector) return base;
+  return `${base}:${customSelector.toLowerCase()}:${(customSelectorExtraArgs || []).join(",").toLowerCase()}`;
+}
 
 export async function getRecentLogRange(
   dispatcher: RpcDispatcher,
@@ -138,25 +156,28 @@ export async function readErc20Balance(
   owner: string,
   chainKey: string,
   cache?: CacheStore,
+  customSelector?: string,
+  customSelectorExtraArgs?: string[],
 ): Promise<{ decision: BalanceDecision; skipped: boolean }> {
   // Check skip cache — non-ERC20 tokens flagged by a previous scan
   if (cache) {
-    const skipKey = `meta:skip:${chainKey.toLowerCase()}:${contract.toLowerCase()}`;
+    const skipKey = erc20SkipCacheKey(chainKey, contract, customSelector, customSelectorExtraArgs);
     try {
       const skip = await cache.get<{ reason: string }>(skipKey);
       if (skip) return { decision: { raw: 0n, source: "none", confidence: 0, degraded: false, reason: "non_erc20_skip", votes: [] }, skipped: true };
     } catch { /* ignore */ }
   }
 
-  const data = encodeBalanceOf(owner);
+  const data = customSelector ? encodeCustomBalanceCall(owner, customSelector, customSelectorExtraArgs) : encodeBalanceOf(owner);
   const res = await dispatcher.run(endpoints, (endpoint, rpcOpts) =>
     rpc.ethCall(endpoint, contract, data, "latest", rpcOpts),
   (value) => value.toLowerCase());
 
   const votes: BalanceVote[] = [];
+  const decode = customSelector ? decodeUint256FirstWord : decodeUint256;
   for (const a of res.attempts) {
     if (a.ok && a.value) {
-      const raw = decodeUint256(a.value);
+      const raw = decode(a.value);
       votes.push(liveVote("rpc", raw, false, 0.9, a.endpoint));
     } else {
       votes.push(failedLiveVote("rpc", String(a.error ?? "eth_call failed")));
@@ -164,7 +185,7 @@ export async function readErc20Balance(
   }
 
   if (res.consensus && res.value) {
-    const decoded = decodeUint256(res.value);
+    const decoded = decode(res.value);
     if (res.attempts.length === 0) {
       // Backward-compat: synthesize a vote when attempts aren't populated (e.g. test mocks)
       votes.push(liveVote("rpc", decoded, true, 0.9, undefined));
@@ -177,7 +198,7 @@ export async function readErc20Balance(
 
   // Add cache vote from token balance cache
   if (cache) {
-    const tcKey = `token:${chainKey.toLowerCase()}:${contract.toLowerCase()}:${owner}`;
+    const tcKey = erc20BalanceCacheKey(chainKey, contract, owner, customSelector, customSelectorExtraArgs);
     try {
       const cached = await cache.get<BalanceCacheEntry>(tcKey);
       const cv = cacheVote(cached);
@@ -194,7 +215,7 @@ export async function readErc20Balance(
     return msg.includes("revert") || msg.includes("reverted");
   });
   if (allReverted && cache) {
-    const skipKey = `meta:skip:${chainKey.toLowerCase()}:${contract.toLowerCase()}`;
+    const skipKey = erc20SkipCacheKey(chainKey, contract, customSelector, customSelectorExtraArgs);
     cache.set(skipKey, { reason: "non-erc20" }, 24 * 60 * 60 * 1000).catch(() => {});
     return { decision: { raw: 0n, source: "none", confidence: 0, degraded: false, reason: "non_erc20_revert", votes }, skipped: true };
   }
@@ -209,7 +230,7 @@ export async function readErc20Balance(
 
   // Persist cache on reliable live success, including confirmed zero balances.
   if (!decision.degraded && decision.source !== "cache" && decision.confidence >= 0.65 && cache) {
-    const tcKey = `token:${chainKey.toLowerCase()}:${contract.toLowerCase()}:${owner}`;
+    const tcKey = erc20BalanceCacheKey(chainKey, contract, owner, customSelector, customSelectorExtraArgs);
     cache.set(tcKey, cacheEntry(decision), 3600_000).catch(() => {});
   }
 

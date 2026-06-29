@@ -1,3 +1,4 @@
+// v4.15.100 - RPC_LOOKUP: no ScriptProperties persistence (memory-only, rebuilt from ChainFactory, saves ~28KB quota)
 // v4.15.7 - stale cache diagnostics keep partial while price/meta gaps remain
 // v4.15.6 - prune stale ActivityTracker entries for retired Ledger sheets
 // v4.15.4 - cooldown 10min B1 pulse pour éviter doublon avec WATCHDOG_FROM_RECAP
@@ -97,7 +98,7 @@
  * 
  ************************************************************/
 
-var ACTIVITY_REFRESH_VERSION = "4.15.2";
+var ACTIVITY_REFRESH_VERSION = "4.15.100";
 
 function _activityCanFetch_(reason) {
   try {
@@ -172,7 +173,8 @@ var ACTIVITY_CONFIG = {
   },
   
   // Limites
-  MAX_AGE_DAYS: 7,
+  // v4.15.100: reduced from 7 to 3 days to keep storage smaller
+  MAX_AGE_DAYS: 3,
   BATCH_SIZE: 20,             // v4.12.25: reduced from 30 (6 runs = 30 min full rotation, saves ~33% HTTP)
   CATCHUP_COOLDOWN_MS: 30000  // v4.12.25: min 30s between checks in catchup mode (was 0 = burst)
 };
@@ -185,9 +187,57 @@ var ACTIVITY_CONFIG = {
 
 var _RpcLookup = (function() {
   var _cache = null;
+  var _initAttempted = false;
+  
+  function _initFromChainFactory() {
+    if (_cache !== null) return; // already init'd
+    _cache = {};
+    _initAttempted = true;
+    try {
+      var registry = {};
+      try {
+        if (typeof ChainFactory !== "undefined" && ChainFactory.getRegistry) {
+          registry = ChainFactory.getRegistry() || {};
+        }
+      } catch (eReg) {}
+      var names = Object.keys(registry);
+      if (names.length === 0) return;
+      for (var i = 0; i < names.length; i++) {
+        try {
+          var obj = registry[names[i]];
+          if (!obj || typeof obj.getConfig !== "function") continue;
+          var cfg = obj.getConfig();
+          if (!cfg) continue;
+          var vm = (cfg.VM || cfg.vm || "EVM").toUpperCase();
+          var ep = (cfg.RPC && cfg.RPC.ENDPOINTS) ? cfg.RPC.ENDPOINTS : [];
+          var rpc = ep[0];
+          if (!rpc) {
+            if (cfg.API && cfg.API.REST_URL) { rpc = cfg.API.REST_URL; ep = [rpc]; }
+            else if (cfg.REST && cfg.REST.ENDPOINTS && cfg.REST.ENDPOINTS.length) {
+              rpc = cfg.REST.ENDPOINTS[0];
+              ep = cfg.REST.ENDPOINTS;
+            }
+          }
+          if (rpc) {
+            _RpcLookup.set(names[i], rpc, vm, ep.slice(1, 3));
+          }
+        } catch (eChain) {
+          Logger.log("[RpcLookup] Init error for " + names[i] + ": " + eChain);
+        }
+      }
+    } catch (e) {
+      Logger.log("[RpcLookup] Init error: " + e);
+    }
+  }
   
   function _load() {
     if (_cache !== null) return;
+    // v4.15.100: Memory-only — rebuild from ChainFactory on each run instead
+    // of persisting to ScriptProperties (saves ~28KB of 500KB quota).
+    // Falls back to legacy ScriptProperties key if ChainFactory not available.
+    _initFromChainFactory();
+    if (_initAttempted && _cache && Object.keys(_cache).length > 0) return;
+    // Fallback: try old persisted key (will be cleaned by emergency purge)
     try {
       var raw = PropertiesService.getScriptProperties().getProperty(ACTIVITY_CONFIG.STORAGE.RPC_LOOKUP);
       _cache = raw ? JSON.parse(raw) : {};
@@ -197,14 +247,8 @@ var _RpcLookup = (function() {
   }
   
   function _save() {
-    try {
-      PropertiesService.getScriptProperties().setProperty(
-        ACTIVITY_CONFIG.STORAGE.RPC_LOOKUP,
-        JSON.stringify(_cache)
-      );
-    } catch (e) {
-      Logger.log("[RpcLookup] Save error: " + e);
-    }
+    // v4.15.100: No-op — RPC lookup is rebuilt from ChainFactory on each watchdog
+    // cycle. The old ACTIVITY_RPC_LOOKUP key (28+ KB) is cleaned by emergency purge.
   }
   
   return {
@@ -444,6 +488,9 @@ var ActivityTracker = (function() {
       );
       _dirty = false;
     } catch (e) {
+      // v4.15.100: Stop retry loop — if storage is full, don't keep retrying
+      // in the same execution. Next watchdog cycle will retry.
+      _dirty = false;
       Logger.log("[ActivityTracker] Save error: " + e);
     }
   }

@@ -178,6 +178,17 @@ if (!savings.includes("Http.canFetchNow(\"26B.fetchAll\")")) {
 }
 
 const prices = read("src/07_PRICES.gs");
+const webPriceIdx = prices.indexOf("PriceSources.wcoreWebBatchPrices(list");
+const dexBulkIdx = prices.indexOf("PriceSources.dexBulkTokens(list");
+if (webPriceIdx < 0) {
+  fail(errors, "Price engine must call WCORE Web batch pricing source");
+}
+if (webPriceIdx >= 0 && dexBulkIdx >= 0 && webPriceIdx > dexBulkIdx) {
+  fail(errors, "WCORE Web batch pricing must run before DexScreener/GT fallbacks");
+}
+if (!prices.includes("/api/gsheet/prices")) {
+  fail(errors, "Price engine must call /api/gsheet/prices for delegated web pricing");
+}
 if (!prices.includes("function _pxHttpBlocked")) {
   fail(errors, "Prices must have a direct-fetch no-fetch guard");
 }

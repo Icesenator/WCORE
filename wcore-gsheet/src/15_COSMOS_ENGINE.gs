@@ -619,11 +619,24 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
  
  // v4.13.3: Centralized quota pre-check via BaseEngine
  // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
- var cosmosForce = (typeof Bool !== 'undefined') ? Bool.parse(forceFull) : false;
-  if (!cosmosForce) {
-    var quotaBlocked = BaseEngine.quotaPreCheck(address, cfg);
-    if (quotaBlocked) return quotaBlocked;
-  }
+  var cosmosForce = (typeof Bool !== 'undefined') ? Bool.parse(forceFull) : false;
+    try {
+      if (typeof _webScanWallet_ === "function") {
+        var cosmosWebScan = _webScanWallet_(address, arg3, forceFull, cfg);
+        if (cosmosWebScan && cosmosWebScan.ok && cosmosWebScan.status) return cosmosWebScan.status;
+      }
+    } catch (eWebScan) {}
+    if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(cfg)) {
+      return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
+    }
+    if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
+     var cosmosWebQuotaBlocked = BaseEngine.quotaPreCheck(address, cfg);
+     if (cosmosWebQuotaBlocked) return cosmosWebQuotaBlocked;
+   }
+   if (!cosmosForce) {
+     var quotaBlocked = BaseEngine.quotaPreCheck(address, cfg);
+     if (quotaBlocked) return quotaBlocked;
+   }
 
   // v4.15.50: Busy-guard — avoid 30s GAS timeout (#ERROR!) under heavy load.
   if (!cosmosForce && BaseEngine.isBusy && BaseEngine.isBusy(cfg)) {

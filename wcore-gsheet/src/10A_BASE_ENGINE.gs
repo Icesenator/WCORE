@@ -1,7 +1,13 @@
 /************************************************************
  * 10A_BASE_ENGINE.gs - Unified Base Engine for EVM/SVM/Cosmos
  *
- * Version: v4.15.27
+ * Version: v4.15.71
+ *
+ * v4.15.71: STATS exposes Recap-compatible exec_ms and last_cache_update
+ *   aliases across BaseEngine chains.
+ *
+ * v4.15.28: STATS derives missingPrices from visible cache assets as a
+ *   fallback when packed/legacy scanStats under-report web pricing gaps.
  *
  * v4.15.27: HTTP errors with incomplete scan preserve existing cache even when
  *   newCount >= prevCount. Same pattern as BLOCKED QUOTA: stale > wrong.
@@ -86,7 +92,7 @@
 // ============================================================
 // AUTO-REGISTRATION (v4.13.3)
 // ============================================================
-var BASE_ENGINE_VERSION = "4.15.70";
+var BASE_ENGINE_VERSION = "4.15.71";
 
 if (typeof ModuleRegistry !== 'undefined') {
   ModuleRegistry.register("BASE_ENGINE", BASE_ENGINE_VERSION, {
@@ -226,6 +232,26 @@ BaseEngine.hasHttpErrorSignal = function(state, scanStats) {
    err.indexOf("rpc-fail") >= 0;
  } catch (e) {
  return false;
+ }
+};
+
+BaseEngine.countMissingPricesFromCache = function(cache) {
+ try {
+ var assets = (cache && cache.assets && Array.isArray(cache.assets)) ? cache.assets : [];
+ var priceMap = (cache && cache.priceMap) || {};
+ var n = 0;
+ for (var i = 0; i < assets.length; i++) {
+ var a = assets[i] || {};
+ var contract = String(a.contract || a.c || "").trim();
+ if (!contract || contract.toLowerCase() === "native") continue;
+ var bal = parseFloat(a.balance != null ? a.balance : a.b);
+ if (!isFinite(bal) || bal <= 0) continue;
+ var p = a.price_eur != null ? parseFloat(a.price_eur) : parseFloat(priceMap[contract]);
+ if (!isFinite(p) || p <= 0) n++;
+ }
+ return n;
+ } catch (e) {
+ return 0;
  }
 };
 
@@ -1311,9 +1337,10 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  
  // === Cache metrics ===
  var cacheAgeSec = -1;
- var pricesMissing = 0;
- var totalEur = 0;
- var hasError = 0;
+  var pricesMissing = 0;
+  var totalEur = 0;
+  var hasError = 0;
+  var lastCacheUpdateStr = "N/A";
  
  if (!cache) {
  out.push(["Cache", m("N/A", "No cache")]);
@@ -1327,7 +1354,8 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  out.push(["Cache.last_update", m(
  (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(cache) : "") || "N/A", 
  "META last_update")]);
- out.push(["Cache.last_cache_update", m(WalletCache.getLastUpdateStr(cache) || "N/A", "cache write")]);
+  lastCacheUpdateStr = WalletCache.getLastUpdateStr(cache) || "N/A";
+  out.push(["Cache.last_cache_update", m(lastCacheUpdateStr, "cache write")]);
  var expectedVer = config.CACHE_VERSION || "N/A";
  var storedVer = cache.version || "N/A";
  var verMatch = (expectedVer === storedVer);
@@ -1407,7 +1435,9 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  out.push(["Pricing.missing_count", m(pricesMissing, "balance>0 without price")]);
  }
  
- // === Pricing config ===
+  out.push(["last_cache_update", lastCacheUpdateStr]);
+
+  // === Pricing config ===
  out.push(["Pricing.enabled", !(config.FLAGS && config.FLAGS.DISABLE_LIVE_PRICES) ? 1 : 0]);
  
  // === Global caches ===
@@ -1449,9 +1479,20 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  var scanStats = (cache && cache.scanStats) || null;
  var rrCursor = (cache && cache.rrCursor) || 0;
  
- if (scanStats) {
- var totalContracts = scanStats.totalContracts || 0;
- var missingPrices = scanStats.missingPrices || 0;
+  if (scanStats) {
+  if (scanStats.source === "wcore-web") {
+  out.push(["WebScan.source", "wcore-web"]);
+  out.push(["WebScan.vm", scanStats.vm || ""]);
+  out.push(["WebScan.scan_ms", scanStats.scanMs || 0]);
+  out.push(["WebScan.priority_tokens", scanStats.priorityTokens || scanStats.strictTokens || 0]);
+  out.push(["WebScan.extra_tokens", scanStats.extraTokens || 0]);
+  out.push(["WebScan.filtered_out", scanStats.filteredOut || 0]);
+  out.push(["WebScan.scam_filtered", scanStats.scamFiltered || 0]);
+  }
+  var totalContracts = scanStats.totalContracts || 0;
+  var missingPrices = scanStats.missingPrices || 0;
+  var derivedMissingPrices = BaseEngine.countMissingPricesFromCache(cache);
+  if (derivedMissingPrices > missingPrices) missingPrices = derivedMissingPrices;
  var missingMeta = scanStats.missingMeta || 0;
  // v4.15.24: Native only (0 contracts) = cycle complete. Otherwise DONE
  // requires the scan cycle AND all visible metadata/pricing gaps to be closed.
@@ -1612,7 +1653,9 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  out.push(["Activity.error", String(activityErr.message || activityErr).substring(0, 50)]);
  }
  
- out.push(["Exec.ms", m(timer ? String(timer.elapsed()) : "0", "ms")]);
+  var execMs = timer ? String(timer.elapsed()) : "0";
+  out.push(["Exec.ms", m(execMs, "ms")]);
+  out.push(["exec_ms", m(execMs, "ms")]);
  
  return out;
 };

@@ -1,7 +1,11 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.5.22
+ * Version: v4.5.23
+ *
+ * v4.5.23 FIX: normal watchdog no longer resets or repulses QUOTA rows
+ *   without a live quota probe. QUOTA recovery is owned by QUOTA_RECOVERY_SWEEP,
+ *   which calls _recoveryProbeQuota_ before reset/pulse.
  *
  * v4.15.58 FIX: never sync J1 from BLOCKED/NO_CACHE I1 values; preserving
  *   the old J1 latch is what keeps A1 on the last good cache during quota outages.
@@ -93,7 +97,7 @@ var WD_PULSE_MIN_PARTIAL = 15;  // v4.5.11: Cooldown for partial cycles (15 min)
 // Probe size
 var WD_PROBE_SIZE_MIN = 5;
 var WD_PROBE_SIZE_MAX = 20;
-var WD_MAX_PULSES_PER_RUN = 5;   // v4.15.77: quota-safe global stale recovery (was 20)
+var WD_MAX_PULSES_PER_RUN = 15;  // v4.16.2: faster stale recovery with controlled B1 pulse cap
 
 // Property keys
 var P_WD_CURSOR = "WD_CURSOR";
@@ -526,10 +530,12 @@ function _wd_isLastUpdateFormat_(s) {
 function _wd_extractTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   // Match usable prefixes followed by timestamp.
-  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY)\]\s*(.+)$/);
+  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED)\]\s*(.+)$/);
   if (match && match[1]) {
     return match[1].trim();
   }
+  match = vI1.match(/^WEB_SCAN_OK\s+(.+)$/);
+  if (match && match[1]) return match[1].trim();
   return vI1;
 }
 
@@ -678,7 +684,7 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
       else if (refreshCheck.reason === "stale") stats.b1Stale++;
       else if (refreshCheck.reason === "error") stats.b1Error++;
 
-      if (refreshCheck.reason === "blocked") {
+      if (refreshCheck.reason === "blocked" && refreshCheck.blockedReason !== "QUOTA") {
         _wd_tryUnblock_(refreshCheck.blockedReason);
       }
 
@@ -833,18 +839,12 @@ function _wd_tryUnblock_(blockedReason) {
   try {
     // Only reset FLAGS, never touch data
     
-    // v4.5.12: Handle QUOTA - reset circuit breaker so testOnce() can retest
+    // QUOTA recovery must be gated by _recoveryProbeQuota_ in
+    // QUOTA_RECOVERY_SWEEP. Resetting here can repulse every blocked sheet
+    // while Google's UrlFetch quota is still in its rolling 24h window.
     if (blockedReason === "QUOTA") {
-      if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
-        QuotaCircuitBreaker.reset();
-        result.cleared = true;
-        result.actions.push("QuotaCircuitBreaker.reset");
-      }
-      // Also try HttpErrorGuard if available
-      if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.clearQuotaFlag) {
-        HttpErrorGuard.clearQuotaFlag();
-        result.actions.push("HttpErrorGuard.clearQuotaFlag");
-      }
+      result.actions.push("Quota recovery skipped in watchdog");
+      return result;
     }
     
     if (blockedReason === "GUARD" && typeof CacheGuard !== 'undefined') {
@@ -882,24 +882,6 @@ function _wd_tryUnblock_(blockedReason) {
 function WATCHDOG_FROM_RECAP() {
   try { HttpCallCounter.setTrigger('WATCHDOG_FROM_RECAP'); } catch(e){}
   try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("WATCHDOG_FROM_RECAP", false); } catch(e){}
-
-  // v4.15.63: Quota breaker self-reset. Until 2026-06-01 the breaker could
-  // stay tripped on a false-positive (quota counter at 0, breaker at 24h
-  // cooldown), which prevented the watchdog from running its WCORE_IS_SAFE
-  // gate (mode CACHE_ONLY → safe=false). The watchdog needs to RUN to clear
-  // the trip, so we clear it here, ONCE per day, at the top of the cycle.
-  try {
-    var _wdLastReset = PropertiesService.getScriptProperties().getProperty("WCORE_WD_LAST_QUOTA_RESET") || "";
-    var _wdToday = new Date().toISOString().slice(0, 10);
-    if (_wdLastReset !== _wdToday &&
-        typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped &&
-        QuotaCircuitBreaker.isTripped()) {
-      try { Logger.log("[WATCHDOG] Breaker tripped on day-start, self-resetting (was false-positive)"); } catch (eLR) {}
-      if (typeof QuotaCircuitBreaker.reset === 'function') QuotaCircuitBreaker.reset();
-      if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.reset) HttpErrorGuard.reset();
-      try { PropertiesService.getScriptProperties().setProperty("WCORE_WD_LAST_QUOTA_RESET", _wdToday); } catch (eSR) {}
-    }
-  } catch (eBrk) {}
 
   const lock = LockService.getScriptLock();
   try {

@@ -361,7 +361,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
   let noMarketFiltered = 0;
   const filteredSymbols = new Set<string>();
   const noMarketSymbols: string[] = [];
-  const protectedContracts = new Set(customTokens.map((token) => token.trim().toLowerCase()).filter((token) => /^0x[0-9a-f]{40}$/.test(token)));
+  const protectedContracts = new Set(customTokens.map((token) => token.trim().toLowerCase()).filter(Boolean));
   // Whitelisted symbols (xGRAIL, aRUSDC, etc.) — pass the no-market filter when the scan
   // couldn't resolve a price. We mirror @wcore/shared _KNOWN_TOKENS here so the GSheet adapter
   // doesn't need to call detectScam just to know if a token is whitelisted.
@@ -375,6 +375,14 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     "WCT", "WCT CLAIMABLE", "WCT STAKE", "COMP WETH BORROW", "COMP WRSETH", "WRSETH",
   ]);
   const knownTokens = new Set<string>();
+  const chain = core.getChain(String(result.chain || fallbackChain));
+  const chainKnownTokens = chain?.KNOWN_TOKENS;
+  if (chainKnownTokens && typeof chainKnownTokens === "object") {
+    for (const id of Object.keys(chainKnownTokens as Record<string, unknown>)) {
+      const normalized = id.trim().toLowerCase();
+      if (normalized) knownTokens.add(normalized);
+    }
+  }
   for (const token of Array.isArray(result.tokens) ? result.tokens : []) {
     const symbol = String(tokenStringField(token, "symbol") || "").toUpperCase();
     if (knownTokenSymbols.has(symbol)) {

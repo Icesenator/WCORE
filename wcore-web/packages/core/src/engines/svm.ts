@@ -27,7 +27,9 @@ const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 let _svmTokenMap: Map<string, { symbol: string; name: string; decimals: number; logoUrl?: string }> | null = null;
 const _svmMetaCache = new Map<string, { symbol: string; name: string; decimals: number; logoUrl?: string }>();
 
-async function loadSvmTokenMetadata(): Promise<Map<string, { symbol: string; name: string; decimals: number; logoUrl?: string }>> {
+type SvmTokenMetadata = { symbol: string; name: string; decimals: number; logoUrl?: string };
+
+async function loadSvmTokenMetadata(): Promise<Map<string, SvmTokenMetadata>> {
   if (_svmTokenMap) return _svmTokenMap;
   try {
     const res = await fetch("https://cdn.jsdelivr.net/gh/solana-labs/token-list@main/src/tokens/solana.tokenlist.json");
@@ -37,6 +39,25 @@ async function loadSvmTokenMetadata(): Promise<Map<string, { symbol: string; nam
     _svmTokenMap = new Map();
   }
   return _svmTokenMap;
+}
+
+function getKnownSvmTokenMetadata(chain: ChainConfig): Map<string, SvmTokenMetadata> {
+  const knownTokens = chain.KNOWN_TOKENS;
+  if (!knownTokens || typeof knownTokens !== "object") return new Map();
+  const entries = Object.entries(knownTokens as Record<string, unknown>);
+  const result = new Map<string, SvmTokenMetadata>();
+  for (const [mint, raw] of entries) {
+    if (!raw || typeof raw !== "object") continue;
+    const meta = raw as { symbol?: unknown; name?: unknown; decimals?: unknown; logoUrl?: unknown };
+    if (typeof meta.symbol !== "string" || typeof meta.name !== "string" || typeof meta.decimals !== "number") continue;
+    result.set(mint, {
+      symbol: meta.symbol,
+      name: meta.name,
+      decimals: meta.decimals,
+      logoUrl: typeof meta.logoUrl === "string" ? meta.logoUrl : undefined,
+    });
+  }
+  return result;
 }
 
 export interface SvmWalletToken extends WalletAssetPrice {
@@ -145,7 +166,10 @@ export async function getSvmWalletAssets(
 
   const discoveryStart = Date.now();
   // Preload token metadata registry + populate cache
-  const tokenMeta = await loadSvmTokenMetadata();
+  const tokenMeta = new Map(await loadSvmTokenMetadata());
+  for (const [mint, meta] of getKnownSvmTokenMetadata(chain)) {
+    tokenMeta.set(mint, meta);
+  }
   // Populate persistent cache from token list
   for (const [addr, meta] of tokenMeta) {
     if (!_svmMetaCache.has(addr)) _svmMetaCache.set(addr, meta);

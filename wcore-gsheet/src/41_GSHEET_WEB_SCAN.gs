@@ -1,6 +1,7 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.10 - Preserve existing wallet cache on degraded native-zero Web scans.
  * v4.16.9 - Preserve Web debt tokens with negative balances.
  * v4.16.8 - Expose Web INFO_NO_MARKET row for illiquid tokens filtered by the API.
  * v4.16.7 - Expose Web INFO_NATIVE/INFO_TIMING/INFO_RPC rows for Recap.
@@ -13,7 +14,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.9";
+var GSHEET_WEB_SCAN_VERSION = "4.16.10";
 var GSHEET_WEB_SCAN_MAX_ATTEMPTS = 2;
 
 function _webScanProps_() {
@@ -276,6 +277,17 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   };
 }
 
+function _webScanShouldPreserveExistingCache_(payload, cache) {
+  if (!payload || payload.ok !== true || payload.degraded !== true) return false;
+  var errors = Array.isArray(payload.errors) ? payload.errors : [];
+  if (!errors.length) return false;
+  var assets = cache && Array.isArray(cache.assets) ? cache.assets : [];
+  if (assets.length !== 1) return false;
+  var native = assets[0] || {};
+  if (String(native.contract || "") !== "native") return false;
+  return _webScanNum_(native.balance, 0) === 0;
+}
+
 function _webScanRequestPayload_(address, tokensRange, forceFull, config) {
   return {
     address: String(address || "").trim(),
@@ -336,6 +348,15 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       var payloadFailure = { ok: false, status: "INVALID_PAYLOAD", error: String(payload && (payload.error || payload.message) || "empty_assets") };
       _webScanSetLastError_(payloadFailure.status + " " + payloadFailure.error);
       return payloadFailure;
+    }
+    if (_webScanShouldPreserveExistingCache_(payload, cache)) {
+      _webScanSetLastError_("PRESERVED_DEGRADED_NATIVE_ZERO " + chainKey);
+      return {
+        ok: true,
+        status: "[WEB_SCAN_PRESERVED] " + Format.datetime(cache.updatedAt),
+        cache: cache,
+        preserved: true
+      };
     }
     CacheManager.init();
     WalletCache.save(String(cacheKey || address || "").trim(), cache, config);

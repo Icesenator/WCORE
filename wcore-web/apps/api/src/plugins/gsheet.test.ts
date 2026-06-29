@@ -143,6 +143,7 @@ describe("gsheetPlugin", () => {
       token: "secret",
       cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -196,6 +197,7 @@ describe("gsheetPlugin", () => {
       token: "secret",
       cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -233,6 +235,7 @@ describe("gsheetPlugin", () => {
       token: "secret",
       cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -322,6 +325,7 @@ describe("gsheetPlugin", () => {
       token: "secret",
       cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -407,6 +411,87 @@ describe("gsheetPlugin", () => {
     const body = JSON.parse(res.body);
     assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["CUSTOM"]);
     assert.equal(body.cacheStats, undefined, "no cacheStats in original, noMarketFiltered must not be added");
+    await app.close();
+  });
+
+  test("does not filter custom SVM mints even when they have no price", async () => {
+    const app = Fastify();
+    const usdcMint = "uSd2czE61Evaf76RNbq4KPpXnkiL3irdzgLFUMe3NoG";
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Fogo",
+        vm: "SVM",
+        timestamp: "2026-06-29T12:30:00.000Z",
+        native: { symbol: "FOGO", balance: 0, priceEur: 0.01, valueEur: 0 },
+        tokens: [
+          { symbol: "USDC.s", name: "USDC", mint: usdcMint, balance: 1, decimals: 6, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 0,
+        errors: ["USDC.s price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        address: "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5",
+        chain: "fogo",
+        customTokens: [usdcMint],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["USDC.s"]);
+    assert.equal(body.cacheStats, undefined, "protected SVM mints must not count as no-market filtered");
+    await app.close();
+  });
+
+  test("does not filter chain-known SVM mints even when they have no price", async () => {
+    const app = Fastify();
+    const chaseMint = "GPK71dya1H975s3U4gYaJjrRCp3BGyAD8fmZCtSmBCcz";
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Fogo",
+        vm: "SVM",
+        timestamp: "2026-06-29T12:30:00.000Z",
+        native: { symbol: "FOGO", balance: 0, priceEur: 0.01, valueEur: 0 },
+        tokens: [
+          { symbol: "CHASE", name: "Chase Dog", mint: chaseMint, balance: 375.982715254, decimals: 9, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 0,
+        errors: ["CHASE price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        address: "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5",
+        chain: "fogo",
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["CHASE"]);
+    assert.equal(body.cacheStats, undefined, "chain-known SVM mints must not count as no-market filtered");
     await app.close();
   });
 

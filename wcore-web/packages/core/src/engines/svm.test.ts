@@ -7,6 +7,7 @@ import type { PricingSourceSet } from "../pricing/index.js";
 
 const OWNER = "AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4";
 const MOCK_MINT = "So11111111111111111111111111111111111111112";
+const FOGO_USDC_MINT = "uSd2czE61Evaf76RNbq4KPpXnkiL3irdzgLFUMe3NoG";
 
 // Minimal mock for RpcClient with call<T>() method
 function mockRpc(handlers: Record<string, unknown>) {
@@ -85,6 +86,35 @@ test("getSvmWalletAssets returns SPL token balances", async () => {
   assert.ok(result.tokens.length >= 1);
   const token = result.tokens.find((t: { mint: string }) => t.mint === MOCK_MINT);
   assert.ok(token);
+});
+
+test("getSvmWalletAssets uses chain KNOWN_TOKENS metadata for SVM mints", async () => {
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const rpc = mockRpc({
+    getBalance: () => ({ value: 0 }),
+    getTokenAccountsByOwner: () => ({
+      value: [{
+        pubkey: "FogoUsdcTokenAccount",
+        account: { data: { parsed: { info: { mint: FOGO_USDC_MINT, tokenAmount: { amount: "1000000", decimals: 6 } } } } },
+      }],
+    }),
+  });
+
+  const result = await getSvmWalletAssets(OWNER, "fogo", { rpc: rpc as never, sources, fxRate: 1 });
+
+  const token = result.tokens.find((t) => t.mint === FOGO_USDC_MINT);
+  assert.ok(token);
+  assert.equal(token.symbol, "USDC");
+  assert.equal(token.name, "USD Coin (Wormhole)");
+  assert.equal(token.decimals, 6);
+  assert.equal(token.balance, 1);
 });
 
 test("getSvmWalletAssets native balance uses successful RPC responses even when some fail", async () => {

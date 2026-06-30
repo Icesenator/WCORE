@@ -108,6 +108,11 @@ export async function priceToken(
     symbol: known.symbol,
     name: known.name,
     decimals: known.decimals,
+    // v0.3.x: preserve custom-selector + DeFi metadata so the API adapter can remap
+    // Compound V3 collateral to display the cToken contract and apply the [Flex]/[Lock] suffix.
+    balanceSelector: known.balanceSelector,
+    balanceSelectorExtraArgs: known.balanceSelectorExtraArgs,
+    defi: known.defi,
     logoUrl: known.logoUrl || await (async () => {
       const params = { symbol: known.symbol, chainKey: chain.key, contract: known.contract, cache: logoCache };
       const fast = await resolveTokenLogoCachedOrFallback(params);

@@ -62,6 +62,13 @@ export const CACHE_KEY_REGISTRY = {
     storage: "local" as const,
     ttl: "10m",
   },
+  compoundV3CTokens: {
+    vars: ["chain", "market"],
+    gsheet: null,
+    web: "compoundV3:{chain}:{market}",
+    storage: "web-only" as const,
+    ttl: "7d",
+  },
 } as const;
 
 export type CacheKeyName = keyof typeof CACHE_KEY_REGISTRY;

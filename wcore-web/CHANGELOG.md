@@ -1,5 +1,73 @@
 ﻿# Changelog
 
+## 2026-06-29 — Scam-detector v13: Base BONSAI absurd-price protection
+
+- **Prix absurde neutralisé côté GSheet API** : `BONSAI` n'est pas hard-blocké comme scam quand le prix est sain; les valeurs absurdes sont remplacées par `null` et tracées en erreur `ABSURD_PRICE`.
+- **Tests** : ajout d'un test négatif pour garantir que `BONSAI` reste autorisé par le scam detector lorsque le pricing est raisonnable.
+- **Note** : évite de supprimer un token légitime uniquement à cause d'une source de prix corrompue.
+
+## 2026-06-29 — Compound V3 on-chain cToken discoverer integrated in engine (no more suffix)
+
+- **Architecture** : Compound V3 positions are no longer read from a static registry. At scan time, the engine calls `getCompoundV3Tokens(chain, user, rpc, endpoint)` which queries `Comet.numAssets()` + `Comet.getAssetInfo(i).asset` to enumerate the unique cToken addresses per collateral type, then `cToken.symbol()` for naming. Each cToken (unique per collateral: wrsETH, wstETH, rETH, wBTC, USDT, USDC, ezETH, weETH) becomes a separate `DiscoveredToken` with `balanceSelector=collateralBalanceOf(user, cToken)` and `balanceSelectorExtraArgs=[cToken]`. Borrow position uses the Comet proxy directly with `balanceSelector=borrowBalanceOf(user)`. No more `@collateral`/`@borrow` suffix collisions.
+- **Registry cleanup** : `defi/registry.ts` removed the 2 hardcoded Compound V3 entries (`Comp WETH Borrow`, `Comp wrsETH`). The registry now only contains non-Compound protocols (SDAYS, SSWEET, WCT Stake, WCT Claimable) that don't have an on-chain discoverer.
+- **`applyStakedPriceMirrors` enhancement** : reads `liquidityStatus` from the token itself (for discovered positions) or from the registry (for known positions). The `[Flex]`/`[Lock]` suffix works for both paths.
+- **WCT Stake dynamic lock status** : `getWCTStakeLockStatus(rpc, endpoint, user)` queries `lockUntil(address)` on the WCT staking contract. Returns `"lock"` if `lockUntil > now`, else `"flex"`. Default `"flex"` on RPC failure (safe default). The API injects the fetcher at startup and the GSheet scan surface renders `[Lock]` / `[Flex]` from the dynamic status.
+- **Tests** : core targeted suite 62/62, API Chainbase 4/4, API GSheet 36/36.
+
+## 2026-06-29 — Scam-detector v12: World Chain XDogeCoin airdrop scam blocked
+
+- **`_BLOCKED_CONTRACTS` étendu** (1 nouvelle entrée):
+  - `0x37cff256e4aed256493060669a04b59d87d509d1` (World Chain: `XDoge` "XDogeCoin" — variante Dogecoin, generic airdrop)
+- **Tests** : 12/12 passent dans `apps/web/__tests__/scam-detector.test.ts`. SCAM_RULES_VERSION bump 11 → 12.
+- **Effet** : `XDoge` est maintenant flagged `scam level=10` au lieu de `suspicious` (générique + valeur > 10 EUR). Même pattern que LUCKY (World Chain airdrop scam).
+
+## 2026-06-29 — Compound V3 on-chain discoverer (cToken address, no suffix)
+
+- **Problème** : la version précédente suffixait `@collateral` / `@borrow` au Comet proxy pour distinguer les 2 sous-positions Compound V3, mais toutes les collatérales d'un même marché (wrsETH, wstETH, cbETH, etc.) partagent le même Comet proxy → collision dans Portefeuille Crypto Details.
+- **Solution architecturale** : passer de "registry statique" à "découverte on-chain" pour Compound V3. Chaque collateral a son **propre cToken address** (différent par type d'asset). Le cToken est ce qu'on met dans `contract_address`, garantissant l'unicité.
+- **`discoverCompoundV3CTokens(rpc, endpoint, cometAddress)`** dans `packages/core/src/defi/compound-v3.ts` : query `Comet.numAssets()` + `Comet.getAssetInfo(i).asset` pour chaque collateral, retourne la liste des cToken addresses. Tolère les erreurs partielles (continue si un getAssetInfo rate). Limite max 32 collatérales par marché.
+- **`decodeAddressFromWord(hex)`** ajouté dans `packages/core/src/tokens/abi.ts` : décode une address d'un word ABI 32-byte (left-padded).
+- **`positionToTokenLike`** : la logique de suffix `@collateral`/`@borrow` est retirée. Le `contract` est passé tel quel — c'est maintenant le **cToken address** (unique par collateral) qui sert de clé SUMPRODUCT dans Portefeuille Crypto Details. Plus aucune collision possible entre wrsETH, wstETH, cbETH collatéral sur le même marché.
+- **Tests** : 3 nouveaux tests dans `compound-v3.test.ts` (decouverte, numAssets=0, partial failure recovery). 4 tests Compound V3 mis à jour dans `positions.test.ts`. **15/15 positions + 3/3 compound-v3 = 18 tests verts** pour le module DeFi.
+- **État actuel** : `discoverCompoundV3CTokens` est exporté depuis `packages/core/src/defi/index.ts` et prêt à l'emploi. L'intégration dans le moteur de scan (qui boucle sur les Compound V3 markets, appelle le discoverer, lit `collateralBalanceOf(user, cToken)` et `borrowBalanceOf(user)`) reste à faire en follow-up — c'est la prochaine étape pour rendre l'engine Compound V3 100% on-chain.
+
+## 2026-06-29 — Scam-detector v11: 5 nouveaux contrats bloqués + 2 nouvelles règles (typo-phishing + Base impersonation)
+
+- **`_BLOCKED_CONTRACTS` étendu** (5 nouvelles entrées):
+  - `0xf34f722fc7617300ad37f499d7a36780d81daa29` (BASE: `BASED` "Based" — generic Base meme impersonation)
+  - `0x208e0664114880b76471fec59fdd1bead62620d3` (BASE: `IMOUT` "I AM OUT" — joke airdrop dust)
+  - `0x0d4d191a72c1d8d6703d6d3ed1a532b67d5a5f14` (BASE: `SEC` "Secury Wallet" — typo-phishing pour drain on approve)
+  - `0xf21dbea34ca178d424a6f2184b094f279de915ff` (BASE: `SHIT` "ShitToken" — joke airdrop dust)
+  - `0x3a27edadf19d362a60b0b5a7bd3e8c48273c5e2e` (World Chain: `LUCKY` "LuckyCoin" — generic airdrop sur nouvelle chaîne)
+- **Règle 11 — Typo-phishing** : détecte les fautes volontaires de mots-clés sécurité (`secury|saef|safty|securty|valut|wallat|wallett|offical|0fficial`) dans le symbol ou le name → `weight 4` → `scam`. Cible les honeypots qui imitent "Secure", "Safe", "Vault", "Wallet", "Official" avec une lettre changée.
+- **Règle 12 — Ultra-generic chain name impersonation** : détecte les patterns `Based|BaseCoin|Base Token|BaseToken|World Coin|WorldCoin` (symbol ou name exact) → `weight 4` → `scam`. Cible les tokens qui se font passer pour la "monnaie officielle" d'une chaîne.
+- **Tests** : 11/11 passent dans `apps/web/__tests__/scam-detector.test.ts`. SCAM_RULES_VERSION bump 10 → 11.
+- **Effet** : ces 5 contrats sont maintenant flagged `scam level=10` au lieu de `clean` ou `suspicious`. Les admins platform-owner peuvent toujours les override via `addAdminApproved()` si besoin.
+
+## 2026-06-29 — DeFi Compound V3: suffixed contract pour collateral/borrow distincts
+
+- **Bug** : Compound V3 (et autres protocoles multi-position) exposent plusieurs sous-positions (collateral, borrow) sous une même address on-chain. Le moteur DeFi (`packages/core/src/defi/positions.ts`) sortait 2 lignes avec le même `contract_address`, ce qui cassait la formule `SUMPRODUCT` de `Portefeuille Crypto Details` (lookup par G3=contract) — les 2 lignes recevaient la même valeur.
+- **Fix** : `positionToTokenLike()` suffix le `contract` par type de position:
+  - `lending_collateral` → `0xe36a...:collateral`
+  - `lending_debt` → `0xe36a...:borrow`
+  - Autres types → contract brut inchangé
+- **Tests** : 4 nouveaux tests dans `packages/core/src/defi/positions.test.ts` (`lending_collateral` suffix, `lending_debt` suffix, `wallet_token` no-suffix, `staking_locked` no-suffix). 12/12 verts.
+- **Effet** : la même address Compound V3 (ex: `0xe36a30d2...`) sort maintenant 2 lignes avec des `contract_address` distincts (`...@collateral` et `...@borrow`). La formule SUMPRODUCT de Portefeuille Crypto Details peut maintenant distinguer les 2 positions.
+- **Note** : `applyStakedPriceMirrors` continue de fonctionner (il utilise `mirror.underlying`, pas le contract). Le raw contract est préservé dans la position object interne (`position.contract`) pour les lookups internes.
+
+## 2026-06-29 — Fix label wallet SVM case-sensitive dans `/api/gsheet/scan`
+
+- **Bug** : `labelGsheetWalletScan()` dans `apps/api/src/plugins/gsheet.ts` faisait `address.toLowerCase()` pour lookup les wallets EVM. Les adresses Solana base58 sont case-sensitive (ex: `9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5` ≠ `9gjm5hw5e6hliscrciewcnqv9mt1l4dcm9w2arex6pe5`). Résultat : les 3 wallets SVM (`Layer3`, `Ledger`, `Seeker` du `WALLET_REGISTRY` dans `12_WALLET_NAMES.gs`) n'étaient jamais reconnus, et `chainName` restait `Fogo` au lieu de `Layer3 - Fogo`.
+- **Fix** : lookup exact d'abord (`map[rawAddress]`), puis fallback lowercase pour les adresses EVM. Ajout des 3 entrées SVM dans `GSHEET_WALLET_LABELS` (`9gjm...`, `AxU6...`, `GWLC...`).
+- **Test** : nouveau test `labels registered case-sensitive SVM gsheet wallets in web scan responses` qui échouait avant le fix (assertion `chainName === "Layer3 - Fogo"` retournait `"Fogo"`) et passe après. 30/30 tests API `gsheet.test.ts` verts.
+- **Déployé** : API Railway redéployée avec succès. Build `pnpm --filter @wcore/api build` OK, `railway up --service api --ci` Deploy complete. `railway.json` parent restauré vers `wcore-web/apps/web/Dockerfile.railway` après deploy.
+
+## 2026-06-29 — Renommage live `CEX - Bitpanda` → `CEX - Bitpanda Crypto` (Portefeuille Crypto Details)
+
+- **Bug** : 136 cellules de `Portefeuille Crypto Details!E:E` (gsheet) portaient le libellé `CEX - Bitpanda` (sans suffixe). Le sheet CEX réel est `CEX - Bitpanda Crypto` (distinct de `CEX - Bitpanda Fiat/Stocks/Commodity`). La formule VLOOKUP colonne H résolvait par recherche exacte, donc `CEX - Bitpanda` retournait toujours 0 ou erreur.
+- **Fix** : renommé live via Google Sheets API (`batchUpdate` avec 136 `updateCells`) : `CEX - Bitpanda` → `CEX - Bitpanda Crypto`. Liens hypertexte re-générés via `_setDetailsChainHyperlinks_` (709 cellules linkées au final).
+- **Note** : `CEX - Bitpanda Fiat` n'apparaît PAS dans `Portefeuille Crypto Details` par design (la fiat n'est pas un asset à tracker là-bas, normal).
+
 ## 2026-06-22 — Web pricing fix: GT throttle + cache policy + error logging
 
 - **GT throttle bumped (40→300 calls/60s)** : le web n'a pas la limite 30s de GSheet. Le throttle à 40 était un copier-coller inadapté qui empêchait le pricing de >40 tokens par scan. Ajout d'un inter-call pacing de 10ms pour éviter les burst 429. (`packages/core/src/pricing/sources/geckoterminal.ts`)

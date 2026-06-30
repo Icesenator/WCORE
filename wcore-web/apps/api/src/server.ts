@@ -318,6 +318,28 @@ await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized });
 // plugin's expected cacheStore contract.
 const gsheetApiToken = apiConfig.integrations.gsheetApiToken;
 if (gsheetApiToken) {
+  // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.
+  // Inject the production fetcher (from @wcore/core) into the gsheet plugin.
+  try {
+    const core = await import("@wcore/core");
+    if (typeof core.getWCTStakeLockStatus === "function") {
+      const { injectWCTStakeLockStatusFetcher } = await import("./plugins/gsheet.js");
+      injectWCTStakeLockStatusFetcher(async (userAddress, rpcLike, endpoint) => {
+        try {
+          const WCT_STAKE = "0x521b4c065bbdbe3e20b3727340730936912dfa46";
+          // keccak256("lockUntil(address)")[:4]
+          const data = "0x025b22f4" + userAddress.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+          const result = await rpcLike.ethCall(endpoint, WCT_STAKE, data);
+          return await core.getWCTStakeLockStatus(rpcLike, endpoint, userAddress);
+        } catch {
+          return "flex" as const;
+        }
+      });
+    }
+  } catch {
+    // @wcore/core not importable in this context (tests, etc.) — fall back to
+    // registry-based static [Lock] determination.
+  }
   await gsheetPlugin(app, {
     token: gsheetApiToken,
     cache: sharedCache,

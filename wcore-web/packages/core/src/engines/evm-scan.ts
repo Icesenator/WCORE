@@ -15,6 +15,7 @@ import {
   registryTokenDiscovery,
   getKnownTokensForChain,
 } from "../tokens/index.js";
+import { getCompoundV3Tokens } from "../defi/compound-v3.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
 import {
   GeckoTerminalPriceSource,
@@ -43,6 +44,47 @@ import {
 import { getRecentLogRange, readNativeBalance, canServeEmptyCache, readErc20Balance } from "./evm-balances.js";
 import { sharedPriceCache, defaultSources, priceNative, priceToken, priceCacheKey } from "./evm-pricing.js";
 import { cacheKey } from "@wcore/shared";
+
+export function normalizeBalanceSelectorExtraArgs(args: string[] | undefined): string[] | null | undefined {
+  if (args === undefined) return undefined;
+  if (!Array.isArray(args)) return null;
+  const out: string[] = [];
+  for (const arg of args) {
+    const hex = String(arg || "").replace(/^0x/i, "");
+    if (/^[0-9a-fA-F]{64}$/.test(hex)) {
+      out.push(`0x${hex.toLowerCase()}`);
+      continue;
+    }
+    if (/^[0-9a-fA-F]{40}$/.test(hex)) {
+      out.push(`0x${hex.toLowerCase().padStart(64, "0")}`);
+      continue;
+    }
+    return null;
+  }
+  return out;
+}
+
+export function discoveredTokenVariantKey(token: Pick<DiscoveredToken, "contract" | "balanceSelector" | "balanceSelectorExtraArgs">): string {
+  return `${token.contract.toLowerCase()}:${(token.balanceSelector || "").toLowerCase()}:${(token.balanceSelectorExtraArgs || []).join(",").toLowerCase()}`;
+}
+
+function normalizeCachedDiscoveryTokens(tokens: unknown, errors: string[]): DiscoveredToken[] | undefined {
+  if (!Array.isArray(tokens)) return undefined;
+  const out: DiscoveredToken[] = [];
+  for (const token of tokens as DiscoveredToken[]) {
+    if (!token?.balanceSelector) {
+      out.push(token);
+      continue;
+    }
+    const extraArgs = normalizeBalanceSelectorExtraArgs(token.balanceSelectorExtraArgs);
+    if (extraArgs === null) {
+      errors.push(`[cache] invalid balance selector extra args skipped: ${token.symbol || token.contract}`);
+      continue;
+    }
+    out.push({ ...token, ...(extraArgs !== undefined ? { balanceSelectorExtraArgs: extraArgs } : {}) });
+  }
+  return out;
+}
 
 export async function getEvmWalletAssets(
   address: string,
@@ -166,7 +208,7 @@ export async function getEvmWalletAssets(
   if (cache && discoveryKey && !opts.tokenDiscovery) {
     try {
       const results = await cache.mget([discoveryKey, `${discoveryKey}:block`]);
-      cachedDiscoveryTokens = results[0] as DiscoveredToken[] | undefined;
+      cachedDiscoveryTokens = normalizeCachedDiscoveryTokens(results[0], errors);
       cachedLastBlock = results[1] as number | undefined;
     } catch { /* cache miss */ }
   }
@@ -179,15 +221,34 @@ export async function getEvmWalletAssets(
   if (!opts.tokenDiscovery) {
     const registryTokens = await getKnownTokensForChain(key);
     const merged = Array.isArray(cachedDiscoveryTokens) ? [...cachedDiscoveryTokens] : [];
-    const tokenDedupKey = (t: { contract: string; balanceSelector?: string; balanceSelectorExtraArgs?: string[] }) =>
-      `${t.contract.toLowerCase()}:${t.balanceSelector || ""}:${(t.balanceSelectorExtraArgs || []).join(",")}`;
-    const seen = new Set(merged.map((t) => tokenDedupKey(t)));
+    const seen = new Set(merged.map((t) => discoveredTokenVariantKey(t)));
     for (const t of registryTokens) {
-      const k = tokenDedupKey(t);
+      const k = discoveredTokenVariantKey(t);
       if (seen.has(k)) continue;
       merged.push(t);
       seen.add(k);
     }
+
+    // v0.3.x: Compound V3 on-chain discoverer — enumerates cToken addresses per
+    // collateral (via Comet.numAssets + getAssetInfo) and adds the borrow
+    // position. Each cToken is unique per collateral type, so the
+    // Portefeuille Crypto Details SUMPRODUCT lookup no longer collides.
+    // CToken addresses are constant per market — cached 7 days to avoid
+    // repeated on-chain calls on every scan (saves ~17 RPC calls/scan).
+    try {
+      const comp3 = await getCompoundV3Tokens(key, normalizedAddress, rpc, effectiveEndpoints[0] ?? "https://mainnet.optimism.io", { cache });
+      for (const t of comp3.tokens) {
+        const k = discoveredTokenVariantKey(t);
+        if (seen.has(k)) continue;
+        merged.push(t);
+        seen.add(k);
+      }
+      if (comp3.errors.length) errors.push(...comp3.errors.map((e) => `[compound-v3] ${e}`));
+    } catch (e) {
+      // Discoverer failure must not block the rest of the scan
+      errors.push(`[compound-v3] discoverer failed: ${(e as Error).message}`);
+    }
+
     cachedDiscoveryTokens = merged;
   }
 
@@ -251,15 +312,13 @@ export async function getEvmWalletAssets(
   // Merge previously-cached tokens whenever any are present — independent of
   // whether the new fetch was incremental — so the union is always re-persisted.
   if (cachedDiscoveryTokens && cachedDiscoveryTokens.length > 0) {
-    const cdKey = (t: { contract: string; balanceSelector?: string; balanceSelectorExtraArgs?: string[] }) =>
-      `${t.contract.toLowerCase()}:${t.balanceSelector || ""}:${(t.balanceSelectorExtraArgs || []).join(",")}`;
-    const seen = new Set(discoveredTokens.map((t) => cdKey(t)));
+    const seen = new Set(discoveredTokens.map((t) => discoveredTokenVariantKey(t)));
     for (const cached of cachedDiscoveryTokens) {
-      if (!seen.has(cdKey(cached))) {
+      if (!seen.has(discoveredTokenVariantKey(cached))) {
         // Skip stale UNKNOWN entries from before the metadata fix
         if (cached.symbol === "UNKNOWN" || cached.name === "Unknown Token") continue;
         discoveredTokens.push(cached);
-        seen.add(cdKey(cached));
+        seen.add(discoveredTokenVariantKey(cached));
       }
     }
   }

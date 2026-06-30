@@ -44,6 +44,93 @@ test("positionToTokenLike preserves negative debt values", () => {
   assert.equal(token.valueEur, -8.4);
 });
 
+// v0.3.x: Compound V3 cToken discovery — each collateral has its own cToken
+// contract (no Comet proxy suffix needed). The cToken address is the unique
+// key in Portefeuille Crypto Details SUMPRODUCT lookup.
+test("positionToTokenLike preserves cToken contract for lending_collateral (Compound V3 cToken)", () => {
+  const CTOKEN_WRSETH = "0x1111111111111111111111111111111111111111";
+  const token = positionToTokenLike({
+    id: "optimism:compound-v3:wrseth-collateral",
+    chain: "OPTIMISM",
+    protocol: "compound-v3",
+    type: "lending_collateral",
+    label: "Comp wrsETH",
+    name: "Compound V3 cWETHv3 Collateral",
+    contract: CTOKEN_WRSETH,
+    balance: 0.5,
+    decimals: 18,
+    priceEur: 1500,
+    valueEur: 750,
+    liquidityStatus: "flex",
+    source: "discovery",
+    confidence: "high",
+  });
+
+  assert.equal(token.contract, CTOKEN_WRSETH, "cToken contract preserved as-is");
+});
+
+test("positionToTokenLike preserves cToken contract for lending_debt (Compound V3 Comet proxy)", () => {
+  const COMET = "0xe36a30d249f7761327fd973001a32010b521b6fd";
+  const token = positionToTokenLike({
+    id: "optimism:compound-v3:weth-borrow",
+    chain: "OPTIMISM",
+    protocol: "compound-v3",
+    type: "lending_debt",
+    label: "Comp WETH Borrow",
+    name: "Compound V3 cWETHv3 Borrowed",
+    contract: COMET,
+    balance: -0.006,
+    decimals: 18,
+    priceEur: 1400,
+    valueEur: -8.4,
+    liquidityStatus: "flex",
+    source: "discovery",
+    confidence: "high",
+  });
+
+  assert.equal(token.contract, COMET, "Comet contract preserved as-is for borrow (1 borrow per market)");
+});
+
+test("positionToTokenLike preserves contract for wallet_token (no transformation)", () => {
+  const token = positionToTokenLike({
+    id: "ethereum:wallet:usdc",
+    chain: "ETHEREUM",
+    type: "wallet_token",
+    label: "USDC",
+    name: "USD Coin",
+    contract: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    balance: 100,
+    decimals: 6,
+    priceEur: 0.92,
+    valueEur: 92,
+    source: "registry",
+    confidence: "high",
+  });
+
+  assert.equal(token.contract, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+});
+
+test("positionToTokenLike preserves contract for staking_locked (WCT-style, distinct contract)", () => {
+  const token = positionToTokenLike({
+    id: "optimism:walletconnect-staking:wct-stake",
+    chain: "OPTIMISM",
+    protocol: "walletconnect-staking",
+    type: "staking_locked",
+    label: "WCT Stake",
+    name: "WCT Stake",
+    contract: "0x521b4c065bbdbe3e20b3727340730936912dfa46",
+    balance: 1000,
+    decimals: 18,
+    priceEur: 0.5,
+    valueEur: 500,
+    liquidityStatus: "lock",
+    source: "registry+rpc",
+    confidence: "high",
+  });
+
+  assert.equal(token.contract, "0x521b4c065bbdbe3e20b3727340730936912dfa46");
+});
+
 test("registry identifies WCT stake and claimable liquidity", () => {
   const stake = getDeFiPositionMetadata("OPTIMISM", "0x521b4c065bbdbe3e20b3727340730936912dfa46", "WCT Stake");
   const claimable = getDeFiPositionMetadata("OPTIMISM", "0xf368f535e329c6d08dff0d4b2da961c4e7f3fcaf", "WCT Claimable");
@@ -52,17 +139,6 @@ test("registry identifies WCT stake and claimable liquidity", () => {
   assert.equal(stake?.liquidityStatus, "lock");
   assert.equal(claimable?.type, "claimable");
   assert.equal(claimable?.liquidityStatus, "flex");
-});
-
-test("registry uses symbol-specific Compound collateral over Comet debt default", () => {
-  const comet = "0xe36a30d249f7761327fd973001a32010b521b6fd";
-  const debt = getDeFiPositionMetadata("OPTIMISM", comet, "Comp WETH Borrow");
-  const collateral = getDeFiPositionMetadata("OPTIMISM", comet, "Comp wrsETH");
-
-  assert.equal(debt?.type, "lending_debt");
-  assert.equal(debt?.pricing?.sign, "debt");
-  assert.equal(collateral?.type, "lending_collateral");
-  assert.equal(collateral?.pricing?.sign, "asset");
 });
 
 test("registry returns undefined for normal tokens", () => {

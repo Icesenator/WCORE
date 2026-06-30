@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getEvmWalletAssets, getEvmWalletsAssets } from "./evm.js";
+import { discoveredTokenVariantKey, normalizeBalanceSelectorExtraArgs } from "./evm-scan.js";
 import type { RpcCallOptions } from "../rpc/index.js";
 import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
@@ -1299,6 +1300,29 @@ test("getEvmWalletsAssets: custom tokens added to results even when discovery is
   // Price comes from DefiLlama mock (42 USD * 1 fxRate = 42 EUR)
   assert.equal(customToken!.priceEur, 42);
   assert.equal(customToken!.valueEur, 42);
+});
+
+test("normalizeBalanceSelectorExtraArgs upgrades cached address args to ABI words", () => {
+  assert.deepEqual(
+    normalizeBalanceSelectorExtraArgs(["0x87eee96d50fb761ad85b1c982d28a042169d61b1"]),
+    ["0x00000000000000000000000087eee96d50fb761ad85b1c982d28a042169d61b1"],
+  );
+  assert.equal(normalizeBalanceSelectorExtraArgs(["0xnot-a-word"]), null);
+});
+
+test("discoveredTokenVariantKey treats selector extra args case-insensitively", () => {
+  const lower = discoveredTokenVariantKey({
+    contract: "0xE36A30D249f7761327fd973001A32010b521b6Fd",
+    balanceSelector: "0x5c2549ee",
+    balanceSelectorExtraArgs: ["0x00000000000000000000000087eee96d50fb761ad85b1c982d28a042169d61b1"],
+  });
+  const mixed = discoveredTokenVariantKey({
+    contract: "0xe36a30d249f7761327fd973001a32010b521b6fd",
+    balanceSelector: "0x5C2549EE",
+    balanceSelectorExtraArgs: ["0x00000000000000000000000087eEE96D50Fb761AD85B1c982d28A042169d61B1"],
+  });
+
+  assert.equal(lower, mixed);
 });
 
 test("getEvmWalletsAssets: preserves custom selector variants on the same contract", async () => {

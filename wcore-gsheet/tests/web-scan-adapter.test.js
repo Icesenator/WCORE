@@ -8,6 +8,7 @@ const source = fs.readFileSync(sourcePath, 'utf8');
 const refreshSource = fs.readFileSync(path.join(__dirname, '..', 'src', '16_REFRESH.gs'), 'utf8');
 const outputSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10_OUTPUT.gs'), 'utf8');
 const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EVM_ENGINE.gs'), 'utf8');
+const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
@@ -56,6 +57,18 @@ function makeOutputContext() {
   return context;
 }
 
+function makeWalletNamesContext() {
+  const context = {
+    console,
+    Object,
+    String,
+    Addr: { normalize: (v) => String(v || '').toLowerCase() },
+  };
+  vm.createContext(context);
+  vm.runInContext(walletNamesSource, context);
+  return context;
+}
+
 function makeContext(props, fetchBody) {
   const saved = [];
   const fetchFn = typeof fetchBody === 'function'
@@ -87,7 +100,7 @@ function makeContext(props, fetchBody) {
     CacheManager: { init: () => {} },
     WalletCache: {
       save: (address, cache, config) => saved.push({ address, cache, config }),
-      load: () => null,
+      load: () => props.__walletCache || null,
       getLastUpdateStr: (cache) => cache && cache.updatedAt ? '2026-06-26 19:00:00' : '',
       getLastRunUpdateStr: (cache) => cache && cache.last_run_update_ms ? '2026-06-26 19:00:00' : '',
     },
@@ -121,6 +134,20 @@ const samplePayload = JSON.stringify({
   fxRate: 0.86,
   scanMs: 100,
 });
+
+{
+  const ctx = makeWalletNamesContext();
+  assert.equal(
+    ctx.WalletNames.get('0x9eb34B670F79491329F71080717EdF071fF5353f', 'Base'),
+    'UniSwap - Base',
+    'wallet registry labels checksum/mixed-case addresses with Wallet - Chain'
+  );
+  assert.equal(
+    ctx.WalletNames.get('0x18BBEC24e4ff9C43D538121528C08a88Cacd4e4c', 'Base'),
+    'Warpcast - Base',
+    'wallet registry labels Warpcast checksum address with Wallet - Chain'
+  );
+}
 
 {
   const ctx = makeContext({});
@@ -336,6 +363,12 @@ const samplePayload = JSON.stringify({
   const ctx = makeRefreshContext();
   assert.equal(ctx._wd_extractTimestamp_('WEB_SCAN_OK 2026-06-26 20:00:00'), '2026-06-26 20:00:00');
   assert.equal(ctx._wd_extractTimestamp_('[WEB_SCAN_DEGRADED] 2026-06-26 20:00:00'), '2026-06-26 20:00:00');
+  assert.equal(ctx._wd_extractTimestamp_('[WEB_SCAN_PRESERVED] 2026-06-26 20:00:00'), '2026-06-26 20:00:00');
+  assert.deepEqual(
+    ctx._wd_needsRefresh_('', '[WEB_SCAN_PRESERVED] 2026-06-26 20:00:00', new Date(2026, 5, 26, 20, 5, 0).getTime(), 5 * 3600000),
+    { needsPulse: true, reason: 'error', blockedReason: null, useBlockedCooldown: false },
+    'preserved web scans must be retried after normal B1 cooldown even when their status timestamp is fresh'
+  );
   assert.equal(ctx._wd_shouldSyncJ1_('WEB_SCAN_OK 2026-06-26 20:00:00', '2026-06-26 19:00:00'), true);
 }
 
@@ -372,6 +405,189 @@ const samplePayload = JSON.stringify({
 }
 
 {
+  const degradedWithAssetsPayload = JSON.stringify({
+    ok: true,
+    chain: 'BASE',
+    chainName: 'Base',
+    vm: 'EVM',
+    timestamp: '2026-06-30T04:22:36.000Z',
+    native: { symbol: 'ETH', balance: 0.006, priceEur: 1394, valueEur: 8.36 },
+    tokens: [
+      { symbol: 'CYBER', name: 'CyberConnect', contract: '0x14778860e937f509e651192a90589de711fb88a9', balance: 1, decimals: 18, priceEur: 2.61712e18, valueEur: 2.61712e18 },
+      { symbol: 'BONSAI', name: 'Bonsai Token', contract: '0x474f4cb764df9da079d94052fed39625c147c12c', balance: 1491, decimals: 18, priceEur: 0.000073, valueEur: 0.108843 },
+    ],
+    totalValueEur: 2.61712e18,
+    errors: ['balances fetch: RPC_TIMEOUT'],
+    degraded: true,
+    fxRate: 0.877,
+    scanMs: 11262,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, degradedWithAssetsPayload);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_PRESERVED/, 'any degraded web scan with errors must preserve existing cache');
+  assert.equal(ctx.__saved.length, 0, 'degraded web scan with errors must not overwrite a valid wallet cache');
+}
+
+{
+  const correctedAbsurdPricePayload = JSON.stringify({
+    ok: true,
+    chain: 'BASE',
+    chainName: 'Base',
+    vm: 'EVM',
+    timestamp: '2026-06-30T05:22:36.000Z',
+    native: { symbol: 'ETH', balance: 0.006, priceEur: 1394, valueEur: 8.36 },
+    tokens: [
+      { symbol: 'CYBER', name: 'CyberConnect', contract: '0x14778860e937f509e651192a90589de711fb88a9', balance: 1, decimals: 18, priceEur: null, valueEur: null },
+      { symbol: 'BONSAI', name: 'Bonsai Token', contract: '0x474f4cb764df9da079d94052fed39625c147c12c', balance: 1491, decimals: 18, priceEur: null, valueEur: null },
+    ],
+    totalValueEur: 8.36,
+    errors: ['CYBER price: ABSURD_PRICE', 'BONSAI price: ABSURD_PRICE'],
+    degraded: true,
+    fxRate: 0.877,
+    scanMs: 11262,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, correctedAbsurdPricePayload);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'absurd-price-only degraded scan is safe to save after API neutralizes values');
+  assert.equal(ctx.__saved.length, 1, 'sanitized absurd-price payload must overwrite stale corrupted wallet cache');
+  assert.equal(ctx.__saved[0].cache.priceMap['0x14778860e937f509e651192a90589de711fb88a9'], undefined);
+  assert.equal(ctx.__saved[0].cache.priceMap['0x474f4cb764df9da079d94052fed39625c147c12c'], undefined);
+}
+
+{
+  const priceGapPayload = JSON.stringify({
+    ok: true,
+    chain: 'BASE',
+    chainName: 'Ledger - Base',
+    vm: 'EVM',
+    timestamp: '2026-06-30T06:22:36.000Z',
+    native: { symbol: 'ETH', balance: 0.006, priceEur: 1394, valueEur: 8.36 },
+    tokens: [
+      { symbol: 'CYBER', name: 'CyberConnect', contract: '0x14778860e937f509e651192a90589de711fb88a9', balance: 1, decimals: 18, priceEur: 0.294, valueEur: 0.294 },
+      { symbol: 'DRINK', name: 'Drinking To Get Drunk', contract: '0xc2a5afd72f62b4ccac9d47f33c93974da570fa34', balance: 135000, decimals: 18, priceEur: 0.000015, valueEur: 2.025 },
+      { symbol: 'MISSING', name: 'Missing Price', contract: '0x0000000000000000000000000000000000000002', balance: 1, decimals: 18, priceEur: null, valueEur: null },
+    ],
+    totalValueEur: 10.679,
+    errors: ['explorer cooldown active for BASE', 'MISSING price: NO_PRICE'],
+    degraded: true,
+    fxRate: 0.877,
+    scanMs: 11262,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, priceGapPayload);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'price-gap-only degraded scan is safe to save and can repair corrupted prices');
+  assert.equal(ctx.__saved.length, 1, 'price-gap-only degraded scan must overwrite stale corrupted wallet cache');
+  assert.equal(ctx.__saved[0].cache.priceMap['0x14778860e937f509e651192a90589de711fb88a9'], 0.294);
+}
+
+{
+  const baseUsefulDegradedPayload = JSON.stringify({
+    ok: true,
+    chain: 'BASE',
+    chainName: 'Ledger - Base',
+    vm: 'EVM',
+    timestamp: '2026-06-30T10:09:23.000Z',
+    native: { symbol: 'ETH', balance: 0.006, priceEur: 1387, valueEur: 8.3 },
+    tokens: [
+      { symbol: 'C-Locked', name: 'Chainbase Staking [Lock]', contract: '0x0297E997b56017164110f75F71ecd58dA823085B', balance: 58.58143972, decimals: 18, priceEur: 0.067, valueEur: 3.94 },
+      { symbol: 'C-Airdrop', name: 'Chainbase Airdrop [Flex]', contract: '0x3F2061547174d206613Bc70869A454c25F84A0dF', balance: 15.357840691300828, decimals: 18, priceEur: 0.067, valueEur: 1.03 },
+      { symbol: 'CUSTOM', name: 'Custom No Price', contract: '0x0000000000000000000000000000000000000002', balance: 1, decimals: 18, priceEur: null, valueEur: null },
+    ],
+    totalValueEur: 13.27,
+    errors: [
+      'explorer error BASE: This operation was aborted',
+      '[DEGRADED] SOLVBTC balance: cache_fallback_live_failed, using cache fallback',
+      'CUSTOM price: NO_PRICE',
+    ],
+    degraded: true,
+    fxRate: 0.86,
+    scanMs: 3000,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, baseUsefulDegradedPayload);
+  const res = ctx._webScanWallet_('0x17d518736Ee9341dcDc0A2498e013D33CFCDD080', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'useful Base degraded scans with cache-backed balances must save refreshed DeFi labels');
+  assert.equal(ctx.__saved.length, 1, 'useful Base degraded scan must overwrite stale DeFi labels in wallet cache');
+  const savedNames = (ctx.__saved[0].cache.assets || []).map((t) => t.name);
+  assert.ok(savedNames.includes('Chainbase Staking [Lock]'));
+  assert.ok(savedNames.includes('Chainbase Airdrop [Flex]'));
+}
+
+{
+  const partialPayload = JSON.stringify({
+    ok: true,
+    chain: 'BASE',
+    chainName: 'Ledger - Base',
+    vm: 'EVM',
+    timestamp: '2026-06-30T10:20:00.000Z',
+    native: { symbol: 'ETH', balance: 0.006, priceEur: 1387, valueEur: 8.3 },
+    tokens: [
+      { symbol: 'C-Locked', name: 'Chainbase Staking [Lock]', contract: '0x0297E997b56017164110f75F71ecd58dA823085B', balance: 58.58143972, decimals: 18, priceEur: 0.067, valueEur: 3.94 },
+    ],
+    totalValueEur: 12.24,
+    errors: ['balances fetch: RPC_TIMEOUT'],
+    degraded: true,
+    fxRate: 0.86,
+    scanMs: 3000,
+  });
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [
+      { contract: 'native', symbol: 'ETH', name: 'Ether', balance: 0.006, decimals: 18, price_eur: 1300, value_eur: 7.8 },
+      { contract: '0xold0000000000000000000000000000000000001', symbol: 'OLD', name: 'Old Token', balance: 2, decimals: 18, price_eur: 5, value_eur: 10 },
+      { contract: '0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3', symbol: 'AGI', name: 'AGI Holdings', balance: 5099, decimals: 18, price_eur: 0.000011, value_eur: 0.056 },
+      { contract: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', symbol: 'DRB', name: 'DebtReliefBot', balance: 888, decimals: 18, price_eur: 0.000032, value_eur: 0.028 },
+      { contract: '0x0297E997b56017164110f75F71ecd58dA823085B', symbol: 'C-Locked', name: 'Chainbase Staking (locked)', balance: 58.58143972, decimals: 18, price_eur: 0.06, value_eur: 3.51 },
+    ],
+    priceMap: { native: 1300, '0xold0000000000000000000000000000000000001': 5, '0x0297E997b56017164110f75F71ecd58dA823085B': 0.06 },
+    priceTsMap: {},
+    balanceTsMap: {},
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, partialPayload);
+  const res = ctx._webScanWallet_('0x17d518736Ee9341dcDc0A2498e013D33CFCDD080', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'useful but unsafe degraded scan should save a conservative merged cache');
+  assert.equal(ctx.__saved.length, 1, 'merged degraded scan must write one cache update');
+  const merged = ctx.__saved[0].cache.assets;
+  assert.ok(merged.find((t) => t.symbol === 'OLD'), 'old cache-only token must be preserved');
+  assert.ok(!merged.find((t) => t.symbol === 'AGI'), 'old scam cache-only token must be purged during degraded merge');
+  assert.ok(!merged.find((t) => t.symbol === 'DRB'), 'old scam cache-only token must be purged during degraded merge');
+  assert.ok(merged.find((t) => t.symbol === 'C-Locked' && t.name === 'Chainbase Staking [Lock]'), 'new useful metadata must update the cached token');
+  assert.equal(ctx.__saved[0].cache.scanStats.webMergePreservedAssets, 1);
+}
+
+{
   const degradedNativeZeroPayload = JSON.stringify({
     ok: true,
     chain: 'MANTLE',
@@ -396,6 +612,45 @@ const samplePayload = JSON.stringify({
   assert.equal(res.ok, true);
   assert.match(res.status, /WEB_SCAN_PRESERVED/, 'unsafe degraded native-zero web scan should be reported as preserved');
   assert.equal(ctx.__saved.length, 0, 'unsafe degraded native-zero web scan must not overwrite an existing wallet cache');
+}
+
+{
+  const tokens = [
+    { symbol: 'WCT', name: 'WalletConnect Token', contract: '0xef4461891dfb3ac8572ccf7c794664a8dd927945', balance: 45.38886228, decimals: 18, priceEur: 0.03646375792, valueEur: 1.655048487 },
+    { symbol: 'WCT Claimable', name: 'WCT Staking Reward Distributor', contract: '0xf368f535e329c6d08dff0d4b2da961c4e7f3fcaf', balance: 1.5, decimals: 18, priceEur: 0.03646375792, valueEur: 0.054695636 },
+    { symbol: 'WCT Stake', name: 'WCT Stake Weight', contract: '0x521b4c065bbdbe3e20b3727340730936912dfa46', balance: 10, decimals: 18, priceEur: 0.03646375792, valueEur: 0.364637579 },
+    { symbol: 'Comp WETH Borrow', name: 'Compound V3 cWETHv3 Borrowed', contract: '0xe36a30d249f7761327fd973001a32010b521b6fd', balance: -0.006, decimals: 18, priceEur: 1387.02, valueEur: -8.32212 },
+    { symbol: 'Comp wrsETH', name: 'Compound V3 cWETHv3 Collateral', contract: '0xe36a30d249f7761327fd973001a32010b521b6fd', balance: 0.5, decimals: 18, priceEur: 1700, valueEur: 850 },
+  ];
+  const payloadWithBlockNumberConsensusError = JSON.stringify({
+    ok: true,
+    chain: 'OPTIMISM',
+    chainName: 'Optimism',
+    vm: 'EVM',
+    timestamp: '2026-06-30T09:58:33.000Z',
+    native: { symbol: 'ETH', balance: 0.001390156746, priceEur: 1387.02, valueEur: 1.92817521 },
+    tokens: tokens,
+    totalValueEur: 847.68,
+    errors: ['blockNumber consensus failed; token log discovery limited to latest block'],
+    degraded: true,
+    fxRate: 0.86,
+    scanMs: 3000,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, payloadWithBlockNumberConsensusError);
+  const res = ctx._webScanWallet_('0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7', [], false, { CHAIN: { KEY: 'OPTIMISM', NAME: 'Optimism', NATIVE_SYMBOL: 'ETH' } }, 'optimism_cache_key');
+  assert.equal(res.ok, true, 'web scan must succeed even with blockNumber consensus error if payload has real data');
+  assert.match(res.status, /WEB_SCAN_OK|WEB_SCAN_DEGRADED/, 'web scan with non-empty tokens + discovery-only errors must save');
+  assert.equal(ctx.__saved.length, 1, 'web scan with non-empty tokens + discovery-only errors must overwrite the cache');
+  const savedTokens = (ctx.__saved[0].cache.assets || []).map((t) => t.symbol);
+  assert.ok(savedTokens.includes('WCT Claimable'), 'WCT Claimable must be persisted');
+  assert.ok(savedTokens.includes('WCT Stake'), 'WCT Stake must be persisted');
+  assert.ok(savedTokens.includes('Comp WETH Borrow'), 'Comp WETH Borrow must be persisted');
+  assert.ok(savedTokens.includes('Comp wrsETH'), 'Comp wrsETH must be persisted');
 }
 
 {
@@ -432,12 +687,29 @@ const samplePayload = JSON.stringify({
 }
 
 {
+  assert.equal(source.includes('GSHEET_WEB_SCAN_DENYLIST'), false, 'web scan must not use per-address denylist; WCORE WEB is the wallet label source');
+  assert.equal(source.includes('_webScanAddressDenied_'), false, 'web scan must not fallback to native GAS for registered wallet labels');
+  assert.equal(evmEngineSource.includes('webScanDenied'), false, 'EVM refresh must not bypass Web-required behavior for label-known wallets');
+}
+
+{
   const ctx = makeContext({});
   assert.equal(ctx._webScanChainKey_({ CHAIN: { NAME: 'BNB Chain' }, KEYS: { PREFIX: 'BSC_CACHE_' } }), 'BSC', 'web scan must use canonical factory key for BNB Chain');
   assert.equal(ctx._webScanChainKey_({ CHAIN: { NAME: 'zkLink Nova' }, KEYS: { PREFIX: 'ZKLINKNOVA_CACHE_' } }), 'ZKLINKNOVA', 'web scan must preserve canonical factory key spelling');
   assert.equal(ctx._webScanChainKey_({ CHAIN: { NAME: 'Injective' }, KEYS: { PREFIX: 'INJECTIVE_COSMOS_CACHE_' } }), 'INJECTIVE', 'web scan must remove Cosmos cache suffix from canonical key');
   assert.equal(ctx._webScanChainKey_({ CHAIN: { NAME: 'Cosmos Hub' }, KEYS: { PREFIX: 'COSMOS_HUB_COSMOS_CACHE_' } }), 'COSMOS_HUB', 'web scan must remove Cosmos suffix without damaging chain names containing underscores');
   assert.equal(ctx._webScanChainKey_({ CHAIN: { KEY: 'WORLDCHAIN', NAME: 'World Chain' } }), 'WORLDCHAIN', 'explicit chain key takes priority');
+}
+
+{
+  const props = {};
+  const ctx = makeContext(props, () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, chain: 'OPTIMISM', chainName: 'Optimism', vm: 'EVM', native: { symbol: 'ETH', balance: 0, priceEur: 1400, valueEur: 0 }, tokens: [], totalValueEur: 0, errors: ['Compound V3 invalid 32-byte extra arg chain=OPTIMISM', 'WCT discovery failed: TIMEOUT'], degraded: true, fxRate: 0.86 }) }));
+  ctx._webScanSetLastError_('errors=2 first=Compound V3 invalid 32-byte extra arg chain=OPTIMISM', 'OPTIMISM');
+  assert.equal(props['GSHEET_WEB_SCAN_LAST_ERROR'], 'errors=2 first=Compound V3 invalid 32-byte extra arg chain=OPTIMISM');
+  assert.equal(props['GSHEET_WEB_SCAN_LAST_ERROR_OPTIMISM'], 'errors=2 first=Compound V3 invalid 32-byte extra arg chain=OPTIMISM');
+  const diag = ctx.DIAG_WEB_SCAN_LAST_ERROR('OPTIMISM');
+  assert.equal(diag.length, 3, 'DIAG returns header + global + per-chain');
+  assert.equal(diag[2][0], 'OPTIMISM', 'DIAG row labels per-chain key');
 }
 
 console.log('web scan adapter OK');

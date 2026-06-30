@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors } from "./gsheet.js";
+import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors, precomputeWCTStakeLockStatus, setWCTStakeLockStatusFetcher } from "./gsheet.js";
 
 test("mapWithConcurrencyLimit bounds parallel work", async () => {
   let active = 0;
@@ -176,7 +176,7 @@ describe("gsheetPlugin", () => {
     assert.deepEqual(JSON.parse(res.body), {
       ok: true,
       chain: "BASE",
-      chainName: "Base",
+      chainName: "Ledger - Base",
       vm: "EVM",
       timestamp: "2026-06-26T17:00:00.000Z",
       native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
@@ -188,6 +188,76 @@ describe("gsheetPlugin", () => {
       scanMs: 123,
       cacheStats: { hits: 1, misses: 2, stale: 0, skipped: 0 },
     });
+    await app.close();
+  });
+
+  test("labels registered gsheet wallets in web scan responses", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [],
+        totalValueEur: 21,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x9eb34B670F79491329F71080717EdF071fF5353f", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.chain, "BASE");
+    assert.equal(body.chainName, "UniSwap - Base");
+    await app.close();
+  });
+
+  test("labels registered case-sensitive SVM gsheet wallets in web scan responses", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Fogo",
+        vm: "SVM",
+        timestamp: "2026-06-29T12:30:00.000Z",
+        native: { symbol: "FOGO", balance: 1, priceEur: 0.01, valueEur: 0.01 },
+        tokens: [],
+        totalValueEur: 0.01,
+        errors: [],
+        degraded: false,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5", chain: "fogo" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.chain, "FOGO");
+    assert.equal(body.chainName, "Layer3 - Fogo");
     await app.close();
   });
 
@@ -411,6 +481,142 @@ describe("gsheetPlugin", () => {
     const body = JSON.parse(res.body);
     assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["CUSTOM"]);
     assert.equal(body.cacheStats, undefined, "no cacheStats in original, noMarketFiltered must not be added");
+    await app.close();
+  });
+
+  test("custom tokens do not bypass explicit NFT filters", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-30T04:22:36.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 1385, valueEur: 13.85 },
+        tokens: [
+          { symbol: "KEEP", name: "Custom Token", contract: "0x1111111111111111111111111111111111111111", balance: 1000, decimals: 18, priceEur: null, valueEur: null },
+          { symbol: "BASF", name: "Base SuperFest Wristband", contract: "0xa295bed246c51ee4848bc71f496d0ddd03cb296d", balance: 1, decimals: 0, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 13.85,
+        errors: ["KEEP price: NO_PRICE", "BASF price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
+        chain: "base",
+        customTokens: [
+          "0x1111111111111111111111111111111111111111",
+          "0xa295bed246c51ee4848bc71f496d0ddd03cb296d",
+        ],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["KEEP"]);
+    assert.equal(body.totalValueEur, 13.85);
+    assert.equal(body.cacheStats.nonFungibleFiltered, 1);
+    await app.close();
+  });
+
+  test("neutralizes absurd token prices without deleting real tokens", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-30T04:22:36.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 1385, valueEur: 13.85 },
+        tokens: [
+          { symbol: "CYBER", name: "CyberConnect", contract: "0x14778860e937f509e651192a90589de711fb88a9", balance: 1, decimals: 18, priceEur: 2.61712e18, valueEur: 2.61712e18 },
+          { symbol: "BONSAI", name: "Bonsai Token", contract: "0x474f4cb764df9da079d94052fed39625c147c12c", balance: 1491.775, decimals: 18, priceEur: 0.000073, valueEur: 0.1089 },
+        ],
+        totalValueEur: 2.61712e18,
+        errors: [],
+        degraded: false,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
+        chain: "base",
+        customTokens: ["0x14778860e937f509e651192a90589de711fb88a9"],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.tokens[0].symbol, "CYBER");
+    assert.equal(body.tokens[0].priceEur, null);
+    assert.equal(body.tokens[0].valueEur, null);
+    assert.equal(body.tokens[1].symbol, "BONSAI");
+    assert.equal(body.tokens[1].priceEur, 0.000073);
+    assert.equal(body.totalValueEur, 13.96);
+    assert.deepEqual(body.errors, ["CYBER price: ABSURD_PRICE"]);
+    assert.equal(body.degraded, true);
+    await app.close();
+  });
+
+  test("neutralizes implausible long-tail token values without marking the token as scam", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-30T05:22:36.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 1385, valueEur: 13.85 },
+        tokens: [
+          { symbol: "BONSAI", name: "Bonsai Token", contract: "0x474f4cb764df9da079d94052fed39625c147c12c", balance: 1491.775, decimals: 18, priceEur: 73.23642618, valueEur: 109252.2697 },
+        ],
+        totalValueEur: 109266.12,
+        errors: [],
+        degraded: false,
+        fxRate: 0.8781,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: {
+        address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
+        chain: "base",
+        customTokens: ["0x474f4cb764df9da079d94052fed39625c147c12c"],
+      },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.tokens[0].symbol, "BONSAI");
+    assert.equal(body.tokens[0].priceEur, null);
+    assert.equal(body.tokens[0].valueEur, null);
+    assert.equal(body.totalValueEur, 13.85);
+    assert.deepEqual(body.errors, ["BONSAI price: ABSURD_PRICE"]);
+    assert.equal(body.degraded, true);
     await app.close();
   });
 
@@ -638,9 +844,59 @@ describe("gsheetPlugin", () => {
     assert.equal(claimable.balance, 15.357840691300827);
     assert.equal(locked.contract.toLowerCase(), "0x0297e997b56017164110f75f71ecd58da823085b");
     assert.equal(claimable.contract.toLowerCase(), "0x3f2061547174d206613bc70869a454c25f84a0df");
+    assert.equal(locked.name, "Chainbase Staking [Lock]", "C-Locked must use withLiquiditySuffix to render the [Lock] badge");
+    assert.equal(claimable.name, "Chainbase Airdrop [Flex]", "C-Airdrop must use withLiquiditySuffix to render the [Flex] badge");
+    assert.equal(locked.defi?.type, "staking_locked");
+    assert.equal(locked.defi?.liquidityStatus, "lock");
+    assert.equal(claimable.defi?.type, "claimable");
+    assert.equal(claimable.defi?.liquidityStatus, "flex");
     assert.ok(body.chainbaseStaking, "chainbaseStaking summary must be present");
     assert.equal(body.chainbaseStaking.locked, 58.58143972);
     assert.equal(body.chainbaseStaking.claimable, 15.357840691300827);
+    await app.close();
+  });
+
+  test("renders Chainbase Staking as flex when undelegation is mature", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: async () => ({
+        stakingContract: "0x0297e997b56017164110f75f71ecd58da823085b",
+        airdropContract: "0x3f2061547174d206613bc70869a454c25f84a0df",
+        locked: 58.58143972,
+        claimable: 0,
+        tokenSymbol: "C",
+        tokenAddress: "0xba12bc7b210e61e5d3110b997a63ea216e0e18f7",
+        liquidityStatus: "flex",
+        fetchedAt: "2026-06-28T16:00:00.000Z",
+      }),
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-28T16:00:00.000Z",
+        native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+        tokens: [],
+        totalValueEur: 0,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    const locked = body.tokens.find((t: { symbol: string }) => t.symbol === "C-Locked");
+    assert.equal(locked?.name, "Chainbase Staking [Flex]");
+    assert.equal(locked?.defi?.liquidityStatus, "flex");
     await app.close();
   });
 
@@ -852,6 +1108,44 @@ describe("applyStakedPriceMirrors", () => {
     assert.equal(stake?.source, "staked-mirror:WCT");
   });
 
+  test("WCT Stake flips to [Flex] when the on-chain lockUntil has passed", async () => {
+    const WCT = "0xef4461891dfb3ac8572ccf7c794664a8dd927945";
+    const WCT_STAKE = "0x521b4c065bbdbe3e20b3727340730936912dfa46";
+    const USER = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+    // Inject a minimal RPC stub that returns a lockUntil timestamp 60s in the past
+    // to simulate a fully unlocked WCT Stake position.
+    const pastTimestamp = Math.floor(Date.now() / 1000) - 60;
+    const stub = {
+      ethCall: async () => "0x" + pastTimestamp.toString(16).padStart(64, "0"),
+    };
+    setWCTStakeLockStatusFetcher(async () => "flex" as "flex" | "lock" | "unknown", stub);
+    try {
+      await precomputeWCTStakeLockStatus("OPTIMISM", USER);
+      const result = applyStakedPriceMirrors({
+        ok: true,
+        chain: "OPTIMISM",
+        chainName: "Optimism",
+        vm: "EVM",
+        timestamp: "2026-06-28T18:00:00.000Z",
+        native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+        wallet: USER,
+        tokens: [
+          { symbol: "WCT", name: "WalletConnect Token", contract: WCT, balance: 45.38886228, decimals: 18, priceEur: 0.03725997343, valueEur: 1.691187803 },
+          { symbol: "WCT Stake", name: "WCT Stake Weight", contract: WCT_STAKE, balance: 71.2, decimals: 18, priceEur: null, valueEur: null, defi: { type: "staking_locked", liquidityStatus: "lock", confidence: "high" } },
+        ],
+        totalValueEur: 1.691187803,
+        errors: [],
+        degraded: false,
+        fxRate: 0.878,
+        scanMs: 123,
+      });
+      const stake = (result.tokens as Array<{ symbol: string; name: string }>).find((t) => t.symbol === "WCT Stake");
+      assert.equal(stake?.name, "WCT Stake Weight [Flex]", "WCT Stake must switch to [Flex] when lockUntil is past");
+    } finally {
+      setWCTStakeLockStatusFetcher(null, null);
+    }
+  });
+
   test("uses symbol-specific mirror before contract-level debt mirror for Compound collateral", () => {
     const COMET = "0xe36a30d249f7761327fd973001a32010b521b6fd";
     const result = applyStakedPriceMirrors({
@@ -862,8 +1156,11 @@ describe("applyStakedPriceMirrors", () => {
       timestamp: "2026-06-29T05:00:00.000Z",
       native: { symbol: "ETH", balance: 0.01, priceEur: 1376.91, valueEur: 13.77 },
       tokens: [
-        { symbol: "Comp WETH Borrow", name: "Compound V3 cWETHv3 Borrowed", contract: COMET, balance: 0.006, decimals: 18, priceEur: null, valueEur: null },
-        { symbol: "Comp wrsETH", name: "Compound V3 cWETHv3 Collateral", contract: COMET, balance: 0.007, decimals: 18, priceEur: null, valueEur: null },
+        // v0.3.x: Compound V3 positions now use cToken addresses (discovered on-chain).
+        // Each position carries its own liquidityStatus on the token, so the
+        // registry is no longer needed for the [Flex] suffix.
+        { symbol: "Comp WETH Borrow", name: "Compound V3 cWETHv3 Borrowed", contract: COMET, balance: 0.006, decimals: 18, priceEur: null, valueEur: null, liquidityStatus: "flex" } as Record<string, unknown>,
+        { symbol: "Comp wrsETH", name: "Compound V3 cWETHv3 Collateral", contract: COMET, balance: 0.007, decimals: 18, priceEur: null, valueEur: null, liquidityStatus: "flex" } as Record<string, unknown>,
       ],
       totalValueEur: 151.46,
       errors: [],
@@ -882,5 +1179,31 @@ describe("applyStakedPriceMirrors", () => {
     assert.equal(collateral?.priceEur, 1376.91);
     assert.equal(collateral?.valueEur, 9.64);
     assert.equal(collateral?.source, "staked-mirror:wrsETH");
+  });
+
+  test("Compound V3 collateral displays the cToken contract, not the Comet", () => {
+    const COMET = "0xe36a30d249f7761327fd973001a32010b521b6fd";
+    const WRSETH_CTOKEN = "0x87eEE96D50Fb761AD85B1c982d28A042169d61b1";
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "OPTIMISM",
+      chainName: "Optimism",
+      vm: "EVM",
+      timestamp: "2026-06-29T05:00:00.000Z",
+      native: { symbol: "ETH", balance: 0.01, priceEur: 1376.91, valueEur: 13.77 },
+      tokens: [
+        // The engine returns the Comet contract (call target) but the cToken in extraArgs
+        // for collateral positions. The Sheet must show the cToken contract.
+        { symbol: "Comp wrsETH", name: "Compound V3 wrsETH Collateral", contract: COMET, balance: 0.007, decimals: 18, priceEur: null, valueEur: null, defi: { type: "lending_collateral", liquidityStatus: "flex", confidence: "high" }, balanceSelector: "0x5c2549ee", balanceSelectorExtraArgs: ["0x" + WRSETH_CTOKEN.slice(2).padStart(64, "0")] } as Record<string, unknown>,
+      ],
+      totalValueEur: 13.77,
+      errors: [],
+      degraded: false,
+      fxRate: 0.878,
+      scanMs: 123,
+    });
+    const tokens = result.tokens as Array<{ symbol: string; contract: string }>;
+    const collateral = tokens.find((t) => t.symbol === "Comp wrsETH");
+    assert.equal(collateral?.contract.toLowerCase(), WRSETH_CTOKEN.toLowerCase(), "Comp wrsETH must display the cToken contract for Sheet users");
   });
 });

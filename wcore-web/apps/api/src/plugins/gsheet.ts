@@ -60,10 +60,26 @@ export interface GsheetScanResult {
   scanMs: number;
   cacheStats?: unknown;
   chainbaseStaking?: unknown;
+  wallet?: string;
 }
 
 const GSHEET_SCAN_PRICE_REPAIR_LIMIT = Math.max(0, Math.floor(Number(process.env.GSHEET_SCAN_PRICE_REPAIR_LIMIT) || 24));
 const GSHEET_PRICE_BATCH_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.GSHEET_PRICE_BATCH_CONCURRENCY) || 3));
+
+const GSHEET_WALLET_LABELS: Record<string, string> = {
+  "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7": "Layer3 Wallet",
+  "0x17d518736ee9341dcdc0a2498e013d33cfcdd080": "Ledger",
+  "0xd5b0dbd75056a30411be789775e40664ec858e51": "Binance Web3 Wallet",
+  "0x09875c42713f9525384afb83f95c2858d1cbccc4": "Smart Wallet",
+  "0xe39c0d6439a71d2bddfdeee94420601cdf8fd22d": "Ethos",
+  "0x6f6d5c6ecf999d330ef942b9288089b7746f0b60": "SafePal",
+  "0xe9c01999dee7562c07a048ffe5c866dc1f337569": "Startale",
+  "0x9eb34b670f79491329f71080717edf071ff5353f": "UniSwap",
+  "0x18bbec24e4ff9c43d538121528c08a88cacd4e4c": "Warpcast",
+  "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5": "Layer3",
+  "AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4": "Ledger",
+  "GWLCYszJB8H5Pe3nYw6uoFTApoAqP9P7uzgTmbFm4Nqk": "Seeker",
+};
 
 export async function mapWithConcurrencyLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
@@ -85,7 +101,85 @@ function tokenNumberField(obj: unknown, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// Staked tokens that share price 1:1 with an underlying token in the same scan.
+// v0.3.x: WCT Stake dynamic liquidity status — setWCTStakeLockStatusFetcher allows
+// tests to inject a fake fetcher. The production fetcher is set by the API server
+// startup via injectWCTStakeLockStatusFetcher() and uses the dynamic lockUntil query.
+type LiquidityStatus = "flex" | "lock" | "unknown";
+type RpcLike = { ethCall: (endpoint: string, contract: string, data: string) => Promise<string> };
+type WCTStakeFetcher = (userAddress: string, rpc: RpcLike, endpoint: string) => Promise<LiquidityStatus> | LiquidityStatus;
+
+let wctStakeFetcher: WCTStakeFetcher | null = null;
+const wctStakeStatusCache = new Map<string, LiquidityStatus>();
+
+export function injectWCTStakeLockStatusFetcher(fetcher: WCTStakeFetcher): void {
+  wctStakeFetcher = fetcher;
+}
+
+// Test-only override: lets unit tests provide a fake RPC stub + fetcher without
+// requiring the @wcore/core helpers to be loaded.
+export function setWCTStakeLockStatusFetcher(fetcher: WCTStakeFetcher | null, _rpc?: RpcLike | null): void {
+  wctStakeFetcher = fetcher;
+  wctStakeStatusCache.clear();
+}
+
+// Production: query the WCT Stake contract for the user's lockUntil timestamp and
+// return flex when the lock has expired. Caches the result per (chain, address) to
+// avoid duplicate RPC calls within a scan.
+export async function precomputeWCTStakeLockStatus(
+  chain: string,
+  userAddress: string | undefined,
+): Promise<void> {
+  if (chain !== "OPTIMISM") return;
+  if (!userAddress) return;
+  if (!wctStakeFetcher) return;
+  const cacheKey = `${chain}:${userAddress.toLowerCase()}`;
+  if (wctStakeStatusCache.has(cacheKey)) return;
+  try {
+    const endpoints = await getOptimismRpcEndpoints();
+    if (endpoints.length === 0) {
+      wctStakeStatusCache.set(cacheKey, "flex");
+      return;
+    }
+    const rpc: RpcLike = {
+      ethCall: async (endpoint, to, data) => {
+        const r = await fetch(endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+        });
+        if (!r.ok) throw new Error(`HTTP_${r.status}`);
+        const j = (await r.json()) as { error?: { message: string }; result?: string };
+        if (j.error) throw new Error(j.error.message);
+        return j.result || "0x";
+      },
+    };
+    const result = await wctStakeFetcher(userAddress, rpc, endpoints[0]!);
+    wctStakeStatusCache.set(cacheKey, result || "flex");
+  } catch {
+    wctStakeStatusCache.set(cacheKey, "flex");
+  }
+}
+
+let cachedOptimismEndpoints: string[] | null = null;
+async function getOptimismRpcEndpoints(): Promise<string[]> {
+  if (cachedOptimismEndpoints) return cachedOptimismEndpoints;
+  try {
+    const core = await import("@wcore/core");
+    cachedOptimismEndpoints = core.getRpcEndpoints("OPTIMISM");
+  } catch {
+    cachedOptimismEndpoints = [];
+  }
+  return cachedOptimismEndpoints;
+}
+
+function unwrapAddressLike(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "address" in value) {
+    const inner = (value as Record<string, unknown>).address;
+    if (typeof inner === "string") return inner;
+  }
+  return undefined;
+}
 // The underlying tokens (DAYS, SWEET, WCT) have no DefiLlama coverage, so their
 // price comes from DexScreener/GT during the same scan. This post-scan step
 // mirrors the underlying's priced value onto the staked variant so both rows
@@ -109,6 +203,11 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];
   if (!mirrors && tokens.every((token) => !getDeFiPositionMetadata(chain, String((token as Record<string, unknown>).contract || ""), String((token as Record<string, unknown>).symbol || "")))) return result;
   const chainMirrors = mirrors ?? {};
+
+  // v0.3.x: For Compound V3 collateral positions, the engine returns the Comet contract
+  // (call target) but the cToken address as balanceSelectorExtraArgs[0]. The Sheet must
+  // display the cToken contract for the user; the Comet stays in defi for the call.
+  const userAddress = unwrapAddressLike((result as unknown as Record<string, unknown>).wallet) ?? unwrapAddressLike((result as unknown as Record<string, unknown>).address);
   const priceByContract = new Map<string, { priceEur: number; valueEur: number | null; source: string | null }>();
   for (const t of tokens) {
     const contract = String((t as Record<string, unknown>).contract || "").toLowerCase();
@@ -128,6 +227,19 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
     const contract = String((t as Record<string, unknown>).contract || "").toLowerCase();
     const sym = String((t as Record<string, unknown>).symbol || "").toLowerCase();
     const meta = metadataForToken(t);
+    // v0.3.x: on-chain discovered positions (e.g. Compound V3 cTokens) carry their
+    // own liquidityStatus / type / underlying on the token.defi object. Build a synthetic
+    // meta so the suffix + pricing logic works without a registry entry.
+    const tokenDefi = (t as Record<string, unknown>).defi as
+      | { type?: "lending_collateral" | "lending_debt" | "staking_locked" | "claimable" | "liquid_staking" | "vault_share" | "real_world_asset" | "wallet_token" | "unknown_defi"; liquidityStatus?: "flex" | "lock" | "unknown"; underlying?: string }
+      | undefined;
+    let tokenLiqStatus = (t as Record<string, unknown>).liquidityStatus as string | undefined ?? tokenDefi?.liquidityStatus;
+    // v0.3.x: WCT Stake lockUntil query for dynamic [Lock] → [Flex] transition.
+    if (sym === "wct stake" && contract === "0x521b4c065bbdbe3e20b3727340730936912dfa46" && userAddress) {
+      const dynamic = wctStakeStatusCache.get(`OPTIMISM:${userAddress.toLowerCase()}`);
+      if (dynamic) tokenLiqStatus = dynamic;
+    }
+    const effectiveMeta = meta ?? (tokenLiqStatus ? { type: (tokenDefi?.type ?? "lending_collateral") as "lending_collateral", liquidityStatus: tokenLiqStatus as "flex" | "lock" | "unknown" } : undefined);
     // Symbol-specific variants must win when one contract exposes multiple positions.
     let mirror = chainMirrors[`${contract}|${sym}`];
     if (!mirror) mirror = chainMirrors[contract];
@@ -140,11 +252,27 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
         negate: registryPricing.sign === "debt",
       };
     }
-    if (!mirror && meta) {
-      const originalName = String((t as Record<string, unknown>).name || "");
-      return { ...(t as Record<string, unknown>), name: withLiquiditySuffix(originalName, meta) };
+    // v0.3.x: For Compound V3 collateral positions, the displayed contract must
+    // be the cToken (in balanceSelectorExtraArgs[0]), not the Comet call target.
+    const extraArgs = (t as Record<string, unknown>).balanceSelectorExtraArgs as string[] | undefined;
+    let displayToken: Record<string, unknown> = t as Record<string, unknown>;
+    if (
+      chain === "OPTIMISM" &&
+      sym.startsWith("comp ") &&
+      !sym.includes("borrow") &&
+      Array.isArray(extraArgs) &&
+      extraArgs.length >= 1 &&
+      typeof extraArgs[0] === "string" &&
+      /^0x[0-9a-fA-F]{64}$/.test(extraArgs[0])
+    ) {
+      const cTokenAddress = "0x" + extraArgs[0]!.slice(-40);
+      displayToken = { ...displayToken, contract: cTokenAddress.toLowerCase() };
     }
-    if (!mirror) return t;
+    if (!mirror && effectiveMeta) {
+      const originalName = String((t as Record<string, unknown>).name || "");
+      return { ...displayToken, name: withLiquiditySuffix(originalName, { ...effectiveMeta, liquidityStatus: (tokenLiqStatus as LiquidityStatus) ?? effectiveMeta.liquidityStatus }) };
+    }
+    if (!mirror) return displayToken;
     let underlyingPriced: { priceEur: number; valueEur: number | null; source: string | null } | undefined;
     if (mirror.underlying === "native") {
       const nativePrice = tokenNumberField(result.native, "priceEur");
@@ -155,11 +283,11 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
       underlyingPriced = priceByContract.get(mirror.underlying.toLowerCase());
     }
     if (!underlyingPriced) {
-      if (meta) {
+      if (effectiveMeta) {
         const originalName = String((t as Record<string, unknown>).name || "");
-        return { ...(t as Record<string, unknown>), name: withLiquiditySuffix(originalName, meta) };
+        return { ...displayToken, name: withLiquiditySuffix(originalName, { ...effectiveMeta, liquidityStatus: (tokenLiqStatus as LiquidityStatus) ?? effectiveMeta.liquidityStatus }) };
       }
-      return t;
+      return displayToken;
     }
     const rawBalance = tokenNumberField(t, "balance") ?? 0;
     const negate = !!mirror.negate;
@@ -167,9 +295,9 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
     const newValue = rawBalance > 0 ? roundMoney(rawBalance * underlyingPriced.priceEur) : null;
     const displayValue = negate && newValue != null ? -newValue : newValue;
     const originalName = String((t as Record<string, unknown>).name || "");
-    const name = meta ? withLiquiditySuffix(originalName, meta) : originalName;
+    const name = effectiveMeta ? withLiquiditySuffix(originalName, { ...effectiveMeta, liquidityStatus: (tokenLiqStatus as LiquidityStatus) ?? effectiveMeta.liquidityStatus }) : originalName;
     const sourceLabel = `staked-mirror:${mirror.symbol}` + (negate ? " (debt)" : "");
-    return { ...(t as Record<string, unknown>), name, balance: displayBalance, priceEur: underlyingPriced.priceEur, valueEur: displayValue, source: sourceLabel };
+    return { ...displayToken, name, balance: displayBalance, priceEur: underlyingPriced.priceEur, valueEur: displayValue, source: sourceLabel };
   });
   const tokenValue = updated.reduce<number>((sum, t) => sum + (tokenNumberField(t, "valueEur") ?? 0), 0);
   const nativeValue = tokenNumberField(result.native, "valueEur") ?? 0;
@@ -183,6 +311,15 @@ function tokenStringField(obj: unknown, key: string): string {
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function labelGsheetWalletScan(result: GsheetScanResult, address: string): GsheetScanResult {
+  const rawAddress = String(address || "").trim();
+  const wallet = GSHEET_WALLET_LABELS[rawAddress] || GSHEET_WALLET_LABELS[rawAddress.toLowerCase()];
+  if (!wallet) return result;
+  const chainName = String(result.chainName || result.chain || "").trim();
+  if (!chainName || chainName.toLowerCase().startsWith(`${wallet.toLowerCase()} - `)) return result;
+  return { ...result, chainName: `${wallet} - ${chainName}` };
 }
 
 function isNonPortfolioGsheetToken(token: unknown, protectedContracts?: Set<string>): boolean {
@@ -220,6 +357,17 @@ function isNoMarketToken(token: unknown, protectedContracts?: Set<string>, known
   const priceEur = tokenNumberField(token, "priceEur");
   if (priceEur == null) return true;
   if (!Number.isFinite(priceEur) || priceEur <= 0) return true;
+  return false;
+}
+
+function isAbsurdGsheetPrice(token: unknown): boolean {
+  const priceEur = tokenNumberField(token, "priceEur");
+  const valueEur = tokenNumberField(token, "valueEur");
+  const symbol = tokenStringField(token, "symbol").toUpperCase();
+  const trustedLargeValueSymbols = new Set(["ETH", "WETH", "USDC", "USDT", "DAI", "WBTC", "BTC", "SOL", "BNB", "LINK", "AAVE", "UNI", "OP", "ARB", "SOLVBTC", "CBBTC", "BTCB"]);
+  if (priceEur != null && (!Number.isFinite(priceEur) || priceEur > 1_000_000_000)) return true;
+  if (valueEur != null && (!Number.isFinite(valueEur) || valueEur > 1_000_000_000)) return true;
+  if (valueEur != null && priceEur != null && valueEur > 100_000 && priceEur > 1 && !trustedLargeValueSymbols.has(symbol)) return true;
   return false;
 }
 
@@ -305,28 +453,35 @@ async function injectChainbaseStakingTokens(result: GsheetScanResult, address: s
     }
     const lockedValue = priceEur ? roundMoney(cb.locked * priceEur) : null;
     const claimableValue = priceEur ? roundMoney(cb.claimable * priceEur) : null;
+    const stakingLiquidityStatus = cb.liquidityStatus === "flex" ? "flex" : "lock";
+    // Chainbase delegations only become flexible after undelegate() creates a
+    // mature undelegateRequests(tokenId). Otherwise they remain locked.
+    const lockedName = withLiquiditySuffix("Chainbase Staking", { type: "staking_locked", liquidityStatus: stakingLiquidityStatus });
+    const claimableName = withLiquiditySuffix("Chainbase Airdrop", { type: "claimable", liquidityStatus: "flex" });
     const injected = [
       {
         contract: cb.stakingContract,
         symbol: "C-Locked",
-        name: "Chainbase Staking (locked)",
+        name: lockedName,
         decimals: 18,
         balance: cb.locked,
         priceEur,
         valueEur: lockedValue,
         source: "chainbase_staking",
         chainbaseRole: "locked",
+        defi: { protocol: "chainbase-staking", type: "staking_locked", liquidityStatus: stakingLiquidityStatus, confidence: "high" },
       },
       {
         contract: cb.airdropContract,
         symbol: "C-Airdrop",
-        name: "Chainbase Airdrop (claimable)",
+        name: claimableName,
         decimals: 18,
         balance: cb.claimable,
         priceEur,
         valueEur: claimableValue,
         source: "chainbase_airdrop",
         chainbaseRole: "claimable",
+        defi: { protocol: "chainbase-airdrop", type: "claimable", liquidityStatus: "flex", confidence: "high" },
         ...(cb.claimableTxHash ? { claimableTxHash: cb.claimableTxHash } : {}),
         ...(cb.claimableProjectId != null ? { claimableProjectId: cb.claimableProjectId } : {}),
       },
@@ -347,6 +502,7 @@ type DefaultChainbaseData = {
   tokenAddress?: string;
   claimableTxHash?: string;
   claimableProjectId?: number;
+  liquidityStatus?: "lock" | "flex";
   fetchedAt?: string;
 };
 
@@ -377,7 +533,8 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
   const knownTokens = new Set<string>();
   const chain = core.getChain(String(result.chain || fallbackChain));
   const chainKnownTokens = chain?.KNOWN_TOKENS;
-  if (chainKnownTokens && typeof chainKnownTokens === "object") {
+  const vm = String(result.vm || "").toUpperCase();
+  if (vm !== "EVM" && chainKnownTokens && typeof chainKnownTokens === "object") {
     for (const id of Object.keys(chainKnownTokens as Record<string, unknown>)) {
       const normalized = id.trim().toLowerCase();
       if (normalized) knownTokens.add(normalized);
@@ -390,11 +547,10 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
       if (id) knownTokens.add(id);
     }
   }
+  const extraErrors: string[] = [];
   const tokens = (Array.isArray(result.tokens) ? result.tokens : []).filter((token) => {
-    // Protected custom tokens (I2:I) bypass every filter: scam, no-market, NFT pattern.
     const id = gsheetTokenId(token).toLowerCase();
-    if (id && protectedContracts.has(id)) return true;
-    if (isNonPortfolioGsheetToken(token, protectedContracts)) {
+    if (isNonPortfolioGsheetToken(token)) {
       nonFungibleFiltered++;
       const symbol = tokenStringField(token, "symbol");
       if (symbol) filteredSymbols.add(symbol);
@@ -412,6 +568,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
       if (symbol) filteredSymbols.add(symbol);
       return false;
     }
+    if (id && protectedContracts.has(id)) return true;
     try {
       const scam = core.detectScam(
         tokenStringField(token, "symbol"),
@@ -430,8 +587,14 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
       return true;
     }
   });
+  const sanitizedTokens = tokens.map((token) => {
+    if (!isAbsurdGsheetPrice(token)) return token;
+    const symbol = tokenStringField(token, "symbol") || "TOKEN";
+    extraErrors.push(`${symbol} price: ABSURD_PRICE`);
+    return { ...(token as Record<string, unknown>), priceEur: null, valueEur: null };
+  });
   const nativeValue = tokenNumberField(result.native, "valueEur") ?? 0;
-  const tokenValue = tokens.reduce<number>((sum, token) => sum + (tokenNumberField(token, "valueEur") ?? 0), 0);
+  const tokenValue = sanitizedTokens.reduce<number>((sum, token) => sum + (tokenNumberField(token, "valueEur") ?? 0), 0);
   const errors = (Array.isArray(result.errors) ? result.errors : []).filter((err) => {
     const s = String(err || "");
     for (const symbol of filteredSymbols) {
@@ -442,6 +605,9 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     }
     return true;
   });
+  for (const err of extraErrors) {
+    if (!errors.includes(err)) errors.push(err);
+  }
   const cacheStats = typeof result.cacheStats === "object" && result.cacheStats !== null
     ? { ...(result.cacheStats as Record<string, unknown>) }
     : {};
@@ -453,7 +619,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
   return {
     ...result,
     chain: String(result.chain || fallbackChain).toUpperCase(),
-    tokens,
+    tokens: sanitizedTokens,
     errors,
     degraded: errors.length > 0,
     cacheStats: Object.keys(cacheStats).length > 0 ? cacheStats : result.cacheStats,
@@ -630,14 +796,37 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
       const priceBatcher = opts.priceBatcher || ((input: GsheetPriceBatchInput) => defaultPriceBatcher(input, opts.cache));
       const result = await runner(parsed.input);
       const repaired = await repairMissingGsheetScanPrices(result, parsed.input, priceBatcher);
+      // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.
+      await precomputeWCTStakeLockStatus(parsed.input.chain, parsed.input.address);
       const mirrored = applyStakedPriceMirrors(repaired);
       const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens);
-      return injectChainbaseStakingTokens(sanitized, parsed.input.address, opts.chainbaseStakingProvider);
+      const labeled = labelGsheetWalletScan(sanitized, parsed.input.address);
+      return injectChainbaseStakingTokens(labeled, parsed.input.address, opts.chainbaseStakingProvider);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (message === "chain_not_found") return reply.code(404).send({ error: "chain_not_found" });
+      // v0.3.x: instead of 503 (which causes GSheet to display the generic
+      // [WEB_SCAN_ERROR] fallback), return a degraded 200 response with the
+      // error captured. The GSheet side will log the error and the user can
+      // still see the chain name + error message in the cells (the discoverer
+      // errors are written to the errors[] array, which the GSheet surface
+      // surfaces in the scan diagnostics).
       app.log.warn({ err: message, chain: parsed.input.chain }, "gsheet scan failed");
-      return reply.code(503).send({ error: "scan_failed" });
+      return {
+        ok: true,
+        chain: String(parsed.input.chain || "").toUpperCase(),
+        chainName: String(parsed.input.chain || ""),
+        vm: "",
+        timestamp: new Date().toISOString(),
+        native: { symbol: "N/A", balance: 0, priceEur: null, valueEur: null },
+        tokens: [],
+        totalValueEur: 0,
+        errors: [`[WEB_SCAN_ERROR] ${message} chain=${parsed.input.chain}`],
+        degraded: true,
+        fxRate: 0,
+        scanMs: 0,
+        cacheStats: { hits: 0, misses: 0, stale: 0, skipped: 0 },
+      };
     }
   });
 

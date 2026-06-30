@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 10;
+export const SCAM_RULES_VERSION = 14;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -65,6 +65,23 @@ const _BLOCKED_CONTRACTS = new Set([
   "0x290b3b9f7661a6834135be44c3475aef987fa3b2", // Ethereum: Trump Doge impersonator
   "0x05cd8430676f04b63b33c1ece124818858edfc4f", // Ethereum: Royal Doge impersonator
   "0x5497b1ab5bb59b194e25764ea0b61871b122a43f", // Ethereum: Trump Shib impersonator
+  // 2026-06-29 — Ethos - Base airdrop batch (4 contracts, generic + meme names)
+  "0xf34f722fc7617300ad37f499d7a36780d81daa29", // BASE: BASED (generic Base meme impersonation)
+  "0x208e0664114880b76471fec59fdd1bead62620d3", // BASE: IMOUT (meme/joke airdrop dust)
+  "0x0d4d191a72c1d8d6703d6d3ed1a532b67d5a5f14", // BASE: SEC "Secury Wallet" (typo-phishing → drain on approve)
+  "0xf21dbea34ca178d424a6f2184b094f279de915ff", // BASE: SHIT (joke/meme airdrop dust)
+  // 2026-06-29 — World Chain LuckyCoin airdrop scam
+  "0x3a27edadf19d362a60b0b5a7bd3e8c48273c5e2e", // World Chain: LUCKY "LuckyCoin" (generic airdrop on new chain)
+  // 2026-06-29 — World Chain XDogeCoin airdrop scam
+  "0x37cff256e4aed256493060669a04b59d87d509d1", // World Chain: XDoge "XDogeCoin" (Dogecoin variant, generic airdrop)
+  // 2026-06-30 — UniSwap - Base dust/spam positions confirmed by user
+  "0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3", // BASE: AGI "AGI Holdings"
+  "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2", // BASE: DRB "DebtReliefBot"
+  "0x1b9371e474aac1337b327ff8c30c1036dcecb7b6", // BASE: dick
+  "0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07", // BASE: CLAWD "clawd.atg.eth"
+  "0x06a4665fd49c1c959e982a9ed22ea83e9f6be7df", // BASE: BALDYS "Balding Budys"
+  "0x1626691e26c985f98fbc22193f24b719d3ae9491", // BASE: singularity-coin "singularity-engine"
+  "0x3142b47221a8e9418e161bf5f747d65459f5535e", // BASE: TIMES "POLYMARKET TIMES"
 ]);
 
 // Admin overrides — tokens explicitly marked as scam/legit by platform owner
@@ -215,6 +232,28 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
     const value = balance * priceEur;
     if (value > 1000 && balance > 100_000) {
       signals.push({ reason: `unknown token with inflated value: ${value.toFixed(0)} EUR from ${formatBig(balance)} tokens`, weight: 3 });
+    }
+  }
+
+  // 11. Typo-phishing names: deliberate misspellings of security/wallet terms
+  // used to bypass naive filters while looking legitimate (e.g. "Secury" -> "Secure",
+  // "Saef" -> "Safe", "Valut" -> "Vault", "Wallat" -> "Wallet").
+  // These are the canonical typo-phishing patterns observed on Base / World Chain airdrops.
+  if (!isKnownToken(s.toUpperCase(), contract)) {
+    const typoPattern = /\b(secury|saef|safty|securty|valut|wallat|wallett|offical|0fficial)\b/i;
+    if (typoPattern.test(n) || typoPattern.test(s)) {
+      signals.push({ reason: `typo-phishing name (sounds like "secure/safe/wallet/official" but misspelled)`, weight: 4 });
+    }
+  }
+
+  // 12. Ultra-generic chain name impersonation on Base / new L2s.
+  // "Based", "BaseCoin", "Base Token" are the canonical names used by scammers to
+  // impersonate the official Base chain meme. Symbol length <= 6 AND name is just
+  // the chain name with optional "Coin/Token" suffix -> strong scam signal.
+  if (!isKnownToken(s.toUpperCase(), contract)) {
+    const genericBase = /^(Based|BaseCoin|Base Token|BaseToken|World Coin|WorldCoin)$/i;
+    if (genericBase.test(s) || genericBase.test(n)) {
+      signals.push({ reason: `ultra-generic chain impersonation (${s} / ${n})`, weight: 4 });
     }
   }
 

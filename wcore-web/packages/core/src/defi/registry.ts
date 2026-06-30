@@ -51,28 +51,13 @@ const entries: DeFiPositionRegistryEntry[] = [
     confidence: "high",
     pricing: { mode: "mirror_underlying", sign: "asset" },
   },
-  {
-    chain: "OPTIMISM",
-    contract: "0xe36a30d249f7761327fd973001a32010b521b6fd",
-    symbol: "Comp WETH Borrow",
-    protocol: "compound-v3",
-    type: "lending_debt",
-    underlying: "native",
-    liquidityStatus: "flex",
-    confidence: "high",
-    pricing: { mode: "mirror_native", sign: "debt" },
-  },
-  {
-    chain: "OPTIMISM",
-    contract: "0xe36a30d249f7761327fd973001a32010b521b6fd",
-    symbol: "Comp wrsETH",
-    protocol: "compound-v3",
-    type: "lending_collateral",
-    underlying: "native",
-    liquidityStatus: "flex",
-    confidence: "high",
-    pricing: { mode: "mirror_native", sign: "asset" },
-  },
+  // Compound V3 (Compound III) positions are NOT in the static registry.
+  // They are discovered on-chain at scan time via discoverCompoundV3CTokens +
+  // getCompoundV3Tokens (in compound-v3.ts), which queries Comet.numAssets() +
+  // getAssetInfo(i).asset to enumerate cToken addresses per collateral type.
+  // Each cToken address is unique per collateral, eliminating the collision
+  // between multiple collaterals on the same Comet market that the old
+  // Comet-proxy-as-contract static entries caused.
 ];
 
 function norm(value: string): string {
@@ -88,6 +73,23 @@ export function getDeFiPositionMetadata(chain: string, contract: string, symbol?
   if (symbolSpecific) return symbolSpecific;
 
   return entries.find((entry) => entry.chain === chainKey && norm(entry.contract) === c && !entry.symbol);
+}
+
+export function buildDefaultDeFiPositionMetadata(
+  chain: string,
+  contract: string,
+  symbol: string,
+  type: import("./positions.js").PositionType,
+): DeFiPositionRegistryEntry {
+  return {
+    chain: String(chain || "").trim().toUpperCase(),
+    contract: String(contract || "").trim().toLowerCase(),
+    symbol: String(symbol || "").trim(),
+    protocol: "compound-v3",
+    type,
+    liquidityStatus: "flex",
+    confidence: "high",
+  };
 }
 
 export function listDeFiPositionRegistryEntries(): readonly DeFiPositionRegistryEntry[] {

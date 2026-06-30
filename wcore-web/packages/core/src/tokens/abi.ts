@@ -83,6 +83,15 @@ export function decodeDecimalsResult(hex: string): number | null {
   return Number(value);
 }
 
+// Decode an address from a 32-byte ABI word (left-padded with zeros).
+// Returns the checksummed 0x-prefixed address, or null if the input is invalid.
+export function decodeAddressFromWord(hex: string): string | null {
+  const clean = String(hex || "").replace(/^0x/i, "").toLowerCase();
+  if (clean.length !== 64) return null;
+  const addr = "0x" + clean.slice(-40);
+  return /^0x[0-9a-f]{40}$/.test(addr) ? addr : null;
+}
+
 function normalizeEvmAddress(address: string): string | null {
   const value = String(address || "").trim().toLowerCase();
   return /^0x[0-9a-f]{40}$/.test(value) ? value : null;

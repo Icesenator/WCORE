@@ -7,11 +7,13 @@ import {
   decodeStringResult,
   decodeUint256,
   encodeBalanceOf,
+  encodeCustomBalanceCall,
   encodeErc20Decimals,
   encodeErc20Name,
   encodeErc20Symbol,
   formatUnits,
 } from "./abi.js";
+import { TOKEN_REGISTRY } from "./registry.js";
 
 test("encodeBalanceOf generates a valid ERC-20 balanceOf call", () => {
   const call = encodeBalanceOf("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
@@ -53,4 +55,18 @@ test("decodeStringResult decodes ABI dynamic and bytes32 strings", () => {
 
 test("decodeDecimalsResult decodes decimals", () => {
   assert.equal(decodeDecimalsResult("0x" + "6".padStart(64, "0")), 6);
+});
+
+test("registry custom balance extra args are valid ABI words", () => {
+  const owner = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+
+  for (const [chain, tokens] of Object.entries(TOKEN_REGISTRY)) {
+    for (const token of tokens) {
+      if (!token.balanceSelector || !token.balanceSelectorExtraArgs) continue;
+      assert.doesNotThrow(
+        () => encodeCustomBalanceCall(owner, token.balanceSelector!, token.balanceSelectorExtraArgs),
+        `${chain}:${token.symbol}:${token.contract}`,
+      );
+    }
+  }
 });

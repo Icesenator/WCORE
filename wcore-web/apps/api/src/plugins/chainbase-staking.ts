@@ -101,6 +101,12 @@ function sig4(s: string): string {
 }
 
 const SEL_GET_DELEGATION = "0x15c4642e";
+const SEL_BALANCE_OF = "0x70a08231";
+const SEL_TOKEN_OF_OWNER_BY_INDEX = sig4("tokenOfOwnerByIndex(address,uint256)");
+const SEL_UNDELEGATE_REQUESTS = sig4("undelegateRequests(uint256)");
+const MAX_DELEGATION_NFTS = 100;
+
+type ChainbaseLiquidityStatus = "lock" | "flex";
 
 export interface ChainbaseStaking {
   stakingContract: string;
@@ -108,12 +114,29 @@ export interface ChainbaseStaking {
   locked: number;
   claimable: number;
   total: number;
+  liquidityStatus: ChainbaseLiquidityStatus;
   tokenSymbol: string;
   tokenAddress: string;
   sources: { locked: "rpc"; claimable: "config" };
   claimableProjectId?: number;
   claimableTxHash?: string;
   fetchedAt: string;
+}
+
+function encodeAddress(address: string): string {
+  return address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+}
+
+function encodeUint256(value: bigint | number): string {
+  return BigInt(value).toString(16).padStart(64, "0");
+}
+
+function decodeUint256At(hex: string, index: number): bigint {
+  const clean = hex.replace(/^0x/, "");
+  const start = index * 64;
+  const word = clean.slice(start, start + 64);
+  if (word.length !== 64) throw new Error("invalid uint256 result");
+  return BigInt("0x" + word);
 }
 
 let cachedConfig: { map: Record<string, { amount: number; projectId: number; txHash?: string }>; mtimeMs: number } | null = null;
@@ -176,13 +199,39 @@ async function rpcCall(to: string, data: string): Promise<string> {
 }
 
 export async function getChainbaseLocked(address: string): Promise<number> {
-  const addr32 = address.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  const addr32 = encodeAddress(address);
   const res = await rpcCall(STAKING_PROXY, SEL_GET_DELEGATION + addr32);
   return Number(BigInt(res)) / 1e18;
 }
 
+export async function getChainbaseDelegationLiquidityStatus(address: string, now = Math.floor(Date.now() / 1000)): Promise<ChainbaseLiquidityStatus> {
+  const addr32 = encodeAddress(address);
+  const balanceHex = await rpcCall(STAKING_PROXY, SEL_BALANCE_OF + addr32);
+  const nftCount = Number(BigInt(balanceHex));
+  if (!Number.isFinite(nftCount) || nftCount < 0 || nftCount > MAX_DELEGATION_NFTS) return "lock";
+  if (nftCount === 0) return "flex";
+
+  for (let i = 0; i < nftCount; i++) {
+    const tokenIdHex = await rpcCall(STAKING_PROXY, SEL_TOKEN_OF_OWNER_BY_INDEX + addr32 + encodeUint256(i));
+    const tokenId = BigInt(tokenIdHex);
+    const requestHex = await rpcCall(STAKING_PROXY, SEL_UNDELEGATE_REQUESTS + encodeUint256(tokenId));
+    const amount = decodeUint256At(requestHex, 0);
+    const unlockTime = decodeUint256At(requestHex, 1);
+    if (amount <= 0n || unlockTime > BigInt(now)) return "lock";
+  }
+  return "flex";
+}
+
 export async function getChainbaseStaking(address: string): Promise<ChainbaseStaking> {
   const locked = await getChainbaseLocked(address);
+  let liquidityStatus: ChainbaseLiquidityStatus = locked > 0 ? "lock" : "flex";
+  if (locked > 0) {
+    try {
+      liquidityStatus = await getChainbaseDelegationLiquidityStatus(address);
+    } catch {
+      liquidityStatus = "lock";
+    }
+  }
   const configMap = loadClaimableConfig();
   const entry = configMap[address.toLowerCase()];
   const claimable = entry?.amount ?? 0;
@@ -192,6 +241,7 @@ export async function getChainbaseStaking(address: string): Promise<ChainbaseSta
     locked,
     claimable,
     total: locked + claimable,
+    liquidityStatus,
     tokenSymbol: "C",
     tokenAddress: "0xba12bc7b210e61e5d3110b997a63ea216e0e18f7",
     sources: { locked: "rpc", claimable: "config" },

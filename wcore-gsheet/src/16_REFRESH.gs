@@ -110,6 +110,7 @@ function onEdit(e) {
   return WCORE_ON_EDIT(e);
 }
 
+// v4.15.104: WCORE_ON_EDIT also calls _bpDetailsAutoLink_ after CEX handlers for per-cell auto-link of Portefeuille Crypto Details column E.
 // v4.15.99: installable onEdit trigger wrapper — A1=TRUE → pulse B1 → reset A1=FALSE.
 // Standalone name so WCORE_ON_EDIT can also be called directly if needed.
 function MASTER_ON_EDIT(e) {
@@ -118,14 +119,21 @@ function MASTER_ON_EDIT(e) {
 
 function WCORE_ON_EDIT(e) {
   try {
-    if (!e || !e.range) return;
-    if (typeof BITPANDA_ON_EDIT === "function" && BITPANDA_ON_EDIT(e)) return;
-    if (typeof BINANCE_ON_EDIT === "function" && BINANCE_ON_EDIT(e)) return;
-    if (typeof BITFINEX_ON_EDIT === "function" && BITFINEX_ON_EDIT(e)) return;
-    if (typeof BYBIT_ON_EDIT === "function" && BYBIT_ON_EDIT(e)) return;
-    if (typeof COINBASE_ON_EDIT === "function" && COINBASE_ON_EDIT(e)) return;
-    if (typeof OKX_ON_EDIT === "function" && OKX_ON_EDIT(e)) return;
-    var range = e.range;
+   if (!e || !e.range) return;
+   if (typeof BITPANDA_ON_EDIT === "function" && BITPANDA_ON_EDIT(e)) return;
+   if (typeof BINANCE_ON_EDIT === "function" && BINANCE_ON_EDIT(e)) return;
+   if (typeof BITFINEX_ON_EDIT === "function" && BITFINEX_ON_EDIT(e)) return;
+   if (typeof BYBIT_ON_EDIT === "function" && BYBIT_ON_EDIT(e)) return;
+   if (typeof COINBASE_ON_EDIT === "function" && COINBASE_ON_EDIT(e)) return;
+   if (typeof OKX_ON_EDIT === "function" && OKX_ON_EDIT(e)) return;
+   // v4.15.104: per-cell auto-link for Portefeuille Crypto Details column E.
+   // Runs AFTER CEX handlers (which return true on their sheets) so it only fires
+   // for non-CEX edits. Bridges the gap between bulk _setDetailsChainHyperlinks_
+   // (5-30 min pulses) and rows added in between.
+   if (typeof _bpDetailsAutoLink_ === "function") {
+    try { _bpDetailsAutoLink_(e); } catch (eAuto) {}
+   }
+   var range = e.range;
     if (range.getA1Notation && range.getA1Notation() !== "A1") return;
     var sheet = range.getSheet ? range.getSheet() : null;
     if (!sheet) return;
@@ -478,12 +486,12 @@ function FORCE_WATCHDOG_PARTIAL_CHECK() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var nowMs = Date.now();
   var stats = _wd_checkPartialCycles_(ss, nowMs);
-  
-  Logger.log("[FORCE_PARTIAL] checked=" + stats.checked + 
-             " partial=" + stats.partial + 
-             " pulsed=" + stats.pulsed + 
+
+  Logger.log("[FORCE_PARTIAL] checked=" + stats.checked +
+             " partial=" + stats.partial +
+             " pulsed=" + stats.pulsed +
              " errors=" + stats.errors);
-  
+
   return [
     ["Stat", "Value"],
     ["Checked", stats.checked],
@@ -491,6 +499,49 @@ function FORCE_WATCHDOG_PARTIAL_CHECK() {
     ["Pulsed", stats.pulsed],
     ["Errors", stats.errors]
   ];
+}
+
+// v0.3.x: System-driven force-rescan for a list of chain keys. Pulses B1 on the
+// matching Ledger sheet so the next scan (manual or time-based) re-fetches the
+// latest API payload. This bypasses the I1-staleness cooldown for callers who
+// know the payload is stale (e.g. right after an API deploy). The action is
+// system-driven (not a manual Sheet edit) — it uses a fresh timestamp that the
+// C1/FORCE/A1 check paths already treat as a legitimate trigger.
+//
+// No-argument wrapper: forces a rescan of Optimism and Base (the most recent
+// regression targets). The user can call FORCE_RESCAN_LEDGERS(["chain_key", ...])
+// from clasp run with a custom list when needed.
+function FORCE_RESCAN_LEDGERS(chainKeys) {
+  if (!chainKeys) {
+    chainKeys = ["Optimism", "Base"];
+  }
+  if (typeof chainKeys === "string") chainKeys = [chainKeys];
+  if (!Array.isArray(chainKeys) || chainKeys.length === 0) {
+    return [["Chain", "Status", "Error"], ["-", "skip", "no chain keys provided"]];
+  }
+  var ss = _wcoreGetSpreadsheet_();
+  if (!ss) return [["Chain", "Status", "Error"], ["-", "fail", "no spreadsheet access"]];
+  var tz = ss.getSpreadsheetTimeZone();
+  var nowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm:ss");
+  var out = [["Chain", "Sheet", "Status", "B1 Value"]];
+  for (var i = 0; i < chainKeys.length; i++) {
+    var key = String(chainKeys[i] || "").trim();
+    if (!key) continue;
+    var sheetName = "Ledger - " + key;
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      out.push([key, sheetName, "skip", "sheet not found"]);
+      continue;
+    }
+    try {
+      sheet.getRange("B1").setValue(nowStr);
+      sheet.getRange("B1").setNumberFormat("@");
+      out.push([key, sheetName, "pulsed", nowStr]);
+    } catch (e) {
+      out.push([key, sheetName, "error", String(e && (e.message || e) || e)]);
+    }
+  }
+  return out;
 }
 
 // ============================================================
@@ -530,7 +581,7 @@ function _wd_isLastUpdateFormat_(s) {
 function _wd_extractTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   // Match usable prefixes followed by timestamp.
-  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED)\]\s*(.+)$/);
+  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED)\]\s*(.+)$/);
   if (match && match[1]) {
     return match[1].trim();
   }
@@ -779,6 +830,10 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
 
   // v4.15.3: [ERROR] = scan failed (RPC timeout, etc.) — re-pulse with normal cooldown
   if (vI1.indexOf("[ERROR]") === 0) {
+    return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
+  }
+
+  if (vI1.indexOf("[WEB_SCAN_PRESERVED]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
 

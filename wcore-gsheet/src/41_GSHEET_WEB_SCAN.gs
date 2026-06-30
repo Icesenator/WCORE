@@ -1,6 +1,13 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.20 - Purge confirmed Base scam contracts during degraded Web cache merges.
+ * v4.16.19 - Conservatively merge useful degraded Web scans with existing wallet cache.
+ * v4.16.18 - Allow cache-backed balance fallback degraded Web payloads to refresh DeFi labels.
+ * v4.16.17 - Allow price-gap-only degraded Web payloads to overwrite stale corrupted cache.
+ * v4.16.16 - Allow sanitized absurd-price Web payloads to overwrite corrupted cache.
+ * v4.16.15 - Preserve existing wallet cache on any degraded Web scan with errors.
+ * v4.16.14 - Remove per-address Web-scan denylist; WCORE Web returns Wallet - Chain labels.
  * v4.16.10 - Preserve existing wallet cache on degraded native-zero Web scans.
  * v4.16.9 - Preserve Web debt tokens with negative balances.
  * v4.16.8 - Expose Web INFO_NO_MARKET row for illiquid tokens filtered by the API.
@@ -14,8 +21,18 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.10";
+var GSHEET_WEB_SCAN_VERSION = "4.16.20";
 var GSHEET_WEB_SCAN_MAX_ATTEMPTS = 2;
+
+var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
+  "0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3": true, // BASE: AGI
+  "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2": true, // BASE: DRB
+  "0x1b9371e474aac1337b327ff8c30c1036dcecb7b6": true, // BASE: dick
+  "0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07": true, // BASE: CLAWD
+  "0x06a4665fd49c1c959e982a9ed22ea83e9f6be7df": true, // BASE: BALDYS
+  "0x1626691e26c985f98fbc22193f24b719d3ae9491": true, // BASE: singularity-coin
+  "0x3142b47221a8e9418e161bf5f747d65459f5535e": true  // BASE: TIMES
+};
 
 function _webScanProps_() {
   try { return PropertiesService.getScriptProperties(); } catch (e) { return null; }
@@ -75,11 +92,55 @@ function _webScanErrorStatus_(config) {
   return "[WEB_SCAN_ERROR] " + Format.now() + " chain=" + chainKey;
 }
 
-function _webScanSetLastError_(message) {
+function _webScanSetLastError_(message, chainKey) {
   try {
     var props = _webScanProps_();
-    if (props) props.setProperty("GSHEET_WEB_SCAN_LAST_ERROR", String(message || "").substring(0, 500));
+    if (!props) return;
+    var msg = String(message || "").substring(0, 500);
+    props.setProperty("GSHEET_WEB_SCAN_LAST_ERROR", msg);
+    var ck = String(chainKey || "").trim().toUpperCase();
+    if (ck) {
+      var key = "GSHEET_WEB_SCAN_LAST_ERROR_" + ck.replace(/[^A-Z0-9]+/g, "_");
+      props.setProperty(key, msg);
+    }
   } catch (e) {}
+}
+
+function _webScanLogScanErrors_(payload, chainKey) {
+  try {
+    if (!payload) return;
+    var errors = Array.isArray(payload.errors) ? payload.errors : [];
+    if (!errors.length) return;
+    var msg = "errors=" + errors.length + " first=" + String(errors[0] || "").substring(0, 200);
+    _webScanSetLastError_(msg, chainKey);
+  } catch (e) {}
+}
+
+function DIAG_WEB_SCAN_LAST_ERROR(chainKey) {
+  var props = _webScanProps_();
+  if (!props) return [["error", "no_script_properties"]];
+  var out = [["Property", "Value"]];
+  var global = String(props.getProperty("GSHEET_WEB_SCAN_LAST_ERROR") || "");
+  out.push(["global", global]);
+  var ck = String(chainKey || "").trim().toUpperCase();
+  if (ck) {
+    var perChain = String(props.getProperty("GSHEET_WEB_SCAN_LAST_ERROR_" + ck.replace(/[^A-Z0-9]+/g, "_")) || "");
+    out.push([ck, perChain]);
+  } else {
+    var all = props.getProperties();
+    for (var k in all) {
+      if (k.indexOf("GSHEET_WEB_SCAN_LAST_ERROR_") === 0) {
+        out.push([k.replace("GSHEET_WEB_SCAN_LAST_ERROR_", ""), String(all[k] || "").substring(0, 400)]);
+      }
+    }
+  }
+  try {
+    var lines = ["[DIAG_WEB_SCAN_LAST_ERROR] BEGIN"];
+    for (var li = 0; li < out.length; li++) lines.push("[DIAG_WEB_SCAN_LAST_ERROR] " + String(out[li][0] || "") + " = " + String(out[li][1] || "").substring(0, 480));
+    lines.push("[DIAG_WEB_SCAN_LAST_ERROR] END");
+    Logger.log(lines.join("\n"));
+  } catch (eL) {}
+  return out;
 }
 
 function _webScanResponseError_(code, text) {
@@ -163,6 +224,8 @@ function _webScanAssetFromToken_(tokenObj) {
 
 function _webScanIsScamToken_(tokenObj) {
   tokenObj = tokenObj || {};
+  var contract = String(tokenObj.contract || tokenObj.address || tokenObj.mint || tokenObj.denom || "").trim().toLowerCase();
+  if (contract && GSHEET_WEB_SCAN_BLOCKED_CONTRACTS[contract]) return true;
   if (tokenObj.scam === true || tokenObj.isScam === true || tokenObj.suspicious === true || tokenObj.isSuspicious === true) return true;
   var level = String(tokenObj.scamLevel || tokenObj.riskLevel || tokenObj.level || "").toLowerCase();
   if (level === "scam" || level === "blocked") return true;
@@ -280,12 +343,128 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
 function _webScanShouldPreserveExistingCache_(payload, cache) {
   if (!payload || payload.ok !== true || payload.degraded !== true) return false;
   var errors = Array.isArray(payload.errors) ? payload.errors : [];
-  if (!errors.length) return false;
+  if (errors.length) {
+    var onlyNonDestructiveGaps = true;
+    for (var e = 0; e < errors.length; e++) {
+      var err = String(errors[e] || "");
+      if (err.indexOf("ABSURD_PRICE") >= 0) continue;
+      if (/\bprice:\s*NO_PRICE\b/i.test(err)) continue;
+      if (/^explorer cooldown active\b/i.test(err)) continue;
+      if (/^explorer error\s+[^:]+:\s+This operation was aborted\b/i.test(err)) continue;
+      if (/^blockNumber consensus failed\b/i.test(err)) continue;
+      if (/^\[DEGRADED\].*\bbalance:\s*cache_fallback_live_failed,\s*using cache fallback\b/i.test(err)) continue;
+      onlyNonDestructiveGaps = false;
+      break;
+    }
+    if (onlyNonDestructiveGaps) return false;
+    return true;
+  }
   var assets = cache && Array.isArray(cache.assets) ? cache.assets : [];
   if (assets.length !== 1) return false;
   var native = assets[0] || {};
   if (String(native.contract || "") !== "native") return false;
   return _webScanNum_(native.balance, 0) === 0;
+}
+
+function _webScanAssetKey_(asset) {
+  return String(asset && asset.contract || "").trim().toLowerCase();
+}
+
+function _webScanClone_(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return obj; }
+}
+
+function _webScanHasUsefulAssets_(cache) {
+  var assets = cache && Array.isArray(cache.assets) ? cache.assets : [];
+  if (assets.length > 1) return true;
+  var native = assets[0] || {};
+  return String(native.contract || "") === "native" && (_webScanNum_(native.balance, 0) > 0 || _webScanNum_(native.value_eur, 0) > 0);
+}
+
+function _webScanMergeAsset_(oldAsset, newAsset) {
+  var out = _webScanClone_(oldAsset || {}) || {};
+  newAsset = newAsset || {};
+  if (newAsset.contract) out.contract = newAsset.contract;
+  if (newAsset.symbol) out.symbol = newAsset.symbol;
+  if (newAsset.name) out.name = newAsset.name;
+  if (newAsset.decimals != null && isFinite(Number(newAsset.decimals))) out.decimals = Number(newAsset.decimals) | 0;
+  if (newAsset.balance != null && isFinite(Number(newAsset.balance))) out.balance = Number(newAsset.balance);
+  if (newAsset.price_eur != null && isFinite(Number(newAsset.price_eur)) && Math.abs(Number(newAsset.price_eur)) < 1000000000) out.price_eur = Number(newAsset.price_eur);
+  if (newAsset.value_eur != null && isFinite(Number(newAsset.value_eur)) && Math.abs(Number(newAsset.value_eur)) < 1000000000000) out.value_eur = Number(newAsset.value_eur);
+  return out;
+}
+
+function _webScanMergedTotal_(assets) {
+  var total = 0;
+  for (var i = 0; i < assets.length; i++) total += _webScanNum_(assets[i] && assets[i].value_eur, 0);
+  return total;
+}
+
+function _webScanMergeWithExistingCache_(existing, incoming) {
+  if (!existing || !incoming || !_webScanHasUsefulAssets_(incoming)) return null;
+  var oldAssets = Array.isArray(existing.assets) ? existing.assets : [];
+  var newAssets = Array.isArray(incoming.assets) ? incoming.assets : [];
+  if (!oldAssets.length || !newAssets.length) return null;
+
+  var out = _webScanClone_(existing) || {};
+  var byKey = {};
+  var order = [];
+  var purgedScams = 0;
+  for (var i = 0; i < oldAssets.length; i++) {
+    var oldAsset = _webScanClone_(oldAssets[i]) || {};
+    var oldKey = _webScanAssetKey_(oldAsset);
+    if (!oldKey) continue;
+    if (_webScanIsScamToken_(oldAsset)) { purgedScams++; continue; }
+    if (!byKey[oldKey]) order.push(oldKey);
+    byKey[oldKey] = oldAsset;
+  }
+
+  var updated = 0;
+  for (var j = 0; j < newAssets.length; j++) {
+    var newAsset = newAssets[j] || {};
+    var key = _webScanAssetKey_(newAsset);
+    if (!key) continue;
+    if (!byKey[key]) order.push(key);
+    byKey[key] = _webScanMergeAsset_(byKey[key], newAsset);
+    updated++;
+  }
+
+  var mergedAssets = [];
+  for (var k = 0; k < order.length; k++) if (byKey[order[k]]) mergedAssets.push(byKey[order[k]]);
+  if (!mergedAssets.length || updated <= 0) return null;
+
+  function purgeBlockedMapKeys(mapObj) {
+    if (!mapObj) return;
+    for (var mk in GSHEET_WEB_SCAN_BLOCKED_CONTRACTS) {
+      try { delete mapObj[mk]; } catch (eDel) {}
+    }
+  }
+
+  out.assets = mergedAssets;
+  out.updatedAt = incoming.updatedAt || Date.now();
+  out.last_run_update_ms = incoming.last_run_update_ms || out.updatedAt;
+  out.usd_to_eur_rate = incoming.usd_to_eur_rate || existing.usd_to_eur_rate || null;
+  out.priceMap = _webScanClone_(existing.priceMap || {}) || {};
+  purgeBlockedMapKeys(out.priceMap);
+  var newPriceMap = incoming.priceMap || {};
+  for (var pk in newPriceMap) if (newPriceMap[pk] != null) out.priceMap[pk] = newPriceMap[pk];
+  out.priceTsMap = _webScanClone_(existing.priceTsMap || {}) || {};
+  purgeBlockedMapKeys(out.priceTsMap);
+  var newPriceTsMap = incoming.priceTsMap || {};
+  for (var ptk in newPriceTsMap) if (newPriceTsMap[ptk] != null) out.priceTsMap[ptk] = newPriceTsMap[ptk];
+  out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};
+  purgeBlockedMapKeys(out.balanceTsMap);
+  var newBalanceTsMap = incoming.balanceTsMap || {};
+  for (var btk in newBalanceTsMap) if (newBalanceTsMap[btk] != null) out.balanceTsMap[btk] = newBalanceTsMap[btk];
+  out.scanStats = _webScanClone_(incoming.scanStats || existing.scanStats || {}) || {};
+  out.scanStats.webMerged = true;
+  out.scanStats.webMergeUpdatedAssets = updated;
+  out.scanStats.webMergePreservedAssets = Math.max(0, oldAssets.length - purgedScams - updated);
+  out.scanStats.webMergePurgedScamAssets = purgedScams;
+  out.scanStats.totalValueEur = _webScanMergedTotal_(mergedAssets);
+  out.lastInfoMetaRows = incoming.lastInfoMetaRows || existing.lastInfoMetaRows || [];
+  return out;
 }
 
 function _webScanRequestPayload_(address, tokensRange, forceFull, config) {
@@ -343,19 +522,34 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       return httpFailure;
     }
     var payload = JSON.parse(resp.getContentText() || "{}");
+    _webScanLogScanErrors_(payload, chainKey);
     var cache = _webScanConvertToWalletCache_(payload, config, tokensRange);
     if (!cache || !cache.assets || !cache.assets.length) {
       var payloadFailure = { ok: false, status: "INVALID_PAYLOAD", error: String(payload && (payload.error || payload.message) || "empty_assets") };
-      _webScanSetLastError_(payloadFailure.status + " " + payloadFailure.error);
+      _webScanSetLastError_(payloadFailure.status + " " + payloadFailure.error, chainKey);
       return payloadFailure;
     }
     if (_webScanShouldPreserveExistingCache_(payload, cache)) {
-      _webScanSetLastError_("PRESERVED_DEGRADED_NATIVE_ZERO " + chainKey);
+      var existingCache = null;
+      try { existingCache = WalletCache.load(String(cacheKey || address || "").trim(), config); } catch (loadErr) { existingCache = null; }
+      var mergedCache = _webScanMergeWithExistingCache_(existingCache, cache);
+      if (mergedCache) {
+        CacheManager.init();
+        WalletCache.save(String(cacheKey || address || "").trim(), mergedCache, config);
+        return {
+          ok: true,
+          status: "[WEB_SCAN_DEGRADED] " + Format.datetime(mergedCache.updatedAt),
+          cache: mergedCache,
+          degraded: true,
+          merged: true
+        };
+      }
+      _webScanSetLastError_("PRESERVED_DEGRADED_NATIVE_ZERO " + chainKey, chainKey);
       return {
         ok: true,
         status: "[WEB_SCAN_PRESERVED] " + Format.datetime(cache.updatedAt),
         cache: cache,
-        preserved: true
+        degraded: true
       };
     }
     CacheManager.init();
@@ -366,7 +560,8 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       cache: cache
     };
   } catch (e) {
-    _webScanSetLastError_(String(e && (e.message || e) || e));
+    var chainKeyCatch = (typeof chainKey === "string" && chainKey) ? chainKey : ((config && _webScanChainKey_ && _webScanChainKey_(config)) || "");
+    _webScanSetLastError_(String(e && (e.message || e) || e), chainKeyCatch);
     return null;
   }
 }

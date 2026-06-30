@@ -1678,22 +1678,21 @@ var EvmEngine = {
   * 
   * v4.12.29: Now honors forceFull/triggerRefresh parameters (was hardcoded to true)
   */
- getRefreshStatus: function(address, rpc, tokensRange, forceFull, triggerRefresh, config, walletNames) {
-   var refreshError = null;
-   var addrLower = Addr.normalize(address);
-   
-   // v4.13.3: Centralized quota pre-check via BaseEngine
-   // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
-    var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
-     try {
-       if (typeof _webScanWallet_ === "function") {
-         var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
-         if (webScan && webScan.ok && webScan.status) return webScan.status;
-       }
-     } catch (eWebScan) {}
-     if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {
-       return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
-     }
+  getRefreshStatus: function(address, rpc, tokensRange, forceFull, triggerRefresh, config, walletNames) {
+    var refreshError = null;
+    var addrLower = Addr.normalize(address);
+    // v4.13.3: Centralized quota pre-check via BaseEngine
+    // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
+     var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
+      try {
+        if (typeof _webScanWallet_ === "function") {
+          var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
+          if (webScan && webScan.ok && webScan.status) return webScan.status;
+        }
+      } catch (eWebScan) {}
+      if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {
+        return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
+      }
      if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
       var webQuotaBlocked = BaseEngine.quotaPreCheck(addrLower, config);
       if (webQuotaBlocked) return webQuotaBlocked;

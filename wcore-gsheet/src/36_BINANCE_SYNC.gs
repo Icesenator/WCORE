@@ -1,3 +1,4 @@
+// v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers présents mais mal autorisés" v4.15.61).
 // v4.15.88 - Use shared CEX manual-refresh helpers.
 // v4.15.87 - Manual refresh writes visible B1 REQUEST flag for trigger-context safe handoff.
 // v4.15.86 - Manual refresh flag falls back to UserProperties when ScriptProperties is full.
@@ -347,6 +348,8 @@ function BINANCE_ON_EDIT(e) {
     if (cell !== "A1") return false;
     var sheet = range.getSheet ? range.getSheet() : null;
     if (!sheet || sheet.getName() !== BINANCE_SYNC_CONFIG.SHEET) return false;
+    // v4.15.103 PERMANENT FIX: re-install dead CEX time-based triggers on user A1 click.
+    try { _bpEnsureCexTriggers_(); } catch (eHeal) {}
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
     // onEdit SIMPLE ne peut pas faire UrlFetch: on pose un flag traite par le

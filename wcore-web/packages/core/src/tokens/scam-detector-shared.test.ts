@@ -27,6 +27,26 @@ test("blocks known Ethereum DOGE/SHIB impersonator contracts", () => {
   }
 });
 
+test("blocks user-confirmed UniSwap Base dust scam contracts", () => {
+  const cases = [
+    ["AGI", "AGI Holdings", "0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3"],
+    ["DRB", "DebtReliefBot", "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2"],
+    ["dick", "dick", "0x1b9371e474aac1337b327ff8c30c1036dcecb7b6"],
+    ["CLAWD", "clawd.atg.eth", "0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07"],
+    ["BALDYS", "Balding Budys", "0x06a4665fd49c1c959e982a9ed22ea83e9f6be7df"],
+    ["singularity-coin", "singularity-engine", "0x1626691e26c985f98fbc22193f24b719d3ae9491"],
+    ["TIMES", "POLYMARKET TIMES", "0x3142b47221a8e9418e161bf5f747d65459f5535e"],
+  ] as const;
+
+  for (const [symbol, name, contract] of cases) {
+    const result = detectScam(symbol, name, 1, 0.001, contract);
+
+    assert.equal(result.isSuspicious, true, `${symbol} ${contract} should be blocked`);
+    assert.equal(result.level, "scam");
+    assert.ok(result.reasons.includes("blocked contract"));
+  }
+});
+
 test("does not block known escrow tokens only because the name is generic and unpriced", () => {
   const result = detectScam("xGRAIL", "Camelot escrowed token", 0.00000058, null, "0x3caae25ee616f2c8e13c74da0813402eae3f496b");
 

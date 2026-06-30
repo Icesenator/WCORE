@@ -18,7 +18,7 @@
  *   when waiting for WATCHDOG_FROM_RECAP probe window.
  ************************************************************/
 
-var WCORE_AUTO_HEAL_VERSION = "4.15.100";
+var WCORE_AUTO_HEAL_VERSION = "4.15.102";
 var WCORE_AUTO_HEAL_COOLDOWN_MS = 10 * 60 * 1000;
 var WCORE_AUTO_HEAL_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
@@ -192,7 +192,11 @@ function _wcoreAutoHealEnsurePricingWorker_(out, props) {
 
 function _wcoreAutoHealBootstrapState_(out, force) {
   try {
-    if (typeof _ensureLedgerCache_ === "function") _ensureLedgerCache_(false);
+    if (typeof _wcoreAutoHealNewLedgers_ === "function") {
+      _wcoreAutoHealNewLedgers_(out, force === true);
+    } else if (typeof _ensureLedgerCache_ === "function") {
+      _ensureLedgerCache_(false);
+    }
     _wcoreAutoHealRow_(out, "Ledger cache", "OK", "checked");
   } catch (eLedger) {
     _wcoreAutoHealRow_(out, "Ledger cache", "WARN", eLedger.message);
@@ -255,6 +259,48 @@ function _wcoreAutoHealBootstrapState_(out, force) {
   } catch (eStale) {
     _wcoreAutoHealRow_(out, "J1 staleness", "WARN", eStale.message);
   }
+
+}
+
+/**
+ * v4.5.18: Auto-detect new ledger-shaped sheets that are not yet in the
+ * listing cache. Recap chain links, I1 pulse, J1 sync happen automatically
+ * without manual intervention when a new "Ledger - X" / "UniSwap - X" / etc.
+ * sheet is added.
+ *
+ * Sheet I/O only (no HTTP). Idempotent: re-running on the same set is a no-op.
+ */
+function _wcoreAutoHealNewLedgers_(out, force) {
+  if (typeof _isLedgerLike_ !== "function" || typeof _ensureLedgerCache_ !== "function") return;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) return;
+  var sheets = ss.getSheets();
+  var known = {};
+  try {
+    var key = (typeof LEDGER_MAP_KEY !== "undefined") ? LEDGER_MAP_KEY : "LEDGER_SHEET_MAP";
+    var raw = PropertiesService.getScriptProperties().getProperty(key);
+    if (raw) known = JSON.parse(raw) || {};
+  } catch (eKnown) {}
+  var newOnes = [];
+  for (var i = 0; i < sheets.length; i++) {
+    var name = sheets[i].getName();
+    if (!known[name] && _isLedgerLike_(name)) newOnes.push(name);
+  }
+  if (newOnes.length === 0 && !force) return;
+  // Rebuild cache (idempotent, writes Recap links + map)
+  _ensureLedgerCache_(true);
+  var tz = ss.getSpreadsheetTimeZone() || "Europe/Paris";
+  var stamp = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm:ss");
+  var pulsed = 0;
+  for (var j = 0; j < newOnes.length; j++) {
+    try {
+      var sh = ss.getSheetByName(newOnes[j]);
+      if (sh) { sh.getRange("B1").setValue(stamp); pulsed++; }
+    } catch (ePulse) {}
+  }
+  _wcoreAutoHealRow_(out, "New ledgers",
+    newOnes.length > 0 ? "PULSED" : "OK",
+    "new=" + newOnes.join(",") + " pulsedB1=" + pulsed);
 }
 
 /**

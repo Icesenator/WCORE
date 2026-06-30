@@ -1,4 +1,4 @@
-// v4.15.100 - Action Rebalancing Z1 checkbox also rebuilds Top Marketcap (Google Finance + Action Rebalancing) before refreshing Bitpanda Stocks/Fiat.
+// v4.15.103 - Self-heal: re-install dead BITPANDA_REFRESH_WATCHDOG/CEX_HOURLY_REFRESH on user CEX edit (per "triggers présents mais mal autorisés" gotcha, v4.15.61).
 // v4.15.93 - External refresh checkboxes must not write REQUEST into business B1 cells.
 // v4.15.92 - On BUSY, prefer fresh row timestamp over keeping REQUEST in B1.
 // v4.15.91 - Do not let a concurrent BUSY overwrite a successful B1 timestamp.
@@ -424,6 +424,14 @@ function BITPANDA_ON_EDIT(e) {
     }
     if (!refreshFlagProp) return false;
 
+    // v4.15.103 PERMANENT FIX: re-install dead CEX time-based triggers.
+    // Per AGENTS.md "triggers présents mais mal autorisés" (v4.15.61): after clasp
+    // push, the installable trigger can be "present" (count=1) but unable to run with
+    // full permissions (stale OAuth). Re-installing from a user-triggered context
+    // captures the user's current auth, restoring the CEX pipeline. Any CEX A1
+    // click (Bitpanda/Binance/Bitfinex/Bybit) re-authorizes all 4 watchdogs + hourly.
+    try { _bpEnsureCexTriggers_(); } catch (eHeal) {}
+
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
     // v4.15.76: onEdit SIMPLE ne peut pas appeler UrlFetchApp. On pose un flag que
@@ -440,6 +448,57 @@ function BITPANDA_ON_EDIT(e) {
     try { if (e && e.range) e.range.setValue(false); } catch (eReset) {}
     return true;
   }
+}
+
+// v4.15.103 PERMANENT FIX: self-heal list + helpers.
+// Per AGENTS.md "triggers présents mais mal autorisés" (v4.15.61).
+// Any CEX A1 click re-installs missing 1-min and 1h CEX triggers with fresh user auth.
+var _BP_CEX_TRIGGERS_TO_HEAL = [
+  { name: "BITPANDA_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
+  { name: "BINANCE_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
+  { name: "BITFINEX_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
+  { name: "BYBIT_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
+  { name: "CEX_HOURLY_REFRESH", unit: "hours", value: 1 }
+];
+
+function _bpEnsureCexTriggers_() {
+  // v4.15.103 PERMANENT FIX: force re-install (delete+create) to capture fresh user auth.
+  // A trigger that is "present" (count=1) but tied to stale OAuth will NOT be reinstalled
+  // by a "create-if-missing" check. Always delete+recreate so the new trigger captures
+  // the user's current auth context. Per AGENTS.md v4.15.61.
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var j = 0; j < _BP_CEX_TRIGGERS_TO_HEAL.length; j++) {
+      var t = _BP_CEX_TRIGGERS_TO_HEAL[j];
+      // 1. Delete any existing instance of this trigger (dead or alive, with stale or fresh auth)
+      for (var i = triggers.length - 1; i >= 0; i--) {
+        try {
+          if (triggers[i].getHandlerFunction() === t.name) {
+            ScriptApp.deleteTrigger(triggers[i]);
+          }
+        } catch (eDel) {}
+      }
+      // 2. Re-install with fresh user auth (captured by the current onEdit invocation)
+      try {
+        var builder = ScriptApp.newTrigger(t.name).timeBased();
+        if (t.unit === "hours") builder = builder.everyHours(t.value);
+        else builder = builder.everyMinutes(t.value);
+        builder.create();
+        try { Logger.log("[bpEnsureCex] Force-reinstalled " + t.name + " every " + t.value + " " + t.unit); } catch (eLog) {}
+      } catch (eCreate) {
+        try { Logger.log("[bpEnsureCex] Failed to reinstall " + t.name + ": " + (eCreate && eCreate.message ? eCreate.message : eCreate)); } catch (eLog) {}
+      }
+    }
+  } catch (e) {
+    try { Logger.log("[bpEnsureCex] Error: " + (e && e.message ? e.message : e)); } catch (eLog) {}
+  }
+}
+
+function BP_REINSTALL_CEX_TRIGGERS() {
+  // User-facing: run this from the Apps Script editor to force a clean re-install
+  // of all CEX time-based triggers (captures the current editor auth context).
+  _bpEnsureCexTriggers_();
+  return "Done. See Executions log for which triggers were reinstalled.";
 }
 
 // Trigger INSTALLABLE (peut faire des UrlFetch): traite les flags poses par les

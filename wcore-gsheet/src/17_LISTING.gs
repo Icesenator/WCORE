@@ -3,7 +3,9 @@
  *
  * SIMPLE & STABLE - Cache via ScriptProperties
  *
- * Version : LISTING_v4.5.17
+ * Version : LISTING_v4.5.18
+ * v4.15.104 - PER-CELL auto-link on user edit of Portefeuille Crypto Details column E (bridges watchdog-pulse gap)
+ * v4.5.18 - FEAT: link Portefeuille Crypto Details column E to matching sheets via RichTextValue
  * v4.5.17 - FIX: label Recap I1 status column and clarify B1 as pulse timestamp
  * v4.5.16 - FEAT: include Startale wallet sheets in Recap Portfolio
  * v4.5.15 - FEAT: include OKX Crypto sync tab in Recap Portfolio
@@ -51,10 +53,13 @@ function _isLedgerLike_(name) {
  var n = String(name || "").toLowerCase();
  if (LEDGER_RETIRED_NAMES[n]) return false;
  return (
-(n.indexOf("ledger") >= 0 ||
- n.indexOf("layer3") >= 0 ||
- n.indexOf("seeker") >= 0 ||
- n.indexOf("ethos") >= 0 ||
+ (n.indexOf("ledger") >= 0 ||
+  n.indexOf("layer3") >= 0 ||
+  n.indexOf("seeker") >= 0 ||
+  n.indexOf("ethos") >= 0 ||
+  // v4.5.18: include UniSwap + Warpcast self-custody wallets (Base/Optimism/Polygon/Arbitrum/Zora)
+  n.indexOf("uniswap") >= 0 ||
+  n.indexOf("warpcast") >= 0 ||
   n.indexOf("binance") >= 0 ||
   n.indexOf("smart") >= 0 ||
    n.indexOf("safepal") >= 0 ||
@@ -111,9 +116,10 @@ function _ensureLedgerCache_(force) {
  props.setProperty(LEDGER_MAP_KEY, JSON.stringify(map));
  props.setProperty(LEDGER_TS_KEY, String(Date.now()));
 
- // v4.5.5: Set hyperlinks directly in Recap Chain column A via RichTextValue
- // Replaces unreliable ARRAYFORMULA+SHEET_LINK(@customfunction) approach
- _setRecapHyperlinks_(ss, names, map);
+  // v4.5.5: Set hyperlinks directly in Recap Chain column A via RichTextValue
+  // Replaces unreliable ARRAYFORMULA+SHEET_LINK(@customfunction) approach
+  _setRecapHyperlinks_(ss, names, map);
+  _setDetailsChainHyperlinks_(ss, map);
 }
 
 /**
@@ -170,6 +176,71 @@ function _setRecapHyperlinks_(ss, names, map) {
   Logger.log("[17_LISTING] Set " + richTexts.length + " hyperlinks in Recap Chain column A");
  } catch (e) {
   Logger.log("[17_LISTING] Error setting hyperlinks: " + e.message);
+ }
+}
+
+/**
+ * Set hyperlinks in Portefeuille Crypto Details column E for values that
+ * exactly match an existing managed sheet name. Text is preserved as-is.
+ * @param {Spreadsheet} ss - Active spreadsheet
+ * @param {Object} map - sheet name -> gid mapping
+ */
+function _setDetailsChainHyperlinks_(ss, map) {
+ try {
+  if (!ss || !map) return;
+  var details = ss.getSheetByName("Portefeuille Crypto Details");
+  if (!details) return;
+  var lastRow = details.getLastRow();
+  if (lastRow < 2) return;
+
+  var range = details.getRange(2, 5, lastRow - 1, 1);
+  var values = range.getDisplayValues();
+  var baseUrl = ss.getUrl();
+  var richTexts = [];
+
+  for (var i = 0; i < values.length; i++) {
+   var text = String((values[i] && values[i][0]) || "");
+   var gid = map[text];
+   var builder = SpreadsheetApp.newRichTextValue().setText(text);
+   if (text && gid != null) builder.setLinkUrl(baseUrl + "#gid=" + gid);
+   richTexts.push([builder.build()]);
+  }
+
+  range.setRichTextValues(richTexts);
+  Logger.log("[17_LISTING] Set Portefeuille Crypto Details E:E hyperlinks");
+ } catch (e) {
+  Logger.log("[17_LISTING] Error setting Details hyperlinks: " + e.message);
+ }
+}
+
+// v4.15.104: per-cell auto-link on user edit of Portefeuille Crypto Details column E.
+// Bridges the gap between _setDetailsChainHyperlinks_ (which only runs on watchdog pulses,
+// every 5-30 min) and new rows added by the CEX or ledger watchdogs in between.
+// Called from WCORE_ON_EDIT in 16_REFRESH.gs.
+function _bpDetailsAutoLink_(e) {
+ try {
+  if (!e || !e.range) return;
+  var range = e.range;
+  var sheet = range.getSheet();
+  if (!sheet || sheet.getName() !== "Portefeuille Crypto Details") return;
+  if (range.getColumn() !== 5) return; // column E only
+  var row = range.getRow();
+  if (row < 2) return; // skip header
+  var text = String(range.getValue() || "");
+  if (!text) return;
+
+  // Look up the sheet ID for this name in the active spreadsheet
+  var ss = sheet.getParent();
+  var target = ss.getSheetByName(text);
+  var gid = target ? target.getSheetId() : null;
+
+  // Build the RichTextValue (with or without link)
+  var baseUrl = ss.getUrl();
+  var builder = SpreadsheetApp.newRichTextValue().setText(text);
+  if (gid != null) builder.setLinkUrl(baseUrl + "#gid=" + gid);
+  range.setRichTextValue(builder.build());
+ } catch (err) {
+  try { Logger.log("[bpDetailsAutoLink] " + (err && err.message ? err.message : err)); } catch (eLog) {}
  }
 }
 

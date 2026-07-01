@@ -268,6 +268,44 @@ test("falls back to GeckoTerminal when DexScreener misses", async () => {
   assert.equal(result.source, "gt");
 });
 
+test("falls back to Zora for Base content coins when standard sources miss", async () => {
+  const calls: string[] = [];
+  const sources = sourceSet({});
+  sources.dexscreener.getTokenPriceUsd = async () => {
+    calls.push("dex");
+    return null;
+  };
+  sources.defillama.getTokenPriceUsd = async () => {
+    calls.push("llama");
+    return null;
+  };
+  sources.geckoterminal.getTokenPriceUsd = async () => {
+    calls.push("gt");
+    return null;
+  };
+  sources.onchainV3.getTokenPriceUsd = async () => {
+    calls.push("onchain");
+    return null;
+  };
+  (sources as PricingSourceSet & { zora: { getTokenPriceUsd: PricingSourceSet["dexscreener"]["getTokenPriceUsd"] } }).zora = {
+    getTokenPriceUsd: async () => {
+      calls.push("zora");
+      return { priceUsd: 0.000008379759007, source: "zora", symbol: "Surprise", name: "Surprise" };
+    },
+  };
+
+  const result = await priceTokenCascade({
+    token: token({ symbol: "Surprise", name: "Surprise" }),
+    fxRate,
+    cache: new MemoryPricingCache(),
+    sources,
+  });
+
+  assert.equal(result.priceEur, 0.000008379759007 * fxRate);
+  assert.equal(result.source, "zora");
+  assert.deepEqual(calls, ["dex", "llama", "gt", "onchain", "zora"]);
+});
+
 test("unpriced token returns null price and clear reason", async () => {
   const result = await priceTokenCascade({
     token: token(),

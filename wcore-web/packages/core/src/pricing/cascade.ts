@@ -118,6 +118,12 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
   const onchainResult = commitSourcePrice(options, key, onchain, trail, nowMs, previousPriceEur);
   if (onchainResult) return onchainResult;
 
+  if (options.sources.zora) {
+    const zora = await trySource("zora", trail, () => options.sources.zora!.getTokenPriceUsd(token));
+    const zoraResult = commitSourcePrice(options, key, zora, trail, nowMs, previousPriceEur);
+    if (zoraResult) return zoraResult;
+  }
+
   // CoinGecko as last-resort fallback (only when explicitly allowed)
   if (options.allowCoinGeckoTokenFallback) {
     const geckoId = getSymbolLlamaId(token.symbol, token.chain)?.replace(/^coingecko:/, "");

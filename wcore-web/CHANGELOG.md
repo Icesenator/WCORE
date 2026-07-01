@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 2026-07-01 - GSheet Web scan parity + Base Zora fallback pricing
+
+- **GSheet Web scan adapter v4.16.26** : strict token whitelists, stable degraded merges, and precise price derivation from `valueEur / balance` fix GSheet/Web valuation drift for Web-backed scans.
+- **Base Zora fallback** : added `ZoraCoinPriceSource` for Base content coins using `tokenPrice.priceInUsdc` from Zora after standard sources miss. Prod/GSheet validation: `Surprise`, `CUBE`, and `JALICHI` are now priced on `Ledger - Base`.
+- **Scam rules v15** : hard-blocked Base `ZAMRUD` fake-price spam by contract.
+- **Corn cleanup** : removed live `Ledger - Corn` tab after Corn Maizenet shutdown and failed public RPC checks. Code-level chain disable/removal remains a follow-up.
+- **Still no reliable source** : `BARAN`, `JRA`, `ZAY`, `FLIPIT`, `CTRL`, `BSNOW`, `ZECM`, and `WC` remain unpriced by design.
+
 ## 2026-06-29 — Scam-detector v13: Base BONSAI absurd-price protection
 
 - **Prix absurde neutralisé côté GSheet API** : `BONSAI` n'est pas hard-blocké comme scam quand le prix est sain; les valeurs absurdes sont remplacées par `null` et tracées en erreur `ABSURD_PRICE`.

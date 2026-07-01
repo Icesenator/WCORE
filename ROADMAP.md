@@ -66,6 +66,7 @@ Goal: let GSheet optionally delegate wallet scans to `wcore-web` API instead of 
 - **Increment 3 (active)**: converge to Web-required scans. `GSHEET_WEB_SCAN_REQUIRE=true` makes allowlisted Web chains retry Web and stop before native fallback on failure, returning `[WEB_SCAN_ERROR]` while preserving the last displayed cache through `J1`/A1.
 - **Increment 4 (future)**: after Web-required mode is stable across all chains, remove native fallback from Web-enabled refresh paths to avoid mixed-source wallet caches.
 - Spec: `wcore-gsheet/docs/superpowers/specs/2026-06-25-gsheet-web-scan-proxy-design.md`.
+- **2026-07-01 hardening**: GSheet Web adapter v4.16.26 preserves cache-only prices on degraded merges, derives precise prices from Web values, and passes strict token whitelists to Web. Web API added a Base Zora fallback for content/social coins; live `Ledger - Corn` was removed after the Corn shutdown and failed RPC checks.
 
 ### Phase 5 - Web-Backed GSheet Cache
 

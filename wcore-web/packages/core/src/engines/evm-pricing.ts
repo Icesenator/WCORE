@@ -9,6 +9,7 @@ import {
   MemoryPricingCache,
   OnchainV3PriceSource,
   RealTPriceSource,
+  ZoraCoinPriceSource,
   priceTokenCascade,
   type IntraScanCache,
   type PricingCache,
@@ -30,6 +31,7 @@ export const defaultSources: PricingSourceSet = {
   jupiter: new JupiterPriceSource(),
   onchainV3: new OnchainV3PriceSource(sharedPriceCache),
   realt: new RealTPriceSource(),
+  zora: new ZoraCoinPriceSource(),
 };
 
 export function buildSources(priceCache: PricingCache, _chain: ChainConfig, cache?: CacheStore): PricingSourceSet {

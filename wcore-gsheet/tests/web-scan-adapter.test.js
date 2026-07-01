@@ -100,7 +100,7 @@ function makeContext(props, fetchBody) {
     CacheManager: { init: () => {} },
     WalletCache: {
       save: (address, cache, config) => saved.push({ address, cache, config }),
-      load: () => props.__walletCache || null,
+      load: (_address, _timer, config) => config ? (props.__walletCache || null) : null,
       getLastUpdateStr: (cache) => cache && cache.updatedAt ? '2026-06-26 19:00:00' : '',
       getLastRunUpdateStr: (cache) => cache && cache.last_run_update_ms ? '2026-06-26 19:00:00' : '',
     },
@@ -231,6 +231,30 @@ const samplePayload = JSON.stringify({
   assert.match(info.INFO_NATIVE, /native=ETH/, 'web scan visible output must expose INFO_NATIVE for Recap Portfolio');
   assert.match(info.INFO_TIMING, /scan=123ms/, 'web scan visible output must expose INFO_TIMING for Recap Portfolio');
   assert.match(info.INFO_RPC, /web_api/, 'web scan visible output must expose INFO_RPC for Recap Portfolio');
+}
+
+{
+  const ctx = makeContext({});
+  const config = { CHAIN: { NAME: 'Solana', NATIVE_SYMBOL: 'SOL' }, CACHE_VERSION: 7 };
+  const payload = {
+    ok: true,
+    chain: 'SOLANA',
+    chainName: 'Solana',
+    vm: 'SVM',
+    timestamp: '2026-07-01T07:48:31.000Z',
+    native: { symbol: 'SOL', balance: 0.029835803, priceEur: 66.2, valueEur: 1.975130159 },
+    tokens: [{ symbol: 'DBR', name: 'deBridge', contract: 'DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5', balance: 131.77599, decimals: 6, priceEur: 0.01, value_eur: 1.76 }],
+    totalValueEur: 3.73,
+    errors: [],
+    degraded: false,
+    fxRate: 0.8767,
+    scanMs: 123,
+  };
+  const cache = ctx._webScanConvertToWalletCache_(payload, config);
+  const dbr = cache.assets.find((asset) => asset.symbol === 'DBR');
+  assert.equal(dbr.value_eur, 1.76, 'web scan adapter must accept snake_case value_eur from Web payloads');
+  assert.ok(Math.abs(dbr.price_eur - (1.76 / 131.77599)) < 1e-12, 'web scan adapter must derive precise price from precise value when priceEur is rounded');
+  assert.ok(Math.abs(cache.priceMap['DBRiDgJAMsM95moTzJs7M9LnkGErpbv9v6CUR1DXnUu5'] - dbr.price_eur) < 1e-12);
 }
 
 {
@@ -402,6 +426,18 @@ const samplePayload = JSON.stringify({
   assert.equal(res.ok, true);
   assert.equal(ctx.__saved.length, 1);
   assert.equal(ctx.__saved[0].address, 'svm_cache_key', 'adapter saves under local cache key while sending raw address to web');
+}
+
+{
+  const ctx = makeContext({});
+  const payload = ctx._webScanRequestPayload_(
+    'SolanaRawAddress111111111111111111111111111',
+    [['TokenMint11111111111111111111111111111111'], [''], ['TokenMint22222222222222222222222222222222']],
+    false,
+    { CHAIN: { KEY: 'SOLANA', NAME: 'Solana' } }
+  );
+  assert.equal(payload.strictTokens, true, 'web scan requests must use strict token mode when I2:I is provided');
+  assert.deepEqual(payload.customTokens, ['TokenMint11111111111111111111111111111111', 'TokenMint22222222222222222222222222222222']);
 }
 
 {
@@ -581,10 +617,67 @@ const samplePayload = JSON.stringify({
   assert.equal(ctx.__saved.length, 1, 'merged degraded scan must write one cache update');
   const merged = ctx.__saved[0].cache.assets;
   assert.ok(merged.find((t) => t.symbol === 'OLD'), 'old cache-only token must be preserved');
+  const preservedOld = merged.find((t) => t.symbol === 'OLD');
+  assert.equal(preservedOld.price_eur, 5, 'degraded partial scans must keep stable cached prices for preserved cache-only tokens');
+  assert.equal(preservedOld.value_eur, 10, 'degraded partial scans must keep stable cached values for preserved cache-only tokens');
+  assert.equal(ctx.__saved[0].cache.priceMap['0xold0000000000000000000000000000000000001'], 5, 'degraded partial scans must keep priceMap entries for preserved cache-only tokens');
   assert.ok(!merged.find((t) => t.symbol === 'AGI'), 'old scam cache-only token must be purged during degraded merge');
   assert.ok(!merged.find((t) => t.symbol === 'DRB'), 'old scam cache-only token must be purged during degraded merge');
   assert.ok(merged.find((t) => t.symbol === 'C-Locked' && t.name === 'Chainbase Staking [Lock]'), 'new useful metadata must update the cached token');
   assert.equal(ctx.__saved[0].cache.scanStats.webMergePreservedAssets, 1);
+}
+
+{
+  const bscPartialPayload = JSON.stringify({
+    ok: true,
+    chain: 'BSC',
+    chainName: 'BNB Chain',
+    vm: 'EVM',
+    timestamp: '2026-06-30T18:10:00.000Z',
+    native: { symbol: 'BNB', balance: 0.01, priceEur: 560, valueEur: 5.6 },
+    tokens: [
+      { symbol: 'HLG', name: 'Holograph', contract: '0x740df024ce73f589acd5e8756b377ef8c6558bab', balance: 205, decimals: 18, priceEur: 0.0000018, valueEur: 0 },
+      { symbol: 'FROG', name: 'Frog', contract: '0x4ad663403df2f0e7987bc9c74561687472e1611c', balance: 2886, decimals: 18, priceEur: 0.00007, valueEur: 0.2 },
+    ],
+    totalValueEur: 5.8,
+    errors: ['balances fetch: RPC_TIMEOUT'],
+    degraded: true,
+    fxRate: 0.86,
+    scanMs: 3000,
+  });
+  const btcb = '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c';
+  const sol = '0x570a5d26f7765ecb712c0924e4de545b89fd43df';
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [
+      { contract: 'native', symbol: 'BNB', name: 'BNB', balance: 0.01, decimals: 18, price_eur: 560, value_eur: 5.6 },
+      { contract: btcb, symbol: 'BTCB', name: 'BTCB Token', balance: 0.002034716466, decimals: 18, price_eur: 147636.5681, value_eur: 300.3985561 },
+      { contract: sol, symbol: 'SOL', name: 'Solana Token', balance: 0.040815, decimals: 18, price_eur: 188.4314602, value_eur: 7.690329 },
+    ],
+    priceMap: { native: 560, [btcb]: 147636.5681, [sol]: 188.4314602 },
+    priceTsMap: { [btcb]: 111, [sol]: 111 },
+    balanceTsMap: { [btcb]: 111, [sol]: 111 },
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, bscPartialPayload);
+  const res = ctx._webScanWallet_('0xd5b0dbd75056a30411be789775e40664ec858e51', [[btcb], [sol]], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'partial BSC scan should merge with cache instead of deleting legitimate cached tokens');
+  assert.equal(ctx.__saved.length, 1);
+  const saved = ctx.__saved[0].cache;
+  const savedBtcb = saved.assets.find((t) => t.contract === btcb);
+  const savedSol = saved.assets.find((t) => t.contract === sol);
+  assert.equal(savedBtcb, undefined, 'explicitly requested BTCB must not be resurrected from stale cache when absent from Web payload');
+  assert.equal(savedSol, undefined, 'explicitly requested SOL must not be resurrected from stale cache when absent from Web payload');
+  assert.equal(saved.priceMap[btcb], undefined, 'absurd cached BTCB priceMap entry must be purged');
+  assert.equal(saved.priceMap[sol], undefined, 'absurd cached SOL priceMap entry must be purged');
 }
 
 {

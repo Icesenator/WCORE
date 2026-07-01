@@ -15,7 +15,8 @@ export type PriceSource =
   | "jupiter"
   | "onchain-v3"
   | "onchain-v3-l1"
-  | "realt";
+  | "realt"
+  | "zora";
 
 export type PricingMarker = "NEED_DEEP" | "NEED_TRY3" | "NEED_ONCHAIN";
 
@@ -157,6 +158,7 @@ export interface PricingSourceSet {
   jupiter: TokenPriceSource;
   onchainV3: TokenPriceSource;
   realt?: RealTSource;
+  zora?: TokenPriceSource;
 }
 
 /**

@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 14;
+export const SCAM_RULES_VERSION = 15;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -82,6 +82,7 @@ const _BLOCKED_CONTRACTS = new Set([
   "0x06a4665fd49c1c959e982a9ed22ea83e9f6be7df", // BASE: BALDYS "Balding Budys"
   "0x1626691e26c985f98fbc22193f24b719d3ae9491", // BASE: singularity-coin "singularity-engine"
   "0x3142b47221a8e9418e161bf5f747d65459f5535e", // BASE: TIMES "POLYMARKET TIMES"
+  "0x69ca8b02d2aa27619e02fbf6de1b1502da5f147a", // BASE: ZAMRUD fake-price spam
 ]);
 
 // Admin overrides — tokens explicitly marked as scam/legit by platform owner

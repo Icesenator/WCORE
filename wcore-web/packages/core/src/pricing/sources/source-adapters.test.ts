@@ -7,6 +7,7 @@ import { DexScreenerPriceSource } from "./dexscreener.js";
 import { GeckoTerminalPriceSource } from "./geckoterminal.js";
 import { JupiterPriceSource } from "./jupiter.js";
 import { RealTPriceSource } from "./realt.js";
+import { ZoraCoinPriceSource } from "./zora.js";
 import { MemoryPricingCache } from "../types.js";
 import type { PricingToken, SourcePrice } from "../types.js";
 import { MemoryCacheStore } from "../../cache/memory-cache.js";
@@ -256,6 +257,45 @@ test("CoinGecko simple price parses a verified id", async () => {
 
   assert.equal(result.priceUsd, 3500);
   assert.equal(result.source, "coingecko");
+});
+
+test("Zora prices Base content coins from tokenPrice.priceInUsdc", async () => {
+  const source = new ZoraCoinPriceSource(
+    fetchMock((url) => {
+      assert.equal(url, `https://api-sdk.zora.engineering/coin?address=${CONTRACT}&chain=8453`);
+      return {
+        zora20Token: {
+          address: CONTRACT,
+          name: "Surprise",
+          symbol: "Surprise",
+          tokenPrice: { priceInUsdc: "0.000008379759007" },
+        },
+      };
+    }),
+  );
+
+  const result = await source.getTokenPriceUsd(token());
+
+  assert.deepEqual(result, {
+    priceUsd: 0.000008379759007,
+    source: "zora",
+    symbol: "Surprise",
+    name: "Surprise",
+  });
+});
+
+test("Zora ignores non-Base chains and missing token prices", async () => {
+  let calls = 0;
+  const source = new ZoraCoinPriceSource(
+    fetchMock(() => {
+      calls++;
+      return { zora20Token: { tokenPrice: { priceInUsdc: null } } };
+    }),
+  );
+
+  assert.equal(await source.getTokenPriceUsd(token(svmChain)), null);
+  assert.equal(await source.getTokenPriceUsd(token()), null);
+  assert.equal(calls, 1);
 });
 
 test("RealT source serves stale Redis registry when API refresh fails", async () => {

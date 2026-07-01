@@ -9,4 +9,5 @@ export * from "./sources/coingecko.js";
 export * from "./sources/jupiter.js";
 export * from "./sources/onchain-v3.js";
 export * from "./sources/realt.js";
+export * from "./sources/zora.js";
 export * from "./redis-pricing-cache.js";

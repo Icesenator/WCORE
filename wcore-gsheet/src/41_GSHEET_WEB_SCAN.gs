@@ -1,6 +1,12 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.26 - Honor precise Web value aliases and derive token prices when priceEur is rounded.
+ * v4.16.25 - Preserve cached prices for cache-only tokens during degraded partial Web merges.
+ * v4.16.24 - Block confirmed Base ZAMRUD fake-price spam.
+ * v4.16.23 - Use strict Web scans when I2:I token whitelist is provided.
+ * v4.16.22 - Do not resurrect requested tokens absent from degraded Web payloads.
+ * v4.16.21 - Neutralize unconfirmed stale prices during degraded Web cache merges.
  * v4.16.20 - Purge confirmed Base scam contracts during degraded Web cache merges.
  * v4.16.19 - Conservatively merge useful degraded Web scans with existing wallet cache.
  * v4.16.18 - Allow cache-backed balance fallback degraded Web payloads to refresh DeFi labels.
@@ -21,7 +27,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.20";
+var GSHEET_WEB_SCAN_VERSION = "4.16.26";
 var GSHEET_WEB_SCAN_MAX_ATTEMPTS = 2;
 
 var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
@@ -31,7 +37,8 @@ var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
   "0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07": true, // BASE: CLAWD
   "0x06a4665fd49c1c959e982a9ed22ea83e9f6be7df": true, // BASE: BALDYS
   "0x1626691e26c985f98fbc22193f24b719d3ae9491": true, // BASE: singularity-coin
-  "0x3142b47221a8e9418e161bf5f747d65459f5535e": true  // BASE: TIMES
+  "0x3142b47221a8e9418e161bf5f747d65459f5535e": true, // BASE: TIMES
+  "0x69ca8b02d2aa27619e02fbf6de1b1502da5f147a": true  // BASE: ZAMRUD
 };
 
 function _webScanProps_() {
@@ -188,6 +195,17 @@ function _webScanNum_(v, fallback) {
   return isFinite(n) ? n : (fallback || 0);
 }
 
+function _webScanFirstNum_(obj, keys, fallback) {
+  obj = obj || {};
+  for (var i = 0; i < keys.length; i++) {
+    var v = obj[keys[i]];
+    if (v == null || v === "") continue;
+    var n = Number(v);
+    if (isFinite(n)) return n;
+  }
+  return fallback == null ? null : fallback;
+}
+
 function _webScanAssetFromNative_(nativeObj, config) {
   nativeObj = nativeObj || {};
   var symbol = String(nativeObj.symbol || (config && config.CHAIN && config.CHAIN.NATIVE_SYMBOL) || "NATIVE");
@@ -208,9 +226,16 @@ function _webScanAssetFromToken_(tokenObj) {
   if (!contract) return null;
   var balance = _webScanNum_(tokenObj.balance, 0);
   if (balance === 0) return null;
-  var priceEur = _webScanNum_(tokenObj.priceEur, 0) || null;
-  var valueEur = _webScanNum_(tokenObj.valueEur, 0) || null;
+  var priceEur = _webScanFirstNum_(tokenObj, ["priceEur", "price_eur", "price"], null);
+  if (!(priceEur != null && priceEur > 0)) priceEur = null;
+  var valueEur = _webScanFirstNum_(tokenObj, ["valueEur", "value_eur", "value"], null);
+  if (!(valueEur != null && isFinite(Number(valueEur)))) valueEur = null;
   if (valueEur == null && priceEur != null) valueEur = balance * priceEur;
+  if (valueEur != null && valueEur > 0.01 && balance > 0) {
+    var derivedPrice = valueEur / balance;
+    var expectedValue = priceEur != null ? balance * priceEur : null;
+    if (priceEur == null || Math.abs(expectedValue - valueEur) > 0.005) priceEur = derivedPrice;
+  }
   return {
     contract: contract,
     symbol: String(tokenObj.symbol || ""),
@@ -295,7 +320,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   var rpcInfo = "web_api; httpCalls=1; degraded=" + (!!payload.degraded)
     + "; errors=" + (Array.isArray(payload.errors) ? payload.errors.length : 0);
 
-  return {
+  var outCache = {
     version: (config && config.CACHE_VERSION) || null,
     updatedAt: now,
     last_run_update_ms: now,
@@ -338,6 +363,8 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
       ["META", "last_cache_update", Format.now()]
     ]
   };
+  if (priority && priority.set) outCache._webScanRequestedTokenSet = priority.set;
+  return outCache;
 }
 
 function _webScanShouldPreserveExistingCache_(payload, cache) {
@@ -401,11 +428,19 @@ function _webScanMergedTotal_(assets) {
   return total;
 }
 
+function _webScanNeutralizePrice_(asset) {
+  if (!asset || typeof asset !== "object") return asset;
+  asset.price_eur = null;
+  asset.value_eur = null;
+  return asset;
+}
+
 function _webScanMergeWithExistingCache_(existing, incoming) {
   if (!existing || !incoming || !_webScanHasUsefulAssets_(incoming)) return null;
   var oldAssets = Array.isArray(existing.assets) ? existing.assets : [];
   var newAssets = Array.isArray(incoming.assets) ? incoming.assets : [];
   if (!oldAssets.length || !newAssets.length) return null;
+  var requestedSet = (incoming && incoming._webScanRequestedTokenSet && typeof incoming._webScanRequestedTokenSet === "object") ? incoming._webScanRequestedTokenSet : null;
 
   var out = _webScanClone_(existing) || {};
   var byKey = {};
@@ -416,18 +451,30 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
     var oldKey = _webScanAssetKey_(oldAsset);
     if (!oldKey) continue;
     if (_webScanIsScamToken_(oldAsset)) { purgedScams++; continue; }
+    if (requestedSet && requestedSet[oldKey]) continue;
     if (!byKey[oldKey]) order.push(oldKey);
     byKey[oldKey] = oldAsset;
   }
 
   var updated = 0;
+  var updatedKeys = {};
   for (var j = 0; j < newAssets.length; j++) {
     var newAsset = newAssets[j] || {};
     var key = _webScanAssetKey_(newAsset);
     if (!key) continue;
     if (!byKey[key]) order.push(key);
     byKey[key] = _webScanMergeAsset_(byKey[key], newAsset);
+    updatedKeys[key] = true;
     updated++;
+  }
+
+  var neutralizedPrices = 0;
+  for (var nk = 0; nk < order.length; nk++) {
+    var preservedKey = order[nk];
+    if (!preservedKey || updatedKeys[preservedKey] || preservedKey === "native") continue;
+    if (!requestedSet || !requestedSet[preservedKey]) continue;
+    if (byKey[preservedKey] && (byKey[preservedKey].price_eur != null || byKey[preservedKey].value_eur != null)) neutralizedPrices++;
+    _webScanNeutralizePrice_(byKey[preservedKey]);
   }
 
   var mergedAssets = [];
@@ -447,10 +494,12 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.usd_to_eur_rate = incoming.usd_to_eur_rate || existing.usd_to_eur_rate || null;
   out.priceMap = _webScanClone_(existing.priceMap || {}) || {};
   purgeBlockedMapKeys(out.priceMap);
+  if (requestedSet) for (var rpk in requestedSet) if (rpk && !updatedKeys[rpk]) delete out.priceMap[rpk];
   var newPriceMap = incoming.priceMap || {};
   for (var pk in newPriceMap) if (newPriceMap[pk] != null) out.priceMap[pk] = newPriceMap[pk];
   out.priceTsMap = _webScanClone_(existing.priceTsMap || {}) || {};
   purgeBlockedMapKeys(out.priceTsMap);
+  if (requestedSet) for (var rptk in requestedSet) if (rptk && !updatedKeys[rptk]) delete out.priceTsMap[rptk];
   var newPriceTsMap = incoming.priceTsMap || {};
   for (var ptk in newPriceTsMap) if (newPriceTsMap[ptk] != null) out.priceTsMap[ptk] = newPriceTsMap[ptk];
   out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};
@@ -462,18 +511,21 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.scanStats.webMergeUpdatedAssets = updated;
   out.scanStats.webMergePreservedAssets = Math.max(0, oldAssets.length - purgedScams - updated);
   out.scanStats.webMergePurgedScamAssets = purgedScams;
+  out.scanStats.webMergeNeutralizedPrices = neutralizedPrices;
   out.scanStats.totalValueEur = _webScanMergedTotal_(mergedAssets);
   out.lastInfoMetaRows = incoming.lastInfoMetaRows || existing.lastInfoMetaRows || [];
+  try { delete out._webScanRequestedTokenSet; } catch (eTmp) {}
   return out;
 }
 
 function _webScanRequestPayload_(address, tokensRange, forceFull, config) {
+  var customTokens = _webScanTokenList_(tokensRange);
   return {
     address: String(address || "").trim(),
     chain: _webScanChainKey_(config),
     forceRefresh: (forceFull === true || forceFull === "true" || forceFull === "TRUE"),
-    strictTokens: false,
-    customTokens: _webScanTokenList_(tokensRange)
+    strictTokens: customTokens.length > 0,
+    customTokens: customTokens
   };
 }
 
@@ -531,7 +583,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     }
     if (_webScanShouldPreserveExistingCache_(payload, cache)) {
       var existingCache = null;
-      try { existingCache = WalletCache.load(String(cacheKey || address || "").trim(), config); } catch (loadErr) { existingCache = null; }
+      try { existingCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config); } catch (loadErr) { existingCache = null; }
       var mergedCache = _webScanMergeWithExistingCache_(existingCache, cache);
       if (mergedCache) {
         CacheManager.init();

@@ -224,8 +224,15 @@ function _wcoreAutoHealBootstrapState_(out, force) {
 
   try {
     if (typeof REPAIR_J1_LATCH_FORMULAS === "function") {
-      var j1Repair = REPAIR_J1_LATCH_FORMULAS(200);
-      _wcoreAutoHealRow_(out, "J1 latch repair", "OK", "repaired=" + (j1Repair.repaired || 0) + " cleared=" + (j1Repair.cleared || 0));
+      var j1Last = parseInt(PropertiesService.getScriptProperties().getProperty("WCORE_J1_LATCH_REPAIR_LAST_MS") || "0", 10);
+      var j1Age = isFinite(j1Last) && j1Last > 0 ? (Date.now() - j1Last) : Infinity;
+      if (j1Age < 24 * 60 * 60 * 1000) {
+        _wcoreAutoHealRow_(out, "J1 latch repair", "SKIP", "ageMin=" + Math.round(j1Age / 60000));
+      } else {
+        var j1Repair = REPAIR_J1_LATCH_FORMULAS(25);
+        try { PropertiesService.getScriptProperties().setProperty("WCORE_J1_LATCH_REPAIR_LAST_MS", String(Date.now())); } catch (eJ1Prop) {}
+        _wcoreAutoHealRow_(out, "J1 latch repair", "OK", "repaired=" + (j1Repair.repaired || 0) + " cleared=" + (j1Repair.cleared || 0));
+      }
     }
   } catch (eJ1) {
     _wcoreAutoHealRow_(out, "J1 latch repair", "WARN", eJ1.message);
@@ -345,7 +352,7 @@ function _wcoreAutoHealJ1Staleness_(out, force) {
     if (gap > STALE_GAP_MS) { staleCount++; if (gap > maxGapMs) maxGapMs = gap; }
   }
 
-  if (!force && staleCount < STALE_COUNT_THRESHOLD) {
+  if (staleCount < STALE_COUNT_THRESHOLD) {
     _wcoreAutoHealRow_(out, "J1 staleness", "OK", "stale=" + staleCount + " maxGapMin=" + Math.round(maxGapMs / 60000));
     return;
   }

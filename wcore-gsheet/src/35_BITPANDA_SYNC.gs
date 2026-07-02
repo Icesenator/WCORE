@@ -1,3 +1,4 @@
+// v4.15.105 - Action Rebalancing!Z1 runs direct refresh immediately, with watchdog fallback on BUSY/error.
 // v4.15.103 - Self-heal: re-install dead BITPANDA_REFRESH_WATCHDOG/CEX_HOURLY_REFRESH on user CEX edit (per "triggers présents mais mal autorisés" gotcha, v4.15.61).
 // v4.15.93 - External refresh checkboxes must not write REQUEST into business B1 cells.
 // v4.15.92 - On BUSY, prefer fresh row timestamp over keeping REQUEST in B1.
@@ -22,7 +23,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.15.93";
+var BITPANDA_SYNC_VERSION = "4.15.105";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -112,6 +113,35 @@ function _bpFmtStamp_() {
   return Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
 }
 
+// v4.15.109: Per-connector logical lock. The global LockService.getScriptLock()
+// is shared by the 1-min watchdog, MASTER_ON_EDIT, wallet cache, pricing and
+// auto-heal. Under trigger load it stays held, so every UPDATE_*_SPOT hit
+// waitLock timeout and returned BUSY silently (Binance/Bitfinex/Bybit frozen for
+// hours). A named ScriptProperties lease isolates each CEX connector.
+var _CEX_LOCK_TTL_MS = 90 * 1000;
+
+function CEX_ACQUIRE_LOCK(name) {
+  var key = "CEX_LOCK_" + name;
+  var props = PropertiesService.getScriptProperties();
+  var now = Date.now();
+  try {
+    var raw = props.getProperty(key);
+    if (raw) {
+      var heldUntil = parseInt(raw, 10);
+      if (isFinite(heldUntil) && heldUntil > now) return false;
+    }
+    props.setProperty(key, String(now + _CEX_LOCK_TTL_MS));
+    return true;
+  } catch (e) {
+    // ScriptProperties unavailable/full: fail open so the update still runs.
+    return true;
+  }
+}
+
+function CEX_RELEASE_LOCK(name) {
+  try { PropertiesService.getScriptProperties().deleteProperty("CEX_LOCK_" + name); } catch (e) {}
+}
+
 function _bpSetSheetRequestFlag_(sheet) {
   try { sheet.getRange("B1").setValue("REQUEST: " + _bpFmtStamp_()).setNumberFormat("@"); } catch (e) {}
 }
@@ -178,8 +208,13 @@ function _bpRunManualCexUpdate_(ss, sheetName, label, updateFn) {
 }
 
 function CEX_SET_MANUAL_REQUEST(sheet, refreshFlagProp) {
-  if (refreshFlagProp) _bpSetRefreshFlag_(refreshFlagProp);
+  // v4.15.107: write the visible sheet request first. Simple onEdit can fail on
+  // PropertiesService/ScriptApp permissions; B1 is the watchdog-readable source
+  // of truth and must be set before any best-effort property write.
   if (sheet) _bpSetSheetRequestFlag_(sheet);
+  if (refreshFlagProp) {
+    try { _bpSetRefreshFlag_(refreshFlagProp); } catch (eFlag) {}
+  }
   return true;
 }
 
@@ -197,6 +232,311 @@ function CEX_CLEAR_MANUAL_REQUEST(refreshFlagProp) {
 
 function CEX_RUN_MANUAL_UPDATE(ss, sheetName, label, updateFn) {
   return _bpRunManualCexUpdate_(ss, sheetName, label, updateFn);
+}
+
+function CEX_RUN_DIRECT_OR_QUEUE(sheet, refreshFlagProp, label, updateFn, event) {
+  return CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, refreshFlagProp, label, updateFn, event);
+}
+
+function CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, refreshFlagProp, label, updateFn, event) {
+  CEX_SET_MANUAL_REQUEST(sheet, refreshFlagProp);
+  var sheetName = sheet && sheet.getName ? sheet.getName() : "";
+  if (!event || !event.triggerUid) return "QUEUED";
+  return CEX_QUEUE_MANUAL_JOB(_cexManualJobKindFromLabel_(label), sheetName, refreshFlagProp, sheetName, "B1");
+}
+
+function _cexManualJobKindFromLabel_(label) {
+  var key = String(label || "").toUpperCase();
+  if (key === "BITPANDA_CRYPTO") return "BITPANDA_CRYPTO_FIAT";
+  if (key === "BITPANDA_STOCKS" || key === "BITPANDA_FIAT" || key === "BITPANDA_STOCKS_FIAT") return "BITPANDA_STOCKS_FIAT";
+  if (key === "BITPANDA") return "BITPANDA_FULL";
+  if (key === "BINANCE") return "BINANCE";
+  if (key === "BITFINEX") return "BITFINEX";
+  if (key === "BYBIT") return "BYBIT";
+  if (key === "COINBASE") return "COINBASE";
+  if (key === "OKX") return "OKX";
+  return key || "UNKNOWN";
+}
+
+function CEX_QUEUE_MANUAL_JOB(kind, sheetName, refreshFlagProp, statusSheetName, statusCell) {
+  return _cexEnqueueManualJobs_([{ kind: kind, sheetName: sheetName, refreshFlagProp: refreshFlagProp, statusSheetName: statusSheetName, statusCell: statusCell }]);
+}
+
+// v4.15.114: batch enqueue. Multi-job clicks (AC2 = 6 CEX, Z1 = 2 jobs) used to
+// call CEX_QUEUE_MANUAL_JOB N times; each call re-ran getProjectTriggers() +
+// deleteTrigger + newTrigger (2-5s each in GAS) -> MASTER_ON_EDIT at 50-75s.
+// One queue write + one status write per cell + ONE worker trigger ensure.
+function _cexEnqueueManualJobs_(jobs) {
+  if (!jobs || !jobs.length) return "NO_JOBS";
+  var props = PropertiesService.getScriptProperties();
+  var raw = "";
+  try { raw = props.getProperty("CEX_MANUAL_JOB_QUEUE") || ""; } catch (eRaw) {}
+  var queue = [];
+  try { queue = raw ? JSON.parse(raw) : []; } catch (eParse) { queue = []; }
+  var now = Date.now();
+  for (var i = 0; i < jobs.length; i++) {
+    var j = jobs[i] || {};
+    queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
+  }
+  props.setProperty("CEX_MANUAL_JOB_QUEUE", JSON.stringify(queue).substring(0, 8000));
+  props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(now + 10 * 60 * 1000));
+  _cexWriteManualQueuedStatusBatch_(jobs);
+  _cexEnsureManualWorkerTrigger_();
+  return "QUEUED";
+}
+
+function _cexWriteManualQueuedStatusBatch_(jobs) {
+  try {
+    var ss = _bpGetSpreadsheet_();
+    var stamp = "QUEUED: " + _bpFmtStamp_() + " ";
+    var statusMap = {};
+    var b1Map = {};
+    for (var i = 0; i < jobs.length; i++) {
+      var j = jobs[i] || {};
+      var kind = String(j.kind || "");
+      if (j.statusSheetName && j.statusCell) {
+        var key = j.statusSheetName + "!" + j.statusCell;
+        if (!statusMap[key]) statusMap[key] = { sheetName: j.statusSheetName, cell: j.statusCell, kinds: [] };
+        statusMap[key].kinds.push(kind);
+      }
+      if (j.sheetName && j.statusCell !== "B1") {
+        if (!b1Map[j.sheetName]) b1Map[j.sheetName] = [];
+        b1Map[j.sheetName].push(kind);
+      }
+    }
+    for (var k in statusMap) {
+      var entry = statusMap[k];
+      var sh = ss.getSheetByName(entry.sheetName);
+      if (sh) sh.getRange(entry.cell).setValue((stamp + entry.kinds.join("+")).substring(0, 500)).setNumberFormat("@");
+    }
+    for (var name in b1Map) {
+      var shB = ss.getSheetByName(name);
+      if (shB) shB.getRange("B1").setValue((stamp + b1Map[name].join("+")).substring(0, 500)).setNumberFormat("@");
+    }
+  } catch (e) {}
+}
+
+function _cexEnsureManualWorkerTrigger_(delayMs) {
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = 0;
+  for (var i = 0; i < triggers.length; i++) {
+    try {
+      if (triggers[i].getHandlerFunction() === "CEX_MANUAL_REFRESH_WORKER") {
+        ScriptApp.deleteTrigger(triggers[i]);
+        removed++;
+      }
+    } catch (e) {}
+  }
+  ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().after(delayMs || 1000).create();
+}
+
+// v4.15.114: worker lease. _cexEnsureManualWorkerTrigger_ only deletes PENDING
+// one-shot triggers; an instance already RUNNING cannot be cancelled. Without a
+// lease, a new enqueue during a long job spawned a second concurrent worker
+// (observed 2026-07-01: two CEX_MANUAL_REFRESH_WORKER running 177s + 58s) doing
+// racy read-modify-write on CEX_MANUAL_JOB_QUEUE (jobs lost or run twice).
+var _CEX_WORKER_LEASE_TTL_MS = 2 * 60 * 1000;
+
+function _cexWorkerAcquireLease_() {
+  var props = PropertiesService.getScriptProperties();
+  var now = Date.now();
+  try {
+    var raw = props.getProperty("CEX_WORKER_LEASE");
+    if (raw) {
+      var heldUntil = parseInt(raw, 10);
+      if (isFinite(heldUntil) && heldUntil > now) return false;
+    }
+    props.setProperty("CEX_WORKER_LEASE", String(now + _CEX_WORKER_LEASE_TTL_MS));
+    return true;
+  } catch (e) {
+    return true;
+  }
+}
+
+// v4.15.117: hard cap on a single lease. The auto CEX_HOURLY_REFRESH (4h) holds
+// the lease too if it shares the same ScriptProperty -> worker would block for
+// 5 min. Keep the lease short so the worker can resume once the auto trigger
+// finishes; long per-connector locks (CEX_ACQUIRE_LOCK 90s) live separately.
+var _CEX_WORKER_LEASE_TTL_MS = 2 * 60 * 1000;
+
+function _cexWorkerReleaseLease_() {
+  try { PropertiesService.getScriptProperties().deleteProperty("CEX_WORKER_LEASE"); } catch (e) {}
+}
+
+// v4.15.116: drain BUDGET. One job per run was far too slow in practice: GAS
+// one-shot triggers (after(1s)) actually fire with ~1 min granularity, so a
+// 6-job AC2 click took 10-20 min to drain (observed 2026-07-01 23:33->23:41:
+// only BINANCE done, 5 jobs still QUEUED). The worker now drains as many jobs
+// as fit in a ~3 min budget (GAS trigger hard limit = 6 min) and only
+// reschedules for the leftovers.
+var _CEX_WORKER_BUDGET_MS = 3 * 60 * 1000;
+
+function CEX_MANUAL_REFRESH_WORKER() {
+  if (!_cexWorkerAcquireLease_()) {
+    // v4.15.118: another worker holds the lease. Schedule a retry 15s later
+    // and let the next run try again. Do NOT touch the queue.
+    try { _cexEnsureManualWorkerTrigger_(15 * 1000); } catch (eRetry) {}
+    return "WORKER_BUSY";
+  }
+  var props = PropertiesService.getScriptProperties();
+  var results = [];
+  var lastResult = "NO_JOB";
+  var remaining = 0;
+  var t0 = Date.now();
+  try {
+    while ((Date.now() - t0) < _CEX_WORKER_BUDGET_MS) {
+      var queue = [];
+      try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
+      if (!queue.length) { remaining = 0; break; }
+      var job = queue.shift();
+      props.setProperty("CEX_MANUAL_JOB_QUEUE", JSON.stringify(queue).substring(0, 8000));
+      // v4.15.118: short BUSY:CEX window (90s) — must clear quickly after the
+      // last job so on-chain wallets resume scans.
+      props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 90 * 1000));
+      lastResult = _cexRunManualJob_(job);
+      results.push(lastResult);
+      try { props.setProperty("CEX_WORKER_LEASE", String(Date.now() + _CEX_WORKER_LEASE_TTL_MS)); } catch (eLease) {}
+      // v4.15.118: transient failure (per-connector lock BUSY because the auto
+      // CEX_HOURLY_REFRESH holds it, Spreadsheets timeout...): the job was
+      // requeued at the TAIL — keep draining the OTHER jobs instead of stalling
+      // the whole queue for 60s. Short pause to let the collision pass.
+      if (String(lastResult).indexOf("=RETRY") >= 0) {
+        try { Utilities.sleep(2000); } catch (eSleep) {}
+      }
+    }
+    try { remaining = (JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]")).length; } catch (eReread) { remaining = 0; }
+    if (!remaining) {
+      props.deleteProperty("CEX_MANUAL_ACTIVE_UNTIL_MS");
+    }
+  } finally {
+    _cexWorkerReleaseLease_();
+  }
+  if (remaining) {
+    // v4.15.118: 5s backoff on transient, 1s otherwise. Both are short — GAS
+    // one-shot triggers have ~1 min granularity anyway, so this is just a hint.
+    var nextDelayMs = (String(lastResult).indexOf("=RETRY") >= 0) ? 5 * 1000 : 1000;
+    try { _cexEnsureManualWorkerTrigger_(nextDelayMs); } catch (eNext) {}
+  }
+  return results.length ? results.join("\n") : "NO_JOB";
+}
+
+function CEX_MANUAL_REFRESH_WORKER_FORCE() {
+  var results = [];
+  for (var i = 0; i < 20; i++) {
+    var out = CEX_MANUAL_REFRESH_WORKER();
+    results.push(out);
+    if (out === "NO_JOB" || out === "WORKER_BUSY") break;
+  }
+  return results.join("\n");
+}
+
+// v4.15.114: transient failures (Spreadsheets service timeout under trigger
+// saturation, quota bursts, per-connector lock BUSY) must not kill a manual job.
+// Observed 2026-07-01: CEX - Bybit B1 = ERROR "Service Spreadsheets timed out"
+// while _runPricingWorker + QUOTA_RECOVERY_SWEEP + double worker held the doc.
+var _CEX_MANUAL_JOB_MAX_RETRIES = 2;
+
+function _cexIsTransientResult_(result) {
+  var s = String(result || "");
+  return s === "BUSY" ||
+         s.indexOf("timed out") >= 0 ||
+         s.indexOf("Service Spreadsheets") >= 0 ||
+         s.indexOf("Service invoked too many times") >= 0 ||
+         s.indexOf("internal error") >= 0;
+}
+
+function _cexRequeueManualJob_(job) {
+  var props = PropertiesService.getScriptProperties();
+  var queue = [];
+  try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (e) { queue = []; }
+  queue.push(job);
+  props.setProperty("CEX_MANUAL_JOB_QUEUE", JSON.stringify(queue).substring(0, 8000));
+  props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 10 * 60 * 1000));
+}
+
+function _cexWriteManualJobRetryStatus_(job, msg) {
+  try {
+    var ss = _bpGetSpreadsheet_();
+    var status = String(msg || "").substring(0, 500);
+    if (job.statusSheetName && job.statusCell) {
+      var sh = ss.getSheetByName(job.statusSheetName);
+      if (sh) sh.getRange(job.statusCell).setValue(status).setNumberFormat("@");
+    }
+    if (job.sheetName) _bpSetSheetStatus_(ss, job.sheetName, status);
+  } catch (e) {}
+}
+
+// v4.15.117: a failed B1 status (B1 = "RETRY 1/2" stuck) is recovered by checking
+// against D3 row stamp. If the row was updated AFTER the B1 QUEUED stamp, the
+// update succeeded but the status write got lost. Force B1 to row stamp.
+// v4.15.118: forced recovery for sheets left in QUEUED/RETRY state at boot.
+// We do NOT call this from the worker (extra Sheet I/O per job); we let the
+// watchdog (WATCHDOG_FROM_RECAP) re-process them through _bpSheetHasRequest_ —
+// the request flag is cleared only on success or after MAX_RETRIES.
+
+function _cexRunManualJob_(job) {
+  var kind = String(job && job.kind || "");
+  var result = "";
+  try {
+    if (kind === "TOP_MARKETCAP") result = typeof UPDATE_TOP_MARKETCAP === "function" ? String(UPDATE_TOP_MARKETCAP()) : "SKIPPED_MISSING_UPDATE_TOP_MARKETCAP";
+    else if (kind === "BITPANDA_CRYPTO_FIAT") result = String(UPDATE_BITPANDA_CRYPTO_FIAT());
+    else if (kind === "BITPANDA_CRYPTO") result = String(UPDATE_BITPANDA_CRYPTO());
+    else if (kind === "BITPANDA_STOCKS_FIAT") result = String(UPDATE_BITPANDA_STOCKS_FIAT());
+    else if (kind === "BITPANDA_FULL") result = String(UPDATE_BITPANDA_SPOT());
+    else if (kind === "BINANCE") result = typeof UPDATE_BINANCE_SPOT === "function" ? String(UPDATE_BINANCE_SPOT()) : "SKIPPED_MISSING_UPDATE_BINANCE_SPOT";
+    else if (kind === "BITFINEX") result = typeof UPDATE_BITFINEX_SPOT === "function" ? String(UPDATE_BITFINEX_SPOT()) : "SKIPPED_MISSING_UPDATE_BITFINEX_SPOT";
+    else if (kind === "BYBIT") result = typeof UPDATE_BYBIT_SPOT === "function" ? String(UPDATE_BYBIT_SPOT()) : "SKIPPED_MISSING_UPDATE_BYBIT_SPOT";
+    else if (kind === "COINBASE") result = typeof UPDATE_COINBASE_SPOT === "function" ? String(UPDATE_COINBASE_SPOT()) : "SKIPPED_MISSING_UPDATE_COINBASE_SPOT";
+    else if (kind === "OKX") result = typeof UPDATE_OKX_SPOT === "function" ? String(UPDATE_OKX_SPOT()) : "SKIPPED_MISSING_UPDATE_OKX_SPOT";
+    else result = "UNKNOWN_JOB:" + kind;
+  } catch (err) {
+    result = "THREW:" + (err && err.message ? err.message : err);
+  }
+  var retries = (job && isFinite(job.retries)) ? Number(job.retries) : 0;
+  if (_cexIsTransientResult_(result) && retries < _CEX_MANUAL_JOB_MAX_RETRIES) {
+    job.retries = retries + 1;
+    _cexRequeueManualJob_(job);
+    _cexWriteManualJobRetryStatus_(job, "RETRY " + job.retries + "/" + _CEX_MANUAL_JOB_MAX_RETRIES + ": " + _bpFmtStamp_() + " " + kind + " (" + String(result).substring(0, 200) + ")");
+    return kind + "=RETRY" + job.retries;
+  }
+  _cexWriteManualJobStatus_(job, result);
+  if (job && job.refreshFlagProp && result !== "BUSY") CEX_CLEAR_MANUAL_REQUEST(job.refreshFlagProp);
+  return kind + "=" + result;
+}
+
+function _cexWriteManualJobStatus_(job, result) {
+  try {
+    var ss = _bpGetSpreadsheet_();
+    var status = String(result || "");
+    if (status.length > 500) status = status.substring(0, 500);
+    var isSuccess = status === "OK" || status.indexOf('"ok":true') >= 0 || /^\d{4}-\d{2}-\d{2}/.test(status);
+    if (job.statusSheetName && job.statusCell) {
+      var statusSheet = ss.getSheetByName(job.statusSheetName);
+      if (statusSheet) {
+        var display = isSuccess ? String(job.kind || "") + " OK: " + _bpFmtStamp_() : status;
+        statusSheet.getRange(job.statusCell).setValue(display).setNumberFormat("@");
+      }
+    }
+    // v4.15.117: on success or hard failure, restore the sheet B1 to the
+    // canonical timestamp. B1 was set to QUEUED:/RETRY by enqueue/retry helpers;
+    // it must NOT stay "RETRY 1/2" if the job actually succeeded, and it must
+    // not stay QUEUED either. Always overwrite with the final state.
+    if (job.sheetName) {
+      try {
+        var sh = ss.getSheetByName(job.sheetName);
+        if (sh) {
+          if (isSuccess) {
+            // Read D3 (last update stamp on the data) and use it as the canonical B1.
+            var rowStamp = _bpExtractStampText_(_bpGetSheetCellText_(ss, job.sheetName, "D3"));
+            var b1 = rowStamp || _bpFmtStamp_();
+            sh.getRange("B1").setValue(b1).setNumberFormat("@");
+          } else if (status === "BUSY" || status.indexOf("THREW:") === 0 || status.indexOf('"ok":false') >= 0) {
+            _bpSetSheetStatus_(ss, job.sheetName, "ERROR: " + status);
+          }
+        }
+      } catch (eB1) {}
+    }
+  } catch (e) {}
 }
 
 function CEX_REFRESH_WATCHDOG() {
@@ -397,7 +737,7 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
 
 // v4.15.81: cellules de refresh manuel hors onglets Bitpanda.
 // Z1 = Action Rebalancing (v4.15.100: Top Marketcap puis Stocks + Fiat).
-// Portefeuille Crypto!AC2 = Crypto CEX (Bitpanda Crypto/Fiat + Binance + Bitfinex).
+// Portefeuille Crypto!AC2 = Crypto CEX block (all CEX crypto tabs).
 var BITPANDA_REFRESH_CELLS = {
   "Action Rebalancing": {
     "Z1": BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP
@@ -416,6 +756,13 @@ function BITPANDA_ON_EDIT(e) {
     if (!sheet) return false;
     var name = sheet.getName();
 
+    var isActionRebalancingZ1 = cell === "Z1" && name === "Action Rebalancing";
+    if (isActionRebalancingZ1 && !e.triggerUid) {
+      // Le trigger simple onEdit tourne en auth LIMITED et ne peut pas faire UrlFetch.
+      // Les evenements de triggers installables portent triggerUid; eux traitent Z1.
+      return false;
+    }
+
     var refreshFlagProp = null;
     if (cell === "A1" && _bpIsManagedSheet_(name)) {
       refreshFlagProp = BITPANDA_SYNC_CONFIG.REFRESH_FLAG_PROP;
@@ -424,24 +771,40 @@ function BITPANDA_ON_EDIT(e) {
     }
     if (!refreshFlagProp) return false;
 
-    // v4.15.103 PERMANENT FIX: re-install dead CEX time-based triggers.
-    // Per AGENTS.md "triggers présents mais mal autorisés" (v4.15.61): after clasp
-    // push, the installable trigger can be "present" (count=1) but unable to run with
-    // full permissions (stale OAuth). Re-installing from a user-triggered context
-    // captures the user's current auth, restoring the CEX pipeline. Any CEX A1
-    // click (Bitpanda/Binance/Bitfinex/Bybit) re-authorizes all 4 watchdogs + hourly.
-    try { _bpEnsureCexTriggers_(); } catch (eHeal) {}
-
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
-    // v4.15.76: onEdit SIMPLE ne peut pas appeler UrlFetchApp. On pose un flag que
-    // le trigger installable BITPANDA_REFRESH_WATCHDOG traitera (lui peut faire HTTP).
+    if (!e.triggerUid) return true;
+    try { range.setValue(false); } catch (eResetEarly) {}
+
+    // v4.15.76: onEdit SIMPLE ne peut pas appeler UrlFetchApp. En pratique ce
+    // handler est appele par le trigger installable MASTER_ON_EDIT; Z1 passe donc
+    // en direct pour eviter l'attente watchdog, avec flag conserve si le direct
+    // ne peut pas terminer.
     if (cell === "A1" && _bpIsManagedSheet_(name)) {
-      CEX_SET_MANUAL_REQUEST(sheet, refreshFlagProp);
+      var bpPlan = _bpGetManagedSheetRefreshPlan_(name);
+      CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, refreshFlagProp, bpPlan.label, bpPlan.updateFn, e);
+    } else if (isActionRebalancingZ1) {
+      _bpSetExternalRefreshStatus_(sheet, "AA1", "QUEUED: " + _bpFmtStamp_());
+      // v4.15.114: single batch enqueue (1 queue write + 1 worker trigger ensure).
+      _cexEnqueueManualJobs_([
+        { kind: "TOP_MARKETCAP", sheetName: "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AA1" },
+        { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AA1" }
+      ]);
+    } else if (name === "Portefeuille Crypto" && cell === "AC2") {
+      _bpSetExternalRefreshStatus_(sheet, "AD2", "QUEUED: " + _bpFmtStamp_());
+      // v4.15.114: single batch enqueue for the 6 CEX jobs. Per-job enqueue redid
+      // getProjectTriggers()+delete+create 6 times -> MASTER_ON_EDIT 50-75s.
+      _cexEnqueueManualJobs_([
+        { kind: "BITPANDA_CRYPTO", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
+        { kind: "BINANCE", sheetName: typeof BINANCE_SYNC_CONFIG !== "undefined" ? BINANCE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
+        { kind: "BITFINEX", sheetName: typeof BITFINEX_SYNC_CONFIG !== "undefined" ? BITFINEX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
+        { kind: "BYBIT", sheetName: typeof BYBIT_SYNC_CONFIG !== "undefined" ? BYBIT_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
+        { kind: "COINBASE", sheetName: typeof COINBASE_SYNC_CONFIG !== "undefined" ? COINBASE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
+        { kind: "OKX", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" }
+      ]);
     } else {
       _bpSetRefreshFlag_(refreshFlagProp);
     }
-    range.setValue(false);
     return true;
   } catch (err) {
     try { Logger.log("[BITPANDA_ON_EDIT] " + (err && err.message ? err.message : err)); } catch (eLog) {}
@@ -450,15 +813,77 @@ function BITPANDA_ON_EDIT(e) {
   }
 }
 
+function _bpSetExternalRefreshStatus_(sheet, cell, status) {
+  try {
+    var value = String(status || "");
+    if (value.length > 500) value = value.substring(0, 500);
+    sheet.getRange(cell).setValue(value === "OK" ? "OK: " + _bpFmtStamp_() : value).setNumberFormat("@");
+  } catch (e) {}
+}
+
+function _bpRunCryptoCexRefreshDirect_() {
+  var results = [];
+  function run(label, fn) {
+    if (typeof fn !== "function") { results.push(label + "=SKIPPED_MISSING"); return true; }
+    var out = "";
+    try { out = String(fn()); }
+    catch (e) { out = "THREW:" + (e && e.message ? e.message : e); }
+    results.push(label + "=" + out);
+    return out !== "BUSY" && out.indexOf('"ok":false') < 0 && out.indexOf("THREW:") !== 0 && out.indexOf("ERROR:") !== 0;
+  }
+  var ok = true;
+  ok = run("bitpandaCryptoFiat", UPDATE_BITPANDA_CRYPTO_FIAT) && ok;
+  ok = run("binanceCrypto", typeof UPDATE_BINANCE_SPOT === "function" ? UPDATE_BINANCE_SPOT : null) && ok;
+  ok = run("bitfinexCrypto", typeof UPDATE_BITFINEX_SPOT === "function" ? UPDATE_BITFINEX_SPOT : null) && ok;
+  ok = run("bybitCrypto", typeof UPDATE_BYBIT_SPOT === "function" ? UPDATE_BYBIT_SPOT : null) && ok;
+  ok = run("coinbaseCrypto", typeof UPDATE_COINBASE_SPOT === "function" ? UPDATE_COINBASE_SPOT : null) && ok;
+  ok = run("okxCrypto", typeof UPDATE_OKX_SPOT === "function" ? UPDATE_OKX_SPOT : null) && ok;
+  var summary = results.join("\n");
+  try { Logger.log("CRYPTO_CEX_DIRECT\n" + summary); } catch (eLog) {}
+  if (ok) _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP);
+  return ok ? "OK" : summary;
+}
+
+function _bpRunActionRebalancingRefreshDirect_() {
+  try {
+    var tmResult = "SKIPPED_MISSING_UPDATE_TOP_MARKETCAP";
+    if (typeof UPDATE_TOP_MARKETCAP === "function") tmResult = String(UPDATE_TOP_MARKETCAP());
+    var bpResult = String(UPDATE_BITPANDA_STOCKS_FIAT());
+
+    var tmOk = tmResult !== "BUSY" && tmResult.indexOf("ERROR:") !== 0;
+    var bpOk = bpResult !== "BUSY" && bpResult.indexOf('"ok":false') < 0 && bpResult.indexOf("ERROR:") !== 0;
+    if (!tmOk || !bpOk) return "topMarketcap=" + tmResult + "\nbitpandaStocksFiat=" + bpResult;
+
+    _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP);
+    return "OK";
+  } catch (err) {
+    try { Logger.log("[bpActionDirect] " + (err && err.message ? err.message : err)); } catch (eLog) {}
+    return "THREW:" + (err && err.message ? err.message : err);
+  }
+}
+
+function _bpGetManagedSheetRefreshPlan_(sheetName) {
+  if (sheetName === BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO) {
+    return { label: "BITPANDA_CRYPTO", updateFn: UPDATE_BITPANDA_CRYPTO_FIAT };
+  }
+  if (sheetName === BITPANDA_SYNC_CONFIG.SHEETS.FIAT || sheetName === BITPANDA_SYNC_CONFIG.SHEETS.STOCKS) {
+    return { label: "BITPANDA_STOCKS_FIAT", updateFn: UPDATE_BITPANDA_STOCKS_FIAT };
+  }
+  return { label: "BITPANDA", updateFn: UPDATE_BITPANDA_SPOT };
+}
+
 // v4.15.103 PERMANENT FIX: self-heal list + helpers.
 // Per AGENTS.md "triggers présents mais mal autorisés" (v4.15.61).
-// Any CEX A1 click re-installs missing 1-min and 1h CEX triggers with fresh user auth.
+// Any CEX A1 click re-installs the central fallback + hourly CEX triggers with fresh user auth.
 var _BP_CEX_TRIGGERS_TO_HEAL = [
-  { name: "BITPANDA_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
-  { name: "BINANCE_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
-  { name: "BITFINEX_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
-  { name: "BYBIT_REFRESH_WATCHDOG", unit: "minutes", value: 1 },
-  { name: "CEX_HOURLY_REFRESH", unit: "hours", value: 1 }
+  { name: "CEX_HOURLY_REFRESH", unit: "hours", value: 4 },
+  { name: "CEX_MANUAL_REFRESH_WORKER", unit: "minutes", value: 1 }
+];
+var _BP_CEX_LEGACY_TRIGGERS_TO_DELETE = [
+  "BITPANDA_REFRESH_WATCHDOG",
+  "BINANCE_REFRESH_WATCHDOG",
+  "BITFINEX_REFRESH_WATCHDOG",
+  "BYBIT_REFRESH_WATCHDOG"
 ];
 
 function _bpEnsureCexTriggers_() {
@@ -468,6 +893,14 @@ function _bpEnsureCexTriggers_() {
   // the user's current auth context. Per AGENTS.md v4.15.61.
   try {
     var triggers = ScriptApp.getProjectTriggers();
+    for (var l = 0; l < _BP_CEX_LEGACY_TRIGGERS_TO_DELETE.length; l++) {
+      var legacy = _BP_CEX_LEGACY_TRIGGERS_TO_DELETE[l];
+      for (var li = triggers.length - 1; li >= 0; li--) {
+        try {
+          if (triggers[li].getHandlerFunction() === legacy) ScriptApp.deleteTrigger(triggers[li]);
+        } catch (eLegacyDel) {}
+      }
+    }
     for (var j = 0; j < _BP_CEX_TRIGGERS_TO_HEAL.length; j++) {
       var t = _BP_CEX_TRIGGERS_TO_HEAL[j];
       // 1. Delete any existing instance of this trigger (dead or alive, with stale or fresh auth)
@@ -504,119 +937,7 @@ function BP_REINSTALL_CEX_TRIGGERS() {
 // Trigger INSTALLABLE (peut faire des UrlFetch): traite les flags poses par les
 // checkboxes et lance uniquement les refresh necessaires.
 function BITPANDA_REFRESH_WATCHDOG() {
-  var didWork = false;
-  var results = [];
-  var ss = null;
-  try { ss = _bpGetSpreadsheet_(); } catch (eSs) {}
-
-  var fullFlag = _bpGetRefreshFlag_(BITPANDA_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  if (fullFlag) {
-    _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    didWork = true;
-    results.push("bitpandaFull=" + UPDATE_BITPANDA_SPOT());
-  }
-
-  var actionFlag = _bpGetRefreshFlag_(BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP);
-  if (actionFlag) {
-    didWork = true;
-    // v4.15.100: Z1 reconstruit d'abord Top Marketcap (Google Finance +
-    // Action Rebalancing) pour que rang/structure soient a jour, PUIS rafraichit
-    // les soldes Bitpanda Stocks + Fiat.
-    // v4.15.101: Delete flag ONLY after successful execution. If UPDATE_TOP_MARKETCAP
-    // returns BUSY or fails, the flag survives and will be retried next cycle.
-    var tmResult = "SKIPPED_MISSING_UPDATE_TOP_MARKETCAP";
-    if (typeof UPDATE_TOP_MARKETCAP === "function") {
-      tmResult = String(UPDATE_TOP_MARKETCAP());
-      results.push("topMarketcap=" + tmResult);
-    } else {
-      results.push("topMarketcap=" + tmResult);
-    }
-    if (tmResult === "BUSY") {
-      results.push("topMarketcap=BUSY_FLAG_KEPT_FOR_RETRY");
-    } else {
-      _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP);
-      results.push("bitpandaStocksFiat=" + UPDATE_BITPANDA_STOCKS_FIAT());
-    }
-  }
-
-  var cryptoCexFlag = _bpGetRefreshFlag_(BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP);
-  if (cryptoCexFlag) {
-    _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP);
-    didWork = true;
-    results.push("bitpandaCryptoFiat=" + UPDATE_BITPANDA_CRYPTO_FIAT());
-    if (typeof UPDATE_BINANCE_SPOT === "function") {
-      results.push("binanceCrypto=" + UPDATE_BINANCE_SPOT());
-    } else {
-      results.push("binanceCrypto=SKIPPED_MISSING_UPDATE_BINANCE_SPOT");
-    }
-    if (typeof UPDATE_BITFINEX_SPOT === "function") {
-      results.push("bitfinexCrypto=" + UPDATE_BITFINEX_SPOT());
-    } else {
-      results.push("bitfinexCrypto=SKIPPED_MISSING_UPDATE_BITFINEX_SPOT");
-    }
-    if (typeof UPDATE_BYBIT_SPOT === "function") {
-      results.push("bybitCrypto=" + UPDATE_BYBIT_SPOT());
-    } else {
-      results.push("bybitCrypto=SKIPPED_MISSING_UPDATE_BYBIT_SPOT");
-    }
-    if (typeof UPDATE_COINBASE_SPOT === "function") {
-      results.push("coinbaseCrypto=" + UPDATE_COINBASE_SPOT());
-    } else {
-      results.push("coinbaseCrypto=SKIPPED_MISSING_UPDATE_COINBASE_SPOT");
-    }
-    if (typeof UPDATE_OKX_SPOT === "function") {
-      results.push("okxCrypto=" + UPDATE_OKX_SPOT());
-    } else {
-      results.push("okxCrypto=SKIPPED_MISSING_UPDATE_OKX_SPOT");
-    }
-  }
-
-  if (typeof BINANCE_SYNC_CONFIG !== "undefined") {
-    var binanceFlag = CEX_HAS_MANUAL_REQUEST(ss, BINANCE_SYNC_CONFIG.SHEET, BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    if (binanceFlag) {
-      CEX_CLEAR_MANUAL_REQUEST(BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-      didWork = true;
-      results.push("binanceManual=" + CEX_RUN_MANUAL_UPDATE(ss, BINANCE_SYNC_CONFIG.SHEET, "BINANCE", UPDATE_BINANCE_SPOT));
-    }
-  }
-
-  if (typeof BITFINEX_SYNC_CONFIG !== "undefined") {
-    var bitfinexFlag = CEX_HAS_MANUAL_REQUEST(ss, BITFINEX_SYNC_CONFIG.SHEET, BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    if (bitfinexFlag) {
-      CEX_CLEAR_MANUAL_REQUEST(BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-      didWork = true;
-      results.push("bitfinexManual=" + CEX_RUN_MANUAL_UPDATE(ss, BITFINEX_SYNC_CONFIG.SHEET, "BITFINEX", UPDATE_BITFINEX_SPOT));
-    }
-  }
-
-  if (typeof BYBIT_SYNC_CONFIG !== "undefined") {
-    var bybitFlag = CEX_HAS_MANUAL_REQUEST(ss, BYBIT_SYNC_CONFIG.SHEET, BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    if (bybitFlag) {
-      CEX_CLEAR_MANUAL_REQUEST(BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
-      didWork = true;
-      results.push("bybitManual=" + CEX_RUN_MANUAL_UPDATE(ss, BYBIT_SYNC_CONFIG.SHEET, "BYBIT", UPDATE_BYBIT_SPOT));
-    }
-  }
-
-  if (typeof COINBASE_SYNC_CONFIG !== "undefined") {
-    var coinbaseFlag = CEX_HAS_MANUAL_REQUEST(ss, COINBASE_SYNC_CONFIG.SHEET, COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    if (coinbaseFlag) {
-      CEX_CLEAR_MANUAL_REQUEST(COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-      didWork = true;
-      results.push("coinbaseManual=" + CEX_RUN_MANUAL_UPDATE(ss, COINBASE_SYNC_CONFIG.SHEET, "COINBASE", UPDATE_COINBASE_SPOT));
-    }
-  }
-
-  if (typeof OKX_SYNC_CONFIG !== "undefined") {
-    var okxFlag = CEX_HAS_MANUAL_REQUEST(ss, OKX_SYNC_CONFIG.SHEET, OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    if (okxFlag) {
-      CEX_CLEAR_MANUAL_REQUEST(OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-      didWork = true;
-      results.push("okxManual=" + CEX_RUN_MANUAL_UPDATE(ss, OKX_SYNC_CONFIG.SHEET, "OKX", UPDATE_OKX_SPOT));
-    }
-  }
-
-  return didWork ? results.join("\n") : "NO_REQUEST";
+  return "LEGACY_DISABLED: manual CEX refreshes are handled by MASTER_ON_EDIT; hourly refresh uses CEX_HOURLY_REFRESH";
 }
 
 function INSTALL_BITPANDA_REFRESH_WATCHDOG() {
@@ -624,8 +945,7 @@ function INSTALL_BITPANDA_REFRESH_WATCHDOG() {
   for (var i = 0; i < trs.length; i++) {
     if (trs[i].getHandlerFunction() === "BITPANDA_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
-  ScriptApp.newTrigger("BITPANDA_REFRESH_WATCHDOG").timeBased().everyMinutes(1).create();
-  return "Trigger installed: BITPANDA_REFRESH_WATCHDOG every 1 min";
+  return "LEGACY_DISABLED: BITPANDA_REFRESH_WATCHDOG is no longer installed; use CEX_HOURLY_REFRESH";
 }
 
 // v4.15.98: Refresh horaire centralise de TOUS les onglets CEX.
@@ -634,10 +954,21 @@ function INSTALL_BITPANDA_REFRESH_WATCHDOG() {
 // pour qu'un CEX en erreur ne bloque pas les autres.
 function CEX_HOURLY_REFRESH() {
   var results = [];
+  // v4.15.108: each UPDATE_*_SPOT grabs the shared script lock. The 1-min
+  // BITPANDA_REFRESH_WATCHDOG can hold it, so a plain call returns "BUSY" and
+  // leaves that CEX tab frozen (observed: Binance/Bitfinex/Bybit stale for hours
+  // while Coinbase/OKX refreshed). Retry a few times on BUSY so the hourly job
+  // never silently skips a connector.
   function run(label, fn) {
     if (typeof fn !== "function") { results.push(label + "=SKIPPED_MISSING"); return; }
-    try { results.push(label + "=" + fn()); }
-    catch (e) { results.push(label + "=THREW:" + (e && e.message ? e.message : e)); }
+    var out = "";
+    for (var attempt = 0; attempt < 4; attempt++) {
+      try { out = String(fn()); }
+      catch (e) { out = "THREW:" + (e && e.message ? e.message : e); }
+      if (out !== "BUSY") break;
+      Utilities.sleep(3000);
+    }
+    results.push(label + "=" + out);
   }
   run("bitpanda", typeof UPDATE_BITPANDA_SPOT === "function" ? UPDATE_BITPANDA_SPOT : null);
   run("binance", typeof UPDATE_BINANCE_SPOT === "function" ? UPDATE_BINANCE_SPOT : null);
@@ -655,8 +986,8 @@ function INSTALL_CEX_HOURLY_REFRESH() {
   for (var i = 0; i < trs.length; i++) {
     if (trs[i].getHandlerFunction() === "CEX_HOURLY_REFRESH") ScriptApp.deleteTrigger(trs[i]);
   }
-  ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(1).create();
-  return "Trigger installed: CEX_HOURLY_REFRESH every 1 hour";
+  ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyMinutes(30).create();
+  return "Trigger installed: CEX_HOURLY_REFRESH every 30 minutes";
 }
 
 // Pose/garantit les checkboxes de refresh hors onglets Bitpanda (Z1 et AC2).
@@ -700,8 +1031,8 @@ function DIAG_BITPANDA_API() {
 }
 
 function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch (e) { return "BUSY"; }
+  // v4.15.109: per-connector lock instead of shared global ScriptLock.
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("BITPANDA")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById("1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4");
     var apiKey = _bpGetApiKey_(BITPANDA_SYNC_CONFIG.API_KEY_PROP, true);
@@ -740,7 +1071,7 @@ function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
     Logger.log("_bpUpdateSelectedBuckets_ ERROR: " + err);
     return JSON.stringify(statusErr);
   } finally {
-    try { lock.releaseLock(); } catch (e2) {}
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("BITPANDA");
   }
 }
 
@@ -754,6 +1085,12 @@ function UPDATE_BITPANDA_STOCKS_FIAT() {
 
 function UPDATE_BITPANDA_CRYPTO_FIAT() {
   return _bpUpdateSelectedBuckets_({ crypto: true, fiat: true }, "bitpanda-api-crypto-cex");
+}
+
+// v4.15.115: crypto uniquement — le bloc CEX de Portefeuille Crypto!AC2 n'a pas
+// besoin de rafraichir CEX - Bitpanda Fiat (la fiat n'est pas trackee la-bas).
+function UPDATE_BITPANDA_CRYPTO() {
+  return _bpUpdateSelectedBuckets_({ crypto: true }, "bitpanda-api-crypto-only");
 }
 
 function BITPANDA_SYNC_STATUS() {
@@ -779,6 +1116,5 @@ function INSTALL_BITPANDA_SYNC_TRIGGER() {
     if (fn === "UPDATE_BITPANDA_SPOT" || fn === "BITPANDA_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
   ScriptApp.newTrigger("UPDATE_BITPANDA_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("BITPANDA_REFRESH_WATCHDOG").timeBased().everyMinutes(1).create();
-  return "Triggers installed: UPDATE_BITPANDA_SPOT (1h) + BITPANDA_REFRESH_WATCHDOG (1min)";
+  return "LEGACY_DISABLED: use CEX_HOURLY_REFRESH for hourly CEX refresh";
 }

@@ -44,11 +44,12 @@ Le relais normalise les stablecoins :
 
 ## Checkboxes manuelles
 
-- `CEX - Binance!A1` ecrit `REQUEST: ...` en `B1`, puis le watchdog CEX central
-  (`BITPANDA_REFRESH_WATCHDOG()`) traite la demande.
+- `CEX - Binance!A1` (v4.15.107+) ecrit `QUEUED: <ts> BINANCE` en `B1` et pousse
+  un job dans la queue one-shot (`CEX_MANUAL_JOB_QUEUE`); le worker
+  `CEX_MANUAL_REFRESH_WORKER` l'execute ~1s plus tard.
 - Au succes, `B1` devient le timestamp final et les rows sont reecrites avec le meme timestamp.
-- En cas de `BUSY`, `B1` reste en `REQUEST: BUSY retry ...` et le cycle suivant retry.
-- `Portefeuille Crypto!AC2` pose le flag CEX commun via `BITPANDA_ON_EDIT()`, traite par `BITPANDA_REFRESH_WATCHDOG()` : refresh `CEX - Bitpanda Crypto`, `CEX - Bitpanda Fiat`, `CEX - Binance`, `CEX - Bitfinex`, `CEX - Bybit`, `CEX - Coinbase`, `CEX - OKX`.
+- Transitoire (timeout Spreadsheets / quota / `BUSY`) : `B1 = RETRY n/2: ...`, requeue auto, retry a +60s.
+- `Portefeuille Crypto!AC2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO` (crypto seul depuis v4.15.115, pas `CEX - Bitpanda Fiat`), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`. Statut visible en `AD2`.
 
 Ne pas mettre la checkbox `AC2` dans `Action Rebalancing` ni dans `Portefeuille Crypto Details`.
 
@@ -56,8 +57,8 @@ Ne pas mettre la checkbox `AC2` dans `Action Rebalancing` ni dans `Portefeuille 
 
 Le flux courant est centralise :
 
-- `CEX_HOURLY_REFRESH()` met a jour Binance avec les autres CEX toutes les heures.
-- `BITPANDA_REFRESH_WATCHDOG()` traite `CEX - Binance!A1` et `Portefeuille Crypto!AC2`.
+- `CEX_HOURLY_REFRESH()` met a jour Binance avec les autres CEX toutes les 4h (`everyHours(4)`, v4.15.114).
+- Les refresh manuels passent par la queue one-shot (voir `docs/cex-sync.md`). `BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`.
 - `WCORE_AUTO_HEAL` supprime les anciens triggers `UPDATE_BINANCE_SPOT` / `BINANCE_REFRESH_WATCHDOG` s'ils existent encore.
 
 `INSTALL_BINANCE_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.

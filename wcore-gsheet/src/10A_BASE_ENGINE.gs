@@ -435,6 +435,23 @@ BaseEngine.isBusy = function(config) {
   return false;
 };
 
+BaseEngine.cexBusyStatus = function(walletKey, config) {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty("CEX_MANUAL_ACTIVE_UNTIL_MS") || "";
+    var until = parseInt(raw, 10);
+    if (!isFinite(until) || until <= Date.now()) return "";
+    var ts = "";
+    try {
+      CacheManager.init();
+      var cache = WalletCache.load(walletKey, null, config);
+      if (cache && cache.updatedAt) ts = Format.datetime(cache.updatedAt);
+    } catch (eCache) {}
+    return "[BUSY:CEX] " + (ts || Format.now());
+  } catch (e) {
+    return "";
+  }
+};
+
 // ============================================================
 // CACHE-ONLY MARKER (v4.15.19)
 // ============================================================

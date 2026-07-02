@@ -305,8 +305,9 @@ function _bfxWriteSheet_(ss, buckets) {
 }
 
 function UPDATE_BITFINEX_SPOT() {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch (e) { return "BUSY"; }
+  // v4.15.109: per-connector lock (see CEX_ACQUIRE_LOCK) instead of the shared
+  // global ScriptLock, which the 1-min watchdog/MASTER_ON_EDIT kept held.
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("BITFINEX")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(BITFINEX_SYNC_CONFIG.SPREADSHEET_ID);
     var creds = _bfxGetCreds_();
@@ -326,7 +327,7 @@ function UPDATE_BITFINEX_SPOT() {
     Logger.log("UPDATE_BITFINEX_SPOT ERROR: " + err);
     return JSON.stringify(statusErr);
   } finally {
-    try { lock.releaseLock(); } catch (e2) {}
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("BITFINEX");
   }
 }
 
@@ -338,18 +339,20 @@ function BITFINEX_ON_EDIT(e) {
     if (cell !== "A1") return false;
     var sheet = range.getSheet ? range.getSheet() : null;
     if (!sheet || sheet.getName() !== BITFINEX_SYNC_CONFIG.SHEET) return false;
-    // v4.15.103 PERMANENT FIX: re-install dead CEX time-based triggers on user A1 click.
-    try { _bpEnsureCexTriggers_(); } catch (eHeal) {}
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
-    // onEdit SIMPLE ne peut pas faire UrlFetch: on pose un flag traite par le
-    // trigger installable BITFINEX_REFRESH_WATCHDOG.
-    if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
+    if (!e.triggerUid) {
+      try { range.setValue(false); } catch (eResetSimple) {}
+      return true;
+    }
+    try { range.setValue(false); } catch (eResetEarly) {}
+    if (typeof CEX_QUEUE_OR_MARK_MANUAL_JOB === "function") CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP, "BITFINEX", UPDATE_BITFINEX_SPOT, e);
+    else if (typeof CEX_RUN_DIRECT_OR_QUEUE === "function") CEX_RUN_DIRECT_OR_QUEUE(sheet, BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP, "BITFINEX", UPDATE_BITFINEX_SPOT, e);
+    else if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
     else {
       _bfxSetRefreshFlag_();
       try { sheet.getRange("B1").setValue("REQUEST: " + Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@"); } catch (eB1) {}
     }
-    range.setValue(false);
     return true;
   } catch (err) {
     try { Logger.log("[BITFINEX_ON_EDIT] " + (err && err.message ? err.message : err)); } catch (eLog) {}
@@ -370,19 +373,7 @@ function _bfxSetRefreshFlag_() {
 }
 
 function BITFINEX_REFRESH_WATCHDOG() {
-  if (typeof CEX_GET_SPREADSHEET === "function" && typeof CEX_HAS_MANUAL_REQUEST === "function") {
-    var ss = CEX_GET_SPREADSHEET();
-    if (!CEX_HAS_MANUAL_REQUEST(ss, BITFINEX_SYNC_CONFIG.SHEET, BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP)) return "NO_REQUEST";
-    CEX_CLEAR_MANUAL_REQUEST(BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    return CEX_RUN_MANUAL_UPDATE(ss, BITFINEX_SYNC_CONFIG.SHEET, "BITFINEX", UPDATE_BITFINEX_SPOT);
-  }
-  var props = PropertiesService.getScriptProperties();
-  var userProps = PropertiesService.getUserProperties();
-  var flag = props.getProperty(BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP) || userProps.getProperty(BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  if (!flag) return "NO_REQUEST";
-  props.deleteProperty(BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  userProps.deleteProperty(BITFINEX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  return UPDATE_BITFINEX_SPOT();
+  return "LEGACY_DISABLED: central BITPANDA_REFRESH_WATCHDOG handles CEX requests";
 }
 
 function BITFINEX_TRIGGER_STATUS() {

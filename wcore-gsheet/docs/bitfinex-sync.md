@@ -80,21 +80,21 @@ Les soldes des codes consolides sont cumules sur la ligne cible (`USDT` / `EURC`
 
 ## Checkboxes manuelles
 
-- `CEX - Bitfinex!A1` ecrit `REQUEST: ...` en `B1`, puis le watchdog CEX central
-  (`BITPANDA_REFRESH_WATCHDOG()`) traite la demande. En cas d'erreur, `B1` affiche
-  le diagnostic visible.
+- `CEX - Bitfinex!A1` (v4.15.107+) ecrit `QUEUED: <ts> BITFINEX` en `B1` et pousse
+  un job dans la queue one-shot; `CEX_MANUAL_REFRESH_WORKER` l'execute ~1s plus
+  tard. En cas d'erreur definitive, `B1` affiche le diagnostic visible.
 - Au succes, `B1` devient le timestamp final et les rows sont reecrites avec le meme timestamp.
-- En cas de `BUSY`, `B1` reste en `REQUEST: BUSY retry ...` et le cycle suivant retry.
-- `Portefeuille Crypto!AC2` (flag CEX commun, watchdog Bitpanda) refresh
-  `CEX - Bitpanda Crypto`, `CEX - Bitpanda Fiat`, `CEX - Binance`,
-  `CEX - Bitfinex`, `CEX - Bybit`, `CEX - Coinbase`, `CEX - OKX` en une seule action utilisateur.
+- Transitoire (timeout Spreadsheets / quota / `BUSY`) : `B1 = RETRY n/2: ...`, requeue auto, retry a +60s.
+- `Portefeuille Crypto!AC2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO`
+  (crypto seul depuis v4.15.115), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`,
+  `OKX` en une seule action utilisateur. Statut en `AD2`.
 
 ## Triggers
 
 Le flux courant est centralise :
 
-- `CEX_HOURLY_REFRESH()` met a jour Bitfinex avec les autres CEX toutes les heures.
-- `BITPANDA_REFRESH_WATCHDOG()` traite `CEX - Bitfinex!A1` et `Portefeuille Crypto!AC2`.
+- `CEX_HOURLY_REFRESH()` met a jour Bitfinex avec les autres CEX toutes les 4h (`everyHours(4)`, v4.15.114).
+- Les refresh manuels passent par la queue one-shot (voir `docs/cex-sync.md`). `BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`.
 - `WCORE_AUTO_HEAL` supprime les anciens triggers `UPDATE_BITFINEX_SPOT` / `BITFINEX_REFRESH_WATCHDOG` s'ils existent encore.
 
 `INSTALL_BITFINEX_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.

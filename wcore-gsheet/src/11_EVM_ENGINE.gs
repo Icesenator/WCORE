@@ -1681,6 +1681,8 @@ var EvmEngine = {
   getRefreshStatus: function(address, rpc, tokensRange, forceFull, triggerRefresh, config, walletNames) {
     var refreshError = null;
     var addrLower = Addr.normalize(address);
+    var cexBusyStatus = BaseEngine.cexBusyStatus ? BaseEngine.cexBusyStatus(addrLower, config) : "";
+    if (cexBusyStatus) return cexBusyStatus;
     // v4.13.3: Centralized quota pre-check via BaseEngine
     // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
      var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;

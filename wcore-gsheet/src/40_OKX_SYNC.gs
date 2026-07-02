@@ -153,8 +153,8 @@ function _okxWriteSheet_(ss, buckets) {
 }
 
 function UPDATE_OKX_SPOT() {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch (e) { return "BUSY"; }
+  // v4.15.109: per-connector lock instead of shared global ScriptLock.
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("OKX")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
     var buckets = _okxFetchBucketsViaRelay_();
@@ -168,7 +168,7 @@ function UPDATE_OKX_SPOT() {
     Logger.log("UPDATE_OKX_SPOT ERROR: " + err);
     return JSON.stringify(statusErr);
   } finally {
-    try { lock.releaseLock(); } catch (e2) {}
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("OKX");
   }
 }
 
@@ -182,12 +182,18 @@ function OKX_ON_EDIT(e) {
     if (!sheet || sheet.getName() !== OKX_SYNC_CONFIG.SHEET) return false;
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
-    if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
+    if (!e.triggerUid) {
+      try { range.setValue(false); } catch (eResetSimple) {}
+      return true;
+    }
+    try { range.setValue(false); } catch (eResetEarly) {}
+    if (typeof CEX_QUEUE_OR_MARK_MANUAL_JOB === "function") CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, OKX_SYNC_CONFIG.REFRESH_FLAG_PROP, "OKX", UPDATE_OKX_SPOT, e);
+    else if (typeof CEX_RUN_DIRECT_OR_QUEUE === "function") CEX_RUN_DIRECT_OR_QUEUE(sheet, OKX_SYNC_CONFIG.REFRESH_FLAG_PROP, "OKX", UPDATE_OKX_SPOT, e);
+    else if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
     else {
       _okxSetRefreshFlag_();
       try { sheet.getRange("B1").setValue("REQUEST: " + Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@"); } catch (eB1) {}
     }
-    range.setValue(false);
     return true;
   } catch (err) {
     try { Logger.log("[OKX_ON_EDIT] " + (err && err.message ? err.message : err)); } catch (eLog) {}

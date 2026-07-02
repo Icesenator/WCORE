@@ -1,7 +1,11 @@
 /************************************************************
  * 04B_CACHE_WALLET.gs - Packed Wallet Cache System
  * 
- * Version: v4.15.17
+ * Version: v4.15.18
+ *
+ * v4.15.18 - Preserve logical cache version (cv) through packed deflate/inflate.
+ *   Without this, packed web-scan writes were reloaded as format version 5,
+ *   causing CacheVersion rows like "64 vs 5 (MISMATCH)".
  *
  * v4.15.17 - Preserve web scan stats and price timestamps through packed
  *   deflate/inflate so Rotation.status can report price_missing accurately.
@@ -113,7 +117,7 @@
  * 
  * DEPENDANCES: 04A_CACHE_CORE.gs
  ************************************************************/
-var CACHE_WALLET_VERSION = "4.15.17";
+var CACHE_WALLET_VERSION = "4.15.18";
 
 // ============================================================
 // STORAGE VIRTUALIZATION LAYER
@@ -215,7 +219,9 @@ CacheManager._deflateWalletPayload_ = function(obj) {
  var assets = (obj && obj.assets) ? obj.assets : null;
  if (!assets || !Array.isArray(assets)) return obj;
 
- var out = {};
+  var out = {};
+  if (obj.version !== undefined && obj.version !== null) out.cv = obj.version;
+  else if (obj.cv !== undefined && obj.cv !== null) out.cv = obj.cv;
 
  // v4.13.5: Assets -> compact [contract, balance, symbol, name, decimals?]
  // Matches the v5 format from WalletCache._compactAsset()
@@ -306,8 +312,10 @@ CacheManager._inflateWalletPayload_ = function(compact) {
  if (compact.assets && Array.isArray(compact.assets)) return compact;
  if (compact.a === undefined && compact.r === undefined && compact.fx === undefined && compact.u === undefined) return compact;
 
- var out = {};
- var rows = compact.a || [];
+  var out = {};
+  if (compact.cv !== undefined && compact.cv !== null) out.version = compact.cv;
+  else if (compact.version !== undefined && compact.version !== null) out.version = compact.version;
+  var rows = compact.a || [];
  var assets = [];
 
  if (Array.isArray(rows)) {

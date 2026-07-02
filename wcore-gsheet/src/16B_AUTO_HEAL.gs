@@ -290,7 +290,11 @@ function _wcoreAutoHealNewLedgers_(out, force) {
     var name = sheets[i].getName();
     if (!known[name] && _isLedgerLike_(name)) newOnes.push(name);
   }
-  if (newOnes.length === 0 && !force) return;
+  if (newOnes.length === 0) {
+    var hasKnownLedgerCache = false;
+    try { hasKnownLedgerCache = Object.keys(known || {}).length > 0; } catch (eKnownCount) {}
+    if (!force || hasKnownLedgerCache) return;
+  }
   // Rebuild cache (idempotent, writes Recap links + map)
   _ensureLedgerCache_(true);
   var tz = ss.getSpreadsheetTimeZone() || "Europe/Paris";

@@ -35,6 +35,7 @@ vm.runInContext(source, context);
 
 {
   const payload = {
+    version: 64,
     updatedAt: Date.now(),
     assets: [
       { contract: 'native', balance: 1, symbol: 'ETH', name: 'Ether', decimals: 18 },
@@ -55,6 +56,7 @@ vm.runInContext(source, context);
   const compact = context.CacheManager._deflateWalletPayload_(payload);
   const inflated = context.CacheManager._inflateWalletPayload_(compact);
 
+  assert.equal(inflated.version, 64, 'packed wallet cache must preserve logical cache version');
   assert.equal(inflated.priceTsMap.native, 12345, 'packed wallet cache must preserve price timestamps');
   assert.equal(inflated.scanStats.source, 'wcore-web', 'packed wallet cache must preserve web scan stats');
   assert.equal(inflated.scanStats.missingPrices, 1, 'packed wallet cache must preserve missing price count');

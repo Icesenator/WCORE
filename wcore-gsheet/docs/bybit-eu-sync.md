@@ -17,8 +17,8 @@ Script : `src/38_BYBIT_SYNC.gs`.
 - Soldes confirmes a l'integration : `USDT`, `CC`, `LINK`, `EURC`, `BTC`.
 - Version code : `BYBIT_SYNC_VERSION = "4.15.95"`.
 - `UPDATE_BYBIT_SPOT()` retry 3 fois les erreurs transitoires de `UrlFetchApp.fetch()` vers le relais.
-- `CEX - Bybit!A1` est route via `WCORE_ON_EDIT()` et utilise le flux CEX commun : `B1=REQUEST: ...`, traitement par `BITPANDA_REFRESH_WATCHDOG()`, puis timestamp final en `B1` au succes.
-- En cas de `BUSY`, `B1` reste en `REQUEST: BUSY retry ...` pour retry automatique au cycle suivant.
+- `CEX - Bybit!A1` est route via `MASTER_ON_EDIT` et utilise la queue CEX one-shot (v4.15.107+) : `B1=QUEUED: <ts> BYBIT`, execution par `CEX_MANUAL_REFRESH_WORKER` ~1s plus tard, puis timestamp final en `B1` au succes.
+- Transitoire (timeout Spreadsheets / quota / `BUSY`) : `B1 = RETRY n/2: ...`, requeue automatique (max 2), retry a +60s.
 
 ## Etat au 2026-06-14
 
@@ -101,7 +101,7 @@ SET_BYBIT_RELAY("https://cex-relay-production.up.railway.app", "<relay-token>")
 SETUP_BYBIT_SHEET()
 ```
 
-Les triggers actifs sont installes par `WCORE_AUTO_HEAL` : `CEX_HOURLY_REFRESH()` pour l'horaire et `BITPANDA_REFRESH_WATCHDOG()` pour les demandes manuelles. `INSTALL_BYBIT_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
+Les triggers actifs sont installes par `WCORE_AUTO_HEAL` : `CEX_HOURLY_REFRESH()` (`everyHours(4)` depuis v4.15.114) pour l'auto; les demandes manuelles passent par la queue one-shot `CEX_MANUAL_REFRESH_WORKER` (`BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`). `INSTALL_BYBIT_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
 
 Diagnostics :
 

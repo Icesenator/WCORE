@@ -4,7 +4,9 @@
   "description": "``` wcore/ ├── .clasp.json              ← Config clasp ├── src/                     ← TES FICHIERS .gs (tu travailles ici) │   ├── 01_INIT.gs │   ├── 02_UTILS.gs │   └── ... ├── pulls/                   ← Historique des pulls (créé automatiquement) │   ├── pull_20260122_2100/ │   └── pull_20260123_0900/ ├── .backups/                ← Backups avant chaque push (créé automatiquement) ├── pull-all.ps1             ← Télécharger le projet distant └── safe-push.ps1            ← Envoyer src/ vers le projet ```",
   "main": "index.js",
   "scripts": {
-    "test": "npm run validate:static && npm run test:watchdog-quota && npm run test:listing-recap-headers && npm run test:web-scan-adapter && npm run test:packed-wallet-cache && npm run test:base-engine-stats && npm run test:wallet-cache-preserve-prices && npm run test:wallet-cache-expand-prices",
+    "test": "npm run validate:static && npm run test:watchdog-quota && npm run test:listing-recap-headers && npm run test:web-scan-adapter && npm run test:packed-wallet-cache && npm run test:base-engine-stats && npm run test:wallet-cache-preserve-prices && npm run test:wallet-cache-expand-prices && npm run test:action-rebalancing-refresh && npm run test:cex-refresh-load",
+    "test:action-rebalancing-refresh": "node tests/action-rebalancing-direct-refresh.test.js",
+    "test:cex-refresh-load": "node tests/cex-refresh-load-guard.test.js",
     "validate:static": "node tools/validate-static.js",
     "test:cache-keys": "node scripts/test-cache-keys.js",
     "test:chain-config": "node scripts/test-chain-config.js",

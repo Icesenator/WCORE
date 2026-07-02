@@ -867,10 +867,12 @@ var SvmEngine = {
 
  getRefreshStatus: function(address, rpc, tokensRange, forceFull, triggerRefresh, config, walletNames) {
    config = config || SVM_DEFAULT_CONFIG;
-   var addr = String(address || "").trim();
-   if (!addr) return "N/A";
-   
-   // v4.13.3: Centralized quota pre-check via BaseEngine
+    var addr = String(address || "").trim();
+    if (!addr) return "N/A";
+    var svmCexBusyStatus = BaseEngine.cexBusyStatus ? BaseEngine.cexBusyStatus(_svmWalletKey(addr), config) : "";
+    if (svmCexBusyStatus) return svmCexBusyStatus;
+    
+    // v4.13.3: Centralized quota pre-check via BaseEngine
    // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
     var svmForce = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
       try {

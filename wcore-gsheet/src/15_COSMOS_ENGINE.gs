@@ -615,9 +615,11 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
    config = arg6;
    walletNames = arg7;
  }
- var cfg = CosmosConfigBuilder.build(config || {});
- 
- // v4.13.3: Centralized quota pre-check via BaseEngine
+  var cfg = CosmosConfigBuilder.build(config || {});
+  var cosmosCexBusyStatus = BaseEngine.cexBusyStatus ? BaseEngine.cexBusyStatus(address, cfg) : "";
+  if (cosmosCexBusyStatus) return cosmosCexBusyStatus;
+  
+  // v4.13.3: Centralized quota pre-check via BaseEngine
  // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
   var cosmosForce = (typeof Bool !== 'undefined') ? Bool.parse(forceFull) : false;
     try {

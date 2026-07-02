@@ -354,8 +354,8 @@ function _bybitWriteSheet_(ss, buckets) {
 }
 
 function UPDATE_BYBIT_SPOT() {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch (e) { return "BUSY"; }
+  // v4.15.109: per-connector lock instead of shared global ScriptLock.
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("BYBIT")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(BYBIT_SYNC_CONFIG.SPREADSHEET_ID);
     var creds = _bybitCredsOrNull_();
@@ -370,7 +370,7 @@ function UPDATE_BYBIT_SPOT() {
     Logger.log("UPDATE_BYBIT_SPOT ERROR: " + err);
     return JSON.stringify(statusErr);
   } finally {
-    try { lock.releaseLock(); } catch (e2) {}
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("BYBIT");
   }
 }
 
@@ -382,16 +382,20 @@ function BYBIT_ON_EDIT(e) {
     if (cell !== "A1") return false;
     var sheet = range.getSheet ? range.getSheet() : null;
     if (!sheet || sheet.getName() !== BYBIT_SYNC_CONFIG.SHEET) return false;
-    // v4.15.103 PERMANENT FIX: re-install dead CEX time-based triggers on user A1 click.
-    try { _bpEnsureCexTriggers_(); } catch (eHeal) {}
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
-    if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
+    if (!e.triggerUid) {
+      try { range.setValue(false); } catch (eResetSimple) {}
+      return true;
+    }
+    try { range.setValue(false); } catch (eResetEarly) {}
+    if (typeof CEX_QUEUE_OR_MARK_MANUAL_JOB === "function") CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP, "BYBIT", UPDATE_BYBIT_SPOT, e);
+    else if (typeof CEX_RUN_DIRECT_OR_QUEUE === "function") CEX_RUN_DIRECT_OR_QUEUE(sheet, BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP, "BYBIT", UPDATE_BYBIT_SPOT, e);
+    else if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
     else {
       _bybitSetRefreshFlag_();
       try { sheet.getRange("B1").setValue("REQUEST: " + Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@"); } catch (eB1) {}
     }
-    range.setValue(false);
     return true;
   } catch (err) {
     try { Logger.log("[BYBIT_ON_EDIT] " + (err && err.message ? err.message : err)); } catch (eLog) {}
@@ -412,19 +416,7 @@ function _bybitSetRefreshFlag_() {
 }
 
 function BYBIT_REFRESH_WATCHDOG() {
-  if (typeof CEX_GET_SPREADSHEET === "function" && typeof CEX_HAS_MANUAL_REQUEST === "function") {
-    var ss = CEX_GET_SPREADSHEET();
-    if (!CEX_HAS_MANUAL_REQUEST(ss, BYBIT_SYNC_CONFIG.SHEET, BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP)) return "NO_REQUEST";
-    CEX_CLEAR_MANUAL_REQUEST(BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    return CEX_RUN_MANUAL_UPDATE(ss, BYBIT_SYNC_CONFIG.SHEET, "BYBIT", UPDATE_BYBIT_SPOT);
-  }
-  var props = PropertiesService.getScriptProperties();
-  var userProps = PropertiesService.getUserProperties();
-  var flag = props.getProperty(BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP) || userProps.getProperty(BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  if (!flag) return "NO_REQUEST";
-  props.deleteProperty(BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  userProps.deleteProperty(BYBIT_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  return UPDATE_BYBIT_SPOT();
+  return "LEGACY_DISABLED: central BITPANDA_REFRESH_WATCHDOG handles CEX requests";
 }
 
 function BYBIT_TRIGGER_STATUS() {

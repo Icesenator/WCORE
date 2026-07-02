@@ -48,10 +48,10 @@ sur le relais Bybit puis Binance déjà configuré (un seul `RELAY_TOKEN` partag
 
 ## Refresh
 
-- Manuel : `CEX - Coinbase!A1` (checkbox) -> flag -> watchdog central
-  `BITPANDA_REFRESH_WATCHDOG` (1 min) -> `UPDATE_COINBASE_SPOT()`.
+- Manuel : `CEX - Coinbase!A1` (checkbox) -> `B1=QUEUED: ...` -> queue one-shot
+  `CEX_MANUAL_REFRESH_WORKER` -> `UPDATE_COINBASE_SPOT()` (v4.15.107+).
 - Groupe : `Portefeuille Crypto!AC2` inclut Coinbase.
-- Horaire : `CEX_HOURLY_REFRESH()` (trigger 1h, auto-heal).
+- Auto : `CEX_HOURLY_REFRESH()` (trigger `everyHours(4)` depuis v4.15.114, auto-heal).
 
 ## Diagnostic
 

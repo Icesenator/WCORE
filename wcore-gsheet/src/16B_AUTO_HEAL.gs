@@ -27,7 +27,7 @@ var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
 // and revives the trigger. Spec bumped to force a clean trigger reinstall.
 // v4.15.99: MASTER_ON_EDIT re-enabled — A1 checkbox manual refresh for Ledger sheets.
 // Installable onEdit trigger pulses B1 then resets A1=FALSE when user checks A1.
-var WCORE_AUTO_HEAL_TRIGGER_SPEC = "v4.15.100:activity10:recap5:recovery30:syncJ1Script:ledgerChange:pricingWorker:cexWatchdogCentralOnly:cexHourlyRefresh:topMarketcapWeekly:masterOnEdit:j1staleness:ssAccessProbe:quotaSelfReset:wdDiagHeartbeat";
+var WCORE_AUTO_HEAL_TRIGGER_SPEC = "v4.15.113:activity10:recap5:recovery30:syncJ1Script:ledgerChange:pricingWorker:cexManualQueue:cex30minRefresh:topMarketcapWeekly:masterOnEdit:ssAccessProbe:quotaSelfReset:wdDiagHeartbeat";
 
 function _wcoreAutoHealRow_(out, step, status, details) {
   out.push([step, status, details || ""]);
@@ -77,10 +77,14 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   stats.timeTriggers++;
   ScriptApp.newTrigger("SYNC_J1_ALL_SHEETS").timeBased().everyMinutes(5).create();
   stats.timeTriggers++;
-  ScriptApp.newTrigger("BITPANDA_REFRESH_WATCHDOG").timeBased().everyMinutes(1).create();
+  // v4.15.113: refresh centralise CEX toutes les 4h, aligne sous le seuil stale watchdog (WD_STALE_I1_HOURS=5h).
+  ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(4).create();
   stats.timeTriggers++;
-  // v4.15.98: refresh horaire centralise de TOUS les onglets CEX.
-  ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(1).create();
+  // v4.15.118: 1-min safety net that drains the CEX_MANUAL_JOB_QUEUE.
+  // GAS one-shot triggers (after(1s)) have ~1 min granularity and silently
+  // miss in some saturation windows. A 1-min recurring trigger is reliable
+  // and is a no-op when the queue is empty (NO_JOB return).
+  ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create();
   stats.timeTriggers++;
   // v4.15.100: Top 300 market cap (Google Finance) refresh hebdomadaire (lundi ~06h).
   ScriptApp.newTrigger("UPDATE_TOP_MARKETCAP").timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).create();
@@ -121,7 +125,7 @@ function _wcoreAutoHealWatchdogDiagAgeMs_(props) {
 
 function _wcoreAutoHealEnsureTriggers_(out, props, force) {
   var managed = ["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "_runPricingWorker", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "UPDATE_TOP_MARKETCAP", "UPDATE_BITPANDA_SPOT", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG"];
-  var required = ["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "_runPricingWorker", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "UPDATE_TOP_MARKETCAP", "MASTER_ON_EDIT"];
+  var required = ["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "_runPricingWorker", "SYNC_J1_ALL_SHEETS", "CEX_HOURLY_REFRESH", "UPDATE_TOP_MARKETCAP", "MASTER_ON_EDIT"];
   var spec = props.getProperty("WCORE_AUTO_HEAL_TRIGGER_SPEC") || "";
   var counts = _wcoreAutoHealCountHandlers_(required);
   var needsInstall = force || spec !== WCORE_AUTO_HEAL_TRIGGER_SPEC;
@@ -413,14 +417,23 @@ function WCORE_AUTO_HEAL_STATUS() {
   out.push(["Last reason", props.getProperty("WCORE_AUTO_HEAL_LAST_REASON") || ""]);
   var wdAgeMs = _wcoreAutoHealWatchdogDiagAgeMs_(props);
   out.push(["WATCHDOG_FROM_RECAP heartbeat age min", wdAgeMs == null ? "UNKNOWN" : Math.round(wdAgeMs / 60000)]);
-  var counts = _wcoreAutoHealCountHandlers_(["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "_runPricingWorker", "SYNC_J1_ALL_SHEETS"]);
-  out.push(["ACTIVITY_WATCHDOG", counts.ACTIVITY_WATCHDOG || 0]);
-  out.push(["WATCHDOG_FROM_RECAP", counts.WATCHDOG_FROM_RECAP || 0]);
-  out.push(["QUOTA_RECOVERY_SWEEP", counts.QUOTA_RECOVERY_SWEEP || 0]);
-  out.push(["LEDGER_ON_CHANGE", counts.LEDGER_ON_CHANGE || 0]);
-  out.push(["MASTER_ON_EDIT", counts.MASTER_ON_EDIT || 0]);
-  out.push(["_runPricingWorker", counts._runPricingWorker || 0]);
-  out.push(["SYNC_J1_ALL_SHEETS", counts.SYNC_J1_ALL_SHEETS || 0]);
+  try {
+    var counts = _wcoreAutoHealCountHandlers_(["ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "_runPricingWorker", "SYNC_J1_ALL_SHEETS", "CEX_HOURLY_REFRESH", "BITPANDA_REFRESH_WATCHDOG", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG"]);
+    out.push(["ACTIVITY_WATCHDOG", counts.ACTIVITY_WATCHDOG || 0]);
+    out.push(["WATCHDOG_FROM_RECAP", counts.WATCHDOG_FROM_RECAP || 0]);
+    out.push(["QUOTA_RECOVERY_SWEEP", counts.QUOTA_RECOVERY_SWEEP || 0]);
+    out.push(["LEDGER_ON_CHANGE", counts.LEDGER_ON_CHANGE || 0]);
+    out.push(["MASTER_ON_EDIT", counts.MASTER_ON_EDIT || 0]);
+    out.push(["_runPricingWorker", counts._runPricingWorker || 0]);
+    out.push(["SYNC_J1_ALL_SHEETS", counts.SYNC_J1_ALL_SHEETS || 0]);
+    out.push(["CEX_HOURLY_REFRESH", counts.CEX_HOURLY_REFRESH || 0]);
+    out.push(["BITPANDA_REFRESH_WATCHDOG", counts.BITPANDA_REFRESH_WATCHDOG || 0]);
+    out.push(["BINANCE_REFRESH_WATCHDOG", counts.BINANCE_REFRESH_WATCHDOG || 0]);
+    out.push(["BITFINEX_REFRESH_WATCHDOG", counts.BITFINEX_REFRESH_WATCHDOG || 0]);
+    out.push(["BYBIT_REFRESH_WATCHDOG", counts.BYBIT_REFRESH_WATCHDOG || 0]);
+  } catch (eCounts) {
+    out.push(["Trigger counts", "NO_AUTH_IN_CUSTOM_FUNCTION: run WCORE_AUTO_HEAL_FORCE from Apps Script editor"]);
+  }
   out.push(["PHASE_C_ENABLED", props.getProperty("PHASE_C_ENABLED") || ""]);
   out.push(["PRICING_WORKER_ENABLED", props.getProperty("PRICING_WORKER_ENABLED") || ""]);
   out.push(["PRICING_WORKER_INTERVAL_MIN", props.getProperty("PRICING_WORKER_INTERVAL_MIN") || ""]);
@@ -429,6 +442,37 @@ function WCORE_AUTO_HEAL_STATUS() {
 
 function WCORE_AUTO_HEAL_FORCE() {
   return WCORE_AUTO_HEAL("force", true);
+}
+
+function WCORE_CEX_TRIGGER_CLEANUP_FORCE() {
+  var names = ["BITPANDA_REFRESH_WATCHDOG", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "UPDATE_BITPANDA_SPOT", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "MASTER_ON_EDIT", "CEX_HOURLY_REFRESH"];
+  var wanted = {};
+  for (var n = 0; n < names.length; n++) wanted[names[n]] = true;
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = [];
+  for (var i = 0; i < triggers.length; i++) {
+    var fn = "";
+    try { fn = triggers[i].getHandlerFunction(); } catch (eFn) {}
+    if (wanted[fn]) {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed.push(fn);
+    }
+  }
+  var installed = [];
+  var ss = null;
+  try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch (eActive) {}
+  if (!ss) {
+    try { ss = SpreadsheetApp.openById(WCORE_AUTO_HEAL_SPREADSHEET_ID); } catch (eOpen) {}
+  }
+  if (ss) {
+    ScriptApp.newTrigger("MASTER_ON_EDIT").forSpreadsheet(ss).onEdit().create();
+    installed.push("MASTER_ON_EDIT");
+  }
+  ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(4).create();
+  installed.push("CEX_HOURLY_REFRESH");
+  // v4.15.118: 1-min safety net to drain the manual CEX queue reliably.
+  try { ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create(); installed.push("CEX_MANUAL_REFRESH_WORKER_1MIN"); } catch (eNet) {}
+  return "Removed CEX/manual triggers: " + (removed.length ? removed.join(", ") : "none") + ". Installed: " + installed.join(", ") + ".";
 }
 
 function WCORE_REMOVE_SYNC_J1_TRIGGER_FORCE() {

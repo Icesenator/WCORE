@@ -314,8 +314,8 @@ function _binWriteSheet_(ss, buckets) {
 }
 
 function UPDATE_BINANCE_SPOT() {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch (e) { return "BUSY"; }
+  // v4.15.109: per-connector lock instead of shared global ScriptLock.
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("BINANCE")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(BINANCE_SYNC_CONFIG.SPREADSHEET_ID);
     var buckets = _binFetchBucketsViaRelay_();
@@ -336,7 +336,7 @@ function UPDATE_BINANCE_SPOT() {
     Logger.log("UPDATE_BINANCE_SPOT ERROR: " + err);
     return JSON.stringify(statusErr);
   } finally {
-    try { lock.releaseLock(); } catch (e2) {}
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("BINANCE");
   }
 }
 
@@ -348,18 +348,20 @@ function BINANCE_ON_EDIT(e) {
     if (cell !== "A1") return false;
     var sheet = range.getSheet ? range.getSheet() : null;
     if (!sheet || sheet.getName() !== BINANCE_SYNC_CONFIG.SHEET) return false;
-    // v4.15.103 PERMANENT FIX: re-install dead CEX time-based triggers on user A1 click.
-    try { _bpEnsureCexTriggers_(); } catch (eHeal) {}
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
-    // onEdit SIMPLE ne peut pas faire UrlFetch: on pose un flag traite par le
-    // trigger installable BINANCE_REFRESH_WATCHDOG.
-    if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
+    if (!e.triggerUid) {
+      try { range.setValue(false); } catch (eResetSimple) {}
+      return true;
+    }
+    try { range.setValue(false); } catch (eResetEarly) {}
+    if (typeof CEX_QUEUE_OR_MARK_MANUAL_JOB === "function") CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP, "BINANCE", UPDATE_BINANCE_SPOT, e);
+    else if (typeof CEX_RUN_DIRECT_OR_QUEUE === "function") CEX_RUN_DIRECT_OR_QUEUE(sheet, BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP, "BINANCE", UPDATE_BINANCE_SPOT, e);
+    else if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
     else {
       _binSetRefreshFlag_();
       try { sheet.getRange("B1").setValue("REQUEST: " + Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@"); } catch (eB1) {}
     }
-    range.setValue(false);
     return true;
   } catch (err) {
     try { Logger.log("[BINANCE_ON_EDIT] " + (err && err.message ? err.message : err)); } catch (eLog) {}
@@ -380,19 +382,7 @@ function _binSetRefreshFlag_() {
 }
 
 function BINANCE_REFRESH_WATCHDOG() {
-  if (typeof CEX_GET_SPREADSHEET === "function" && typeof CEX_HAS_MANUAL_REQUEST === "function") {
-    var ss = CEX_GET_SPREADSHEET();
-    if (!CEX_HAS_MANUAL_REQUEST(ss, BINANCE_SYNC_CONFIG.SHEET, BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP)) return "NO_REQUEST";
-    CEX_CLEAR_MANUAL_REQUEST(BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    return CEX_RUN_MANUAL_UPDATE(ss, BINANCE_SYNC_CONFIG.SHEET, "BINANCE", UPDATE_BINANCE_SPOT);
-  }
-  var props = PropertiesService.getScriptProperties();
-  var userProps = PropertiesService.getUserProperties();
-  var flag = props.getProperty(BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP) || userProps.getProperty(BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  if (!flag) return "NO_REQUEST";
-  props.deleteProperty(BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  userProps.deleteProperty(BINANCE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  return UPDATE_BINANCE_SPOT();
+  return "LEGACY_DISABLED: central BITPANDA_REFRESH_WATCHDOG handles CEX requests";
 }
 
 function BINANCE_TRIGGER_STATUS() {

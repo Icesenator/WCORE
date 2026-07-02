@@ -2248,10 +2248,9 @@ function _activityWatchdogPhaseCSignals_() {
 function ACTIVITY_WATCHDOG() {
   try { HttpCallCounter.setTrigger('ACTIVITY_WATCHDOG'); } catch(e){}
   try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("ACTIVITY_WATCHDOG", false); } catch(e){}
-  // v4.15.86: CEX manual refresh fallback. The dedicated 1-min CEX watchdog is
-  // installed by auto-heal, but this keeps A1 checkbox refreshes working even if
-  // that trigger was missing/stale after a push.
-  try { if (typeof BITPANDA_REFRESH_WATCHDOG === 'function') BITPANDA_REFRESH_WATCHDOG(); } catch(eCex){}
+  // v4.15.110: CEX manual refreshes run directly from installable onEdit and
+  // keep a central watchdog fallback. Do not duplicate CEX polling from the
+  // wallet activity watchdog; it competes for Apps Script execution slots.
   // v4.15.51 (Layer 1): J1 sync at HEAD, before heavy scan/discovery work below.
   // If the watchdog later times out or throws during the scan phase, the display
   // latch (A1 re-reads on J1 change) has already been refreshed. Sheet I/O only.

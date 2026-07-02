@@ -170,8 +170,8 @@ function _cbWriteSheet_(ss, buckets) {
 }
 
 function UPDATE_COINBASE_SPOT() {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(10000); } catch (e) { return "BUSY"; }
+  // v4.15.109: per-connector lock instead of shared global ScriptLock.
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("COINBASE")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(COINBASE_SYNC_CONFIG.SPREADSHEET_ID);
     var buckets = _cbFetchBucketsViaRelay_();
@@ -185,7 +185,7 @@ function UPDATE_COINBASE_SPOT() {
     Logger.log("UPDATE_COINBASE_SPOT ERROR: " + err);
     return JSON.stringify(statusErr);
   } finally {
-    try { lock.releaseLock(); } catch (e2) {}
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("COINBASE");
   }
 }
 
@@ -199,12 +199,18 @@ function COINBASE_ON_EDIT(e) {
     if (!sheet || sheet.getName() !== COINBASE_SYNC_CONFIG.SHEET) return false;
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
-    if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
+    if (!e.triggerUid) {
+      try { range.setValue(false); } catch (eResetSimple) {}
+      return true;
+    }
+    try { range.setValue(false); } catch (eResetEarly) {}
+    if (typeof CEX_QUEUE_OR_MARK_MANUAL_JOB === "function") CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP, "COINBASE", UPDATE_COINBASE_SPOT, e);
+    else if (typeof CEX_RUN_DIRECT_OR_QUEUE === "function") CEX_RUN_DIRECT_OR_QUEUE(sheet, COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP, "COINBASE", UPDATE_COINBASE_SPOT, e);
+    else if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
     else {
       _cbSetRefreshFlag_();
       try { sheet.getRange("B1").setValue("REQUEST: " + Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@"); } catch (eB1) {}
     }
-    range.setValue(false);
     return true;
   } catch (err) {
     try { Logger.log("[COINBASE_ON_EDIT] " + (err && err.message ? err.message : err)); } catch (eLog) {}

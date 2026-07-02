@@ -107,7 +107,10 @@ var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse
 var REFRESH_VERSION = "4.15.78";
 
 function onEdit(e) {
-  return WCORE_ON_EDIT(e);
+  // v4.15.112: simple onEdit runs with limited auth and duplicates the
+  // installable MASTER_ON_EDIT trigger. Keep it inert so it cannot consume
+  // checkboxes, pulse B1/J1, or start heavy refresh paths.
+  return;
 }
 
 // v4.15.104: WCORE_ON_EDIT also calls _bpDetailsAutoLink_ after CEX handlers for per-cell auto-link of Portefeuille Crypto Details column E.
@@ -830,6 +833,14 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
 
   // v4.15.3: [ERROR] = scan failed (RPC timeout, etc.) — re-pulse with normal cooldown
   if (vI1.indexOf("[ERROR]") === 0) {
+    return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
+  }
+
+  // v4.15.116: [BUSY:CEX] = live scan deferred while manual CEX jobs were running
+  // (BaseEngine.cexBusyStatus). Without this case the sheet would NEVER be
+  // re-pulsed (unparseable I1 -> needsPulse:false forever). Re-pulse with the
+  // normal 10 min cooldown so the wallet rescans once the CEX window is over.
+  if (vI1.indexOf("[BUSY:CEX]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
 
@@ -1597,11 +1608,8 @@ var SYNC_J1_MAX_SYNCS_PER_RUN = 20;
  */
 function SYNC_J1_ALL_SHEETS() {
   var stats = { checked: 0, synced: 0, errors: 0 };
-  // v4.15.83: SYNC_J1 is the lightweight trigger that survived the 2026-06-11
-  // B1 freeze. Let it run auto-heal (cooldown-protected) so a dead
-  // WATCHDOG_FROM_RECAP heartbeat is recovered even when the watchdog itself
-  // no longer reaches its own auto-heal call.
-  try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("SYNC_J1_ALL_SHEETS", false); } catch (eHeal) {}
+  // v4.15.112: keep this function as sheet I/O only. Running auto-heal here
+  // makes a lightweight latch sync reinstall triggers and churn the workbook.
   try {
     var ss = _wcoreGetSpreadsheet_();
     if (!ss) return stats;

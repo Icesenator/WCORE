@@ -58,6 +58,18 @@ function makeContext(props) {
 }
 
 {
+  const props = {
+    LEDGER_SHEET_MAP: JSON.stringify({ 'UniSwap - Base': 123, 'Ledger - Base': 456 }),
+  };
+  const ctx = makeContext(props);
+  const out = [];
+  ctx._wcoreAutoHealNewLedgers_(out, true);
+  assert.deepEqual(ctx.__pulses, [], 'forced auto-heal must not pulse known ledger sheets');
+  assert.equal(props.refreshed, undefined, 'forced auto-heal must not rebuild ledger links when there are no new sheets');
+  assert.equal(props.LEDGER_LAST_REFRESH, undefined, 'forced auto-heal must not rewrite ledger cache timestamp when there are no new sheets');
+}
+
+{
   assert.equal(autoHealSource.includes('SET_WEB_SCAN_DENYLIST'), false, 'auto-heal must not resurrect the removed web-scan denylist path');
 }
 

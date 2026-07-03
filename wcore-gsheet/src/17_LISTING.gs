@@ -157,12 +157,11 @@ function _setRecapHyperlinks_(ss, names, map) {
    }
   }
 
-  recap.getRange("D1:H1").setValues([[
+  recap.getRange("D1:G1").setValues([[
    "PULSE (B1)",
    "FORCEFULL (C1)",
    "STATUS (I1)",
-   "LAST SCAN (J1)",
-   "INFO_TOTAL"
+   "LAST SCAN (J1)"
   ]]);
 
   // Write hyperlinks and clear stale rows below
@@ -175,7 +174,7 @@ function _setRecapHyperlinks_(ss, names, map) {
    recap.getRange(newLastRow + 1, 1, lastRow - newLastRow, 10).clearContent();
   }
 
-  // v4.15.121: fill Recap Portfolio column H with the CEX INFO_TOTAL value.
+  // v4.15.121: fill Recap Portfolio column B (INFO_TOTAL) for CEX entries only.
   _setRecapCexInfoTotal_(ss, names);
 
   Logger.log("[17_LISTING] Set " + richTexts.length + " hyperlinks in Recap Chain column A");
@@ -396,11 +395,13 @@ function INSTALL_LEDGER_ONCHANGE() {
 }
 
 // ============================================================
-// v4.15.121 — Recap Portfolio column H (CEX INFO_TOTAL)
-// Populates the new column with the value of the TOTAL row of each
+// v4.15.121 — Recap Portfolio column B (CEX INFO_TOTAL)
+// Populates column B with the value of the TOTAL row of each
 // CEX sheet (CEX - Binance, CEX - Bitpanda Crypto, etc.). Called
 // from _setRecapHyperlinks_ so the column stays in sync whenever
 // the ledger cache is rebuilt.
+// On-chain wallets already have column B populated by their I1
+// formula; CEX rows are the only ones we fill here.
 // ============================================================
 function _setRecapCexInfoTotal_(ss, ledgerNames) {
   try {
@@ -410,7 +411,8 @@ function _setRecapCexInfoTotal_(ss, ledgerNames) {
 
     for (var i = 0; i < ledgerNames.length; i++) {
       var name = String(ledgerNames[i] || "");
-      // Only handle CEX sheets (avoid the on-chain ledger rows).
+      // Only handle CEX sheets (skip on-chain ledger rows — those
+      // already have their INFO_TOTAL populated by the I1 formula).
       if (name.toLowerCase().indexOf("cex - ") !== 0) continue;
 
       var sh = ss.getSheetByName(name);
@@ -419,11 +421,10 @@ function _setRecapCexInfoTotal_(ss, ledgerNames) {
       if (lastRow < 2) continue;
 
       var firstCol = String(sh.getRange(lastRow, 1, 1, 1).getValue() || "").trim();
-      var value = "";
       if (firstCol.toUpperCase() === "TOTAL") {
-        value = sh.getRange(lastRow, 2, 1, 1).getValue();
+        var value = sh.getRange(lastRow, 2, 1, 1).getValue();
+        recap.getRange(2 + i, 2, 1, 1).setValue(value);  // column B
       }
-      recap.getRange(2 + i, 8, 1, 1).setValue(value);  // column H
     }
   } catch (e) {
     Logger.log("[17_LISTING] _setRecapCexInfoTotal_ error: " + (e && e.message ? e.message : e));

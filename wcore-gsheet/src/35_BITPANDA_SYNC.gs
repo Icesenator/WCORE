@@ -1191,11 +1191,11 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     }
   }
 
-  // 2. Build a symbol -> price (USD) map from "Portefeuille Crypto" (CMC top
+  // 2. Build a symbol -> price (EUR) map from "Portefeuille Crypto" (CMC top
   //    300 prices maintained by the existing 34_TOP_MARKETCAP pipeline).
-  //    This avoids the PriceManager.computePriceEur symbol-only gap and
-  //    gives a stable, already-validated price source for all CEX assets
-  //    that appear in the top market cap.
+  //    These prices are surfaced as "Price (€)" in Portefeuille Crypto Details
+  //    column D, so we treat the values as EUR and skip the FX conversion
+  //    (the existing pipeline is the source of truth for CEX pricing).
   var priceMap = {};
   try {
     var ss = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
@@ -1217,13 +1217,7 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     Logger.log("[CEX_TOTAL] " + sheetName + " price map build failed: " + eMap);
   }
 
-  // 3. Resolve FX rate once up front so USD prices can be converted to EUR
-  //    (consistent with the on-chain INFO_TOTAL).
-  var fxRate = null;
-  try { fxRate = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fxRate = null; }
-  if (!isFinite(Number(fxRate)) || Number(fxRate) <= 0) fxRate = null;
-
-  // 4. Sum balance x price using the price map. Stablecoins get 1.0 EUR via
+  // 3. Sum balance x price using the price map. Stablecoins get 1.0 EUR via
   //    the fast-path (no live price needed) for accuracy.
   var total = 0;
   var valued = 0;
@@ -1246,10 +1240,9 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
       }
       if (t === "EUR" || t === "USD") {
         priceEur = 1.0;
-      } else if (priceMap[symbol] != null && fxRate != null) {
-        priceEur = priceMap[symbol] * Number(fxRate);
       } else if (priceMap[symbol] != null) {
-        // No FX: use USD as-is and label accordingly (rare; only if breaker tripped).
+        // Portefeuille Crypto column D is labeled "Price (€)" in the Details
+        // sheet, so treat the value as EUR (no FX conversion needed).
         priceEur = priceMap[symbol];
       }
     } catch (ePrice) {

@@ -1162,6 +1162,71 @@ function INSTALL_BITPANDA_SYNC_TRIGGER() {
 // ============================================================
 
 /**
+ * Cached price map for CEX INFO_TOTAL.
+ * Reads "Portefeuille Crypto" (CMC top 5000+) once, caches the result
+ * in ScriptProperties for 1h. Avoids reading 5000+ rows on every CEX
+ * sync (6 syncs × 4h = 36/day + manual A1), which was pushing
+ * UPDATE_*_SPOT past the 6-min trigger limit.
+ * To force a rebuild, call _cexClearPriceMapCache_() or set
+ * CEX_PRICE_MAP_CACHE = "" in ScriptProperties.
+ * @returns {Object<string, number>|null} symbol -> EUR price map, or null on failure
+ */
+function _cexGetPriceMap_() {
+  var CACHE_KEY = "CEX_PRICE_MAP_CACHE";
+  var TTL_MS = 60 * 60 * 1000;  // 1h
+  var props = PropertiesService.getScriptProperties();
+  try {
+    var raw = props.getProperty(CACHE_KEY);
+    if (raw) {
+      var parsed = JSON.parse(raw);
+      if (parsed && parsed.ts && (Date.now() - Number(parsed.ts)) < TTL_MS && parsed.map) {
+        return parsed.map;
+      }
+    }
+  } catch (eRead) {
+    // Bad cache entry: rebuild.
+  }
+
+  var map = {};
+  try {
+    var ss = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
+    var pc = ss.getSheetByName("Portefeuille Crypto");
+    if (pc) {
+      var pcLastRow = pc.getLastRow();
+      if (pcLastRow >= 2) {
+        var pcRange = pc.getRange(2, 1, pcLastRow - 1, 3).getValues();
+        for (var pi = 0; pi < pcRange.length; pi++) {
+          var sym = String(pcRange[pi][0] || "").trim().toUpperCase();
+          var px = pcRange[pi][2];
+          if (sym && px != null && isFinite(Number(px)) && Number(px) > 0) {
+            map[sym] = Number(px);
+          }
+        }
+      }
+    }
+  } catch (eMap) {
+    Logger.log("[CEX_TOTAL] price map build failed: " + eMap);
+    return null;
+  }
+
+  try {
+    props.setProperty(CACHE_KEY, JSON.stringify({ ts: Date.now(), map: map }));
+  } catch (eWrite) {
+    // ScriptProperties full: skip cache, just return the live map.
+  }
+  return map;
+}
+
+/**
+ * Clear the CEX price map cache (e.g., after a major CMC update or
+ * when diagnosing stale prices).
+ */
+function _cexClearPriceMapCache_() {
+  try { PropertiesService.getScriptProperties().deleteProperty("CEX_PRICE_MAP_CACHE"); } catch (e) {}
+  return "CEX_PRICE_MAP_CACHE cleared";
+}
+
+/**
  * Compute and append the INFO_TOTAL row to a CEX sheet.
  * @param {string} sheetName - e.g. "CEX - Binance"
  * @param {Array<[string, number, string, string]>} balances - rows [symbol, balance, source, stamp]
@@ -1192,29 +1257,21 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
   }
 
   // 2. Build a symbol -> price (EUR) map from "Portefeuille Crypto" (CMC top
-  //    300 prices maintained by the existing 34_TOP_MARKETCAP pipeline).
+  //    5000+ prices maintained by the existing 34_TOP_MARKETCAP pipeline).
   //    These prices are surfaced as "Price (€)" in Portefeuille Crypto Details
   //    column D, so we treat the values as EUR and skip the FX conversion
   //    (the existing pipeline is the source of truth for CEX pricing).
-  var priceMap = {};
-  try {
-    var ss = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
-    var pc = ss.getSheetByName("Portefeuille Crypto");
-    if (pc) {
-      var pcLastRow = pc.getLastRow();
-      if (pcLastRow >= 2) {
-        var pcRange = pc.getRange(2, 1, pcLastRow - 1, 3).getValues();
-        for (var pi = 0; pi < pcRange.length; pi++) {
-          var sym = String(pcRange[pi][0] || "").trim().toUpperCase();
-          var px = pcRange[pi][2];
-          if (sym && px != null && isFinite(Number(px)) && Number(px) > 0) {
-            priceMap[sym] = Number(px);
-          }
-        }
-      }
-    }
-  } catch (eMap) {
-    Logger.log("[CEX_TOTAL] " + sheetName + " price map build failed: " + eMap);
+  //
+  //    The full sheet can be 5000+ rows. Re-reading it on every CEX sync
+  //    (6 syncs × 4h = 36 syncs/day, plus manual A1 refreshes) was pushing
+  //    UPDATE_BINANCE_SPOT past the 6-min trigger execution limit when the
+  //    Binance API call already consumed 1-2 min. Cache the map in
+  //    ScriptProperties for 1h — Binance/Bitpanda prices don't change fast
+  //    enough to invalidate a 1h cache, and a manual A1 refresh can force
+  //    a rebuild by clearing CEX_PRICE_MAP_CACHE.
+  var priceMap = _cexGetPriceMap_();
+  if (!priceMap) {
+    Logger.log("[CEX_TOTAL] " + sheetName + " price map unavailable, falling back to no totals");
   }
 
   // 3. Sum balance x price using the price map. Stablecoins get 1.0 EUR via

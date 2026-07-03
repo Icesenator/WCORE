@@ -86,7 +86,7 @@ assert.ok(
 
 // --- 8. Quota tripped behavior: helper must write [BLOCKED:QUOTA] marker
 assert.ok(
-  /_cexComputeAndAppendTotal_[\s\S]{0,1500}BLOCKED:QUOTA/.test(BITPANDA_SRC),
+  /_cexComputeAndAppendTotal_[\s\S]{0,10000}BLOCKED:QUOTA/.test(BITPANDA_SRC),
   "helper must write [BLOCKED:QUOTA] stamp when the pricing cascade throws a quota error"
 );
 

@@ -43,13 +43,14 @@ context._setRecapHyperlinks_({
   getUrl() { return 'https://docs.google.com/spreadsheets/d/test'; }
 }, ['Ledger - Ancient8'], { 'Ledger - Ancient8': 123 });
 
-const headerWrite = writes.find((write) => write.a1 === 'D1:G1');
-assert(headerWrite, 'Recap refresh should rewrite D1:G1 headers');
+const headerWrite = writes.find((write) => write.a1 === 'D1:H1');
+assert(headerWrite, 'Recap refresh should rewrite D1:H1 headers');
 assert.strictEqual(JSON.stringify(headerWrite.values), JSON.stringify([[
   'PULSE (B1)',
   'FORCEFULL (C1)',
   'STATUS (I1)',
-  'LAST SCAN (J1)'
+  'LAST SCAN (J1)',
+  'INFO_TOTAL'
 ]]));
 
 console.log('listing recap headers OK');

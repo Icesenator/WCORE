@@ -68,9 +68,10 @@ function _isLedgerLike_(name) {
    // v4.15.85: include CEX sync tabs (display-only in Recap, B1 self-managed).
    n.indexOf("bitpanda") >= 0 ||
    n.indexOf("bitfinex") >= 0 ||
-    n.indexOf("bybit") >= 0 ||
-    n.indexOf("coinbase") >= 0 ||
-    n.indexOf("okx") >= 0)
+     n.indexOf("bybit") >= 0 ||
+     n.indexOf("coinbase") >= 0 ||
+     n.indexOf("kraken") >= 0 ||
+     n.indexOf("okx") >= 0)
  && n.indexOf("moonwalk") < 0
  );
 }
@@ -156,11 +157,12 @@ function _setRecapHyperlinks_(ss, names, map) {
    }
   }
 
-  recap.getRange("D1:G1").setValues([[
+  recap.getRange("D1:H1").setValues([[
    "PULSE (B1)",
    "FORCEFULL (C1)",
    "STATUS (I1)",
-   "LAST SCAN (J1)"
+   "LAST SCAN (J1)",
+   "INFO_TOTAL"
   ]]);
 
   // Write hyperlinks and clear stale rows below
@@ -172,6 +174,9 @@ function _setRecapHyperlinks_(ss, names, map) {
   if (lastRow > newLastRow) {
    recap.getRange(newLastRow + 1, 1, lastRow - newLastRow, 10).clearContent();
   }
+
+  // v4.15.121: fill Recap Portfolio column H with the CEX INFO_TOTAL value.
+  _setRecapCexInfoTotal_(ss, names);
 
   Logger.log("[17_LISTING] Set " + richTexts.length + " hyperlinks in Recap Chain column A");
  } catch (e) {
@@ -377,15 +382,50 @@ function LEDGER_ON_CHANGE(e) {
  * Verifie qu'il n'existe pas deja avant de creer.
  */
 function INSTALL_LEDGER_ONCHANGE() {
- var triggers = ScriptApp.getProjectTriggers();
- for (var i = 0; i < triggers.length; i++) {
-  if (triggers[i].getHandlerFunction() === "LEDGER_ON_CHANGE") {
-   return "Trigger already installed";
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+   if (triggers[i].getHandlerFunction() === "LEDGER_ON_CHANGE") {
+    return "Trigger already installed";
+   }
   }
- }
- ScriptApp.newTrigger("LEDGER_ON_CHANGE")
-  .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
-  .onChange()
-  .create();
- return "onChange trigger installed for LEDGER_ON_CHANGE";
+  ScriptApp.newTrigger("LEDGER_ON_CHANGE")
+   .forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet())
+   .onChange()
+   .create();
+  return "onChange trigger installed for LEDGER_ON_CHANGE";
+}
+
+// ============================================================
+// v4.15.121 — Recap Portfolio column H (CEX INFO_TOTAL)
+// Populates the new column with the value of the TOTAL row of each
+// CEX sheet (CEX - Binance, CEX - Bitpanda Crypto, etc.). Called
+// from _setRecapHyperlinks_ so the column stays in sync whenever
+// the ledger cache is rebuilt.
+// ============================================================
+function _setRecapCexInfoTotal_(ss, ledgerNames) {
+  try {
+    if (!ss || !ledgerNames || !ledgerNames.length) return;
+    var recap = ss.getSheetByName("Recap Portfolio");
+    if (!recap) return;
+
+    for (var i = 0; i < ledgerNames.length; i++) {
+      var name = String(ledgerNames[i] || "");
+      // Only handle CEX sheets (avoid the on-chain ledger rows).
+      if (name.toLowerCase().indexOf("cex - ") !== 0) continue;
+
+      var sh = ss.getSheetByName(name);
+      if (!sh) continue;
+      var lastRow = sh.getLastRow();
+      if (lastRow < 2) continue;
+
+      var firstCol = String(sh.getRange(lastRow, 1, 1, 1).getValue() || "").trim();
+      var value = "";
+      if (firstCol.toUpperCase() === "TOTAL") {
+        value = sh.getRange(lastRow, 2, 1, 1).getValue();
+      }
+      recap.getRange(2 + i, 8, 1, 1).setValue(value);  // column H
+    }
+  } catch (e) {
+    Logger.log("[17_LISTING] _setRecapCexInfoTotal_ error: " + (e && e.message ? e.message : e));
+  }
 }

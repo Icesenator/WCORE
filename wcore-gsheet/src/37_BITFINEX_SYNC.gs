@@ -149,6 +149,36 @@ function BITFINEX_SYNC_STATUS() {
   return PropertiesService.getScriptProperties().getProperty(BITFINEX_SYNC_CONFIG.STATUS_PROP) || "NO_STATUS";
 }
 
+/**
+ * Diagnostic - report where (if anywhere) the Bitfinex API key + secret
+ * are currently stored, and the last sync status.
+ * @returns {Array<Array>} diagnostic rows
+ * @customfunction
+ */
+function DIAG_BITFINEX_CREDS() {
+  try {
+    var sp = PropertiesService.getScriptProperties();
+    var dp = PropertiesService.getDocumentProperties();
+    var up = PropertiesService.getUserProperties();
+    var rows = [];
+    rows.push(["storage", "key_present", "secret_present", "key_len", "secret_len"]);
+    function row(label, props) {
+      var k = "", s = "";
+      try { k = String(props.getProperty("BITFINEX_API_KEY") || ""); } catch (e1) {}
+      try { s = String(props.getProperty("BITFINEX_API_SECRET") || ""); } catch (e2) {}
+      rows.push([label, k ? "YES" : "NO", s ? "YES" : "NO", String(k.length), String(s.length)]);
+    }
+    row("UserProperties", up);
+    row("DocumentProperties", dp);
+    row("ScriptProperties", sp);
+    rows.push([]);
+    rows.push(["last_status", String(sp.getProperty(BITFINEX_SYNC_CONFIG.STATUS_PROP) || "NO_STATUS")]);
+    return rows;
+  } catch (e) {
+    return [["error", String(e && e.message ? e.message : e)]];
+  }
+}
+
 // HMAC-SHA384 hex (Bitfinex exige SHA384, pas SHA256).
 function _bfxSign_(payload, secret) {
   var raw = Utilities.computeHmacSignature(

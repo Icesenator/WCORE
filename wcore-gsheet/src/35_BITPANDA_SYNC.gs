@@ -1505,7 +1505,8 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
       if (symbol === "EUR") t = "EUR";
       if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
         t = WCORE_STABLECOINS.getType(symbol);
-      } else if (typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) {
+      }
+      if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) {
         t = ChainFactory.STABLECOINS.getType(symbol);
       }
       if (t === "EUR" || t === "USD") {
@@ -1577,7 +1578,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
       var t2 = null;
       try {
         if (typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) t2 = WCORE_STABLECOINS.getType(symVal);
-        else if (typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t2 = ChainFactory.STABLECOINS.getType(symVal);
+        if (!t2 && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t2 = ChainFactory.STABLECOINS.getType(symVal);
       } catch (eT2) {}
       var px = null;
       if (t2 === "EUR" || t2 === "USD") {

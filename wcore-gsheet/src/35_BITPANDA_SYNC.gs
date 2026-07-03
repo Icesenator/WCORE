@@ -736,6 +736,12 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1:D1").setNumberFormat("@");
   if (values.length > 2) sh.getRange(3, 2, values.length - 2, 1).setNumberFormat("0.########");
+  // v4.15.121: append INFO_TOTAL row at the bottom of the Bitpanda bucket sheet.
+  try {
+    var _bpDataRows = [];
+    for (var j = 0; j < rows.length; j++) _bpDataRows.push([rows[j][0], _bpParseBalance_(rows[j][1]), sourceLabel, stamp]);
+    _cexComputeAndAppendTotal_(sheetName, _bpDataRows, "bitpanda");
+  } catch (eTot) { Logger.log("[CEX_TOTAL] bitpanda " + sheetName + " append failed: " + eTot); }
 }
 
 // v4.15.81: cellules de refresh manuel hors onglets Bitpanda.

@@ -1734,6 +1734,11 @@ var EvmEngine = {
       if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
       return "[NO_CACHE] " + Format.now();
     }
+    // v4.15.122: I1 guard — skip if no explicit trigger and cache was updated recently.
+    if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
+      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + Format.datetime(beforeTs), _httpBefore);
+      return "[NO_CACHE] " + Format.now();
+    }
    
    // v4.12.29: Honor user's forceFull/triggerRefresh parameters
    // Default to true for backward compatibility (refresh status = do refresh)

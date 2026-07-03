@@ -657,10 +657,15 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
  try {
    CacheManager.init();
    var cosmosCacheBefore = WalletCache.load(address, null, cfg);
-   if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
-     var cosmosSkipTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
-     return cosmosSkipTs ? BaseEngine.wrapCacheOnlyMarker(cosmosSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
-   }
+    if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
+      var cosmosSkipTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
+      return cosmosSkipTs ? BaseEngine.wrapCacheOnlyMarker(cosmosSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+    }
+    // v4.15.122: I1 guard — skip if no explicit trigger and cache was updated recently.
+    if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
+      var cosmosFreshTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
+      return cosmosFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + cosmosFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+    }
  } catch (eLatch) {}
 
  // v4.15.3: Capture scan errors instead of swallowing silently

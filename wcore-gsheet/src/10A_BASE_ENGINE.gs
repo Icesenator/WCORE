@@ -132,19 +132,42 @@ BaseEngine.normalizeRefreshTrigger = function(triggerRefresh) {
 };
 
 BaseEngine.shouldSkipRefreshForSameTrigger = function(walletKey, config, cache, forceFull, triggerRefresh) {
- try {
-  var force = (forceFull === true || forceFull === "true" || forceFull === "TRUE");
-  if (force) return false;
-  var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
-  if (!trig || !cache) return false;
-  var last = String(cache.last_refresh_trigger || cache.lastRefreshTrigger || "").trim();
-  if (last && last === trig) return true;
-  if (cache.updatedAt) {
-   var parsed = Date.parse(String(trig).replace(" ", "T"));
-   if (isFinite(parsed) && Number(cache.updatedAt) >= parsed) return true;
-  }
-  return false;
- } catch (e) { return false; }
+  try {
+   var force = (forceFull === true || forceFull === "true" || forceFull === "TRUE");
+   if (force) return false;
+   var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
+   if (!trig || !cache) return false;
+   var last = String(cache.last_refresh_trigger || cache.lastRefreshTrigger || "").trim();
+   if (last && last === trig) return true;
+   if (cache.updatedAt) {
+    var parsed = Date.parse(String(trig).replace(" ", "T"));
+    if (isFinite(parsed) && Number(cache.updatedAt) >= parsed) return true;
+   }
+   return false;
+  } catch (e) { return false; }
+};
+
+// v4.15.122: I1 re-evaluation guard — when Google Sheets re-evaluates the I1
+// @customfunction without an explicit trigger (no B1 pulse, C1=FALSE, no
+// activityForced), and the wallet was already scanned within the last
+// I1_GUARD_MS, return the cached value instead of scanning on every
+// unprovoked sheet recalculation.
+var I1_GUARD_MS = 120 * 1000; // 2 min
+
+BaseEngine.shouldSkipNoTriggerRecentScan = function(walletKey, config, cache, forceFull, triggerRefresh) {
+  try {
+   var force = (forceFull === true || forceFull === "true" || forceFull === "TRUE");
+   if (force) return false;
+   var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
+   if (!trig) {
+    // No explicit trigger: skip if the cache was updated recently.
+    if (cache && cache.updatedAt) {
+     var age = Date.now() - Number(cache.updatedAt);
+     if (age >= 0 && age < I1_GUARD_MS) return true;
+    }
+   }
+   return false;
+  } catch (e) { return false; }
 };
 
 // ============================================================

@@ -1397,14 +1397,25 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     return 0;
   }
 
-  // 1. Strip any prior TOTAL row to stay idempotent across syncs.
-  var lastRow = sh.getLastRow();
-  if (lastRow >= 2) {
-    var firstCol = sh.getRange(lastRow, 1, 1, 1).getValue();
-    if (String(firstCol || "").trim().toUpperCase() === "TOTAL") {
-      sh.deleteRow(lastRow);
-      lastRow = sh.getLastRow();
+  // 1. Strip any prior TOTAL row at its expected position (3 + nbAssets).
+  //    The TOTAL row may have been placed at a different row by an older
+  //    version of the helper (which used getLastRow(), inflated by the
+  //    Vérif MAP formula). Scan upwards from the bottom to find any row
+  //    with "INFO_TOTAL" in column B or "TOTAL" in column A and remove it.
+  var nb = (balances || []).length;
+  var totalExpected = 3 + nb;
+  var oldTotalRow = -1;
+  var scanFrom = Math.max(totalExpected, sh.getLastRow());
+  for (var sr = scanFrom; sr >= totalExpected; sr--) {
+    var srA = String(sh.getRange(sr, 1, 1, 1).getValue() || "").trim().toUpperCase();
+    var srB = String(sh.getRange(sr, 2, 1, 1).getValue() || "").trim();
+    if (srA === "TOTAL" || srB === "INFO_TOTAL") {
+      oldTotalRow = sr;
+      break;
     }
+  }
+  if (oldTotalRow >= 3) {
+    sh.deleteRow(oldTotalRow);
   }
 
   // 2. Build a symbol -> price (EUR) map.
@@ -1488,9 +1499,14 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
   //    needed) and harmonises CEX sheets with the Ledger output format.
   //    Write per-row value_eur to F first before the INFO_TOTAL row.
 
-  // Clear any stale value_eur from previous sync (column F only, column E
-  // "Vérif" is preserved).
-  if (lastRow >= 3) sh.getRange(3, 6, lastRow - 2, 1).clearContent();
+  // Clear any stale value_eur from previous sync (column E only, column F
+  // "Vérif" is user-managed and must be preserved). Use the sheet's actual
+  // last row (inflated by the Vérif MAP formula) to clear all visible rows.
+  var lastRow = sh.getLastRow();
+  if (lastRow >= 3) sh.getRange(3, 5, lastRow - 2, 1).clearContent();
+
+  // Write the value_eur header at E2.
+  sh.getRange(2, 5, 1, 1).setValue("value_eur");
 
   for (var iVal = 0; iVal < (balances || []).length; iVal++) {
     var rowVal = balances[iVal] || [];
@@ -1524,28 +1540,31 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
       }
       if (px != null && isFinite(px) && px > 0) valEur = balVal * px;
     }
-    // Write to column F (column 6), row 3 + iVal (rows 1-2 are checkbox + header).
+    // Write to column E (column 5), row 3 + iVal (rows 1-2 are checkbox + header).
     if (valEur > 0) {
-      sh.getRange(3 + iVal, 6, 1, 1).setValue(valEur);
-      sh.getRange(3 + iVal, 6, 1, 1).setNumberFormat("0.00");
+      sh.getRange(3 + iVal, 5, 1, 1).setValue(valEur);
+      sh.getRange(3 + iVal, 5, 1, 1).setNumberFormat("0.00");
     } else {
-      // Clear stale value_eur from previous sync.
-      sh.getRange(3 + iVal, 6, 1, 1).clearContent();
+      sh.getRange(3 + iVal, 5, 1, 1).clearContent();
     }
   }
 
-  // 4. Write the INFO_TOTAL row.
+  // 4. Write the INFO_TOTAL row directly below the asset list (not at the
+  //    bottom of the page — the Vérif MAP formula fills column F down to the
+  //    sheet max, inflating getLastRow()).
+  var totalRow = 3 + (balances || []).length;
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-  var label = "TOTAL";
   var valueCell = Math.round(total * 100) / 100;
   var providerCell = String(provider || "").toLowerCase();
 
-  // A: "TOTAL", B: "INFO_TOTAL" (text the Recap!B formula matches), C: provider, D: stamp.
-  sh.getRange(lastRow + 1, 1, 1, 4).setValues([[label, "INFO_TOTAL", providerCell, stamp]]);
-  sh.getRange(lastRow + 1, 4, 1, 1).setNumberFormat("@");
+  // A="" (empty, avoids the Vérif MAP formula matching "TOTAL" or "INFO_TOTAL"
+  // against Portefeuille Crypto Details), B="INFO_TOTAL" (text the Recap!B
+  // formula matches), C: provider, D: stamp.
+  sh.getRange(totalRow, 1, 1, 4).setValues([["", "INFO_TOTAL", providerCell, stamp]]);
+  sh.getRange(totalRow, 4, 1, 1).setNumberFormat("@");
   // G (column 7): total value for the Recap!B INDEX formula.
-  sh.getRange(lastRow + 1, 7, 1, 1).setValue(valueCell);
-  sh.getRange(lastRow + 1, 7, 1, 1).setNumberFormat("0.00");
+  sh.getRange(totalRow, 7, 1, 1).setValue(valueCell);
+  sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
 
   Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped);
   return valueCell;

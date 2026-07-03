@@ -1485,22 +1485,22 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
     _cexAddStockAliases_(stockPriceMap);
   }
 
-  // 3. Sum balance x price. Stablecoins get 1.0 EUR via fast-path.
-  //    Non-stables are priced via PriceSources.llamaPriceUsd on the gecko
-  //    id from CEX_SYMBOL_MAP. Symbols not in the map fall back to the
-  //    Portefeuille Crypto priceMap (top 5000+).
+  // 3. Single-pass pricing + per-row value_eur. Compute priceEur once
+  //    per asset (not twice as before), build the column-E array in memory,
+  //    and batch-write with setValues (one API call instead of N).
   var total = 0;
   var valued = 0;
   var skipped = 0;
-  for (var i = 0; i < (balances || []).length; i++) {
+  var nb = (balances || []).length;
+  var eValues = [["value_eur"]]; // row 2 header
+
+  for (var i = 0; i < nb; i++) {
     var row = balances[i] || [];
     var symbol = String(row[0] || "").trim().toUpperCase();
     var balance = Number(row[1] || 0);
-    if (!symbol || balance <= 0) continue;
-
     var priceEur = null;
-    try {
-      // Fiat EUR: the Bitpanda Fiat bucket holds EUR balances, so EUR = 1.0.
+
+    if (symbol && balance > 0) {
       var t = null;
       if (symbol === "EUR") t = "EUR";
       if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
@@ -1509,110 +1509,46 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
       if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) {
         t = ChainFactory.STABLECOINS.getType(symbol);
       }
-      if (t === "EUR" || t === "USD") {
+      if (t === "EUR" || t === "USD" || symbol === "EUR") {
         priceEur = 1.0;
       } else if (isStocks && stockPriceMap[symbol] != null) {
         priceEur = stockPriceMap[symbol];
       } else if (_cexSymbolToGeckoId_(symbol)) {
-        // Primary path: existing PriceSources.llamaPriceUsd on the gecko id.
-        // L1 (2h CacheService) + L2 (6h ScriptProperties) absorb repeated
-        // lookups. USD price is converted to EUR via the FxRate cascade.
-        var geckoId = _cexSymbolToGeckoId_(symbol);
-        var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
-        if (isFinite(Number(usd)) && Number(usd) > 0) {
-          var fx = null;
-          try { fx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fx = null; }
-          if (isFinite(Number(fx)) && Number(fx) > 0) {
-            priceEur = Number(usd) * Number(fx);
-          } else {
-            // No FX: fall through to Portefeuille Crypto map (already EUR).
-            if (priceMap[symbol] != null) priceEur = priceMap[symbol];
-            priceMapFallback = true;
-          }
-        } else if (priceMap[symbol] != null) {
-          // llama miss (token not in DefiLlama): use the Portefeuille Crypto map.
-          priceEur = priceMap[symbol];
-          priceMapFallback = true;
-        }
-      } else if (priceMap[symbol] != null) {
-        priceEur = priceMap[symbol];
-        priceMapFallback = true;
-      }
-    } catch (ePrice) {
-      Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName + " (" + (ePrice && ePrice.message ? ePrice.message : ePrice) + ")");
-    }
-    if (priceEur == null || !isFinite(priceEur) || priceEur <= 0) {
-      Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
-      skipped++;
-      continue;
-    }
-    total += balance * Number(priceEur);
-    valued++;
-  }
-
-  // 3. Write per-row value_eur to column F (preserve column E "Vérif") and
-  //    the INFO_TOTAL row at the bottom. The Recap Portfolio column B formula is:
-  //      =INDEX(target!'G:G; MATCH("INFO_TOTAL"; target!'B:B; 0))
-  //    so we write "INFO_TOTAL" in column B and the total in column G of the
-  //    TOTAL row. This keeps the Recap!B formula dynamic (no scripted writes
-  //    needed) and harmonises CEX sheets with the Ledger output format.
-  //    Write per-row value_eur to F first before the INFO_TOTAL row.
-
-  // Clear any stale value_eur from previous sync (column E only, column F
-  // "Vérif" is user-managed and must be preserved). Use the sheet's actual
-  // last row (inflated by the Vérif MAP formula) to clear all visible rows.
-  var lastRow = sh.getLastRow();
-  if (lastRow >= 3) sh.getRange(3, 5, lastRow - 2, 1).clearContent();
-
-  // Write the value_eur header at E2.
-  sh.getRange(2, 5, 1, 1).setValue("value_eur");
-
-  for (var iVal = 0; iVal < (balances || []).length; iVal++) {
-    var rowVal = balances[iVal] || [];
-    var symVal = String(rowVal[0] || "").trim().toUpperCase();
-    var balVal = Number(rowVal[1] || 0);
-    var valEur = 0;
-    if (symVal && balVal > 0) {
-      // Reuse the same pricing logic as in step 2 above: stablecoin fast-path
-      // then symbol map / priceMap fallback.
-      var t2 = null;
-      try {
-        if (typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) t2 = WCORE_STABLECOINS.getType(symVal);
-        if (!t2 && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t2 = ChainFactory.STABLECOINS.getType(symVal);
-      } catch (eT2) {}
-      var px = null;
-      if (t2 === "EUR" || t2 === "USD") {
-        px = 1.0;
-      } else if (symVal === "EUR") {
-        px = 1.0;
-      } else if (isStocks && stockPriceMap[symVal] != null) {
-        px = stockPriceMap[symVal];
-      } else if (_cexSymbolToGeckoId_(symVal)) {
         try {
-          var geckoId = _cexSymbolToGeckoId_(symVal);
+          var geckoId = _cexSymbolToGeckoId_(symbol);
           var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
           if (isFinite(Number(usd)) && Number(usd) > 0) {
-            var fx2 = null;
-            try { fx2 = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx2) { fx2 = null; }
-            if (isFinite(Number(fx2)) && Number(fx2) > 0) px = Number(usd) * Number(fx2);
+            var fx = null;
+            try { fx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fx = null; }
+            if (isFinite(Number(fx)) && Number(fx) > 0) priceEur = Number(usd) * Number(fx);
           }
-        } catch (eLlama2) {}
-        if (px == null && priceMap[symVal] != null) px = priceMap[symVal];
-      } else if (priceMap[symVal] != null) {
-        px = priceMap[symVal];
+        } catch (eLlama) {}
+        if (priceEur == null && priceMap[symbol] != null) priceEur = priceMap[symbol];
+      } else if (priceMap[symbol] != null) {
+        priceEur = priceMap[symbol];
       }
-      if (px != null && isFinite(px) && px > 0) valEur = balVal * px;
     }
-    // Write to column E (column 5), row 3 + iVal (rows 1-2 are checkbox + header).
-    if (valEur > 0) {
-      sh.getRange(3 + iVal, 5, 1, 1).setValue(valEur);
-      sh.getRange(3 + iVal, 5, 1, 1).setNumberFormat("0.00");
+
+    if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
+      var val = Math.round(balance * priceEur * 100) / 100;
+      total += val;
+      eValues.push([val]);
+      valued++;
     } else {
-      sh.getRange(3 + iVal, 5, 1, 1).clearContent();
+      if (symbol && balance > 0) {
+        Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
+        skipped++;
+      }
+      eValues.push([0]);
     }
   }
 
-  // 4. Write the INFO_TOTAL row directly below the asset list (not at the
+  // Batch-write column E (rows 2..2+nb) in one API call.
+  sh.getRange(2, 5, nb + 1, 1).clearContent();
+  sh.getRange(2, 5, nb + 1, 1).setValues(eValues);
+  if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
+
+  // 4. Write the INFO_TOTAL row
   //    bottom of the page — the Vérif MAP formula fills column F down to the
   //    sheet max, inflating getLastRow()).
   var totalRow = 3 + (balances || []).length;

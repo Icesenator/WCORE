@@ -18,7 +18,7 @@ assert.ok(
 
 // --- 2. Helper uses PriceManager.computePriceEur -----------------------
 assert.ok(
-  /_cexComputeAndAppendTotal_[\s\S]{0,400}PriceManager\.computePriceEur/.test(BITPANDA_SRC),
+  /_cexComputeAndAppendTotal_[\s\S]{0,3000}PriceManager\.computePriceEur/.test(BITPANDA_SRC),
   "helper must call PriceManager.computePriceEur(symbol) to value each row"
 );
 

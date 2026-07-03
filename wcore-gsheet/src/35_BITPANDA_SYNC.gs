@@ -1507,10 +1507,10 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
 
     var priceEur = null;
     try {
-      // Stablecoin fast-path: USDT/USDC/BUSD/FDUSD/TUSD/DAI -> 1.0 EUR,
-      // EURC/EURI -> 1.0 EUR. Uses PriceSources' WCORE_STABLECOINS registry.
+      // Fiat EUR: the Bitpanda Fiat bucket holds EUR balances, so EUR = 1.0.
       var t = null;
-      if (typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
+      if (symbol === "EUR") t = "EUR";
+      if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
         t = WCORE_STABLECOINS.getType(symbol);
       } else if (typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) {
         t = ChainFactory.STABLECOINS.getType(symbol);

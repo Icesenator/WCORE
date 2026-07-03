@@ -1686,6 +1686,29 @@ var EvmEngine = {
     // v4.13.3: Centralized quota pre-check via BaseEngine
     // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
      var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
+
+    // v4.15.122: Load cache BEFORE web scan so the I1 guard can prevent
+    // unnecessary rescans (web scan was returning early, bypassing the guard).
+    var _httpBefore = BaseEngine.httpSnapshot();
+    var beforeTs = 0;
+    var cacheBefore = null;
+    try {
+      CacheManager.init();
+      cacheBefore = WalletCache.load(addrLower, null, config);
+      if (cacheBefore && cacheBefore.updatedAt) {
+        beforeTs = cacheBefore.updatedAt;
+      }
+    } catch (e) {}
+
+    if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
+      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
+      return "[NO_CACHE] " + Format.now();
+    }
+    if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
+      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + Format.datetime(beforeTs), _httpBefore);
+      return "[NO_CACHE] " + Format.now();
+    }
+
       try {
         if (typeof _webScanWallet_ === "function") {
           var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
@@ -1716,30 +1739,6 @@ var EvmEngine = {
       return "[BUSY] " + (busyTs || Format.now());
     }
 
-   // v4.15.19: Snapshot HTTP counter before scan (for [CACHE_ONLY] marker)
-   var _httpBefore = BaseEngine.httpSnapshot();
-
-   // v4.12.30: Capture cache timestamp BEFORE refresh
-    var beforeTs = 0;
-    var cacheBefore = null;
-    try {
-      CacheManager.init();
-      cacheBefore = WalletCache.load(addrLower, null, config);
-      if (cacheBefore && cacheBefore.updatedAt) {
-        beforeTs = cacheBefore.updatedAt;
-      }
-    } catch (e) {}
-
-    if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
-      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
-      return "[NO_CACHE] " + Format.now();
-    }
-    // v4.15.122: I1 guard — skip if no explicit trigger and cache was updated recently.
-    if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
-      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + Format.datetime(beforeTs), _httpBefore);
-      return "[NO_CACHE] " + Format.now();
-    }
-   
    // v4.12.29: Honor user's forceFull/triggerRefresh parameters
    // Default to true for backward compatibility (refresh status = do refresh)
    // Only false if explicitly passed as false (boolean) or "false" (string)

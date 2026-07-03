@@ -65,23 +65,29 @@ assert.ok(
   "_bpWriteRows_ must call _cexComputeAndAppendTotal_ internally"
 );
 
-// --- 6. Recap Portfolio column B (INFO_TOTAL) is populated for CEX rows ---
-// _setRecapCexInfoTotal_ writes to column B of "Recap Portfolio"
+// --- 6. _cexUpdateRecapColumnB_ writes to Recap column B (per-sync) -------
 assert.ok(
-  /recap\.getRange\(\s*2\s*\+\s*\w+\s*,\s*2\s*,/.test(LISTING_SRC) ||
-  /recap\.getRange\([^)]*,\s*2\s*,/.test(LISTING_SRC),
-  '_setRecapCexInfoTotal_ must write to column B (2) of Recap Portfolio'
+  /function\s+_cexUpdateRecapColumnB_\s*\(/.test(BITPANDA_SRC),
+  "_cexUpdateRecapColumnB_(ss, sheetName, totalValue) must be defined in 35_BITPANDA_SYNC.gs"
+);
+assert.ok(
+  /_cexComputeAndAppendTotal_[\s\S]{0,10000}_cexUpdateRecapColumnB_/.test(BITPANDA_SRC) ||
+  /_cexUpdateRecapColumnB_[\s\S]{0,10000}_cexComputeAndAppendTotal_/.test(BITPANDA_SRC),
+  "_cexComputeAndAppendTotal_ must call _cexUpdateRecapColumnB_ at the end"
+);
+// Recap column read matches by sheet name in column A
+assert.ok(
+  /_cexUpdateRecapColumnB_[\s\S]{0,1000}Recap Portfolio/.test(BITPANDA_SRC),
+  "_cexUpdateRecapColumnB_ must reference 'Recap Portfolio' sheet"
 );
 
-// --- 7. _setRecapCexInfoTotal_ exists and is called from _setRecapHyperlinks_
+// --- 7. _setRecapCexInfoTotal_ still defined but NOT called from _setRecapHyperlinks_
+// (v4.15.122: moved to per-sync _cexUpdateRecapColumnB_ to avoid REFRESH_LEDGER_CACHE timeout).
+// The helper is kept for standalone use (e.g. manual recovery) but is no longer part
+// of the ledger-cache rebuild.
 assert.ok(
   /function\s+_setRecapCexInfoTotal_\s*\(/.test(LISTING_SRC),
-  "_setRecapCexInfoTotal_ must be defined in 17_LISTING.gs"
-);
-assert.ok(
-  /_setRecapHyperlinks_[\s\S]{0,400}_setRecapCexInfoTotal_/.test(LISTING_SRC) ||
-  /_setRecapCexInfoTotal_[\s\S]{0,400}_setRecapHyperlinks_/.test(LISTING_SRC),
-  "_setRecapCexInfoTotal_ must be called from _setRecapHyperlinks_"
+  "_setRecapCexInfoTotal_ must remain defined in 17_LISTING.gs"
 );
 
 // --- 8. Helper has PriceManager reference removed; uses CEX_SYMBOL_GECKO_IDS now.

@@ -1006,6 +1006,28 @@ function CEX_HOURLY_REFRESH() {
   return summary;
 }
 
+/**
+ * Diagnostic - returns the timestamp and full summary of the last
+ * CEX_HOURLY_REFRESH run. Use to find out why a specific connector
+ * (e.g. Bitfinex) is stale: BUSY=4 retries exhausted, THREW=<msg>=uncaught error.
+ * @returns {Array<Array>} [[ts, summary]]
+ * @customfunction
+ */
+function DIAG_CEX_LAST_RUN() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var ts = props.getProperty("CEX_HOURLY_REFRESH_LAST_MS") || "0";
+    var summary = props.getProperty("CEX_HOURLY_REFRESH_LAST_RESULT") || "NO_RUN_RECORDED";
+    var dt = "never";
+    if (ts && Number(ts) > 0) {
+      dt = Utilities.formatDate(new Date(Number(ts)), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
+    }
+    return [[dt, summary]];
+  } catch (e) {
+    return [["error", String(e && e.message ? e.message : e)]];
+  }
+}
+
 function INSTALL_CEX_HOURLY_REFRESH() {
   var trs = ScriptApp.getProjectTriggers();
   var handlers = ["CEX_HOURLY_REFRESH", "UPDATE_BITPANDA_SPOT", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT"];

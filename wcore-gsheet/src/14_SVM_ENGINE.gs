@@ -910,10 +910,15 @@ var SvmEngine = {
    try {
      CacheManager.init();
      var svmCacheBefore = WalletCache.load(_svmWalletKey(addr), null, config);
-     if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
-       var svmSkipTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
-       return svmSkipTs ? BaseEngine.wrapCacheOnlyMarker(svmSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
-     }
+      if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
+        var svmSkipTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
+        return svmSkipTs ? BaseEngine.wrapCacheOnlyMarker(svmSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+      }
+      // v4.15.122: I1 guard — skip if no explicit trigger and cache was updated recently.
+      if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
+        var svmFreshTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
+        return svmFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + svmFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+      }
    } catch (eLatch) {}
 
    // v4.15.3: Capture scan errors instead of swallowing silently

@@ -1565,7 +1565,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   sh.getRange(totalRow, 7, 1, 1).setValue(valueCell);
   sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
 
-  Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped);
+  Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb + " totalRow=" + totalRow);
   return valueCell;
 }
 

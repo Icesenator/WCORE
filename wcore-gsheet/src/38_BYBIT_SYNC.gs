@@ -345,11 +345,14 @@ function _bybitWriteSheet_(ss, buckets) {
   header.push(["cryptocoin_symbol", "balance", "source", "updated_at"]);
   var dataRows = _bybitBuildValues_(buckets, stamp);
   var values = header.concat(dataRows);
-  sh.getRange(1, 1, Math.max(sh.getLastRow(), 2), Math.max(sh.getLastColumn(), 4)).clearContent();
+  // v4.15.120: clear only data columns A:D so the user-managed "Vérif" column (E) survives syncs.
+  sh.getRange(1, 1, Math.max(sh.getLastRow(), 2), 4).clearContent();
   sh.getRange(1, 1, values.length, 4).setValues(values);
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1:D1").setNumberFormat("@");
   if (values.length > 2) sh.getRange(3, 2, values.length - 2, 1).setNumberFormat("0.########");
+  // v4.15.121: append INFO_TOTAL row.
+  try { _cexComputeAndAppendTotal_(BYBIT_SYNC_CONFIG.SHEET, dataRows, "bybit"); } catch (eTot) { Logger.log("[CEX_TOTAL] bybit append failed: " + eTot); }
   return dataRows.length;
 }
 

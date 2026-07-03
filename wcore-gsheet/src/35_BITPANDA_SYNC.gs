@@ -1397,16 +1397,14 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     return 0;
   }
 
-  // 1. Strip any prior TOTAL row at its expected position (3 + nbAssets).
-  //    The TOTAL row may have been placed at a different row by an older
-  //    version of the helper (which used getLastRow(), inflated by the
-  //    Vérif MAP formula). Scan upwards from the bottom to find any row
-  //    with "INFO_TOTAL" in column B or "TOTAL" in column A and remove it.
+  // 1. Strip any prior TOTAL row near the expected position (3 + nbAssets).
+  //    Do NOT scan the entire sheet — the Vérif MAP formula in column F
+  //    produces content in thousands of rows, inflating getLastRow() and
+  //    causing a 6-min timeout if we iterate from the bottom.
   var nb = (balances || []).length;
   var totalExpected = 3 + nb;
   var oldTotalRow = -1;
-  var scanFrom = Math.max(totalExpected, sh.getLastRow());
-  for (var sr = scanFrom; sr >= totalExpected; sr--) {
+  for (var sr = totalExpected + 50; sr >= totalExpected && sr >= 3; sr--) {
     var srA = String(sh.getRange(sr, 1, 1, 1).getValue() || "").trim().toUpperCase();
     var srB = String(sh.getRange(sr, 2, 1, 1).getValue() || "").trim();
     if (srA === "TOTAL" || srB === "INFO_TOTAL") {

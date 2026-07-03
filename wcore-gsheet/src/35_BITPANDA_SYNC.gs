@@ -488,6 +488,7 @@ function _cexRunManualJob_(job) {
     else if (kind === "BYBIT") result = typeof UPDATE_BYBIT_SPOT === "function" ? String(UPDATE_BYBIT_SPOT()) : "SKIPPED_MISSING_UPDATE_BYBIT_SPOT";
     else if (kind === "COINBASE") result = typeof UPDATE_COINBASE_SPOT === "function" ? String(UPDATE_COINBASE_SPOT()) : "SKIPPED_MISSING_UPDATE_COINBASE_SPOT";
     else if (kind === "OKX") result = typeof UPDATE_OKX_SPOT === "function" ? String(UPDATE_OKX_SPOT()) : "SKIPPED_MISSING_UPDATE_OKX_SPOT";
+    else if (kind === "KRAKEN") result = typeof UPDATE_KRAKEN_SPOT === "function" ? String(UPDATE_KRAKEN_SPOT()) : "SKIPPED_MISSING_UPDATE_KRAKEN_SPOT";
     else result = "UNKNOWN_JOB:" + kind;
   } catch (err) {
     result = "THREW:" + (err && err.message ? err.message : err);
@@ -571,6 +572,7 @@ function _bpParseBalance_(value) {
 // la variante vers le symbole canonique attendu par Action Rebalancing afin de
 // cumuler les soldes sur une seule ligne (sinon le VLOOKUP tombe sur la base=0).
 var BITPANDA_SYMBOL_ALIASES = {
+  "USDC": "USDT",
   // Variantes US suffixees -> ticker de base (la base a un solde nul).
   "AMD-US": "AMD",
   "WMT-US": "WMT",
@@ -728,7 +730,8 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
   values.push([false, stamp, "", ""]);
   values.push(["cryptocoin_symbol", "balance", "source", "updated_at"]);
   for (var i = 0; i < rows.length; i++) values.push([rows[i][0], _bpParseBalance_(rows[i][1]), sourceLabel, stamp]);
-  sh.getRange(1, 1, Math.max(sh.getLastRow(), 2), Math.max(sh.getLastColumn(), 4)).clearContent();
+  // v4.15.120: clear only data columns A:D so the user-managed "Vérif" column (E) survives syncs.
+  sh.getRange(1, 1, Math.max(sh.getLastRow(), 2), 4).clearContent();
   sh.getRange(1, 1, values.length, 4).setValues(values);
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1:D1").setNumberFormat("@");
@@ -800,7 +803,8 @@ function BITPANDA_ON_EDIT(e) {
         { kind: "BITFINEX", sheetName: typeof BITFINEX_SYNC_CONFIG !== "undefined" ? BITFINEX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
         { kind: "BYBIT", sheetName: typeof BYBIT_SYNC_CONFIG !== "undefined" ? BYBIT_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
         { kind: "COINBASE", sheetName: typeof COINBASE_SYNC_CONFIG !== "undefined" ? COINBASE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
-        { kind: "OKX", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" }
+        { kind: "OKX", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
+        { kind: "KRAKEN", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" }
       ]);
     } else {
       _bpSetRefreshFlag_(refreshFlagProp);
@@ -838,6 +842,7 @@ function _bpRunCryptoCexRefreshDirect_() {
   ok = run("bybitCrypto", typeof UPDATE_BYBIT_SPOT === "function" ? UPDATE_BYBIT_SPOT : null) && ok;
   ok = run("coinbaseCrypto", typeof UPDATE_COINBASE_SPOT === "function" ? UPDATE_COINBASE_SPOT : null) && ok;
   ok = run("okxCrypto", typeof UPDATE_OKX_SPOT === "function" ? UPDATE_OKX_SPOT : null) && ok;
+  ok = run("krakenCrypto", typeof UPDATE_KRAKEN_SPOT === "function" ? UPDATE_KRAKEN_SPOT : null) && ok;
   var summary = results.join("\n");
   try { Logger.log("CRYPTO_CEX_DIRECT\n" + summary); } catch (eLog) {}
   if (ok) _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP);
@@ -876,10 +881,17 @@ function _bpGetManagedSheetRefreshPlan_(sheetName) {
 // Per AGENTS.md "triggers présents mais mal autorisés" (v4.15.61).
 // Any CEX A1 click re-installs the central fallback + hourly CEX triggers with fresh user auth.
 var _BP_CEX_TRIGGERS_TO_HEAL = [
-  { name: "CEX_HOURLY_REFRESH", unit: "hours", value: 4 },
+  { name: "UPDATE_BITPANDA_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_BINANCE_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_BITFINEX_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_BYBIT_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_COINBASE_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_OKX_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_KRAKEN_SPOT", unit: "hours", value: 1 },
   { name: "CEX_MANUAL_REFRESH_WORKER", unit: "minutes", value: 1 }
 ];
 var _BP_CEX_LEGACY_TRIGGERS_TO_DELETE = [
+  "CEX_HOURLY_REFRESH",
   "BITPANDA_REFRESH_WATCHDOG",
   "BINANCE_REFRESH_WATCHDOG",
   "BITFINEX_REFRESH_WATCHDOG",
@@ -953,6 +965,7 @@ function INSTALL_BITPANDA_REFRESH_WATCHDOG() {
 // trigger garanti par WCORE_AUTO_HEAL. Chaque update est protege individuellement
 // pour qu'un CEX en erreur ne bloque pas les autres.
 function CEX_HOURLY_REFRESH() {
+  try { PropertiesService.getScriptProperties().setProperty("CEX_HOURLY_REFRESH_LAST_START_MS", String(Date.now())); } catch (eStartProp) {}
   var results = [];
   // v4.15.108: each UPDATE_*_SPOT grabs the shared script lock. The 1-min
   // BITPANDA_REFRESH_WATCHDOG can hold it, so a plain call returns "BUSY" and
@@ -976,18 +989,33 @@ function CEX_HOURLY_REFRESH() {
   run("bybit", typeof UPDATE_BYBIT_SPOT === "function" ? UPDATE_BYBIT_SPOT : null);
   run("coinbase", typeof UPDATE_COINBASE_SPOT === "function" ? UPDATE_COINBASE_SPOT : null);
   run("okx", typeof UPDATE_OKX_SPOT === "function" ? UPDATE_OKX_SPOT : null);
+  run("kraken", typeof UPDATE_KRAKEN_SPOT === "function" ? UPDATE_KRAKEN_SPOT : null);
   var summary = results.join("\n");
   Logger.log("CEX_HOURLY_REFRESH\n" + summary);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty("CEX_HOURLY_REFRESH_LAST_MS", String(Date.now()));
+    props.setProperty("CEX_HOURLY_REFRESH_LAST_RESULT", summary.substring(0, 8000));
+  } catch (eEndProp) {}
   return summary;
 }
 
 function INSTALL_CEX_HOURLY_REFRESH() {
   var trs = ScriptApp.getProjectTriggers();
+  var handlers = ["CEX_HOURLY_REFRESH", "UPDATE_BITPANDA_SPOT", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT"];
+  var wanted = {};
+  for (var h = 0; h < handlers.length; h++) wanted[handlers[h]] = true;
   for (var i = 0; i < trs.length; i++) {
-    if (trs[i].getHandlerFunction() === "CEX_HOURLY_REFRESH") ScriptApp.deleteTrigger(trs[i]);
+    if (wanted[trs[i].getHandlerFunction()]) ScriptApp.deleteTrigger(trs[i]);
   }
-  ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyMinutes(30).create();
-  return "Trigger installed: CEX_HOURLY_REFRESH every 30 minutes";
+  ScriptApp.newTrigger("UPDATE_BITPANDA_SPOT").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("UPDATE_BINANCE_SPOT").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("UPDATE_BITFINEX_SPOT").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("UPDATE_BYBIT_SPOT").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("UPDATE_COINBASE_SPOT").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("UPDATE_OKX_SPOT").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
+  return "Triggers installed: per-connector CEX refresh every 1 hour";
 }
 
 // Pose/garantit les checkboxes de refresh hors onglets Bitpanda (Z1 et AC2).
@@ -1117,4 +1145,96 @@ function INSTALL_BITPANDA_SYNC_TRIGGER() {
   }
   ScriptApp.newTrigger("UPDATE_BITPANDA_SPOT").timeBased().everyHours(1).create();
   return "LEGACY_DISABLED: use CEX_HOURLY_REFRESH for hourly CEX refresh";
+}
+
+// ============================================================
+// INFO_TOTAL CEX — v4.15.121
+// Appends a TOTAL row at the bottom of a CEX sheet, summing
+// balance × price_eur for each line. Idempotent: removes any
+// prior TOTAL row before appending. Uses the existing
+// PriceManager.computePriceEur(symbol) cascade.
+// ============================================================
+
+/**
+ * Compute and append the INFO_TOTAL row to a CEX sheet.
+ * @param {string} sheetName - e.g. "CEX - Binance"
+ * @param {Array<[string, number, string, string]>} balances - rows [symbol, balance, source, stamp]
+ * @param {string} provider - e.g. "binance", "kraken", "bitpanda"
+ * @returns {number} total value in EUR written to the TOTAL row
+ */
+function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
+  var sh = null;
+  try {
+    sh = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID).getSheetByName(sheetName);
+  } catch (eOpen) {
+    Logger.log("[CEX_TOTAL] spreadsheet open failed: " + eOpen);
+    return 0;
+  }
+  if (!sh) {
+    Logger.log("[CEX_TOTAL] sheet not found: " + sheetName);
+    return 0;
+  }
+
+  // 1. Strip any prior TOTAL row to stay idempotent across syncs.
+  var lastRow = sh.getLastRow();
+  if (lastRow >= 2) {
+    var firstCol = sh.getRange(lastRow, 1, 1, 1).getValue();
+    if (String(firstCol || "").trim().toUpperCase() === "TOTAL") {
+      sh.deleteRow(lastRow);
+      lastRow = sh.getLastRow();
+    }
+  }
+
+  // 2. Sum balance × price_eur using the existing cascade.
+  var total = 0;
+  var valued = 0;
+  var skipped = 0;
+  var quotaBlocked = false;
+  for (var i = 0; i < (balances || []).length; i++) {
+    var row = balances[i] || [];
+    var symbol = String(row[0] || "").trim().toUpperCase();
+    var balance = Number(row[1] || 0);
+    if (!symbol || balance <= 0) continue;
+
+    var priceEur = null;
+    try {
+      if (typeof PriceManager === "undefined" || !PriceManager.computePriceEur) {
+        Logger.log("[CEX_TOTAL] PriceManager.computePriceEur unavailable, skip " + symbol);
+        skipped++;
+        continue;
+      }
+      priceEur = PriceManager.computePriceEur(symbol);
+    } catch (ePrice) {
+      var msg = (ePrice && ePrice.message) ? ePrice.message : String(ePrice);
+      if (/quota|breaker|429|Service invoked too many/i.test(msg)) {
+        quotaBlocked = true;
+        Logger.log("[CEX_TOTAL] quota tripped on " + symbol + " in " + sheetName + ": " + msg);
+        break;
+      }
+      Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName + " (" + msg + ")");
+      skipped++;
+      continue;
+    }
+    if (priceEur == null || !isFinite(priceEur) || priceEur <= 0) {
+      Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
+      skipped++;
+      continue;
+    }
+    total += balance * Number(priceEur);
+    valued++;
+  }
+
+  // 3. Write the TOTAL row. If the cascade threw a quota error
+  //    mid-loop, surface it honestly via [BLOCKED:QUOTA] stamp.
+  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
+  var stampValue = quotaBlocked ? ("[BLOCKED:QUOTA] " + stamp) : stamp;
+  var label = "TOTAL";
+  var valueCell = quotaBlocked ? 0 : (Math.round(total * 100) / 100);
+  var providerCell = String(provider || "").toLowerCase();
+
+  sh.getRange(lastRow + 1, 1, 1, 4).setValues([[label, valueCell, providerCell, stampValue]]);
+  sh.getRange(lastRow + 1, 4, 1, 1).setNumberFormat("@");
+
+  Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + (quotaBlocked ? " [BLOCKED:QUOTA]" : ""));
+  return valueCell;
 }

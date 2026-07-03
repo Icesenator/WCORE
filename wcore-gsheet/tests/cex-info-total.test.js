@@ -16,10 +16,10 @@ assert.ok(
   "_cexComputeAndAppendTotal_(sheetName, balances, provider) must be defined in 35_BITPANDA_SYNC.gs"
 );
 
-// --- 2. Helper uses PriceManager.computePriceEur -----------------------
+// --- 2. Helper uses PriceSources.llamaPriceUsd for gecko-id lookups -------
 assert.ok(
-  /_cexComputeAndAppendTotal_[\s\S]{0,3000}PriceManager\.computePriceEur/.test(BITPANDA_SRC),
-  "helper must call PriceManager.computePriceEur(symbol) to value each row"
+  /_cexComputeAndAppendTotal_[\s\S]{0,5000}PriceSources\.llamaPriceUsd/.test(BITPANDA_SRC),
+  "helper must call PriceSources.llamaPriceUsd for symbol pricing"
 );
 
 // --- 3. Helper strips prior TOTAL row before writing --------------------
@@ -65,12 +65,12 @@ assert.ok(
   "_bpWriteRows_ must call _cexComputeAndAppendTotal_ internally"
 );
 
-// --- 6. Recap Portfolio gains an INFO_TOTAL column header --------------
+// --- 6. Recap Portfolio column B (INFO_TOTAL) is populated for CEX rows ---
+// _setRecapCexInfoTotal_ writes to column B of "Recap Portfolio"
 assert.ok(
-  /recap\.getRange\("H1"[\s\S]{0,30}INFO_TOTAL/.test(LISTING_SRC) ||
-  /H1[\s\S]{0,200}INFO_TOTAL/.test(LISTING_SRC) ||
-  /INFO_TOTAL[\s\S]{0,200}H1/.test(LISTING_SRC),
-  '17_LISTING.gs must set Recap Portfolio H1 to "INFO_TOTAL"'
+  /recap\.getRange\(\s*2\s*\+\s*\w+\s*,\s*2\s*,/.test(LISTING_SRC) ||
+  /recap\.getRange\([^)]*,\s*2\s*,/.test(LISTING_SRC),
+  '_setRecapCexInfoTotal_ must write to column B (2) of Recap Portfolio'
 );
 
 // --- 7. _setRecapCexInfoTotal_ exists and is called from _setRecapHyperlinks_
@@ -84,10 +84,10 @@ assert.ok(
   "_setRecapCexInfoTotal_ must be called from _setRecapHyperlinks_"
 );
 
-// --- 8. Quota tripped behavior: helper must write [BLOCKED:QUOTA] marker
+// --- 8. Helper has PriceManager reference removed; uses CEX_SYMBOL_GECKO_IDS now.
 assert.ok(
-  /_cexComputeAndAppendTotal_[\s\S]{0,10000}BLOCKED:QUOTA/.test(BITPANDA_SRC),
-  "helper must write [BLOCKED:QUOTA] stamp when the pricing cascade throws a quota error"
+  /CEX_SYMBOL_GECKO_IDS/.test(BITPANDA_SRC),
+  "helper must reference CEX_SYMBOL_GECKO_IDS (symbol -> gecko id map)"
 );
 
 console.log("cex-info-total: 8/8 guard assertions passed");

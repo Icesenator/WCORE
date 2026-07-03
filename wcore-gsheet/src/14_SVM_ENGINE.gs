@@ -875,6 +875,23 @@ var SvmEngine = {
     // v4.13.3: Centralized quota pre-check via BaseEngine
    // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
     var svmForce = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
+
+    // v4.15.122: Load cache BEFORE web scan so the I1 guard (J1 >= B1) can
+    // prevent unnecessary rescans (web scan was returning early, bypassing the guard).
+    var _httpBefore = BaseEngine.httpSnapshot();
+    try {
+      CacheManager.init();
+      var svmCacheBefore = WalletCache.load(_svmWalletKey(addr), null, config);
+      if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
+        var svmSkipTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
+        return svmSkipTs ? BaseEngine.wrapCacheOnlyMarker(svmSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+      }
+      if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
+        var svmFreshTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
+        return svmFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + svmFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+      }
+    } catch (eLatch) {}
+
       try {
         if (typeof _webScanWallet_ === "function") {
           var svmWebScan = _webScanWallet_(addr, tokensRange, forceFull, config, _svmWalletKey(addr));
@@ -904,24 +921,7 @@ var SvmEngine = {
       return "[BUSY] " + (svmBusyTs || Format.now());
     }
 
-   // v4.15.19: Snapshot HTTP counter before scan (for [CACHE_ONLY] marker)
-   var _httpBefore = BaseEngine.httpSnapshot();
-
-   try {
-     CacheManager.init();
-     var svmCacheBefore = WalletCache.load(_svmWalletKey(addr), null, config);
-      if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
-        var svmSkipTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
-        return svmSkipTs ? BaseEngine.wrapCacheOnlyMarker(svmSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
-      }
-      // v4.15.122: I1 guard — skip if no explicit trigger and cache was updated recently.
-      if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
-        var svmFreshTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
-        return svmFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + svmFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
-      }
-   } catch (eLatch) {}
-
-   // v4.15.3: Capture scan errors instead of swallowing silently
+    // v4.15.3: Capture scan errors instead of swallowing silently
    var refreshError = null;
    try { this.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, config, walletNames); } catch (e) {
      refreshError = String(e && (e.message || e) || "refresh_error");

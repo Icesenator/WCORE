@@ -47,20 +47,23 @@ for (const f of cexSyncFiles) {
 }
 
 // --- 5. Bitpanda sync calls the helper from all 4 buckets --------------
-const bpBuckets = [
-  ["CRYPTO", "Crypto"],
-  ["FIAT", "Fiat"],
-  ["STOCKS", "Stocks"],
-  ["COMMODITY", "Commodity"],
-];
-for (const [tag, label] of bpBuckets) {
-  const sheetName = `CEX - Bitpanda ${label}`;
-  const re = new RegExp(`_cexComputeAndAppendTotal_\\([^)]*["']${sheetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`);
+// Bitpanda uses a generic _bpWriteRows_(ss, sheetName, rows, sourceLabel) helper
+// that internally calls _cexComputeAndAppendTotal_ at the end. We check that
+// _bpWriteRows_ is invoked with each of the 4 Bitpanda bucket keys (CRYPTO, FIAT,
+// STOCKS, COMMODITY) which resolve via BITPANDA_SYNC_CONFIG.SHEETS.
+const bpBuckets = ["CRYPTO", "FIAT", "STOCKS", "COMMODITY"];
+for (const tag of bpBuckets) {
+  const re = new RegExp(`_bpWriteRows_\\([^)]*BITPANDA_SYNC_CONFIG\\.SHEETS\\.${tag}`);
   assert.ok(
     re.test(BITPANDA_SRC),
-    `Bitpanda ${tag} path must call the TOTAL helper for sheet "${sheetName}"`
+    `Bitpanda ${tag} path must call _bpWriteRows_ with BITPANDA_SYNC_CONFIG.SHEETS.${tag}`
   );
 }
+// Also verify that _bpWriteRows_ internally calls the helper.
+assert.ok(
+  /function\s+_bpWriteRows_[\s\S]{0,2000}_cexComputeAndAppendTotal_/.test(BITPANDA_SRC),
+  "_bpWriteRows_ must call _cexComputeAndAppendTotal_ internally"
+);
 
 // --- 6. Recap Portfolio gains an INFO_TOTAL column header --------------
 assert.ok(

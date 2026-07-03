@@ -1191,63 +1191,69 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     }
   }
 
-  // 2. Sum balance × price_eur using the existing cascade.
+  // 2. Build a symbol -> price (USD) map from "Portefeuille Crypto" (CMC top
+  //    300 prices maintained by the existing 34_TOP_MARKETCAP pipeline).
+  //    This avoids the PriceManager.computePriceEur symbol-only gap and
+  //    gives a stable, already-validated price source for all CEX assets
+  //    that appear in the top market cap.
+  var priceMap = {};
+  try {
+    var ss = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
+    var pc = ss.getSheetByName("Portefeuille Crypto");
+    if (pc) {
+      var pcLastRow = pc.getLastRow();
+      if (pcLastRow >= 2) {
+        var pcRange = pc.getRange(2, 1, pcLastRow - 1, 3).getValues();
+        for (var pi = 0; pi < pcRange.length; pi++) {
+          var sym = String(pcRange[pi][0] || "").trim().toUpperCase();
+          var px = pcRange[pi][2];
+          if (sym && px != null && isFinite(Number(px)) && Number(px) > 0) {
+            priceMap[sym] = Number(px);
+          }
+        }
+      }
+    }
+  } catch (eMap) {
+    Logger.log("[CEX_TOTAL] " + sheetName + " price map build failed: " + eMap);
+  }
+
+  // 3. Resolve FX rate once up front so USD prices can be converted to EUR
+  //    (consistent with the on-chain INFO_TOTAL).
+  var fxRate = null;
+  try { fxRate = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fxRate = null; }
+  if (!isFinite(Number(fxRate)) || Number(fxRate) <= 0) fxRate = null;
+
+  // 4. Sum balance x price using the price map. Stablecoins get 1.0 EUR via
+  //    the fast-path (no live price needed) for accuracy.
   var total = 0;
   var valued = 0;
   var skipped = 0;
-  var quotaBlocked = false;
-
-  // Resolve FX rate once up front; PriceManager.computePriceEur returns null
-  // when fxRate is missing or non-positive (v4.15.50 cascade).
-  var fxRate = null;
-  try { fxRate = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fxRate = null; }
-  if (!isFinite(Number(fxRate)) || Number(fxRate) <= 0) {
-    Logger.log("[CEX_TOTAL] " + sheetName + " fxRate unavailable, cannot value balances");
-    fxRate = null;
-  }
-
   for (var i = 0; i < (balances || []).length; i++) {
     var row = balances[i] || [];
     var symbol = String(row[0] || "").trim().toUpperCase();
     var balance = Number(row[1] || 0);
     if (!symbol || balance <= 0) continue;
 
-    if (fxRate == null) {
-      // No FX available: skip (PriceManager would return null anyway).
-      skipped++;
-      continue;
-    }
-
     var priceEur = null;
     try {
-      if (typeof PriceManager === "undefined" || !PriceManager.computePriceEur) {
-        Logger.log("[CEX_TOTAL] PriceManager.computePriceEur unavailable, skip " + symbol);
-        skipped++;
-        continue;
+      // Stablecoin fast-path: USDT/USDC/BUSD/FDUSD/TUSD/DAI -> 1.0 EUR,
+      // EURC/EURI -> 1.0 EUR. Uses PriceSources' WCORE_STABLECOINS registry.
+      var t = null;
+      if (typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
+        t = WCORE_STABLECOINS.getType(symbol);
+      } else if (typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) {
+        t = ChainFactory.STABLECOINS.getType(symbol);
       }
-      // PriceManager.computePriceEur signature:
-      //   (asset, key, priceUsdMap, fxRate, priceMap, priceTsMap,
-      //    attemptTsMap, nowMs, timer, budget, config)
-      // For CEX assets we only have a symbol (no contract). Pass a minimal
-      // asset object so the stablecoin fast-path and the symbol-keyed cache
-      // can resolve the price; pass empty maps and the FX rate we resolved
-      // up front so a missing live USD price still allows a DefiLlama /
-      // CoinGecko symbol lookup to run.
-      var assetObj = { symbol: symbol, ticker: symbol, isCex: true };
-      var cacheKey = "cex:" + String(provider || "").toLowerCase() + ":" + symbol;
-      priceEur = PriceManager.computePriceEur(
-        assetObj, cacheKey, {}, fxRate, {}, {}, {}, Date.now(), null, null, {}
-      );
+      if (t === "EUR" || t === "USD") {
+        priceEur = 1.0;
+      } else if (priceMap[symbol] != null && fxRate != null) {
+        priceEur = priceMap[symbol] * Number(fxRate);
+      } else if (priceMap[symbol] != null) {
+        // No FX: use USD as-is and label accordingly (rare; only if breaker tripped).
+        priceEur = priceMap[symbol];
+      }
     } catch (ePrice) {
-      var msg = (ePrice && ePrice.message) ? ePrice.message : String(ePrice);
-      if (/quota|breaker|429|Service invoked too many/i.test(msg)) {
-        quotaBlocked = true;
-        Logger.log("[CEX_TOTAL] quota tripped on " + symbol + " in " + sheetName + ": " + msg);
-        break;
-      }
-      Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName + " (" + msg + ")");
-      skipped++;
-      continue;
+      Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName + " (" + (ePrice && ePrice.message ? ePrice.message : ePrice) + ")");
     }
     if (priceEur == null || !isFinite(priceEur) || priceEur <= 0) {
       Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);

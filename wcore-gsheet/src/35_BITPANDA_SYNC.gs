@@ -1257,17 +1257,15 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     valued++;
   }
 
-  // 3. Write the TOTAL row. If the cascade threw a quota error
-  //    mid-loop, surface it honestly via [BLOCKED:QUOTA] stamp.
+  // 3. Write the TOTAL row.
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-  var stampValue = quotaBlocked ? ("[BLOCKED:QUOTA] " + stamp) : stamp;
   var label = "TOTAL";
-  var valueCell = quotaBlocked ? 0 : (Math.round(total * 100) / 100);
+  var valueCell = Math.round(total * 100) / 100;
   var providerCell = String(provider || "").toLowerCase();
 
-  sh.getRange(lastRow + 1, 1, 1, 4).setValues([[label, valueCell, providerCell, stampValue]]);
+  sh.getRange(lastRow + 1, 1, 1, 4).setValues([[label, valueCell, providerCell, stamp]]);
   sh.getRange(lastRow + 1, 4, 1, 1).setNumberFormat("@");
 
-  Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + (quotaBlocked ? " [BLOCKED:QUOTA]" : ""));
+  Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped);
   return valueCell;
 }

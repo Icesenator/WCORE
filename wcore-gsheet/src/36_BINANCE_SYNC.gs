@@ -312,7 +312,7 @@ function _binWriteSheet_(ss, buckets) {
   sh.getRange("B1:D1").setNumberFormat("@");
   if (values.length > 2) sh.getRange(3, 2, values.length - 2, 1).setNumberFormat("0.########");
   // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(BINANCE_SYNC_CONFIG.SHEET, dataRows, "binance"); } catch (eTot) { Logger.log("[CEX_TOTAL] binance append failed: " + eTot); }
+  try { _cexComputeAndAppendTotal_(ss, BINANCE_SYNC_CONFIG.SHEET, dataRows, "binance"); } catch (eTot) { Logger.log("[CEX_TOTAL] binance append failed: " + eTot); }
   return dataRows.length;
 }
 

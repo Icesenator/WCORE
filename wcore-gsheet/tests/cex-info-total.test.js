@@ -12,8 +12,8 @@ const LISTING_SRC = fs.readFileSync(path.join(ROOT, "src/17_LISTING.gs"), "utf8"
 
 // --- 1. Helper exists and lives in 35_BITPANDA_SYNC.gs -----------------
 assert.ok(
-  /function\s+_cexComputeAndAppendTotal_\s*\(\s*sheetName\s*,\s*balances\s*,\s*provider\s*\)/.test(BITPANDA_SRC),
-  "_cexComputeAndAppendTotal_(sheetName, balances, provider) must be defined in 35_BITPANDA_SYNC.gs"
+  /function\s+_cexComputeAndAppendTotal_\s*\(\s*ss\s*,\s*sheetName\s*,\s*balances\s*,\s*provider\s*\)/.test(BITPANDA_SRC),
+  "_cexComputeAndAppendTotal_(ss, sheetName, balances, provider) must be defined in 35_BITPANDA_SYNC.gs"
 );
 
 // --- 2. Helper uses PriceSources.llamaPriceUsd for gecko-id lookups -------
@@ -65,20 +65,10 @@ assert.ok(
   "_bpWriteRows_ must call _cexComputeAndAppendTotal_ internally"
 );
 
-// --- 6. _cexUpdateRecapColumnB_ writes to Recap column B (per-sync) -------
+// --- 6. _cexUpdateRecapColumnB_ is a standalone helper (Recap formula now dynamic) --
 assert.ok(
   /function\s+_cexUpdateRecapColumnB_\s*\(/.test(BITPANDA_SRC),
-  "_cexUpdateRecapColumnB_(ss, sheetName, totalValue) must be defined in 35_BITPANDA_SYNC.gs"
-);
-assert.ok(
-  /_cexComputeAndAppendTotal_[\s\S]{0,10000}_cexUpdateRecapColumnB_/.test(BITPANDA_SRC) ||
-  /_cexUpdateRecapColumnB_[\s\S]{0,10000}_cexComputeAndAppendTotal_/.test(BITPANDA_SRC),
-  "_cexComputeAndAppendTotal_ must call _cexUpdateRecapColumnB_ at the end"
-);
-// Recap column read matches by sheet name in column A
-assert.ok(
-  /_cexUpdateRecapColumnB_[\s\S]{0,1000}Recap Portfolio/.test(BITPANDA_SRC),
-  "_cexUpdateRecapColumnB_ must reference 'Recap Portfolio' sheet"
+  "_cexUpdateRecapColumnB_ must remain defined in 35_BITPANDA_SYNC.gs for manual recovery"
 );
 
 // --- 7. _setRecapCexInfoTotal_ still defined but NOT called from _setRecapHyperlinks_

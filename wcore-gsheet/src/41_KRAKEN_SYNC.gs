@@ -222,7 +222,7 @@ function _krakenWriteSheet_(ss, buckets) {
   sh.getRange("B1:D1").setNumberFormat("@");
   if (values.length > 2) sh.getRange(3, 2, values.length - 2, 1).setNumberFormat("0.########");
   // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(KRAKEN_SYNC_CONFIG.SHEET, dataRows, "kraken"); } catch (eTot) { Logger.log("[CEX_TOTAL] kraken append failed: " + eTot); }
+  try { _cexComputeAndAppendTotal_(ss, KRAKEN_SYNC_CONFIG.SHEET, dataRows, "kraken"); } catch (eTot) { Logger.log("[CEX_TOTAL] kraken append failed: " + eTot); }
   return dataRows.length;
 }
 

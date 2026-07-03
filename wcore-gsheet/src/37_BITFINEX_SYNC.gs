@@ -333,7 +333,7 @@ function _bfxWriteSheet_(ss, buckets) {
   sh.getRange("B1:D1").setNumberFormat("@");
   if (values.length > 2) sh.getRange(3, 2, values.length - 2, 1).setNumberFormat("0.########");
   // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(BITFINEX_SYNC_CONFIG.SHEET, dataRows, "bitfinex"); } catch (eTot) { Logger.log("[CEX_TOTAL] bitfinex append failed: " + eTot); }
+  try { _cexComputeAndAppendTotal_(ss, BITFINEX_SYNC_CONFIG.SHEET, dataRows, "bitfinex"); } catch (eTot) { Logger.log("[CEX_TOTAL] bitfinex append failed: " + eTot); }
   return dataRows.length;
 }
 

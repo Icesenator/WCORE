@@ -740,7 +740,7 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
   try {
     var _bpDataRows = [];
     for (var j = 0; j < rows.length; j++) _bpDataRows.push([rows[j][0], _bpParseBalance_(rows[j][1]), sourceLabel, stamp]);
-    _cexComputeAndAppendTotal_(sheetName, _bpDataRows, "bitpanda");
+    _cexComputeAndAppendTotal_(ss, sheetName, _bpDataRows, "bitpanda");
   } catch (eTot) { Logger.log("[CEX_TOTAL] bitpanda " + sheetName + " append failed: " + eTot); }
 }
 
@@ -1421,18 +1421,8 @@ function _cexSymbolToGeckoId_(symbol) {
  * @param {string} provider - e.g. "binance", "kraken", "bitpanda"
  * @returns {number} total value in EUR written to the TOTAL row
  */
-function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
-  var sh = null;
-  try {
-    sh = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID).getSheetByName(sheetName);
-  } catch (eOpen) {
-    Logger.log("[CEX_TOTAL] spreadsheet open failed: " + eOpen);
-    return 0;
-  }
-  if (!sh) {
-    Logger.log("[CEX_TOTAL] sheet not found: " + sheetName);
-    return 0;
-  }
+function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
+  var sh = ss.getSheetByName(sheetName);
 
   // 1. Strip any prior TOTAL row near the expected position (3 + nbAssets).
   //    Do NOT scan the entire sheet — the Vérif MAP formula in column F
@@ -1471,7 +1461,7 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
   var stockPriceMap = {};
   if (isStocks) {
     try {
-      var arS = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID).getSheetByName("Action Rebalancing");
+      var arS = ss.getSheetByName("Action Rebalancing");
       if (arS) {
         var arLast = arS.getLastRow();
         if (arLast >= 3) {
@@ -1591,6 +1581,8 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
       } catch (eT2) {}
       var px = null;
       if (t2 === "EUR" || t2 === "USD") {
+        px = 1.0;
+      } else if (symVal === "EUR") {
         px = 1.0;
       } else if (isStocks && stockPriceMap[symVal] != null) {
         px = stockPriceMap[symVal];

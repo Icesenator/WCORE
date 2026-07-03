@@ -1272,7 +1272,10 @@ function _cexAddStockAliases_(stockPriceMap) {
     ["RMS", "EPA:RMS"],
     ["TM", "TYO:7203"],
     // AMD-US -> AMD (some Bitpanda lines use a -US suffix)
-    ["AMD-US", "AMD"]
+    ["AMD-US", "AMD"],
+    ["NESN", "NESN.SW"],
+    ["NOVO", "NOVO-B.CO"],
+    ["NOVO-B", "NOVO-B.CO"]
   ];
   for (var i = 0; i < aliases.length; i++) {
     var alias = aliases[i];

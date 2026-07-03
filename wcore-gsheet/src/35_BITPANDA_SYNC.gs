@@ -1248,6 +1248,40 @@ function _cexClearPriceMapCache_() {
   return "CEX_PRICE_MAP_CACHE cleared";
 }
 
+/**
+ * Bitpanda stock ticker aliases (obsolete / European variants) that differ
+ * from the Action Rebalancing symbols. Resolves them in the stock
+ * price map so the price lookup works without modifying the source data.
+ */
+function _cexAddStockAliases_(stockPriceMap) {
+  if (!stockPriceMap) return;
+  var aliases = [
+    // Bitpanda ticker -> Action Rebalancing symbol (if different)
+    ["FB", "META"],
+    ["BRKB", "NYSE:BRK.B"],
+    ["GOOGL", "GOOG"],
+    ["BROA", "AVGO"],
+    ["TSFA", "TSLA"],
+    ["RDSA", "SHEL"],
+    ["MRKUS", "MRK"],
+    ["SSU", "KRX:005930"],
+    ["SMSN", "KRX:005930"],
+    ["HYXS", "KRX:000660"],
+    ["MC", "EPA:MC"],
+    ["OR", "EPA:OR"],
+    ["RMS", "EPA:RMS"],
+    ["TM", "TYO:7203"],
+    // AMD-US -> AMD (some Bitpanda lines use a -US suffix)
+    ["AMD-US", "AMD"]
+  ];
+  for (var i = 0; i < aliases.length; i++) {
+    var alias = aliases[i];
+    if (stockPriceMap[alias[1]] != null && stockPriceMap[alias[0]] == null) {
+      stockPriceMap[alias[0]] = stockPriceMap[alias[1]];
+    }
+  }
+}
+
 // v4.15.121: Hardcoded CEX symbol -> CoinGecko gecko id map. Used by
 // _cexComputeAndAppendTotal_ to resolve CEX asset symbols (no contract
 // available) to a CoinGecko id, then fetch the USD price via
@@ -1423,9 +1457,40 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
   //    lookups across syncs. For symbols outside the map, fall back to
   //    the cached Portefeuille Crypto price map (top 5000+ symbols, 1h
   //    ScriptProperties cache).
+  //
+  //    Bitpanda Stocks: stocks are not priced by DefiLlama/CoinGecko.
+  //    Instead, read the "Action Rebalancing" sheet (column D = Price (€))
+  //    which uses the same pricing pipeline as the user's stock portfolio.
   var priceMap = _cexGetPriceMap_();
   if (!priceMap) priceMap = {};
   var priceMapFallback = false;
+  var isStocks = String(sheetName || "").toLowerCase().indexOf("stocks") >= 0;
+  var stockPriceMap = {};
+  if (isStocks) {
+    try {
+      var arS = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID).getSheetByName("Action Rebalancing");
+      if (arS) {
+        var arLast = arS.getLastRow();
+        if (arLast >= 3) {
+          var arVals = arS.getRange(3, 1, arLast - 2, 4).getValues();
+          for (var asi = 0; asi < arVals.length; asi++) {
+            var aSym = String(arVals[asi][0] || "").trim().toUpperCase();
+            var aPx = arVals[asi][3]; // column D = Price (€)
+            if (aSym && aPx != null && isFinite(Number(aPx)) && Number(aPx) > 0) {
+              stockPriceMap[aSym] = Number(aPx);
+            }
+          }
+        }
+      }
+    } catch (eStocks) {
+      Logger.log("[CEX_TOTAL] stocks price map build failed: " + eStocks);
+    }
+    // Bitpanda uses its own ticker aliases (obsolètes / European variants)
+    // that differ from the Action Rebalancing / companiesmarketcap symbols.
+    // Resolve them here so the price lookup works without modifying the
+    // source data written by the sync.
+    _cexAddStockAliases_(stockPriceMap);
+  }
 
   // 3. Sum balance x price. Stablecoins get 1.0 EUR via fast-path.
   //    Non-stables are priced via PriceSources.llamaPriceUsd on the gecko
@@ -1452,6 +1517,8 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
       }
       if (t === "EUR" || t === "USD") {
         priceEur = 1.0;
+      } else if (isStocks && stockPriceMap[symbol] != null) {
+        priceEur = stockPriceMap[symbol];
       } else if (_cexSymbolToGeckoId_(symbol)) {
         // Primary path: existing PriceSources.llamaPriceUsd on the gecko id.
         // L1 (2h CacheService) + L2 (6h ScriptProperties) absorb repeated
@@ -1522,6 +1589,8 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
       var px = null;
       if (t2 === "EUR" || t2 === "USD") {
         px = 1.0;
+      } else if (isStocks && stockPriceMap[symVal] != null) {
+        px = stockPriceMap[symVal];
       } else if (_cexSymbolToGeckoId_(symVal)) {
         try {
           var geckoId = _cexSymbolToGeckoId_(symVal);

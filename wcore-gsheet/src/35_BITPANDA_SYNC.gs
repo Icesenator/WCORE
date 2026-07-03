@@ -1480,15 +1480,102 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     valued++;
   }
 
-  // 3. Write the TOTAL row.
+  // 3. Write per-row value_eur to column F (preserve column E "Vérif") and
+  //    the INFO_TOTAL row at the bottom. The Recap Portfolio column B formula is:
+  //      =INDEX(target!'G:G; MATCH("INFO_TOTAL"; target!'B:B; 0))
+  //    so we write "INFO_TOTAL" in column B and the total in column G of the
+  //    TOTAL row. This keeps the Recap!B formula dynamic (no scripted writes
+  //    needed) and harmonises CEX sheets with the Ledger output format.
+  //    Write per-row value_eur to F first before the INFO_TOTAL row.
+
+  // Clear any stale value_eur from previous sync (column F only, column E
+  // "Vérif" is preserved).
+  if (lastRow >= 3) sh.getRange(3, 6, lastRow - 2, 1).clearContent();
+
+  for (var iVal = 0; iVal < (balances || []).length; iVal++) {
+    var rowVal = balances[iVal] || [];
+    var symVal = String(rowVal[0] || "").trim().toUpperCase();
+    var balVal = Number(rowVal[1] || 0);
+    var valEur = 0;
+    if (symVal && balVal > 0) {
+      // Reuse the same pricing logic as in step 2 above: stablecoin fast-path
+      // then symbol map / priceMap fallback.
+      var t2 = null;
+      try {
+        if (typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) t2 = WCORE_STABLECOINS.getType(symVal);
+        else if (typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t2 = ChainFactory.STABLECOINS.getType(symVal);
+      } catch (eT2) {}
+      var px = null;
+      if (t2 === "EUR" || t2 === "USD") {
+        px = 1.0;
+      } else if (_cexSymbolToGeckoId_(symVal)) {
+        try {
+          var geckoId = _cexSymbolToGeckoId_(symVal);
+          var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
+          if (isFinite(Number(usd)) && Number(usd) > 0) {
+            var fx2 = null;
+            try { fx2 = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx2) { fx2 = null; }
+            if (isFinite(Number(fx2)) && Number(fx2) > 0) px = Number(usd) * Number(fx2);
+          }
+        } catch (eLlama2) {}
+        if (px == null && priceMap[symVal] != null) px = priceMap[symVal];
+      } else if (priceMap[symVal] != null) {
+        px = priceMap[symVal];
+      }
+      if (px != null && isFinite(px) && px > 0) valEur = balVal * px;
+    }
+    // Write to column F (column 6), row 3 + iVal (rows 1-2 are checkbox + header).
+    if (valEur > 0) {
+      sh.getRange(3 + iVal, 6, 1, 1).setValue(valEur);
+      sh.getRange(3 + iVal, 6, 1, 1).setNumberFormat("0.00");
+    } else {
+      // Clear stale value_eur from previous sync.
+      sh.getRange(3 + iVal, 6, 1, 1).clearContent();
+    }
+  }
+
+  // 4. Write the INFO_TOTAL row.
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var label = "TOTAL";
   var valueCell = Math.round(total * 100) / 100;
   var providerCell = String(provider || "").toLowerCase();
 
-  sh.getRange(lastRow + 1, 1, 1, 4).setValues([[label, valueCell, providerCell, stamp]]);
+  // A: "TOTAL", B: "INFO_TOTAL" (text the Recap!B formula matches), C: provider, D: stamp.
+  sh.getRange(lastRow + 1, 1, 1, 4).setValues([[label, "INFO_TOTAL", providerCell, stamp]]);
   sh.getRange(lastRow + 1, 4, 1, 1).setNumberFormat("@");
+  // G (column 7): total value for the Recap!B INDEX formula.
+  sh.getRange(lastRow + 1, 7, 1, 1).setValue(valueCell);
+  sh.getRange(lastRow + 1, 7, 1, 1).setNumberFormat("0.00");
 
   Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped);
   return valueCell;
+}
+
+/**
+ * Write the CEX INFO_TOTAL value directly to Recap Portfolio column B
+ * for a single CEX sheet. Called after each CEX sync writes its TOTAL row.
+ * Matches the row by the exact sheet name in column A.
+ * @param {Spreadsheet} ss - active spreadsheet
+ * @param {string} sheetName - e.g. "CEX - Binance"
+ * @param {number} totalValue - total in EUR to write to column B
+ */
+function _cexUpdateRecapColumnB_(ss, sheetName, totalValue) {
+  try {
+    if (!ss || !sheetName) return;
+    var recap = ss.getSheetByName("Recap Portfolio");
+    if (!recap) return;
+    var lastRow = recap.getLastRow();
+    if (lastRow < 2) return;
+    // Column A already has the hyperlinks written by _setRecapHyperlinks_.
+    // Read column A values and find the row whose text matches sheetName.
+    var values = recap.getRange(2, 1, lastRow - 1, 1).getDisplayValues();
+    for (var i = 0; i < values.length; i++) {
+      if (String(values[i][0] || "").trim() === sheetName) {
+        recap.getRange(2 + i, 2, 1, 1).setValue(totalValue);
+        return;
+      }
+    }
+  } catch (e) {
+    Logger.log("[CEX_TOTAL] Recap column B update failed: " + (e && e.message ? e.message : e));
+  }
 }

@@ -163,6 +163,9 @@ function _setRecapHyperlinks_(ss, names, map) {
    "STATUS (I1)",
    "LAST SCAN (J1)"
   ]]);
+  // v4.15.122: clear the leftover H1 header from v4.15.121 that mistakenly
+  // created a separate INFO_TOTAL column. INFO_TOTAL lives in column B.
+  try { recap.getRange("H1").clear(); } catch (eH) {}
 
   // Write hyperlinks and clear stale rows below
   recap.getRange(2, 1, richTexts.length, 1).setRichTextValues(richTexts);
@@ -173,9 +176,6 @@ function _setRecapHyperlinks_(ss, names, map) {
   if (lastRow > newLastRow) {
    recap.getRange(newLastRow + 1, 1, lastRow - newLastRow, 10).clearContent();
   }
-
-  // v4.15.121: fill Recap Portfolio column B (INFO_TOTAL) for CEX entries only.
-  _setRecapCexInfoTotal_(ss, names);
 
   Logger.log("[17_LISTING] Set " + richTexts.length + " hyperlinks in Recap Chain column A");
  } catch (e) {

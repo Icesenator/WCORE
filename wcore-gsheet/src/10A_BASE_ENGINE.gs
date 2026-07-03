@@ -140,32 +140,44 @@ BaseEngine.shouldSkipRefreshForSameTrigger = function(walletKey, config, cache, 
    var last = String(cache.last_refresh_trigger || cache.lastRefreshTrigger || "").trim();
    if (last && last === trig) return true;
    if (cache.updatedAt) {
-    var parsed = Date.parse(String(trig).replace(" ", "T"));
-    if (isFinite(parsed) && Number(cache.updatedAt) >= parsed) return true;
+    // v4.15.122 FIX: use new Date() (script timezone = Europe/Paris)
+    // instead of Date.parse() which defaults to UTC and creates a 2h
+    // offset vs the B1 timestamp written by Utilities.formatDate.
+    var parsed = 0;
+    try { parsed = new Date(String(trig)).getTime(); } catch (eDt) {}
+    if (parsed > 0 && isFinite(parsed) && Number(cache.updatedAt) >= parsed) return true;
    }
    return false;
   } catch (e) { return false; }
 };
 
-// v4.15.122: I1 re-evaluation guard — when Google Sheets re-evaluates the I1
-// @customfunction without an explicit trigger (no B1 pulse, C1=FALSE, no
-// activityForced), and the wallet was already scanned within the last
-// I1_GUARD_MS, return the cached value instead of scanning on every
-// unprovoked sheet recalculation.
-var I1_GUARD_MS = 120 * 1000; // 2 min
+// v4.15.122: I1 re-evaluation guard — when Google Sheets re-evaluates I1
+// without a fresh B1 pulse, compare J1 (last scan = cache.updatedAt) with
+// B1 (pulse timestamp). If J1 >= B1, the cache is already up-to-date and
+// no rescan is needed.
+var I1_GUARD_MS = 120 * 1000; // 2 min — only used as a hard floor to avoid
+                               // scan spam on initial deployment.
 
 BaseEngine.shouldSkipNoTriggerRecentScan = function(walletKey, config, cache, forceFull, triggerRefresh) {
   try {
    var force = (forceFull === true || forceFull === "true" || forceFull === "TRUE");
-   if (force) return false;
+   if (force) return false; // C1=TRUE always scans.
+   if (!cache || !cache.updatedAt) return false;
    var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
-   if (!trig) {
-    // No explicit trigger: skip if the cache was updated recently.
-    if (cache && cache.updatedAt) {
-     var age = Date.now() - Number(cache.updatedAt);
-     if (age >= 0 && age < I1_GUARD_MS) return true;
-    }
+   if (trig) {
+    // B1 timestamp present. J1 vs B1: if the last scan (cache.updatedAt)
+    // is newer than the B1 pulse, skip. Uses new Date() for timezone
+    // safety (script timezone = Europe/Paris, same as Utilities.formatDate).
+    var b1Ms = 0;
+    try { b1Ms = new Date(String(trig)).getTime(); } catch (eDt) {}
+    if (b1Ms > 0 && isFinite(b1Ms) && Number(cache.updatedAt) >= b1Ms) return true;
+    // B1 is newer than the cache: let the scan proceed.
+    return false;
    }
+   // No B1 at all (empty B1, not pulsed since deployment). Use the I1_GUARD_MS
+   // hard floor to limit rescans.
+   var age = Date.now() - Number(cache.updatedAt);
+   if (age >= 0 && age < I1_GUARD_MS) return true;
    return false;
   } catch (e) { return false; }
 };

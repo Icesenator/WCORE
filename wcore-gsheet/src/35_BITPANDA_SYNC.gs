@@ -1248,6 +1248,135 @@ function _cexClearPriceMapCache_() {
   return "CEX_PRICE_MAP_CACHE cleared";
 }
 
+// v4.15.121: Hardcoded CEX symbol -> CoinGecko gecko id map. Used by
+// _cexComputeAndAppendTotal_ to resolve CEX asset symbols (no contract
+// available) to a CoinGecko id, then fetch the USD price via
+// PriceSources.llamaPriceUsd and convert to EUR. Symbols not in this
+// map fall back to the cached Portefeuille Crypto price map (top 5000+).
+// To extend: add new entries {SYMBOL: "coingecko-id"} here.
+var CEX_SYMBOL_GECKO_IDS = {
+  "BTC": "bitcoin",
+  "ETH": "ethereum",
+  "WETH": "weth",
+  "WBTC": "wrapped-bitcoin",
+  "USDT": "tether",
+  "USDC": "usd-coin",
+  "DAI": "dai",
+  "BUSD": "binance-usd",
+  "FDUSD": "first-digital-usd",
+  "TUSD": "true-usd",
+  "EURC": "euro-coin",
+  "EURI": "euri",
+  "BNB": "binancecoin",
+  "SOL": "solana",
+  "XRP": "ripple",
+  "TRX": "tron",
+  "ADA": "cardano",
+  "DOGE": "dogecoin",
+  "AVAX": "avalanche-2",
+  "DOT": "polkadot",
+  "MATIC": "matic-network",
+  "POL": "polygon-ecosystem-token",
+  "LINK": "chainlink",
+  "LTC": "litecoin",
+  "BCH": "bitcoin-cash",
+  "ATOM": "cosmos",
+  "NEAR": "near",
+  "APT": "aptos",
+  "ARB": "arbitrum",
+  "OP": "optimism",
+  "UNI": "uniswap",
+  "ETC": "ethereum-classic",
+  "XLM": "stellar",
+  "XMR": "monero",
+  "ZEC": "zcash",
+  "AAVE": "aave",
+  "SUI": "sui",
+  "SEI": "sei-network",
+  "TIA": "celestia",
+  "INJ": "injective-protocol",
+  "QNT": "quant-network",
+  "ALGO": "algorand",
+  "FIL": "filecoin",
+  "VET": "vechain",
+  "HBAR": "hedera-hashgraph",
+  "MKR": "maker",
+  "COMP": "compound",
+  "CRV": "curve-dao-token",
+  "SNX": "synthetix",
+  "YFI": "yearn-finance",
+  "SUSHI": "sushi",
+  "1INCH": "1inch",
+  "GRT": "the-graph",
+  "BAT": "basic-attention-token",
+  "ZRX": "0x",
+  "BAL": "balancer",
+  "REN": "republic-protocol",
+  "OMG": "omisego",
+  "ANKR": "ankr",
+  "ENJ": "enjincoin",
+  "MANA": "decentraland",
+  "SAND": "the-sandbox",
+  "AXS": "axie-infinity",
+  "CHZ": "chiliz",
+  "FLOW": "flow",
+  "NEAR": "near",
+  "ROSE": "oasis-network",
+  "KSM": "kusama",
+  "ZIL": "zilliqa",
+  "BAT": "basic-attention-token",
+  "IOTA": "iota",
+  "XEM": "nem",
+  "DASH": "dash",
+  "EOS": "eos",
+  "XTZ": "tezos",
+  "MKR": "maker",
+  "REP": "augur",
+  "KNC": "kyber-network-crystal",
+  "LRC": "loopring",
+  "NMR": "numeraire",
+  "OXT": "orchid",
+  "REN": "republic-protocol",
+  "STORJ": "storj",
+  "GRT": "the-graph",
+  "FET": "fetch-ai",
+  "GT": "gatechain-token",
+  "HT": "huobi-token",
+  "KCS": "kucoin-shares",
+  "OKB": "okb",
+  "GTX": "guarantee",
+  "ETHW": "ethereum-pow",
+  "ATA": "automata",
+  "MBOX": "mobox",
+  "HIGH": "highstreet",
+  "RDNT": "radiant-capital",
+  "ANC": "anchor-neural",
+  "OG": "og-fan-token",
+  "D": "darc-token",
+  "OPG": "optimus-rgb",
+  "SOLO": "solo-validator"
+};
+
+/**
+ * Look up the CoinGecko gecko id for a CEX asset symbol.
+ * @param {string} symbol - uppercase ticker (e.g. "BTC")
+ * @returns {string|null} gecko id (without "coingecko:" prefix) or null
+ */
+function _cexSymbolToGeckoId_(symbol) {
+  if (!symbol) return null;
+  var s = String(symbol).trim().toUpperCase();
+  if (!s) return null;
+  // Direct map (most common CEX assets)
+  if (CEX_SYMBOL_GECKO_IDS[s]) return CEX_SYMBOL_GECKO_IDS[s];
+  // Strip common suffixes (w / wrapped variants) — best-effort only
+  // for top-50 tokens; longer-tail assets should be added explicitly.
+  if (s.indexOf("W") === 0 && s.length > 1) {
+    var unwrapped = s.substring(1);
+    if (CEX_SYMBOL_GECKO_IDS[unwrapped]) return CEX_SYMBOL_GECKO_IDS[unwrapped];
+  }
+  return null;
+}
+
 /**
  * Compute and append the INFO_TOTAL row to a CEX sheet.
  * @param {string} sheetName - e.g. "CEX - Binance"
@@ -1278,26 +1407,21 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
     }
   }
 
-  // 2. Build a symbol -> price (EUR) map from "Portefeuille Crypto" (CMC top
-  //    5000+ prices maintained by the existing 34_TOP_MARKETCAP pipeline).
-  //    These prices are surfaced as "Price (€)" in Portefeuille Crypto Details
-  //    column D, so we treat the values as EUR and skip the FX conversion
-  //    (the existing pipeline is the source of truth for CEX pricing).
-  //
-  //    The full sheet can be 5000+ rows. Re-reading it on every CEX sync
-  //    (6 syncs × 4h = 36 syncs/day, plus manual A1 refreshes) was pushing
-  //    UPDATE_BINANCE_SPOT past the 6-min trigger execution limit when the
-  //    Binance API call already consumed 1-2 min. Cache the map in
-  //    ScriptProperties for 1h — Binance/Bitpanda prices don't change fast
-  //    enough to invalidate a 1h cache, and a manual A1 refresh can force
-  //    a rebuild by clearing CEX_PRICE_MAP_CACHE.
+  // 2. Build a symbol -> price (EUR) map.
+  //    Strategy: resolve symbol -> coingecko gecko id via the curated
+  //    CEX_SYMBOL_MAP below, then call PriceSources.llamaPriceUsd on the
+  //    gecko id. DefiLlama L1 (2h) + L2 (6h) cache absorbs the repeated
+  //    lookups across syncs. For symbols outside the map, fall back to
+  //    the cached Portefeuille Crypto price map (top 5000+ symbols, 1h
+  //    ScriptProperties cache).
   var priceMap = _cexGetPriceMap_();
-  if (!priceMap) {
-    Logger.log("[CEX_TOTAL] " + sheetName + " price map unavailable, falling back to no totals");
-  }
+  if (!priceMap) priceMap = {};
+  var priceMapFallback = false;
 
-  // 3. Sum balance x price using the price map. Stablecoins get 1.0 EUR via
-  //    the fast-path (no live price needed) for accuracy.
+  // 3. Sum balance x price. Stablecoins get 1.0 EUR via fast-path.
+  //    Non-stables are priced via PriceSources.llamaPriceUsd on the gecko
+  //    id from CEX_SYMBOL_MAP. Symbols not in the map fall back to the
+  //    Portefeuille Crypto priceMap (top 5000+).
   var total = 0;
   var valued = 0;
   var skipped = 0;
@@ -1319,10 +1443,30 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
       }
       if (t === "EUR" || t === "USD") {
         priceEur = 1.0;
+      } else if (_cexSymbolToGeckoId_(symbol)) {
+        // Primary path: existing PriceSources.llamaPriceUsd on the gecko id.
+        // L1 (2h CacheService) + L2 (6h ScriptProperties) absorb repeated
+        // lookups. USD price is converted to EUR via the FxRate cascade.
+        var geckoId = _cexSymbolToGeckoId_(symbol);
+        var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
+        if (isFinite(Number(usd)) && Number(usd) > 0) {
+          var fx = null;
+          try { fx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fx = null; }
+          if (isFinite(Number(fx)) && Number(fx) > 0) {
+            priceEur = Number(usd) * Number(fx);
+          } else {
+            // No FX: fall through to Portefeuille Crypto map (already EUR).
+            if (priceMap[symbol] != null) priceEur = priceMap[symbol];
+            priceMapFallback = true;
+          }
+        } else if (priceMap[symbol] != null) {
+          // llama miss (token not in DefiLlama): use the Portefeuille Crypto map.
+          priceEur = priceMap[symbol];
+          priceMapFallback = true;
+        }
       } else if (priceMap[symbol] != null) {
-        // Portefeuille Crypto column D is labeled "Price (€)" in the Details
-        // sheet, so treat the value as EUR (no FX conversion needed).
         priceEur = priceMap[symbol];
+        priceMapFallback = true;
       }
     } catch (ePrice) {
       Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName + " (" + (ePrice && ePrice.message ? ePrice.message : ePrice) + ")");

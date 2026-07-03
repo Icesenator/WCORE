@@ -1196,11 +1196,27 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
   var valued = 0;
   var skipped = 0;
   var quotaBlocked = false;
+
+  // Resolve FX rate once up front; PriceManager.computePriceEur returns null
+  // when fxRate is missing or non-positive (v4.15.50 cascade).
+  var fxRate = null;
+  try { fxRate = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fxRate = null; }
+  if (!isFinite(Number(fxRate)) || Number(fxRate) <= 0) {
+    Logger.log("[CEX_TOTAL] " + sheetName + " fxRate unavailable, cannot value balances");
+    fxRate = null;
+  }
+
   for (var i = 0; i < (balances || []).length; i++) {
     var row = balances[i] || [];
     var symbol = String(row[0] || "").trim().toUpperCase();
     var balance = Number(row[1] || 0);
     if (!symbol || balance <= 0) continue;
+
+    if (fxRate == null) {
+      // No FX available: skip (PriceManager would return null anyway).
+      skipped++;
+      continue;
+    }
 
     var priceEur = null;
     try {
@@ -1209,7 +1225,19 @@ function _cexComputeAndAppendTotal_(sheetName, balances, provider) {
         skipped++;
         continue;
       }
-      priceEur = PriceManager.computePriceEur(symbol);
+      // PriceManager.computePriceEur signature:
+      //   (asset, key, priceUsdMap, fxRate, priceMap, priceTsMap,
+      //    attemptTsMap, nowMs, timer, budget, config)
+      // For CEX assets we only have a symbol (no contract). Pass a minimal
+      // asset object so the stablecoin fast-path and the symbol-keyed cache
+      // can resolve the price; pass empty maps and the FX rate we resolved
+      // up front so a missing live USD price still allows a DefiLlama /
+      // CoinGecko symbol lookup to run.
+      var assetObj = { symbol: symbol, ticker: symbol, isCex: true };
+      var cacheKey = "cex:" + String(provider || "").toLowerCase() + ":" + symbol;
+      priceEur = PriceManager.computePriceEur(
+        assetObj, cacheKey, {}, fxRate, {}, {}, {}, Date.now(), null, null, {}
+      );
     } catch (ePrice) {
       var msg = (ePrice && ePrice.message) ? ePrice.message : String(ePrice);
       if (/quota|breaker|429|Service invoked too many/i.test(msg)) {

@@ -1562,6 +1562,11 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   sh.getRange(2, 5, nb + 1, 1).setValues(eValues);
   if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
 
+  // v4.15.125: Write/restore the Vérif MAP formula BEFORE the INFO_TOTAL row
+  // so the MAP never covers cells that are about to be written (defensive:
+  // on some sheets the MAP evaluation interfered with the INFO_TOTAL label).
+  _cexWriteVerifMap_(sh, sheetName);
+
   // 4. Write the INFO_TOTAL row.
   //    v4.15.123: single atomic setValues covering A:G so the label (B)
   //    and the value (G) can never diverge if the execution is killed
@@ -1579,12 +1584,6 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   sh.getRange(totalRow, 1).setValue(".");
   sh.getRange(totalRow, 4, 1, 1).setNumberFormat("@");
   sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
-
-  // v4.15.125: Write/restore the Vérif MAP formula so it survives full sheet
-  // clears. Column F is never touched by CEX sync data writes (which only
-  // clear A:D + write E), so this is idempotent — it just ensures the MAP
-  // is always present after any sync.
-  _cexWriteVerifMap_(sh, sheetName);
 
   Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb + " totalRow=" + totalRow);
   return valueCell;

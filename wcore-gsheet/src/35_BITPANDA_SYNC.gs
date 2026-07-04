@@ -1251,37 +1251,53 @@ function _cexClearPriceMapCache_() {
   return "CEX_PRICE_MAP_CACHE cleared";
 }
 
+// ============================================================
+// v4.15.126: Centralized Bitpanda stock ticker aliases.
+// Single source of truth used by _cexAddStockAliases_ (pricing)
+// and _cexWriteVerifMap_ (Verif SWITCH formula).
+// Bitpanda ticker -> Action Rebalancing symbol.
+// ============================================================
+var CEX_STOCK_ALIASES = [
+  ["FB", "META"],
+  ["BRKB", "NYSE:BRK.B"],
+  ["GOOGL", "GOOG"],
+  ["BROA", "AVGO"],
+  ["TSFA", "TSLA"],
+  ["RDSA", "SHEL"],
+  ["MRKUS", "MRK"],
+  ["SSU", "KRX:005930"],
+  ["SMSN", "KRX:005930"],
+  ["HYXS", "KRX:000660"],
+  ["MC", "EPA:MC"],
+  ["OR", "EPA:OR"],
+  ["RMS", "EPA:RMS"],
+  ["TM", "TYO:7203"],
+  ["AMD-US", "AMD"],
+  ["NESN", "SWX:NESN"],
+  ["NOVO", "NVO"],
+  ["NOVO-B", "NVO"],
+  ["ROG", "SWX:RO"]
+];
+
 /**
- * Bitpanda stock ticker aliases (obsolete / European variants) that differ
- * from the Action Rebalancing symbols. Resolves them in the stock
- * price map so the price lookup works without modifying the source data.
+ * Build the SWITCH(...) segment for the Verif MAP formula.
+ * Returns a string like: SWITCH(s;"FB";"META";"GOOGL";"GOOG";...;s)
+ */
+function _cexStockAliasSwitch_() {
+  var parts = [];
+  for (var i = 0; i < CEX_STOCK_ALIASES.length; i++) {
+    parts.push('"' + CEX_STOCK_ALIASES[i][0] + '";"' + CEX_STOCK_ALIASES[i][1] + '"');
+  }
+  return 'SWITCH(s;' + parts.join(';') + ';s)';
+}
+
+/**
+ * Apply Bitpanda stock ticker aliases to a price map.
  */
 function _cexAddStockAliases_(stockPriceMap) {
   if (!stockPriceMap) return;
-  var aliases = [
-    // Bitpanda ticker -> Action Rebalancing symbol (if different)
-    ["FB", "META"],
-    ["BRKB", "NYSE:BRK.B"],
-    ["GOOGL", "GOOG"],
-    ["BROA", "AVGO"],
-    ["TSFA", "TSLA"],
-    ["RDSA", "SHEL"],
-    ["MRKUS", "MRK"],
-    ["SSU", "KRX:005930"],
-    ["SMSN", "KRX:005930"],
-    ["HYXS", "KRX:000660"],
-    ["MC", "EPA:MC"],
-    ["OR", "EPA:OR"],
-    ["RMS", "EPA:RMS"],
-    ["TM", "TYO:7203"],
-    // AMD-US -> AMD (some Bitpanda lines use a -US suffix)
-    ["AMD-US", "AMD"],
-    ["NESN", "SWX:NESN"],
-    ["NOVO", "NVO"],
-    ["NOVO-B", "NVO"]
-  ];
-  for (var i = 0; i < aliases.length; i++) {
-    var alias = aliases[i];
+  for (var i = 0; i < CEX_STOCK_ALIASES.length; i++) {
+    var alias = CEX_STOCK_ALIASES[i];
     if (stockPriceMap[alias[1]] != null && stockPriceMap[alias[0]] == null) {
       stockPriceMap[alias[0]] = stockPriceMap[alias[1]];
     }
@@ -1567,21 +1583,24 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   // on some sheets the MAP evaluation interfered with the INFO_TOTAL label).
   _cexWriteVerifMap_(sh, sheetName);
 
-  // 4. Write the INFO_TOTAL row.
-  //    v4.15.123: single atomic setValues covering A:G so the label (B)
-  //    and the value (G) can never diverge if the execution is killed
-  //    mid-append (root cause of "total present but no INFO_TOTAL label").
+  // 4. Write the INFO_TOTAL row — single atomic setValues covering A:G.
+  //    "." sentinel in A (v4.15.124) prevents VLOOKUP("") fallback matches.
   var totalRow = 3 + (balances || []).length;
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var valueCell = Math.round(total * 100) / 100;
   var providerCell = String(provider || "").toLowerCase();
 
-  // A="." (sentinel: empty string was matched by VLOOKUP("") fallbacks
-  // in Action Rebalancing spot formulas, returning the text "INFO_TOTAL"
-  // and causing #VALUE! — v4.15.124). B="INFO_TOTAL" (text the Recap!B
-  // formula matches), C: provider, D: stamp, E/F empty, G: total value.
-  sh.getRange(totalRow, 1, 1, 7).setValues([["", "INFO_TOTAL", providerCell, stamp, "", "", valueCell]]);
-  sh.getRange(totalRow, 1).setValue(".");
+  // v4.15.127: write "." directly in the atomic setValues instead of a
+  // separate setValue call that could interfere. Immediate verification
+  // re-writes the label if the setValues was silently dropped.
+  var infoTotalValues = [[".", "INFO_TOTAL", providerCell, stamp, "", "", valueCell]];
+  sh.getRange(totalRow, 1, 1, 7).setValues(infoTotalValues);
+  var writtenB = String(sh.getRange(totalRow, 2).getValue() || "");
+  if (writtenB !== "INFO_TOTAL") {
+    Logger.log("[CEX_TOTAL] WARN: INFO_TOTAL label missing after write for " + sheetName + " (got '" + writtenB + "'), retrying");
+    sh.getRange(totalRow, 2).setValue("INFO_TOTAL");
+    sh.getRange(totalRow, 1).setValue(".");
+  }
   sh.getRange(totalRow, 4, 1, 1).setNumberFormat("@");
   sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
 
@@ -1602,16 +1621,17 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
  */
 function _cexWriteVerifMap_(sh, sheetName) {
   try {
+    var existingLabel = String(sh.getRange(2, 6).getValue() || "");
+    var existingFormula = String(sh.getRange(3, 6).getFormula() || "");
+    if (existingLabel === "Vérif" && existingFormula.indexOf("MAP(") >= 0) return;
     sh.getRange(2, 6, 1, 1).setValue("Vérif");
     var ls = String(sheetName || "").toLowerCase();
     var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
 
     var formula;
     if (isFiatOrStocks) {
-      // Bitpanda Fiat & Stocks → check Action Rebalancing column A.
-      // Stocks have Bitpanda ticker aliases (GOOGL→GOOG, FB→META, etc.)
-      // resolved via SWITCH so the symbol matches the Action Rebalancing entry.
-      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Action Rebalancing\'!$A:$A;s)>0;COUNTIFS(\'Action Rebalancing\'!$A:$A;SWITCH(s;\"GOOGL\";\"GOOG\";\"FB\";\"META\";\"BRKB\";\"NYSE:BRK.B\";\"SSU\";\"KRX:005930\";\"HYXS\";\"KRX:000660\";\"MC\";\"EPA:MC\";\"OR\";\"EPA:OR\";\"RMS\";\"EPA:RMS\";\"NOVO\";\"NVO\";\"NESN\";\"SWX:NESN\";\"ROG\";\"SWX:RO\";\"TM\";\"TYO:7203\";\"SMSN\";\"KRX:005930\";s))>0);\"V\";\"X\")))))';
+      var sw = _cexStockAliasSwitch_();
+      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Action Rebalancing\'!$A:$A;s)>0;COUNTIFS(\'Action Rebalancing\'!$A:$A;' + sw + ')>0);\"V\";\"X\")))))';
     } else {
       formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;\"' + sheetName + '\";\'Portefeuille Crypto Details\'!$C:$C;s)>0;\"V\";\"X\")))))';
     }

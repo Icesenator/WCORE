@@ -1591,8 +1591,11 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
 
 /**
  * Write/restore the Vérif MAP formula for a CEX sheet.
- * Column F: F2="Vérif" (label), F3=MAP that checks Portefeuille Crypto Details
- * for each symbol — "V" if tracked, "X" if not, "" if zero balance.
+ * Column F: F2="Vérif" (label), F3=MAP that checks the appropriate reference
+ * sheet for each symbol:
+ *   - Bitpanda Fiat/Stocks → Action Rebalancing!A:A (ticker symbols)
+ *   - All other CEX         → Portefeuille Crypto Details (crypto tracking)
+ * "V" if tracked, "X" if not, "" if zero balance.
  * Called from _cexComputeAndAppendTotal_ after every CEX sync.
  * @param {Sheet} sh - CEX sheet
  * @param {string} sheetName - e.g. "CEX - Binance"
@@ -1600,7 +1603,18 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
 function _cexWriteVerifMap_(sh, sheetName) {
   try {
     sh.getRange(2, 6, 1, 1).setValue("Vérif");
-    var formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + sheetName + '";\'Portefeuille Crypto Details\'!$C:$C;s)>0;"V";"X")))))';
+    var ls = String(sheetName || "").toLowerCase();
+    var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
+
+    var formula;
+    if (isFiatOrStocks) {
+      // Bitpanda Fiat & Stocks → check Action Rebalancing column A.
+      // Stocks have Bitpanda ticker aliases (GOOGL→GOOG, FB→META, etc.)
+      // resolved via SWITCH so the symbol matches the Action Rebalancing entry.
+      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Action Rebalancing\'!$A:$A;s)>0;COUNTIFS(\'Action Rebalancing\'!$A:$A;SWITCH(s;\"GOOGL\";\"GOOG\";\"FB\";\"META\";\"BRKB\";\"NYSE:BRK.B\";\"SSU\";\"KRX:005930\";\"HYXS\";\"KRX:000660\";\"MC\";\"EPA:MC\";\"OR\";\"EPA:OR\";\"NOVO\";\"NVO\";\"NESN\";\"SWX:NESN\";\"ROG\";\"SWX:RO\";\"TM\";\"TYO:7203\";\"SMSN\";\"KRX:005930\";s))>0);\"V\";\"X\")))))';
+    } else {
+      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;\"' + sheetName + '\";\'Portefeuille Crypto Details\'!$C:$C;s)>0;\"V\";\"X\")))))';
+    }
     sh.getRange(3, 6, 1, 1).setFormula(formula);
   } catch (e) {
     Logger.log("[CEX_VERIF] Failed to write Vérif MAP for " + sheetName + ": " + (e && e.message ? e.message : e));

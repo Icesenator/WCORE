@@ -733,21 +733,11 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
   values.push([false, stamp, "", ""]);
   values.push(["cryptocoin_symbol", "balance", "source", "updated_at"]);
   for (var i = 0; i < rows.length; i++) values.push([rows[i][0], _bpParseBalance_(rows[i][1]), sourceLabel, stamp]);
-  // v4.15.128: clear only up to values.length+50 rows (not getLastRow() which
-  // is inflated to 1000+ by the Vérif MAP in column F). Clearing 1000+ rows
-  // triggers a massive recalculation that can starve the GAS runtime budget
-  // and cause the INFO_TOTAL write to fail silently.
-  var clearRows = Math.max(values.length, Math.min(sh.getMaxRows(), values.length));
-  sh.getRange(1, 1, clearRows, 4).clearContent();
-  sh.getRange(1, 1, values.length, 4).setValues(values);
-  sh.getRange("A1").insertCheckboxes().setValue(false);
-  sh.getRange("B1:D1").setNumberFormat("@");
-  if (values.length > 2) sh.getRange(3, 2, values.length - 2, 1).setNumberFormat("0.########");
   // v4.15.121: append INFO_TOTAL row at the bottom of the Bitpanda bucket sheet.
   try {
     var _bpDataRows = [];
     for (var j = 0; j < rows.length; j++) _bpDataRows.push([rows[j][0], _bpParseBalance_(rows[j][1]), sourceLabel, stamp]);
-    _cexComputeAndAppendTotal_(ss, sheetName, _bpDataRows, "bitpanda");
+    _cexComputeAndAppendTotal_(ss, sheetName, _bpDataRows, "bitpanda", values);
   } catch (eTot) { Logger.log("[CEX_TOTAL] bitpanda " + sheetName + " append failed: " + eTot); }
 }
 
@@ -1442,10 +1432,24 @@ function _cexSymbolToGeckoId_(symbol) {
  * @param {string} sheetName - e.g. "CEX - Binance"
  * @param {Array<[string, number, string, string]>} balances - rows [symbol, balance, source, stamp]
  * @param {string} provider - e.g. "binance", "kraken", "bitpanda"
+ * @param {Array<Array>} opt_values - optional, full A:D values to write before pricing
  * @returns {number} total value in EUR written to the TOTAL row
  */
-function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
+function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_values) {
   var sh = ss.getSheetByName(sheetName);
+
+  // 0. (v4.15.130) If opt_values is provided, handle the bounded
+  //    clearContent + setValues here so ALL CEX syncs use the exact
+  //    same logic — no duplication, no drift.
+  if (opt_values && sh) {
+    var _clearRows = Math.max(opt_values.length, Math.min(sh.getMaxRows(), opt_values.length));
+    sh.getRange(1, 1, _clearRows, 4).clearContent();
+    sh.getRange(1, 1, opt_values.length, 4).setValues(opt_values);
+    sh.getRange("A1").insertCheckboxes().setValue(false);
+    sh.getRange("B1:D1").setNumberFormat("@");
+    // Balance column number format (skip B1 and header rows)
+    if (opt_values.length > 2) sh.getRange(3, 2, opt_values.length - 2, 1).setNumberFormat("0.########");
+  }
 
   // 1. Strip any prior TOTAL row near the expected position (3 + nbAssets).
   //    Do NOT scan the entire sheet — the Vérif MAP formula in column F

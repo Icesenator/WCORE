@@ -163,9 +163,9 @@ function _setRecapHyperlinks_(ss, names, map) {
    "STATUS (I1)",
    "LAST SCAN (J1)"
   ]]);
-  // v4.15.122: clear the leftover H1 header from v4.15.121 that mistakenly
-  // created a separate INFO_TOTAL column. INFO_TOTAL lives in column B.
-  try { recap.getRange("H1").clear(); } catch (eH) {}
+  // v4.15.123: the leftover H column from v4.15.121 was deleted entirely
+  // (2026-07-04). Do NOT touch H1 here: after the deletion, H1 holds the
+  // first STATS header ("INFO_ROT") that the dashboard formulas match on.
 
   // Write hyperlinks and clear stale rows below
   recap.getRange(2, 1, richTexts.length, 1).setRichTextValues(richTexts);

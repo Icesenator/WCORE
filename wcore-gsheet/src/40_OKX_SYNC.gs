@@ -145,7 +145,8 @@ function _okxWriteSheet_(ss, buckets) {
   var dataRows = _okxBuildValues_(buckets, stamp);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
   // v4.15.120: clear only data columns A:D so the user-managed "Vérif" column (E) survives syncs.
-  sh.getRange(1, 1, Math.max(sh.getLastRow(), 2), 4).clearContent();
+  var _clearRows = Math.max(values.length, Math.min(sh.getMaxRows(), values.length + 50));
+  sh.getRange(1, 1, _clearRows, 4).clearContent();
   sh.getRange(1, 1, values.length, 4).setValues(values);
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1:D1").setNumberFormat("@");

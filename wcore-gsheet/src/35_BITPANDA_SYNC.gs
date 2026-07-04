@@ -733,8 +733,12 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
   values.push([false, stamp, "", ""]);
   values.push(["cryptocoin_symbol", "balance", "source", "updated_at"]);
   for (var i = 0; i < rows.length; i++) values.push([rows[i][0], _bpParseBalance_(rows[i][1]), sourceLabel, stamp]);
-  // v4.15.120: clear only data columns A:D so the user-managed "Vérif" column (E) survives syncs.
-  sh.getRange(1, 1, Math.max(sh.getLastRow(), 2), 4).clearContent();
+  // v4.15.128: clear only up to values.length+50 rows (not getLastRow() which
+  // is inflated to 1000+ by the Vérif MAP in column F). Clearing 1000+ rows
+  // triggers a massive recalculation that can starve the GAS runtime budget
+  // and cause the INFO_TOTAL write to fail silently.
+  var clearRows = Math.max(values.length, Math.min(sh.getMaxRows(), values.length + 50));
+  sh.getRange(1, 1, clearRows, 4).clearContent();
   sh.getRange(1, 1, values.length, 4).setValues(values);
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1:D1").setNumberFormat("@");

@@ -90,7 +90,7 @@ var WCORE_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 
 // Timing configs
 var WD_STALE_I1_HOURS = 5;      // v4.5.13: I1 > 5h => pulse B1 (before CacheService 6h expiry)
-var WD_PULSE_MIN = 10;          // Cooldown entre deux pulses B1 (minutes)
+var WD_PULSE_MIN = 30;          // v4.15.135: 30 min — 10 min was too aggressive on quota
 var WD_PULSE_MIN_BLOCKED = 30;  // v4.5.8: Cooldown for blocked sheets (30 min)
 var WD_PULSE_MIN_PARTIAL = 60;  // v4.15.133: 60 min — partial cycles are mostly unpriced tokens, re-pulsing too fast wastes quota
 

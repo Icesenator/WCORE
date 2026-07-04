@@ -224,7 +224,7 @@ function UPDATE_KRAKEN_SPOT() {
   if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("KRAKEN")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(KRAKEN_SYNC_CONFIG.SPREADSHEET_ID);
-    var buckets = _krakenFetchBuckets_(_krakenGetCreds_());
+    var buckets = _cexRelayFetchWithRetry_(function() { return _krakenFetchBuckets_(_krakenGetCreds_()); }, "KRAKEN");
     var written = _krakenWriteSheet_(ss, buckets);
     var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written };
     _krakenSetStatus_(status);

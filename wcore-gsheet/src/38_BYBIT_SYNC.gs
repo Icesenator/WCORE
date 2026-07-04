@@ -356,7 +356,7 @@ function UPDATE_BYBIT_SPOT() {
   try {
     var ss = SpreadsheetApp.openById(BYBIT_SYNC_CONFIG.SPREADSHEET_ID);
     var creds = _bybitCredsOrNull_();
-    var buckets = _bybitFetchBuckets_(creds);
+    var buckets = _cexRelayFetchWithRetry_(function() { return _bybitFetchBuckets_(creds); }, "BYBIT");
     var written = _bybitWriteSheet_(ss, buckets);
     var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written };
     _bybitSetStatus_(status);

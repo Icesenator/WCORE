@@ -338,7 +338,7 @@ function UPDATE_BITFINEX_SPOT() {
   try {
     var ss = SpreadsheetApp.openById(BITFINEX_SYNC_CONFIG.SPREADSHEET_ID);
     var creds = _bfxGetCreds_();
-    var buckets = _bfxFetchBuckets_(creds);
+    var buckets = _cexRelayFetchWithRetry_(function() { return _bfxFetchBuckets_(creds); }, "BITFINEX");
     var written = _bfxWriteSheet_(ss, buckets);
     var status = {
       ok: true,

@@ -1,3 +1,4 @@
+// v4.15.123 - CEX INFO_TOTAL: batch-read scan window (1 API call vs ~100), orphan-row cleanup, atomic A:G write (label+value never diverge).
 // v4.15.105 - Action Rebalancing!Z1 runs direct refresh immediately, with watchdog fallback on BUSY/error.
 // v4.15.103 - Self-heal: re-install dead BITPANDA_REFRESH_WATCHDOG/CEX_HOURLY_REFRESH on user CEX edit (per "triggers présents mais mal autorisés" gotcha, v4.15.61).
 // v4.15.93 - External refresh checkboxes must not write REQUEST into business B1 cells.
@@ -23,7 +24,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.15.105";
+var BITPANDA_SYNC_VERSION = "4.15.123";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -1428,19 +1429,30 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   //    Do NOT scan the entire sheet — the Vérif MAP formula in column F
   //    produces content in thousands of rows, inflating getLastRow() and
   //    causing a 6-min timeout if we iterate from the bottom.
+  //    v4.15.123: single batch getValues (1 API call) instead of ~100
+  //    per-cell getValue calls (major source of the 6-min CEX_HOURLY_REFRESH
+  //    overruns). Also match ORPHAN rows (G set but A/B empty): when a
+  //    previous run's writer wiped A:D and the append was killed before
+  //    rewriting the label, a stale G value lingers without "INFO_TOTAL".
   var nb = (balances || []).length;
   var totalExpected = 3 + nb;
-  var oldTotalRow = -1;
-  for (var sr = totalExpected + 50; sr >= totalExpected && sr >= 3; sr--) {
-    var srA = String(sh.getRange(sr, 1, 1, 1).getValue() || "").trim().toUpperCase();
-    var srB = String(sh.getRange(sr, 2, 1, 1).getValue() || "").trim();
-    if (srA === "TOTAL" || srB === "INFO_TOTAL") {
-      oldTotalRow = sr;
-      break;
+  var scanRows = Math.max(1, Math.min(51, sh.getMaxRows() - totalExpected + 1));
+  var win = sh.getRange(totalExpected, 1, scanRows, 7).getValues();
+  for (var sr = win.length - 1; sr >= 0; sr--) {
+    var srA = String(win[sr][0] || "").trim().toUpperCase();
+    var srB = String(win[sr][1] || "").trim();
+    var srG = win[sr][6];
+    var isTotalRow = (srA === "TOTAL" || srB === "INFO_TOTAL");
+    var isOrphanRow = (!srA && !srB && srG !== "" && srG != null);
+    if (!isTotalRow && !isOrphanRow) continue;
+    var rowIdx = totalExpected + sr;
+    if (rowIdx > totalExpected) {
+      sh.deleteRow(rowIdx);
+    } else {
+      // Expected position: clear instead of delete (the new TOTAL row
+      // overwrites it below; avoids shifting rows for nothing).
+      sh.getRange(rowIdx, 1, 1, 7).clearContent();
     }
-  }
-  if (oldTotalRow >= 3) {
-    sh.deleteRow(oldTotalRow);
   }
 
   // 2. Build a symbol -> price (EUR) map.
@@ -1548,9 +1560,10 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   sh.getRange(2, 5, nb + 1, 1).setValues(eValues);
   if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
 
-  // 4. Write the INFO_TOTAL row
-  //    bottom of the page — the Vérif MAP formula fills column F down to the
-  //    sheet max, inflating getLastRow()).
+  // 4. Write the INFO_TOTAL row.
+  //    v4.15.123: single atomic setValues covering A:G so the label (B)
+  //    and the value (G) can never diverge if the execution is killed
+  //    mid-append (root cause of "total present but no INFO_TOTAL label").
   var totalRow = 3 + (balances || []).length;
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var valueCell = Math.round(total * 100) / 100;
@@ -1558,11 +1571,10 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
 
   // A="" (empty, avoids the Vérif MAP formula matching "TOTAL" or "INFO_TOTAL"
   // against Portefeuille Crypto Details), B="INFO_TOTAL" (text the Recap!B
-  // formula matches), C: provider, D: stamp.
-  sh.getRange(totalRow, 1, 1, 4).setValues([["", "INFO_TOTAL", providerCell, stamp]]);
+  // formula matches), C: provider, D: stamp, E/F empty, G: total value for
+  // the Recap!B INDEX formula.
+  sh.getRange(totalRow, 1, 1, 7).setValues([["", "INFO_TOTAL", providerCell, stamp, "", "", valueCell]]);
   sh.getRange(totalRow, 4, 1, 1).setNumberFormat("@");
-  // G (column 7): total value for the Recap!B INDEX formula.
-  sh.getRange(totalRow, 7, 1, 1).setValue(valueCell);
   sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
 
   Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb + " totalRow=" + totalRow);

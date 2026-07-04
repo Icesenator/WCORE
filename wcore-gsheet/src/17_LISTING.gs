@@ -167,10 +167,10 @@ function _setRecapHyperlinks_(ss, names, map) {
   // (2026-07-04). Do NOT touch H1 here: after the deletion, H1 holds the
   // first STATS header ("INFO_ROT") that the dashboard formulas match on.
 
-  // Write hyperlinks and clear stale rows below
-  recap.getRange(2, 1, richTexts.length, 1).setRichTextValues(richTexts);
+   // Write hyperlinks and clear stale rows
+   recap.getRange(2, 1, richTexts.length, 1).setRichTextValues(richTexts);
 
-  // v4.5.9: Clear the managed A:J block so removed sheets do not leave #REF rows.
+   // v4.5.9: Clear the managed A:J block so removed sheets do not leave #REF rows.
   var lastRow = recap.getLastRow();
   var newLastRow = 1 + richTexts.length; // row 1 = header, then N data rows
   if (lastRow > newLastRow) {

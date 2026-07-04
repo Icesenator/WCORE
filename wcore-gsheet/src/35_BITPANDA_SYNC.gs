@@ -1,3 +1,5 @@
+// v4.15.125 - CEX Vérif MAP auto-restore on every sync (_cexWriteVerifMap_ called from _cexComputeAndAppendTotal_).
+// v4.15.124 - INFO_TOTAL A column sentinel "." instead of "" (prevent VLOOKUP("") fallback #VALUE! in Action Rebalancing).
 // v4.15.123 - CEX INFO_TOTAL: batch-read scan window (1 API call vs ~100), orphan-row cleanup, atomic A:G write (label+value never diverge).
 // v4.15.105 - Action Rebalancing!Z1 runs direct refresh immediately, with watchdog fallback on BUSY/error.
 // v4.15.103 - Self-heal: re-install dead BITPANDA_REFRESH_WATCHDOG/CEX_HOURLY_REFRESH on user CEX edit (per "triggers présents mais mal autorisés" gotcha, v4.15.61).
@@ -24,7 +26,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.15.123";
+var BITPANDA_SYNC_VERSION = "4.15.125";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -1578,8 +1580,32 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   sh.getRange(totalRow, 4, 1, 1).setNumberFormat("@");
   sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
 
+  // v4.15.125: Write/restore the Vérif MAP formula so it survives full sheet
+  // clears. Column F is never touched by CEX sync data writes (which only
+  // clear A:D + write E), so this is idempotent — it just ensures the MAP
+  // is always present after any sync.
+  _cexWriteVerifMap_(sh, sheetName);
+
   Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb + " totalRow=" + totalRow);
   return valueCell;
+}
+
+/**
+ * Write/restore the Vérif MAP formula for a CEX sheet.
+ * Column F: F2="Vérif" (label), F3=MAP that checks Portefeuille Crypto Details
+ * for each symbol — "V" if tracked, "X" if not, "" if zero balance.
+ * Called from _cexComputeAndAppendTotal_ after every CEX sync.
+ * @param {Sheet} sh - CEX sheet
+ * @param {string} sheetName - e.g. "CEX - Binance"
+ */
+function _cexWriteVerifMap_(sh, sheetName) {
+  try {
+    sh.getRange(2, 6, 1, 1).setValue("Vérif");
+    var formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + sheetName + '";\'Portefeuille Crypto Details\'!$C:$C;s)>0;"V";"X")))))';
+    sh.getRange(3, 6, 1, 1).setFormula(formula);
+  } catch (e) {
+    Logger.log("[CEX_VERIF] Failed to write Vérif MAP for " + sheetName + ": " + (e && e.message ? e.message : e));
+  }
 }
 
 /**

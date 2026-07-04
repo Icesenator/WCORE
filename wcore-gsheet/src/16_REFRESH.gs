@@ -367,17 +367,28 @@ function _wd_checkPartialCycles_(ss, nowMs) {
       if (cycleVal === "partial" || (cycleVal.indexOf("partial") !== -1)) {
         stats.partial++;
         
-        // Check cooldown
+        // Get the sheet FIRST (needed for B1 fallback and for the pulse)
+        var partialSheet = null;
+        try { partialSheet = ss.getSheetByName(sheetName); } catch (eGet) {}
+        
+        // Check cooldown — use ScriptProperties tracking, fallback to B1 value
         var lastPulse = lastPulseMap[sheetName] || 0;
         var cooldownMs = WD_PULSE_MIN_PARTIAL * 60000;
+        // v4.15.135: if tracking was lost (ScriptProperties purge), read B1
+        // from the sheet itself as a fallback to avoid re-pulsing unnecessarily.
+        if (lastPulse === 0 && partialSheet) {
+          try {
+            var b1Val = partialSheet.getRange("B1").getDisplayValue();
+            var b1Ms = _wd_parseLocalDateTimeToMs_(b1Val);
+            if (isFinite(b1Ms)) lastPulse = b1Ms;
+          } catch (eB1) {}
+        }
         
         if ((nowMs - lastPulse) >= cooldownMs) {
-          // Get the sheet and pulse B1
           try {
-            var sheet = ss.getSheetByName(sheetName);
-            if (sheet) {
-              sheet.getRange("B1").setValue(nowStr);
-              sheet.getRange("B1").setNumberFormat("@");  // Force text format
+            if (partialSheet) {
+              partialSheet.getRange("B1").setValue(nowStr);
+              partialSheet.getRange("B1").setNumberFormat("@");
               stats.pulsed++;
               lastPulseMap[sheetName] = nowMs;
               Logger.log("[WD_PARTIAL] Pulsed B1 for " + sheetName + " (cycle=" + cycleVal + ")");

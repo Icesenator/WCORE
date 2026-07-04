@@ -491,9 +491,12 @@ function WCORE_AUTO_HEAL(reason, force) {
 
   try {
     _wcoreAutoHealRow_(out, "Start", "OK", String(reason || "auto"));
+    // v4.15.131: bootstrap state (ledger cache, RPC lookup) MUST run
+    // BEFORE trigger reinstall. If it times out at 6 min, at least
+    // the old triggers are still alive (we haven't deleted them yet).
+    _wcoreAutoHealBootstrapState_(out, force === true);
     _wcoreAutoHealEnsureTriggers_(out, props, force === true);
     _wcoreAutoHealEnsurePricingWorker_(out, props);
-    _wcoreAutoHealBootstrapState_(out, force === true);
     // v4.15.100: wrap each setProperty individually so one quota error
     // doesn't crash the entire heal (triggers are already reinstalled by line 347).
     try { props.setProperty("WCORE_AUTO_HEAL_LAST_MS", String(nowMs)); } catch (eW1) {}

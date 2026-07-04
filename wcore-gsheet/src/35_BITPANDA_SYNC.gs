@@ -1481,7 +1481,18 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     }
   }
 
-  // 2. Build a symbol -> price (EUR) map.
+  // 2. v4.15.132: Write a placeholder INFO_TOTAL row IMMEDIATELY after
+  //    clearing old rows, BEFORE the slow pricing loop. If pricing times
+  //    out (especially in UPDATE_BITPANDA_SPOT which processes 4 buckets
+  //    sequentially), the label still exists and Recap Portfolio shows 0 €
+  //    instead of an empty cell.
+  var totalRow = 3 + (balances || []).length;
+  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
+  var providerCell = String(provider || "").toLowerCase();
+  sh.getRange(totalRow, 1, 1, 7).setValues([["", "INFO_TOTAL", providerCell, stamp, "", "", 0]]);
+  sh.getRange(totalRow, 1).setValue(".");
+
+  // 3. Build a symbol -> price (EUR) map.
   //    Strategy: resolve symbol -> coingecko gecko id via the curated
   //    CEX_SYMBOL_MAP below, then call PriceSources.llamaPriceUsd on the
   //    gecko id. DefiLlama L1 (2h) + L2 (6h) cache absorbs the repeated
@@ -1606,25 +1617,11 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   // on some sheets the MAP evaluation interfered with the INFO_TOTAL label).
   _cexWriteVerifMap_(sh, sheetName);
 
-  // 4. Write the INFO_TOTAL row — single atomic setValues covering A:G.
-  //    "." sentinel in A (v4.15.124) prevents VLOOKUP("") fallback matches.
-  var totalRow = 3 + (balances || []).length;
-  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
+  // 4. Update the placeholder INFO_TOTAL row with the real total.
+  //    v4.15.132: the row (B="INFO_TOTAL", G=0) was written before pricing.
+  //    Now only update G with the final value — no risk of losing the label.
   var valueCell = Math.round(total * 100) / 100;
-  var providerCell = String(provider || "").toLowerCase();
-
-  // v4.15.127: write "." directly in the atomic setValues instead of a
-  // separate setValue call that could interfere. Immediate verification
-  // re-writes the label if the setValues was silently dropped.
-  var infoTotalValues = [[".", "INFO_TOTAL", providerCell, stamp, "", "", valueCell]];
-  sh.getRange(totalRow, 1, 1, 7).setValues(infoTotalValues);
-  var writtenB = String(sh.getRange(totalRow, 2).getValue() || "");
-  if (writtenB !== "INFO_TOTAL") {
-    Logger.log("[CEX_TOTAL] WARN: INFO_TOTAL label missing after write for " + sheetName + " (got '" + writtenB + "'), retrying");
-    sh.getRange(totalRow, 2).setValue("INFO_TOTAL");
-    sh.getRange(totalRow, 1).setValue(".");
-  }
-  sh.getRange(totalRow, 4, 1, 1).setNumberFormat("@");
+  sh.getRange(totalRow, 7, 1, 1).setValue(valueCell);
   sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
 
   Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb + " totalRow=" + totalRow);

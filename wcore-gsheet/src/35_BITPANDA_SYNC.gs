@@ -737,7 +737,7 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
   // is inflated to 1000+ by the Vérif MAP in column F). Clearing 1000+ rows
   // triggers a massive recalculation that can starve the GAS runtime budget
   // and cause the INFO_TOTAL write to fail silently.
-  var clearRows = Math.max(values.length, Math.min(sh.getMaxRows(), values.length + 50));
+  var clearRows = Math.max(values.length, Math.min(sh.getMaxRows(), values.length));
   sh.getRange(1, 1, clearRows, 4).clearContent();
   sh.getRange(1, 1, values.length, 4).setValues(values);
   sh.getRange("A1").insertCheckboxes().setValue(false);

@@ -346,7 +346,7 @@ function _bybitWriteSheet_(ss, buckets) {
   var dataRows = _bybitBuildValues_(buckets, stamp);
   var values = header.concat(dataRows);
   // v4.15.120: clear only data columns A:D so the user-managed "Vérif" column (E) survives syncs.
-  var _clearRows = Math.max(values.length, Math.min(sh.getMaxRows(), values.length + 50));
+  var _clearRows = Math.max(values.length, Math.min(sh.getMaxRows(), values.length));
   sh.getRange(1, 1, _clearRows, 4).clearContent();
   sh.getRange(1, 1, values.length, 4).setValues(values);
   sh.getRange("A1").insertCheckboxes().setValue(false);

@@ -1517,11 +1517,23 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
     // Resolve them here so the price lookup works without modifying the
     // source data written by the sync.
     _cexAddStockAliases_(stockPriceMap);
+    // v4.15.129: diagnostic log to debug missing stock prices (ROG, SSU, etc.)
+    var diagKeys = ["SWX:NESN", "NESN", "NVO", "NOVO", "SWX:RO", "ROG", "KRX:005930", "SSU", "SMSN"];
+    var diagParts = [];
+    for (var dk = 0; dk < diagKeys.length; dk++) {
+      var k = diagKeys[dk];
+      if (stockPriceMap[k] != null) diagParts.push(k + "=" + stockPriceMap[k]);
+    }
+    Logger.log("[CEX_TOTAL] stockPriceMap: " + Object.keys(stockPriceMap).length + " entries; diag: " + diagParts.join("; "));
   }
 
   // 3. Single-pass pricing + per-row value_eur. Compute priceEur once
   //    per asset (not twice as before), build the column-E array in memory,
   //    and batch-write with setValues (one API call instead of N).
+  //    v4.15.129: apply ADR/ratio multipliers for stocks where Bitpanda
+  //    uses a different share unit than Action Rebalancing (e.g. Samsung
+  //    SSU/SMSN represents ~25 KRX:005930 shares).
+  var STOCK_RATIO_MULTIPLIERS = { "SSU": 25, "SMSN": 25 };
   var total = 0;
   var valued = 0;
   var skipped = 0;
@@ -1532,6 +1544,9 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
     var row = balances[i] || [];
     var symbol = String(row[0] || "").trim().toUpperCase();
     var balance = Number(row[1] || 0);
+    // Apply stock ratio multipliers for ADR/unit differences
+    var ratio = STOCK_RATIO_MULTIPLIERS[symbol] || 1;
+    var adjustedBalance = balance * ratio;
     var priceEur = null;
 
     if (symbol && balance > 0) {
@@ -1564,7 +1579,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
     }
 
     if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
-      var val = Math.round(balance * priceEur * 100) / 100;
+      var val = Math.round(adjustedBalance * priceEur * 100) / 100;
       total += val;
       eValues.push([val]);
       valued++;

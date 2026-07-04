@@ -315,7 +315,7 @@ function UPDATE_BINANCE_SPOT() {
   if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("BINANCE")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(BINANCE_SYNC_CONFIG.SPREADSHEET_ID);
-    var buckets = _binFetchBucketsViaRelay_();
+    var buckets = _cexRelayFetchWithRetry_(function() { return _binFetchBucketsViaRelay_(); }, "BINANCE");
     var written = _binWriteSheet_(ss, buckets);
     var status = {
       ok: true,

@@ -1689,3 +1689,33 @@ function _cexUpdateRecapColumnB_(ss, sheetName, totalValue) {
     Logger.log("[CEX_TOTAL] Recap column B update failed: " + (e && e.message ? e.message : e));
   }
 }
+
+// ============================================================
+// v4.15.134: Relay retry helper. When a CEX relay returns
+// "HTTP blocked/null response", retry up to 3 times with a
+// 5s delay before throwing. Used by all non-Bitpanda CEX syncs.
+// ============================================================
+var CEX_RELAY_MAX_RETRIES = 3;
+var CEX_RELAY_RETRY_DELAY_MS = 5000;
+
+/**
+ * Call a relay fetch function with retries on blocked/null errors.
+ * @param {Function} fetchFn - function that returns buckets (throws on error)
+ * @param {string} name - connector name for logging (e.g. "OKX", "Binance")
+ * @returns {*} the buckets from the relay
+ */
+function _cexRelayFetchWithRetry_(fetchFn, name) {
+  for (var attempt = 1; attempt <= CEX_RELAY_MAX_RETRIES; attempt++) {
+    try {
+      return fetchFn();
+    } catch (e) {
+      var msg = String(e && e.message ? e.message : e);
+      if (attempt < CEX_RELAY_MAX_RETRIES && msg.indexOf("blocked/null response") >= 0) {
+        Logger.log("[CEX_RELAY] " + name + " relay attempt " + attempt + "/" + CEX_RELAY_MAX_RETRIES + " failed: " + msg + " — retrying in " + (CEX_RELAY_RETRY_DELAY_MS / 1000) + "s");
+        Utilities.sleep(CEX_RELAY_RETRY_DELAY_MS);
+      } else {
+        throw e;
+      }
+    }
+  }
+}

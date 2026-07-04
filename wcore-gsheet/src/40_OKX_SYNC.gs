@@ -154,7 +154,7 @@ function UPDATE_OKX_SPOT() {
   if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("OKX")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
-    var buckets = _okxFetchBucketsViaRelay_();
+    var buckets = _cexRelayFetchWithRetry_(function() { return _okxFetchBucketsViaRelay_(); }, "OKX");
     var written = _okxWriteSheet_(ss, buckets);
     var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written };
     _okxSetStatus_(status);

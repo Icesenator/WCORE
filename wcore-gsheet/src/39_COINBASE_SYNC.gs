@@ -171,7 +171,7 @@ function UPDATE_COINBASE_SPOT() {
   if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("COINBASE")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(COINBASE_SYNC_CONFIG.SPREADSHEET_ID);
-    var buckets = _cbFetchBucketsViaRelay_();
+    var buckets = _cexRelayFetchWithRetry_(function() { return _cbFetchBucketsViaRelay_(); }, "COINBASE");
     var written = _cbWriteSheet_(ss, buckets);
     var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written };
     _cbSetStatus_(status);

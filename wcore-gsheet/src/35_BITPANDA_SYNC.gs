@@ -1569,11 +1569,12 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider) {
   var valueCell = Math.round(total * 100) / 100;
   var providerCell = String(provider || "").toLowerCase();
 
-  // A="" (empty, avoids the Vérif MAP formula matching "TOTAL" or "INFO_TOTAL"
-  // against Portefeuille Crypto Details), B="INFO_TOTAL" (text the Recap!B
-  // formula matches), C: provider, D: stamp, E/F empty, G: total value for
-  // the Recap!B INDEX formula.
+  // A="." (sentinel: empty string was matched by VLOOKUP("") fallbacks
+  // in Action Rebalancing spot formulas, returning the text "INFO_TOTAL"
+  // and causing #VALUE! — v4.15.124). B="INFO_TOTAL" (text the Recap!B
+  // formula matches), C: provider, D: stamp, E/F empty, G: total value.
   sh.getRange(totalRow, 1, 1, 7).setValues([["", "INFO_TOTAL", providerCell, stamp, "", "", valueCell]]);
+  sh.getRange(totalRow, 1).setValue(".");
   sh.getRange(totalRow, 4, 1, 1).setNumberFormat("@");
   sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
 

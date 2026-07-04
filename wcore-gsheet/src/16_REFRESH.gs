@@ -126,9 +126,10 @@ function WCORE_ON_EDIT(e) {
    if (typeof BITPANDA_ON_EDIT === "function" && BITPANDA_ON_EDIT(e)) return;
    if (typeof BINANCE_ON_EDIT === "function" && BINANCE_ON_EDIT(e)) return;
    if (typeof BITFINEX_ON_EDIT === "function" && BITFINEX_ON_EDIT(e)) return;
-   if (typeof BYBIT_ON_EDIT === "function" && BYBIT_ON_EDIT(e)) return;
-   if (typeof COINBASE_ON_EDIT === "function" && COINBASE_ON_EDIT(e)) return;
-   if (typeof OKX_ON_EDIT === "function" && OKX_ON_EDIT(e)) return;
+    if (typeof BYBIT_ON_EDIT === "function" && BYBIT_ON_EDIT(e)) return;
+    if (typeof COINBASE_ON_EDIT === "function" && COINBASE_ON_EDIT(e)) return;
+    if (typeof OKX_ON_EDIT === "function" && OKX_ON_EDIT(e)) return;
+    if (typeof KRAKEN_ON_EDIT === "function" && KRAKEN_ON_EDIT(e)) return;
    // v4.15.104: per-cell auto-link for Portefeuille Crypto Details column E.
    // Runs AFTER CEX handlers (which return true on their sheets) so it only fires
    // for non-CEX edits. Bridges the gap between bulk _setDetailsChainHyperlinks_
@@ -703,7 +704,7 @@ function _wd_refreshReasonPriority_(reason) {
   return 0;
 }
 
-// v4.15.97: CEX sync tabs (Bitpanda/Binance/Bitfinex/ByBit/Coinbase/OKX) are display-only in Recap.
+// v4.15.97: CEX sync tabs are display-only in Recap.
 // They have NO I1/J1 cells and write their refresh date in B1 themselves.
 // The watchdog MUST NOT pulse their B1 (would overwrite the refresh date) nor
 // sync J1 (would create spurious cells). Skip them entirely.
@@ -713,6 +714,7 @@ function _wd_isCexSheet_(name) {
           n.indexOf("bitfinex") >= 0 ||
           n.indexOf("coinbase") >= 0 ||
           n.indexOf("okx") >= 0 ||
+          n.indexOf("kraken") >= 0 ||
           n.indexOf("bybit") >= 0 ||
           (n.indexOf("binance") >= 0 && n.indexOf("web3") < 0));
 }

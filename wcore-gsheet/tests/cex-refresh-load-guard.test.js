@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
 
@@ -23,13 +24,54 @@ function extractFunction(sourceText, name) {
 const autoHeal = read('src/16B_AUTO_HEAL.gs');
 const bitpanda = read('src/35_BITPANDA_SYNC.gs');
 const activity = read('src/27_ACTIVITY_REFRESH.gs');
+const kraken = read('src/41_KRAKEN_SYNC.gs');
+
+function loadAutoHealCexStatus() {
+  const context = {
+    Date,
+    WCORE_AUTO_HEAL_SPREADSHEET_ID: 'spreadsheet-id',
+    WCORE_AUTO_HEAL_CEX_STALE_MS: 5 * 60 * 60 * 1000,
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ({
+        getSheetByName: (name) => ({
+          getRange: () => ({
+            getDisplayValue: () => (name === 'CEX - Bybit' ? '2026-07-02 01:05:30' : '2026-07-03 04:48:00')
+          })
+        })
+      }),
+      openById: () => null
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext([
+    extractFunction(autoHeal, '_wcoreAutoHealParseStampMs_'),
+    extractFunction(autoHeal, '_wcoreAutoHealCexStatus_')
+  ].join('\n'), context);
+  return context;
+}
+
+if (!bitpanda.includes('"USDC": "USDT"')) {
+  throw new Error('Bitpanda Crypto must canonicalize USDC into USDT so stablecoin dust is consolidated in the existing USDT row');
+}
 
 if (!autoHeal.includes('cexManualQueue')) {
   throw new Error('Auto-heal trigger spec must be bumped for queued manual CEX refreshes');
 }
 
-if (!autoHeal.includes('ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(4).create()')) {
-  throw new Error('CEX auto refresh trigger must run every 4 hours (closest GAS cadence under the 5h watchdog stale threshold)');
+for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
+  if (!autoHeal.includes(`ScriptApp.newTrigger("${handler}").timeBased().everyHours(1).create()`)) {
+    throw new Error(`CEX auto refresh must install an hourly per-connector trigger for ${handler}`);
+  }
+}
+if (autoHeal.includes('ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(4).create()')) {
+  throw new Error('CEX auto refresh must not depend only on the central 4h trigger');
+}
+
+const cexStatusContext = loadAutoHealCexStatus();
+const freshHeartbeatProps = { getProperty: (key) => key === 'CEX_HOURLY_REFRESH_LAST_MS' ? String(Date.parse('2026-07-03T04:50:00')) : '' };
+const cexStatus = cexStatusContext._wcoreAutoHealCexStatus_(freshHeartbeatProps);
+if (!cexStatus || cexStatus.staleCount < 1 || cexStatus.mode !== 'heartbeat+sheetB1') {
+  throw new Error('CEX heartbeat must not mask stale individual CEX sheets; auto-heal needs sheet-level staleness even when the global heartbeat is fresh');
 }
 
 if (autoHeal.includes('ScriptApp.newTrigger("BITPANDA_REFRESH_WATCHDOG")') || /required = \[[^\]]*BITPANDA_REFRESH_WATCHDOG/.test(autoHeal)) {
@@ -40,11 +82,11 @@ const cleanupBody = extractFunction(autoHeal, 'WCORE_CEX_TRIGGER_CLEANUP_FORCE')
 if (cleanupBody.includes('WCORE_AUTO_HEAL(')) {
   throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must not call full WCORE_AUTO_HEAL; it times out in listing/hyperlink maintenance');
 }
-if (!cleanupBody.includes('MASTER_ON_EDIT') || !cleanupBody.includes('CEX_HOURLY_REFRESH')) {
-  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall MASTER_ON_EDIT and CEX_HOURLY_REFRESH directly');
+if (!cleanupBody.includes('MASTER_ON_EDIT') || !cleanupBody.includes('UPDATE_BINANCE_SPOT') || !cleanupBody.includes('UPDATE_KRAKEN_SPOT')) {
+  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall MASTER_ON_EDIT and hourly per-connector CEX triggers directly');
 }
-if (!cleanupBody.includes('everyHours(4)')) {
-  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall CEX_HOURLY_REFRESH every 4 hours');
+if (!cleanupBody.includes('everyHours(1)')) {
+  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall CEX auto triggers every hour');
 }
 const cexTriggerList = bitpanda.slice(
   bitpanda.indexOf('var _BP_CEX_TRIGGERS_TO_HEAL'),
@@ -58,8 +100,10 @@ for (const legacy of ['BINANCE_REFRESH_WATCHDOG', 'BITFINEX_REFRESH_WATCHDOG', '
 if (cexTriggerList.includes('BITPANDA_REFRESH_WATCHDOG')) {
   throw new Error('CEX onEdit self-heal must not recreate BITPANDA_REFRESH_WATCHDOG');
 }
-if (!cexTriggerList.includes('CEX_HOURLY_REFRESH')) {
-  throw new Error('CEX onEdit self-heal must keep only the hourly CEX refresh trigger');
+for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
+  if (!cexTriggerList.includes(handler)) {
+    throw new Error(`CEX onEdit self-heal must keep hourly ${handler}`);
+  }
 }
 
 const activityBody = extractFunction(activity, 'ACTIVITY_WATCHDOG');
@@ -88,6 +132,19 @@ const syncJ1Body = extractFunction(refresh, 'SYNC_J1_ALL_SHEETS');
 if (syncJ1Body.includes('WCORE_AUTO_HEAL')) {
   throw new Error('SYNC_J1_ALL_SHEETS must not run auto-heal; it turns lightweight sync into trigger churn');
 }
+const masterOnEditBody = extractFunction(refresh, 'WCORE_ON_EDIT');
+if (!masterOnEditBody.includes('KRAKEN_ON_EDIT')) {
+  throw new Error('WCORE_ON_EDIT must dispatch Kraken A1 edits');
+}
+const cexSkipBody = extractFunction(refresh, '_wd_isCexSheet_');
+if (!cexSkipBody.includes('kraken')) {
+  throw new Error('_wd_isCexSheet_ must skip CEX - Kraken display-only sheet');
+}
+const listing = read('src/17_LISTING.gs');
+const ledgerLikeBody = extractFunction(listing, '_isLedgerLike_');
+if (!ledgerLikeBody.includes('kraken')) {
+  throw new Error('_isLedgerLike_ must include CEX - Kraken in Recap listing');
+}
 
 if (!bitpanda.includes('function CEX_QUEUE_OR_MARK_MANUAL_JOB(')) {
   throw new Error('Missing shared queue helper for manual CEX refreshes');
@@ -111,6 +168,9 @@ if (!bpOnEditBody.includes('_cexEnqueueManualJobs_')) {
 if (bpOnEditBody.includes('CEX_QUEUE_MANUAL_JOB(')) {
   throw new Error('BITPANDA_ON_EDIT must not enqueue jobs one by one; use _cexEnqueueManualJobs_');
 }
+if (!bpOnEditBody.includes('KRAKEN') || !bpOnEditBody.includes('KRAKEN_SYNC_CONFIG')) {
+  throw new Error('Portefeuille Crypto!AC2 must enqueue Kraken with the other crypto CEX jobs');
+}
 const enqueueBody = extractFunction(bitpanda, '_cexEnqueueManualJobs_');
 const ensureCount = (enqueueBody.match(/_cexEnsureManualWorkerTrigger_\(/g) || []).length;
 if (ensureCount !== 1) {
@@ -122,6 +182,9 @@ if (ensureCount !== 1) {
 const runJobBody = extractFunction(bitpanda, '_cexRunManualJob_');
 if (!runJobBody.includes('_cexIsTransientResult_') || !runJobBody.includes('_cexRequeueManualJob_')) {
   throw new Error('_cexRunManualJob_ must requeue transient failures (Spreadsheets timeout / quota / BUSY)');
+}
+if (!runJobBody.includes('UPDATE_KRAKEN_SPOT')) {
+  throw new Error('_cexRunManualJob_ must route KRAKEN jobs to UPDATE_KRAKEN_SPOT');
 }
 if (!runJobBody.includes('_CEX_MANUAL_JOB_MAX_RETRIES')) {
   throw new Error('Transient CEX job retries must be bounded by _CEX_MANUAL_JOB_MAX_RETRIES');
@@ -172,6 +235,7 @@ const onEditFiles = {
   'src/38_BYBIT_SYNC.gs': ['BYBIT_ON_EDIT', 'BYBIT', 'UPDATE_BYBIT_SPOT'],
   'src/39_COINBASE_SYNC.gs': ['COINBASE_ON_EDIT', 'COINBASE', 'UPDATE_COINBASE_SPOT'],
   'src/40_OKX_SYNC.gs': ['OKX_ON_EDIT', 'OKX', 'UPDATE_OKX_SPOT'],
+  'src/41_KRAKEN_SYNC.gs': ['KRAKEN_ON_EDIT', 'KRAKEN', 'UPDATE_KRAKEN_SPOT'],
 };
 
 for (const [file, [fnName, label, updateFn]] of Object.entries(onEditFiles)) {
@@ -203,12 +267,32 @@ const legacyWatchdogs = {
   'src/36_BINANCE_SYNC.gs': 'BINANCE_REFRESH_WATCHDOG',
   'src/37_BITFINEX_SYNC.gs': 'BITFINEX_REFRESH_WATCHDOG',
   'src/38_BYBIT_SYNC.gs': 'BYBIT_REFRESH_WATCHDOG',
+  'src/41_KRAKEN_SYNC.gs': 'KRAKEN_REFRESH_WATCHDOG',
 };
 for (const [file, fnName] of Object.entries(legacyWatchdogs)) {
   const body = extractFunction(read(file), fnName);
   if (!body.includes('LEGACY_DISABLED') || body.includes('UPDATE_')) {
     throw new Error(`${fnName} must be disabled; central BITPANDA_REFRESH_WATCHDOG owns queued CEX refreshes`);
   }
+}
+
+const hourlyBody = extractFunction(bitpanda, 'CEX_HOURLY_REFRESH');
+if (!hourlyBody.includes('UPDATE_KRAKEN_SPOT')) {
+  throw new Error('CEX_HOURLY_REFRESH must include Kraken');
+}
+const installCexHourlyBody = extractFunction(bitpanda, 'INSTALL_CEX_HOURLY_REFRESH');
+if (!installCexHourlyBody.includes('UPDATE_BINANCE_SPOT') || !installCexHourlyBody.includes('everyHours(1)') || installCexHourlyBody.includes('everyHours(4)')) {
+  throw new Error('INSTALL_CEX_HOURLY_REFRESH must install per-connector CEX updates every hour');
+}
+const directCryptoBody = extractFunction(bitpanda, '_bpRunCryptoCexRefreshDirect_');
+if (!directCryptoBody.includes('UPDATE_KRAKEN_SPOT')) {
+  throw new Error('Direct crypto CEX refresh helper must include Kraken');
+}
+if (!kraken.includes('function SET_KRAKEN_API_KEYS(') || !kraken.includes('DocumentProperties')) {
+  throw new Error('Kraken connector must store credentials through SET_KRAKEN_API_KEYS in UserProperties + DocumentProperties');
+}
+if (/SET_KRAKEN_API_KEYS\(["'][A-Za-z0-9+/=]{20,}/.test(kraken) || /KRAKEN_(API|PRIVATE)_KEY\s*[:=]\s*["'][A-Za-z0-9+/=]{20,}/.test(kraken)) {
+  throw new Error('Kraken connector must not contain pasted API credentials');
 }
 
 console.log('CEX refresh load guard OK');

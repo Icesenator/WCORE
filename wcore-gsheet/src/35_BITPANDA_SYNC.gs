@@ -1611,7 +1611,7 @@ function _cexWriteVerifMap_(sh, sheetName) {
       // Bitpanda Fiat & Stocks → check Action Rebalancing column A.
       // Stocks have Bitpanda ticker aliases (GOOGL→GOOG, FB→META, etc.)
       // resolved via SWITCH so the symbol matches the Action Rebalancing entry.
-      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Action Rebalancing\'!$A:$A;s)>0;COUNTIFS(\'Action Rebalancing\'!$A:$A;SWITCH(s;\"GOOGL\";\"GOOG\";\"FB\";\"META\";\"BRKB\";\"NYSE:BRK.B\";\"SSU\";\"KRX:005930\";\"HYXS\";\"KRX:000660\";\"MC\";\"EPA:MC\";\"OR\";\"EPA:OR\";\"NOVO\";\"NVO\";\"NESN\";\"SWX:NESN\";\"ROG\";\"SWX:RO\";\"TM\";\"TYO:7203\";\"SMSN\";\"KRX:005930\";s))>0);\"V\";\"X\")))))';
+      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Action Rebalancing\'!$A:$A;s)>0;COUNTIFS(\'Action Rebalancing\'!$A:$A;SWITCH(s;\"GOOGL\";\"GOOG\";\"FB\";\"META\";\"BRKB\";\"NYSE:BRK.B\";\"SSU\";\"KRX:005930\";\"HYXS\";\"KRX:000660\";\"MC\";\"EPA:MC\";\"OR\";\"EPA:OR\";\"RMS\";\"EPA:RMS\";\"NOVO\";\"NVO\";\"NESN\";\"SWX:NESN\";\"ROG\";\"SWX:RO\";\"TM\";\"TYO:7203\";\"SMSN\";\"KRX:005930\";s))>0);\"V\";\"X\")))))';
     } else {
       formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;\"' + sheetName + '\";\'Portefeuille Crypto Details\'!$C:$C;s)>0;\"V\";\"X\")))))';
     }

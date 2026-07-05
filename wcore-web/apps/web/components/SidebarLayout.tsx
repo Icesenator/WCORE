@@ -4,11 +4,22 @@ import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { Logo } from "@/components/Logo";
+import { getApiUrl } from "@/lib/api";
 
 export function SidebarLayout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [coreVersion, setCoreVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const API_URL = getApiUrl();
+    fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(3000) })
+      .then((r) => r.json())
+      .then((d) => { if (typeof d.coreVersion === "string") setCoreVersion(d.coreVersion); })
+      .catch(() => {});
+  }, [mounted]);
 
   useEffect(() => {
     try {
@@ -49,7 +60,7 @@ export function SidebarLayout({ children }: { children: ReactNode }) {
         <footer className="py-6 flex flex-col items-center gap-2">
           <Logo className="h-5 w-5 text-accent/30" />
           <p className="text-center text-xs text-muted">
-            WCORE v0.2.43. 180+ chains, 4 VMs (EVM, SVM, Cosmos, TON), 80 on-chain GM chains, CEX read-only tracking (Binance, Bitpanda), referral system. <a href="https://x.com/wcorexyz" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">@WCORExyz</a>
+            174 chains, 4 VMs (EVM, SVM, Cosmos, TON), 80+ on-chain GM chains, 7 CEX (Binance, Bitpanda, Bitfinex, Bybit, Coinbase, Kraken, OKX).{coreVersion ? ` v${coreVersion}.` : ""} <a href="https://x.com/wcorexyz" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">@WCORExyz</a>
           </p>
         </footer>
       </div>

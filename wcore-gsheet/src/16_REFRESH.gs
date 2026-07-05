@@ -596,7 +596,7 @@ function _wd_isLastUpdateFormat_(s) {
 function _wd_extractTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   // Match usable prefixes followed by timestamp.
-  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED)\]\s*(.+)$/);
+  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
   if (match && match[1]) {
     return match[1].trim();
   }
@@ -804,8 +804,8 @@ function _wd_shouldSyncJ1_(vI1, vJ1) {
 }
 
 function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
-  const errA2 = vA2.startsWith("#") || vA2.toLowerCase().includes("erreur");
-  const errI1 = vI1.startsWith("#") || vI1.toLowerCase().includes("erreur");
+  const errA2 = vA2.startsWith("#") || vA2.toLowerCase().includes("erreur") || vA2.toLowerCase().includes("error");
+  const errI1 = vI1.startsWith("#") || vI1.toLowerCase().includes("erreur") || vI1.toLowerCase().includes("error");
   const isErr = errA2 || errI1;
   
   const blockedCheck = _wd_isBlocked_(vI1);
@@ -846,6 +846,11 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
 
   // v4.15.3: [ERROR] = scan failed (RPC timeout, etc.) — re-pulse with normal cooldown
   if (vI1.indexOf("[ERROR]") === 0) {
+    return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
+  }
+
+  // v4.16.27: [WEB_SCAN_ERROR] = WCORE Web API failed (timeout, 5xx, network) — re-pulse
+  if (vI1.indexOf("[WEB_SCAN_ERROR]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
 

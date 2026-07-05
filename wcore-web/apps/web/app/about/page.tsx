@@ -3,7 +3,7 @@ export default function AboutPage() {
     <main className="mx-auto min-h-screen w-full px-4 py-8 sm:px-6 sm:py-12">
 
       <h1 className="mb-1 text-2xl font-bold">About WCORE</h1>
-      <p className="mb-8 text-sm text-muted">Multi-chain wallet analytics across 180+ live chains and major CEX. Read only. Free.</p>
+      <p className="mb-8 text-sm text-muted">Your crypto. Every chain. One view. 174 chains, 80+ GM contracts, 7 CEX sources. Read only. Free.</p>
 
       <div className="grid gap-6 lg:grid-cols-2 text-sm leading-relaxed">
         <section>
@@ -11,8 +11,9 @@ export default function AboutPage() {
           <p className="text-muted">
             WCORE is a <span className="text-fg font-medium">non-custodial, read-only</span> portfolio tracker.
             Connect your wallet or paste any public address. We query blockchains directly via RPC
-            nodes. You can also add your own read-only Binance or Bitpanda API key in Profile to
-            fold your exchange balances into the same portfolio view. No middlemen, no custody,
+            nodes. You can also add your own read-only API keys for Binance, Bitpanda, Bitfinex,
+            Bybit, Coinbase, Kraken and OKX in Profile to fold your exchange balances into the
+            same portfolio view. No middlemen, no custody,
             no funds ever at risk.
           </p>
         </section>

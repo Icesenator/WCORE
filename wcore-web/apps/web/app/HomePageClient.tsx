@@ -343,7 +343,7 @@ export function HomePageClient() {
       <div className="mt-10 grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-2 text-2xl">⛓️</div>
-          <h3 className="text-sm font-semibold mb-1">Track 180+ live blockchains</h3>
+          <h3 className="text-sm font-semibold mb-1">Track 174 live blockchains</h3>
           <p className="text-xs text-muted leading-relaxed">
             Paste any public EVM, Solana, Cosmos or TON address. Automatic VM detection, real-time pricing from 5 sources (DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko), multi-wallet linking, custom tokens and CSV export. 8 dead chains are auto-skipped to keep scans fast and accurate.
           </p>
@@ -352,14 +352,14 @@ export function HomePageClient() {
           <div className="mb-2 text-2xl">🏦</div>
           <h3 className="text-sm font-semibold mb-1">CEX holdings in one view</h3>
           <p className="text-xs text-muted leading-relaxed">
-            Link your own read-only Binance, Bitpanda, Bitfinex or Bybit API key in Profile. Balances and valuations land in the same scan summary as your on-chain wallets. Spot, Earn, staking, commodities and stocks are all priced without ever leaving your browser. Coinbase and OKX are next.
+            Link your own read-only API keys for Binance, Bitpanda, Bitfinex, Bybit, Coinbase, Kraken and OKX in Profile. Balances and valuations land in the same scan summary as your on-chain wallets. Spot, Earn, staking, commodities and stocks are all priced without ever leaving your browser.
           </p>
         </div>
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-2 text-2xl">⛽</div>
           <h3 className="text-sm font-semibold mb-1">On-chain GM</h3>
           <p className="text-xs text-muted leading-relaxed">
-            Say GM across 80 supported chains. Deploy your own GM contract, earn 50% creator revenue per GM, withdraw anytime. Per-chain streaks, leaderboard, referrals and 1-click daily GM.
+            Say GM across 80+ supported chains. Deploy your own GM contract, earn 50% creator revenue per GM, withdraw anytime. Per-chain streaks, leaderboard, referrals and 1-click daily GM.
           </p>
         </div>
       </div>

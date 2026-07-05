@@ -1464,89 +1464,171 @@ function _cexSymbolToGeckoId_(symbol) {
  */
 function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_values) {
   var sh = ss.getSheetByName(sheetName);
+  var nb = (balances || []).length;
 
-  // 0. (v4.15.130) If opt_values is provided, handle the bounded
-  //    clearContent + setValues here so ALL CEX syncs use the exact
-  //    same logic — no duplication, no drift.
-  //    v4.15.136: read existing column E values BEFORE clearing so we can
-  //    fallback to the last-known price when pricing fails (instead of 0).
+  // 0. Read existing column E before clearing (last-known fallback).
   var prevValues = null;
-  if (opt_values && sh) {
+  if (opt_values && sh && opt_values.length >= 2) {
     var _clearRows = Math.max(opt_values.length, Math.min(sh.getMaxRows(), opt_values.length));
     if (_clearRows >= 2) {
-      try {
-        prevValues = sh.getRange(2, 5, Math.max(1, _clearRows - 1), 1).getValues();
-      } catch (ePrev) { prevValues = null; }
+      try { prevValues = sh.getRange(2, 5, Math.max(1, _clearRows - 1), 1).getValues(); } catch (ePrev) {}
     }
-    sh.getRange(1, 1, _clearRows, 4).clearContent();
+  }
+
+  // ---- Phase 1: PRICE EVERYTHING (before touching the sheet) ----
+
+  var priceMap = _cexGetPriceMap_();
+  if (!priceMap) priceMap = {};
+  var isStocks = String(sheetName || "").toLowerCase().indexOf("stocks") >= 0;
+
+  var webPrices = _cexFetchWebPrices_(balances, sheetName);
+  var stockPriceMap = {};
+  if (isStocks) {
+    try {
+      var arS = ss.getSheetByName("Action Rebalancing");
+      if (arS) {
+        var arLast = arS.getLastRow();
+        if (arLast >= 3) {
+          var arVals = arS.getRange(3, 1, arLast - 2, 4).getValues();
+          for (var asi = 0; asi < arVals.length; asi++) {
+            var aSym = String(arVals[asi][0] || "").trim().toUpperCase();
+            var aPrc = Number(arVals[asi][3] || 0);
+            if (aSym && isFinite(aPrc) && aPrc > 0) stockPriceMap[aSym] = aPrc;
+          }
+        }
+      }
+    } catch (eStocks) {}
+  }
+
+  var STOCK_RATIO_MULTIPLIERS = { "SSU": 25, "SMSN": 25 };
+  var total = 0, valued = 0, skipped = 0;
+  var eValues = [["value_eur"]];
+
+  for (var i = 0; i < nb; i++) {
+    var row = balances[i] || [];
+    var symbol = String(row[0] || "").trim().toUpperCase();
+    var balance = Number(row[1] || 0);
+    var ratio = STOCK_RATIO_MULTIPLIERS[symbol] || 1;
+    var adjustedBalance = balance * ratio;
+    var priceEur = null;
+
+    if (symbol && balance > 0) {
+      if (webPrices && webPrices.hasOwnProperty(symbol)) {
+        if (webPrices[symbol] != null && webPrices[symbol] > 0) priceEur = Number(webPrices[symbol]);
+      }
+      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol))) {
+        var t = null;
+        if (symbol === "EUR") t = "EUR";
+        if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) t = WCORE_STABLECOINS.getType(symbol);
+        if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t = ChainFactory.STABLECOINS.getType(symbol);
+        if (t === "EUR" || t === "USD" || symbol === "EUR") priceEur = 1.0;
+      }
+      if (priceEur == null && isStocks && stockPriceMap[symbol] != null) priceEur = stockPriceMap[symbol];
+      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol)) && _cexSymbolToGeckoId_(symbol)) {
+        try {
+          var geckoId = _cexSymbolToGeckoId_(symbol);
+          var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
+          if (isFinite(Number(usd)) && Number(usd) > 0) {
+            var fx = null;
+            try { fx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) {}
+            if (isFinite(Number(fx)) && Number(fx) > 0) priceEur = Number(usd) * Number(fx);
+          }
+        } catch (eLlama) {}
+        if (priceEur == null && priceMap[symbol] != null) priceEur = priceMap[symbol];
+      } else if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol)) && priceMap[symbol] != null) {
+        priceEur = priceMap[symbol];
+      }
+    }
+
+    if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
+      var val = Math.round(adjustedBalance * priceEur * 100) / 100;
+      total += val; eValues.push([val]); valued++;
+    } else {
+      if (symbol && balance > 0) {
+        var prevVal = 0;
+        if (prevValues && i < prevValues.length) {
+          var pv = Number(prevValues[i][0] || 0);
+          if (isFinite(pv) && pv > 0) prevVal = pv;
+        }
+        if (prevVal > 0) {
+          Logger.log("[CEX_TOTAL] pricing-failed " + symbol + " — using last-known price " + prevVal + " EUR in " + sheetName);
+          eValues.push([prevVal]); total += prevVal; valued++;
+        } else {
+          Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
+          eValues.push([0]); skipped++;
+        }
+      } else { eValues.push([0]); }
+    }
+  }
+
+  // v4.15.138: sort rows by value (descending) before writing to the sheet.
+  if (nb > 0) {
+    var sortedIdx = [];
+    for (var si = 0; si < nb; si++) sortedIdx.push(si);
+    sortedIdx.sort(function(a, b) { return (eValues[b + 1][0] || 0) - (eValues[a + 1][0] || 0); });
+    var sortedBalances = [];
+    var sortedEValues = [["value_eur"]];
+    for (var sj = 0; sj < nb; sj++) {
+      var origIdx = sortedIdx[sj];
+      sortedBalances.push(balances[origIdx]);
+      sortedEValues.push(eValues[origIdx + 1]);
+    }
+    balances = sortedBalances;
+    eValues = sortedEValues;
+    // Rebuild opt_values header + sorted data rows
+    if (opt_values && opt_values.length > 2) {
+      var newOpt = [opt_values[0], opt_values[1]];
+      for (var sk = 0; sk < nb; sk++) newOpt.push(opt_values[sortedIdx[sk] + 2]);
+      opt_values = newOpt;
+    }
+  }
+
+  // ---- Phase 2: WRITE THE SHEET (atomic, everything priced) ----
+
+  if (opt_values && sh) {
+    var clearR = Math.max(opt_values.length, Math.min(sh.getMaxRows(), opt_values.length));
+    sh.getRange(1, 1, clearR, 4).clearContent();
     sh.getRange(1, 1, opt_values.length, 4).setValues(opt_values);
     sh.getRange("A1").insertCheckboxes().setValue(false);
     sh.getRange("B1:D1").setNumberFormat("@");
-    // Balance column number format (skip B1 and header rows)
     if (opt_values.length > 2) sh.getRange(3, 2, opt_values.length - 2, 1).setNumberFormat("0.########");
-    // Timestamp column D stays as text so seconds are always visible
     if (opt_values.length > 1) sh.getRange(2, 4, opt_values.length - 1).setNumberFormat("@");
   }
 
-  // 1. Strip any prior TOTAL row near the expected position (3 + nbAssets).
-  //    Do NOT scan the entire sheet — the Vérif MAP formula in column F
-  //    produces content in thousands of rows, inflating getLastRow() and
-  //    causing a 6-min timeout if we iterate from the bottom.
-  //    v4.15.123: single batch getValues (1 API call) instead of ~100
-  //    per-cell getValue calls (major source of the 6-min CEX_HOURLY_REFRESH
-  //    overruns). Also match ORPHAN rows (G set but A/B empty): when a
-  //    previous run's writer wiped A:D and the append was killed before
-  //    rewriting the label, a stale G value lingers without "INFO_TOTAL".
-  var nb = (balances || []).length;
-  var totalExpected = 3 + nb;
-  var scanRows = Math.max(1, Math.min(51, sh.getMaxRows() - totalExpected + 1));
-  var win = sh.getRange(totalExpected, 1, scanRows, 7).getValues();
+  // Strip prior TOTAL row
+  var totalRow = 3 + nb;
+  var scanRows = Math.max(1, Math.min(51, sh.getMaxRows() - totalRow + 1));
+  var win = sh.getRange(totalRow, 1, scanRows, 7).getValues();
   for (var sr = win.length - 1; sr >= 0; sr--) {
-    var srA = String(win[sr][0] || "").trim().toUpperCase();
-    var srB = String(win[sr][1] || "").trim();
-    var srG = win[sr][6];
-    var isTotalRow = (srA === "TOTAL" || srB === "INFO_TOTAL");
-    var isOrphanRow = (!srA && !srB && srG !== "" && srG != null);
-    if (!isTotalRow && !isOrphanRow) continue;
-    var rowIdx = totalExpected + sr;
-    if (rowIdx > totalExpected) {
-      sh.deleteRow(rowIdx);
-    } else {
-      // Expected position: clear instead of delete (the new TOTAL row
-      // overwrites it below; avoids shifting rows for nothing).
-      sh.getRange(rowIdx, 1, 1, 7).clearContent();
+    var sa = String(win[sr][0] || "").trim().toUpperCase();
+    var sb = String(win[sr][1] || "").trim();
+    var sg = win[sr][6];
+    if ((sa === "TOTAL" || sb === "INFO_TOTAL") || (!sa && !sb && sg !== "" && sg != null)) {
+      var ridx = totalRow + sr;
+      if (ridx > totalRow) sh.deleteRow(ridx);
+      else sh.getRange(ridx, 1, 1, 7).clearContent();
     }
   }
 
-  // 2. v4.15.132: Write a placeholder INFO_TOTAL row IMMEDIATELY after
-  //    clearing old rows, BEFORE the slow pricing loop. If pricing times
-  //    out (especially in UPDATE_BITPANDA_SPOT which processes 4 buckets
-  //    sequentially), the label still exists and Recap Portfolio shows 0 €
-  //    instead of an empty cell.
-  var totalRow = 3 + (balances || []).length;
+  // Write column E (prices) in one batch
+  sh.getRange(2, 5, nb + 1, 1).clearContent();
+  sh.getRange(2, 5, nb + 1, 1).setValues(eValues);
+  if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
+
+  // INFO_TOTAL row
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-  var providerCell = String(provider || "").toLowerCase();
-  sh.getRange(totalRow, 1, 1, 7).setValues([["", "INFO_TOTAL", providerCell, stamp, "", "", 0]]);
+  sh.getRange(totalRow, 1, 1, 7).setValues([["", "INFO_TOTAL", String(provider || "").toLowerCase(), stamp, "", "", Math.round(total * 100) / 100]]);
   sh.getRange(totalRow, 1).setValue(".");
+  sh.getRange(totalRow, 5, 1, 1).setNumberFormat("0.00");
 
-  // 3. Build a symbol -> price (EUR) map.
-  //    Strategy: resolve symbol -> coingecko gecko id via the curated
-  //    CEX_SYMBOL_MAP below, then call PriceSources.llamaPriceUsd on the
-  //    gecko id. DefiLlama L1 (2h) + L2 (6h) cache absorbs the repeated
-  //    lookups across syncs. For symbols outside the map, fall back to
-  //    the cached Portefeuille Crypto price map (top 5000+ symbols, 1h
-  //    ScriptProperties cache).
-  //
-  //    Bitpanda Stocks: stocks are not priced by DefiLlama/CoinGecko.
-  //    Instead, read the "Action Rebalancing" sheet (column D = Price (€))
-  //    which uses the same pricing pipeline as the user's stock portfolio.
-  var priceMap = _cexGetPriceMap_();
-  if (!priceMap) priceMap = {};
-  var priceMapFallback = false;
+  _cexWriteVerifMap_(sh, sheetName);
 
-  // v4.15.136: Primary pricing via WCORE Web API (provider-first, centralized).
-  // Falls back to the local DefiLlama cascade on any failure (transient, quota, etc.).
-  var webPrices = null;
+  Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + Math.round(total * 100) / 100 + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb);
+  return Math.round(total * 100) / 100;
+}
+
+function _cexFetchWebPrices_(balances, sheetName) {
+  var out = null;
   try {
     var apiUrl = _cexGetWebApiUrl_();
     var apiToken = _cexGetWebApiToken_();
@@ -1558,7 +1640,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       }
       if (allSymbols.length > 0) {
         var chunkSize = 50;
-        webPrices = {};
+        out = {};
         for (var ci = 0; ci < allSymbols.length; ci += chunkSize) {
           var chunk = allSymbols.slice(ci, ci + chunkSize);
           var url = apiUrl + "/api/cex/prices?symbols=" + encodeURIComponent(chunk.join(","));
@@ -1568,174 +1650,20 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
             var p = body && body.prices ? body.prices : {};
             for (var pk in p) {
               if (p[pk] && typeof p[pk].priceEur === "number" && p[pk].priceEur > 0) {
-                webPrices[pk] = p[pk].priceEur;
+                out[pk] = p[pk].priceEur;
               } else if (p[pk] && p[pk].source === "bitpanda-ticker") {
-                // Authoritative null: ticker says 0 EUR, do NOT fall back to DefiLlama.
-                webPrices[pk] = null;
+                out[pk] = null;
               }
             }
           }
         }
-        Logger.log("[CEX_TOTAL] web-priced " + Object.keys(webPrices).length + "/" + allSymbols.length + " symbols for " + sheetName);
+        Logger.log("[CEX_TOTAL] web-priced " + Object.keys(out).length + "/" + allSymbols.length + " symbols for " + sheetName);
       }
     }
   } catch (eWeb) { Logger.log("[CEX_TOTAL] web pricing failed for " + sheetName + ": " + (eWeb.message || eWeb)); }
-
-  var isStocks = String(sheetName || "").toLowerCase().indexOf("stocks") >= 0;
-  var stockPriceMap = {};
-  if (isStocks) {
-    try {
-      var arS = ss.getSheetByName("Action Rebalancing");
-      if (arS) {
-        var arLast = arS.getLastRow();
-        if (arLast >= 3) {
-          var arVals = arS.getRange(3, 1, arLast - 2, 4).getValues();
-          for (var asi = 0; asi < arVals.length; asi++) {
-            var aSym = String(arVals[asi][0] || "").trim().toUpperCase();
-            var aPx = arVals[asi][3]; // column D = Price (€)
-            if (aSym && aPx != null && isFinite(Number(aPx)) && Number(aPx) > 0) {
-              stockPriceMap[aSym] = Number(aPx);
-            }
-          }
-        }
-      }
-    } catch (eStocks) {
-      Logger.log("[CEX_TOTAL] stocks price map build failed: " + eStocks);
-    }
-    // Bitpanda uses its own ticker aliases (obsolètes / European variants)
-    // that differ from the Action Rebalancing / companiesmarketcap symbols.
-    // Resolve them here so the price lookup works without modifying the
-    // source data written by the sync.
-    _cexAddStockAliases_(stockPriceMap);
-    // v4.15.129: diagnostic log to debug missing stock prices (ROG, SSU, etc.)
-    var diagKeys = ["SWX:NESN", "NESN", "NVO", "NOVO", "SWX:RO", "ROG", "KRX:005930", "SSU", "SMSN"];
-    var diagParts = [];
-    for (var dk = 0; dk < diagKeys.length; dk++) {
-      var k = diagKeys[dk];
-      if (stockPriceMap[k] != null) diagParts.push(k + "=" + stockPriceMap[k]);
-    }
-    Logger.log("[CEX_TOTAL] stockPriceMap: " + Object.keys(stockPriceMap).length + " entries; diag: " + diagParts.join("; "));
-  }
-
-  // 3. Single-pass pricing + per-row value_eur. Compute priceEur once
-  //    per asset (not twice as before), build the column-E array in memory,
-  //    and batch-write with setValues (one API call instead of N).
-  //    v4.15.129: apply ADR/ratio multipliers for stocks where Bitpanda
-  //    uses a different share unit than Action Rebalancing (e.g. Samsung
-  //    SSU/SMSN represents ~25 KRX:005930 shares).
-  var STOCK_RATIO_MULTIPLIERS = { "SSU": 25, "SMSN": 25 };
-  var total = 0;
-  var valued = 0;
-  var skipped = 0;
-  var nb = (balances || []).length;
-  var eValues = [["value_eur"]]; // row 2 header
-
-  for (var i = 0; i < nb; i++) {
-    var row = balances[i] || [];
-    var symbol = String(row[0] || "").trim().toUpperCase();
-    var balance = Number(row[1] || 0);
-    // Apply stock ratio multipliers for ADR/unit differences
-    var ratio = STOCK_RATIO_MULTIPLIERS[symbol] || 1;
-    var adjustedBalance = balance * ratio;
-    var priceEur = null;
-
-    if (symbol && balance > 0) {
-      var t = null;
-      // v4.15.137: web API prices first (provider-first, centralized)
-      if (webPrices && webPrices.hasOwnProperty(symbol)) {
-        if (webPrices[symbol] != null && webPrices[symbol] > 0) priceEur = Number(webPrices[symbol]);
-        // else: ticker-authoritative null → skip all fallbacks, leave priceEur=null
-      }
-      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol)) && symbol === "EUR") t = "EUR";
-      if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
-        t = WCORE_STABLECOINS.getType(symbol);
-      }
-      if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) {
-        t = ChainFactory.STABLECOINS.getType(symbol);
-      }
-      if (t === "EUR" || t === "USD" || symbol === "EUR") {
-        priceEur = 1.0;
-      } else if (isStocks && stockPriceMap[symbol] != null) {
-        priceEur = stockPriceMap[symbol];
-      } else if (_cexSymbolToGeckoId_(symbol)) {
-        try {
-          var geckoId = _cexSymbolToGeckoId_(symbol);
-          var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
-          if (isFinite(Number(usd)) && Number(usd) > 0) {
-            var fx = null;
-            try { fx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eFx) { fx = null; }
-            if (isFinite(Number(fx)) && Number(fx) > 0) priceEur = Number(usd) * Number(fx);
-          }
-        } catch (eLlama) {}
-        if (priceEur == null && priceMap[symbol] != null) priceEur = priceMap[symbol];
-      } else if (priceMap[symbol] != null) {
-        priceEur = priceMap[symbol];
-      }
-    }
-
-    if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
-      var val = Math.round(adjustedBalance * priceEur * 100) / 100;
-      total += val;
-      eValues.push([val]);
-      valued++;
-    } else {
-      if (symbol && balance > 0) {
-        // v4.15.136: fallback to the last-known price to avoid silently
-        // writing 0 when DefiLlama has a transient hiccup (especially
-        // for majors like BTC that should ALWAYS be priceable).
-        var prevVal = 0;
-        if (prevValues && i < prevValues.length) {
-          var pv = Number(prevValues[i][0] || 0);
-          if (isFinite(pv) && pv > 0) prevVal = pv;
-        }
-        if (prevVal > 0) {
-          Logger.log("[CEX_TOTAL] pricing-failed " + symbol + " — using last-known price " + prevVal + " EUR in " + sheetName);
-          eValues.push([prevVal]);
-          total += prevVal;
-          valued++;
-        } else {
-          Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
-          eValues.push([0]);
-          skipped++;
-        }
-      } else {
-        eValues.push([0]);
-      }
-    }
-  }
-
-  // Batch-write column E (rows 2..2+nb) in one API call.
-  sh.getRange(2, 5, nb + 1, 1).clearContent();
-  sh.getRange(2, 5, nb + 1, 1).setValues(eValues);
-  if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
-
-  // v4.15.125: Write/restore the Vérif MAP formula BEFORE the INFO_TOTAL row
-  // so the MAP never covers cells that are about to be written (defensive:
-  // on some sheets the MAP evaluation interfered with the INFO_TOTAL label).
-  _cexWriteVerifMap_(sh, sheetName);
-
-  // 4. Update the placeholder INFO_TOTAL row with the real total.
-  //    v4.15.132: the row (B="INFO_TOTAL", G=0) was written before pricing.
-  //    Now only update G with the final value — no risk of losing the label.
-  var valueCell = Math.round(total * 100) / 100;
-  sh.getRange(totalRow, 7, 1, 1).setValue(valueCell);
-  sh.getRange(totalRow, 7, 1, 1).setNumberFormat("0.00");
-
-  Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + valueCell + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb + " totalRow=" + totalRow);
-  return valueCell;
+  return out;
 }
 
-/**
- * Write/restore the Vérif MAP formula for a CEX sheet.
- * Column F: F2="Vérif" (label), F3=MAP that checks the appropriate reference
- * sheet for each symbol:
- *   - Bitpanda Fiat/Stocks → Action Rebalancing!A:A (ticker symbols)
- *   - All other CEX         → Portefeuille Crypto Details (crypto tracking)
- * "V" if tracked, "X" if not, "" if zero balance.
- * Called from _cexComputeAndAppendTotal_ after every CEX sync.
- * @param {Sheet} sh - CEX sheet
- * @param {string} sheetName - e.g. "CEX - Binance"
- */
 function _cexWriteVerifMap_(sh, sheetName) {
   try {
     var existingLabel = String(sh.getRange(2, 6).getValue() || "");

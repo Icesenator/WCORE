@@ -53,7 +53,7 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
   const isPlatformOwner = connectedAddress?.toLowerCase() === "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
   const creatorContracts = gmContracts.filter((contract) => contract.role !== "platform");
   const platformContracts = isPlatformOwner ? gmContracts : [];
-  const cexProvider = chain.chainKey === "CEX_BINANCE" ? "binance" : chain.chainKey === "CEX_BITPANDA" ? "bitpanda" : chain.chainKey === "CEX_BITFINEX" ? "bitfinex" : chain.chainKey === "CEX_BYBIT" ? "bybit" : chain.chainKey === "CEX_COINBASE" ? "coinbase" : chain.chainKey === "CEX_OKX" ? "okx" : null;
+  const cexProvider = chain.chainKey === "CEX_BINANCE" ? "binance" : chain.chainKey === "CEX_BITPANDA" ? "bitpanda" : chain.chainKey === "CEX_BITFINEX" ? "bitfinex" : chain.chainKey === "CEX_BYBIT" ? "bybit" : chain.chainKey === "CEX_COINBASE" ? "coinbase" : chain.chainKey === "CEX_OKX" ? "okx" : chain.chainKey === "CEX_KRAKEN" ? "kraken" : null;
   const cexProviderMeta = cexProvider ? getCexProviderMeta(cexProvider) : null;
   // Only engage the GM status hook for the connected wallet's card on a chain
   // that actually has a GM factory. Otherwise every ChainCard (all wallets, all

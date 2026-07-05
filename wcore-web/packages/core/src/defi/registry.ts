@@ -30,6 +30,17 @@ const entries: DeFiPositionRegistryEntry[] = [
     pricing: { mode: "mirror_underlying", sign: "asset" },
   },
   {
+    chain: "BASE",
+    contract: "0x548d3b444da39686d1a6f1544781d154e7cd1ef7",
+    symbol: "sKAITO",
+    protocol: "staked-mirror",
+    type: "liquid_staking",
+    underlying: "0x98d0baa52b2d063e780de12f615f963fe8537553",
+    liquidityStatus: "flex",
+    confidence: "high",
+    pricing: { mode: "mirror_underlying", sign: "asset" },
+  },
+  {
     chain: "OPTIMISM",
     contract: "0xf368f535e329c6d08dff0d4b2da961c4e7f3fcaf",
     symbol: "WCT Claimable",

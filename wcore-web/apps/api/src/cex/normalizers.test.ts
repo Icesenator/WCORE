@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, bitfinexCanonicalSymbol } from "./normalizers.js";
+import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeKrakenBuckets, normalizeOkxBuckets, bitfinexCanonicalSymbol, krakenCanonicalSymbol } from "./normalizers.js";
 import { priceYahooStockSymbolEur, yahooStockSymbolCandidates } from "./stock-pricing.js";
 import { priceCexRowsForTest } from "../plugins/cex.js";
 
@@ -266,5 +266,37 @@ test("OKX normalization preserves USDC, USDT and DAI as separate web assets", ()
     ["USDC", 10, "spot", "okx-spot"],
     ["USDT", 20, "spot", "okx-spot"],
     ["DAI", 30, "spot", "okx-spot"],
+  ]);
+});
+
+test("krakenCanonicalSymbol maps Kraken asset codes to canonical tickers", () => {
+  assert.equal(krakenCanonicalSymbol("XXBT"), "BTC");
+  assert.equal(krakenCanonicalSymbol("XETH"), "ETH");
+  assert.equal(krakenCanonicalSymbol("XXRP"), "XRP");
+  assert.equal(krakenCanonicalSymbol("XETC"), "ETC");
+  assert.equal(krakenCanonicalSymbol("ZUSD"), "USD");
+});
+
+test("Kraken normalization preserves USDC, USDT and DAI as separate web assets", () => {
+  const rows = normalizeKrakenBuckets({
+    spot: [["USDC", "10"], ["USDT", "20"], ["DAI", "30"]],
+  });
+
+  assert.deepEqual(rows.map((r) => [r.symbol, r.balance, r.bucket, r.source]), [
+    ["USDC", 10, "spot", "kraken-spot"],
+    ["USDT", 20, "spot", "kraken-spot"],
+    ["DAI", 30, "spot", "kraken-spot"],
+  ]);
+});
+
+test("Kraken normalization handles XXBT and XXRP aliases correctly", () => {
+  const rows = normalizeKrakenBuckets({
+    spot: [["XXBT", "1.5"], ["XXRP", "5000"], ["XETH", "2"]],
+  });
+
+  assert.deepEqual(rows.map((r) => [r.symbol, r.balance, r.bucket, r.source]), [
+    ["BTC", 1.5, "spot", "kraken-spot"],
+    ["XRP", 5000, "spot", "kraken-spot"],
+    ["ETH", 2, "spot", "kraken-spot"],
   ]);
 });

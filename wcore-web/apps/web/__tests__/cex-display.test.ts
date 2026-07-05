@@ -88,6 +88,27 @@ test("parseCexWalletAddress recognizes Coinbase and OKX synthetic addresses", ()
   assert.deepEqual(parseCexWalletAddress("cex:okx:acc_okx"), { provider: "okx", id: "acc_okx" });
 });
 
+test("getCexProviderMeta exposes Kraken metadata", () => {
+  const meta = getCexProviderMeta("kraken");
+  assert.equal(meta.label, "Kraken");
+  assert.match(meta.icon, /coinmarketcap\.com/i);
+});
+
+test("chain icon manifest exposes Kraken CEX logo", () => {
+  assert.equal((manifest as Record<string, string>).CEX_KRAKEN, getCexProviderMeta("kraken").icon);
+});
+
+test("parseCexWalletAddress recognizes Kraken synthetic addresses", () => {
+  assert.deepEqual(parseCexWalletAddress("cex:kraken:acc_krk"), { provider: "kraken", id: "acc_krk" });
+});
+
+test("buildCexWalletListItem builds a Kraken wallet row", () => {
+  const item = buildCexWalletListItem({ id: "acc_krk", provider: "kraken", label: null, totalEur: 120 });
+  assert.equal(item.address, "cex:kraken:acc_krk");
+  assert.equal(item.label, "Kraken");
+  assert.equal(item.cexProvider, "kraken");
+});
+
 test("isCexSyntheticContract detects non-on-chain CEX asset identifiers", () => {
   assert.equal(isCexSyntheticContract("AVGO:stocks"), true);
   assert.equal(isCexSyntheticContract("BTC:spot"), true);

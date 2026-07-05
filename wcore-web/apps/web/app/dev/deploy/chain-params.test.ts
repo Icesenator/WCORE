@@ -38,6 +38,17 @@ test("buildAddEthereumChainParams for PulseChain returns PLS", () => {
   assert.equal(params?.nativeCurrency.symbol, "PLS");
 });
 
+test("buildAddEthereumChainParams for Robinhood Chain returns verified mainnet params", () => {
+  const params = buildAddEthereumChainParams(4663);
+  assert.ok(params, "Robinhood Chain should be in deploy chain params");
+  assert.equal(params?.chainId, "0x1237");
+  assert.equal(params?.chainName, "Robinhood Chain");
+  assert.equal(params?.nativeCurrency.name, "Ether");
+  assert.equal(params?.nativeCurrency.symbol, "ETH");
+  assert.equal(params?.nativeCurrency.decimals, 18);
+  assert.deepEqual(params?.rpcUrls, ["https://rpc.mainnet.chain.robinhood.com"]);
+});
+
 test("buildAddEthereumChainParams is case-insensitive and ignores hex string", () => {
   const params = buildAddEthereumChainParams(8453);
   assert.equal(params?.chainId, "0x2105");

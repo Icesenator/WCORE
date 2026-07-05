@@ -112,6 +112,12 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://worldchain-mainnet.g.alchemy.com/public", "https://world-chain.drpc.org", "https://worldchain-mainnet.gateway.tenderly.co", "https://480.rpc.thirdweb.com"],
   },
+  ROBINHOOD_CHAIN: {
+    chainId: "0x1237",
+    chainName: "Robinhood Chain",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: ["https://rpc.mainnet.chain.robinhood.com"],
+  },
   UNICHAIN: {
     chainId: "0x82",
     chainName: "Unichain",
@@ -673,6 +679,7 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   42220, // CELO
   252, // FRAXTAL
   480, // WORLDCHAIN
+  4663, // ROBINHOOD_CHAIN
   130, // UNICHAIN
   80094, // BERACHAIN
   57073, // INK

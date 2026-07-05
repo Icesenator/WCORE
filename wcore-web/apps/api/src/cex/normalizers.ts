@@ -1,4 +1,4 @@
-export type CexProvider = "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx";
+export type CexProvider = "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx" | "kraken";
 
 export interface RawCexRow {
   symbol: string;
@@ -73,8 +73,11 @@ export function normalizeBitpandaBuckets(buckets: BitpandaBuckets): RawCexRow[] 
     for (const item of list) {
       if (!Array.isArray(item)) continue;
       const symbol = canonicalCexSymbol(item[0]);
+      // Bitpanda "Cash Plus" positions (BCPEUR, BCPUSD, ...) are fiat cash held in the
+      // securities account. Classify them as fiat so they line up with the GSheet fiat bucket.
+      const effectiveBucket = /^BCP(EUR|USD|CHF|GBP)$/.test(symbol) ? "fiat" : bucket;
       const quote = buckets.prices?.[symbol];
-      pushAggregated(rows, seen, { symbol, balance: parseCexAmount(item[1]), bucket, source: `bitpanda-${bucket}`, quoteEur: quote?.priceEur ?? null, quoteSource: quote?.source ?? null });
+      pushAggregated(rows, seen, { symbol, balance: parseCexAmount(item[1]), bucket: effectiveBucket, source: `bitpanda-${bucket}`, quoteEur: quote?.priceEur ?? null, quoteSource: quote?.source ?? null });
     }
   }
   return rows;
@@ -177,6 +180,64 @@ export function normalizeOkxBuckets(buckets: OkxBuckets): RawCexRow[] {
     if (!symbol) continue;
     const quote = buckets.prices?.[symbol];
     pushAggregated(rows, seen, { symbol, balance: parseCexAmount(item[1]), bucket: "spot", source: "okx-spot", quoteEur: quote?.priceEur ?? null, quoteSource: quote?.source ?? null });
+  }
+  return rows;
+}
+
+export interface KrakenBuckets {
+  spot?: unknown[];
+  prices?: Record<string, { priceEur?: number; source?: string }>;
+}
+
+const KRAKEN_SYMBOL_ALIASES: Record<string, string> = {
+  XXBT: "BTC", XETH: "ETH", XETC: "ETC", XLTC: "LTC",
+  XXRP: "XRP", XXDG: "DOGE", XXLM: "XLM", XZEC: "ZEC",
+  ATOM: "ATOM", DOT: "DOT", ADA: "ADA", SOL: "SOL",
+  XTZ: "XTZ", AVAX: "AVAX", LINK: "LINK", MATIC: "POL",
+  ALGO: "ALGO", UNI: "UNI", AAVE: "AAVE", SNX: "SNX",
+  COMP: "COMP", CRV: "CRV", GRT: "GRT", ETC: "ETC",
+  LTC: "LTC", BCH: "BCH", BSV: "BSV", EOS: "EOS",
+  TRX: "TRX", FIL: "FIL", KSM: "KSM", FLOW: "FLOW",
+  KAVA: "KAVA", KUSAMA: "KSM", NEAR: "NEAR", APT: "APT",
+  ARB: "ARB", OP: "OP", SUI: "SUI", PEPE: "PEPE",
+  SHIB: "SHIB", INJ: "INJ", TIA: "TIA", SEI: "SEI",
+  EGLD: "EGLD", MINA: "MINA", ICP: "ICP", STX: "STX",
+  IMX: "IMX", RNDR: "RNDR", WLD: "WLD", STRK: "STRK",
+  JUP: "JUP", WIF: "WIF", BONK: "BONK", PYTH: "PYTH",
+  JTO: "JTO", HNT: "HNT", CORE: "CORE", OM: "OM",
+  NTRN: "NTRN", AKT: "AKT", OSMO: "OSMO", DYDX: "POOL",
+  XMR: "XMR", ZRX: "ZRX", OXT: "OXT", STORJ: "STORJ",
+  REN: "REN", NMR: "NMR", LPT: "LPT", UMA: "UMA",
+  BAL: "BAL", YFI: "YFI", BNT: "BNT", RPL: "RPL",
+  ENS: "ENS", BLUR: "BLUR", FXS: "FXS", LDO: "LDO",
+};
+
+export function krakenCanonicalSymbol(symbol: unknown): string {
+  let s = String(symbol ?? "").trim().toUpperCase();
+  if (!s) return "";
+  if (s.length === 4 && (s.startsWith("Z") || s.startsWith("X")) && s[1] !== s[0]) {
+    const core = s.slice(1);
+    if (KRAKEN_SYMBOL_ALIASES[core]) return KRAKEN_SYMBOL_ALIASES[core];
+    // Z-prefixed fiat codes (ZUSD, ZEUR, ZGBP...) map to the plain fiat ticker.
+    if (s.startsWith("Z") && ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF"].includes(core)) return core;
+  }
+  s = KRAKEN_SYMBOL_ALIASES[s] ?? s;
+  return s;
+}
+
+export function normalizeKrakenBuckets(buckets: KrakenBuckets): RawCexRow[] {
+  const rows: RawCexRow[] = [];
+  const seen = new Map<string, number>();
+  const list = Array.isArray(buckets.spot) ? buckets.spot : [];
+  for (const item of list) {
+    if (!Array.isArray(item)) continue;
+    const rawSymbol = String(item[0] ?? "");
+    const symbol = krakenCanonicalSymbol(rawSymbol);
+    if (!symbol) continue;
+    // Skip pure fiat currencies (Kraken prefixes: ZUSD, ZEUR, ZGBP, etc.)
+    if (/^(ZEUR|ZUSD|ZGBP|ZCAD|ZAUD|ZJPY|CHF)$/.test(rawSymbol)) continue;
+    const quote = buckets.prices?.[symbol];
+    pushAggregated(rows, seen, { symbol, balance: parseCexAmount(item[1]), bucket: "spot", source: "kraken-spot", quoteEur: quote?.priceEur ?? null, quoteSource: quote?.source ?? null });
   }
   return rows;
 }

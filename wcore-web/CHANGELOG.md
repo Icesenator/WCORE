@@ -1,5 +1,16 @@
 ﻿# Changelog
 
+## 2026-07-05 — Kraken CEX + DeFi positions + pricing fixes
+
+- **Kraken 7e CEX** : full integration (normalizer, API plugin, form, tests). HMAC-SHA512, microsecond nonce, Z-fiat prefix mapping. 23 files modified.
+- **Robinhood Chain GM** : factory, wagmi chainId 9496, icon, gm-chains label. X post published with `@RobinhoodCrypto`.
+- **CEX pricing provider-first** : `quoteEur` (ticker) prioritized over DefiLlama. BCPEUR reclassified fiat. Stocks priced before crypto (no homonym mispricing). ZUSD fiat mapping fixed.
+- **Relay stock fixes** : TM→`7203.T`, SSU/SMSN ×25 multiplier, ROG→`ROG.SW`, explicit candidates don't fallback to raw symbol.
+- **DeFi badge web** : `DeFi` badge in TokenTable based on name/symbol regex (staked, flex, lock, staking, C-* pattern).
+- **sKAITO DeFi registry** : `[Flex]` suffix + mirror KAITO pricing. DeFi engine documented (`docs/defi-position-engine.md`).
+- **Parity script** : `scripts/parity-gsheet-vs-web.cjs` compares GSheet totals vs Web DB.
+- **X post** : Kraken 7e CEX with MiCA badges (blue `MiCA` on Bitpanda/Bybit/Coinbase/OKX chips, `MiCA LICENSED` pill on hero Kraken). Convention: tag only the new CEX.
+
 ## 2026-07-01 - GSheet Web scan parity + Base Zora fallback pricing
 
 - **GSheet Web scan adapter v4.16.26** : strict token whitelists, stable degraded merges, and precise price derivation from `valueEur / balance` fix GSheet/Web valuation drift for Web-backed scans.

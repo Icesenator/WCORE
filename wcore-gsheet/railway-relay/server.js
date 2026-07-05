@@ -761,9 +761,12 @@ app.get("/health", (req, res) => {
 const STOCK_YAHOO_SYMBOLS = {
   "AMD-US": ["AMD"], "JPM-US": ["JPM"], "LLYC-US": ["LLY"], "WMT-US": ["WMT"],
   BRKB: ["BRK-B"], "BRK.B": ["BRK-B"], "BRK-B": ["BRK-B"],
-  FB: ["META"], MRKUS: ["MRK"], RDSA: ["SHEL"], TSFA: ["TSLA"],
+  FB: ["META"], MRKUS: ["MRK"], RDSA: ["SHEL"], TSFA: ["TSM"],
   TCTZF: ["TCEHY", "TCTZF"], NOVO: ["NVO", "NOVO-B.CO"], SPCX: ["SPCX"],
   BROA: ["AVGO"],
+  // Toyota: Bitpanda unit tracks the Tokyo ordinary share (7203.T), NOT the US ADR
+  // (TM ADR = 10 ordinary shares). Yahoo "TM" would misprice by ~10x.
+  TM: ["7203.T"],
   // Korean tickers (Yahoo .KS, priced in KRW). SSU/SMSN = Samsung receipt.
   SSU: ["005930.KS"], SMSN: ["005930.KS"], HYXS: ["000660.KS"],
   ADS: ["ADS.DE"], AIR: ["AIR.PA"], ALV: ["ALV.DE"], BAS: ["BAS.DE"],
@@ -783,7 +786,11 @@ function stockYahooCandidates(symbol) {
   if (!s) return [];
   const explicit = STOCK_YAHOO_SYMBOLS[s];
   if (explicit && explicit.length > 0) {
-    return Array.from(new Set(explicit.concat([s])));
+    // Explicit mappings are exhaustive: do NOT append the raw symbol as fallback.
+    // Example: ROG maps to ROG.SW (Roche); falling back to Yahoo "ROG" would hit
+    // Rogers Corp (US) and silently misprice. Entries that want the US listing as
+    // fallback list it explicitly (SAP, ASML, SHEL, TCTZF...).
+    return Array.from(new Set(explicit));
   }
   const withoutUs = s.endsWith("-US") ? s.slice(0, -3) : "";
   const normalized = s.indexOf(".") >= 0 ? s.replace(/\./g, "-") : "";
@@ -804,7 +811,10 @@ async function yahooChartPrice(candidate) {
 
 // Bitpanda receipt factors: SSU/SMSN is a Samsung receipt ~= 1/25 of the
 // ordinary KRX:005930 share (mirrors wcore-gsheet's x25 quantity factor).
-const STOCK_RECEIPT_DIVISOR = { SSU: 25, SMSN: 25 };
+// Samsung receipts: 1 Bitpanda SSU/SMSN unit represents ~25 ordinary KRX:005930
+// shares (mirrors wcore-gsheet's x25 factor). Verified against the Bitpanda app:
+// 0.00991373 SSU = 43.77 EUR -> unit price ~4415 EUR = 25 x ordinary share.
+const STOCK_RECEIPT_MULTIPLIER = { SSU: 25, SMSN: 25 };
 
 // Per-EUR rate for non-USD currencies. e.g. EURCHF=X price = CHF per 1 EUR,
 // so priceEur = priceCcy / rate. GBp = pence (1/100 GBP).
@@ -865,9 +875,9 @@ async function fetchStockPricesEur(symbols) {
         const conv = await toEur(hit.price, hit.currency, hit.currencyRaw);
         if (!conv) continue;
         let priceEur = conv.eur;
-        const divisor = STOCK_RECEIPT_DIVISOR[sym];
-        if (divisor && divisor > 0) priceEur = priceEur / divisor;
-        result = { priceEur: priceEur, source: "yahoo:" + conv.tag + ":" + candidate + (divisor ? ":/" + divisor : "") };
+        const multiplier = STOCK_RECEIPT_MULTIPLIER[sym];
+        if (multiplier && multiplier > 0) priceEur = priceEur * multiplier;
+        result = { priceEur: priceEur, source: "yahoo:" + conv.tag + ":" + candidate + (multiplier ? ":x" + multiplier : "") };
         break;
       } catch (_e) { /* try next candidate */ }
     }

@@ -19,6 +19,7 @@ const EXPLORERS: Record<string, string> = {
   fraxtal: "https://fraxscan.com",
   zora: "https://zorascan.xyz",
   worldchain: "https://worldscan.org",
+  robinhood_chain: "https://robinhoodchain.blockscout.com",
   unichain: "https://uniscan.xyz",
   ink: "https://inkscan.xyz",
   soneium: "https://soneium.blockscout.com",

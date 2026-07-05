@@ -3,7 +3,7 @@ import type { Prisma, PrismaClient } from "@wcore/db";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { CexAccountBodySchema, CexAccountParamsSchema } from "../schemas.js";
-import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
+import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, normalizeKrakenBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type KrakenBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
 import { type StockPriceCache } from "../cex/stock-pricing.js";
 import { fetchStockPricesViaRelay } from "../cex/stock-relay.js";
 
@@ -30,6 +30,7 @@ type BitfinexCredentials = { apiKey: string; apiSecret: string };
 type BybitCredentials = { apiKey: string; apiSecret: string };
 type CoinbaseCredentials = { apiKey: string; apiSecret: string };
 type OkxCredentials = { apiKey: string; apiSecret: string; apiPassphrase: string };
+type KrakenCredentials = { apiKey: string; apiSecret: string };
 
 // Server-side binance-relay (Railway IP not blocked by Binance HTTP 451).
 // The relay signs the per-user request and never exposes RELAY_TOKEN to clients.
@@ -273,6 +274,47 @@ async function fetchBitfinexRows(creds: BitfinexCredentials): Promise<RawCexRow[
   return normalizeBitfinexBuckets(buckets);
 }
 
+// Kraken uses HMAC-SHA512 with a different signing scheme than Bitfinex.
+// Signature = HMAC-SHA512(path + nonce + postData, base64decode(apiSecret)), base64 encoded.
+// Nonce must be strictly increasing (Kraken rejects equal or lower nonces).
+// Use microsecond precision (Date.now() * 1000) like Bitfinex, plus a
+// module-level counter to ensure uniqueness within the same microsecond tick.
+let _krakenNonceCounter = 0;
+async function krakenAuthPost(path: string, creds: KrakenCredentials): Promise<unknown> {
+  const nonce = String(Date.now() * 1000 + (++_krakenNonceCounter % 1000));
+  const body = "nonce=" + nonce;
+  const hash = createHash("sha256").update(nonce + body).digest();
+  const hmac = createHmac("sha512", Buffer.from(creds.apiSecret, "base64")).update(Buffer.from(path)).update(hash).digest("base64");
+  const res = await fetch(`https://api.kraken.com${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "API-Key": creds.apiKey,
+      "API-Sign": hmac,
+    },
+    body,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Kraken ${path} HTTP ${res.status}: ${text.slice(0, 300)}`);
+  const json = text ? JSON.parse(text) : null;
+  if (json?.error && json.error.length > 0) throw new Error(`Kraken error: ${json.error.join(", ")}`);
+  return json?.result ?? null;
+}
+
+async function fetchKrakenRows(creds: KrakenCredentials): Promise<RawCexRow[]> {
+  const data = await krakenAuthPost("/0/private/Balance", creds);
+  const balances: Record<string, string> = data ? data as Record<string, string> : {};
+  const spot: Array<[string, number]> = [];
+  for (const [rawSymbol, rawAmount] of Object.entries(balances)) {
+    const amount = Number(String(rawAmount ?? "0").replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    spot.push([rawSymbol, amount]);
+  }
+  const buckets: KrakenBuckets = { spot };
+  return normalizeKrakenBuckets(buckets);
+}
+
 async function priceSymbolEur(symbol: string): Promise<{ priceEur: number | null; source: string | null }> {
   const s = symbol.toUpperCase();
   if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") return { priceEur: 1, source: "fiat-eur" };
@@ -321,21 +363,43 @@ interface PriceCexRowsDeps {
 }
 
 export async function priceCexRowsForTest(rows: RawCexRow[], deps: PriceCexRowsDeps): Promise<Array<RawCexRow & { priceEur: number | null; valueEur: number | null; priceSource: string | null }>> {
-  const priceCache = new Map<string, Promise<{ priceEur: number | null; source: string | null }>>();
-  const stockPriceCache = new Map<string, Promise<{ priceEur: number | null; source: string | null }>>();
+  const priceCache = new Map<string, Promise<CexPriceResult>>();
+  const stockPriceCache = new Map<string, Promise<CexPriceResult>>();
+  const symbolPrice = (symbol: string) => {
+    if (!priceCache.has(symbol)) priceCache.set(symbol, deps.priceSymbolEur(symbol));
+    return priceCache.get(symbol)!;
+  };
   return Promise.all(rows.map(async (row) => {
-    if (!priceCache.has(row.symbol)) priceCache.set(row.symbol, priceSymbolEur(row.symbol));
-    const cexPrice = await priceCache.get(row.symbol)!;
-    if (cexPrice.priceEur != null) {
-      return { ...row, priceEur: cexPrice.priceEur, valueEur: row.balance * cexPrice.priceEur, priceSource: cexPrice.source };
+    const sym = row.symbol.toUpperCase();
+    // Fiat/euro cash fast-path (EUR, EURC, Bitpanda Cash Plus BCP*): never a stock,
+    // never a crypto homonym. Must resolve before the stock branch.
+    if (/^BCP/.test(sym) || sym === "EUR" || sym === "EURI" || sym === "EURC") {
+      const px = await symbolPrice(row.symbol);
+      if (px.priceEur != null) return { ...row, priceEur: px.priceEur, valueEur: row.balance * px.priceEur, priceSource: px.source };
     }
-    if (row.source === "bitpanda-stocks" || row.bucket === "stocks") {
+    const isStock = row.bucket === "stocks" || (row.source === "bitpanda-stocks" && row.bucket !== "fiat");
+    if (isStock) {
+      // Stocks MUST be priced via the stock relay FIRST. The provider quote and
+      // DefiLlama can both return a crypto homonym price (CVX=Convex, MC=Merit
+      // Circle, ACN, WMT...) which silently misprices the security.
       if (!stockPriceCache.has(row.symbol)) stockPriceCache.set(row.symbol, deps.priceStockSymbolEur(row.symbol));
       const price = await stockPriceCache.get(row.symbol)!;
       if (price.priceEur != null) return { ...row, priceEur: price.priceEur, valueEur: row.balance * price.priceEur, priceSource: price.source };
+      // Fallback for positions the relay cannot price: provider quote if present.
+      if (row.quoteEur != null && row.quoteEur > 0) {
+        return { ...row, priceEur: row.quoteEur, valueEur: row.balance * row.quoteEur, priceSource: row.quoteSource ?? `${row.source}:provider-price` };
+      }
+      // Never fall through to crypto pricing for a stock row.
+      return { ...row, priceEur: null, valueEur: null, priceSource: null };
     }
+    // Crypto/fiat rows: provider-native EUR price takes priority (ticker direct EUR, matches GSheet).
     if (row.quoteEur != null && row.quoteEur > 0) {
       return { ...row, priceEur: row.quoteEur, valueEur: row.balance * row.quoteEur, priceSource: row.quoteSource ?? `${row.source}:provider-price` };
+    }
+    // Fallback: DefiLlama (USD -> EUR via FX rate).
+    const cexPrice = await symbolPrice(row.symbol);
+    if (cexPrice.priceEur != null) {
+      return { ...row, priceEur: cexPrice.priceEur, valueEur: row.balance * cexPrice.priceEur, priceSource: cexPrice.source };
     }
     return { ...row, priceEur: null, valueEur: null, priceSource: null };
   }));
@@ -377,7 +441,7 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
     // Bitpanda needs apiKey only. OKX additionally requires a passphrase.
     const credentials = body.provider === "okx"
       ? (body.apiKey && body.apiSecret && body.apiPassphrase ? { apiKey: body.apiKey, apiSecret: body.apiSecret, apiPassphrase: body.apiPassphrase } satisfies OkxCredentials : null)
-      : (body.provider === "binance" || body.provider === "bitfinex" || body.provider === "bybit" || body.provider === "coinbase")
+      : (body.provider === "binance" || body.provider === "bitfinex" || body.provider === "bybit" || body.provider === "coinbase" || body.provider === "kraken")
       ? (body.apiKey && body.apiSecret ? { apiKey: body.apiKey, apiSecret: body.apiSecret } satisfies BinanceCredentials : null)
       : (body.apiKey ? { apiKey: body.apiKey } satisfies BitpandaCredentials : null);
     if (!credentials) return reply.code(400).send({ error: "missing_credentials" });
@@ -415,6 +479,8 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
         ? await fetchOkxRows(decryptJson<OkxCredentials>(account.encryptedCredentials))
         : account.provider === "bitfinex"
         ? await fetchBitfinexRows(decryptJson<BitfinexCredentials>(account.encryptedCredentials))
+        : account.provider === "kraken"
+        ? await fetchKrakenRows(decryptJson<KrakenCredentials>(account.encryptedCredentials))
         : await fetchBitpandaRows(decryptJson<BitpandaCredentials>(account.encryptedCredentials));
       const holdings = await pricedRows(rows, stockPriceCache);
       const writes: Prisma.PrismaPromise<unknown>[] = [

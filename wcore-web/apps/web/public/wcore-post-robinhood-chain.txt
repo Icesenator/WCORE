@@ -1,0 +1,6 @@
+Today's WCORE update.
+Robinhood Chain is now live.
+chainId 4663. Native ETH. EVM L2. Same read-only model, no key required.
+183 chains tracked. One more today.
+Read first. Act later.
+wcore.xyz

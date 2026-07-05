@@ -576,23 +576,21 @@ function _bpParseBalance_(value) {
 // cumuler les soldes sur une seule ligne (sinon le VLOOKUP tombe sur la base=0).
 var BITPANDA_SYMBOL_ALIASES = {
   "USDC": "USDT",
-  // Variantes US suffixees -> ticker de base (la base a un solde nul).
-  "AMD-US": "AMD",
-  "WMT-US": "WMT",
-  "JPM-US": "JPM",
-  "LLYC-US": "LLY",
+  "AMD-US": "AMD", "WMT-US": "WMT", "JPM-US": "JPM", "LLYC-US": "LLY",
   "MRKUS": "MRK",
-  // v4.15.72: doubles tickers Bitpanda (ancien code Bitpanda + ticker boursier
-  // tous deux avec solde). On canonise vers UN seul symbole et on cumule, sinon
-  // le VLOOKUP d'Action Rebalancing ne capte qu'une des deux lignes.
-  "TSFA": "TSM",    // TSMC (TSFA = ancien code Bitpanda)
-  "BROA": "AVGO",   // Broadcom (BROA = ancien code Bitpanda)
-  "BRK": "BRKB",    // Berkshire Hathaway B (BRK base = 0)
-  "SMSN": "SSU",    // Samsung (SMSN base = 0; SSU = receipt ~25 actions ord.)
-  "NOVN": "NVS",    // Novartis (NOVN base = 0)
-  "RDSA": "SHEL",   // Shell (ancien code Bitpanda RDSA)
-  "TCTZF": "TCEHY"  // Tencent (TCTZF = ancien code Bitpanda)
+  "TSFA": "TSM", "BROA": "AVGO", "BRK": "BRKB", "SMSN": "SSU",
+  "NOVN": "NVS", "RDSA": "SHEL", "TCTZF": "TCEHY"
 };
+
+// Reverse map for web API pricing: normalized symbol -> original ticker(s)
+var BP_ORIGINAL_TICKERS = {};
+(function() {
+  for (var k in BITPANDA_SYMBOL_ALIASES) {
+    var v = BITPANDA_SYMBOL_ALIASES[k];
+    if (!BP_ORIGINAL_TICKERS[v]) BP_ORIGINAL_TICKERS[v] = [];
+    BP_ORIGINAL_TICKERS[v].push(k);
+  }
+})();
 
 function _bpCanonicalSymbol_(symbol) {
   var s = String(symbol || "").trim();
@@ -1481,7 +1479,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   if (!priceMap) priceMap = {};
   var isStocks = String(sheetName || "").toLowerCase().indexOf("stocks") >= 0;
 
-  var webPrices = _cexFetchWebPrices_(balances, sheetName);
+  var webPrices = _cexFetchWebPrices_(balances, sheetName, isStocks);
   var stockPriceMap = {};
   if (isStocks) {
     try {
@@ -1627,8 +1625,12 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   return Math.round(total * 100) / 100;
 }
 
-function _cexFetchWebPrices_(balances, sheetName) {
+function _cexFetchWebPrices_(balances, sheetName, isStocks) {
   var out = null;
+  // Stocks are priced via Action Rebalancing + Yahoo relay only.
+  // The Bitpanda ticker has crypto homonyms (ACN, MC, WMT...) that would
+  // silently misprice securities. Skip the web API for stocks entirely.
+  if (isStocks) return null;
   try {
     var apiUrl = _cexGetWebApiUrl_();
     var apiToken = _cexGetWebApiToken_();
@@ -1639,10 +1641,23 @@ function _cexFetchWebPrices_(balances, sheetName) {
         if (bs && Number((balances[bi] || [])[1] || 0) > 0) allSymbols.push(bs);
       }
       if (allSymbols.length > 0) {
+        // For stocks, also try the original (pre-normalization) ticker
+        // so the web API can price WMT-US via Yahoo instead of WMT via crypto ticker.
+        var querySymbols = allSymbols.slice();
+        if (isStocks && typeof BP_ORIGINAL_TICKERS !== "undefined") {
+          for (var qi = 0; qi < querySymbols.length; qi++) {
+            var origTickers = BP_ORIGINAL_TICKERS[querySymbols[qi]];
+            if (origTickers) {
+              for (var oi = 0; oi < origTickers.length; oi++) {
+                if (querySymbols.indexOf(origTickers[oi]) < 0) querySymbols.push(origTickers[oi]);
+              }
+            }
+          }
+        }
         var chunkSize = 50;
         out = {};
-        for (var ci = 0; ci < allSymbols.length; ci += chunkSize) {
-          var chunk = allSymbols.slice(ci, ci + chunkSize);
+        for (var ci = 0; ci < querySymbols.length; ci += chunkSize) {
+          var chunk = querySymbols.slice(ci, ci + chunkSize);
           var url = apiUrl + "/api/cex/prices?symbols=" + encodeURIComponent(chunk.join(","));
           var resp = UrlFetchApp.fetch(url, { headers: { "x-gsheet-token": apiToken }, muteHttpExceptions: true });
           if (resp.getResponseCode() === 200) {

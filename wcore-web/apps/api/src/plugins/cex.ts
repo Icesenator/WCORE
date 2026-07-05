@@ -501,11 +501,80 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
     }
   });
 
+
+// Unified CEX ticker — tries Kraken, OKX, Binance, Bybit, Coinbase, Bitfinex.
+// Prioritizes the exchange ticker over DefiLlama aggregations (e.g. LEO on OKX
+// is 8.10 EUR while DefiLlama average across all CEX shows 10.60 EUR).
+const _cexTickerCache = new Map<string, { priceEur: number; ts: number }>();
+async function getCexTickerPrice(symbol: string, provider?: string): Promise<number | null> {
+  const s = symbol.toUpperCase();
+  const now = Date.now();
+  const cached = _cexTickerCache.get(s);
+  if (cached && now - cached.ts < 600_000) return cached.priceEur;
+  const all: Array<{ name: string; fn: () => Promise<number | null> }> = [
+    { name: "kraken", fn: async () => { const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.error?.length) return null; for(const [,t] of Object.entries(d.result ?? {})) { const p = parseFloat((t as any)?.c?.[0] ?? ""); if (p > 0) return p; } return null; } },
+    { name: "okx", fn: async () => { const r = await fetch(`https://www.okx.com/api/v5/market/ticker?instId=${encodeURIComponent(s)}-EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.code !== "0") return null; const p = parseFloat(d.data?.[0]?.last ?? ""); return p > 0 ? p : null; } },
+    { name: "binance", fn: async () => { const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.code) return null; const p = parseFloat(d.price ?? ""); return p > 0 ? p : null; } },
+    { name: "bybit", fn: async () => { const r = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.retCode !== 0) return null; const p = parseFloat(d.result?.list?.[0]?.lastPrice ?? ""); return p > 0 ? p : null; } },
+    { name: "coinbase", fn: async () => { const r = await fetch(`https://api.coinbase.com/v2/prices/${encodeURIComponent(s)}-EUR/spot`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; const p = parseFloat(d.data?.amount ?? ""); return p > 0 ? p : null; } },
+    { name: "bitfinex", fn: async () => { const r = await fetch(`https://api-pub.bitfinex.com/v2/ticker/t${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (!Array.isArray(d) || d.length < 7) return null; const p = d[6]; return p > 0 ? p : null; } },
+  ];
+  // Provider's own ticker first (OKX balance → OKX price)
+  let providerIdx = -1;
+  if (provider) { for (let i = 0; i < all.length; i++) { if (all[i]!.name === provider) { providerIdx = i; break; } } }
+  const ordered = providerIdx >= 0 ? [all[providerIdx]!, ...all.slice(0, providerIdx), ...all.slice(providerIdx + 1)] : all;
+  const results = await Promise.allSettled(ordered.map((f) => f!.fn()));
+  for (const r of results) { if (r.status === "fulfilled" && r.value != null && r.value > 0) { _cexTickerCache.set(s, { priceEur: r.value, ts: now }); return r.value; } }
+  return null;
+}
 function looksLikeStock(symbol: string): boolean {
   const s = symbol.toUpperCase();
   if (CEX_PRICE_IDS[s]) return false;
   if (["EUR", "EURI", "EURC", "USD", "USDT", "USDC", "DAI", "BUSD", "FDUSD", "TUSD"].includes(s)) return false;
   return /^[A-Z]{2,5}$/.test(s) || s.includes("-US") || s.includes("-");
+}
+
+// Kraken public ticker: try {symbol}EUR pair.
+const _krakenTickerCache = new Map<string, { priceEur: number; ts: number }>();
+async function getKrakenTickerPrice(symbol: string): Promise<number | null> {
+  const s = symbol.toUpperCase();
+  const now = Date.now();
+  const cached = _krakenTickerCache.get(s);
+  if (cached && now - cached.ts < 600_000) return cached.priceEur;
+  try {
+    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(5000) });
+    const data = await res.json() as { error?: unknown[]; result?: Record<string, { c?: [string, string] }> };
+    if (data.error?.length) return null;
+    for (const [, ticker] of Object.entries(data.result ?? {})) {
+      const price = parseFloat(ticker?.c?.[0] ?? "");
+      if (price > 0) {
+        _krakenTickerCache.set(s, { priceEur: price, ts: now });
+        return price;
+      }
+    }
+  } catch (_e) { /* fall through */ }
+  return null;
+}
+
+// OKX public ticker: try {SYMBOL}-EUR instrument.
+const _okxTickerCache = new Map<string, { priceEur: number; ts: number }>();
+async function getOkxTickerPrice(symbol: string): Promise<number | null> {
+  const s = symbol.toUpperCase();
+  if (s === "EUR" || s === "USD" || s === "USDT" || s === "USDC") return null;
+  const now = Date.now();
+  const cached = _okxTickerCache.get(s);
+  if (cached && now - cached.ts < 600_000) return cached.priceEur;
+  try {
+    const res = await fetch(`https://www.okx.com/api/v5/market/ticker?instId=${encodeURIComponent(s)}-EUR`, { signal: AbortSignal.timeout(5000) });
+    const data = await res.json() as { code?: string; data?: Array<{ last?: string }> };
+    if (data.code !== "0") return null;
+    const price = parseFloat(data.data?.[0]?.last ?? "");
+    if (price > 0) {
+      _okxTickerCache.set(s, { priceEur: price, ts: now });
+      return price;
+    }
+  } catch (_e) { /* fall through */ }
+  return null;
 }
 
   app.get("/api/cex/prices", async (req, reply) => {
@@ -516,6 +585,7 @@ function looksLikeStock(symbol: string): boolean {
     if (symbols.length === 0) return reply.code(400).send({ error: "empty_symbols" });
     if (symbols.length > 200) return reply.code(400).send({ error: "too_many_symbols", max: 200 });
     const isStocks = String(q.bucket ?? "").toLowerCase() === "stocks";
+    const provider = String(q.provider ?? "").toLowerCase();
 
     // Bitpanda ticker (EUR direct) — fetched once per request. Skipped for
     // stocks because the ticker has crypto homonyms (FB, ACN, MC, WMT) that
@@ -549,6 +619,13 @@ function looksLikeStock(symbol: string): boolean {
       }
 
       const llamaId = CEX_PRICE_IDS[s];
+
+      // CEX tickers (EUR direct) — Kraken, OKX, Binance, Bybit, Coinbase, Bitfinex.
+      // Falls back to DefiLlama if no ticker has the symbol.
+      if (!llamaId || !isStocks) {
+        const tickerPrice = await getCexTickerPrice(s, provider);
+        if (tickerPrice != null && tickerPrice > 0) return { symbol, priceEur: tickerPrice, source: "cex-ticker" };
+      }
       if (llamaId) {
         try {
           const res = await fetch(`https://coins.llama.fi/prices/current/${llamaId}?searchWidth=4h`, { signal: AbortSignal.timeout(5000) });

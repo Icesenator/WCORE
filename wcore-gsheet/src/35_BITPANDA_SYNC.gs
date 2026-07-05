@@ -1484,6 +1484,8 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     sh.getRange("B1:D1").setNumberFormat("@");
     // Balance column number format (skip B1 and header rows)
     if (opt_values.length > 2) sh.getRange(3, 2, opt_values.length - 2, 1).setNumberFormat("0.########");
+    // Timestamp column D stays as text so seconds are always visible
+    if (opt_values.length > 1) sh.getRange(2, 4, opt_values.length - 1).setNumberFormat("@");
   }
 
   // 1. Strip any prior TOTAL row near the expected position (3 + nbAssets).

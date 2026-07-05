@@ -1569,6 +1569,9 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
             for (var pk in p) {
               if (p[pk] && typeof p[pk].priceEur === "number" && p[pk].priceEur > 0) {
                 webPrices[pk] = p[pk].priceEur;
+              } else if (p[pk] && p[pk].source === "bitpanda-ticker") {
+                // Authoritative null: ticker says 0 EUR, do NOT fall back to DefiLlama.
+                webPrices[pk] = null;
               }
             }
           }
@@ -1638,11 +1641,12 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
 
     if (symbol && balance > 0) {
       var t = null;
-      // v4.15.136: web API prices first (provider-first, centralized)
-      if (webPrices && webPrices[symbol] != null) {
-        priceEur = Number(webPrices[symbol]);
+      // v4.15.137: web API prices first (provider-first, centralized)
+      if (webPrices && webPrices.hasOwnProperty(symbol)) {
+        if (webPrices[symbol] != null && webPrices[symbol] > 0) priceEur = Number(webPrices[symbol]);
+        // else: ticker-authoritative null → skip all fallbacks, leave priceEur=null
       }
-      if (priceEur == null && symbol === "EUR") t = "EUR";
+      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol)) && symbol === "EUR") t = "EUR";
       if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
         t = WCORE_STABLECOINS.getType(symbol);
       }

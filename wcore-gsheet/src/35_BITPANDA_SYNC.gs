@@ -582,6 +582,19 @@ var BITPANDA_SYMBOL_ALIASES = {
   "NOVN": "NVS", "RDSA": "SHEL", "TCTZF": "TCEHY"
 };
 
+// Action Rebalancing equivalence: CEX symbol → AR ticker (col A formula).
+// AR uses GOOGLEFINANCE exchange-prefixed tickers for non-US securities.
+// Without this map, the stockPriceMap lookup misses 12 positions (~301 EUR).
+var BP_AR_ALIASES = {
+  "GOOGL": "GOOG", "FB": "META", "BRKB": "NYSE:BRK.B", "TM": "TYO:7203",
+  "MC": "EPA:MC", "NESN": "SWX:NESN", "OR": "EPA:OR", "ROG": "SWX:RO",
+  "HYXS": "KRX:000660", "SSU": "KRX:005930",
+  "NOVO": "CPH:NOVO-B", "RMS": "EPA:RMS",
+  "TSFA": "TSM", "BROA": "AVGO", "LLYC-US": "LLY", "WMT-US": "WMT",
+  "JPM-US": "JPM", "AMD-US": "AMD", "MRKUS": "MRK", "RDSA": "SHEL",
+  "TCTZF": "TCEHY", "NOVN": "NVS", "SMSN": "KRX:005930"
+};
+
 // Reverse map for web API pricing: normalized symbol -> original ticker(s)
 var BP_ORIGINAL_TICKERS = {};
 (function() {
@@ -1491,7 +1504,14 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
           for (var asi = 0; asi < arVals.length; asi++) {
             var aSym = String(arVals[asi][0] || "").trim().toUpperCase();
             var aPrc = Number(arVals[asi][3] || 0);
-            if (aSym && isFinite(aPrc) && aPrc > 0) stockPriceMap[aSym] = aPrc;
+            if (aSym && isFinite(aPrc) && aPrc > 0) {
+              stockPriceMap[aSym] = aPrc;
+              // v4.15.139: also index by CEX symbol so the pricing loop finds
+              // GOOGL→GOOG, FB→META, BRKB→NYSE:BRK.B, etc.
+              for (var bk in BP_AR_ALIASES) {
+                if (BP_AR_ALIASES[bk].toUpperCase() === aSym) stockPriceMap[bk] = aPrc;
+              }
+            }
           }
         }
       }
@@ -1511,7 +1531,11 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     var priceEur = null;
 
     if (symbol && balance > 0) {
-      if (webPrices && webPrices.hasOwnProperty(symbol)) {
+      // Stocks: Action Rebalancing FIRST (source of truth, Google Finance),
+      // then web API (Yahoo relay) as fallback. Keeps CEX - Bitpanda Stocks
+      // consistent with Action Rebalancing.
+      if (isStocks && stockPriceMap[symbol] != null) priceEur = stockPriceMap[symbol];
+      if (priceEur == null && webPrices && webPrices.hasOwnProperty(symbol)) {
         if (webPrices[symbol] != null && webPrices[symbol] > 0) priceEur = Number(webPrices[symbol]);
       }
       if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol))) {
@@ -1521,7 +1545,6 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
         if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t = ChainFactory.STABLECOINS.getType(symbol);
         if (t === "EUR" || t === "USD" || symbol === "EUR") priceEur = 1.0;
       }
-      if (priceEur == null && isStocks && stockPriceMap[symbol] != null) priceEur = stockPriceMap[symbol];
       if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol)) && _cexSymbolToGeckoId_(symbol)) {
         try {
           var geckoId = _cexSymbolToGeckoId_(symbol);
@@ -1627,10 +1650,6 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
 
 function _cexFetchWebPrices_(balances, sheetName, isStocks) {
   var out = null;
-  // Stocks are priced via Action Rebalancing + Yahoo relay only.
-  // The Bitpanda ticker has crypto homonyms (ACN, MC, WMT...) that would
-  // silently misprice securities. Skip the web API for stocks entirely.
-  if (isStocks) return null;
   try {
     var apiUrl = _cexGetWebApiUrl_();
     var apiToken = _cexGetWebApiToken_();
@@ -1658,7 +1677,7 @@ function _cexFetchWebPrices_(balances, sheetName, isStocks) {
         out = {};
         for (var ci = 0; ci < querySymbols.length; ci += chunkSize) {
           var chunk = querySymbols.slice(ci, ci + chunkSize);
-          var url = apiUrl + "/api/cex/prices?symbols=" + encodeURIComponent(chunk.join(","));
+          var url = apiUrl + "/api/cex/prices?symbols=" + encodeURIComponent(chunk.join(",")) + (isStocks ? "&bucket=stocks" : "");
           var resp = UrlFetchApp.fetch(url, { headers: { "x-gsheet-token": apiToken }, muteHttpExceptions: true });
           if (resp.getResponseCode() === 200) {
             var body = JSON.parse(resp.getContentText() || "{}");

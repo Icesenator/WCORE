@@ -16,7 +16,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   polygon_zkevm: "Polygon zkEVM", zora: "Zora", mode: "Mode",
   sei: "Sei", superseed: "Superseed", shape: "Shape",
   ancient8: "Ancient8", bob: "BOB", lisk: "Lisk",
-  metal_l2: "Metal L2", redstone: "Redstone", appchain: "AppChain",
+  metal_l2: "Metal L2",   redstone: "Redstone", robinhood_chain: "Robinhood Chain", appchain: "AppChain",
   camp: "Camp", duckchain: "DuckChain", cyber: "Cyber",
   rari: "RARI Chain", zircuit: "Zircuit", openledger: "OpenLedger",
   stable: "Stable", tac: "TAC", mitosis: "Mitosis", b3: "B3", sonic: "Sonic", citrea: "Citrea", cronos: "Cronos", fuse: "Fuse", kaia: "Kaia",

@@ -41,6 +41,19 @@ const redstone: Chain = {
   },
 };
 
+const robinhoodChain: Chain = {
+  id: 4663,
+  name: "Robinhood Chain",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.mainnet.chain.robinhood.com"] },
+    public: { http: ["https://rpc.mainnet.chain.robinhood.com"] },
+  },
+  blockExplorers: {
+    default: { name: "Robinhood Explorer", url: "https://robinhoodchain.blockscout.com" },
+  },
+};
+
 const appchain: Chain = {
   id: 466,
   name: "AppChain",
@@ -548,7 +561,7 @@ const wagmiConnectors = [
 
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, polygonZkEvm, zora, mode, sei, superseed, shape, ancient8, bob, lisk, metalL2, redstone, appchain, camp, duckchain, cyber, rari, zircuit,
+    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, polygonZkEvm, zora, mode, sei, superseed, shape, ancient8, bob, lisk, metalL2, redstone, robinhoodChain, appchain, camp, duckchain, cyber, rari, zircuit,
     mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, syndicateCommons, race, doma, b2, juchain, mind, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story],
@@ -588,6 +601,7 @@ export const config = createConfig({
     [lisk.id]: http(),
     [metalL2.id]: http(),
     [redstone.id]: http(),
+    [robinhoodChain.id]: http(),
     [appchain.id]: http(),
     [camp.id]: http(),
     [duckchain.id]: http(),

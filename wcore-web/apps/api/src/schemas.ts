@@ -168,7 +168,7 @@ export const CustomTokenAddBodySchema = z.object({
   chainType: z.enum(["EVM", "SVM", "COSMOS"]).optional().default("EVM"),
 });
 
-export const CexProviderSchema = z.enum(["binance", "bitpanda", "bitfinex", "bybit", "coinbase", "okx"]);
+export const CexProviderSchema = z.enum(["binance", "bitpanda", "bitfinex", "bybit", "coinbase", "okx", "kraken"]);
 
 export const CexAccountBodySchema = z.object({
   provider: CexProviderSchema,

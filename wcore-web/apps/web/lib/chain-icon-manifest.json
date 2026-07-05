@@ -31,6 +31,7 @@
   "CEX_BYBIT": "https://s2.coinmarketcap.com/static/img/exchanges/64x64/521.png",
   "CEX_COINBASE": "https://s2.coinmarketcap.com/static/img/exchanges/64x64/89.png",
   "CEX_OKX": "https://s2.coinmarketcap.com/static/img/exchanges/64x64/294.png",
+  "CEX_KRAKEN": "https://s2.coinmarketcap.com/static/img/exchanges/64x64/24.png",
   "CRONOS": "/chains/CRONOS.png",
   "CYBER": "/chains/CYBER.webp",
   "DEGEN": "/chains/DEGEN.webp",
@@ -87,6 +88,7 @@
   "REYA": "/chains/REYA.webp",
   "RONIN": "/chains/RONIN.webp",
   "ROOTSTOCK": "/chains/ROOTSTOCK.webp",
+  "ROBINHOOD_CHAIN": "/chains/ROBINHOOD_CHAIN.png",
   "SCROLL": "/chains/SCROLL.png",
   "SEI": "/chains/SEI.png",
   "SHAPE": "/chains/SHAPE.webp",
@@ -192,5 +194,6 @@
   "AVES_NETWORK": "/chains/AVES_NETWORK_logo.svg",
   "AWAJI": "/chains/AWAJI_logo.png",
   "DBK_CHAIN": "/chains/DBK_CHAIN.svg",
-  "INTUITION": "https://cdn.prod.website-files.com/65cdf366e68587fd384547f0/65cdf4b15329ddf9e0f63848_webclip.jpg"
+  "INTUITION": "https://cdn.prod.website-files.com/65cdf366e68587fd384547f0/65cdf4b15329ddf9e0f63848_webclip.jpg",
+  "ROBINHOOD_CHAIN": "/chains/ROBINHOOD_CHAIN.png"
 }

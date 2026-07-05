@@ -33,6 +33,7 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   lisk: { address: "0xcc57c6df12d926f958f36fe98c0c8a8008fac490", chainId: 1135 },
   metal_l2: { address: "0xd1ccba23ffc3657fb1562f26b5c4301e54836a6c", chainId: 1750 },
   redstone: { address: "0xd1ccba23ffc3657fb1562f26b5c4301e54836a6c", chainId: 690 },
+  robinhood_chain: { address: "0x4d90e914871921f0443bda53f70def868d9f2960", chainId: 4663 },
   appchain: { address: "0xda65daf33f4492352171161e5a07631c5cc47e4f", chainId: 466 },
   camp: { address: "0x2d2eb5d89eae3f8687676da0462753481e3a7785", chainId: 484 },
   duckchain: { address: "0xb22fb1dbbaf87990b738502bb5f3eed5c19a43e4", chainId: 5545 },

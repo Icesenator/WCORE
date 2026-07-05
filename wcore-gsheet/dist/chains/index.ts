@@ -135,6 +135,7 @@ import { REDSTONE } from "./REDSTONE.js";
 import { REI_NETWORK } from "./REI_NETWORK.js";
 import { REYA } from "./REYA.js";
 import { RIVALZ } from "./RIVALZ.js";
+import { ROBINHOOD_CHAIN } from "./ROBINHOOD_CHAIN.js";
 import { ROLLUX } from "./ROLLUX.js";
 import { RONIN } from "./RONIN.js";
 import { ROOTSTOCK } from "./ROOTSTOCK.js";
@@ -319,6 +320,7 @@ export const chains = {
   REI_NETWORK,
   REYA,
   RIVALZ,
+  ROBINHOOD_CHAIN,
   ROLLUX,
   RONIN,
   ROOTSTOCK,

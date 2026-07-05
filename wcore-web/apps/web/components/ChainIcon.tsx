@@ -17,7 +17,7 @@ const EMOJIS: Record<string, string> = {
   XRPLEVM: "\uD83D\uDCA7", TON: "\uD83C\uDF0A",
 };
 
-const CONTAIN_LOGOS = new Set(["GNOSIS", "CEX_BINANCE", "CEX_BITPANDA", "CEX_BITFINEX", "CEX_BYBIT", "CEX_COINBASE", "CEX_OKX"]);
+const CONTAIN_LOGOS = new Set(["GNOSIS", "CEX_BINANCE", "CEX_BITPANDA", "CEX_BITFINEX", "CEX_BYBIT", "CEX_COINBASE", "CEX_OKX", "CEX_KRAKEN"]);
 
 function ChainIconInner({ chainKey, size = "md" }: ChainIconProps) {
   const upper = chainKey.toUpperCase();

@@ -27,6 +27,20 @@ const INITIAL_SHOW = 5;
 
 type SortColumn = "symbol" | "balance" | "price" | "value";
 
+function isDefiPosition(symbol: string, name: string): boolean {
+  const n = name.toLowerCase();
+  const s = symbol.toUpperCase();
+  if (n.includes("[flex]") || n.includes("[lock]")) return true;
+  if (/^staked\b/i.test(n)) return true;
+  if (/\b(defi|receipt|vault)\b/i.test(n)) return true;
+  if (/\b(liquid stak|stak)\b/i.test(n)) return true;
+  if (/^C-(?!EX\b)/.test(s) && /\b(aidrop|stak|lock)\b/i.test(n)) return true;
+  if (s.startsWith("S") && /^S[A-Z]/.test(symbol) && !/^(SOL|SUI|SEI|STRK|SHIB|STX|SNX|SAND|SUSHI|SNT|STORJ|SNM|SFP|SC|SFP|SKL|SPELL|STRAX|STG|SWELL|SYN)$/i.test(s)) {
+    if (/^staked\b/i.test(n) || /\bstak/i.test(n) || /receipt/i.test(n)) return true;
+  }
+  return false;
+}
+
 function formatBalance(value: number): string {
   return new Intl.NumberFormat("fr-FR", {
     maximumFractionDigits: value >= 1 ? 6 : 10,
@@ -198,6 +212,7 @@ export function TokenTable({ native, tokens, chainKey, connectedAddress }: Token
             const isCexAsset = isCexSyntheticContract(asset.contract);
             const isScam = (asset as AugmentedTokenAsset)._isScam === true;
             const _hasIssue = (asset as AugmentedTokenAsset)._hasIssue === true;
+            const isDefi = !isNative && !isCexAsset && isDefiPosition(asset.symbol, asset.name);
             const explorerUrl = !isNative && !isCexAsset ? getExplorerUrl(chainKey, asset.contract) : null;
             const shortContract = !isNative && !isCexAsset ? asset.contract.slice(0, 6) + "..." + asset.contract.slice(-4) : null;
 
@@ -215,6 +230,7 @@ export function TokenTable({ native, tokens, chainKey, connectedAddress }: Token
                         <span className="ml-1.5 rounded bg-yellow-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-yellow-300">{t("noPrice")}</span>
                       ) : null}
                       {!isNative && isScam ? <span className="ml-1.5 rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-300" title={(asset as AugmentedTokenAsset)._scamReasons?.join(", ")}>⚠️ SCAM</span> : null}
+                      {isDefi ? <span className="ml-1.5 rounded bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-300" title="DeFi position (staked, locked, liquid staking, flex)">DeFi</span> : null}
                       {!isNative && !isCexAsset ? (
                         <button
                           type="button"

@@ -17,9 +17,21 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ---
 
-## Etat courant : v0.3.2 - GSheet Web scan hardening + Base Zora pricing fallback (2026-07-01)
+## Etat courant : v0.3.3 - Kraken CEX + DeFi positions + pricing fixes (2026-07-05)
 
-### Session 2026-07-01 - GSheet/Web valuation parity and Base long-tail pricing
+### Session 2026-07-05 — Kraken 7e CEX, Robinhood Chain GM, parity GSheet/Web
+
+- **Kraken CEX (7e source)** : intégration complète (types, normalizer `krakenCanonicalSymbol`, API plugin `fetchKrakenRows`, form, tests). Signature HMAC-SHA512, nonce microsecondes + compteur. Endpoint `/0/private/Balance`. Filtre fiat Z-prefix (`ZUSD→USD`, `ZEUR→EUR`...). Les 3-char tokens (ADA, DOT, SOL) ne sont plus filtrés. **23 files** modifiés : `cex.ts`, `normalizers.ts`, `schemas.ts`, `cex-display.ts`, `CexAccounts.tsx`, `ChainCard.tsx`, `ChainIcon.tsx`, `explorers.ts`, `wagmi.ts`, `useCexHoldings.ts`, etc.
+- **Robinhood Chain GM** : factory `0xbC1753...`, wagmi chainId `9496`, icône, gm-chains label, chain-native-symbols. X post publié `https://x.com/WCORExyz/status/2073...` avec tag `@RobinhoodCrypto`.
+- **Pricing CEX provider-first** : `priceCexRowsForTest` donne priorité au ticker fournisseur (`quoteEur`) sur DefiLlama. BCPEUR (cash Bitpanda titres) reclassé fiat. Stocks pricés en premier via relay Yahoo, jamais en crypto (homonymes CVX, MC, ACN, WMT...). Tests normalizers : 24/24.
+- **Relay stocks fixes** : TM → `7203.T` (action Tokyo, pas ADR US 10×), SSU/SMSN ×25 (receipt Samsung, pas ÷25), ROG → `ROG.SW` (Roche, pas Rogers Corp). Stock candidates ne fallbackent plus vers le symbole brut si un mapping explicite existe.
+- **DeFi position badge web** : `TokenTable.tsx` affiche un badge bleu `DeFi` sur les tokens staked/locked/flex. Détection regex-based : noms avec `[Flex]`/`[Lock]`, `Staked *`, `staking`, `liquid staking`, `receipt`, symboles `sXxx`+staking, `C-*`+staking/airdrop.
+- **sKAITO DeFi registry** : ajouté dans `defi/registry.ts` (`[Flex]`, pricing mirror KAITO). Documentation complète du moteur DeFi : `docs/defi-position-engine.md` (architecture, 3 mécanismes de détection, checklist ajout).
+- **Parity script** : `scripts/parity-gsheet-vs-web.cjs` compare les totaux Recap Portfolio GSheet vs DB Web.
+- **X posts** : Kraken 7e CEX (`wcore-post-kraken.png`, badges MiCA bleus sur les chips licenciés, pill `MiCA LICENSED` hero Kraken). Convention tag unique (nouveau CEX uniquement).
+- **AGENTS.md** : entrée Kraken post + MiCA badges ajoutée à la section gotchas X posts.
+
+### Session 2026-07-01 - GSheet Web scan hardening + Base Zora pricing fallback
 
 - **GSheet Web scan adapter v4.16.26** : `I2:I` token whitelists now send `strictTokens:true`; degraded partial Web scans no longer clear cache-only token prices; adapter accepts `priceEur/price_eur/price` and `valueEur/value_eur/value`, and derives a precise price from `value / balance` when the API exposes an exact value but a rounded price. This fixed the observed Solana DBR drift where GSheet recalculated a lower value from a rounded `priceEur` while Web kept the precise `valueEur`.
 - **Scam rules** : Base fake-price spam `ZAMRUD` contract `0x69ca8b02d2aa27619e02fbf6de1b1502da5f147a` is hard-blocked by contract. `SCAM_RULES_VERSION` bumped to 15.

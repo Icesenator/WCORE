@@ -21,7 +21,7 @@ const DEFAULT_IMPLEMENTATIONS: Record<string, string> = {
 const DEPLOY_CHAIN_KEYS = [
   "BASE", "ETHEREUM", "ARBITRUM_ONE", "OPTIMISM", "POLYGON", "BSC", "AVALANCHE",
   "GNOSIS", "ZKSYNC_ERA", "SCROLL", "LINEA", "MANTLE", "BLAST", "SONIC", "CELO",
-  "FRAXTAL", "WORLDCHAIN", "UNICHAIN", "BERACHAIN", "INK", "ABSTRACT", "SONEIUM",
+  "FRAXTAL", "WORLDCHAIN", "ROBINHOOD_CHAIN", "UNICHAIN", "BERACHAIN", "INK", "ABSTRACT", "SONEIUM",
   "POLYGON_ZKEVM", "ARBITRUM_NOVA", "ZORA", "MODE", "SEI",
   // L2s / OP Stack / Superchains
   "SUPERSEED", "SHAPE", "ANCIENT8", "BOB", "LISK", "METAL_L2", "REDSTONE",
@@ -59,6 +59,7 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   CELO: { name: "Celo", chainId: 42220 },
   FRAXTAL: { name: "Fraxtal", chainId: 252 },
   WORLDCHAIN: { name: "World Chain", chainId: 480 },
+  ROBINHOOD_CHAIN: { name: "Robinhood Chain", chainId: 4663 },
   UNICHAIN: { name: "Unichain", chainId: 130 },
   BERACHAIN: { name: "Berachain", chainId: 80094 },
   INK: { name: "Ink", chainId: 57073 },

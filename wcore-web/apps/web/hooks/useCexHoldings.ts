@@ -29,7 +29,7 @@ interface CexHoldingApi {
 
 interface CexAccountApi {
   id: string;
-  provider: "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx";
+  provider: "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx" | "kraken";
   label: string | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
@@ -37,7 +37,7 @@ interface CexAccountApi {
   holdings: CexHoldingApi[];
 }
 
-const PROVIDER_LABEL: Record<string, string> = { binance: "Binance", bitpanda: "Bitpanda", bitfinex: "Bitfinex", bybit: "Bybit", coinbase: "Coinbase", okx: "OKX" };
+const PROVIDER_LABEL: Record<string, string> = { binance: "Binance", bitpanda: "Bitpanda", bitfinex: "Bitfinex", bybit: "Bybit", coinbase: "Coinbase", okx: "OKX", kraken: "Kraken" };
 
 function holdingToToken(h: CexHoldingApi): TokenAsset {
   const logoUrl = h.bucket === "stocks" ? getCexStockLogoUrl(h.symbol) ?? undefined : undefined;

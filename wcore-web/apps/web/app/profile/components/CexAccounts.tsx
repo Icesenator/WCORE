@@ -16,7 +16,7 @@ export interface CexHolding {
 
 export interface CexAccount {
   id: string;
-  provider: "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx";
+  provider: "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx" | "kraken";
   label: string | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;
@@ -42,6 +42,8 @@ export function CexAccounts({ formatValue }: { formatValue: (value: number) => s
   const [okxApiKey, setOkxApiKey] = useState("");
   const [okxApiSecret, setOkxApiSecret] = useState("");
   const [okxApiPassphrase, setOkxApiPassphrase] = useState("");
+  const [krakenApiKey, setKrakenApiKey] = useState("");
+  const [krakenApiSecret, setKrakenApiSecret] = useState("");
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
@@ -189,6 +191,27 @@ export function CexAccounts({ formatValue }: { formatValue: (value: number) => s
     }
   }, [okxApiKey, okxApiSecret, okxApiPassphrase, loadAccounts]);
 
+  const saveKraken = useCallback(async () => {
+    setSaving("kraken");
+    setError(null);
+    try {
+      const res = await apiFetch("/api/cex/accounts", {
+        method: "POST",
+        body: JSON.stringify({ provider: "kraken", label: "Kraken", apiKey: krakenApiKey.trim(), apiSecret: krakenApiSecret.trim() }),
+      });
+      const data = await res.json() as { error?: string; message?: string };
+      if (!res.ok || data.error) throw new Error(data.message ?? data.error ?? "Failed to save Kraken");
+      setKrakenApiKey("");
+      setKrakenApiSecret("");
+      await loadAccounts();
+    } catch (_e) {
+      console.error("Failed to save Kraken CEX account:", _e);
+      setError(_e instanceof Error ? _e.message : "Failed to save Kraken");
+    } finally {
+      setSaving(null);
+    }
+  }, [krakenApiKey, krakenApiSecret, loadAccounts]);
+
   const syncAccount = useCallback(async (account: CexAccount) => {
     setSyncing(account.id);
     setError(null);
@@ -229,7 +252,7 @@ export function CexAccounts({ formatValue }: { formatValue: (value: number) => s
       <div className="rounded-lg border border-accent/30 bg-accent/5 p-5">
         <p className="text-xs font-semibold uppercase tracking-wider text-accent">CEX Portfolio</p>
         <p className="mt-1 text-3xl font-bold text-fg">{formatValue(totalEur)}</p>
-        <p className="mt-1 text-xs text-muted">Binance, Bitpanda, Bitfinex, Bybit, Coinbase and OKX are tracked as separate exchange sources, not as on-chain wallets.</p>
+        <p className="mt-1 text-xs text-muted">Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX and Kraken are tracked as separate exchange sources, not as on-chain wallets.</p>
       </div>
 
       {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</div> : null}
@@ -292,6 +315,16 @@ export function CexAccounts({ formatValue }: { formatValue: (value: number) => s
           <input value={okxApiPassphrase} onChange={(e) => setOkxApiPassphrase(e.target.value)} placeholder="API passphrase" type="password" className="mt-2 w-full rounded border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" />
           <button type="button" onClick={saveOkx} disabled={saving === "okx" || !okxApiKey.trim() || !okxApiSecret.trim() || !okxApiPassphrase.trim()} className="mt-3 rounded bg-accent px-4 py-2 text-xs font-semibold text-bg disabled:opacity-50">
             {saving === "okx" ? "Saving..." : "Save OKX"}
+          </button>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-5">
+          <p className="text-sm font-semibold text-fg">Kraken API</p>
+          <p className="mt-1 text-xs text-muted">Create a read-only API key in <a href="https://www.kraken.com/u/security/api" target="_blank" rel="noreferrer" className="text-accent underline-offset-2 hover:underline">Kraken API Management</a> (Query funds permission). WCORE calls the Kraken API directly from the server (no relay). Your key and secret are encrypted server-side.</p>
+          <input value={krakenApiKey} onChange={(e) => setKrakenApiKey(e.target.value)} placeholder="API key" className="mt-4 w-full rounded border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" />
+          <input value={krakenApiSecret} onChange={(e) => setKrakenApiSecret(e.target.value)} placeholder="API secret" type="password" className="mt-2 w-full rounded border border-border bg-bg px-3 py-2 text-sm outline-none focus:border-accent" />
+          <button type="button" onClick={saveKraken} disabled={saving === "kraken" || !krakenApiKey.trim() || !krakenApiSecret.trim()} className="mt-3 rounded bg-accent px-4 py-2 text-xs font-semibold text-bg disabled:opacity-50">
+            {saving === "kraken" ? "Saving..." : "Save Kraken"}
           </button>
         </div>
       </div>

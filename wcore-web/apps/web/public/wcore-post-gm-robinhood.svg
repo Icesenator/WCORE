@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+<defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.55" stop-color="#0b1117"/>
+      <stop offset="1" stop-color="#15210d"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#a3e635" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#a3e635" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000" flood-opacity="0.40"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .w { fill: #f5f5f6; }
+      .m { fill: #9ca3af; }
+      .s { fill: #d4d4d8; }
+      .g { fill: #a3e635; }
+    </style>
+  </defs>
+<rect width="1200" height="675" fill="url(#bg)"/>
+<circle cx="180" cy="100" r="370" fill="url(#glowA)"/>
+<circle cx="1020" cy="600" r="320" fill="url(#glowA)" opacity="0.70"/>
+<g opacity="0.04" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+<path d="M-70 132C82 54 246 74 402 124C570 178 690 158 828 88C970 16 1088 52 1260 118" fill="none" stroke="#84cc16" stroke-opacity="0.10" stroke-width="2"/>
+<g transform="translate(72 52)">
+    <rect x="0" y="0" width="162" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <g transform="translate(12 9) scale(0.53125)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font w" font-size="18" font-weight="900" letter-spacing="0.8">WCORE</text>
+  </g>
+<g transform="translate(862 52)">
+    <rect x="0" y="0" width="266" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <text x="22" y="33" class="font w" font-size="18" font-weight="950" letter-spacing="0.5">81 GM CHAINS LIVE</text>
+    <circle cx="240" cy="26" r="5" fill="#84cc16"/>
+  </g>
+<g filter="url(#shadow)">
+<rect x="250" y="190" width="700" height="390" rx="24" fill="#0d1117" stroke="#1a2332"/>
+<rect x="251" y="191" width="698" height="388" rx="23" fill="none" stroke="#84cc16" stroke-opacity="0.10"/>
+<clipPath id="rl"><circle cx="600" cy="260" r="48"/></clipPath>
+<circle cx="600" cy="260" r="54" fill="#050607"/>
+<circle cx="600" cy="260" r="50" fill="#0a1018"/>
+<circle cx="600" cy="260" r="54" fill="none" stroke="#84cc16" stroke-opacity="0.30" stroke-width="2"/>
+<image href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAMAAAD04JH5AAAAMFBMVEVHcEzI+gDM/wDO/wDM/wDM/wDM/wAAAAAhKQCs1wCNsQCdxAA/TwC86wBwjABccwDn5b4MAAAABnRSTlMA9Y4eRsYhaBjIAAAEKklEQVR4nMWb2XKrMAyG44SwmO3937YBuWCwsCVv0pyb087k/9BuGr9eh32a91e1xU19383n5VrzriB+QLybm/ynpjwgXLzQfOvKb/a1CD6VHx9MfWT1fwQmET4C/gczUXhL6bfte09AoQBstgdB0AG7C6QyEOxXCY2kfts2shHYYiBWg2Dfl2gK/JLgJavfthkB1Dzoder+rZ/0MNcDUIM+tU9bx0oAw9Ij8pvpKgAj9vQ0giwA+unxN5v8iZADQHvkgy5IB5gXv363el2QDDCvAf2uH0oCqKB+13lLMREg/PyhJEgDGDzld9rqmzdJADR9fyGmABD1u74QAFW/FABZv+uKADD0iwD86q9HrZ4HRtxWF6FUEj6YOxqKlSFug+MCcYDsnXAe9aidf/8qLsDi+7AIAHz/OIauC5B5GuINYDpUHIDM+8CM6vfnUzoA3gjwAfAGaHn5DtD7jwZcAHwBNCuHHhGAvGs5rm+crHexG8Aa+EQewIi2+kMfAZhCH8kCwAvA9BndIQD+CuACKLwAQWPXdQBCJ0MeALoBm1EHzrkD+CuQC4AnIOib7nADCCUgD2BE9cHHaukQgCmYABwAbwH8O+cKQNEnAzwUAATgGE8XgHACMgDwI6DZNE7n2ACEBGQA4AUAXd7KOgsg8F6CCYCvAOBj+3x6ApASkAyAF4ApMrs6D4DACGQCuDuO5eOLcw4AYgIQAdAOZLr87ARlA6B0IDoA3gFMB5pQALo+BQB1gPHxrToAIDwCWQDoEmiS/F4dO8BE60BkADQFTQe4s23SaiR2ADLAYwDc/YD17AkAPfzGTY5aAPPTLyoBmBaM5EYdADODseqsAmDaPNqeqgBABaALCn0EJQBMcArwtceyACYAmD55B0gBgIfEKiAqA9gA/XMFhI+BOQC0+6PDYgLABYAtCD8jRgWACWAGPR4A1gyMBMjcAtgA4ACFOsD7MjIXADgA7cFRLYANAP9HMzCmB7IBIM3RQ1JcC2ACwK6vMP3IFkAE0BeRbEOIDjDZaY5nYGQLoAH8+xzqHDumR7cAGsBiexn7pkJ8BdIAeuspnT9V99MaOQLIAMPFATf1RadEnwYAEYAmfFlDVs07gkUCmMkLPeB0wDpSvqOUA8CUHeSZ8fw65Pz+WQBgtRyw7GFPy3kuAIx+s4f8Mj6p4mMAtFUCba6oMwDM7lHguYkA8HIketlJBxjTW30SALyhZrzzyw2wv4TsU5t9AsAegYRtKxng+DuUFMBeg4X1fQC6hgN8AHsEyrQ/EoDivffPD6DPOSwDsHUh/9dBywLsb+mLp6AHYNuFkk4cqQBLlRR8BtgGUeE56AfYlrHSY8ALUM3kr3iIX3IRv+YjftFJ/KqX+GU3+et+4hce5a98igVB+tqtsi8eS1x8vtz+lr76LX/5Xe76/x+DEY2ndXiXxAAAAABJRU5ErkJggg==" x="552" y="212" width="96" height="96" preserveAspectRatio="xMidYMid meet" clip-path="url(#rl)"/>
+<text x="600" y="342" text-anchor="middle" class="font w" font-size="36" font-weight="950" letter-spacing="-1.0">Robinhood Chain</text>
+<text x="600" y="370" text-anchor="middle" class="font s" font-size="15" font-weight="650">EVM L2 by Robinhood Markets  .  chainId 4663</text>
+<rect x="295" y="408" width="190" height="76" rx="14" fill="#0c1218" stroke="#1a2a12"/>
+<text x="390" y="438" text-anchor="middle" class="font g" font-size="22" font-weight="950" letter-spacing="-0.4">+25</text>
+<text x="390" y="460" text-anchor="middle" class="font m" font-size="13" font-weight="650">Points per GM</text>
+<rect x="505" y="408" width="190" height="76" rx="14" fill="#0c1218" stroke="#1a2a12"/>
+<text x="600" y="438" text-anchor="middle" class="font g" font-size="22" font-weight="950" letter-spacing="-0.4">On-chain</text>
+<text x="600" y="460" text-anchor="middle" class="font m" font-size="13" font-weight="650">Your keys only</text>
+<rect x="715" y="408" width="190" height="76" rx="14" fill="#0c1218" stroke="#1a2a12"/>
+<text x="810" y="438" text-anchor="middle" class="font g" font-size="22" font-weight="950" letter-spacing="-0.4">1 per chain</text>
+<text x="810" y="460" text-anchor="middle" class="font m" font-size="13" font-weight="650">Personal contract</text>
+<text x="600" y="558" text-anchor="middle" class="font m" font-size="13" font-weight="650">Deploy once, GM forever. Your contract stays on-chain.</text>
+</g>
+<g transform="translate(72 618)">
+    <text x="0" y="0" class="font m" font-size="16" font-weight="700">Deploy at wcore.xyz/gm</text>
+    <text x="1056" y="0" text-anchor="end" class="font" font-size="26" font-weight="950" fill="url(#lime)">wcore.xyz</text>
+  </g>
+<rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+</svg>

@@ -24,6 +24,19 @@ test("Abstract native ETH pricing uses the Ethereum oracle ids", () => {
   assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, "ethereum");
 });
 
+test("Robinhood Chain is registered with verified mainnet metadata", () => {
+  const chain = getChain("ROBINHOOD_CHAIN");
+
+  assert.ok(chain, "ROBINHOOD_CHAIN should be registered");
+  assert.equal(chain.vm, "EVM");
+  assert.equal(chain.CHAIN?.NAME, "Robinhood Chain");
+  assert.equal(chain.CHAIN?.CHAIN_ID, 4663);
+  assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "ETH");
+  assert.equal(chain.CHAIN?.NATIVE_LLAMA_ID, "coingecko:ethereum");
+  assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, "ethereum");
+  assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://rpc.mainnet.chain.robinhood.com"]);
+});
+
 test("all active GM chains have native pricing oracle ids", () => {
   const missing = Object.keys(GM_FACTORIES)
     .sort()

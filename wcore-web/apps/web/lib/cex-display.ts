@@ -1,6 +1,6 @@
 import type { ChainScan } from "@wcore/shared";
 
-export type CexProvider = "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx";
+export type CexProvider = "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx" | "kraken";
 
 export interface WalletResultLike {
   address: string;
@@ -35,6 +35,7 @@ const CEX_PROVIDER_META: Record<CexProvider, { label: string; icon: string }> = 
   bybit: { label: "Bybit", icon: "https://s2.coinmarketcap.com/static/img/exchanges/64x64/521.png" },
   coinbase: { label: "Coinbase", icon: "https://s2.coinmarketcap.com/static/img/exchanges/64x64/89.png" },
   okx: { label: "OKX", icon: "https://s2.coinmarketcap.com/static/img/exchanges/64x64/294.png" },
+  kraken: { label: "Kraken", icon: "https://s2.coinmarketcap.com/static/img/exchanges/64x64/24.png" },
 };
 
 export function getCexProviderMeta(provider: CexProvider) {
@@ -60,7 +61,7 @@ export function buildCexWalletListItem(account: CexAccountSummary): CexWalletLis
 }
 
 export function parseCexWalletAddress(address: string): { provider: CexProvider; id: string } | null {
-  const match = /^cex:(binance|bitpanda|bitfinex|bybit|coinbase|okx):(.+)$/i.exec(address);
+  const match = /^cex:(binance|bitpanda|bitfinex|bybit|coinbase|okx|kraken):(.+)$/i.exec(address);
   if (!match) return null;
   return { provider: match[1]!.toLowerCase() as CexProvider, id: match[2]! };
 }

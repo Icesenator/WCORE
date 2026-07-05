@@ -11,6 +11,13 @@
 - **Parity script** : `scripts/parity-gsheet-vs-web.cjs` compares GSheet totals vs Web DB.
 - **X post** : Kraken 7e CEX with MiCA badges (blue `MiCA` on Bitpanda/Bybit/Coinbase/OKX chips, `MiCA LICENSED` pill on hero Kraken). Convention: tag only the new CEX.
 
+## 2026-07-05 (suite) — Versioning, copy, banner, watchdog fix
+
+- **Versioning** : `CORE_VERSION` 0.3.3, `package.json` 0.3.3. `/health` exposes `coreVersion`. SidebarLayout reads it dynamically (no more hardcoded drift).
+- **Homepage/About copy** : real numbers everywhere — 174 chains, 7 CEX, 80+ GM, 4 VMs. Banner SVG/PNG refreshed.
+- **Twitter bio** : `All your crypto. One view. Read only.` (clean & direct, 123 chars).
+- **GSheet WEB_SCAN_ERROR retry** : `[WEB_SCAN_ERROR]` was silently dead-ending (watchdog never re-pulsed B1). Fixed: explicit handler, English error detection, timestamp extraction, redundant `chain=` suffix removed. Adapter v4.16.27.
+
 ## 2026-07-01 - GSheet Web scan parity + Base Zora fallback pricing
 
 - **GSheet Web scan adapter v4.16.26** : strict token whitelists, stable degraded merges, and precise price derivation from `valueEur / balance` fix GSheet/Web valuation drift for Web-backed scans.

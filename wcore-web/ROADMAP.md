@@ -31,6 +31,16 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **X posts** : Kraken 7e CEX (`wcore-post-kraken.png`, badges MiCA bleus sur les chips licenciés, pill `MiCA LICENSED` hero Kraken). Convention tag unique (nouveau CEX uniquement).
 - **AGENTS.md** : entrée Kraken post + MiCA badges ajoutée à la section gotchas X posts.
 
+### Session 2026-07-05 (suite) — Versioning, copy update, banner, WEB_SCAN_ERROR fix
+
+- **Versioning** : `CORE_VERSION` bump `0.2.0-phase2` → `0.3.3` (`packages/core/src/index.ts`). `apps/api/package.json` bump `0.1.0` → `0.3.3`. `/health` expose `coreVersion`. `SidebarLayout` lit `/health` au montage (plus de hardcode fragile). Source unique = `@wcore/core`.
+- **Homepage/About copy** : chiffres réels partout — 174 chains (182 total − 8 disabled), 7 CEX (Binance/Bitpanda/Bitfinex/Bybit/Coinbase/Kraken/OKX), 80+ GM chains, 4 VMs (EVM/Solana/Cosmos/TON). Hero plus concis, MiniCards mis à jour, feature cards HomePageClient, About page liste tous les CEX, metadata SEO.
+- **Banner X** : `wcore-banner.svg/png` régénéré — pills `174 chains` / `4 VMs` / `7 CEX` / `on-chain GM`, subtitle mentionne TON, PNG re-renderisé via Playwright.
+- **Twitter bio** : `All your crypto. One view. Read only. 174 chains · EVM · Solana · Cosmos · TON · 7 CEX · Real-time pricing · On-chain GM` (123 chars, wcore.xyz dans le champ URL du profil).
+- **CM-STRATEGY.md** : bio mise à jour (clean & direct).
+- **GSheet watchdog WEB_SCAN_ERROR fix** : `[WEB_SCAN_ERROR]` n'était pas reconnu par `_wd_needsRefresh_` → jamais de re-pulse B1 → chaînes bloquées à jamais. Fix 3 points dans `16_REFRESH.gs` : (1) handler explicite `[WEB_SCAN_ERROR]` → `needsPulse: true`, (2) regex `_wd_extractTimestamp_` inclut `WEB_SCAN_ERROR`, (3) détection `isErr` accepte l'anglais `error` en plus du français `erreur`. GSheet web scan adapter v4.16.27 : `_webScanErrorStatus_` retire le suffixe `chain=*****` redondant.
+- **Déploiement** : API + Web deployés via `deploy.ps1`. GSheet nécessite `clasp push` pour les 3 fixs watchdog.
+
 ### Session 2026-07-01 - GSheet Web scan hardening + Base Zora pricing fallback
 
 - **GSheet Web scan adapter v4.16.26** : `I2:I` token whitelists now send `strictTokens:true`; degraded partial Web scans no longer clear cache-only token prices; adapter accepts `priceEur/price_eur/price` and `valueEur/value_eur/value`, and derives a precise price from `value / balance` when the API exposes an exact value but a rounded price. This fixed the observed Solana DBR drift where GSheet recalculated a lower value from a rounded `priceEur` while Web kept the precise `valueEur`.

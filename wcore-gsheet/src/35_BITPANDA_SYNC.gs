@@ -1,4 +1,4 @@
-// v4.15.125 - CEX Vérif MAP auto-restore on every sync (_cexWriteVerifMap_ called from _cexComputeAndAppendTotal_).
+// v4.15.137 - CEX pricing via WCORE Web API (centralized provider-first, local fallback) Vérif MAP auto-restore on every sync (_cexWriteVerifMap_ called from _cexComputeAndAppendTotal_).
 // v4.15.124 - INFO_TOTAL A column sentinel "." instead of "" (prevent VLOOKUP("") fallback #VALUE! in Action Rebalancing).
 // v4.15.123 - CEX INFO_TOTAL: batch-read scan window (1 API call vs ~100), orphan-row cleanup, atomic A:G write (label+value never diverge).
 // v4.15.105 - Action Rebalancing!Z1 runs direct refresh immediately, with watchdog fallback on BUSY/error.
@@ -1412,6 +1412,33 @@ var CEX_SYMBOL_GECKO_IDS = {
  * @param {string} symbol - uppercase ticker (e.g. "BTC")
  * @returns {string|null} gecko id (without "coingecko:" prefix) or null
  */
+/**
+ * v4.15.136: Read WCORE Web API credentials configured via _SETUP_WCORE.
+ * @returns {string|null} API URL or null if not configured
+ */
+function _cexGetWebApiUrl_() {
+  try {
+    var p = PropertiesService.getScriptProperties();
+    var url = p.getProperty("WCORE_WEB_API_URL");
+    if (url && String(url).indexOf("http") === 0) return String(url).replace(/\/+$/, "");
+  } catch (e) {}
+  return null;
+}
+
+function _cexGetWebApiToken_() {
+  try {
+    var p = PropertiesService.getScriptProperties();
+    var token = p.getProperty("GSHEET_API_TOKEN");
+    if (token && String(token).length >= 20) return String(token);
+  } catch (e) {}
+  return null;
+}
+
+/**
+ * Map CEX symbols to CoinGecko IDs for DefiLlama pricing fallback.
+ * @param {string} symbol - exchange ticker (e.g. "BTC")
+ * @returns {string|null} gecko id (without "coingecko:" prefix)
+ */
 function _cexSymbolToGeckoId_(symbol) {
   if (!symbol) return null;
   var s = String(symbol).trim().toUpperCase();
@@ -1441,8 +1468,16 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   // 0. (v4.15.130) If opt_values is provided, handle the bounded
   //    clearContent + setValues here so ALL CEX syncs use the exact
   //    same logic — no duplication, no drift.
+  //    v4.15.136: read existing column E values BEFORE clearing so we can
+  //    fallback to the last-known price when pricing fails (instead of 0).
+  var prevValues = null;
   if (opt_values && sh) {
     var _clearRows = Math.max(opt_values.length, Math.min(sh.getMaxRows(), opt_values.length));
+    if (_clearRows >= 2) {
+      try {
+        prevValues = sh.getRange(2, 5, Math.max(1, _clearRows - 1), 1).getValues();
+      } catch (ePrev) { prevValues = null; }
+    }
     sh.getRange(1, 1, _clearRows, 4).clearContent();
     sh.getRange(1, 1, opt_values.length, 4).setValues(opt_values);
     sh.getRange("A1").insertCheckboxes().setValue(false);
@@ -1506,6 +1541,41 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   var priceMap = _cexGetPriceMap_();
   if (!priceMap) priceMap = {};
   var priceMapFallback = false;
+
+  // v4.15.136: Primary pricing via WCORE Web API (provider-first, centralized).
+  // Falls back to the local DefiLlama cascade on any failure (transient, quota, etc.).
+  var webPrices = null;
+  try {
+    var apiUrl = _cexGetWebApiUrl_();
+    var apiToken = _cexGetWebApiToken_();
+    if (apiUrl && apiToken) {
+      var allSymbols = [];
+      for (var bi = 0; bi < (balances || []).length; bi++) {
+        var bs = String((balances[bi] || [])[0] || "").trim().toUpperCase();
+        if (bs && Number((balances[bi] || [])[1] || 0) > 0) allSymbols.push(bs);
+      }
+      if (allSymbols.length > 0) {
+        var chunkSize = 50;
+        webPrices = {};
+        for (var ci = 0; ci < allSymbols.length; ci += chunkSize) {
+          var chunk = allSymbols.slice(ci, ci + chunkSize);
+          var url = apiUrl + "/api/cex/prices?symbols=" + encodeURIComponent(chunk.join(","));
+          var resp = UrlFetchApp.fetch(url, { headers: { "x-gsheet-token": apiToken }, muteHttpExceptions: true });
+          if (resp.getResponseCode() === 200) {
+            var body = JSON.parse(resp.getContentText() || "{}");
+            var p = body && body.prices ? body.prices : {};
+            for (var pk in p) {
+              if (p[pk] && typeof p[pk].priceEur === "number" && p[pk].priceEur > 0) {
+                webPrices[pk] = p[pk].priceEur;
+              }
+            }
+          }
+        }
+        Logger.log("[CEX_TOTAL] web-priced " + Object.keys(webPrices).length + "/" + allSymbols.length + " symbols for " + sheetName);
+      }
+    }
+  } catch (eWeb) { Logger.log("[CEX_TOTAL] web pricing failed for " + sheetName + ": " + (eWeb.message || eWeb)); }
+
   var isStocks = String(sheetName || "").toLowerCase().indexOf("stocks") >= 0;
   var stockPriceMap = {};
   if (isStocks) {
@@ -1566,7 +1636,11 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
 
     if (symbol && balance > 0) {
       var t = null;
-      if (symbol === "EUR") t = "EUR";
+      // v4.15.136: web API prices first (provider-first, centralized)
+      if (webPrices && webPrices[symbol] != null) {
+        priceEur = Number(webPrices[symbol]);
+      }
+      if (priceEur == null && symbol === "EUR") t = "EUR";
       if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) {
         t = WCORE_STABLECOINS.getType(symbol);
       }
@@ -1600,10 +1674,27 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       valued++;
     } else {
       if (symbol && balance > 0) {
-        Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
-        skipped++;
+        // v4.15.136: fallback to the last-known price to avoid silently
+        // writing 0 when DefiLlama has a transient hiccup (especially
+        // for majors like BTC that should ALWAYS be priceable).
+        var prevVal = 0;
+        if (prevValues && i < prevValues.length) {
+          var pv = Number(prevValues[i][0] || 0);
+          if (isFinite(pv) && pv > 0) prevVal = pv;
+        }
+        if (prevVal > 0) {
+          Logger.log("[CEX_TOTAL] pricing-failed " + symbol + " — using last-known price " + prevVal + " EUR in " + sheetName);
+          eValues.push([prevVal]);
+          total += prevVal;
+          valued++;
+        } else {
+          Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
+          eValues.push([0]);
+          skipped++;
+        }
+      } else {
+        eValues.push([0]);
       }
-      eValues.push([0]);
     }
   }
 

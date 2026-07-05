@@ -500,4 +500,46 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
       return reply.code(502).send({ error: "sync_failed", message });
     }
   });
+
+function looksLikeStock(symbol: string): boolean {
+  const s = symbol.toUpperCase();
+  if (CEX_PRICE_IDS[s]) return false;
+  if (["EUR", "EURI", "EURC", "USD", "USDT", "USDC", "DAI", "BUSD", "FDUSD", "TUSD"].includes(s)) return false;
+  return /^[A-Z]{2,5}$/.test(s) || s.includes("-US") || s.includes("-");
+}
+
+  app.get("/api/cex/prices", async (req, reply) => {
+    const q = (req.query as Record<string, unknown>);
+    const raw = String(q.symbols ?? "");
+    if (!raw) return reply.code(400).send({ error: "missing_symbols" });
+    const symbols = raw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    if (symbols.length === 0) return reply.code(400).send({ error: "empty_symbols" });
+    if (symbols.length > 200) return reply.code(400).send({ error: "too_many_symbols", max: 200 });
+
+    const eurUsd = await getEurUsdRate();
+    const results = await Promise.all(symbols.map(async (symbol) => {
+      const s = symbol.toUpperCase();
+      if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") return { symbol, priceEur: 1, source: "fiat-eur" };
+      if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) return { symbol, priceEur: 1 / eurUsd, source: "stable-usd" };
+      const llamaId = CEX_PRICE_IDS[s];
+      if (llamaId) {
+        try {
+          const res = await fetch(`https://coins.llama.fi/prices/current/${llamaId}?searchWidth=4h`, { signal: AbortSignal.timeout(5000) });
+          const data = await res.json() as { coins?: Record<string, { price?: number }> };
+          const priceUsd = data.coins?.[llamaId]?.price;
+          if (priceUsd && priceUsd > 0) return { symbol, priceEur: priceUsd / eurUsd, source: "defillama" };
+        } catch (_e) { /* fall through */ }
+      }
+      if (looksLikeStock(s)) {
+        try {
+          const stock = await priceStockSymbolEur(s, stockPriceCache);
+          if (stock.priceEur != null && stock.priceEur > 0) return { symbol, priceEur: stock.priceEur, source: stock.source };
+        } catch (_e) { /* fall through */ }
+      }
+      return { symbol, priceEur: null, source: null };
+    }));
+    const prices: Record<string, { priceEur: number | null; source: string | null }> = {};
+    for (const r of results) prices[r.symbol] = { priceEur: r.priceEur, source: r.source };
+    return { prices };
+  });
 }

@@ -1492,7 +1492,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   if (!priceMap) priceMap = {};
   var isStocks = String(sheetName || "").toLowerCase().indexOf("stocks") >= 0;
 
-  var webPrices = _cexFetchWebPrices_(balances, sheetName, isStocks);
+  var webPrices = _cexFetchWebPrices_(balances, sheetName, isStocks, provider);
   var stockPriceMap = {};
   if (isStocks) {
     try {
@@ -1648,7 +1648,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   return Math.round(total * 100) / 100;
 }
 
-function _cexFetchWebPrices_(balances, sheetName, isStocks) {
+function _cexFetchWebPrices_(balances, sheetName, isStocks, providerSlug) {
   var out = null;
   try {
     var apiUrl = _cexGetWebApiUrl_();
@@ -1677,7 +1677,7 @@ function _cexFetchWebPrices_(balances, sheetName, isStocks) {
         out = {};
         for (var ci = 0; ci < querySymbols.length; ci += chunkSize) {
           var chunk = querySymbols.slice(ci, ci + chunkSize);
-          var url = apiUrl + "/api/cex/prices?symbols=" + encodeURIComponent(chunk.join(",")) + (isStocks ? "&bucket=stocks" : "");
+          var url = apiUrl + "/api/cex/prices?symbols=" + encodeURIComponent(chunk.join(",")) + (isStocks ? "&bucket=stocks" : "") + (providerSlug ? "&provider=" + encodeURIComponent(providerSlug) : "");
           var resp = UrlFetchApp.fetch(url, { headers: { "x-gsheet-token": apiToken }, muteHttpExceptions: true });
           if (resp.getResponseCode() === 200) {
             var body = JSON.parse(resp.getContentText() || "{}");

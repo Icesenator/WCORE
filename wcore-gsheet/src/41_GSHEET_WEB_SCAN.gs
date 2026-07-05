@@ -27,7 +27,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.26";
+var GSHEET_WEB_SCAN_VERSION = "4.16.27";
 var GSHEET_WEB_SCAN_MAX_ATTEMPTS = 2;
 
 var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
@@ -95,8 +95,7 @@ function _webScanRequiredFor_(config) {
 }
 
 function _webScanErrorStatus_(config) {
-  var chainKey = _webScanChainKey_(config) || "UNKNOWN";
-  return "[WEB_SCAN_ERROR] " + Format.now() + " chain=" + chainKey;
+  return "[WEB_SCAN_ERROR] " + Format.now();
 }
 
 function _webScanSetLastError_(message, chainKey) {

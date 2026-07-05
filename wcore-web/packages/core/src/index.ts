@@ -1,4 +1,4 @@
-export const CORE_VERSION = "0.2.0-phase2";
+export const CORE_VERSION = "0.3.3";
 
 export * from "./types.js";
 export * from "./chains/index.js";

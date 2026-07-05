@@ -19,7 +19,7 @@
 | Méthode finale ✅ | `intent/post?in_reply_to=&text=` (message dans URL) + clic bouton + navigation home pour QDN |
 | Rate-limit X | ~15 follows/session, API v1.1 bloque sans OAuth |
 | Website | https://wcore.xyz |
-| Bio | `Your crypto. Every chain. One view. 130+ chains · EVM · Solana · Cosmos · Portfolio tracking · On-chain GM` |
+| Bio | `All your crypto. One view. Read only. 174 chains · 7 CEX · On-chain GM. wcore.xyz` |
 
 ### Latest session log (2026-05-14)
 

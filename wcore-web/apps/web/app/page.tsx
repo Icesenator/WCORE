@@ -17,17 +17,17 @@ export default function HomePage() {
           <Logo className="h-12 w-12 text-accent/80 shrink-0" />
           <div>
             <h2 className="text-2xl font-bold sm:text-3xl text-fg">Your crypto. Every chain. One view.</h2>
-            <p className="text-sm text-muted mt-0.5">Read-only portfolio tracking across 180+ chains and major CEX. EVM, Solana, Cosmos, TON, plus Binance and Bitpanda holdings. 8 dead chains auto-skipped to keep your scan fast.</p>
+            <p className="text-sm text-muted mt-0.5">174 chains. EVM, Solana, Cosmos, TON. Real-time portfolio tracking, on-chain GM, 7 CEX.</p>
           </div>
         </div>
 
         <div className="relative grid gap-1.5 grid-cols-3 lg:grid-cols-6 mt-4">
-          <MiniCard icon="⛓️" label="180+ chains" />
-          <MiniCard icon="🏦" label="CEX tracking" />
+          <MiniCard icon="⛓️" label="174 chains" />
+          <MiniCard icon="🏦" label="7 CEX" />
           <MiniCard icon="🌊" label="TON support" />
-          <MiniCard icon="🛡️" label="Dead-chain filter" />
+          <MiniCard icon="🛡️" label="Read-only" />
           <MiniCard icon="⚡" label="Live pricing" />
-          <MiniCard icon="⛽" label="80 GM chains" />
+          <MiniCard icon="⛽" label="80+ GM chains" />
           <MiniCard icon="🚩" label="Scam detection" />
           <MiniCard icon="👛" label="Multi-wallet" />
           <MiniCard icon="🏆" label="Leaderboard" />

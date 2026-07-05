@@ -516,11 +516,35 @@ function looksLikeStock(symbol: string): boolean {
     if (symbols.length === 0) return reply.code(400).send({ error: "empty_symbols" });
     if (symbols.length > 200) return reply.code(400).send({ error: "too_many_symbols", max: 200 });
 
+    // Bitpanda ticker (EUR direct) — fetched once per request, cached 10min in memory.
+    let bpTicker: Record<string, { priceEur: number; source: string }> | null = null;
+    const getBPTicker = async () => {
+      if (bpTicker) return bpTicker;
+      try {
+        const res = await fetch("https://api.bitpanda.com/v1/ticker", { signal: AbortSignal.timeout(8000) });
+        const data = await res.json() as Record<string, Record<string, string>>;
+        bpTicker = {};
+        for (const [key, prices] of Object.entries(data)) {
+          const eur = parseFloat(prices.EUR || "0");
+          bpTicker[key.toUpperCase()] = { priceEur: eur, source: "bitpanda-ticker" };
+        }
+      } catch (_e) { bpTicker = {}; }
+      return bpTicker;
+    };
+
     const eurUsd = await getEurUsdRate();
     const results = await Promise.all(symbols.map(async (symbol) => {
       const s = symbol.toUpperCase();
       if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") return { symbol, priceEur: 1, source: "fiat-eur" };
       if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) return { symbol, priceEur: 1 / eurUsd, source: "stable-usd" };
+
+      // Bitpanda ticker first: authoritative for all Bitpanda-listed assets.
+      // If the ticker says 0 EUR, that is the correct price (avoids DefiLlama
+      // returning absurd prices for micro-caps like GODL, APP, DCK, KIP, LAI).
+      const ticker = await getBPTicker();
+      const bp = ticker[s];
+      if (bp) return { symbol, priceEur: bp.priceEur > 0 ? bp.priceEur : null, source: bp.source };
+
       const llamaId = CEX_PRICE_IDS[s];
       if (llamaId) {
         try {

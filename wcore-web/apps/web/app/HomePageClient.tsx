@@ -343,7 +343,7 @@ export function HomePageClient() {
       <div className="mt-10 grid gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-2 text-2xl">⛓️</div>
-          <h3 className="text-sm font-semibold mb-1">Track 174 live blockchains</h3>
+          <h3 className="text-sm font-semibold mb-1">Track 183 live blockchains</h3>
           <p className="text-xs text-muted leading-relaxed">
             Paste any public EVM, Solana, Cosmos or TON address. Automatic VM detection, real-time pricing from 5 sources (DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko), multi-wallet linking, custom tokens and CSV export. 8 dead chains are auto-skipped to keep scans fast and accurate.
           </p>

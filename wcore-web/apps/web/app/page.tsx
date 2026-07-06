@@ -17,12 +17,12 @@ export default function HomePage() {
           <Logo className="h-12 w-12 text-accent/80 shrink-0" />
           <div>
             <h2 className="text-2xl font-bold sm:text-3xl text-fg">Your crypto. Every chain. One view.</h2>
-            <p className="text-sm text-muted mt-0.5">174 chains. EVM, Solana, Cosmos, TON. Real-time portfolio tracking, on-chain GM, 7 CEX.</p>
+            <p className="text-sm text-muted mt-0.5">183 chains. EVM, Solana, Cosmos, TON. Real-time portfolio tracking, on-chain GM, 7 CEX.</p>
           </div>
         </div>
 
         <div className="relative grid gap-1.5 grid-cols-3 lg:grid-cols-6 mt-4">
-          <MiniCard icon="⛓️" label="174 chains" />
+          <MiniCard icon="⛓️" label="183 chains" />
           <MiniCard icon="🏦" label="7 CEX" />
           <MiniCard icon="🌊" label="TON support" />
           <MiniCard icon="🛡️" label="Read-only" />

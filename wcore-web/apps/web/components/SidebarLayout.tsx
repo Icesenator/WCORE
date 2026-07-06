@@ -60,7 +60,7 @@ export function SidebarLayout({ children }: { children: ReactNode }) {
         <footer className="py-6 flex flex-col items-center gap-2">
           <Logo className="h-5 w-5 text-accent/30" />
           <p className="text-center text-xs text-muted">
-            174 chains, 4 VMs (EVM, SVM, Cosmos, TON), 80+ on-chain GM chains, 7 CEX (Binance, Bitpanda, Bitfinex, Bybit, Coinbase, Kraken, OKX).{coreVersion ? ` v${coreVersion}.` : ""} <a href="https://x.com/wcorexyz" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">@WCORExyz</a>
+            183 chains, 4 VMs (EVM, SVM, Cosmos, TON), 80+ on-chain GM chains, 7 CEX (Binance, Bitpanda, Bitfinex, Bybit, Coinbase, Kraken, OKX).{coreVersion ? ` v${coreVersion}.` : ""} <a href="https://x.com/wcorexyz" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">@WCORExyz</a>
           </p>
         </footer>
       </div>

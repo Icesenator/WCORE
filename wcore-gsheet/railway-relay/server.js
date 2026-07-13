@@ -38,6 +38,7 @@ app.use(express.json({ limit: "16kb" }));
 const BASE_URL = "https://api.binance.com";
 const COINBASE_BASE_URL = "https://api.coinbase.com";
 const OKX_BASE_URL = process.env.OKX_BASE_URL || "https://my.okx.com";
+const OKX_EARN_FETCH_TIMEOUT_MS = 8000;
 const RECV_WINDOW = 60000;
 const PAGE_SIZE = 100;
 const MAX_PAGES = 50;
@@ -130,6 +131,40 @@ const COINBASE_SYMBOL_ALIASES = {
 function coinbaseCanonical(sym) {
   const s = String(sym || "").trim().toUpperCase();
   return COINBASE_SYMBOL_ALIASES[s] || s;
+}
+
+function cexMergeRowUsdMetadata(row, meta) {
+  if (!row || !meta) return;
+  const amount = parseAmount(row[1]);
+  const valueUsd = parseAmount(meta.valueUsd);
+  const priceUsdInput = parseAmount(meta.priceUsd);
+  const derivedValueUsd = valueUsd > 0 ? valueUsd : (priceUsdInput > 0 && amount > 0 ? amount * priceUsdInput : 0);
+  if (derivedValueUsd > 0) row[3] = parseAmount(row[3]) + derivedValueUsd;
+  const totalValueUsd = parseAmount(row[3]);
+  const priceUsd = totalValueUsd > 0 && amount > 0 ? totalValueUsd / amount : priceUsdInput;
+  if (priceUsd > 0) row[4] = priceUsd;
+}
+
+async function enrichRowsWithUsdPrices(rows, fetchPricesUsd) {
+  const out = (rows || []).map((row) => row.slice());
+  const missing = out.filter((row) => parseAmount(row[1]) > 0 && parseAmount(row[3]) <= 0 && parseAmount(row[4]) <= 0).map((row) => row[0]);
+  if (missing.length === 0) return out;
+  const prices = await fetchPricesUsd(missing);
+  for (const row of out) {
+    if (parseAmount(row[3]) > 0 || parseAmount(row[4]) > 0) continue;
+    const priceUsd = parseAmount(prices && prices[String(row[0] || "").toUpperCase()]);
+    if (priceUsd > 0) cexMergeRowUsdMetadata(row, { priceUsd: priceUsd });
+  }
+  return out;
+}
+
+async function enrichRowsWithUsdPricesSafe(rows, fetchPricesUsd, label) {
+  try {
+    return await enrichRowsWithUsdPrices(rows, fetchPricesUsd);
+  } catch (err) {
+    console.log(String(label || "cex") + " USD price enrichment skipped: " + (err && err.message ? err.message : err));
+    return rows;
+  }
 }
 
 function coinbasePushRow(rows, seen, symbol, amount) {
@@ -334,17 +369,58 @@ function okxCanonical(sym) {
   return OKX_SYMBOL_ALIASES[s] || s;
 }
 
-function okxPushRow(rows, seen, symbol, amount) {
+function okxMergeRowMetadata(row, meta) {
+  cexMergeRowUsdMetadata(row, meta);
+}
+
+function okxPushRow(rows, seen, symbol, amount, source, meta) {
   const s = okxCanonical(symbol);
   if (!s) return;
   const amt = parseAmount(amount);
   if (amt <= 0) return;
-  if (Object.prototype.hasOwnProperty.call(seen, s)) {
-    rows[seen[s]][1] = parseAmount(rows[seen[s]][1]) + amt;
+  const src = String(source || "spot").trim().toLowerCase() || "spot";
+  const key = s + "|" + src;
+  if (Object.prototype.hasOwnProperty.call(seen, key)) {
+    const row = rows[seen[key]];
+    row[1] = Math.round((parseAmount(row[1]) + amt) * 1e12) / 1e12;
+    okxMergeRowMetadata(row, meta);
     return;
   }
-  seen[s] = rows.length;
-  rows.push([s, amt]);
+  seen[key] = rows.length;
+  const row = [s, amt, src];
+  okxMergeRowMetadata(row, meta);
+  rows.push(row);
+}
+
+function okxFirstPositive(obj, keys) {
+  for (const key of keys) {
+    if (!obj || obj[key] == null || obj[key] === "") continue;
+    const n = parseAmount(obj[key]);
+    if (n > 0) return n;
+  }
+  return 0;
+}
+
+function mergeOkxEarnBalances(rows, seen, earn, options) {
+  const push = options && options.pushRow ? options.pushRow : okxPushRow;
+  const savings = (earn && earn.savings) || [];
+  for (const item of savings) {
+    const amount = okxFirstPositive(item, ["amt", "redemptAmt", "earningAmt", "bal", "availBal"]);
+    if (amount > 0) push(rows, seen, item.ccy, amount, "earn");
+  }
+  const stakingDefi = (earn && earn.stakingDefi) || [];
+  for (const item of stakingDefi) {
+    const investData = Array.isArray(item && item.investData) ? item.investData : [];
+    if (investData.length) {
+      for (const inv of investData) {
+        const amount = okxFirstPositive(inv, ["amt", "investAmt", "bal"]);
+        if (amount > 0) push(rows, seen, inv.ccy || item.ccy, amount, "earn");
+      }
+      continue;
+    }
+    const amount = okxFirstPositive(item, ["amt", "investAmt", "bal"]);
+    if (amount > 0) push(rows, seen, item.ccy, amount, "earn");
+  }
 }
 
 function okxSign(timestamp, method, requestPath, body, secret) {
@@ -352,13 +428,14 @@ function okxSign(timestamp, method, requestPath, body, secret) {
   return crypto.createHmac("sha256", secret).update(payload).digest("base64");
 }
 
-async function okxAuthGet(path, params) {
+async function okxAuthGet(path, params, options) {
   const query = params && Object.keys(params).length ? "?" + toQuery(params) : "";
   const requestPath = path + query;
   const ts = new Date().toISOString();
   const secret = getEnv("OKX_API_SECRET");
   const resp = await fetch(OKX_BASE_URL + requestPath, {
     method: "GET",
+    signal: options && options.signal,
     headers: {
       "OK-ACCESS-KEY": getEnv("OKX_API_KEY"),
       "OK-ACCESS-SIGN": okxSign(ts, "GET", requestPath, "", secret),
@@ -378,12 +455,13 @@ async function okxAuthGet(path, params) {
   return json;
 }
 
-async function okxAuthGetWithCreds(path, params, creds) {
+async function okxAuthGetWithCreds(path, params, creds, options) {
   const query = params && Object.keys(params).length ? "?" + toQuery(params) : "";
   const requestPath = path + query;
   const ts = new Date().toISOString();
   const resp = await fetch(OKX_BASE_URL + requestPath, {
     method: "GET",
+    signal: options && options.signal,
     headers: {
       "OK-ACCESS-KEY": creds.key,
       "OK-ACCESS-SIGN": okxSign(ts, "GET", requestPath, "", creds.secret),
@@ -403,6 +481,36 @@ async function okxAuthGetWithCreds(path, params, creds) {
   return json;
 }
 
+async function okxFetchEarnBalances(authGet) {
+  const earn = { savings: [], stakingDefi: [] };
+  async function okxEarnAuthGet(path) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("OKX earn timeout")), OKX_EARN_FETCH_TIMEOUT_MS);
+    try {
+      return await authGet(path, null, { signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const results = await Promise.allSettled([
+    okxEarnAuthGet("/api/v5/finance/savings/balance"),
+    okxEarnAuthGet("/api/v5/finance/staking-defi/orders-active"),
+  ]);
+  if (results[0].status === "fulfilled") {
+    earn.savings = (results[0].value && results[0].value.data) || [];
+  } else {
+    var errSavings = results[0].reason;
+    console.log("okx savings balance skipped: " + (errSavings && errSavings.message ? errSavings.message : errSavings));
+  }
+  if (results[1].status === "fulfilled") {
+    earn.stakingDefi = (results[1].value && results[1].value.data) || [];
+  } else {
+    var errStakingDefi = results[1].reason;
+    console.log("okx staking/defi active orders skipped: " + (errStakingDefi && errStakingDefi.message ? errStakingDefi.message : errStakingDefi));
+  }
+  return earn;
+}
+
 async function okxFetchBalances() {
   const rows = [], seen = {};
   try {
@@ -411,7 +519,7 @@ async function okxFetchBalances() {
     const details = (data && data.details) || [];
     for (const d of details) {
       const amount = d.cashBal != null && d.cashBal !== "" ? d.cashBal : d.eq;
-      okxPushRow(rows, seen, d.ccy, amount);
+      okxPushRow(rows, seen, d.ccy, amount, "trading", { valueUsd: d.eqUsd });
     }
   } catch (errTrading) {
     console.log("okx trading balance skipped: " + (errTrading && errTrading.message ? errTrading.message : errTrading));
@@ -421,11 +529,13 @@ async function okxFetchBalances() {
     const balances = (funding && funding.data) || [];
     for (const b of balances) {
       const amount = b.bal != null && b.bal !== "" ? b.bal : b.availBal;
-      okxPushRow(rows, seen, b.ccy, amount);
+      okxPushRow(rows, seen, b.ccy, amount, "funding");
     }
   } catch (errFunding) {
     console.log("okx funding balance skipped: " + (errFunding && errFunding.message ? errFunding.message : errFunding));
   }
+  const earn = await okxFetchEarnBalances((path, params, options) => okxAuthGet(path, params, options));
+  mergeOkxEarnBalances(rows, seen, earn);
   return rows;
 }
 
@@ -452,6 +562,8 @@ async function okxFetchBalancesExact(creds) {
   } catch (errFunding) {
     console.log("okx funding balance skipped: " + (errFunding && errFunding.message ? errFunding.message : errFunding));
   }
+  const earn = await okxFetchEarnBalances((path, params, options) => okxAuthGetWithCreds(path, params, creds, options));
+  mergeOkxEarnBalances(rows, seen, earn, { pushRow: pushRowExact });
   return rows;
 }
 
@@ -540,16 +652,18 @@ function timingSafeEqual(a, b) {
 // PAS les symboles: USDC/TUSD restent distincts de USDT, EUR/EURI distincts de
 // EURC. Chaque utilisateur passe ses propres cles API Binance (signees ici).
 
-function pushRowExact(rows, seen, symbol, amount) {
+function pushRowExact(rows, seen, symbol, amount, source) {
   const s = String(symbol || "").trim().toUpperCase();
   if (!s) return;
   const amt = parseAmount(amount);
-  if (Object.prototype.hasOwnProperty.call(seen, s)) {
-    rows[seen[s]][1] = parseAmount(rows[seen[s]][1]) + amt;
+  const src = String(source || "spot").trim().toLowerCase() || "spot";
+  const key = s + "|" + src;
+  if (Object.prototype.hasOwnProperty.call(seen, key)) {
+    rows[seen[key]][1] = parseAmount(rows[seen[key]][1]) + amt;
     return;
   }
-  seen[s] = rows.length;
-  rows.push([s, amt]);
+  seen[key] = rows.length;
+  rows.push([s, amt, src]);
 }
 
 async function fetchSpotExact(creds, flexibleAssets) {
@@ -625,6 +739,28 @@ async function fetchPricesEur(symbols) {
     if (usdPrice > 0) {
       prices[s] = { priceEur: usdPrice / eurPerUsd, source: "binance:" + s + "USDT" };
     }
+  }
+  return prices;
+}
+
+async function fetchBinancePricesUsd(symbols) {
+  const unique = Array.from(new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)));
+  const prices = {};
+  if (unique.length === 0) return prices;
+  const allTickers = await publicGet("/api/v3/ticker/price", null).catch(() => []);
+  const tickerMap = new Map();
+  if (Array.isArray(allTickers)) {
+    for (const row of allTickers) {
+      if (row && row.symbol) tickerMap.set(String(row.symbol).toUpperCase(), parseAmount(row.price));
+    }
+  }
+  for (const s of unique) {
+    if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) {
+      prices[s] = 1;
+      continue;
+    }
+    const usdPrice = tickerMap.get(s + "USDT") || tickerMap.get(s + "USDC") || 0;
+    if (usdPrice > 0) prices[s] = usdPrice;
   }
   return prices;
 }
@@ -713,6 +849,33 @@ async function fetchBybitPricesEur(symbols) {
   return mapBybitTickerPricesEur(symbols, list, eurPerUsd);
 }
 
+function mapBybitTickerPricesUsd(symbols, tickers) {
+  const unique = Array.from(new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)));
+  const tickerMap = new Map();
+  for (const row of Array.isArray(tickers) ? tickers : []) {
+    if (row && row.symbol) tickerMap.set(String(row.symbol).toUpperCase(), parseAmount(row.lastPrice));
+  }
+  const prices = {};
+  for (const s of unique) {
+    if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) {
+      prices[s] = 1;
+      continue;
+    }
+    const usdPrice = tickerMap.get(s + "USDT") || tickerMap.get(s + "USDC") || 0;
+    if (usdPrice > 0) prices[s] = usdPrice;
+  }
+  return prices;
+}
+
+async function fetchBybitPricesUsd(symbols) {
+  const resp = await fetch(BYBIT_BASE_URL + "/v5/market/tickers?category=spot");
+  const text = await resp.text();
+  if (!resp.ok) throw new Error("ByBit public tickers HTTP " + resp.status + ": " + text.slice(0, 300));
+  const json = JSON.parse(text);
+  const list = json && json.result && json.result.list;
+  return mapBybitTickerPricesUsd(symbols, list);
+}
+
 async function fetchCoinbasePricesEur(symbols) {
   const unique = Array.from(new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)));
   const wanted = unique.filter((s) => !["EUR", "EURI", "EURC", "BCPEUR", "USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s));
@@ -737,6 +900,24 @@ async function fetchCoinbasePricesEur(symbols) {
   return out;
 }
 
+async function fetchCoinbasePricesUsd(symbols) {
+  const unique = Array.from(new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)));
+  const prices = {};
+  await Promise.all(unique.map(async (s) => {
+    if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) {
+      prices[s] = 1;
+      return;
+    }
+    const resp = await fetch(COINBASE_BASE_URL + "/v2/prices/" + encodeURIComponent(s + "-USD") + "/spot");
+    const text = await resp.text();
+    if (!resp.ok) return;
+    const json = text ? JSON.parse(text) : null;
+    const price = parseAmount(json && json.data && json.data.amount);
+    if (price > 0) prices[s] = price;
+  }));
+  return prices;
+}
+
 async function fetchOkxPricesEur(symbols) {
   const resp = await fetch(OKX_BASE_URL + "/api/v5/market/tickers?instType=SPOT");
   const text = await resp.text();
@@ -746,6 +927,36 @@ async function fetchOkxPricesEur(symbols) {
   const eurUsdt = Array.isArray(list) ? list.find((r) => String(r && r.instId).toUpperCase() === "EUR-USDT") : null;
   const eurPerUsd = parseAmount(eurUsdt && eurUsdt.last) || 1.08;
   return mapOkxTickerPricesEur(symbols, list, eurPerUsd);
+}
+
+function mapOkxTickerPricesUsd(symbols, tickers) {
+  const unique = Array.from(new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)));
+  const tickerMap = new Map();
+  for (const row of Array.isArray(tickers) ? tickers : []) {
+    if (row && row.instId) tickerMap.set(String(row.instId).toUpperCase(), parseAmount(row.last));
+  }
+  const prices = {};
+  for (const s of unique) {
+    if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) {
+      prices[s] = 1;
+      continue;
+    }
+    const usdPrice = tickerMap.get(s + "-USDT") || tickerMap.get(s + "-USDC") || 0;
+    if (usdPrice > 0) prices[s] = usdPrice;
+  }
+  return prices;
+}
+
+async function fetchOkxPricesUsd(symbols) {
+  const resp = await fetch(OKX_BASE_URL + "/api/v5/market/tickers?instType=SPOT");
+  const text = await resp.text();
+  if (!resp.ok) throw new Error("OKX public tickers HTTP " + resp.status + ": " + text.slice(0, 300));
+  const json = JSON.parse(text);
+  return mapOkxTickerPricesUsd(symbols, json && json.data);
+}
+
+async function enrichOkxRowsWithUsdPrices(rows, fetchPricesUsd) {
+  return enrichRowsWithUsdPrices(rows, fetchPricesUsd);
 }
 
 app.get("/health", (req, res) => {
@@ -797,16 +1008,198 @@ function stockYahooCandidates(symbol) {
   return Array.from(new Set([s, withoutUs, normalized].filter(Boolean)));
 }
 
-async function yahooChartPrice(candidate) {
+async function yahooChartPrice(candidate, options) {
   const url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(candidate) + "?range=1d&interval=1d";
-  const resp = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (WCORE relay)" } });
+  const resp = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (WCORE relay)" },
+    signal: options && options.signal,
+  });
   if (!resp.ok) return null;
   const data = await resp.json();
   const meta = data && data.chart && data.chart.result && data.chart.result[0] && data.chart.result[0].meta;
   const price = meta && meta.regularMarketPrice;
   if (!price || price <= 0) return null;
-  const rawCcy = String((meta && meta.currency) || "USD");
-  return { price: price, currency: rawCcy.toUpperCase(), currencyRaw: rawCcy };
+  const rawCcy = meta && typeof meta.currency === "string" ? meta.currency.trim() : "";
+  if (!rawCcy) return null;
+  return { price: price, currency: stockQuoteCurrency(rawCcy), currencyRaw: rawCcy };
+}
+
+const STOCK_QUOTE_MAX_SYMBOLS = 300;
+const STOCK_QUOTE_CONCURRENCY = 8;
+const STOCK_QUOTE_TIMEOUT_MS = 8000;
+const STOCK_QUOTE_REQUEST_TIMEOUT_MS = 30000;
+const STOCK_SYMBOL_PATTERN = /^[A-Z0-9][A-Z0-9.-]{0,31}$/;
+const STOCK_FX_MAX_CURRENCIES = 20;
+const STOCK_FX_CONCURRENCY = 4;
+const STOCK_FX_TIMEOUT_MS = 5000;
+const STOCK_FX_REQUEST_TIMEOUT_MS = 15000;
+const STOCK_FX_CURRENCIES = new Set([
+  "CNY", "HKD", "CHF", "JPY", "TWD", "GBP", "SEK", "DKK", "NOK",
+  "AUD", "CAD", "KRW", "SAR", "AED", "EUR",
+]);
+
+function stockQuoteCurrency(value) {
+  const currency = String(value || "").trim();
+  return currency === "GBp" ? "GBX" : currency.toUpperCase();
+}
+
+function combineAbortSignals(signals) {
+  const active = (signals || []).filter(Boolean);
+  if (active.length === 1) return { signal: active[0], cleanup: function () {} };
+  const controller = new AbortController();
+  const listeners = [];
+  for (const signal of active) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      break;
+    }
+    const onAbort = function () {
+      if (!controller.signal.aborted) controller.abort(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    listeners.push([signal, onAbort]);
+  }
+  return {
+    signal: controller.signal,
+    cleanup: function () {
+      for (const entry of listeners) entry[0].removeEventListener("abort", entry[1]);
+    },
+  };
+}
+
+function stockRequestAbort(req, res, timeoutMs) {
+  const disconnected = new AbortController();
+  const abortDisconnected = function () {
+    if (!disconnected.signal.aborted) disconnected.abort(new Error("client disconnected"));
+  };
+  const abortPrematureClose = function () {
+    if (!res.writableEnded) abortDisconnected();
+  };
+  req.once("aborted", abortDisconnected);
+  res.once("close", abortPrematureClose);
+  const combined = combineAbortSignals([disconnected.signal, AbortSignal.timeout(timeoutMs)]);
+  return {
+    signal: combined.signal,
+    cleanup: function () {
+      req.removeListener("aborted", abortDisconnected);
+      res.removeListener("close", abortPrematureClose);
+      combined.cleanup();
+    },
+  };
+}
+
+function normalizeStockQuoteSymbols(symbols) {
+  if (!Array.isArray(symbols) || symbols.length > STOCK_QUOTE_MAX_SYMBOLS) return null;
+  const unique = [];
+  const seen = new Set();
+  for (const value of symbols) {
+    if (typeof value !== "string") return null;
+    const symbol = value.trim().toUpperCase();
+    if (!STOCK_SYMBOL_PATTERN.test(symbol)) return null;
+    if (!seen.has(symbol)) {
+      seen.add(symbol);
+      unique.push(symbol);
+    }
+  }
+  return unique;
+}
+
+const STOCK_NATIVE_YAHOO_SYMBOLS = {
+  TSFA: ["2330.TW"],
+};
+
+function stockNativeYahooCandidates(symbol) {
+  const nativeOverride = STOCK_NATIVE_YAHOO_SYMBOLS[symbol];
+  if (nativeOverride && nativeOverride.length > 0) return Array.from(new Set(nativeOverride));
+  const explicit = STOCK_YAHOO_SYMBOLS[symbol];
+  return explicit && explicit.length > 0 ? Array.from(new Set(explicit)) : [symbol];
+}
+
+function normalizeStockFxCurrencies(currencies) {
+  if (!Array.isArray(currencies) || currencies.length > STOCK_FX_MAX_CURRENCIES) return null;
+  const unique = [];
+  const seen = new Set();
+  for (const value of currencies) {
+    if (typeof value !== "string") return null;
+    const raw = value.trim();
+    const currency = raw.toUpperCase() === "GBX" || raw === "GBp" ? "GBP" : raw.toUpperCase();
+    if (!STOCK_FX_CURRENCIES.has(currency)) return null;
+    if (!seen.has(currency)) {
+      seen.add(currency);
+      unique.push(currency);
+    }
+  }
+  return unique;
+}
+
+async function collectStockNativeQuotes(symbols, options) {
+  const unique = normalizeStockQuoteSymbols(symbols);
+  if (!unique || unique.length === 0) return {};
+  const opts = options || {};
+  const fetchQuote = opts.fetchQuote || yahooChartPrice;
+  const concurrency = Math.max(1, Math.floor(opts.concurrency || STOCK_QUOTE_CONCURRENCY));
+  const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs || STOCK_QUOTE_TIMEOUT_MS));
+  const requestSignal = opts.signal;
+  const quotes = {};
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < unique.length && !(requestSignal && requestSignal.aborted)) {
+      const symbol = unique[nextIndex++];
+      for (const candidate of stockNativeYahooCandidates(symbol)) {
+        if (requestSignal && requestSignal.aborted) break;
+        const combined = combineAbortSignals([requestSignal, AbortSignal.timeout(timeoutMs)]);
+        try {
+          const hit = await fetchQuote(candidate, { signal: combined.signal });
+          if (!hit || !Number.isFinite(hit.price) || hit.price <= 0 || !hit.currency) continue;
+          quotes[symbol] = {
+            priceNative: hit.price,
+            currency: stockQuoteCurrency(hit.currency),
+            yahooTicker: candidate,
+            source: "yahoo:relay",
+          };
+          break;
+        } catch (_e) { /* try next candidate */ }
+        finally { combined.cleanup(); }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, unique.length) }, () => worker()));
+  return quotes;
+}
+
+async function collectStockFxQuotes(currencies, options) {
+  const unique = normalizeStockFxCurrencies(currencies);
+  if (!unique || unique.length === 0) return {};
+  const opts = options || {};
+  const fetchQuote = opts.fetchQuote || yahooChartPrice;
+  const concurrency = Math.max(1, Math.floor(opts.concurrency || STOCK_FX_CONCURRENCY));
+  const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs || STOCK_FX_TIMEOUT_MS));
+  const requestSignal = opts.signal;
+  const quotes = {};
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < unique.length && !(requestSignal && requestSignal.aborted)) {
+      const currency = unique[nextIndex++];
+      if (currency === "EUR") {
+        quotes.EUR = { unitsPerEur: 1, currency: "EUR", yahooTicker: "EUR", source: "identity:eur" };
+        continue;
+      }
+      const yahooTicker = "EUR" + currency + "=X";
+      const combined = combineAbortSignals([requestSignal, AbortSignal.timeout(timeoutMs)]);
+      try {
+        const hit = await fetchQuote(yahooTicker, { signal: combined.signal });
+        if (!hit || !Number.isFinite(hit.price) || hit.price <= 0) continue;
+        quotes[currency] = { unitsPerEur: hit.price, currency: currency, yahooTicker: yahooTicker, source: "yahoo:relay" };
+      } catch (_e) { /* omit unavailable rates */ }
+      finally { combined.cleanup(); }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, unique.length) }, () => worker()));
+  return quotes;
 }
 
 // Bitpanda receipt factors: SSU/SMSN is a Samsung receipt ~= 1/25 of the
@@ -902,6 +1295,58 @@ app.post("/stock/prices", async (req, res) => {
   }
 });
 
+app.post("/stock/quotes", async (req, res) => {
+  try {
+    const expected = getEnv("RELAY_TOKEN");
+    const body = req.body || {};
+    const token = body.token || "";
+    if (!timingSafeEqual(token, expected)) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+    const symbols = normalizeStockQuoteSymbols(body.symbols);
+    if (!symbols) {
+      return res.status(400).json({ ok: false, error: "invalid_symbols" });
+    }
+    const requestAbort = stockRequestAbort(req, res, STOCK_QUOTE_REQUEST_TIMEOUT_MS);
+    try {
+      const quotes = await collectStockNativeQuotes(symbols, { signal: requestAbort.signal });
+      if (!res.destroyed && !res.writableEnded) res.json({ ok: true, quotes: quotes });
+    } finally {
+      requestAbort.cleanup();
+    }
+  } catch (err) {
+    res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
+  }
+});
+
+app.post("/stock/fx-quotes", async (req, res) => {
+  try {
+    const expected = getEnv("RELAY_TOKEN");
+    const body = req.body || {};
+    const token = body.token || "";
+    if (!timingSafeEqual(token, expected)) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+    const currencies = normalizeStockFxCurrencies(body.currencies);
+    if (!currencies) {
+      return res.status(400).json({ ok: false, error: "invalid_currencies" });
+    }
+    const configuredTimeoutMs = process.env.NODE_ENV === "test" ? Number(app.locals.stockFxRequestTimeoutMs) : NaN;
+    const requestTimeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+      ? configuredTimeoutMs
+      : STOCK_FX_REQUEST_TIMEOUT_MS;
+    const requestAbort = stockRequestAbort(req, res, requestTimeoutMs);
+    try {
+      const quotes = await collectStockFxQuotes(currencies, { signal: requestAbort.signal });
+      if (!res.destroyed && !res.writableEnded) res.json({ ok: true, quotes: quotes });
+    } finally {
+      requestAbort.cleanup();
+    }
+  } catch (err) {
+    res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
+  }
+});
+
 app.get("/coinbase", async (req, res) => {
   try {
     const expected = getEnv("RELAY_TOKEN");
@@ -909,7 +1354,8 @@ app.get("/coinbase", async (req, res) => {
     if (!timingSafeEqual(token, expected)) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
-    const spot = await coinbaseFetchAccounts();
+    const spotRaw = await coinbaseFetchAccounts();
+    const spot = await enrichRowsWithUsdPricesSafe(spotRaw, app.locals.fetchCoinbasePricesUsd || fetchCoinbasePricesUsd, "coinbase");
     res.json({ ok: true, ts: new Date().toISOString(), spot: spot });
   } catch (err) {
     res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
@@ -923,7 +1369,9 @@ app.get("/okx", async (req, res) => {
     if (!timingSafeEqual(token, expected)) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
-    const spot = await okxFetchBalances();
+    const fetchBalances = app.locals.okxFetchBalances || okxFetchBalances;
+    const fetchPricesUsd = app.locals.fetchOkxPricesUsd || fetchOkxPricesUsd;
+    const spot = await enrichRowsWithUsdPricesSafe(await fetchBalances(), fetchPricesUsd, "okx");
     res.json({ ok: true, ts: new Date().toISOString(), spot: spot });
   } catch (err) {
     res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
@@ -968,7 +1416,11 @@ app.post("/okx/account", async (req, res) => {
     if (key.length < 10 || secret.length < 10 || passphrase.length < 1) {
       return res.status(400).json({ ok: false, error: "missing_credentials" });
     }
-    const spot = await okxFetchBalancesExact({ key: key, secret: secret, passphrase: passphrase });
+    const spotRaw = await okxFetchBalancesExact({ key: key, secret: secret, passphrase: passphrase });
+    const spot = await enrichOkxRowsWithUsdPrices(spotRaw, fetchOkxPricesUsd).catch((errUsd) => {
+      console.log("okx USD price enrichment skipped: " + (errUsd && errUsd.message ? errUsd.message : errUsd));
+      return spotRaw;
+    });
     const prices = await fetchOkxPricesEur(spot.map((r) => r[0])).catch((errPrices) => {
       console.log("okx price fetch skipped: " + (errPrices && errPrices.message ? errPrices.message : errPrices));
       return {};
@@ -1078,6 +1530,7 @@ async function bybitFetchUnified(rows, seen, creds) {
       let total = c.walletBalance;
       if (total == null || total === "") total = c.equity;
       bybitPushRow(rows, seen, c.coin, total);
+      cexMergeRowUsdMetadata(rows[seen[bybitCanonical(c.coin)]], { valueUsd: c.usdValue });
     }
   }
 }
@@ -1135,7 +1588,8 @@ app.get("/bybit", async (req, res) => {
       // FUND optional: keep UNIFIED rows if FUND fails
       console.log("bybit FUND fetch skipped: " + (errFund && errFund.message ? errFund.message : errFund));
     }
-    res.json({ ok: true, ts: new Date().toISOString(), spot: rows });
+    const spot = await enrichRowsWithUsdPricesSafe(rows, app.locals.fetchBybitPricesUsd || fetchBybitPricesUsd, "bybit");
+    res.json({ ok: true, ts: new Date().toISOString(), spot: spot });
   } catch (err) {
     res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
   }
@@ -1183,13 +1637,16 @@ app.get("/binance", async (req, res) => {
     const flexible = await fetchEarn(creds, "flexible", "totalAmount");
     const locked = await fetchEarn(creds, "locked", "amount");
     const flexibleAssets = new Set(flexible.map((r) => String(r[0]).toUpperCase()));
-    const spot = await fetchSpot(creds, flexibleAssets);
+    const fetchBinanceUsd = app.locals.fetchBinancePricesUsd || fetchBinancePricesUsd;
+    const spot = await enrichRowsWithUsdPricesSafe(await fetchSpot(creds, flexibleAssets), fetchBinanceUsd, "binance spot");
+    const flexibleValued = await enrichRowsWithUsdPricesSafe(flexible, fetchBinanceUsd, "binance earn-flexible");
+    const lockedValued = await enrichRowsWithUsdPricesSafe(locked, fetchBinanceUsd, "binance earn-locked");
     res.json({
       ok: true,
       ts: new Date().toISOString(),
       spot: spot,
-      "earn-flexible": flexible,
-      "earn-locked": locked,
+      "earn-flexible": flexibleValued,
+      "earn-locked": lockedValued,
     });
   } catch (err) {
     res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
@@ -1245,7 +1702,19 @@ module.exports = {
   derToJose,
   okxCanonical,
   okxSign,
+  okxPushRow,
+  mergeOkxEarnBalances,
   mapBybitTickerPricesEur,
   mapCoinbaseTickerPricesEur,
   mapOkxTickerPricesEur,
+  mapBybitTickerPricesUsd,
+  cexMergeRowUsdMetadata,
+  enrichRowsWithUsdPrices,
+  enrichRowsWithUsdPricesSafe,
+  mapOkxTickerPricesUsd,
+  enrichOkxRowsWithUsdPrices,
+  collectStockFxQuotes,
+  collectStockNativeQuotes,
+  normalizeStockFxCurrencies,
+  normalizeStockQuoteSymbols,
 };

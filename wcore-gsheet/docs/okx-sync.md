@@ -58,7 +58,7 @@ Fallback relais Bybit/Binance si `OKX_RELAY_*` absents.
 ## Refresh
 
 - Manuel : `CEX - OKX!A1` (checkbox) -> watchdog central -> `UPDATE_OKX_SPOT()`.
-- Groupe : `Portefeuille Crypto!AC2` inclut OKX.
+- Groupe : `Portefeuille Crypto V2!U2` inclut OKX.
 - Auto : `CEX_HOURLY_REFRESH()` (trigger `everyHours(4)` depuis v4.15.114, auto-heal).
 
 ## Endpoint vide accepté

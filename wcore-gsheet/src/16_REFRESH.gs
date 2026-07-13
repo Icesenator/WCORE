@@ -130,18 +130,35 @@ function WCORE_ON_EDIT(e) {
     if (typeof COINBASE_ON_EDIT === "function" && COINBASE_ON_EDIT(e)) return;
     if (typeof OKX_ON_EDIT === "function" && OKX_ON_EDIT(e)) return;
     if (typeof KRAKEN_ON_EDIT === "function" && KRAKEN_ON_EDIT(e)) return;
-   // v4.15.104: per-cell auto-link for Portefeuille Crypto Details column E.
-   // Runs AFTER CEX handlers (which return true on their sheets) so it only fires
-   // for non-CEX edits. Bridges the gap between bulk _setDetailsChainHyperlinks_
-   // (5-30 min pulses) and rows added in between.
+    var range = e.range;
+    var sheet = range && range.getSheet ? range.getSheet() : null;
+    var name = sheet && sheet.getName ? sheet.getName() : "";
+    var a1 = range && range.getA1Notation ? range.getA1Notation() : "";
+    if (a1 === "A1" && String(name || "") === "Portefeuille Action") {
+      var stockValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
+      if (String(stockValue).toUpperCase() === "TRUE" && typeof UPDATE_STOCK_PORTFOLIO === "function") {
+        sheet.getRange("B1").setValue("QUEUED: " + _wd_fmtDate_(new Date())).setNumberFormat("@");
+        UPDATE_STOCK_PORTFOLIO();
+        return;
+      }
+    }
+    if (a1 === "A1" && String(name || "") === "Portefeuille Crypto") {
+      var cryptoValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
+      if (String(cryptoValue).toUpperCase() === "TRUE" && typeof UPDATE_CRYPTO_PORTFOLIO_V2 === "function") {
+        sheet.getRange("B1").setValue("QUEUED: " + _wd_fmtDate_(new Date())).setNumberFormat("@");
+        UPDATE_CRYPTO_PORTFOLIO_V2();
+        return;
+      }
+    }
+    // v4.15.104: per-cell auto-link for Portefeuille Crypto Details column E.
+    // Runs AFTER CEX handlers (which return true on their sheets) so it only fires
+    // for non-CEX edits. Bridges the gap between bulk _setDetailsChainHyperlinks_
+    // (5-30 min pulses) and rows added in between.
    if (typeof _bpDetailsAutoLink_ === "function") {
     try { _bpDetailsAutoLink_(e); } catch (eAuto) {}
    }
-   var range = e.range;
     if (range.getA1Notation && range.getA1Notation() !== "A1") return;
-    var sheet = range.getSheet ? range.getSheet() : null;
     if (!sheet) return;
-    var name = sheet.getName ? sheet.getName() : "";
     if (String(name || "").indexOf(" - ") < 0) return;
 
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
@@ -666,6 +683,15 @@ function _wd_parseLocalDateTimeToMs_(s) {
   return isFinite(t) ? t : NaN;
 }
 
+function _wd_bumpTimestampSeconds_(timestamp, seconds) {
+  try {
+    var ms = _wd_parseLocalDateTimeToMs_(timestamp);
+    if (!isFinite(ms)) return "";
+    var d = new Date(ms + (Number(seconds || 1) * 1000));
+    return _wd_fmtDate_(d);
+  } catch (e) { return ""; }
+}
+
 // Periodic SheetCache cleanup
 function _wd_maybeSheetCacheCleanup_(props) {
   try {
@@ -742,6 +768,26 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
     var d = items[i] || {};
     // v4.15.85: skip CEX display-only tabs (no I1/J1, B1 is self-managed).
     if (_wd_isCexSheet_(d.name || d.sheetName || "")) continue;
+
+    var preActualI1 = _wd_extractTimestamp_(d.vI1 || "");
+    var preA2Norm = _wd_norm_(d.vA2 || "");
+    if ((preA2Norm === "" || preA2Norm.indexOf("#") === 0 || preA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
+        _wd_isLastUpdateFormat_(preActualI1)) {
+      var preBumpedJ1 = _wd_bumpTimestampSeconds_(preActualI1, 1);
+      if (preBumpedJ1) {
+        syncActions.push({
+          sheet: d.sheet || null,
+          sheetName: d.name || d.sheetName || "",
+          range: "J1",
+          value: preBumpedJ1,
+          type: "sync",
+          reason: "a2_error_recalc"
+        });
+        stats.toSync++;
+      }
+      continue;
+    }
+
     var refreshCheck = _wd_needsRefresh_(d.vA2 || "", d.vI1 || "", nowMs, staleMs);
     var cooldownMin = refreshCheck.useBlockedCooldown ? WD_PULSE_MIN_BLOCKED : WD_PULSE_MIN;
 
@@ -772,6 +818,23 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
     }
 
     var actualI1 = refreshCheck.actualTimestamp || _wd_extractTimestamp_(d.vI1 || "");
+    var vA2Norm = _wd_norm_(d.vA2 || "");
+    if ((vA2Norm === "" || vA2Norm.indexOf("#") === 0 || vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
+        _wd_isLastUpdateFormat_(actualI1)) {
+      var bumpedJ1 = _wd_bumpTimestampSeconds_(actualI1, 1);
+      if (bumpedJ1) {
+        syncActions.push({
+          sheet: d.sheet || null,
+          sheetName: d.name || d.sheetName || "",
+          range: "J1",
+          value: bumpedJ1,
+          type: "sync",
+          reason: "a2_error_recalc"
+        });
+        stats.toSync++;
+      }
+      continue;
+    }
     if (_wd_shouldSyncJ1_(actualI1, d.vJ1 || "")) {
       syncActions.push({
         sheet: d.sheet || null,
@@ -864,6 +927,16 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
 
   if (vI1.indexOf("[WEB_SCAN_PRESERVED]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
+  }
+
+  // v4.16.28: Cache-only markers without a real timestamp mean no usable scan
+  // was available (ex: "[CACHE_ONLY] [FRESH] N/A"). Re-pulse B1 instead of
+  // treating the row as healthy forever.
+  if (vI1.indexOf("[CACHE_ONLY]") === 0) {
+    var cacheOnlyTs = _wd_extractTimestamp_(vI1);
+    if (!_wd_isLastUpdateFormat_(cacheOnlyTs)) {
+      return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
+    }
   }
 
   const isEmpty = !vI1 || vI1 === "" || vI1.trim() === "";

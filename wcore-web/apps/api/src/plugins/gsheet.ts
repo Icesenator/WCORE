@@ -8,6 +8,21 @@ export interface GsheetFxTelemetry {
   runtime: "gsheet" | "web";
 }
 
+export interface GsheetCryptoPortfolioRow {
+  canonicalSymbol: string;
+  rank: number | null;
+  name: string;
+  priceEur: number | null;
+  marketCapEur: number | null;
+}
+
+export interface GsheetCryptoPortfolioSnapshot {
+  ok: true;
+  generatedAt: string;
+  rows: GsheetCryptoPortfolioRow[];
+  stats: { ranked: number; unpriced: number };
+}
+
 export interface GsheetPluginOptions {
   token: string;
   cacheStore: { get: (key: string) => Promise<string | null> };
@@ -19,6 +34,8 @@ export interface GsheetPluginOptions {
     get: (key: string) => Promise<unknown>;
   };
   chainbaseStakingProvider?: (address: string) => Promise<unknown>;
+  stockPortfolioProvider?: () => Promise<GsheetStockPortfolioSnapshot>;
+  cryptoPortfolioProvider?: () => Promise<GsheetCryptoPortfolioSnapshot>;
 }
 
 export interface GsheetPriceBatchInput {
@@ -61,6 +78,49 @@ export interface GsheetScanResult {
   cacheStats?: unknown;
   chainbaseStaking?: unknown;
   wallet?: string;
+}
+
+export interface GsheetStockPortfolioRow {
+  canonicalTicker: string;
+  sourceTicker: string | null;
+  yahooTicker: string | null;
+  bitpandaSymbol: string | null;
+  bitpandaAliases: string[];
+  rank: number | null;
+  company: string;
+  country: string | null;
+  priceNative: number | null;
+  currency: string | null;
+  priceEur: number | null;
+  marketCapUsd: number | null;
+  marketCapEur: number | null;
+  supply: number | null;
+  heldQuantity: number;
+  heldValueEur: number | null;
+  unitsPerReceipt: number;
+  priceSource: string | null;
+  fallbackSource: string | null;
+  priceStale: boolean;
+  holdingStale: boolean;
+  updatedAt: string;
+  errors: Array<{ code: string; message: string }>;
+}
+
+export interface GsheetStockPortfolioSnapshot {
+  ok: true;
+  generatedAt: string;
+  ownerAddress: string;
+  dynamicLimit: number;
+  holdingsStale: boolean;
+  rows: GsheetStockPortfolioRow[];
+  stats: {
+    ranked: number;
+    held: number;
+    heldOutsideRankedUniverse: number;
+    pricedFresh: number;
+    pricedStale: number;
+    unpriced: number;
+  };
 }
 
 const GSHEET_SCAN_PRICE_REPAIR_LIMIT = Math.max(0, Math.floor(Number(process.env.GSHEET_SCAN_PRICE_REPAIR_LIMIT) || 24));
@@ -761,6 +821,32 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
     if (!key) return reply.code(400).send({ error: "missing_key" });
     const value = await opts.cacheStore.get(key);
     return { found: value !== null, value };
+  });
+
+  app.get("/api/gsheet/stocks/portfolio", async (req, reply) => {
+    if (Object.keys(req.query as Record<string, unknown>).length > 0) {
+      return reply.code(400).send({ error: "unexpected_query" });
+    }
+    if (!opts.stockPortfolioProvider) return reply.code(503).send({ error: "stock_portfolio_unavailable" });
+    try {
+      return await opts.stockPortfolioProvider();
+    } catch (e) {
+      app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "gsheet stock portfolio failed");
+      return reply.code(503).send({ error: "stock_portfolio_unavailable" });
+    }
+  });
+
+  app.get("/api/gsheet/crypto/portfolio", async (req, reply) => {
+    if (Object.keys(req.query as Record<string, unknown>).length > 0) {
+      return reply.code(400).send({ error: "unexpected_query" });
+    }
+    if (!opts.cryptoPortfolioProvider) return reply.code(503).send({ error: "crypto_portfolio_unavailable" });
+    try {
+      return await opts.cryptoPortfolioProvider();
+    } catch (e) {
+      app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "gsheet crypto portfolio failed");
+      return reply.code(503).send({ error: "crypto_portfolio_unavailable" });
+    }
   });
 
   app.post("/api/gsheet/prices", async (req, reply) => {

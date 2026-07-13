@@ -521,11 +521,9 @@ CosmosEngine.getCachedWalletAssets = function(address, arg2, arg3, arg4, arg5, a
   if (!cache) {
   var noCacheChainName = (cfg.CHAIN && (cfg.CHAIN.DISPLAY_NAME || cfg.CHAIN.NAME)) || "Cosmos";
   var snap = null;
-  try {
-  var blocked = (typeof BaseEngine !== 'undefined' && BaseEngine.isSystemBlocked && BaseEngine.isSystemBlocked()) ||
-  (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped());
-  if (blocked && typeof OutputSnapshotCache !== 'undefined') snap = OutputSnapshotCache.load(cfg, address, "NO_CACHE_BLOCKED_QUOTA");
-  } catch (eSnapLoad) {}
+   try {
+   if (typeof OutputSnapshotCache !== 'undefined') snap = OutputSnapshotCache.load(cfg, address, "NO_CACHE_MISSING_WALLET_CACHE");
+   } catch (eSnapLoad) {}
   if (snap) return snap;
   var emptyCache = (typeof BaseEngine !== "undefined" && BaseEngine.createEmptyCache) ? BaseEngine.createEmptyCache(cfg) : { assets: [], priceMap: {} };
   emptyCache.wallet_original = address;
@@ -621,13 +619,34 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
   
   // v4.13.3: Centralized quota pre-check via BaseEngine
  // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
-  var cosmosForce = (typeof Bool !== 'undefined') ? Bool.parse(forceFull) : false;
-    try {
-      if (typeof _webScanWallet_ === "function") {
-        var cosmosWebScan = _webScanWallet_(address, arg3, forceFull, cfg);
-        if (cosmosWebScan && cosmosWebScan.ok && cosmosWebScan.status) return cosmosWebScan.status;
-      }
-    } catch (eWebScan) {}
+   var cosmosForce = (typeof Bool !== 'undefined') ? Bool.parse(forceFull) : false;
+  // v4.15.72: Load cache before Web scan so B1 guards can prevent repeat
+  // UrlFetch attempts when Sheets re-evaluates I1 without a new pulse.
+  var _httpBefore = BaseEngine.httpSnapshot();
+  var cosmosCacheBefore = null;
+  try {
+    CacheManager.init();
+    cosmosCacheBefore = WalletCache.load(address, null, cfg);
+    if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
+      var cosmosSkipTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
+      return cosmosSkipTs ? BaseEngine.wrapCacheOnlyMarker(cosmosSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+    }
+    if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
+      var cosmosFreshTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
+      return cosmosFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + cosmosFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+    }
+  } catch (ePreLatch) {}
+     try {
+       if (typeof _webScanWallet_ === "function") {
+         var cosmosWebScan = _webScanWallet_(address, arg3, forceFull, cfg);
+        if (cosmosWebScan && cosmosWebScan.ok && cosmosWebScan.status) {
+          if (cosmosWebScan.quotaBlocked && BaseEngine.rememberRefreshTriggerAttempt) {
+            BaseEngine.rememberRefreshTriggerAttempt(address, cfg, cosmosCacheBefore, arg5);
+          }
+          return cosmosWebScan.status;
+        }
+       }
+     } catch (eWebScan) {}
     if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(cfg)) {
       return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
     }
@@ -651,12 +670,9 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
     return "[BUSY] " + (cosmosBusyTs || Format.now());
   }
 
- // v4.15.19: Snapshot HTTP counter before scan (for [CACHE_ONLY] marker)
- var _httpBefore = BaseEngine.httpSnapshot();
-
- try {
-   CacheManager.init();
-   var cosmosCacheBefore = WalletCache.load(address, null, cfg);
+  try {
+    CacheManager.init();
+    cosmosCacheBefore = WalletCache.load(address, null, cfg);
     if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
       var cosmosSkipTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
       return cosmosSkipTs ? BaseEngine.wrapCacheOnlyMarker(cosmosSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());

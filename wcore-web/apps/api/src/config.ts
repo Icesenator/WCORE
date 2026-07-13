@@ -60,6 +60,7 @@ export interface ApiConfig {
   };
   integrations: {
     gsheetApiToken: string | undefined;
+    gsheetOwnerAddress: string | undefined;
     internalApiUrl: string;
     publicUrl: string;
   };
@@ -193,6 +194,7 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
     },
     integrations: {
       gsheetApiToken: env.GSHEET_API_TOKEN,
+      gsheetOwnerAddress: env.GSHEET_OWNER_ADDRESS?.trim().toLowerCase() || undefined,
       internalApiUrl: env.INTERNAL_API_URL || "http://localhost:4000",
       publicUrl: env.PUBLIC_URL ?? "http://localhost:3000",
     },

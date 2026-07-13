@@ -156,6 +156,25 @@ function makeBootstrapContext(props) {
 }
 
 {
+  assert.match(autoHealSource, /function\s+WCORE_AUTO_HEAL_TIMER\s*\(/, 'auto-heal must expose an independent timer handler');
+  assert.match(autoHealSource, /newTrigger\("WCORE_AUTO_HEAL_TIMER"\)\.timeBased\(\)\.everyMinutes\(10\)\.create\(\)/, 'auto-heal must install its own 10-minute timer');
+  assert.match(autoHealSource, /var required = \["WCORE_AUTO_HEAL_TIMER"/, 'auto-heal timer must be a required managed trigger');
+  assert.match(autoHealSource, /autoHealTimer10/, 'trigger spec must bump when adding the auto-heal timer');
+  assert.match(autoHealSource, /skipProbesOnInstall/, 'trigger spec must bump when skipping liveness probes before forced reinstall');
+  assert.match(autoHealSource, /forceNoBootstrap/, 'trigger spec must bump when force mode skips heavy bootstrap');
+  assert.match(autoHealSource, /if \(needsInstall\) \{\s*_wcoreAutoHealRow_\(out, "Liveness probes", "SKIP"/, 'auto-heal must skip liveness probes when reinstall is already required');
+  assert.match(autoHealSource, /if \(force === true\) \{\s*_wcoreAutoHealRow_\(out, "Bootstrap", "SKIP"/, 'forced auto-heal must skip heavy bootstrap work');
+  assert.match(autoHealSource, /function\s+WCORE_TRIGGER_REINSTALL_FORCE_ONLY\s*\(/, 'admin trigger reinstall-only function must exist');
+}
+
+{
+  const start = autoHealSource.indexOf('function WCORE_AUTO_HEAL(reason, force)');
+  const ensureIdx = autoHealSource.indexOf('_wcoreAutoHealEnsureTriggers_(out, props, force === true);', start);
+  const bootstrapIdx = autoHealSource.indexOf('_wcoreAutoHealBootstrapState_(out, false);', start);
+  assert.ok(ensureIdx > start && bootstrapIdx > start && ensureIdx < bootstrapIdx, 'auto-heal must repair triggers before heavier bootstrap work');
+}
+
+{
   const ctx = makeJ1Context();
   const out = [];
   ctx._wcoreAutoHealJ1Staleness_(out, true);

@@ -28,12 +28,14 @@ assert.strictEqual(Number(maxPulsesMatch[1]), 15, 'WATCHDOG should allow 15 B1 p
 function loadWatchdogHelpers() {
   const names = [
     '_wd_norm_',
+    '_wd_fmtDate_',
     '_wd_isLastUpdateFormat_',
     '_wd_extractTimestamp_',
     '_wd_extractSuccessTimestamp_',
     '_wd_isUnsafeLatchSource_',
     '_wd_isBlocked_',
     '_wd_parseLocalDateTimeToMs_',
+    '_wd_bumpTimestampSeconds_',
     '_wd_shouldPulseB1_',
     '_wd_staleAgeMs_',
     '_wd_refreshReasonPriority_',
@@ -93,5 +95,53 @@ assert(
   actions.some((action) => action.type === 'pulse' && action.sheetName === 'Ledger - Healthy Stale'),
   'A [BLOCKED:QUOTA] row must not globally suppress B1 pulses for non-quota stale rows'
 );
+
+{
+  const refresh = helpers._wd_needsRefresh_('0,00 €', '[CACHE_ONLY] [FRESH] N/A', helpers._wd_parseLocalDateTimeToMs_('2026-07-08 19:45:00'), 5 * 3600000);
+  assert.equal(refresh.needsPulse, true, '[CACHE_ONLY] [FRESH] N/A must pulse B1 because it has no usable cache timestamp');
+  assert.equal(refresh.reason, 'empty');
+}
+
+{
+  const statsA2 = { b1Set: 0, b1Blocked: 0, b1Stale: 0, b1Empty: 0, b1Error: 0, toSync: 0 };
+  const actionsA2 = helpers._wd_collectGlobalRefreshActions_([
+    {
+      sheetName: 'Ledger - Aurora',
+      vA2: '#ERROR!',
+      vB1: '2026-07-08 20:16:06',
+      vI1: 'WEB_SCAN_OK 2026-07-08 20:16:28',
+      vJ1: '2026-07-08 20:16:28'
+    }
+  ], helpers._wd_parseLocalDateTimeToMs_('2026-07-08 21:10:00'), 5 * 3600000, '2026-07-08 21:10:00', statsA2);
+  assert.deepEqual(actionsA2, [{
+    sheet: null,
+    sheetName: 'Ledger - Aurora',
+    range: 'J1',
+    value: '2026-07-08 20:16:29',
+    type: 'sync',
+    reason: 'a2_error_recalc'
+  }], 'A2 custom-function errors should bump J1 by one second without pulsing B1');
+}
+
+{
+  const statsBlankTotal = { b1Set: 0, b1Blocked: 0, b1Stale: 0, b1Empty: 0, b1Error: 0, toSync: 0 };
+  const actionsBlankTotal = helpers._wd_collectGlobalRefreshActions_([
+    {
+      sheetName: 'Ledger - Mezo',
+      vA2: '',
+      vB1: '2026-07-08 20:20:05',
+      vI1: 'WEB_SCAN_OK 2026-07-08 20:21:35',
+      vJ1: '2026-07-08 20:21:35'
+    }
+  ], helpers._wd_parseLocalDateTimeToMs_('2026-07-08 21:10:00'), 5 * 3600000, '2026-07-08 21:10:00', statsBlankTotal);
+  assert.deepEqual(actionsBlankTotal, [{
+    sheet: null,
+    sheetName: 'Ledger - Mezo',
+    range: 'J1',
+    value: '2026-07-08 20:21:36',
+    type: 'sync',
+    reason: 'a2_error_recalc'
+  }], 'Blank Recap total with fresh I1/J1 should bump J1 by one second, not B1');
+}
 
 console.log('watchdog quota guard OK');

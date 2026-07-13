@@ -112,6 +112,14 @@ function _bybitFetchBucketsViaRelay_(relay) {
   var arr = data.spot || [];
   for (var i = 0; i < arr.length; i++) {
     _bybitPushRow_(rows, seen, arr[i][0], arr[i][1]);
+    var canon = _bybitCanonicalSymbol_(arr[i][0]);
+    if (canon && Object.prototype.hasOwnProperty.call(seen, canon)) {
+      rows[seen[canon]][2] = _bybitParseAmount_(rows[seen[canon]][2]) + _bybitParseAmount_(arr[i][3]);
+      var priceUsd = _bybitParseAmount_(arr[i][4]);
+      var amt = _bybitParseAmount_(rows[seen[canon]][1]);
+      if (priceUsd > 0) rows[seen[canon]][3] = priceUsd;
+      else if (_bybitParseAmount_(rows[seen[canon]][2]) > 0 && amt > 0) rows[seen[canon]][3] = _bybitParseAmount_(rows[seen[canon]][2]) / amt;
+    }
   }
   return { spot: rows };
 }
@@ -315,6 +323,7 @@ function SETUP_BYBIT_SHEET() {
   var ss = SpreadsheetApp.openById(BYBIT_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(BYBIT_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(BYBIT_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1").setValue(
     Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")
@@ -330,7 +339,7 @@ function _bybitBuildValues_(buckets, stamp) {
     var src = order[o];
     var list = buckets[src] || [];
     for (var i = 0; i < list.length; i++) {
-      values.push([list[i][0], _bybitParseAmount_(list[i][1]), src, stamp]);
+      values.push([list[i][0], _bybitParseAmount_(list[i][1]), src, stamp, _bybitParseAmount_(list[i][2]), _bybitParseAmount_(list[i][3])]);
     }
   }
   return values;
@@ -339,14 +348,14 @@ function _bybitBuildValues_(buckets, stamp) {
 function _bybitWriteSheet_(ss, buckets) {
   var sh = ss.getSheetByName(BYBIT_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(BYBIT_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var header = [];
   header.push([false, stamp, "", ""]);
   header.push(["cryptocoin_symbol", "balance", "source", "updated_at"]);
   var dataRows = _bybitBuildValues_(buckets, stamp);
   var values = header.concat(dataRows);
-  // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(ss, BYBIT_SYNC_CONFIG.SHEET, dataRows, "bybit", values); } catch (eTot) { Logger.log("[CEX_TOTAL] bybit append failed: " + eTot); }
+  _cexComputeAndAppendTotal_(ss, BYBIT_SYNC_CONFIG.SHEET, dataRows, "bybit", values);
   return dataRows.length;
 }
 

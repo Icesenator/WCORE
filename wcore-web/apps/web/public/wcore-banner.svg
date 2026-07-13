@@ -61,7 +61,7 @@
     <g transform="translate(430 396) scale(0.62)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="chains/BLAST.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
     <g transform="translate(1456 338) scale(0.62)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="chains/METIS.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
     <g transform="translate(1334 234) scale(0.68)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="chains/MANTLE.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
-    <!-- Recently added chain: Robinhood Chain (chainId 9496) -->
+    <!-- Recently added chain: Robinhood Chain (chainId 4663) -->
     <g transform="translate(300 108) scale(0.9)"><circle cx="28" cy="28" r="22" fill="#f8fafc" fill-opacity="0.94"/><image href="chains/ROBINHOOD_CHAIN.png" x="8" y="8" width="40" height="40" clip-path="url(#coinClip)"/></g>
   </g>
 

@@ -80,6 +80,134 @@ describe("gsheetPlugin", () => {
     await app.close();
   });
 
+  test("returns stock portfolio snapshot with valid gsheet token", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      stockPortfolioProvider: async () => ({
+        ok: true,
+        generatedAt: "2026-07-11T12:00:00.000Z",
+        ownerAddress: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
+        dynamicLimit: 300,
+        holdingsStale: false,
+        rows: [],
+        stats: { ranked: 300, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 },
+      }),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/stocks/portfolio",
+      headers: { "x-gsheet-token": "secret" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), {
+      ok: true,
+      generatedAt: "2026-07-11T12:00:00.000Z",
+      ownerAddress: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
+      dynamicLimit: 300,
+      holdingsStale: false,
+      rows: [],
+      stats: { ranked: 300, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 },
+    });
+    await app.close();
+  });
+
+  test("rejects arbitrary stock portfolio query parameters", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      stockPortfolioProvider: async () => ({ ok: true, generatedAt: "", ownerAddress: "", dynamicLimit: 300, holdingsStale: false, rows: [], stats: { ranked: 0, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 } }),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/stocks/portfolio?owner=0xabc",
+      headers: { "x-gsheet-token": "secret" },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(JSON.parse(res.body), { error: "unexpected_query" });
+    await app.close();
+  });
+
+  test("returns 503 when stock portfolio provider fails", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      stockPortfolioProvider: async () => { throw new Error("owner not configured"); },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/stocks/portfolio",
+      headers: { "x-gsheet-token": "secret" },
+    });
+    assert.equal(res.statusCode, 503);
+    assert.deepEqual(JSON.parse(res.body), { error: "stock_portfolio_unavailable" });
+    await app.close();
+  });
+
+  test("returns crypto portfolio snapshot with valid gsheet token", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      cryptoPortfolioProvider: async () => ({
+        ok: true,
+        generatedAt: "2026-07-11T12:00:00.000Z",
+        rows: [{ canonicalSymbol: "BTC", rank: 1, name: "Bitcoin", priceEur: 55_000, marketCapEur: 1_000_000_000_000 }],
+        stats: { ranked: 1, unpriced: 0 },
+      }),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/crypto/portfolio",
+      headers: { "x-gsheet-token": "secret" },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(JSON.parse(res.body), {
+      ok: true,
+      generatedAt: "2026-07-11T12:00:00.000Z",
+      rows: [{ canonicalSymbol: "BTC", rank: 1, name: "Bitcoin", priceEur: 55_000, marketCapEur: 1_000_000_000_000 }],
+      stats: { ranked: 1, unpriced: 0 },
+    });
+    await app.close();
+  });
+
+  test("rejects arbitrary crypto portfolio query parameters", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      cryptoPortfolioProvider: async () => ({ ok: true, generatedAt: "", rows: [], stats: { ranked: 0, unpriced: 0 } }),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/crypto/portfolio?limit=100",
+      headers: { "x-gsheet-token": "secret" },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(JSON.parse(res.body), { error: "unexpected_query" });
+    await app.close();
+  });
+
+  test("returns 503 when crypto portfolio provider fails", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      cryptoPortfolioProvider: async () => { throw new Error("cmc down"); },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/crypto/portfolio",
+      headers: { "x-gsheet-token": "secret" },
+    });
+    assert.equal(res.statusCode, 503);
+    assert.deepEqual(JSON.parse(res.body), { error: "crypto_portfolio_unavailable" });
+    await app.close();
+  });
+
   test("returns batch prices for gsheet tokens with valid token", async () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {

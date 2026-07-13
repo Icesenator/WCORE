@@ -1,7 +1,13 @@
 /************************************************************
  * 10A_BASE_ENGINE.gs - Unified Base Engine for EVM/SVM/Cosmos
  *
- * Version: v4.15.71
+ * Version: v4.15.73
+ *
+ * v4.15.73: Treat stale B1 timestamps as sheet recalculations, not refresh
+ *   authorization. REFRESH_STATUS only scans for fresh B1 pulses.
+ *
+ * v4.15.72: Remember quota-blocked B1 trigger attempts so formula
+ *   recalculations without a new B1 pulse do not retry the same Web scan.
  *
  * v4.15.71: STATS exposes Recap-compatible exec_ms and last_cache_update
  *   aliases across BaseEngine chains.
@@ -92,7 +98,7 @@
 // ============================================================
 // AUTO-REGISTRATION (v4.13.3)
 // ============================================================
-var BASE_ENGINE_VERSION = "4.15.71";
+var BASE_ENGINE_VERSION = "4.15.73";
 
 if (typeof ModuleRegistry !== 'undefined') {
   ModuleRegistry.register("BASE_ENGINE", BASE_ENGINE_VERSION, {
@@ -156,29 +162,57 @@ BaseEngine.shouldSkipRefreshForSameTrigger = function(walletKey, config, cache, 
 // B1 (pulse timestamp). If J1 >= B1, the cache is already up-to-date and
 // no rescan is needed.
 var I1_GUARD_MS = 120 * 1000; // 2 min — only used as a hard floor to avoid
-                               // scan spam on initial deployment.
+                                // scan spam on initial deployment.
+var B1_TRIGGER_FRESH_MS = 30 * 60 * 1000; // B1 pulses should be consumed promptly;
+                                          // older timestamps are recalculations.
+
+BaseEngine.isFreshRefreshTrigger = function(triggerRefresh) {
+  try {
+    var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
+    if (!trig) return false;
+    var b1Ms = 0;
+    try { b1Ms = new Date(String(trig)).getTime(); } catch (eDt) {}
+    if (!(b1Ms > 0 && isFinite(b1Ms))) return false;
+    var age = Date.now() - b1Ms;
+    return age >= -60000 && age <= B1_TRIGGER_FRESH_MS;
+  } catch (e) { return false; }
+};
 
 BaseEngine.shouldSkipNoTriggerRecentScan = function(walletKey, config, cache, forceFull, triggerRefresh) {
   try {
-   var force = (forceFull === true || forceFull === "true" || forceFull === "TRUE");
-   if (force) return false; // C1=TRUE always scans.
-   if (!cache || !cache.updatedAt) return false;
-   var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
-   if (trig) {
-    // B1 timestamp present. J1 vs B1: if the last scan (cache.updatedAt)
-    // is newer than the B1 pulse, skip. Uses new Date() for timezone
-    // safety (script timezone = Europe/Paris, same as Utilities.formatDate).
+    var force = (forceFull === true || forceFull === "true" || forceFull === "TRUE");
+    if (force) return false; // C1=TRUE always scans.
+    var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
+    if (trig) {
+     if (!BaseEngine.isFreshRefreshTrigger(triggerRefresh)) return true;
+     if (!cache || !cache.updatedAt) return false;
+     // B1 timestamp present. J1 vs B1: if the last scan (cache.updatedAt)
+     // is newer than the B1 pulse, skip. Uses new Date() for timezone
+     // safety (script timezone = Europe/Paris, same as Utilities.formatDate).
     var b1Ms = 0;
     try { b1Ms = new Date(String(trig)).getTime(); } catch (eDt) {}
     if (b1Ms > 0 && isFinite(b1Ms) && Number(cache.updatedAt) >= b1Ms) return true;
-    // B1 is newer than the cache: let the scan proceed.
-    return false;
-   }
+     // B1 is newer than the cache: let the scan proceed.
+     return false;
+    }
+    if (!cache || !cache.updatedAt) return false;
    // No B1 at all (empty B1, not pulsed since deployment). Use the I1_GUARD_MS
    // hard floor to limit rescans.
    var age = Date.now() - Number(cache.updatedAt);
    if (age >= 0 && age < I1_GUARD_MS) return true;
    return false;
+  } catch (e) { return false; }
+};
+
+BaseEngine.rememberRefreshTriggerAttempt = function(walletKey, config, cache, triggerRefresh) {
+  try {
+    var trig = BaseEngine.normalizeRefreshTrigger(triggerRefresh);
+    if (!trig || !cache) return false;
+    cache.last_refresh_trigger = trig;
+    try { cache.lastRefreshTrigger = trig; } catch (eAlias) {}
+    CacheManager.init();
+    WalletCache.save(walletKey, cache, config);
+    return true;
   } catch (e) { return false; }
 };
 

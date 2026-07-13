@@ -196,6 +196,7 @@ function SETUP_KRAKEN_SHEET() {
   var ss = SpreadsheetApp.openById(KRAKEN_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(KRAKEN_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(KRAKEN_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1").setValue(Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@");
   sh.getRange(2, 1, 1, 4).setValues([["cryptocoin_symbol", "balance", "source", "updated_at"]]);
@@ -212,11 +213,12 @@ function _krakenBuildValues_(buckets, stamp) {
 function _krakenWriteSheet_(ss, buckets) {
   var sh = ss.getSheetByName(KRAKEN_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(KRAKEN_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var dataRows = _krakenBuildValues_(buckets, stamp);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
   // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(ss, KRAKEN_SYNC_CONFIG.SHEET, dataRows, "kraken", values); } catch (eTot) { Logger.log("[CEX_TOTAL] kraken append failed: " + eTot); }
+  _cexComputeAndAppendTotal_(ss, KRAKEN_SYNC_CONFIG.SHEET, dataRows, "kraken", values);
   return dataRows.length;
 }
 

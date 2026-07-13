@@ -20,6 +20,20 @@ describe("cacheKey", () => {
   it("returns null for web-only key on gsheet", () => {
     expect(cacheKeyGsheet("dynamicRpcs", { chainKey: "BASE" })).toBeNull();
   });
+
+  it("builds canonical stock keys", () => {
+    expect(cacheKey("stockPriceFresh", { ticker: "KRX:005930" })).toBe("stock:price:KRX:005930:fresh");
+    expect(cacheKey("stockPriceLastGood", { ticker: "KRX:005930" })).toBe("stock:price:KRX:005930:last-good");
+    expect(cacheKey("stockTopMarketCapFresh", {})).toBe("stock:top-market-cap:fresh");
+    expect(cacheKey("stockTopMarketCapLastGood", {})).toBe("stock:top-market-cap:last-good");
+    expect(cacheKey("stockTopMarketCapLock", {})).toBe("stock:top-market-cap:lock");
+  });
+
+  it("builds canonical crypto keys", () => {
+    expect(cacheKey("cryptoTopMarketCapFresh", {})).toBe("crypto:top-market-cap:fresh");
+    expect(cacheKey("cryptoTopMarketCapLastGood", {})).toBe("crypto:top-market-cap:last-good");
+    expect(cacheKey("cryptoTopMarketCapLock", {})).toBe("crypto:top-market-cap:lock");
+  });
 });
 
 describe("cacheKeyGsheet", () => {

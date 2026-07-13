@@ -114,7 +114,9 @@ function _cbFetchBucketsViaRelay_() {
   for (var i = 0; i < spot.length; i++) {
     var sym = String(spot[i][0] || "").trim().toUpperCase();
     var amt = _cbParseAmount_(spot[i][1]);
-    if (sym && amt > 0) out.push([sym, amt]);
+    var valueUsd = _cbParseAmount_(spot[i][3]);
+    var priceUsd = _cbParseAmount_(spot[i][4]);
+    if (sym && amt > 0) out.push([sym, amt, valueUsd, priceUsd]);
   }
   return { spot: out };
 }
@@ -140,6 +142,7 @@ function SETUP_COINBASE_SHEET() {
   var ss = SpreadsheetApp.openById(COINBASE_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(COINBASE_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(COINBASE_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1").setValue(Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@");
   sh.getRange(2, 1, 1, 4).setValues([["cryptocoin_symbol", "balance", "source", "updated_at"]]);
@@ -150,7 +153,7 @@ function _cbBuildValues_(buckets, stamp) {
   var values = [];
   var list = (buckets && buckets.spot) || [];
   for (var i = 0; i < list.length; i++) {
-    values.push([list[i][0], _cbParseAmount_(list[i][1]), "spot", stamp]);
+    values.push([list[i][0], _cbParseAmount_(list[i][1]), "spot", stamp, _cbParseAmount_(list[i][2]), _cbParseAmount_(list[i][3])]);
   }
   return values;
 }
@@ -158,11 +161,11 @@ function _cbBuildValues_(buckets, stamp) {
 function _cbWriteSheet_(ss, buckets) {
   var sh = ss.getSheetByName(COINBASE_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(COINBASE_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var dataRows = _cbBuildValues_(buckets, stamp);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
-  // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(ss, COINBASE_SYNC_CONFIG.SHEET, dataRows, "coinbase", values); } catch (eTot) { Logger.log("[CEX_TOTAL] coinbase append failed: " + eTot); }
+  _cexComputeAndAppendTotal_(ss, COINBASE_SYNC_CONFIG.SHEET, dataRows, "coinbase", values);
   return dataRows.length;
 }
 

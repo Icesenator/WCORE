@@ -58,10 +58,22 @@ if (!autoHeal.includes('cexManualQueue')) {
   throw new Error('Auto-heal trigger spec must be bumped for queued manual CEX refreshes');
 }
 
-for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
+for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
   if (!autoHeal.includes(`ScriptApp.newTrigger("${handler}").timeBased().everyHours(1).create()`)) {
     throw new Error(`CEX auto refresh must install an hourly per-connector trigger for ${handler}`);
   }
+}
+
+// v4.15.140: Bitpanda stocks must not be starved behind crypto/commodity/fiat
+// writes in one long execution. The auto path splits stocks/fiat into their
+// own hourly trigger.
+const updateBitpandaSpotBody = extractFunction(bitpanda, 'UPDATE_BITPANDA_SPOT');
+if (!/stocks\s*:\s*false/.test(updateBitpandaSpotBody)) {
+  throw new Error('UPDATE_BITPANDA_SPOT auto path must not include stocks; stocks/fiat need their own bounded trigger');
+}
+const updateBitpandaStocksBody = extractFunction(bitpanda, 'UPDATE_BITPANDA_STOCKS_FIAT');
+if (!/stocks\s*:\s*true/.test(updateBitpandaStocksBody) || !/fiat\s*:\s*true/.test(updateBitpandaStocksBody)) {
+  throw new Error('UPDATE_BITPANDA_STOCKS_FIAT must refresh Bitpanda stocks and fiat together');
 }
 if (autoHeal.includes('ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(4).create()')) {
   throw new Error('CEX auto refresh must not depend only on the central 4h trigger');
@@ -72,6 +84,10 @@ const freshHeartbeatProps = { getProperty: (key) => key === 'CEX_HOURLY_REFRESH_
 const cexStatus = cexStatusContext._wcoreAutoHealCexStatus_(freshHeartbeatProps);
 if (!cexStatus || cexStatus.staleCount < 1 || cexStatus.mode !== 'heartbeat+sheetB1') {
   throw new Error('CEX heartbeat must not mask stale individual CEX sheets; auto-heal needs sheet-level staleness even when the global heartbeat is fresh');
+}
+const ensureTriggersBody = extractFunction(autoHeal, '_wcoreAutoHealEnsureTriggers_');
+if (!/cexStatus\.staleCount\s*>=\s*1/.test(ensureTriggersBody)) {
+  throw new Error('Auto-heal must reinstall CEX triggers when any individual CEX sheet is stale, not wait for multiple stale sheets');
 }
 
 if (autoHeal.includes('ScriptApp.newTrigger("BITPANDA_REFRESH_WATCHDOG")') || /required = \[[^\]]*BITPANDA_REFRESH_WATCHDOG/.test(autoHeal)) {
@@ -100,7 +116,7 @@ for (const legacy of ['BINANCE_REFRESH_WATCHDOG', 'BITFINEX_REFRESH_WATCHDOG', '
 if (cexTriggerList.includes('BITPANDA_REFRESH_WATCHDOG')) {
   throw new Error('CEX onEdit self-heal must not recreate BITPANDA_REFRESH_WATCHDOG');
 }
-for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
+for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
   if (!cexTriggerList.includes(handler)) {
     throw new Error(`CEX onEdit self-heal must keep hourly ${handler}`);
   }
@@ -159,17 +175,17 @@ if (!bitpanda.includes('CEX_WORKER_LEASE')) {
   throw new Error('Missing CEX_WORKER_LEASE property lease for the manual CEX worker');
 }
 
-// v4.15.114: multi-job clicks (Z1, AC2) must enqueue in ONE batch (single trigger ensure),
+// v4.15.114+: multi-job clicks must enqueue in ONE batch (single trigger ensure),
 // not N per-job CEX_QUEUE_MANUAL_JOB calls (each redoing getProjectTriggers+delete+create).
 const bpOnEditBody = extractFunction(bitpanda, 'BITPANDA_ON_EDIT');
 if (!bpOnEditBody.includes('_cexEnqueueManualJobs_')) {
-  throw new Error('BITPANDA_ON_EDIT must use batch _cexEnqueueManualJobs_ for Z1/AC2 multi-job clicks');
+  throw new Error('BITPANDA_ON_EDIT must use batch _cexEnqueueManualJobs_ for multi-job clicks');
 }
 if (bpOnEditBody.includes('CEX_QUEUE_MANUAL_JOB(')) {
   throw new Error('BITPANDA_ON_EDIT must not enqueue jobs one by one; use _cexEnqueueManualJobs_');
 }
 if (!bpOnEditBody.includes('KRAKEN') || !bpOnEditBody.includes('KRAKEN_SYNC_CONFIG')) {
-  throw new Error('Portefeuille Crypto!AC2 must enqueue Kraken with the other crypto CEX jobs');
+  throw new Error('Portefeuille Crypto!U2 must enqueue Kraken with the other crypto CEX jobs');
 }
 const enqueueBody = extractFunction(bitpanda, '_cexEnqueueManualJobs_');
 const ensureCount = (enqueueBody.match(/_cexEnsureManualWorkerTrigger_\(/g) || []).length;
@@ -192,6 +208,9 @@ if (!runJobBody.includes('_CEX_MANUAL_JOB_MAX_RETRIES')) {
 const transientBody = extractFunction(bitpanda, '_cexIsTransientResult_');
 if (!transientBody.includes('timed out') || !transientBody.includes('BUSY')) {
   throw new Error('_cexIsTransientResult_ must cover Spreadsheets timeouts and BUSY lock collisions');
+}
+if (!transientBody.includes('blocked/null response')) {
+  throw new Error('_cexIsTransientResult_ must retry CEX blocked/null HTTP responses returned as ok:false JSON');
 }
 
 // v4.15.116: the worker must DRAIN the queue within a time budget (one job per
@@ -287,6 +306,35 @@ if (!installCexHourlyBody.includes('UPDATE_BINANCE_SPOT') || !installCexHourlyBo
 const directCryptoBody = extractFunction(bitpanda, '_bpRunCryptoCexRefreshDirect_');
 if (!directCryptoBody.includes('UPDATE_KRAKEN_SPOT')) {
   throw new Error('Direct crypto CEX refresh helper must include Kraken');
+}
+const cexPriceMapBody = extractFunction(bitpanda, '_cexGetPriceMap_');
+if (!cexPriceMapBody.includes('!map.hasOwnProperty(sym)')) {
+  throw new Error('CEX price map must keep the first Top 5000 price for duplicate symbols instead of letting lower-rank duplicates overwrite it');
+}
+const cexTotalBody = extractFunction(bitpanda, '_cexComputeAndAppendTotal_');
+if (!cexTotalBody.includes('eValues[fv - 1]')) {
+  throw new Error('CEX A:G writer must align data row opt_values[2] with eValues[1], otherwise the last value_eur cell is blank');
+}
+if (!cexTotalBody.includes('relayValueUsd') || !cexTotalBody.includes('relayPriceUsd') || !cexTotalBody.includes('FxRate.getUsdToEur')) {
+  throw new Error('CEX total must prefer relay-provided OKX valueUsd/priceUsd metadata before fallback price maps');
+}
+for (const [file, label] of [
+  ['src/36_BINANCE_SYNC.gs', 'Binance'],
+  ['src/39_COINBASE_SYNC.gs', 'Coinbase'],
+  ['src/40_OKX_SYNC.gs', 'OKX'],
+]) {
+  const body = read(file);
+  if (!body.includes('[2]') || !body.includes('[3]')) {
+    throw new Error(`${label} sync must carry relay valueUsd/priceUsd metadata through internal dataRows without writing extra visible columns`);
+  }
+}
+const bybitBody = read('src/38_BYBIT_SYNC.gs');
+if (!bybitBody.includes('arr[i][3]') || !bybitBody.includes('arr[i][4]') || !bybitBody.includes('list[i][2]') || !bybitBody.includes('list[i][3]')) {
+  throw new Error('Bybit sync must carry relay valueUsd/priceUsd metadata through internal dataRows without writing extra visible columns');
+}
+const okxBody = read('src/40_OKX_SYNC.gs');
+if (!okxBody.includes('spot[i][3]') || !okxBody.includes('spot[i][4]') || !okxBody.includes('list[i][3]') || !okxBody.includes('list[i][4]')) {
+  throw new Error('OKX sync must carry relay valueUsd/priceUsd metadata through internal dataRows without writing extra visible columns');
 }
 if (!kraken.includes('function SET_KRAKEN_API_KEYS(') || !kraken.includes('DocumentProperties')) {
   throw new Error('Kraken connector must store credentials through SET_KRAKEN_API_KEYS in UserProperties + DocumentProperties');

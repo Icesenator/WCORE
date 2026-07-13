@@ -56,7 +56,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
   const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(connectedAddress);
   // CEX holdings (cached) load automatically when authenticated and render as
   // extra wallet cards feeding the global total + Wallets/Tokens tabs.
-  const { cexResults, reloadCex } = useCexHoldings(!!connectedAddress);
+  const { cexResults, reloadCex } = useCexHoldings(connectedAddress);
   const cexAddresses = useMemo(() => cexResults.map((r) => r.address), [cexResults]);
   const [expandedWallets, setExpandedWallets] = useState<Set<string>>(new Set());
   const [refreshingWallet, setRefreshingWallet] = useState<string | null>(null);

@@ -1,6 +1,6 @@
 ﻿# WCORE — Audit Technique Complet
 
-> **Historical snapshot.** This audit documents the Apps Script runtime as of 2026-05-04 (`v4.15.41` audited, `v4.15.42` corrected). It is preserved for traceability only. Current operational guidance lives in `README.md`, `AGENTS.md`, and the focused docs under `docs/`.
+> **Historical snapshot.** This audit documents the Apps Script runtime as of 2026-05-04 (`v4.15.41` audited, `v4.15.42` corrected). It is preserved for traceability only. Do not execute its old quota-reset or recovery procedures. Current status lives in `ROADMAP.md`; current cross-runtime findings live in `../docs/AUDIT.md`.
 
 **Date** : 2026-05-04
 **Version auditée** : v4.15.41 (code source + triggers)

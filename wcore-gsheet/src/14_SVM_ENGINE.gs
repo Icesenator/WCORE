@@ -780,11 +780,9 @@ var SvmEngine = {
   var cache = WalletCache.load(walletKey, null, config);
   if (!cache) {
   var snap = null;
-  try {
-  var blocked = (typeof BaseEngine !== 'undefined' && BaseEngine.isSystemBlocked && BaseEngine.isSystemBlocked()) ||
-  (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped());
-  if (blocked && typeof OutputSnapshotCache !== 'undefined') snap = OutputSnapshotCache.load(config, walletKey, "NO_CACHE_BLOCKED_QUOTA");
-  } catch (eSnapLoad) {}
+   try {
+   if (typeof OutputSnapshotCache !== 'undefined') snap = OutputSnapshotCache.load(config, walletKey, "NO_CACHE_MISSING_WALLET_CACHE");
+   } catch (eSnapLoad) {}
   if (snap) return snap;
   var emptyCache = (typeof BaseEngine !== "undefined" && BaseEngine.createEmptyCache) ? BaseEngine.createEmptyCache(config) : { assets: [], priceMap: {} };
   emptyCache.wallet_original = address;
@@ -895,7 +893,12 @@ var SvmEngine = {
       try {
         if (typeof _webScanWallet_ === "function") {
           var svmWebScan = _webScanWallet_(addr, tokensRange, forceFull, config, _svmWalletKey(addr));
-          if (svmWebScan && svmWebScan.ok && svmWebScan.status) return svmWebScan.status;
+          if (svmWebScan && svmWebScan.ok && svmWebScan.status) {
+            if (svmWebScan.quotaBlocked && BaseEngine.rememberRefreshTriggerAttempt) {
+              BaseEngine.rememberRefreshTriggerAttempt(_svmWalletKey(addr), config, svmCacheBefore, triggerRefresh);
+            }
+            return svmWebScan.status;
+          }
         }
       } catch (eWebScan) {}
       if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {

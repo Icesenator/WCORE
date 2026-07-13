@@ -277,6 +277,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   var cleanTotalEur = 0;
   var priorityAssets = [];
   var extraAssets = [];
+  var seenTokenSet = {};
 
   var nativeAsset = _webScanAssetFromNative_(payload.native || {}, config || {});
   assets.push(nativeAsset);
@@ -292,6 +293,8 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     if (_webScanIsScamToken_(tokens[i])) { scamFiltered++; continue; }
     var asset = _webScanAssetFromToken_(tokens[i]);
     if (!asset) continue;
+    var assetKey = String(asset.contract || "").toLowerCase();
+    if (assetKey) seenTokenSet[assetKey] = true;
     var isPriority = !!(priority && priority.set[String(asset.contract || "").toLowerCase()]);
     if (isPriority) priorityAssets.push(asset); else extraAssets.push(asset);
     if (_webScanNum_(asset.value_eur, 0) !== 0) cleanTotalEur += _webScanNum_(asset.value_eur, 0);
@@ -302,6 +305,14 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
       missingPrices++;
     }
     balanceTsMap[asset.contract] = now;
+  }
+  if (priority && priority.set) {
+    for (var requestedKey in priority.set) {
+      if (!requestedKey || seenTokenSet[requestedKey]) continue;
+      balanceTsMap[requestedKey] = 0;
+      delete priceMap[requestedKey];
+      delete priceTsMap[requestedKey];
+    }
   }
   assets = assets.concat(priorityAssets, extraAssets);
 
@@ -531,9 +542,27 @@ function _webScanRequestPayload_(address, tokensRange, forceFull, config) {
 function _webScanQuotaTripped_() {
   try {
     if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) return true;
-    if (typeof BaseEngine !== "undefined" && BaseEngine.isSystemBlocked && BaseEngine.isSystemBlocked()) return true;
   } catch (e) {}
   return false;
+}
+
+function _webScanBlockedQuotaResult_(chainKey) {
+  _webScanSetLastError_("BLOCKED_QUOTA " + String(chainKey || ""), chainKey);
+  return { ok: true, status: "[BLOCKED:QUOTA] " + Format.now(), quotaBlocked: true };
+}
+
+function _webScanHandleQuotaError_(err, chainKey) {
+  try {
+    if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.handleError && QuotaCircuitBreaker.handleError(err)) {
+      return _webScanBlockedQuotaResult_(chainKey);
+    }
+  } catch (eBreaker) {}
+  try {
+    if (typeof HttpErrorGuard !== "undefined" && HttpErrorGuard.handleError && HttpErrorGuard.handleError(err) === "quota_exhausted") {
+      return _webScanBlockedQuotaResult_(chainKey);
+    }
+  } catch (eGuard) {}
+  return null;
 }
 
 function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
@@ -541,6 +570,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     if (!_webScanEnabled_()) return null;
     var chainKey = _webScanChainKey_(config);
     if (!chainKey || !_webScanAllowed_(chainKey)) return null;
+    if (_webScanQuotaTripped_()) return _webScanBlockedQuotaResult_(chainKey);
     var baseUrl = _webScanProp_("WCORE_WEB_API_URL").replace(/\/$/, "");
     var token = _webScanProp_("GSHEET_API_TOKEN");
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
@@ -565,7 +595,11 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
         if (attempt < attempts && Utilities && Utilities.sleep) Utilities.sleep(250);
       }
     }
-    if (lastErr) throw lastErr;
+    if (lastErr) {
+      var quotaResult = _webScanHandleQuotaError_(lastErr, chainKey);
+      if (quotaResult) return quotaResult;
+      throw lastErr;
+    }
     var code = resp && resp.getResponseCode ? resp.getResponseCode() : 0;
     if (code < 200 || code >= 300) {
       var httpFailure = _webScanResponseError_(code, resp && resp.getContentText ? resp.getContentText() : "");
@@ -612,6 +646,8 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     };
   } catch (e) {
     var chainKeyCatch = (typeof chainKey === "string" && chainKey) ? chainKey : ((config && _webScanChainKey_ && _webScanChainKey_(config)) || "");
+    var caughtQuotaResult = _webScanHandleQuotaError_(e, chainKeyCatch);
+    if (caughtQuotaResult) return caughtQuotaResult;
     _webScanSetLastError_(String(e && (e.message || e) || e), chainKeyCatch);
     return null;
   }

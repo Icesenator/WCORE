@@ -4,7 +4,7 @@
 
 ## Goal
 
-Add a Coinbase CEX connector that fills a new `Coinbase Crypto` sheet and lets `Portefeuille Crypto Details` consume Coinbase balances through the same CEX pattern used by Binance, Bitfinex, and Bybit.
+Add a Coinbase CEX connector that fills a new `Coinbase Crypto` sheet and lets the crypto details sheet consume Coinbase balances through the same CEX pattern used by Binance, Bitfinex, and Bybit. Current runtime target is `Portefeuille Crypto Details V2`.
 
 ## Scope
 

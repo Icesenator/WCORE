@@ -30,3 +30,20 @@ function WCORE_ENABLE_WEB_SCAN_REQUIRE() {
   props.setProperty("GSHEET_WEB_SCAN_REQUIRE", "true");
   return "GSHEET_WEB_SCAN_REQUIRE=true";
 }
+
+function WCORE_FORCE_HEAL_AND_UPDATE_CRYPTO_V2_NOW() {
+  if (typeof WCORE_AUTO_HEAL_FORCE === "function") {
+    WCORE_AUTO_HEAL_FORCE();
+  }
+  if (typeof UPDATE_CRYPTO_PORTFOLIO_V2 !== "function") {
+    throw new Error("UPDATE_CRYPTO_PORTFOLIO_V2 not available");
+  }
+  return UPDATE_CRYPTO_PORTFOLIO_V2();
+}
+
+function WCORE_UPDATE_CRYPTO_V2_NOW_ONLY() {
+  if (typeof UPDATE_CRYPTO_PORTFOLIO_V2 !== "function") {
+    throw new Error("UPDATE_CRYPTO_PORTFOLIO_V2 not available");
+  }
+  return UPDATE_CRYPTO_PORTFOLIO_V2();
+}

@@ -17,6 +17,9 @@ import { cexPlugin } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
 import { metricsPlugin } from "./plugins/metrics-plugin.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
+import { CanonicalStockService } from "./stocks/stock-service.js";
+import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
+import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
@@ -356,6 +359,62 @@ if (gsheetApiToken) {
       get: async (key: string) => {
         return await sharedCache.get<unknown>(key);
       },
+    },
+    stockPortfolioProvider: async () => {
+      const ownerAddress = apiConfig.integrations.gsheetOwnerAddress;
+      if (!ownerAddress) throw new Error("GSHEET_OWNER_ADDRESS is not configured");
+      const user = await prisma.user.findFirst({
+        where: { address: { equals: ownerAddress, mode: "insensitive" } },
+        select: {
+          id: true,
+          address: true,
+          cexAccounts: {
+            where: { provider: "bitpanda" },
+            orderBy: { createdAt: "asc" },
+            include: { holdings: { where: { bucket: "stocks" }, orderBy: { symbol: "asc" } } },
+          },
+        },
+      });
+      const account = user?.cexAccounts[0];
+      if (!user || !account) throw new Error("Configured GSheet owner has no Bitpanda account");
+      const service = new CanonicalStockService({ cache: sharedCache });
+      const holdings = account.holdings.map((holding) => ({
+        symbol: holding.symbol,
+        balance: holding.balance,
+        updatedAt: holding.updatedAt,
+      }));
+      const top = await service.getTopMarketCapSnapshot(5_000);
+      const heldPrices = {} as Awaited<ReturnType<CanonicalStockService["getPricesForBitpandaSymbols"]>>;
+      for (let index = 0; index < holdings.length; index += 50) {
+        Object.assign(heldPrices, await service.getPricesForBitpandaSymbols(holdings.slice(index, index + 50).map((holding) => holding.symbol)));
+      }
+      return buildGsheetStockPortfolioSnapshot({
+        generatedAt: new Date().toISOString(),
+        ownerAddress: user.address.toLowerCase(),
+        rankedRows: top.rows,
+        holdings,
+        holdingsStale: account.lastSyncStatus === "error",
+        heldPrices,
+      });
+    },
+    cryptoPortfolioProvider: async () => {
+      const service = new CanonicalCryptoService({ cache: sharedCache });
+      const snapshot = await service.getListingSnapshot(5_000);
+      return {
+        ok: true,
+        generatedAt: snapshot.generatedAt,
+        rows: snapshot.rows.map((row) => ({
+          canonicalSymbol: row.symbol,
+          rank: row.rank,
+          name: row.name,
+          priceEur: row.priceEur,
+          marketCapEur: row.marketCapEur,
+        })),
+        stats: {
+          ranked: snapshot.rows.length,
+          unpriced: 0,
+        },
+      };
     },
   });
 }

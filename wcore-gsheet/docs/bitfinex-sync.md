@@ -85,7 +85,7 @@ Les soldes des codes consolides sont cumules sur la ligne cible (`USDT` / `EURC`
   tard. En cas d'erreur definitive, `B1` affiche le diagnostic visible.
 - Au succes, `B1` devient le timestamp final et les rows sont reecrites avec le meme timestamp.
 - Transitoire (timeout Spreadsheets / quota / `BUSY`) : `B1 = RETRY n/2: ...`, requeue auto, retry a +60s.
-- `Portefeuille Crypto!AC2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO`
+- `Portefeuille Crypto V2!U2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO`
   (crypto seul depuis v4.15.115), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`,
   `OKX` en une seule action utilisateur. Statut en `AD2`.
 

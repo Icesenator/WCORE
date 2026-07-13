@@ -29,6 +29,10 @@ function sanitize(text) {
   return issues;
 }
 
+function normalizeDraft(text) {
+  return (text || "").replace(/\s+/g, " ").trim();
+}
+
 const REPLIES = process.env.X_REPLIES_JSON ? JSON.parse(process.env.X_REPLIES_JSON) : [];
 
 async function appearsOnProfile(xPage, text) {
@@ -165,10 +169,10 @@ async function postReply(xPage, target) {
     return textareas[0].innerText;
   });
 
-  if (draft !== target.text) {
+  if (normalizeDraft(draft) !== normalizeDraft(target.text)) {
     console.log(`!! DRAFT MISMATCH:`);
-    console.log(`  expected: ${target.text.substring(0, 80)}...`);
-    console.log(`  actual  : ${(draft || "").substring(0, 80)}...`);
+    console.log(`  expected: ${normalizeDraft(target.text).substring(0, 80)}...`);
+    console.log(`  actual  : ${normalizeDraft(draft).substring(0, 80)}...`);
     console.log("!! ABORT: no automatic retype");
     return false;
   }

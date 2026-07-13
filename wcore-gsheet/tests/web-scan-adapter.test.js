@@ -9,6 +9,7 @@ const refreshSource = fs.readFileSync(path.join(__dirname, '..', 'src', '16_REFR
 const outputSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10_OUTPUT.gs'), 'utf8');
 const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EVM_ENGINE.gs'), 'utf8');
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
+const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
@@ -54,6 +55,29 @@ function makeOutputContext() {
   };
   vm.createContext(context);
   vm.runInContext(outputSource, context);
+  return context;
+}
+
+function makeBaseEngineContext(saved) {
+  const context = {
+    console,
+    Date,
+    Math,
+    String,
+    Number,
+    Boolean,
+    Array,
+    Object,
+    RegExp,
+    isFinite,
+    parseInt,
+    CacheManager: { init: () => {} },
+    WalletCache: {
+      save: (walletKey, cache, config) => saved.push({ walletKey, cache, config }),
+    },
+  };
+  vm.createContext(context);
+  vm.runInContext(baseEngineSource, context);
   return context;
 }
 
@@ -113,6 +137,7 @@ function makeContext(props, fetchBody) {
       datetime: () => '2026-06-26 19:00:00',
     },
     BaseEngine: { isSystemBlocked: () => false },
+    QuotaCircuitBreaker: props.__quotaCircuitBreaker,
     __saved: saved,
   };
   vm.createContext(context);
@@ -163,6 +188,22 @@ const samplePayload = JSON.stringify({
   assert.equal(ctx._webScanEnabled_(), true, 'web scan enabled by default when required config exists');
   assert.equal(ctx._webScanAllowed_('BASE'), true, 'ALL allowlist permits BASE');
   assert.equal(ctx._webScanAllowed_('SOLANA'), true, 'ALL allowlist permits SOLANA');
+}
+
+{
+  const ctx = makeContext({
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __quotaCircuitBreaker: { isTripped: () => false },
+  }, samplePayload);
+  ctx.BaseEngine.isSystemBlocked = () => true;
+
+  assert.equal(ctx._webScanQuotaTripped_(), false, 'web scan quota precheck must not treat generic system blocked as quota');
+  const result = ctx._webScanWallet_('0xabc', [], false, { CHAIN: { KEY: 'SOLANA', NAME: 'Solana', NATIVE_SYMBOL: 'SOL' }, CACHE_VERSION: 1 });
+
+  assert.ok(result && result.ok, 'web scan should still attempt the API when only generic system-blocked is true');
+  assert.ok(!String(result.status || '').includes('[BLOCKED:QUOTA]'), 'generic system-blocked must not produce a false quota label');
 }
 
 {
@@ -676,6 +717,8 @@ const samplePayload = JSON.stringify({
   const savedSol = saved.assets.find((t) => t.contract === sol);
   assert.equal(savedBtcb, undefined, 'explicitly requested BTCB must not be resurrected from stale cache when absent from Web payload');
   assert.equal(savedSol, undefined, 'explicitly requested SOL must not be resurrected from stale cache when absent from Web payload');
+  assert.equal(saved.balanceTsMap[btcb], 0, 'strict requested BTCB absent from Web payload must be saved as confirmed zero');
+  assert.equal(saved.balanceTsMap[sol], 0, 'strict requested SOL absent from Web payload must be saved as confirmed zero');
   assert.equal(saved.priceMap[btcb], undefined, 'absurd cached BTCB priceMap entry must be purged');
   assert.equal(saved.priceMap[sol], undefined, 'absurd cached SOL priceMap entry must be purged');
 }
@@ -761,6 +804,58 @@ const samplePayload = JSON.stringify({
   const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'ARBITRUM_ONE', NAME: 'Arbitrum One' } });
   assert.equal(res.ok, true, 'web scan should retry transient UrlFetch failures before falling back native');
   assert.equal(attempts, 2);
+}
+
+{
+  let handled = 0;
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __quotaCircuitBreaker: {
+      isTripped: () => false,
+      handleError: (err) => {
+        handled++;
+        return String(err && err.message || err).includes('Service invoked too many times');
+      },
+    },
+  }, () => {
+    throw new Error('Service invoked too many times for one day: urlfetch.');
+  });
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'ARBITRUM_ONE', NAME: 'Arbitrum One' } });
+  assert.equal(res.ok, true, 'quota UrlFetch failures should return a visible blocked status');
+  assert.match(res.status, /\[BLOCKED:QUOTA\]/);
+  assert.equal(handled, 1, 'quota UrlFetch failures should trip the quota breaker once');
+  assert.equal(ctx.DIAG_WEB_SCAN_LAST_ERROR('ARBITRUM_ONE')[2][1], 'BLOCKED_QUOTA ARBITRUM_ONE');
+}
+
+{
+  const saved = [];
+  const ctx = makeBaseEngineContext(saved);
+  const cache = { updatedAt: new Date('2026-07-08T17:00:00Z').getTime(), assets: [] };
+  const trigger = '2026-07-08 19:20:00';
+  const remembered = ctx.BaseEngine.rememberRefreshTriggerAttempt('wallet-cache-key', { CHAIN: { KEY: 'ARBITRUM_ONE' } }, cache, trigger);
+  assert.equal(remembered, true, 'quota-blocked scans should persist the attempted B1 trigger');
+  assert.equal(cache.last_refresh_trigger, trigger);
+  assert.equal(saved.length, 1, 'remembering the trigger should save the existing cache once');
+  assert.equal(
+    ctx.BaseEngine.shouldSkipRefreshForSameTrigger('wallet-cache-key', {}, cache, false, trigger),
+    true,
+    'the next recalculation with unchanged B1 should skip Web scan even when cache.updatedAt is older than B1'
+  );
+}
+
+{
+  const saved = [];
+  const ctx = makeBaseEngineContext(saved);
+  const staleTrigger = '2000-01-01 00:10:00';
+  const oldCache = { updatedAt: new Date('1999-12-30T00:00:00Z').getTime(), assets: [] };
+  assert.equal(
+    ctx.BaseEngine.shouldSkipNoTriggerRecentScan('wallet-cache-key', {}, oldCache, false, staleTrigger),
+    true,
+    'a stale B1 timestamp must not trigger a scan just because cache.updatedAt is older than B1'
+  );
 }
 
 {

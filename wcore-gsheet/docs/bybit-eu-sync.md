@@ -114,9 +114,9 @@ BYBIT_TRIGGER_STATUS()
 
 Note : `BYBIT_SYNC_STATUS()` ecrit dans `ScriptProperties`. Si le stockage global GAS est sature, l'ecriture du statut peut etre skippee sans bloquer l'ecriture de l'onglet.
 
-## Portefeuille Crypto Details
+## Portefeuille Crypto Details V2
 
-Bybit est agrege dans `Portefeuille Crypto Details` via le libelle `CEX - Bybit`
+Bybit est agrege dans `Portefeuille Crypto Details V2` via le libelle `CEX - Bybit`
 en colonne E. Les soldes (colonne H = Libre) utilisent des formules SUMIFS :
 
 ```

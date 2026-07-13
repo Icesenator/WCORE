@@ -175,4 +175,69 @@ vm.runInContext(globalSource, context);
   assert.equal(Math.round(totalRow[6] * 100) / 100, -7, 'reconstructed cache totals must include negative debt values');
 }
 
+{
+  const wallet = '0xbscnative';
+
+  context.WalletCache.save(wallet, {
+    updatedAt: 1000,
+    assets: [
+      { contract: 'native', balance: 0.21370905634607845, symbol: 'BNB', name: 'BNB', decimals: 18 },
+      { contract: '0x0000000000000000000000000000000000000001', balance: 1, symbol: 'TOK', name: 'Token', decimals: 18 },
+    ],
+    priceMap: { native: 500 },
+    priceTsMap: { native: 1000 },
+    scanStats: { fullCycleComplete: true },
+  }, {});
+
+  const result = context.WalletCache.save(wallet, {
+    updatedAt: 2000,
+    assets: [
+      { contract: 'native', balance: 0, symbol: 'BNB', name: 'BNB', decimals: 18 },
+      { contract: '0x0000000000000000000000000000000000000001', balance: 1, symbol: 'TOK', name: 'Token', decimals: 18 },
+    ],
+    priceMap: { native: 501 },
+    priceTsMap: { native: 2000 },
+    scanStats: { fullCycleComplete: true },
+  }, {});
+
+  const saved = context.WalletCache.load(wallet, null, {});
+  const native = saved.assets.find((asset) => asset.contract === 'native');
+
+  assert.equal(result.preserved, false, 'non-authoritative native repair should still save the updated cache');
+  assert.equal(native.balance, 0.21370905634607845, 'native positive cache must not be overwritten by an unconfirmed zero');
+  assert.equal(saved.scanStats.preservedFromCache, 1, 'native preservation must be visible in scan stats');
+}
+
+{
+  const wallet = '0xbscstrictzero';
+  const staleToken = '0x00000000000000000000000000000000000000c1';
+  const liveToken = '0x00000000000000000000000000000000000000c2';
+
+  context.WalletCache.save(wallet, {
+    updatedAt: 1000,
+    assets: [
+      { contract: 'native', balance: 0, symbol: 'BNB', name: 'BNB', decimals: 18 },
+      { contract: staleToken, balance: 1, symbol: 'STALE', name: 'Stale Token', decimals: 18 },
+      { contract: liveToken, balance: 2, symbol: 'LIVE', name: 'Live Token', decimals: 18 },
+    ],
+    scanStats: { fullCycleComplete: true },
+  }, {});
+
+  context.WalletCache.save(wallet, {
+    updatedAt: 2000,
+    assets: [
+      { contract: 'native', balance: 0, symbol: 'BNB', name: 'BNB', decimals: 18 },
+      { contract: liveToken, balance: 2, symbol: 'LIVE', name: 'Live Token', decimals: 18 },
+    ],
+    balanceTsMap: { [staleToken]: 0, [liveToken]: 2000 },
+    strictTokenSet: { [staleToken]: true, [liveToken]: true },
+    scanStats: { fullCycleComplete: true },
+  }, { FLAGS: { STRICT_TOKEN_RANGE: true } });
+
+  const saved = context.WalletCache.load(wallet, null, {});
+
+  assert.ok(!saved.assets.find((asset) => asset.contract === staleToken), 'strict scanned zero token must not be preserved from stale cache');
+  assert.ok(saved.assets.find((asset) => asset.contract === liveToken), 'strict live token should remain');
+}
+
 console.log('wallet cache preserve prices OK');

@@ -49,9 +49,9 @@ Le relais normalise les stablecoins :
   `CEX_MANUAL_REFRESH_WORKER` l'execute ~1s plus tard.
 - Au succes, `B1` devient le timestamp final et les rows sont reecrites avec le meme timestamp.
 - Transitoire (timeout Spreadsheets / quota / `BUSY`) : `B1 = RETRY n/2: ...`, requeue auto, retry a +60s.
-- `Portefeuille Crypto!AC2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO` (crypto seul depuis v4.15.115, pas `CEX - Bitpanda Fiat`), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`. Statut visible en `AD2`.
+- `Portefeuille Crypto V2!U2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO` (crypto seul depuis v4.15.115, pas `CEX - Bitpanda Fiat`), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`, `KRAKEN`. Statut visible en `V2`.
 
-Ne pas mettre la checkbox `AC2` dans `Action Rebalancing` ni dans `Portefeuille Crypto Details`.
+Ne pas remettre de checkbox legacy `AC2` ni dans `Action Rebalancing` ni dans `Portefeuille Crypto Details V2`.
 
 ## Triggers
 

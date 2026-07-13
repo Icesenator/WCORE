@@ -78,7 +78,9 @@ function _binFetchBucketsViaRelay_() {
     for (var i = 0; i < arr.length; i++) {
       var sym = String(arr[i][0] || "").trim().toUpperCase();
       var amt = _binParseAmount_(arr[i][1]);
-      if (sym && amt > 0) out.push([sym, amt]);
+      var valueUsd = _binParseAmount_(arr[i][2]);
+      var priceUsd = _binParseAmount_(arr[i][3]);
+      if (sym && amt > 0) out.push([sym, amt, valueUsd, priceUsd]);
     }
     return out;
   }
@@ -272,6 +274,7 @@ function SETUP_BINANCE_SHEET() {
   var ss = SpreadsheetApp.openById(BINANCE_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(BINANCE_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(BINANCE_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   // v4.15.82: B1 = date pure "yyyy-MM-dd HH:mm:ss" (harmonie avec onglets on-chain Recap).
   sh.getRange("B1").setValue(
@@ -289,7 +292,7 @@ function _binBuildValues_(buckets, stamp) {
     var src = order[o];
     var list = buckets[src] || [];
     for (var i = 0; i < list.length; i++) {
-      values.push([list[i][0], _binParseAmount_(list[i][1]), src, stamp]);
+      values.push([list[i][0], _binParseAmount_(list[i][1]), src, stamp, _binParseAmount_(list[i][2]), _binParseAmount_(list[i][3])]);
     }
   }
   return values;
@@ -298,6 +301,7 @@ function _binBuildValues_(buckets, stamp) {
 function _binWriteSheet_(ss, buckets) {
   var sh = ss.getSheetByName(BINANCE_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(BINANCE_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   // v4.15.82: B1 = date pure "yyyy-MM-dd HH:mm:ss" (harmonie avec onglets on-chain Recap).
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var header = [];
@@ -305,8 +309,7 @@ function _binWriteSheet_(ss, buckets) {
   header.push(["cryptocoin_symbol", "balance", "source", "updated_at"]);
   var dataRows = _binBuildValues_(buckets, stamp);
   var values = header.concat(dataRows);
-  // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(ss, BINANCE_SYNC_CONFIG.SHEET, dataRows, "binance", values); } catch (eTot) { Logger.log("[CEX_TOTAL] binance append failed: " + eTot); }
+  _cexComputeAndAppendTotal_(ss, BINANCE_SYNC_CONFIG.SHEET, dataRows, "binance", values);
   return dataRows.length;
 }
 

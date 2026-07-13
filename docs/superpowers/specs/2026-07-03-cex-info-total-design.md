@@ -102,7 +102,7 @@ A new test file `wcore-gsheet/tests/cex-info-total.test.js` covers:
 ## Out of Scope
 
 - No change to the on-chain `INFO_TOTAL` path (driven by `I1=*_REFRESH_STATUS(...)`).
-- No change to the `Portefeuille Crypto Details` formulas.
+- No change to the crypto details formulas; current runtime target is `Portefeuille Crypto Details V2`.
 - No change to the CEX 4h cadence or the `CEX_MANUAL_REFRESH_WORKER` 1 min trigger.
 - No new external price source — reuse the existing cascade.
 - No change to the `A1` checkbox manual refresh path.

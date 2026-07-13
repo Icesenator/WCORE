@@ -73,8 +73,8 @@ v4.15.112). L'installable `MASTER_ON_EDIT` decoche, ecrit `QUEUED: ...` et
 pousse un job dans la queue one-shot; `CEX_MANUAL_REFRESH_WORKER` execute ~1s
 plus tard (voir `docs/cex-sync.md`).
 
-- `Action Rebalancing!Z1` -> jobs `TOP_MARKETCAP` + `BITPANDA_STOCKS_FIAT` (`CEX - Bitpanda Stocks` + `CEX - Bitpanda Fiat`). Statut en `AA1`.
-- `Portefeuille Crypto!AC2` -> jobs `BITPANDA_CRYPTO` (crypto SEUL depuis v4.15.115 — pas de refresh `CEX - Bitpanda Fiat`), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`. Statut en `AD2`.
+- `Portefeuille Action!T2` -> jobs `BITPANDA_STOCKS_FIAT` (`CEX - Bitpanda Stocks` + `CEX - Bitpanda Fiat`). Statut en `U2`.
+- `Portefeuille Crypto V2!U2` -> jobs `BITPANDA_CRYPTO` (crypto SEUL depuis v4.15.115 — pas de refresh `CEX - Bitpanda Fiat`), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`, `KRAKEN`. Statut en `V2`.
 - `A1` de `CEX - Bitpanda Crypto` -> `UPDATE_BITPANDA_CRYPTO_FIAT()` (crypto + fiat); `A1` de `CEX - Bitpanda Stocks`/`Fiat` -> `UPDATE_BITPANDA_STOCKS_FIAT()`.
 
 `CEX - Bitpanda Commodity` n'est touche que par le refresh global `UPDATE_BITPANDA_SPOT()`.

@@ -4,7 +4,7 @@
 // Recupere les soldes OKX et les ecrit dans l'onglet "OKX Crypto".
 // Les secrets OKX restent dans Railway. Apps Script stocke seulement URL+token relais.
 
-var OKX_SYNC_VERSION = "4.15.97";
+var OKX_SYNC_VERSION = "4.15.98";
 
 var OKX_SYNC_CONFIG = {
   RELAY_URL_PROP: "OKX_RELAY_URL",
@@ -103,7 +103,10 @@ function _okxFetchBucketsViaRelay_() {
   for (var i = 0; i < spot.length; i++) {
     var sym = String(spot[i][0] || "").trim().toUpperCase();
     var amt = _okxParseAmount_(spot[i][1]);
-    if (sym && amt > 0) out.push([sym, amt]);
+    var src = String(spot[i][2] || "spot").trim().toLowerCase() || "spot";
+    var valueUsd = _okxParseAmount_(spot[i][3]);
+    var priceUsd = _okxParseAmount_(spot[i][4]);
+    if (sym && amt > 0) out.push([sym, amt, src, valueUsd, priceUsd]);
   }
   return { spot: out };
 }
@@ -121,10 +124,20 @@ function DIAG_OKX_API() {
   }
 }
 
+function DIAG_OKX_RELAY_CONFIG() {
+  try {
+    var relay = _okxGetRelay_();
+    return "OKX relay url=" + relay.url + " token=" + (relay.token ? "SET" : "MISSING");
+  } catch (err) {
+    return "OKX relay config ERROR: " + (err && err.message ? err.message : err);
+  }
+}
+
 function SETUP_OKX_SHEET() {
   var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(OKX_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(OKX_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1").setValue(Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@");
   sh.getRange(2, 1, 1, 4).setValues([["cryptocoin_symbol", "balance", "source", "updated_at"]]);
@@ -134,18 +147,21 @@ function SETUP_OKX_SHEET() {
 function _okxBuildValues_(buckets, stamp) {
   var values = [];
   var list = (buckets && buckets.spot) || [];
-  for (var i = 0; i < list.length; i++) values.push([list[i][0], _okxParseAmount_(list[i][1]), "spot", stamp]);
+  for (var i = 0; i < list.length; i++) {
+    var src = String(list[i][2] || "spot").trim().toLowerCase() || "spot";
+    values.push([list[i][0], _okxParseAmount_(list[i][1]), src, stamp, _okxParseAmount_(list[i][3]), _okxParseAmount_(list[i][4])]);
+  }
   return values;
 }
 
 function _okxWriteSheet_(ss, buckets) {
   var sh = ss.getSheetByName(OKX_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(OKX_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var dataRows = _okxBuildValues_(buckets, stamp);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
-  // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(ss, OKX_SYNC_CONFIG.SHEET, dataRows, "okx", values); } catch (eTot) { Logger.log("[CEX_TOTAL] okx append failed: " + eTot); }
+  _cexComputeAndAppendTotal_(ss, OKX_SYNC_CONFIG.SHEET, dataRows, "okx", values);
   return dataRows.length;
 }
 

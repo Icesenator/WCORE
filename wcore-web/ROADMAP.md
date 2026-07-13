@@ -11,13 +11,27 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Setup / pr├®sentation** : `README.md`.
 - **D├®ploiement / op├®rations** : `DEPLOY.md`.
 - **R├¿gles agent / gotchas** : `AGENTS.md`.
-- **Audit courant** : `docs/AUDIT.md` (fichier unique consolid├® 2026-06-11 ÔÇö remplace tous les rapports dat├®s ; les anciens `docs/audit-*.md` vivent dans l'historique git, commit `6ef62a7` et ant├®rieurs).
+- **Audit courant** : `docs/AUDIT.md` (vérifié le 2026-07-10; les anciens rapports datés vivent dans l'historique Git).
 - **FX cascade** : `docs/fx-cascade.md` (4 sources + m├®diane, cross-runtime drift detector).
 - **Archives historiques** : `docs/archive/`. Ces fichiers ne sont plus source d'├®tat courant ; consulter d'abord cette roadmap avant de reprendre une action ancienne.
+
+## Audit courant - 2026-07-10
+
+- Audit Web vérifié : `docs/AUDIT.md`.
+- Audit transversal Web + GSheet : `../docs/AUDIT.md`.
+- Priorités immédiates : conversion USD/EUR CEX, endpoint pricing CEX, migrations Prisma, CI racine, SSRF/jobs async, fiabilité GM/CEX frontend.
+- Baseline : core 284/284, shared 17/17, Web 129 tests passants et 6 tests non hermétiques faute d'API locale; typecheck vert; lint rouge à 19 erreurs.
+- Convention de couverture : **183 configurations suivies**; le nombre actif/scannable vient de `/api/chains`.
 
 ---
 
 ## Etat courant : v0.3.3 - Kraken CEX + DeFi positions + pricing fixes (2026-07-05)
+
+### Session 2026-07-07 — Cycle X read-only + post "Read first. Sign later."
+
+- **Cycle X interaction** : scan read-only via Chrome CDP 9224, cibles filtrees contre shill cache/doublons WCORE. 3 replies publiees et verifiees : approvals/read-only (`aisama_code`), public API/private key (`NintondoWallet`), fake portfolio balance scam (`GardenGnomeCoin`). Angles propres : separation read vs sign, seed/private key jamais necessaire pour lire, clean total contre spam-token value.
+- **X post concept `wcore-post-read-first-sign-later`** : publie `https://x.com/WCORExyz/status/2074361865904283858`. Texte : `Read first. Sign later.` / balance publique / token value pas toujours liquide / approvals = risque / no seed phrase / no forced wallet connect / no fake total. Image : `apps/web/public/wcore-post-read-first-sign-later.svg` + `.png` en **3200x1800**, generee par `scripts/build-post-read-first-sign-later.cjs`. DA v12 concept post : deux colonnes equilibrees, badge WCORE, pill `READ-ONLY FIRST`, carte `WHAT CAN BE READ SAFELY`, panneau `VISIBILITY LAYER`, raw value barre vs clean value, footer `wcore.xyz`.
+- **Fichiers marketing** : `.gitignore` ajoute des exceptions ciblees pour tracker le script builder et le PNG final haute resolution. Le PNG est volontairement 3200x1800 (pattern `wcore-post-beyond-crypto`) pour limiter la compression X sur les textes fins.
 
 ### Session 2026-07-06 — Alignement chain count 183 + X post "Beyond crypto" + vision By Asset Class
 
@@ -28,7 +42,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 ### Session 2026-07-05 — Kraken 7e CEX, Robinhood Chain GM, parity GSheet/Web
 
 - **Kraken CEX (7e source)** : intégration complète (types, normalizer `krakenCanonicalSymbol`, API plugin `fetchKrakenRows`, form, tests). Signature HMAC-SHA512, nonce microsecondes + compteur. Endpoint `/0/private/Balance`. Filtre fiat Z-prefix (`ZUSD→USD`, `ZEUR→EUR`...). Les 3-char tokens (ADA, DOT, SOL) ne sont plus filtrés. **23 files** modifiés : `cex.ts`, `normalizers.ts`, `schemas.ts`, `cex-display.ts`, `CexAccounts.tsx`, `ChainCard.tsx`, `ChainIcon.tsx`, `explorers.ts`, `wagmi.ts`, `useCexHoldings.ts`, etc.
-- **Robinhood Chain GM** : factory `0xbC1753...`, wagmi chainId `9496`, icône, gm-chains label, chain-native-symbols. X post publié `https://x.com/WCORExyz/status/2073...` avec tag `@RobinhoodCrypto`.
+- **Robinhood Chain GM** : factory `0xbC1753...`, wagmi chainId `4663`, icône, gm-chains label, chain-native-symbols. X post publié `https://x.com/WCORExyz/status/2073...` avec tag `@RobinhoodCrypto`.
 - **Pricing CEX provider-first** : `priceCexRowsForTest` donne priorité au ticker fournisseur (`quoteEur`) sur DefiLlama. BCPEUR (cash Bitpanda titres) reclassé fiat. Stocks pricés en premier via relay Yahoo, jamais en crypto (homonymes CVX, MC, ACN, WMT...). Tests normalizers : 24/24.
 - **Relay stocks fixes** : TM → `7203.T` (action Tokyo, pas ADR US 10×), SSU/SMSN ×25 (receipt Samsung, pas ÷25), ROG → `ROG.SW` (Roche, pas Rogers Corp). Stock candidates ne fallbackent plus vers le symbole brut si un mapping explicite existe.
 - **DeFi position badge web** : `TokenTable.tsx` affiche un badge bleu `DeFi` sur les tokens staked/locked/flex. Détection regex-based : noms avec `[Flex]`/`[Lock]`, `Staked *`, `staking`, `liquid staking`, `receipt`, symboles `sXxx`+staking, `C-*`+staking/airdrop.
@@ -165,7 +179,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ---
 
-> **Historical sections below.** The current state is the v0.3.1 section above. Older sections are retained for traceability and release archaeology; do not treat any later `Etat courant` / `Etat actuel` heading below this banner as the current roadmap.
+> **Historical sections below.** The current state is the v0.3.3 section above. Older sections are retained for traceability and release archaeology; do not treat any later `Etat courant` / `Etat actuel` heading below this banner as the current roadmap.
 
 ## ├ëtat courant : v0.2.46 ­ƒƒó ÔÇö Bitpanda stocks pric├®s via relais + logos stocks + Refresh All CEX (2026-06-15)
 

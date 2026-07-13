@@ -315,18 +315,27 @@ async function fetchKrakenRows(creds: KrakenCredentials): Promise<RawCexRow[]> {
   return normalizeKrakenBuckets(buckets);
 }
 
+export function convertUsdPriceToEur(priceUsd: number, fxRate: number): number | null {
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0 || !Number.isFinite(fxRate) || fxRate <= 0) return null;
+  const priceEur = priceUsd * fxRate;
+  return Number.isFinite(priceEur) && priceEur > 0 ? priceEur : null;
+}
+
 async function priceSymbolEur(symbol: string): Promise<{ priceEur: number | null; source: string | null }> {
   const s = symbol.toUpperCase();
   if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") return { priceEur: 1, source: "fiat-eur" };
   const eurUsd = await getEurUsdRate();
-  if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) return { priceEur: 1 / eurUsd, source: "stable-usd" };
+  if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) return { priceEur: convertUsdPriceToEur(1, eurUsd), source: "stable-usd" };
   const llamaId = CEX_PRICE_IDS[s];
   if (!llamaId) return { priceEur: null, source: null };
   try {
     const res = await fetch(`https://coins.llama.fi/prices/current/${llamaId}?searchWidth=4h`, { signal: AbortSignal.timeout(5000) });
     const data = await res.json() as { coins?: Record<string, { price?: number }> };
     const priceUsd = data.coins?.[llamaId]?.price;
-    if (priceUsd && priceUsd > 0) return { priceEur: priceUsd / eurUsd, source: "defillama" };
+    if (priceUsd != null) {
+      const priceEur = convertUsdPriceToEur(priceUsd, eurUsd);
+      if (priceEur != null) return { priceEur, source: "defillama" };
+    }
   } catch (e) { console.error("cex price defillama error:", (e as Error).message); }
   return { priceEur: null, source: null };
 }
@@ -412,6 +421,59 @@ async function pricedRows(rows: RawCexRow[], stockCache?: StockPriceCache): Prom
 export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
   const { prisma } = deps;
   const stockPriceCache = toStockPriceCache(deps.sharedCache);
+
+  app.get("/api/cex/prices", async (req, reply) => {
+    const expectedToken = process.env.GSHEET_API_TOKEN;
+    if (!expectedToken || req.headers["x-gsheet-token"] !== expectedToken) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+
+    const query = req.query as Record<string, unknown>;
+    const raw = String(query.symbols ?? "");
+    if (!raw) return reply.code(400).send({ error: "missing_symbols" });
+    const requested = raw.split(",").map((symbol) => symbol.trim().toUpperCase()).filter(Boolean);
+    if (requested.length === 0) return reply.code(400).send({ error: "empty_symbols" });
+    if (requested.length > 50) return reply.code(400).send({ error: "too_many_symbols", max: 50 });
+    const symbols = [...new Set(requested)];
+    if (symbols.some((symbol) => !/^[A-Z0-9][A-Z0-9._:-]{0,31}$/.test(symbol))) {
+      return reply.code(400).send({ error: "invalid_symbols" });
+    }
+
+    const prices: Record<string, CexPriceResult> = Object.fromEntries(
+      symbols.map((symbol) => [symbol, { priceEur: null, source: null }]),
+    );
+    const isStocks = String(query.bucket ?? "").toLowerCase() === "stocks";
+
+    if (isStocks) {
+      const missing: string[] = [];
+      await Promise.all(symbols.map(async (symbol) => {
+        const cached = await stockPriceCache?.get(`stockprice:${symbol}`).catch(() => null);
+        if (cached?.priceEur && cached.priceEur > 0) prices[symbol] = cached;
+        else missing.push(symbol);
+      }));
+
+      const relayUrl = getStockRelayUrl();
+      const relayToken = process.env.RELAY_TOKEN;
+      if (missing.length > 0 && relayUrl && relayToken) {
+        const fresh = await fetchStockPricesViaRelay(missing, { relayUrl, relayToken });
+        await Promise.all(Object.entries(fresh).map(async ([symbol, price]) => {
+          prices[symbol] = price;
+          await stockPriceCache?.set(`stockprice:${symbol}`, price, STOCK_PRICE_TTL_MS).catch(() => {});
+        }));
+      }
+      return { prices };
+    }
+
+    // Keep authenticated batch requests bounded even when upstream pricing is slow.
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(5, symbols.length) }, async () => {
+      while (cursor < symbols.length) {
+        const symbol = symbols[cursor++]!;
+        prices[symbol] = await priceSymbolEur(symbol);
+      }
+    }));
+    return { prices };
+  });
 
   app.get("/api/cex/accounts", async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: "not_authenticated" });
@@ -499,151 +561,5 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
       await prisma.cexAccount.update({ where: { id: account.id }, data: { lastSyncAt: new Date(), lastSyncStatus: "error", lastSyncError: message.slice(0, 500) } }).catch(() => {});
       return reply.code(502).send({ error: "sync_failed", message });
     }
-  });
-
-
-// Unified CEX ticker — tries Kraken, OKX, Binance, Bybit, Coinbase, Bitfinex.
-// Prioritizes the exchange ticker over DefiLlama aggregations (e.g. LEO on OKX
-// is 8.10 EUR while DefiLlama average across all CEX shows 10.60 EUR).
-const _cexTickerCache = new Map<string, { priceEur: number; ts: number }>();
-async function getCexTickerPrice(symbol: string, provider?: string): Promise<number | null> {
-  const s = symbol.toUpperCase();
-  const now = Date.now();
-  const cached = _cexTickerCache.get(s);
-  if (cached && now - cached.ts < 600_000) return cached.priceEur;
-  const all: Array<{ name: string; fn: () => Promise<number | null> }> = [
-    { name: "kraken", fn: async () => { const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.error?.length) return null; for(const [,t] of Object.entries(d.result ?? {})) { const p = parseFloat((t as any)?.c?.[0] ?? ""); if (p > 0) return p; } return null; } },
-    { name: "okx", fn: async () => { const r = await fetch(`https://www.okx.com/api/v5/market/ticker?instId=${encodeURIComponent(s)}-EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.code !== "0") return null; const p = parseFloat(d.data?.[0]?.last ?? ""); return p > 0 ? p : null; } },
-    { name: "binance", fn: async () => { const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.code) return null; const p = parseFloat(d.price ?? ""); return p > 0 ? p : null; } },
-    { name: "bybit", fn: async () => { const r = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (d.retCode !== 0) return null; const p = parseFloat(d.result?.list?.[0]?.lastPrice ?? ""); return p > 0 ? p : null; } },
-    { name: "coinbase", fn: async () => { const r = await fetch(`https://api.coinbase.com/v2/prices/${encodeURIComponent(s)}-EUR/spot`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; const p = parseFloat(d.data?.amount ?? ""); return p > 0 ? p : null; } },
-    { name: "bitfinex", fn: async () => { const r = await fetch(`https://api-pub.bitfinex.com/v2/ticker/t${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(4000) }); const d = await r.json() as any; if (!Array.isArray(d) || d.length < 7) return null; const p = d[6]; return p > 0 ? p : null; } },
-  ];
-  // Provider's own ticker first (OKX balance → OKX price)
-  let providerIdx = -1;
-  if (provider) { for (let i = 0; i < all.length; i++) { if (all[i]!.name === provider) { providerIdx = i; break; } } }
-  const ordered = providerIdx >= 0 ? [all[providerIdx]!, ...all.slice(0, providerIdx), ...all.slice(providerIdx + 1)] : all;
-  const results = await Promise.allSettled(ordered.map((f) => f!.fn()));
-  for (const r of results) { if (r.status === "fulfilled" && r.value != null && r.value > 0) { _cexTickerCache.set(s, { priceEur: r.value, ts: now }); return r.value; } }
-  return null;
-}
-function looksLikeStock(symbol: string): boolean {
-  const s = symbol.toUpperCase();
-  if (CEX_PRICE_IDS[s]) return false;
-  if (["EUR", "EURI", "EURC", "USD", "USDT", "USDC", "DAI", "BUSD", "FDUSD", "TUSD"].includes(s)) return false;
-  return /^[A-Z]{2,5}$/.test(s) || s.includes("-US") || s.includes("-");
-}
-
-// Kraken public ticker: try {symbol}EUR pair.
-const _krakenTickerCache = new Map<string, { priceEur: number; ts: number }>();
-async function getKrakenTickerPrice(symbol: string): Promise<number | null> {
-  const s = symbol.toUpperCase();
-  const now = Date.now();
-  const cached = _krakenTickerCache.get(s);
-  if (cached && now - cached.ts < 600_000) return cached.priceEur;
-  try {
-    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${encodeURIComponent(s)}EUR`, { signal: AbortSignal.timeout(5000) });
-    const data = await res.json() as { error?: unknown[]; result?: Record<string, { c?: [string, string] }> };
-    if (data.error?.length) return null;
-    for (const [, ticker] of Object.entries(data.result ?? {})) {
-      const price = parseFloat(ticker?.c?.[0] ?? "");
-      if (price > 0) {
-        _krakenTickerCache.set(s, { priceEur: price, ts: now });
-        return price;
-      }
-    }
-  } catch (_e) { /* fall through */ }
-  return null;
-}
-
-// OKX public ticker: try {SYMBOL}-EUR instrument.
-const _okxTickerCache = new Map<string, { priceEur: number; ts: number }>();
-async function getOkxTickerPrice(symbol: string): Promise<number | null> {
-  const s = symbol.toUpperCase();
-  if (s === "EUR" || s === "USD" || s === "USDT" || s === "USDC") return null;
-  const now = Date.now();
-  const cached = _okxTickerCache.get(s);
-  if (cached && now - cached.ts < 600_000) return cached.priceEur;
-  try {
-    const res = await fetch(`https://www.okx.com/api/v5/market/ticker?instId=${encodeURIComponent(s)}-EUR`, { signal: AbortSignal.timeout(5000) });
-    const data = await res.json() as { code?: string; data?: Array<{ last?: string }> };
-    if (data.code !== "0") return null;
-    const price = parseFloat(data.data?.[0]?.last ?? "");
-    if (price > 0) {
-      _okxTickerCache.set(s, { priceEur: price, ts: now });
-      return price;
-    }
-  } catch (_e) { /* fall through */ }
-  return null;
-}
-
-  app.get("/api/cex/prices", async (req, reply) => {
-    const q = (req.query as Record<string, unknown>);
-    const raw = String(q.symbols ?? "");
-    if (!raw) return reply.code(400).send({ error: "missing_symbols" });
-    const symbols = raw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-    if (symbols.length === 0) return reply.code(400).send({ error: "empty_symbols" });
-    if (symbols.length > 200) return reply.code(400).send({ error: "too_many_symbols", max: 200 });
-    const isStocks = String(q.bucket ?? "").toLowerCase() === "stocks";
-    const provider = String(q.provider ?? "").toLowerCase();
-
-    // Bitpanda ticker (EUR direct) — fetched once per request. Skipped for
-    // stocks because the ticker has crypto homonyms (FB, ACN, MC, WMT) that
-    // would silently misprice securities.
-    let bpTicker: Record<string, { priceEur: number; source: string }> | null = null;
-    const getBPTicker = async () => {
-      if (bpTicker) return bpTicker;
-      try {
-        const res = await fetch("https://api.bitpanda.com/v1/ticker", { signal: AbortSignal.timeout(8000) });
-        const data = await res.json() as Record<string, Record<string, string>>;
-        bpTicker = {};
-        for (const [key, prices] of Object.entries(data)) {
-          const eur = parseFloat(prices.EUR || "0");
-          bpTicker[key.toUpperCase()] = { priceEur: eur, source: "bitpanda-ticker" };
-        }
-      } catch (_e) { bpTicker = {}; }
-      return bpTicker;
-    };
-
-    const eurUsd = await getEurUsdRate();
-    const results = await Promise.all(symbols.map(async (symbol) => {
-      const s = symbol.toUpperCase();
-      if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") return { symbol, priceEur: 1, source: "fiat-eur" };
-      if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) return { symbol, priceEur: 1 / eurUsd, source: "stable-usd" };
-
-      // Bitpanda ticker first (skipped for stocks — crypto homonyms like FB, ACN, WMT).
-      if (!isStocks) {
-        const ticker = await getBPTicker();
-        const bp = ticker[s];
-        if (bp) return { symbol, priceEur: bp.priceEur > 0 ? bp.priceEur : null, source: bp.source };
-      }
-
-      const llamaId = CEX_PRICE_IDS[s];
-
-      // CEX tickers (EUR direct) — Kraken, OKX, Binance, Bybit, Coinbase, Bitfinex.
-      // Falls back to DefiLlama if no ticker has the symbol.
-      if (!llamaId || !isStocks) {
-        const tickerPrice = await getCexTickerPrice(s, provider);
-        if (tickerPrice != null && tickerPrice > 0) return { symbol, priceEur: tickerPrice, source: "cex-ticker" };
-      }
-      if (llamaId) {
-        try {
-          const res = await fetch(`https://coins.llama.fi/prices/current/${llamaId}?searchWidth=4h`, { signal: AbortSignal.timeout(5000) });
-          const data = await res.json() as { coins?: Record<string, { price?: number }> };
-          const priceUsd = data.coins?.[llamaId]?.price;
-          if (priceUsd && priceUsd > 0) return { symbol, priceEur: priceUsd / eurUsd, source: "defillama" };
-        } catch (_e) { /* fall through */ }
-      }
-      if (looksLikeStock(s)) {
-        try {
-          const stock = await priceStockSymbolEur(s, stockPriceCache);
-          if (stock.priceEur != null && stock.priceEur > 0) return { symbol, priceEur: stock.priceEur, source: stock.source };
-        } catch (_e) { /* fall through */ }
-      }
-      return { symbol, priceEur: null, source: null };
-    }));
-    const prices: Record<string, { priceEur: number | null; source: string | null }> = {};
-    for (const r of results) prices[r.symbol] = { priceEur: r.priceEur, source: r.source };
-    return { prices };
   });
 }

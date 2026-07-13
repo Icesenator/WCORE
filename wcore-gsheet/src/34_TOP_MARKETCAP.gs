@@ -1,4 +1,4 @@
-// v4.15.72 - Top 300 World Market Cap dynamic updater (companiesmarketcap.com)
+// v4.15.73 - Exchange-aware currency fallback for transient GOOGLEFINANCE failures
 //
 // Remplit l'onglet "Google Finance" avec le Top 300 mondial des capitalisations.
 // Source: companiesmarketcap.com (CSV public, pas de cle API).
@@ -17,7 +17,7 @@
 // Mise a jour: UPDATE_TOP_MARKETCAP() (manuel) ou trigger hebdomadaire
 // installe via INSTALL_TOP_MARKETCAP_TRIGGER().
 
-var TOP_MARKETCAP_VERSION = "4.15.72";
+var TOP_MARKETCAP_VERSION = "4.15.73";
 
 var TOP_MC_CONFIG = {
   SHEET_NAME: "Google Finance",
@@ -119,6 +119,25 @@ function _topMcMapTicker_(sym) {
   }
 
   return { ticker: pre + ":" + base, gfSupported: true };
+}
+
+/**
+ * Currency inferred from the normalized exchange prefix. GOOGLEFINANCE can
+ * return a live price while its separate currency lookup temporarily fails;
+ * defaulting that price to USD can inflate non-US stocks by several orders of
+ * magnitude (for example KRX prices expressed in KRW).
+ */
+function _topMcCurrencyFallbackFormula_(row) {
+  var exchange = "IFERROR(REGEXEXTRACT(A" + row + ";\"^[^:]+\");\"\")";
+  return "SWITCH(" + exchange + ";" +
+    "\"KRX\";\"KRW\";\"KOSDAQ\";\"KRW\";" +
+    "\"SHA\";\"CNY\";\"SHE\";\"CNY\";\"HKG\";\"HKD\";" +
+    "\"SWX\";\"CHF\";\"TYO\";\"JPY\";\"TPE\";\"TWD\";" +
+    "\"LON\";\"GBX\";\"STO\";\"SEK\";\"CPH\";\"DKK\";" +
+    "\"OSL\";\"NOK\";\"ASX\";\"AUD\";\"TSE\";\"CAD\";\"CVE\";\"CAD\";" +
+    "\"EPA\";\"EUR\";\"AMS\";\"EUR\";\"EBR\";\"EUR\";\"ELI\";\"EUR\";" +
+    "\"ETR\";\"EUR\";\"FRA\";\"EUR\";\"BME\";\"EUR\";\"BIT\";\"EUR\";\"HEL\";\"EUR\";" +
+    "\"USD\")";
 }
 
 /**
@@ -318,6 +337,9 @@ function _topMcReadIgnoreMap_(sh) {
  * Fonction principale (manuelle ou trigger).
  */
 function UPDATE_TOP_MARKETCAP() {
+  Logger.log("TOP_MC: LEGACY_DISABLED - Portefeuille Action is the stock source of truth");
+  return "LEGACY_DISABLED";
+
   var lock = LockService.getScriptLock();
   try { lock.waitLock(10000); } catch (e) { Logger.log("TOP_MC: lock busy"); return "BUSY"; }
 
@@ -365,7 +387,7 @@ function UPDATE_TOP_MARKETCAP() {
       // B: prix live
       fB.push(["=IFERROR(GOOGLEFINANCE(A" + row + ");\"\")"]);
       // C: devise live
-      fC.push(["=IFERROR(GOOGLEFINANCE(A" + row + ";\"currency\");\"USD\")"]);
+      fC.push(["=IFERROR(GOOGLEFINANCE(A" + row + ";\"currency\");" + _topMcCurrencyFallbackFormula_(row) + ")"]);
       // D: prix EUR - dispo pour TOUTES les lignes
       //    1) prix live B -> conversion via table FX (incl. CNY ligne 10)
       //    2) si pas de prix live -> derive du CSV: (J_capUSD / I_supply) / EUR-USD
@@ -451,13 +473,8 @@ function INSTALL_TOP_MARKETCAP_TRIGGER() {
       ScriptApp.deleteTrigger(trs[i]);
     }
   }
-  ScriptApp.newTrigger(TOP_MC_CONFIG.TRIGGER_FN)
-    .timeBased()
-    .onWeekDay(ScriptApp.WeekDay.MONDAY)
-    .atHour(6)
-    .create();
-  Logger.log("TOP_MC: trigger hebdomadaire installe (lundi 06h)");
-  return "Trigger installe (lundi 06h)";
+  Logger.log("TOP_MC: LEGACY_DISABLED - trigger removed");
+  return "LEGACY_DISABLED";
 }
 
 /**

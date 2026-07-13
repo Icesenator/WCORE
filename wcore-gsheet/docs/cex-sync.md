@@ -73,11 +73,10 @@ Sequence quand l'utilisateur coche `A1` sur un onglet CEX :
 
 Cellules de refresh groupe (batch enqueue) :
 
-- `Action Rebalancing!Z1` -> jobs `TOP_MARKETCAP` + `BITPANDA_STOCKS_FIAT`
-  (statut dans `AA1`).
-- `Portefeuille Crypto!AC2` -> jobs `BITPANDA_CRYPTO` (crypto seul — pas de
+- `Portefeuille Action!T2` -> jobs `BITPANDA_STOCKS_FIAT` (`CEX - Bitpanda Stocks` + `CEX - Bitpanda Fiat`), statut dans `U2`.
+- `Portefeuille Crypto V2!U2` -> jobs `BITPANDA_CRYPTO` (crypto seul — pas de
   refresh `CEX - Bitpanda Fiat` depuis v4.15.115) + `BINANCE` + `BITFINEX` +
-  `BYBIT` + `COINBASE` + `OKX` (statut dans `AD2`).
+  `BYBIT` + `COINBASE` + `OKX` + `KRAKEN`, statut dans `V2`.
 
 Verrous : chaque connecteur a son lock logique `CEX_ACQUIRE_LOCK(name)` /
 `CEX_RELEASE_LOCK(name)` (lease ScriptProperties 90s). Ne PAS revenir au
@@ -101,9 +100,9 @@ Binance, Bybit, Coinbase et OKX passent par le relais Railway multi-CEX (region 
 - Setup GAS : `SET_BINANCE_RELAY(url, token)`, `SET_BYBIT_RELAY(url, token)`, `SET_COINBASE_RELAY(url, token)`, `SET_OKX_RELAY(url, token)`. Coinbase/OKX retombent aussi sur le relais Bybit/Binance existant si configure.
 - Source : `railway-relay/` (package `wcore-cex-relay`).
 
-## Integration Portefeuille Crypto Details
+## Integration Portefeuille Crypto Details V2
 
-L'onglet `Portefeuille Crypto Details` agrege wallets on-chain ET positions CEX.
+L'onglet `Portefeuille Crypto Details V2` agrege wallets on-chain ET positions CEX.
 
 - Colonne `E` (`Position :`) = libelle : `Ledger - X`, `Binance Web3 Wallet - X`
   (on-chain) ou `CEX - Bitpanda` / `CEX - Binance` / `CEX - Bitfinex` / `CEX - Bybit` / `CEX - Coinbase` / `CEX - OKX`.

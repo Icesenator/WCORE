@@ -69,6 +69,62 @@ export const CACHE_KEY_REGISTRY = {
     storage: "web-only" as const,
     ttl: "7d",
   },
+  stockPriceFresh: {
+    vars: ["ticker"],
+    gsheet: null,
+    web: "stock:price:{ticker}:fresh",
+    storage: "web-only" as const,
+    ttl: "6h",
+  },
+  stockPriceLastGood: {
+    vars: ["ticker"],
+    gsheet: null,
+    web: "stock:price:{ticker}:last-good",
+    storage: "web-only" as const,
+    ttl: "30d",
+  },
+  stockTopMarketCapFresh: {
+    vars: [],
+    gsheet: null,
+    web: "stock:top-market-cap:fresh",
+    storage: "web-only" as const,
+    ttl: "6h",
+  },
+  stockTopMarketCapLastGood: {
+    vars: [],
+    gsheet: null,
+    web: "stock:top-market-cap:last-good",
+    storage: "web-only" as const,
+    ttl: "30d",
+  },
+  stockTopMarketCapLock: {
+    vars: [],
+    gsheet: null,
+    web: "stock:top-market-cap:lock",
+    storage: "web-only" as const,
+    ttl: "60s",
+  },
+  cryptoTopMarketCapFresh: {
+    vars: [],
+    gsheet: null,
+    web: "crypto:top-market-cap:fresh",
+    storage: "web-only" as const,
+    ttl: "6h",
+  },
+  cryptoTopMarketCapLastGood: {
+    vars: [],
+    gsheet: null,
+    web: "crypto:top-market-cap:last-good",
+    storage: "web-only" as const,
+    ttl: "30d",
+  },
+  cryptoTopMarketCapLock: {
+    vars: [],
+    gsheet: null,
+    web: "crypto:top-market-cap:lock",
+    storage: "web-only" as const,
+    ttl: "60s",
+  },
 } as const;
 
 export type CacheKeyName = keyof typeof CACHE_KEY_REGISTRY;

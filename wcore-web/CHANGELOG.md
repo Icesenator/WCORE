@@ -1,9 +1,15 @@
 ﻿# Changelog
 
+## 2026-07-07 — X cycle read-only + concept post
+
+- **Cycle X** : 3 replies publiees et verifiees apres scan read-only et filtrage shill/doublons : approvals/read-only, API publique sans private key, fake portfolio balance scam.
+- **Post X concept** : `https://x.com/WCORExyz/status/2074361865904283858` — `Read first. Sign later.` Visuel `apps/web/public/wcore-post-read-first-sign-later.svg` + `.png` en 3200x1800, genere par `scripts/build-post-read-first-sign-later.cjs`.
+- **DA / assets** : composition WCORE v12 reequilibree apres review : titre compact, deux colonnes, panneau `VISIBILITY LAYER`, raw value barree vs clean value, carte read-only, footer discret. Exceptions `.gitignore` ajoutees pour conserver le script et le PNG final.
+
 ## 2026-07-05 — Kraken CEX + DeFi positions + pricing fixes
 
 - **Kraken 7e CEX** : full integration (normalizer, API plugin, form, tests). HMAC-SHA512, microsecond nonce, Z-fiat prefix mapping. 23 files modified.
-- **Robinhood Chain GM** : factory, wagmi chainId 9496, icon, gm-chains label. X post published with `@RobinhoodCrypto`.
+- **Robinhood Chain GM** : factory, wagmi chainId 4663, icon, gm-chains label. X post published with `@RobinhoodCrypto`.
 - **CEX pricing provider-first** : `quoteEur` (ticker) prioritized over DefiLlama. BCPEUR reclassified fiat. Stocks priced before crypto (no homonym mispricing). ZUSD fiat mapping fixed.
 - **Relay stock fixes** : TM→`7203.T`, SSU/SMSN ×25 multiplier, ROG→`ROG.SW`, explicit candidates don't fallback to raw symbol.
 - **DeFi badge web** : `DeFi` badge in TokenTable based on name/symbol regex (staked, flex, lock, staking, C-* pattern).

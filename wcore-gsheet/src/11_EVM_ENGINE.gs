@@ -380,6 +380,14 @@ var EvmEngine = {
   // === v4.13.0: SIMPLIFIED BUDGET & ROTATION ===
   // Build contract list first (needed for rotation plan)
   allContracts = ContractListBuilder.build(tokensRange, state.assetByKey, config);
+  state.strictTokenSet = null;
+  if (config && config.FLAGS && config.FLAGS.STRICT_TOKEN_RANGE) {
+  state.strictTokenSet = {};
+  for (var stsi = 0; stsi < allContracts.length; stsi++) {
+  var stsKey = Addr.normalize(allContracts[stsi]);
+  if (stsKey && stsKey !== "native") state.strictTokenSet[stsKey] = true;
+  }
+  }
   if (config && config.FLAGS && config.FLAGS.STRICT_TOKEN_RANGE) {
   var strictContracts = {};
   for (var stc = 0; stc < allContracts.length; stc++) strictContracts[Addr.normalize(allContracts[stc])] = true;
@@ -1180,10 +1188,10 @@ var EvmEngine = {
  this._saveAllCaches(
  addrLower, state.nowMs, state.assets, state.assetByKey,
  state.balanceTsMap, state.attemptTsMap, state.purgedTsMap,
- state.fxRate, state.priceMap, state.priceTsMap,
- state.rrCursor, cache, state.lastFullScanMs, state.lastFullPriceMs,
- metaMap, state.timer, config, infoMetaRows, state._scanStats
- );
+  state.fxRate, state.priceMap, state.priceTsMap,
+  state.rrCursor, cache, state.lastFullScanMs, state.lastFullPriceMs,
+  metaMap, state.timer, config, infoMetaRows, state._scanStats, state.strictTokenSet
+  );
  
  // v4.13.0: Removed ChainBudgetStats and BudgetStats tracking
  // Simplified rotation model doesn't need execution history
@@ -1242,11 +1250,9 @@ var EvmEngine = {
   var cache = WalletCache.load(addr, null, config);
   if (!cache) {
   var snap = null;
-  try {
-  var blocked = (typeof BaseEngine !== 'undefined' && BaseEngine.isSystemBlocked && BaseEngine.isSystemBlocked()) ||
-  (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped());
-  if (blocked && typeof OutputSnapshotCache !== 'undefined') snap = OutputSnapshotCache.load(config, addr, "NO_CACHE_BLOCKED_QUOTA");
-  } catch (eSnapLoad) {}
+   try {
+   if (typeof OutputSnapshotCache !== 'undefined') snap = OutputSnapshotCache.load(config, addr, "NO_CACHE_MISSING_WALLET_CACHE");
+   } catch (eSnapLoad) {}
   if (snap) return snap;
   var emptyCache = (typeof BaseEngine !== "undefined" && BaseEngine.createEmptyCache) ? BaseEngine.createEmptyCache(config) : { assets: [], priceMap: {} };
   emptyCache.wallet_original = address;
@@ -1712,7 +1718,12 @@ var EvmEngine = {
       try {
         if (typeof _webScanWallet_ === "function") {
           var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
-          if (webScan && webScan.ok && webScan.status) return webScan.status;
+          if (webScan && webScan.ok && webScan.status) {
+            if (webScan.quotaBlocked && BaseEngine.rememberRefreshTriggerAttempt) {
+              BaseEngine.rememberRefreshTriggerAttempt(addrLower, config, cacheBefore, triggerRefresh);
+            }
+            return webScan.status;
+          }
         }
       } catch (eWebScan) {}
       if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {
@@ -2005,14 +2016,17 @@ var EvmEngine = {
        lastInfoMetaRows: (cache && cache.lastInfoMetaRows) ? cache.lastInfoMetaRows : null,
        im: (cache && cache.im) ? cache.im : null,
        last_full_scan_ms: state.lastFullScanMs || (cache ? cache.last_full_scan_ms : null),
-       last_full_price_ms: state.lastFullPriceMs || (cache ? cache.last_full_price_ms : null),
-       _checkpoint: phase,
-       _checkpointTs: nowMs,
-       _checkpointCount: (state._checkpointCount || 0) + 1,
-       _checkpointPhases: ((cache && cache._checkpointPhases) || "") + phase + ";",
-       _forceFull: !!state.force,
-       _hadHttpErrors: BaseEngine.hasHttpErrorSignal(state, state._scanStats)
-     };
+        last_full_price_ms: state.lastFullPriceMs || (cache ? cache.last_full_price_ms : null),
+        _checkpoint: phase,
+        _checkpointTs: nowMs,
+        _checkpointCount: (state._checkpointCount || 0) + 1,
+        _checkpointPhases: ((cache && cache._checkpointPhases) || "") + phase + ";",
+        _forceFull: !!state.force,
+        _hadHttpErrors: BaseEngine.hasHttpErrorSignal(state, state._scanStats)
+      };
+      if (config && config.FLAGS && config.FLAGS.STRICT_TOKEN_RANGE && state.strictTokenSet) {
+        checkpointCache.strictTokenSet = state.strictTokenSet;
+      }
      
      WalletCache.save(address, checkpointCache, config);
      
@@ -2036,7 +2050,7 @@ var EvmEngine = {
  * v4.12.33: NEVER skip WalletCache save - this is critical data
  * v4.12.26: PRESERVE existing metadata from cache when new metadata is empty
  */
- _saveAllCaches: function(address, nowMs, assets, assetByKey, balanceTsMap, attemptTsMap, purgedTsMap, fxEffective, combinedPriceMap, combinedPriceTsMap, rrCursor, existingCache, lastFullScanMs, lastFullPriceMs, metaMap, timer, config, infoMetaRows, scanStats) {
+  _saveAllCaches: function(address, nowMs, assets, assetByKey, balanceTsMap, attemptTsMap, purgedTsMap, fxEffective, combinedPriceMap, combinedPriceTsMap, rrCursor, existingCache, lastFullScanMs, lastFullPriceMs, metaMap, timer, config, infoMetaRows, scanStats, strictTokenSet) {
  // v4.12.33: REMOVED the early return - WalletCache MUST be saved
  // Old code: if (timer && timer.remaining() < 150) return;
  // This caused [BLOCKED:TIMEOUT] because cache was never updated
@@ -2098,14 +2112,8 @@ var EvmEngine = {
  // v4.13.0: Rotation stats for STATS display
   scanStats: scanStats || (existingCache && existingCache.scanStats) || null
   };
-  if (config && config.FLAGS && config.FLAGS.STRICT_TOKEN_RANGE) {
-  walletCache.strictTokenSet = {};
-  for (var sts = 0; sts < assetsArray.length; sts++) {
-  var sta = assetsArray[sts];
-  if (!sta || !sta.contract || sta.contract === "native") continue;
-  var stk = Addr.normalize(sta.contract);
-  if (stk) walletCache.strictTokenSet[stk] = true;
-  }
+  if (config && config.FLAGS && config.FLAGS.STRICT_TOKEN_RANGE && strictTokenSet) {
+  walletCache.strictTokenSet = strictTokenSet;
   }
   walletCache._forceFull = !!(config && config._forceFull);
  try { walletCache._forceFull = walletCache._forceFull || !!(scanStats && scanStats.forceFull); } catch (eF) {}

@@ -1,0 +1,201 @@
+// Build "read first, sign later" concept post (WCORE DA v12, 3200x1800 PNG).
+// Angle: read-only wallet visibility before any signing or action.
+const { writeFileSync, unlinkSync } = require("node:fs");
+const { resolve } = require("node:path");
+
+const ROOT = resolve(__dirname, "..");
+let chromium;
+try {
+  ({ chromium } = require("playwright"));
+} catch (_e) {
+  ({ chromium } = require(resolve(ROOT, "node_modules/.pnpm/playwright@1.59.1/node_modules/playwright")));
+}
+
+const W = 1200;
+const H = 675;
+const NAME = "wcore-post-read-first-sign-later";
+const PUBLIC_DIR = resolve(ROOT, "apps/web/public");
+const SVG_PATH = resolve(PUBLIC_DIR, `${NAME}.svg`);
+const PNG_PATH = resolve(PUBLIC_DIR, `${NAME}.png`);
+const TMP_HTML = resolve(PUBLIC_DIR, `.${NAME}.tmp.html`);
+const fontStack = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
+function wcoreBadge(x, y) {
+  return `<g transform="translate(${x} ${y})">
+    <rect x="0" y="0" width="164" height="52" rx="26" fill="#111722" stroke="#2a3442"/>
+    <g transform="translate(16 12) scale(0.45)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.8">WCORE</text>
+  </g>`;
+}
+
+function readRow(y, icon, title, detail) {
+  return `<g transform="translate(0 ${y})">
+    <rect x="0" y="0" width="438" height="58" rx="17" fill="#101720" stroke="#243142"/>
+    <rect x="18" y="11" width="36" height="36" rx="13" fill="#172015" stroke="#34551f"/>
+    <text x="36" y="36" text-anchor="middle" class="font lime" font-size="18" font-weight="950">${icon}</text>
+    <text x="70" y="26" class="font white" font-size="18" font-weight="950">${title}</text>
+    <text x="70" y="46" class="font muted" font-size="12.5" font-weight="700">${detail}</text>
+    <circle cx="412" cy="29" r="8" fill="#132117" stroke="#84cc16"/>
+    <path d="M407 29L411 33L418 24" fill="none" stroke="#84cc16" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>`;
+}
+
+function riskCard(x, y, label, value, sub, color = "#a3e635") {
+  return `<g transform="translate(${x} ${y})">
+    <rect x="0" y="0" width="210" height="100" rx="22" fill="#0d1117" stroke="#1a2332"/>
+    <text x="20" y="30" class="font muted" font-size="11.5" font-weight="900" letter-spacing="1.35">${label}</text>
+    <text x="20" y="66" class="font" font-size="28" font-weight="950" fill="${color}" letter-spacing="-0.8">${value}</text>
+    <text x="20" y="88" class="font muted" font-size="12.5" font-weight="700">${sub}</text>
+  </g>`;
+}
+
+function buildSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.52" stop-color="#080f14"/>
+      <stop offset="1" stop-color="#14220f"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fb7185"/>
+      <stop offset="1" stop-color="#ef4444"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111922"/>
+      <stop offset="1" stop-color="#091014"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#84cc16" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="redGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ef4444" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ef4444" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="20" stdDeviation="26" flood-color="#000" flood-opacity="0.52"/>
+    </filter>
+    <style>
+      .font { font-family: ${fontStack}; }
+      .white { fill: #f7f7f8; }
+      .muted { fill: #a1a1aa; }
+      .soft { fill: #d4d4d8; }
+      .lime { fill: #a3e635; }
+      .redText { fill: #f87171; }
+    </style>
+  </defs>
+
+  <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <circle cx="165" cy="95" r="390" fill="url(#glow)"/>
+  <circle cx="1015" cy="585" r="350" fill="url(#glow)" opacity="0.78"/>
+  <circle cx="1040" cy="166" r="220" fill="url(#redGlow)" opacity="0.7"/>
+  <g opacity="0.045" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+  <path d="M-80 116C112 28 318 76 526 140C716 198 844 126 1010 72C1110 40 1190 54 1280 110" fill="none" stroke="#84cc16" stroke-opacity="0.12" stroke-width="2"/>
+  <path d="M-80 558C128 470 306 518 492 574C680 630 842 590 1010 504C1100 458 1186 464 1280 524" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+
+  ${wcoreBadge(72, 52)}
+
+  <g transform="translate(866 52)">
+    <rect x="0" y="0" width="262" height="52" rx="26" fill="#12151b" stroke="#2c333f"/>
+    <text x="22" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.3">READ-ONLY FIRST</text>
+    <circle cx="238" cy="26" r="5" fill="#84cc16"/>
+  </g>
+
+  <text x="72" y="166" class="font lime" font-size="13" font-weight="950" letter-spacing="2.1">WALLET SAFETY</text>
+  <text x="72" y="228" class="font white" font-size="56" font-weight="950" letter-spacing="-2.2">Read first.</text>
+  <text x="72" y="286" class="font white" font-size="56" font-weight="950" letter-spacing="-2.2">Sign later.</text>
+  <text x="74" y="322" class="font muted" font-size="18" font-weight="650">Balances, token values and approvals.</text>
+  <text x="74" y="348" class="font muted" font-size="18" font-weight="650">Visible before any wallet action.</text>
+
+  <g transform="translate(72 368)">
+    <rect x="0" y="0" width="128" height="32" rx="16" fill="#0c1218" stroke="#34551f"/>
+    <text x="64" y="21" text-anchor="middle" class="font lime" font-size="13" font-weight="950" letter-spacing="1.0">No seed</text>
+    <rect x="140" y="0" width="162" height="32" rx="16" fill="#0c1218" stroke="#2b3340"/>
+    <text x="221" y="21" text-anchor="middle" class="font white" font-size="13" font-weight="850" letter-spacing="1.0">No forced connect</text>
+    <rect x="314" y="0" width="138" height="32" rx="16" fill="#0c1218" stroke="#2b3340"/>
+    <text x="383" y="21" text-anchor="middle" class="font white" font-size="13" font-weight="850" letter-spacing="1.0">Clean total</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="72" y="406" width="504" height="190" rx="28" fill="#0d1117" stroke="#1a2332"/>
+    <text x="104" y="442" class="font muted" font-size="12" font-weight="950" letter-spacing="1.5">WHAT CAN BE READ SAFELY</text>
+    <g transform="translate(104 460)">
+      ${readRow(0, "$", "Wallet balance", "public chain data, no secret needed")}
+      ${readRow(66, "!", "Token value", "liquidity checked before it counts")}
+    </g>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="620" y="184" width="508" height="364" rx="34" fill="url(#panel)" stroke="#2f3b49"/>
+    <rect x="621" y="185" width="506" height="362" rx="33" fill="none" stroke="#84cc16" stroke-opacity="0.12"/>
+
+    <g transform="translate(652 224)">
+      <text x="0" y="0" class="font lime" font-size="12" font-weight="950" letter-spacing="1.8">VISIBILITY LAYER</text>
+      <text x="0" y="40" class="font white" font-size="34" font-weight="950" letter-spacing="-1.3">Know the state</text>
+      <text x="0" y="76" class="font white" font-size="34" font-weight="950" letter-spacing="-1.3">before the signature.</text>
+    </g>
+
+    <g transform="translate(652 322)">
+      ${riskCard(0, 0, "RAW VALUE", "$5,000", "spam token shown", "#52525b")}
+      <path d="M28 59H142" stroke="#ef4444" stroke-width="4" stroke-linecap="round" opacity="0.72"/>
+      ${riskCard(230, 0, "CLEAN VALUE", "$1,204", "liquid value only", "#a3e635")}
+    </g>
+
+    <g transform="translate(652 450)">
+      <rect x="0" y="0" width="444" height="70" rx="22" fill="#101720" stroke="#243142"/>
+      <rect x="20" y="16" width="38" height="38" rx="13" fill="#1e1416" stroke="#7f1d1d"/>
+      <path d="M31 35 l7 7 l14 -18" fill="none" stroke="#f87171" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.42"/>
+      <path d="M29 25L51 47" stroke="#f87171" stroke-width="3.2" stroke-linecap="round"/>
+      <text x="76" y="31" class="font white" font-size="18" font-weight="950">Signing is separate.</text>
+      <text x="76" y="53" class="font muted" font-size="13" font-weight="700">Read with an address. Act with your own wallet.</text>
+    </g>
+  </g>
+
+  <g transform="translate(72 630)">
+    <text x="0" y="0" class="font soft" font-size="18" font-weight="850">No seed phrase. No fake total. No forced wallet connect.</text>
+    <text x="1056" y="0" text-anchor="end" class="font" font-size="28" font-weight="950" fill="url(#lime)">wcore.xyz</text>
+  </g>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+</svg>`;
+}
+
+(async () => {
+  const svg = buildSvg();
+  writeFileSync(SVG_PATH, svg);
+  console.log(`SVG written: ${SVG_PATH} (${svg.length} bytes)`);
+
+  const html = `<!DOCTYPE html><html><head><style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#050607;width:${W}px;height:${H}px;overflow:hidden}
+    svg{display:block;width:${W}px;height:${H}px}
+  </style></head><body>${svg}</body></html>`;
+  writeFileSync(TMP_HTML, html);
+
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 8 / 3 });
+  await page.goto(`file://${TMP_HTML.replace(/\\/g, "/")}`);
+  await page.screenshot({ path: PNG_PATH, type: "png" });
+  await browser.close();
+
+  unlinkSync(TMP_HTML);
+  console.log(`PNG written: ${PNG_PATH}`);
+})();

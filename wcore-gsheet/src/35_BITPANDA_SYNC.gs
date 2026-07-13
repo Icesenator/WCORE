@@ -1,3 +1,6 @@
+// v4.15.146 - Clear full CEX managed A:G area before INFO_TOTAL rewrite so stale totals don't remain when row count grows.
+// v4.15.145 - Wrap _bpFetch_ with shared _cexRelayFetchWithRetry_ so direct Bitpanda calls survive transient UrlFetch null responses (same protection as relay connectors + Bitfinex).
+
 // v4.15.137 - CEX pricing via WCORE Web API (centralized provider-first, local fallback) Vérif MAP auto-restore on every sync (_cexWriteVerifMap_ called from _cexComputeAndAppendTotal_).
 // v4.15.124 - INFO_TOTAL A column sentinel "." instead of "" (prevent VLOOKUP("") fallback #VALUE! in Action Rebalancing).
 // v4.15.123 - CEX INFO_TOTAL: batch-read scan window (1 API call vs ~100), orphan-row cleanup, atomic A:G write (label+value never diverge).
@@ -26,7 +29,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.15.125";
+var BITPANDA_SYNC_VERSION = "4.15.146";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -65,19 +68,25 @@ function _bpGetApiKey_(propName, required) {
 }
 
 function _bpFetch_(path, apiKey) {
-  var url = BITPANDA_SYNC_CONFIG.BASE_URL + path;
-  var resp = UrlFetchApp.fetch(url, {
-    method: "get",
-    muteHttpExceptions: true,
-    headers: { "X-Api-Key": apiKey, "Accept": "application/json" }
-  });
-  if (!resp) throw new Error("Bitpanda " + path + " HTTP blocked/null response");
-  var code = resp.getResponseCode();
-  var text = resp.getContentText();
-  if (code < 200 || code >= 300) {
-    throw new Error("Bitpanda " + path + " HTTP " + code + ": " + text.substring(0, 300));
-  }
-  return JSON.parse(text);
+  // v4.15.145: wrap direct call with the shared retry helper so transient
+  // UrlFetchApp.fetch null responses (DNS, TCP reset, micro-quota) are
+  // retried 3x with 5s delay before bubbling up. Same protection as relay
+  // connectors (Binance/Bybit/Coinbase/OKX) and Bitfinex direct.
+  return _cexRelayFetchWithRetry_(function() {
+    var url = BITPANDA_SYNC_CONFIG.BASE_URL + path;
+    var resp = UrlFetchApp.fetch(url, {
+      method: "get",
+      muteHttpExceptions: true,
+      headers: { "X-Api-Key": apiKey, "Accept": "application/json" }
+    });
+    if (!resp) throw new Error("Bitpanda " + path + " HTTP blocked/null response");
+    var code = resp.getResponseCode();
+    var text = resp.getContentText();
+    if (code < 200 || code >= 300) {
+      throw new Error("Bitpanda " + path + " HTTP " + code + ": " + text.substring(0, 300));
+    }
+    return JSON.parse(text);
+  }, "Bitpanda " + path);
 }
 
 function _bpSetStatus_(status) {
@@ -442,6 +451,7 @@ var _CEX_MANUAL_JOB_MAX_RETRIES = 2;
 function _cexIsTransientResult_(result) {
   var s = String(result || "");
   return s === "BUSY" ||
+         s.indexOf("blocked/null response") >= 0 ||
          s.indexOf("timed out") >= 0 ||
          s.indexOf("Service Spreadsheets") >= 0 ||
          s.indexOf("Service invoked too many times") >= 0 ||
@@ -753,14 +763,14 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
 }
 
 // v4.15.81: cellules de refresh manuel hors onglets Bitpanda.
-// Z1 = Action Rebalancing (v4.15.100: Top Marketcap puis Stocks + Fiat).
-// Portefeuille Crypto!AC2 = Crypto CEX block (all CEX crypto tabs).
+// T2 = Portefeuille Action (Bitpanda Stocks + Fiat only; WCORE supplies market data).
+// Portefeuille Crypto!U2 = Crypto CEX block (all CEX crypto tabs).
 var BITPANDA_REFRESH_CELLS = {
-  "Action Rebalancing": {
-    "Z1": BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP
+  "Portefeuille Action": {
+    "T2": BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP
   },
   "Portefeuille Crypto": {
-    "AC2": BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP
+    "U2": BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP
   }
 };
 
@@ -773,10 +783,10 @@ function BITPANDA_ON_EDIT(e) {
     if (!sheet) return false;
     var name = sheet.getName();
 
-    var isActionRebalancingZ1 = cell === "Z1" && name === "Action Rebalancing";
-    if (isActionRebalancingZ1 && !e.triggerUid) {
+    var isStockPortfolioT2 = name === "Portefeuille Action" && cell === "T2";
+    if (isStockPortfolioT2 && !e.triggerUid) {
       // Le trigger simple onEdit tourne en auth LIMITED et ne peut pas faire UrlFetch.
-      // Les evenements de triggers installables portent triggerUid; eux traitent Z1.
+      // Les evenements de triggers installables portent triggerUid; eux traitent T2.
       return false;
     }
 
@@ -800,25 +810,24 @@ function BITPANDA_ON_EDIT(e) {
     if (cell === "A1" && _bpIsManagedSheet_(name)) {
       var bpPlan = _bpGetManagedSheetRefreshPlan_(name);
       CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, refreshFlagProp, bpPlan.label, bpPlan.updateFn, e);
-    } else if (isActionRebalancingZ1) {
-      _bpSetExternalRefreshStatus_(sheet, "AA1", "QUEUED: " + _bpFmtStamp_());
-      // v4.15.114: single batch enqueue (1 queue write + 1 worker trigger ensure).
+    } else if (isStockPortfolioT2) {
+      _bpSetExternalRefreshStatus_(sheet, "U2", "QUEUED: " + _bpFmtStamp_());
       _cexEnqueueManualJobs_([
-        { kind: "TOP_MARKETCAP", sheetName: "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AA1" },
-        { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AA1" }
+        { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
       ]);
-    } else if (name === "Portefeuille Crypto" && cell === "AC2") {
-      _bpSetExternalRefreshStatus_(sheet, "AD2", "QUEUED: " + _bpFmtStamp_());
+    } else if (name === "Portefeuille Crypto" && cell === "U2") {
+      var cryptoStatusCell = "V2";
+      _bpSetExternalRefreshStatus_(sheet, cryptoStatusCell, "QUEUED: " + _bpFmtStamp_());
       // v4.15.114: single batch enqueue for the 6 CEX jobs. Per-job enqueue redid
       // getProjectTriggers()+delete+create 6 times -> MASTER_ON_EDIT 50-75s.
       _cexEnqueueManualJobs_([
-        { kind: "BITPANDA_CRYPTO", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
-        { kind: "BINANCE", sheetName: typeof BINANCE_SYNC_CONFIG !== "undefined" ? BINANCE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
-        { kind: "BITFINEX", sheetName: typeof BITFINEX_SYNC_CONFIG !== "undefined" ? BITFINEX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
-        { kind: "BYBIT", sheetName: typeof BYBIT_SYNC_CONFIG !== "undefined" ? BYBIT_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
-        { kind: "COINBASE", sheetName: typeof COINBASE_SYNC_CONFIG !== "undefined" ? COINBASE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
-        { kind: "OKX", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" },
-        { kind: "KRAKEN", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "AD2" }
+        { kind: "BITPANDA_CRYPTO", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
+        { kind: "BINANCE", sheetName: typeof BINANCE_SYNC_CONFIG !== "undefined" ? BINANCE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
+        { kind: "BITFINEX", sheetName: typeof BITFINEX_SYNC_CONFIG !== "undefined" ? BITFINEX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
+        { kind: "BYBIT", sheetName: typeof BYBIT_SYNC_CONFIG !== "undefined" ? BYBIT_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
+        { kind: "COINBASE", sheetName: typeof COINBASE_SYNC_CONFIG !== "undefined" ? COINBASE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
+        { kind: "OKX", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
+        { kind: "KRAKEN", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell }
       ]);
     } else {
       _bpSetRefreshFlag_(refreshFlagProp);
@@ -863,24 +872,6 @@ function _bpRunCryptoCexRefreshDirect_() {
   return ok ? "OK" : summary;
 }
 
-function _bpRunActionRebalancingRefreshDirect_() {
-  try {
-    var tmResult = "SKIPPED_MISSING_UPDATE_TOP_MARKETCAP";
-    if (typeof UPDATE_TOP_MARKETCAP === "function") tmResult = String(UPDATE_TOP_MARKETCAP());
-    var bpResult = String(UPDATE_BITPANDA_STOCKS_FIAT());
-
-    var tmOk = tmResult !== "BUSY" && tmResult.indexOf("ERROR:") !== 0;
-    var bpOk = bpResult !== "BUSY" && bpResult.indexOf('"ok":false') < 0 && bpResult.indexOf("ERROR:") !== 0;
-    if (!tmOk || !bpOk) return "topMarketcap=" + tmResult + "\nbitpandaStocksFiat=" + bpResult;
-
-    _bpDeleteRefreshFlag_(BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP);
-    return "OK";
-  } catch (err) {
-    try { Logger.log("[bpActionDirect] " + (err && err.message ? err.message : err)); } catch (eLog) {}
-    return "THREW:" + (err && err.message ? err.message : err);
-  }
-}
-
 function _bpGetManagedSheetRefreshPlan_(sheetName) {
   if (sheetName === BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO) {
     return { label: "BITPANDA_CRYPTO", updateFn: UPDATE_BITPANDA_CRYPTO_FIAT };
@@ -896,6 +887,7 @@ function _bpGetManagedSheetRefreshPlan_(sheetName) {
 // Any CEX A1 click re-installs the central fallback + hourly CEX triggers with fresh user auth.
 var _BP_CEX_TRIGGERS_TO_HEAL = [
   { name: "UPDATE_BITPANDA_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_BITPANDA_STOCKS_FIAT", unit: "hours", value: 1 },
   { name: "UPDATE_BINANCE_SPOT", unit: "hours", value: 1 },
   { name: "UPDATE_BITFINEX_SPOT", unit: "hours", value: 1 },
   { name: "UPDATE_BYBIT_SPOT", unit: "hours", value: 1 },
@@ -1140,7 +1132,9 @@ function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
 }
 
 function UPDATE_BITPANDA_SPOT() {
-  return _bpUpdateSelectedBuckets_({ crypto: true, commodity: true, fiat: true, stocks: true }, "bitpanda-api");
+  // Auto trigger path: keep the regular Bitpanda spot job bounded. Stocks are
+  // priced/written by UPDATE_BITPANDA_STOCKS_FIAT in a separate trigger.
+  return _bpUpdateSelectedBuckets_({ crypto: true, commodity: true, fiat: true, stocks: false }, "bitpanda-api");
 }
 
 function UPDATE_BITPANDA_STOCKS_FIAT() {
@@ -1198,11 +1192,11 @@ function INSTALL_BITPANDA_SYNC_TRIGGER() {
  * sync (6 syncs × 4h = 36/day + manual A1), which was pushing
  * UPDATE_*_SPOT past the 6-min trigger limit.
  * To force a rebuild, call _cexClearPriceMapCache_() or set
- * CEX_PRICE_MAP_CACHE = "" in ScriptProperties.
+ * CEX_PRICE_MAP_CACHE_V2 = "" in ScriptProperties.
  * @returns {Object<string, number>|null} symbol -> EUR price map, or null on failure
  */
 function _cexGetPriceMap_() {
-  var CACHE_KEY = "CEX_PRICE_MAP_CACHE";
+  var CACHE_KEY = "CEX_PRICE_MAP_CACHE_V2";
   var TTL_MS = 60 * 60 * 1000;  // 1h
   var props = PropertiesService.getScriptProperties();
   try {
@@ -1228,7 +1222,7 @@ function _cexGetPriceMap_() {
         for (var pi = 0; pi < pcRange.length; pi++) {
           var sym = String(pcRange[pi][0] || "").trim().toUpperCase();
           var px = pcRange[pi][2];
-          if (sym && px != null && isFinite(Number(px)) && Number(px) > 0) {
+          if (sym && !map.hasOwnProperty(sym) && px != null && isFinite(Number(px)) && Number(px) > 0) {
             map[sym] = Number(px);
           }
         }
@@ -1252,6 +1246,7 @@ function _cexGetPriceMap_() {
  * when diagnosing stale prices).
  */
 function _cexClearPriceMapCache_() {
+  try { PropertiesService.getScriptProperties().deleteProperty("CEX_PRICE_MAP_CACHE_V2"); } catch (e) {}
   try { PropertiesService.getScriptProperties().deleteProperty("CEX_PRICE_MAP_CACHE"); } catch (e) {}
   return "CEX_PRICE_MAP_CACHE cleared";
 }
@@ -1476,6 +1471,9 @@ function _cexSymbolToGeckoId_(symbol) {
 function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_values) {
   var sh = ss.getSheetByName(sheetName);
   var nb = (balances || []).length;
+  if (sh && sh.getMaxColumns && sh.getMaxColumns() < 7) {
+    sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
+  }
 
   // 0. Read existing column E before clearing (last-known fallback).
   var prevValues = null;
@@ -1496,14 +1494,14 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   var stockPriceMap = {};
   if (isStocks) {
     try {
-      var arS = ss.getSheetByName("Action Rebalancing");
-      if (arS) {
-        var arLast = arS.getLastRow();
+      var stockPortfolioSheet = ss.getSheetByName("Portefeuille Action");
+      if (stockPortfolioSheet) {
+        var arLast = stockPortfolioSheet.getLastRow();
         if (arLast >= 3) {
-          var arVals = arS.getRange(3, 1, arLast - 2, 4).getValues();
+          var arVals = stockPortfolioSheet.getRange(3, 1, arLast - 2, 3).getValues();
           for (var asi = 0; asi < arVals.length; asi++) {
             var aSym = String(arVals[asi][0] || "").trim().toUpperCase();
-            var aPrc = Number(arVals[asi][3] || 0);
+            var aPrc = Number(arVals[asi][2] || 0);
             if (aSym && isFinite(aPrc) && aPrc > 0) {
               stockPriceMap[aSym] = aPrc;
               // v4.15.139: also index by CEX symbol so the pricing loop finds
@@ -1518,7 +1516,6 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     } catch (eStocks) {}
   }
 
-  var STOCK_RATIO_MULTIPLIERS = { "SSU": 25, "SMSN": 25 };
   var total = 0, valued = 0, skipped = 0;
   var eValues = [["value_eur"]];
 
@@ -1526,15 +1523,23 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     var row = balances[i] || [];
     var symbol = String(row[0] || "").trim().toUpperCase();
     var balance = Number(row[1] || 0);
-    var ratio = STOCK_RATIO_MULTIPLIERS[symbol] || 1;
-    var adjustedBalance = balance * ratio;
     var priceEur = null;
+    var directValueEur = null;
 
     if (symbol && balance > 0) {
-      // Stocks: Action Rebalancing FIRST (source of truth, Google Finance),
-      // then web API (Yahoo relay) as fallback. Keeps CEX - Bitpanda Stocks
-      // consistent with Action Rebalancing.
-      if (isStocks && stockPriceMap[symbol] != null) priceEur = stockPriceMap[symbol];
+      var relayValueUsd = Number(row[4] || 0);
+      var relayPriceUsd = Number(row[5] || 0);
+      if ((isFinite(relayValueUsd) && relayValueUsd > 0) || (isFinite(relayPriceUsd) && relayPriceUsd > 0)) {
+        var relayFx = null;
+        try { relayFx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eRelayFx) {}
+        if (isFinite(Number(relayFx)) && Number(relayFx) > 0) {
+          if (isFinite(relayValueUsd) && relayValueUsd > 0) directValueEur = Math.round(relayValueUsd * Number(relayFx) * 100) / 100;
+          if (directValueEur == null && isFinite(relayPriceUsd) && relayPriceUsd > 0) priceEur = relayPriceUsd * Number(relayFx);
+        }
+      }
+      // Stocks: Portefeuille Action FIRST (WCORE source of truth), then web API
+      // (Yahoo relay) as fallback. Keeps CEX - Bitpanda Stocks consistent with PA.
+      if (directValueEur == null && isStocks && stockPriceMap[symbol] != null) priceEur = stockPriceMap[symbol];
       if (priceEur == null && webPrices && webPrices.hasOwnProperty(symbol)) {
         if (webPrices[symbol] != null && webPrices[symbol] > 0) priceEur = Number(webPrices[symbol]);
       }
@@ -1561,8 +1566,10 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       }
     }
 
-    if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
-      var val = Math.round(adjustedBalance * priceEur * 100) / 100;
+    if (directValueEur != null && isFinite(directValueEur) && directValueEur > 0) {
+      total += directValueEur; eValues.push([directValueEur]); valued++;
+    } else if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
+      var val = Math.round(balance * priceEur * 100) / 100;
       total += val; eValues.push([val]); valued++;
     } else {
       if (symbol && balance > 0) {
@@ -1604,45 +1611,33 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     }
   }
 
-  // ---- Phase 2: WRITE THE SHEET (atomic, everything priced) ----
-
+  var totalRow = 3 + nb;
+  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
+  // ---- Phase 2: WRITE THE SHEET (single A:G batch; no partial A:D states) ----
   if (opt_values && sh) {
-    var clearR = Math.max(opt_values.length, Math.min(sh.getMaxRows(), opt_values.length));
-    sh.getRange(1, 1, clearR, 4).clearContent();
-    sh.getRange(1, 1, opt_values.length, 4).setValues(opt_values);
+    var managedRows = Math.max(totalRow, Math.min(sh.getMaxRows(), sh.getLastRow()));
+    sh.getRange(1, 1, managedRows, 7).clearContent();
+    var fullValues = [];
+    for (var fv = 0; fv < opt_values.length; fv++) {
+      var base = (opt_values[fv] || []).slice(0, 4);
+      while (base.length < 4) base.push("");
+      base.push(fv === 1 ? "value_eur" : (fv >= 2 && eValues[fv - 1] ? eValues[fv - 1][0] : ""));
+      base.push(fv === 1 ? "Vérif" : (fv === 2 ? _cexBuildVerifFormula_(sheetName) : ""));
+      base.push("");
+      fullValues.push(base);
+    }
+    fullValues.push([".", "INFO_TOTAL", String(provider || "").toLowerCase(), stamp, "", "", Math.round(total * 100) / 100]);
+    sh.getRange(1, 1, fullValues.length, 7).setValues(fullValues);
     sh.getRange("A1").insertCheckboxes().setValue(false);
     sh.getRange("B1:D1").setNumberFormat("@");
     if (opt_values.length > 2) sh.getRange(3, 2, opt_values.length - 2, 1).setNumberFormat("0.########");
-    if (opt_values.length > 1) sh.getRange(2, 4, opt_values.length - 1).setNumberFormat("@");
+    if (opt_values.length > 1) sh.getRange(2, 4, opt_values.length - 1, 1).setNumberFormat("@");
+    if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
+    sh.getRange(totalRow, 5, 1, 1).setNumberFormat("0.00");
+  } else {
+    sh.getRange(totalRow, 1, 1, 7).setValues([[".", "INFO_TOTAL", String(provider || "").toLowerCase(), stamp, "", "", Math.round(total * 100) / 100]]);
+    _cexWriteVerifMap_(sh, sheetName);
   }
-
-  // Strip prior TOTAL row
-  var totalRow = 3 + nb;
-  var scanRows = Math.max(1, Math.min(51, sh.getMaxRows() - totalRow + 1));
-  var win = sh.getRange(totalRow, 1, scanRows, 7).getValues();
-  for (var sr = win.length - 1; sr >= 0; sr--) {
-    var sa = String(win[sr][0] || "").trim().toUpperCase();
-    var sb = String(win[sr][1] || "").trim();
-    var sg = win[sr][6];
-    if ((sa === "TOTAL" || sb === "INFO_TOTAL") || (!sa && !sb && sg !== "" && sg != null)) {
-      var ridx = totalRow + sr;
-      if (ridx > totalRow) sh.deleteRow(ridx);
-      else sh.getRange(ridx, 1, 1, 7).clearContent();
-    }
-  }
-
-  // Write column E (prices) in one batch
-  sh.getRange(2, 5, nb + 1, 1).clearContent();
-  sh.getRange(2, 5, nb + 1, 1).setValues(eValues);
-  if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
-
-  // INFO_TOTAL row
-  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-  sh.getRange(totalRow, 1, 1, 7).setValues([["", "INFO_TOTAL", String(provider || "").toLowerCase(), stamp, "", "", Math.round(total * 100) / 100]]);
-  sh.getRange(totalRow, 1).setValue(".");
-  sh.getRange(totalRow, 5, 1, 1).setNumberFormat("0.00");
-
-  _cexWriteVerifMap_(sh, sheetName);
 
   Logger.log("[CEX_TOTAL] " + sheetName + " TOTAL=" + Math.round(total * 100) / 100 + " EUR valued=" + valued + " skipped=" + skipped + " nb=" + nb);
   return Math.round(total * 100) / 100;
@@ -1704,20 +1699,73 @@ function _cexWriteVerifMap_(sh, sheetName) {
     var existingFormula = String(sh.getRange(3, 6).getFormula() || "");
     if (existingLabel === "Vérif" && existingFormula.indexOf("MAP(") >= 0) return;
     sh.getRange(2, 6, 1, 1).setValue("Vérif");
-    var ls = String(sheetName || "").toLowerCase();
-    var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
-
-    var formula;
-    if (isFiatOrStocks) {
-      var sw = _cexStockAliasSwitch_();
-      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Action Rebalancing\'!$A:$A;s)>0;COUNTIFS(\'Action Rebalancing\'!$A:$A;' + sw + ')>0);\"V\";\"X\")))))';
-    } else {
-      formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;\"' + sheetName + '\";\'Portefeuille Crypto Details\'!$C:$C;s)>0;\"V\";\"X\")))))';
-    }
-    sh.getRange(3, 6, 1, 1).setFormula(formula);
+    sh.getRange(3, 6, 1, 1).setFormula(_cexBuildVerifFormula_(sheetName));
   } catch (e) {
     Logger.log("[CEX_VERIF] Failed to write Vérif MAP for " + sheetName + ": " + (e && e.message ? e.message : e));
   }
+}
+
+function _cexBuildVerifFormula_(sheetName) {
+  var cryptoDetailsV2Formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + sheetName + '";\'Portefeuille Crypto Details\'!$C:$C;s)>0;"V";"X")))))';
+  var ls = String(sheetName || "").toLowerCase();
+  var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
+  if (!isFiatOrStocks) return cryptoDetailsV2Formula;
+  if (isFiatOrStocks) {
+    var sw = _cexStockAliasSwitch_();
+    return '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Portefeuille Action\'!$A:$A;s)>0;COUNTIFS(\'Portefeuille Action\'!$A:$A;' + sw + ')>0);\"V\";\"X\")))))';
+  }
+}
+
+function _cexRepairSheetStructure_(ss, sheetName) {
+  var sh = ss && ss.getSheetByName(sheetName);
+  if (!sh) return { sheet: sheetName, ok: false, error: "missing_sheet" };
+  if (sh.getMaxColumns && sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
+  var last = Math.max(3, sh.getLastRow());
+  sh.getRange(2, 5).setValue("value_eur");
+  _cexWriteVerifMap_(sh, sheetName);
+
+  var values = sh.getRange(1, 1, last, 7).getValues();
+  var total = 0;
+  var totalRows = [];
+  for (var i = 0; i < values.length; i++) {
+    var a = String(values[i][0] || "").trim().toUpperCase();
+    var b = String(values[i][1] || "").trim().toUpperCase();
+    if (a === "TOTAL" || b === "INFO_TOTAL") {
+      totalRows.push(i + 1);
+      continue;
+    }
+    if (i >= 2) {
+      var n = Number(values[i][4] || 0);
+      if (isFinite(n) && n > 0) total += n;
+    }
+  }
+  for (var r = totalRows.length - 1; r >= 0; r--) sh.getRange(totalRows[r], 1, 1, 7).clearContent();
+  var totalRow = Math.max(3, sh.getLastRow() + 1);
+  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
+  sh.getRange(totalRow, 1, 1, 7).setValues([[".", "INFO_TOTAL", sheetName.replace(/^CEX\s*-\s*/i, "").toLowerCase(), stamp, "", "", Math.round(total * 100) / 100]]);
+  try { sh.getRange("A1").insertCheckboxes(); } catch (eCheckbox) {}
+  try { sh.getRange("B1:D1").setNumberFormat("@"); } catch (eFmt) {}
+  return { sheet: sheetName, ok: true, total: Math.round(total * 100) / 100, totalRow: totalRow };
+}
+
+function REPAIR_CEX_SHEETS_STRUCTURE() {
+  var ss = SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
+  var names = [
+    "CEX - Binance",
+    "CEX - Bitfinex",
+    "CEX - Bitpanda Commodity",
+    "CEX - Bitpanda Crypto",
+    "CEX - Bitpanda Fiat",
+    "CEX - Bitpanda Stocks",
+    "CEX - Bybit",
+    "CEX - Coinbase",
+    "CEX - Kraken",
+    "CEX - OKX"
+  ];
+  var out = [];
+  for (var i = 0; i < names.length; i++) out.push(_cexRepairSheetStructure_(ss, names[i]));
+  Logger.log(JSON.stringify(out));
+  return JSON.stringify(out);
 }
 
 /**
@@ -1750,18 +1798,22 @@ function _cexUpdateRecapColumnB_(ss, sheetName, totalValue) {
 }
 
 // ============================================================
-// v4.15.134: Relay retry helper. When a CEX relay returns
-// "HTTP blocked/null response", retry up to 3 times with a
-// 5s delay before throwing. Used by all non-Bitpanda CEX syncs.
+// v4.15.134 / v4.15.145: Shared CEX fetch retry helper.
+// When a CEX call (relay OR direct) returns "HTTP blocked/null
+// response", retry up to 3 times with a 5s delay before throwing.
+// Used by ALL CEX syncs: Binance/Bybit/Coinbase/OKX (relay),
+// Bitfinex + Bitpanda (direct).
 // ============================================================
 var CEX_RELAY_MAX_RETRIES = 3;
 var CEX_RELAY_RETRY_DELAY_MS = 5000;
 
 /**
- * Call a relay fetch function with retries on blocked/null errors.
+ * Call a CEX fetch function (relay or direct) with retries on
+ * blocked/null errors. Other errors (5xx, geo-block, auth) bubble up
+ * immediately so they don't get retried pointlessly.
  * @param {Function} fetchFn - function that returns buckets (throws on error)
- * @param {string} name - connector name for logging (e.g. "OKX", "Binance")
- * @returns {*} the buckets from the relay
+ * @param {string} name - connector name for logging (e.g. "OKX", "Binance", "Bitpanda /wallets")
+ * @returns {*} the buckets from the call
  */
 function _cexRelayFetchWithRetry_(fetchFn, name) {
   for (var attempt = 1; attempt <= CEX_RELAY_MAX_RETRIES; attempt++) {
@@ -1770,7 +1822,7 @@ function _cexRelayFetchWithRetry_(fetchFn, name) {
     } catch (e) {
       var msg = String(e && e.message ? e.message : e);
       if (attempt < CEX_RELAY_MAX_RETRIES && msg.indexOf("blocked/null response") >= 0) {
-        Logger.log("[CEX_RELAY] " + name + " relay attempt " + attempt + "/" + CEX_RELAY_MAX_RETRIES + " failed: " + msg + " — retrying in " + (CEX_RELAY_RETRY_DELAY_MS / 1000) + "s");
+        Logger.log("[CEX_RELAY] " + name + " attempt " + attempt + "/" + CEX_RELAY_MAX_RETRIES + " failed: " + msg + " — retrying in " + (CEX_RELAY_RETRY_DELAY_MS / 1000) + "s");
         Utilities.sleep(CEX_RELAY_RETRY_DELAY_MS);
       } else {
         throw e;

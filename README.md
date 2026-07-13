@@ -23,7 +23,7 @@ WCORE/
 
 ## What WCORE Tracks
 
-- 180+ chain configs across EVM, Solana/SVM, Cosmos SDK, and TON.
+- 183 generated chain configs across EVM, Solana/SVM, Cosmos SDK, and TON. The active/scannable count is dynamic.
 - Read-only wallet scans, multi-wallet portfolio views, and public share reports.
 - Multi-source pricing cascade: stablecoin fast-path, cache, DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko fallback.
 - Scam-token filtering and clean-total calculations.
@@ -68,8 +68,10 @@ For detailed setup, see:
 - `wcore-web/README.md` for the web/API runtime.
 - `wcore-gsheet/README.md` for the Google Sheets + Apps Script runtime.
 - `ROADMAP.md` for cross-runtime WCORE status and harmonization backlog.
+- `docs/AUDIT.md` for the current cross-runtime audit and evidence.
 - `wcore-web/ROADMAP.md` for web/API runtime status and release history.
 - `wcore-web/docs/AUDIT.md` for the current web audit backlog.
+- `wcore-gsheet/ROADMAP.md` for the current Apps Script backlog.
 
 ## Security Notes
 

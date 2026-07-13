@@ -293,6 +293,7 @@ function SETUP_BITFINEX_SHEET() {
   var ss = SpreadsheetApp.openById(BITFINEX_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(BITFINEX_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(BITFINEX_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   // v4.15.82: B1 = date pure "yyyy-MM-dd HH:mm:ss" (harmonie avec onglets on-chain Recap).
   sh.getRange("B1").setValue(
@@ -319,6 +320,7 @@ function _bfxBuildValues_(buckets, stamp) {
 function _bfxWriteSheet_(ss, buckets) {
   var sh = ss.getSheetByName(BITFINEX_SYNC_CONFIG.SHEET);
   if (!sh) sh = ss.insertSheet(BITFINEX_SYNC_CONFIG.SHEET);
+  if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   // v4.15.82: B1 = date pure "yyyy-MM-dd HH:mm:ss" (harmonie avec onglets on-chain Recap).
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var header = [];
@@ -326,8 +328,7 @@ function _bfxWriteSheet_(ss, buckets) {
   header.push(["cryptocoin_symbol", "balance", "source", "updated_at"]);
   var dataRows = _bfxBuildValues_(buckets, stamp);
   var values = header.concat(dataRows);
-  // v4.15.121: append INFO_TOTAL row.
-  try { _cexComputeAndAppendTotal_(ss, BITFINEX_SYNC_CONFIG.SHEET, dataRows, "bitfinex", values); } catch (eTot) { Logger.log("[CEX_TOTAL] bitfinex append failed: " + eTot); }
+  _cexComputeAndAppendTotal_(ss, BITFINEX_SYNC_CONFIG.SHEET, dataRows, "bitfinex", values);
   return dataRows.length;
 }
 

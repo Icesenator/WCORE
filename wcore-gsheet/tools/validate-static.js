@@ -263,20 +263,24 @@ if (output.includes("_isExplicitZeroPrice") || output.includes("priceVal === 0")
 const bitpandaSync = read("src/35_BITPANDA_SYNC.gs");
 if (!bitpandaSync.includes("ACTION_REBALANCING_REFRESH_FLAG_PROP") ||
     !bitpandaSync.includes("CRYPTO_CEX_REFRESH_FLAG_PROP")) {
-  fail(errors, "Bitpanda manual refresh must use separate flags for Action Rebalancing Z1 and Portefeuille Crypto AC2");
+  fail(errors, "Bitpanda manual refresh must use separate flags for Portefeuille Action T2 and Portefeuille Crypto U2");
 }
 if (!bitpandaSync.includes("UPDATE_BITPANDA_STOCKS_FIAT") ||
     !bitpandaSync.includes("UPDATE_BITPANDA_CRYPTO_FIAT")) {
   fail(errors, "Bitpanda sync must expose targeted Stocks/Fiat and Crypto/Fiat refresh functions");
 }
-if (!bitpandaSync.includes('"Action Rebalancing": {') ||
-    !bitpandaSync.includes('"Z1": BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP') ||
+if (bitpandaSync.includes('"Action Rebalancing": {') ||
+    bitpandaSync.includes('"Z1": BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP')) {
+  fail(errors, "Legacy Action Rebalancing Z1 refresh mapping must be removed before deleting the sheet");
+}
+if (!bitpandaSync.includes('"Portefeuille Action": {') ||
+    !bitpandaSync.includes('"T2": BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP') ||
     !bitpandaSync.includes('"Portefeuille Crypto": {') ||
-    !bitpandaSync.includes('"AC2": BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP')) {
-  fail(errors, "Action Rebalancing Z1 and Portefeuille Crypto AC2 must be mapped to their targeted refresh flags");
+    !bitpandaSync.includes('"U2": BITPANDA_SYNC_CONFIG.CRYPTO_CEX_REFRESH_FLAG_PROP')) {
+  fail(errors, "Portefeuille Action T2 and Portefeuille Crypto U2 must be mapped to their targeted refresh flags");
 }
 if (!bitpandaSync.includes("UPDATE_BINANCE_SPOT")) {
-  fail(errors, "Portefeuille Crypto AC2 refresh must also trigger Binance Crypto refresh");
+  fail(errors, "Portefeuille Crypto U2 refresh must also trigger Binance Crypto refresh");
 }
 
 const evmEngine = read("src/11_EVM_ENGINE.gs");

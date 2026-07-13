@@ -1,203 +1,120 @@
-# WCORE Web — Audit consolidé unique
+# WCORE Web - Audit courant
 
-> **Date** : 2026-06-11 · **Périmètre** : monorepo `wcore-web` (apps/api Fastify, apps/web Next.js 16, packages/core, packages/shared, packages/db Prisma)
-> **Score global : 8.8 / 10 (A-)** — en hausse vs 8.6 au 2026-06-07 (8 findings P0/P1/P2 vérifiés corrigés dans le code depuis).
-> **Ce fichier est LA source unique d'état d'audit.** Il consolide et remplace les 12 rapports datés du 2026-05-11 au 2026-06-07 (conservés dans l'historique git, commit `6ef62a7` et antérieurs). Toute évolution se fait ICI : on coche, on ajoute, on ne crée plus de nouveau fichier daté.
+> Date de verification: 2026-07-10
+> Perimetre: `apps/api`, `apps/web`, `packages/core`, `packages/shared`, `packages/db`, CI, Docker/Railway et documentation.
+> Audit transversal complet: `../../docs/AUDIT.md`.
 
----
+Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preuve dans le code ou un test frais.
 
-## 1. Synthèse exécutive
+## Synthese
 
-| Axe | Note | Tendance | Commentaire |
-|-----|------|----------|-------------|
-| Sécurité | A- | ↗ | 0 vuln deps, CSRF/SIWE/cookies durcis, status-onchain authentifié et cache court, `/api/stats` et `/api/circuit` admin-only. Reliquat : autres metrics publics, DNS rebinding. |
-| Fiabilité scan | A- | ↗ | forceRefresh propagé, liveness empty-cache, TTL empty EVM harmonisé à 10 min, consensus zéro durci, per-chain timeout. Reliquat : jobs en mémoire. |
-| Tests | B+ | ↗ | 71+ fichiers / ~350 tests. `useScanOrchestrator` batching et replay POST `/api/gm/onchain` couverts. Reliquat : E2E complet GM et autres routes metrics. |
-| Performance | B+ | → | compress + mget partiel + intraScanCache. Reliquat : writes Redis non pipelinés, AllTokensTable non virtualisée. |
-| Qualité code | B | ↘ | Régression lint (34 erreurs vs 0 au 05-30). Duplications QUAL connues. scan.ts 612 LOC. |
-| Docs / DX | A- | ↗ | TROUBLESHOOTING, CONTRIBUTING, TESTING, .nvmrc créés ; audits consolidés. Manque : split AGENTS.md. |
-
-**Top 3 risques actuels** : (1) autres metrics publics (`/api/metrics/errors(/detail)`, `/api/admin/scam-overrides`), (2) DNS rebinding fetch RPC gamification, (3) E2E GM complet au-delà du replay anti-duplicate.
-
----
-
-## 2. Méthodologie et sources
-
-- **Consolidation** de 12 rapports : audit-2026-05-21(.md/-complet), -05-23, -05-24, -05-27, -05-28, -05-29, -05-30(+extended), -06-05, -06-07, archive/AUDIT.md (baseline v0.1.x), plan `2026-06-05-audit-fixes-p0-p1.md`.
-- **Re-vérification code le 2026-06-11** : chaque finding « ouvert » du rapport le plus récent a été confronté au code réel (`fichier:ligne`). Résultat : 8 findings étaient déjà corrigés mais jamais cochés — la dérive doc/code constatée aux audits 05-24 et 06-07 se répète ; d'où ce fichier unique.
-- **Convention statuts** : `[ ]` ouvert · `[x]` corrigé (avec preuve) · `[~]` partiel.
-
-### État vérifié au 2026-06-11 (réconciliation)
-
-| Finding (audit 06-07) | Verdict 06-11 | Preuve |
+| Axe | Etat | Commentaire |
 |---|---|---|
-| P0-1 Bearer permissif | **CORRIGÉ** | `apps/api/src/auth.ts:170-174` — deny-by-default en prod, Bearer seulement si `AUTH_ALLOW_BEARER === "true"` |
-| P0-2 status-onchain non protégé | **CORRIGÉ** (auth+ownership+zod + cache court 5 min) | `gm-onchain.ts` + roadmap 2026-06-20 |
-| P0-3 tests routes scan | **CORRIGÉ** | `apps/api/test/scan-plugin-routes.test.ts` — async/batch couverts (23/23), bugs `forceRefresh` async + batch invalid address corrigés |
-| forceRefresh non propagé (06-05 P0-1) | **CORRIGÉ** | `scan.ts:116,315,394,513` + `evm-scan.ts:125`, `svm.ts:102`, `cosmos.ts:128` |
-| `strict:false` web | **CORRIGÉ** | `apps/web/tsconfig.json:14` |
-| @fastify/compress absent | **CORRIGÉ** | `server.ts:225` |
-| Indexes DB manquants | **CORRIGÉ** (+ test de garde) | `schema.prisma:38,171-172,189-191,221-222`, `schema-indexes.test.ts` |
-| N+1 `/api/gm/random` | **CORRIGÉ** | `gm-contracts.ts:225-233` (batch findMany + Set) |
-| next/dynamic absent | **CORRIGÉ** (4 usages) | HomePageClient, TopBar, WalletContent, ScanDetailClient |
-| error.tsx 1 seul global | **PARTIEL** (4 routes : global, history, gm, profile) | `apps/web/app/**/error.tsx` |
-| .nvmrc absent | **CORRIGÉ** | `.nvmrc` = `20` |
-| rate-limit pré-auth (06-05 P1-2) | **CORRIGÉ** | `rate-limit-hook-order.test.ts` |
-| EVM empty cache sans liveness | **CORRIGÉ** (liveness ✅ `canServeEmptyCache`, TTL EVM 10 min) | `evm-balances.ts:115-131`, `evm-scan.ts`, `evm-batch.ts` |
-| RealT cache sans TTL | **CORRIGÉ** | `realt.ts` — `REGISTRY_REDIS_SAFETY_TTL_MS` 7 j appliqué à `realt:registry:v2` |
-| @tanstack/react-query mort | **INVALIDÉ** — peer requirement wagmi (QueryClientProvider) | `Web3Provider.tsx:3,10,15` |
-| @fastify/rate-limit mort | **CORRIGÉ** | retiré de `apps/api/package.json` + `pnpm-lock.yaml` |
-| Chemins hardcodés contracts/ | **CORRIGÉ** | `compile-v0.8.19.js`, `patch-build-json.js` utilisent `__dirname` / `path.join` |
-| CONTRIBUTING / TESTING | **CORRIGÉ** | `CONTRIBUTING.md`, `TESTING.md` |
+| Exactitude | A renforcer | Conversion CEX corrigee; divergences batch/staking/TON restantes |
+| Securite | A renforcer | SSRF IPv6/DNS et CEX secret fallback; endpoint pricing CEX supprime |
+| Fiabilite | A renforcer | Jobs async en memoire et fan-outs GM; CEX UI stale-safe |
+| Tests | Bon socle | 301 tests core/shared passes; Web 129 passes et 6 tests non hermetiques |
+| Qualite | En regression | Typecheck vert, lint rouge a 19 erreurs |
+| Livraison | Risque eleve | Workflow CI place sous `wcore-web/.github`, migrations incompletes |
+| Docs | Dette elevee | Roadmap/AGENTS/CHANGELOG volumineux et mojibakes |
 
----
+## P1 - A traiter en premier
 
-## 3. Findings OUVERTS
+- [x] **W1 - RESOLVED 2026-07-10.** `convertUsdPriceToEur` multiplie les prix USD par le taux EUR/USD canonique pour les stables et DefiLlama. Preuve: `pricing.test.ts` + `normalizers.test.ts`, 29/29 passes; typecheck API et ESLint cible passes.
+- [x] **W2 - RESOLVED 2026-07-10.** `/api/cex/prices`, requis par `_cexFetchWebPrices_` dans Google Sheets, exige maintenant `x-gsheet-token`, limite les lots a 50, envoie les actions au relais en un batch et borne le pricing crypto a 5 workers. Les anciens fan-outs multi-provider sont supprimes. Preuve: 33/33 tests API CEX/normalizers/stock-relay passes.
+- [ ] **W3 - Migrations Prisma non reconstructibles.** Le schema contient des tables/champs sans migration de creation; `20260518103000_add_scam_override_contract` altere une table supposee existante. Ajouter une migration corrective et un test sur DB vide.
+- [ ] **W4 - CI inactive.** Le seul workflow est `wcore-web/.github/workflows/ci.yml`, mais le depot Git commence un niveau au-dessus. Le deplacer vers `/.github/workflows/`.
+- [ ] **W5 - SSRF/DNS rebinding incomplet.** `apps/api/src/lib/safe-http.ts` ne garantit ni A/AAAA publics ni epinglage de l'adresse validee. Centraliser les fetches RPC.
+- [ ] **W6 - Jobs async non bornes/persistants.** `apps/api/src/plugins/scan-job.ts:23` utilise un store memoire sans borne; les timeouts ne stoppent pas le moteur. Quotas actifs, Redis, queue et AbortSignal.
+- [ ] **W7 - Echec GM interprete comme contrat absent.** `apps/web/hooks/useOnChainGm.ts:86-101` retourne `false` sur panne. Introduire l'etat `unknown`.
+- [ ] **W8 - Fan-out GM.** `apps/web/app/gm/GmPageClient.tsx:33-51` precharge 89 prix; `WalletContent.tsx` ne normalise pas les cles GM. Charger a la demande/batch borne et normaliser.
+- [x] **W9 - RESOLVED 2026-07-10.** Les echecs transitoires conservent holdings/totaux avec marqueur degrade; auth, deconnexion et empty autoritatif effacent l'etat. La cle de session et le `requestId` bloquent les reponses obsoletes. Preuve: `cex-holdings-state.test.ts` + `cex-display.test.ts`, 28/28 passes; typecheck Web et ESLint cible passes.
 
-### P0 — Critique (à traiter cette semaine)
+## P2 - Sprint suivant
 
-- [x] **P0-1 · `AUTH_ALLOW_BEARER` permissif par défaut** — ✅ corrigé 2026-06-11 : deny-by-default quand `NODE_ENV=production` (`apps/api/src/auth.ts:170-174` — Bearer seulement si `AUTH_ALLOW_BEARER === "true"` en prod ; hors prod, actif sauf `false`). Documenté dans `.env.example`. Le seul Bearer frontend restant est l'`ADMIN_TOKEN` (vérifié par `admin-auth.ts`, voie séparée).
-- [x] **P0-2 · Routes `/api/scan/async` et `/api/scan/batch` : 0 test** — ✅ corrigé 2026-06-11 : `apps/api/test/scan-plugin-routes.test.ts` (23/23, sans DB/réseau : deps injectées + chaîne fake fail-fast + cache seedé). Couvre : 400 body/address/chains, 503 circuit_open, lifecycle job async, ownership user/IP, cache-served vs forceRefresh, fire-and-forget history. **2 bugs réels trouvés et corrigés en l'écrivant** : (1) la route async ne passait pas `forceRefresh` à l'engine (`scan.ts:525`) → `empty:*` non bypassé en async ; (2) adresse invalide dans `/api/scan/batch` → throw 500 au lieu de 400 (`scan.ts:221-228`).
+### API et securite
 
-### P1 — Haute priorité (sprint en cours / suivant)
+- [ ] Rendre `CEX_SECRET` obligatoire en production au lieu du fallback `JWT_SECRET` (`apps/api/src/plugins/cex.ts:103-105`).
+- [ ] Mettre `ws` a jour en `>=8.21.0`; l'override 8.20.1 reste vulnerable.
+- [ ] Refuser/degrader readiness si Redis configure est indisponible en production.
+- [ ] Reduire le TTL access token ou ajouter une revocation user/session-level.
+- [ ] Integrer toutes les variables CEX/GSheet dans `config.ts` et les templates env.
+- [ ] Comparer l'origine CSRF complete, pas seulement le hostname.
 
-- [x] **P1-1 · TDZ `sendLogin` ConnectButton + lint rouge** — ✅ corrigé 2026-06-11 : `sendLogin` déclaré avant `signAndLogin`/`signAndLoginRaw` + listé dans les deps, `cause` attaché aux erreurs wallet, `wagmiChainId` mort retiré. `pnpm lint` : **0 erreur, 0 warning** (était 34/8). Autres fichiers purgés : server.ts (2 imports morts dont `checkRateLimit` dupliqué), DeployClient (interface vide → type alias), scam-overrides (useless assignment), contracts/*.js (globals node dans eslint.config.mjs).
-- [ ] **P1-2 · N+1 GM upserts cold-start** — `gm-contracts.ts:300-357`, `gm-routes.ts:141-158` : boucles `findFirst`+`upsert` séquentielles (10+ queries/user) sur has-deployed/status. **Fix** : `findMany` + `createMany({ skipDuplicates: true })`. *Effort : ½ j.*
-- [x] **P1-3 · Dep morte `@fastify/rate-limit`** — ✅ retirée 2026-06-11 (`pnpm --filter @wcore/api remove`).
-- [x] **P1-4 · RealT `realt:registry:v2` sans TTL Redis** — ✅ corrigé 2026-06-11 : safety TTL 7 j sur l'écriture Redis (`realt.ts` — `REGISTRY_REDIS_SAFETY_TTL_MS`), staleness logique 6h + stale fallback inchangés.
-- [x] **P1-5 · `useScanOrchestrator` 0 test** — ✅ corrigé 2026-06-21 : helper pur `buildScanOrchestratorJobs` + tests `apps/web/__tests__/use-scan-orchestrator.test.ts` couvrant filtrage VM, chaînes disabled et batching.
-- [x] **P1-6 · POST `/api/gm/onchain` sans E2E** — ✅ partiellement corrigé 2026-06-21 : test anti-replay same-chain dans `apps/api/src/gamification.test.ts`, y compris chainKey case-insensitive, réponse `duplicate_tx` et aucune double insertion. Reste à compléter par un E2E wallet/tx complet si nécessaire.
-- [x] **P1-7 · `deploy.ps1` exit code masqué** — ✅ déjà corrigé (commit `cc67375`, v0.2.40) : `$deployExitCode` capturé avant le `finally` (`scripts/deploy.ps1:24,30,35`). Finding listé ouvert par erreur (drift doc/code). Nit d'interpolation PowerShell du warning stale-lock corrigé au passage.
-- [ ] **P1-8 · ChainCard scam matching symbol-only** — `apps/web/components/ChainCard.tsx:103-115` : `blocked.has(sym)` au lieu des helpers contract-aware → totaux incohérents avec TokenTable/WalletContent. *Effort : ½ j.*
-- [ ] **P1-9 · SSRF gaps `safe-http`** — `apps/api/src/lib/safe-http.ts:6-7` : la regex `PRIVATE_HOSTNAME` ne bloque ni `0.0.0.0` ni `::ffff:127.0.0.1`. *Effort : 1 h + tests.*
+### Core et cache
 
-### P2 — Moyen terme (mois)
+- [ ] Reutiliser `getStablecoinType` dans `evm-batch.ts`; couvrir EURC/EURS/EURE.
+- [ ] Ne pas ecrire un zero Cosmos quand les branches staking ont echoue.
+- [ ] Respecter `opts.sources` dans l'engine TON.
+- [ ] Appliquer le registre de cles cache aux variantes `empty:v2:*` et constructions directes.
+- [ ] Finir le partage `intraScanCache` cross-batch et le pipelining des autres writes.
 
-**Sécurité**
-- [~] **P2-1 · Endpoints observabilité publics** — partiel 2026-06-21 : `/api/stats` et `/api/circuit` exigent admin auth (`apps/api/src/plugins/chains.ts`) avec tests `apps/api/test/admin-plugins.test.ts`. Restent à traiter séparément : `/api/metrics/errors(/detail)`, `/api/admin/scam-overrides`.
-- [ ] **P2-2 · DNS rebinding non appliqué** — `assertNoDnsRebind()` défini (`safe-http.ts:32-50`) mais pas utilisé sur les fetch RPC gamification. **Fix** : wrapper `safeFetchPublicHttp()` systématique. *½ j.*
-- [ ] **P2-3 · Access token 24h sans révocation user-level** — `auth.ts:44`. **Fix** : TTL 1h + refresh flow, ou `jti` + blacklist. *½ j.*
-- [ ] **P2-4 · Jobs scan anonymes lisibles par tout authentifié** — `scan.ts:783-790` (`userId=undefined`). **Fix** : binder un token de session anonyme au job. *½ j.*
-- [x] **P2-5 · Cache court manquant sur status-onchain** — ✅ corrigé 2026-06-20 : cache mémoire 5 min par `(chain,address,UTC day)` pour éviter les `eth_getLogs` répétés.
+### Frontend
 
-**Performance**
-- [x] **P2-6 · `prisma.walletScan.create` await dans le response path** — ✅ corrigé 2026-06-11 : persistence historique fire-and-forget avec `.catch`, sans bloquer la réponse.
-- [x] **P2-7 · Cache check Redis séquentiel** — ✅ corrigé 2026-06-11 : cache scan sync/batch lu par `mget` au lieu de N round-trips.
-- [ ] **P2-8 · Writes Redis non pipelinés / intraScanCache non partagé cross-batch / RpcHealth instance par scan** — `redis-store.ts:70-80`, `scan.ts:229,410,676`. *1-2 j cumulés.*
-- [ ] **P2-9 · AllTokensTable sans virtualisation ni memo** — `AllTokensTable.tsx:32-68` (110k DOM nodes potentiels) ; `TokenTable` non memoizé. *1 j.*
-- [ ] **P2-10 · `RpcHealthTracker` sans decay** — `rpc/rpc-health.ts:32-50` : échecs accumulés à vie, pool RPC rétrécit sur session longue (le decay existe sur CircuitBreaker, pas ici). *½ j.*
-- [x] **P2-11 · EVM empty cache TTL 1h asymétrique** — ✅ corrigé 2026-06-19 : TTL réduit à 10 min dans `evm-scan.ts` et `evm-batch.ts`, avec tests de garde single-wallet + batch dans `evm.test.ts`. Liveness native inchangée via `canServeEmptyCache`.
-- [ ] **P2-12 · `snapshotMetrics` 3 COUNT + 2 deleteMany / 5 min** — `server.ts:190-194`. *1-2 h.*
+- [ ] Supprimer le polling public de `/api/circuit`, devenu admin-only.
+- [ ] Nettoyer les overrides scam locaux quand le serveur renvoie une liste vide.
+- [ ] Ajouter labels aux formulaires CEX et semantique/focus au modal wallet.
+- [ ] Ajouter roles tab, `aria-selected`, `aria-sort` et actions clavier dans les tables.
+- [ ] Tester les comportements de panne de `useCexHoldings`, `useGmChain` et du warmup GM.
 
-**Qualité / cohérence**
-- [ ] **P2-13 · Duplications QUAL** — `calcCleanChainValue` triplé, triple cast detectScam, `any[]` evm-batch, `detectChainType` dupliqué 3×, `AuthUser` dupliqué, duplication structurelle evm-scan/evm-batch. *1-2 j cumulés.*
-- [ ] **P2-14 · Stables EUR jamais flaggées** — EURC/EURS/EURE sans `isStable` → fast-path EUR mort (`evm-pricing.ts:90`, `evm-batch.ts:507`). *½ j.*
-- [ ] **P2-15 · Cosmos : staking partiel down peut écrire un native cache zéro ; denoms non-IBC inconnus default 6 décimales** — `cosmos.ts:173-242,508`. *½ j.*
-- [ ] **P2-16 · TON engine ignore `opts.sources`** — `engines/ton.ts`. *1 h.*
-- [ ] **P2-17 · GM API reliquats** — fan-out RPC `/api/gm/random` non borné (by-design mais sans cap), share sans `expiresAt` défaut, deploy recovery écrase `creatorAddress`. *1 j cumulé.*
+### Infra et qualite
 
-**Infra / DX / Docs**
-- [ ] **P2-18 · `config.ts` central zod** — 18 fichiers lisent `process.env` directement (server.ts 32×, auth.ts 10×). *1 j.*
-- [x] **P2-19 · Chemins Windows hardcodés contracts/** — ✅ corrigé 2026-06-11 : chemins construits via `__dirname` / `path.join`, scripts portables hors `C:/Users/strau/...`.
-- [ ] **P2-20 · Dockerfile API non pruné (~500 MB)** — `apps/api/Dockerfile:49` → `pnpm deploy --prod` (~200 MB). `.dockerignore` incomplet (docs/, tools/, backups/). Web Dockerfile garde un `RUN chown -R`. *½ j.*
-- [x] **P2-21 · CONTRIBUTING.md + TESTING.md absents** — ✅ corrigé 2026-06-21 : guides courts à la racine `wcore-web/`, liés depuis `README.md`.
-- [ ] **P2-22 · AGENTS.md = 2 docs en 1 (1000+ lignes)** — moitié legacy Apps Script, pas de TOC. **Fix** : split `docs/apps-script.md` (archive) + guide web vivant. *½ j.*
-- [x] **P2-23 · Drift `SCAN_CONCURRENCY` docs/code** — ✅ corrigé : `DEPLOY.md` documente `SCAN_CONCURRENCY` défaut 50, source de vérité `apps/api/src/plugins/scan.ts:13`.
-- [ ] **P2-24 · `package.json` racine : deux blocs `devDependencies` + deps prod tooling-only** (googleapis, playwright). *1 h.*
-- [ ] **P2-25 · `scripts/validate-static.js` rouge** — SYNC_J1_ALL_SHEETS, WCORE_AUTO_HEAL manquants (upstream `wcore-gsheet`, hors scope web mais le script vit ici). *à traiter upstream.*
+- [ ] Pruner l'image API avec un artefact de production.
+- [ ] Ajouter un `.dockerignore` racine adapte au contexte Railway parent.
+- [ ] Corriger les 19 erreurs lint et rendre le lint bloquant en CI.
+- [ ] Rendre `apps/web/__tests__/ui.test.ts` hermetique ou le deplacer en integration explicite.
+- [ ] Ajouter un test schema exhaustif sur les 183 chaines.
 
-### P3 — Backlog (opportuniste)
+## P3 - Structure
 
-- [ ] Schema test des 182 chain configs (1 seule testée — aurait attrapé le chainId SOMNIA). *½ j.*
-- [ ] error.tsx pour les routes restantes (leaderboard, stats, scans/[id], share, pricing). *2 h.*
-- [ ] JSDoc sur les ~20 fonctions publiques critiques (core engines, auth). *½ j.*
-- [ ] ROADMAP.md (209 KB) : extraire l'historique vers CHANGELOG, garder ~300 lignes vivantes. *½ j.*
-- [ ] CI : `needs:` sur le job e2e, job release/deploy. *2 h.*
-- [ ] Surveillance des 8-12 chaînes single-RPC (ANCIENT8, B3, CITREA, FOGO, INTUITION, MITOSIS, OPENLEDGER, STABLE, TAC, TEMPO, VANA, ZIRCUIT) — alerting si RPC unique down. *1 j.*
-- [x] ~~`src/*.gs` (169 fichiers legacy Apps Script trackés)~~ — ✅ supprimés (Phase 1.5, 2026-06-18). L'extraction vit maintenant dans `wcore-gsheet/tools/extract-chains.mjs`. Le package `@wcore/chains` est généré depuis `wcore-gsheet/src/*.gs`.
-- [ ] `next/image` : tradeoff Docker standalone assumé — documenter dans DEPLOY.md, pas d'action code.
-- [ ] GT API key ($50/mo) pour lever le throttle 40 calls/60s vs 174 chaînes actives (décision produit/budget).
+- [ ] Store jobs Redis/BullMQ et annulation bout en bout.
+- [ ] Virtualisation/memo additionnelle des grandes listes si les profils reels la justifient.
+- [ ] Error boundaries pour les routes restantes.
+- [ ] Split `AGENTS.md` entre guide Web vivant et archives GSheet.
+- [ ] Reduire la roadmap Web a environ 200 lignes; le passe va dans CHANGELOG/archive.
+- [ ] Reparer le mojibake de ROADMAP/AGENTS/CHANGELOG avec une conversion controlee.
 
----
+## Findings anciens fermes
 
-## 4. Findings CORRIGÉS (traçabilité condensée)
+- [x] N+1 GM upserts: `gm-helpers.ts` utilise `findMany`, `updateMany`, `createMany`.
+- [x] ChainCard scam symbol-only: detection contract-aware active.
+- [x] Metrics et scam-overrides publics: routes admin protegees.
+- [x] Jobs anonymes lisibles par tout authentifie: ownership user/IP ajoute; le store memoire reste un risque distinct.
+- [x] `RpcHealth` sans decay/instance par scan: singleton avec expiration.
+- [x] AllTokensTable non bornee: affichage incremental limite.
+- [x] Duplications `calcCleanChainValue`, `detectChainType`, `AuthUser`: largement resorbees.
+- [x] Deux blocs `devDependencies`: un seul bloc reste.
+- [x] Validation statique GSheet deplacee vers le runtime canonique.
+- [~] Configuration API centralisee: socle `config.ts` present, integrations CEX/GSheet restantes.
+- [~] Writes Redis: pipeline present sur le batch EVM, pas universel.
+- [~] Cosmos: denoms inconnus durcis, panne staking/cache restante.
 
-Détails complets dans l'historique git des rapports datés. Synthèse :
+## Dette documentaire Web
 
-- **Auth/SIWE** : nonce binding, chainId `> 0`, Expiration+ChainId obligatoires, URI matching multi-origin, cookies httpOnly, CSRF deny-by-default prod, rate-limit per-address pré-auth, rate-limit ordonné après auth (test de garde), token tolerant (clear sur 401 explicite uniquement).
-- **Scan/Engines** : forceRefresh propagé aux engines (bypass `empty:*`), liveness `canServeEmptyCache`, consensus strict zéro-vs-cache (zéro non-consensus n'écrase plus), per-chain timeout 90s, partial cache writes async, job TTL 3-guards, negative/native/balance/per-token caches alignés 3 VMs, scan result cache `scan:result:*`, batch multi-wallet Multicall3, cache engine préservé SVM/Cosmos en forceRefresh.
-- **Pricing** : RealT registry bulk + Woo fallback + short-circuit cascade, GT bulk pre-fetch, RedisPricingCache partagé inter-workers, stablecoin peg `isStable === true` only, scam-detector contract-aware + overrides 3 niveaux persistés.
-- **GM** : chainKey canonique uppercase + lookups insensibles, anti-replay case-insensitive, N+1 random batché, status-onchain auth+ownership+zod+cache court, factories source unique `factories.ts`, RPC résolus via `@wcore/core`, KCC build Paris (PUSH0), 8 chaînes activées pattern unifié.
-- **API/Infra** : compress global, indexes DB + test de garde, migrate deploy (jamais db push prod), Docker non-root, secrets retirés des docs/CI (`job.env`), `.env.staging` untracké, backup quotidien + rotation 7j, smoke test ≥180 chaînes.
-- **Frontend** : strict:true web, RSC server-shell pattern complet, splits WalletContent/evm.ts, next/dynamic ×4, error.tsx ×4, TokenIcon broken-image overlay, FX fetch via apiFetch, useGmContracts cross-user publication fixée.
-- **Findings invalidés** : `@tanstack/react-query` (peer wagmi, pas mort), code-splitting "absent" (faux positif dès 05-29, confirmé corrigé 06-11), fallback 2000 fetchNativePrice (déjà retiré).
+- Le chainId Robinhood correct est 4663.
+- Le compte est 183 configurations suivies; ne pas confondre avec le nombre actif.
+- `ROADMAP.md`, `AGENTS.md` et `CHANGELOG.md` contiennent un mojibake massif.
+- `ROADMAP.md` melange etat courant et plus de 2 000 lignes d'historique.
+- Coinbase/OKX sont encore annonces comme futurs dans des sections historiques non clairement archivees.
+- Les deadlines Swell, Corn, Polygon zkEVM et Botanix sont passees; leur statut code doit etre revalide.
 
----
+## Verification 2026-07-10
 
-## 5. Nettoyage du 2026-06-11 (effectué dans le cadre de cet audit)
+```text
+@wcore/core tests:     284/284 passes
+@wcore/shared tests:    17/17 passes
+@wcore/web tests:      129 passes, 6 ECONNREFUSED vers API locale absente
+API CEX cible:         29/29 passes (`pricing.test.ts`, `normalizers.test.ts`)
+Web CEX cible:         28/28 passes (`cex-holdings-state.test.ts`, `cex-display.test.ts`)
+typecheck:             passe
+lint:                  19 erreurs, 0 warning
+ESLint CEX cible:      passe
+pnpm audit --prod:     vulnerabilite haute `ws@8.20.1`
+```
 
-**Racine** (fichiers non trackés / ignorés) :
-- Supprimés : `build.log`, `deploy-web.log`, `next-build.log`, `tsc.log`, `nul`, `test-data-uris.png`, 2 PNG temp égarés (`UsersstrauAppData...png`).
-- Archivés vers `scripts/archive-x/` : 17 scripts `x-*.js` (sessions X de mai, supersédés par `scripts/x/` + `scripts/x-cycle/post-replies.cjs`).
+## Regles de maintenance
 
-**scripts/** :
-- Retirés de git + disque : `.icon-audit.json`, `.icon-manifest.json`, `.icon-manual-urls.txt` (artefacts générés, référencés nulle part).
-- Archivés vers `scripts/archive-x/` : 19 one-shots X/CM (`x-cycle-*`, `x-search-*`, `scan-x-feed`, `search-x-targets`, `verify-replies`, `cm-scan.mjs`, `check-aaladin*`, `check-inkhub`).
-- Supprimés (debug ponctuel obsolète) : `tweet-screenshot.png` (181 KB), `inspect-*.cjs` ×4, `find-unknown-tokens*.js` ×2, `check-logos-playwright.js`, `fetch-token-meta*.mjs` ×2, `fetch-tokens-blockscout.mjs`, `fix-roadmap.js`, `append-gotchas.js`, `build-post-v12*.cjs` + `render-post-v12.cjs` (itérations supersédées).
-- **Conservés volontairement** : `chrome-cdp.js`, `connect-google.js`, `clasp-*.js` (documentés AGENTS.md), `analyze-errors.ps1` (routine), `audit-rpcs.mjs`, `audit-gm-consistency.ts`, `deploy-gm-contract.mjs`, `backfill-gm-logs.ts` / `recover-gm-history.ts` / `recalc-gm-streaks-db.ts` (outils de recovery GM), `build-post-gm-*.cjs` / `build-post-tower.cjs` / `build-post-trustworthy-balances.cjs` / `svg-to-png*.mjs` (générateurs marketing documentés).
-
-**docs/** :
-- 11 rapports `audit-*.md` + `archive/AUDIT.md` supprimés, consolidés dans CE fichier (historique complet dans git).
-- Références mises à jour : ROADMAP.md, DEPLOY.md, TROUBLESHOOTING.md, AGENTS.md → pointent vers `docs/AUDIT.md`.
-
----
-
-## 6. Roadmap intelligente
-
-Priorisation impact × effort. Une case cochée = vérifiée dans le code, pas seulement « intentionnée ».
-
-### 🔴 Sprint 1 — cette semaine (~2,5 j)
-| # | Action | Réf | Effort | Impact |
-|---|--------|-----|--------|--------|
-| 1 | ✅ `AUTH_ALLOW_BEARER=false` prod + guard NODE_ENV | P0-1 | 15 min | Sécurité prod |
-| 2 | ✅ Retirer `@fastify/rate-limit` | P1-3 | 1 min | Hygiène |
-| 3 | ✅ Fix TDZ `sendLogin` + purge des 34 erreurs lint | P1-1 | ½ j | Bug réel + CI verte |
-| 4 | ✅ Tests routes `scan-plugin-routes.test.ts` (async/batch) | P0-3 | 1 j | Filet revenue path |
-| 5 | ✅ RealT registry TTL 7 j | P1-4 | 1 h | Intégrité pricing € |
-| 6 | ✅ `walletScan.create` fire-and-forget + `mget` cache check | P2-6/7 | 2 h | -30-80 ms/scan |
-| 7 | ✅ `deploy.ps1` exit code | P1-7 | 1 h | Déploiements fiables |
-
-### 🟠 Sprint 2 — semaine suivante (~4 j)
-| # | Action | Réf | Effort |
-|---|--------|-----|--------|
-| 8 | ✅ Replay POST `/api/gm/onchain` | P1-6 | Fait 2026-06-21 |
-| 9 | ✅ Tests `useScanOrchestrator` | P1-5 | Fait 2026-06-21 |
-| 10 | N+1 GM upserts → createMany | P1-2 | ½ j |
-| 11 | ChainCard scam contract-aware | P1-8 | ½ j |
-| 12 | SSRF `0.0.0.0`/`::ffff:` + wrapper DNS rebinding | P1-9, P2-2 | ½ j |
-| 13 | ✅ Cache court status-onchain | P2-5 | Fait 2026-06-20 |
-| 14 | ✅ `/api/stats` + `/api/circuit` admin-only | P2-1 partiel | Fait 2026-06-21 |
-
-### 🟡 Mois — chantiers de fond (~5 j)
-- `config.ts` central zod (P2-18) → prérequis pour tuer les drifts env.
-- Cosmos decimals/staking (P2-15).
-- Dédup QUAL (`calcCleanChainValue`, `detectChainType`, `AuthUser`) (P2-13) + stables EUR (P2-14).
-- Docker prune API + `.dockerignore` + compose args web (P2-20).
-- Split AGENTS.md (P2-22).
-- Chemins contracts/ portables (P2-19) ; package.json racine nettoyé (P2-24).
-- Memoize + virtualisation AllTokensTable (P2-9) ; RpcHealth decay (P2-10).
-
-### 🟢 Trimestre — structurant
-- **Job store Redis/BullMQ** : jobs async survivants au restart API (aujourd'hui perdus, `job_not_found`).
-- **AbortSignal bout-en-bout** dans le scan engine (annulation réelle des chains en cours).
-- **Access token 1h + révocation** (P2-3) + ownership jobs anonymes (P2-4).
-- **Schema test 182 chain configs** + alerting chaînes single-RPC.
-- **GT API key** (décision budget) ou cache GT plus agressif.
-- **Pipelining Redis + intraScanCache cross-batch** (P2-8) si le scaling multi-user le justifie.
-- [x] ~~Migration `src/*.gs` + outillage vers wcore-gsheet~~ — ✅ extraction figée (182/182 extractibles, Phase 3 terminée 2026-06-19).
-
-### Règles de maintenance de ce fichier
-1. **Un seul fichier d'audit.** Pas de nouveau `audit-YYYY-MM-DD.md` : on met à jour les sections 3, 4 et 6 ici.
-2. **Cocher = preuve.** Une case passe à `[x]` uniquement avec `fichier:ligne` ou commit en preuve (leçon des dérives 05-24 / 06-07 / 06-11).
-3. **Re-vérification trimestrielle** : repasser la section 3 au crible du code (les findings « ouverts » pourrissent vite — 8/18 étaient déjà corrigés au dernier passage).
-4. Les gros audits multi-agents futurs déversent leurs findings ICI, classés P0-P3, puis leurs rapports bruts vont dans l'historique git (commit) sans fichier persistant.
+1. Ce fichier contient les findings Web ouverts et verifies, pas l'historique release.
+2. Une case passe a `[x]` uniquement avec preuve code/test.
+3. Toute nouvelle action cross-runtime doit aussi etre refletee dans `../../docs/AUDIT.md` et `../../ROADMAP.md`.
+4. Ne pas creer de nouvel audit date pour le Web: mettre celui-ci a jour.

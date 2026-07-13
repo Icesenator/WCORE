@@ -1284,8 +1284,55 @@ WalletCache = (function(existing) {
   }
   } catch (eStrict) {}
 
-  var preserved = 0;
-  for (var j = 0; j < oldAssets.length; j++) {
+   var preserved = 0;
+   var zeroOk = _zeroBalanceConfirmed(cacheObj);
+
+   function _nativeInfoFromAsset_(asset) {
+   if (!asset) return null;
+   var c = Array.isArray(asset) ? String(asset[0] || "").toLowerCase() : String(asset.contract || asset.c || "").toLowerCase();
+   if (c !== "native" && c !== "n") return null;
+   var bRaw = Array.isArray(asset) ? asset[1] : ((asset.balance != null) ? asset.balance : asset.b);
+   var b = parseFloat(String(bRaw || 0).replace(",", "."));
+   if (!isFinite(b)) b = 0;
+   return {
+   contract: Array.isArray(asset) ? (asset[0] || "native") : (asset.contract || asset.c || "native"),
+   balance: b,
+   symbol: Array.isArray(asset) ? (asset[2] || "") : (asset.symbol || asset.s || ""),
+   name: Array.isArray(asset) ? (asset[3] || "") : (asset.name || asset.n || ""),
+   decimals: Array.isArray(asset) ? ((asset[4] != null) ? asset[4] : 18) : ((asset.decimals != null) ? asset.decimals : (asset.d != null ? asset.d : 18))
+   };
+   }
+
+   function _findNativeAsset_(list) {
+   if (!list || !list.length) return null;
+   for (var ni = 0; ni < list.length; ni++) {
+   var info = _nativeInfoFromAsset_(list[ni]);
+   if (info) return info;
+   }
+   return null;
+   }
+
+   function _replaceNativeAsset_(list, info, compact) {
+   if (!list || !info) return false;
+   var replacement = compact
+   ? ["n", info.balance, String(info.symbol || ""), String(info.name || ""), (isFinite(info.decimals) ? (info.decimals | 0) : 18)]
+   : { contract: "native", symbol: String(info.symbol || ""), name: String(info.name || ""), balance: info.balance, decimals: (isFinite(info.decimals) ? (info.decimals | 0) : 18), _stale: true, _staleReason: "native_zero_unconfirmed" };
+   for (var nr = 0; nr < list.length; nr++) {
+   if (_nativeInfoFromAsset_(list[nr])) { list[nr] = replacement; return true; }
+   }
+   list.unshift(replacement);
+   return true;
+   }
+
+   var oldNative = _findNativeAsset_(oldAssets);
+   var newNative = _findNativeAsset_((newExpanded || []).concat(newCompact || []));
+   if (oldNative && oldNative.balance > 0 && (!newNative || newNative.balance === 0) && !zeroOk) {
+   if (newExpanded) _replaceNativeAsset_(newExpanded, oldNative, false);
+   if (newCompact) _replaceNativeAsset_(newCompact, oldNative, true);
+   preserved++;
+   }
+
+   for (var j = 0; j < oldAssets.length; j++) {
   var oa = oldAssets[j];
   if (!oa) continue;
 
@@ -1307,7 +1354,7 @@ WalletCache = (function(existing) {
   oPriceEur = (oa.price_eur != null && isFinite(oa.price_eur)) ? oa.price_eur : null;
   }
 
-  if (!oc || oc === "native" || oc === "n") continue;
+   if (!oc || oc === "native" || oc === "n") continue;
   if (newSet[oc]) continue;                                    // scan covered it, respect new value
   if (zeroSet[oc]) continue;                                   // scan confirmed zero, do not resurrect cache
   if (strictTokenSet && !strictTokenSet[oc]) continue;          // user removed it from I2:I whitelist

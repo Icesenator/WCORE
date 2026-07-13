@@ -1,5 +1,13 @@
 # GSheet Changelog
 
+## 2026-07-13 — v4.15.159 : Portefeuille Action formatting sous filtre actif
+
+- **Cause racine** : `REPAIR_STOCK_PORTFOLIO_FORMATS()` appliquait les formats avec `SpreadsheetApp.getRange(...).setNumberFormat(...)` pendant que le filtre de `Portefeuille Action` etait actif. Les lignes masquees par le filtre pouvaient conserver des formats bruts (`#,##0.00`, `0.00`) au lieu des formats visibles (`€`, `%`, alignements). Quand le filtre etait modifie, les lignes reapparaissaient avec une mise en forme non harmonieuse.
+- **Second effet** : plusieurs regles de mise en forme conditionnelle s'arretaient a l'ancienne borne `1063`, alors que le filtre live couvre `A2:S5004`.
+- **Fix permanent** : `REPAIR_STOCK_PORTFOLIO_FORMATS()` suspend maintenant le filtre actif, sauvegarde ses criteres, applique les formats sur toute la plage geree, et recrée le filtre avec ses criteres. `_stockPortfolioExtendConditionalFormats_()` etend les regles conditionnelles existantes jusqu'a la ligne cible.
+- **Invariant** : `UPDATE_STOCK_PORTFOLIO()` ne repare pas implicitement le layout et ne touche pas aux formats pendant les refreshs normaux; seule la fonction de reparation explicite peut le faire.
+- **Validation** : `tests/stock-portfolio-sheet-layout.test.js` couvre la suspension/recreation du filtre et l'extension des conditional formats. Verification live: formats homogenes sur `Portefeuille Action!A29:T40`, conditional formats etendus a `5004`, filtre restaure sur `A2:S5004`.
+
 ## 2026-07-01 — v4.15.107-114 : queue CEX one-shot (remplace le watchdog 1 min)
 
 Refonte du refresh manuel CEX pour arrêter la saturation triggers/quota observée

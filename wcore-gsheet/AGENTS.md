@@ -21,9 +21,9 @@ Ces outils sont configurés globalement dans `~/.codex/config.toml` + `~/.codex/
 ## Projet
 
 Système de suivi de portefeuilles crypto multi-chaînes sur Google Sheets + Apps Script.
-- **182 blockchains** (EVM, SVM/Solana, Cosmos SDK, TON) — toutes extractibles vers `@wcore/chains`
+- **183 configurations de chaînes** (EVM, SVM/Solana, Cosmos SDK, TON) — toutes extractibles vers `@wcore/chains`
 - **120 combinaisons wallet-chaîne**
-- Version actuelle : **v4.15.50+** (gsheet) / **v0.3.1** (web) — voir `ROADMAP.md` et `CHANGELOG.md` (web)
+- Version actuelle : consulter `ROADMAP.md` et les registres de version du code; ne pas déduire l'état d'un ancien numéro figé dans cette documentation.
 - Langue du développeur : **français** — répondre en français
 - Spreadsheet ID : `1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4`
 - **GitHub** : `https://github.com/Icesenator/WCORE`
@@ -90,7 +90,7 @@ node scripts/connect-google.js
 
 ```
 wcore-gsheet/
-├── src/               ← Fichiers .gs (source de vérité, 182 chaînes)
+├── src/               ← Fichiers .gs (source de vérité, 183 chaînes)
 ├── dist/              ← Package @wcore/chains (généré par extract-chains.mjs)
 ├── pulls/             ← Tirages depuis Apps Script (clasp pull)
 ├── .backups/          ← Sauvegardes automatiques
@@ -191,7 +191,7 @@ Les configs de chaînes suivent un cycle unifié :
 
 ```bash
 npm run validate:static      # Vérifie les fonctions globales GAS (2904+)
-npm run build:chains         # Extrait src/*.gs → dist/chains/*.ts (182 chaînes)
+npm run build:chains         # Extrait src/*.gs → dist/chains/*.ts (183 chaînes)
 npm run test:phase3-chains   # Vérifie tous les ports Phase 3
 npm run port:web-chains      # Génère les .gs manquants depuis les configs web
 ```
@@ -226,9 +226,9 @@ Couche 2 — GlobalPriceCache (ScriptProperties, 6h staleness)
   Clés entries: {chainId}:{contract} → { price, ts, src }
   Partagé entre toutes les chaînes. Sauvé en fin de cycle.
 
-Couche 3 — WalletCache (ScriptProperties packed, 14j TTL)
+Couche 3 — WalletCache (ScriptProperties packed, TTL nominal 10j)
   Format compact v5: [contract, balance, symbol, name, decimals]
-  Virtualisé dans GLOBAL_WALLET_CACHE (hash-based, 495KB max)
+  Virtualisé dans GLOBAL_WALLET_CACHE (hash-based, 455KB max)
   Contient: assets, priceMap (EUR), priceTsMap, balanceTsMap, scanStats
 ```
 
@@ -628,6 +628,11 @@ Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette a
 1. `DIAG_CACHE_INTEGRITY()` pour identifier
 2. `REPAIR_DECIMALS(wallet, config, false)` pour réparer
 3. `PURGE_CHAIN_PRICES(contracts, chainSlug, gtNetwork)` pour purger prix
+
+### En cas de mise en forme cassée sur `Portefeuille Action`
+1. Utiliser `REPAIR_STOCK_PORTFOLIO_FORMATS()` uniquement. Ne pas formatter manuellement une plage pendant que le filtre est actif.
+2. Cause racine observée le 2026-07-13 : `SpreadsheetApp.getRange(...).setNumberFormat(...)` sous filtre actif peut laisser les lignes masquées avec des formats bruts. Quand l'utilisateur change le filtre, ces lignes réapparaissent sans `€`, `%` ou alignements cohérents.
+3. Le repair v4.15.159 sauvegarde le filtre, le retire, formate toutes les lignes gérées, étend les conditional formats, puis recrée le filtre et ses critères. Les refreshs normaux `UPDATE_STOCK_PORTFOLIO()` ne doivent jamais réparer ou modifier le layout implicitement.
 
 ### Diagnostic complet
 1. `WCORE_HEALTH()` — santé globale

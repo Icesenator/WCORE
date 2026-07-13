@@ -2,10 +2,12 @@
 
 Google Sheets + Apps Script runtime for WCORE.
 
-- **182 generated chain configs** across EVM, SVM/Solana, Cosmos SDK, and TON (`npm run build:chains` is the source for the current count).
+- **183 generated chain configs** across EVM, SVM/Solana, Cosmos SDK, and TON (`npm run build:chains` is the source for the current count).
 - Canonical chain source for the web runtime via generated `dist/` package `@wcore/chains`.
 - Apps Script wallet tracking, pricing, cache, CEX sync, watchdog, and diagnostics.
 - Reference documentation: [AGENTS.md](./AGENTS.md).
+- Current runtime status and backlog: [ROADMAP.md](./ROADMAP.md).
+- Current cross-runtime audit: [../docs/AUDIT.md](../docs/AUDIT.md).
 - Unified repository overview: [../README.md](../README.md).
 
 ## Structure
@@ -105,6 +107,14 @@ Copy-Item '.backups\backup_XXXXXXXX\*.gs' 'src\' -Force
 .\pull-all.ps1
 Compare-Object (dir src\*.gs).Name (dir pulls\pull_XXXXXXXX\*.gs).Name
 ```
+
+### Réparer la mise en forme de Portefeuille Action
+```text
+REPAIR_STOCK_PORTFOLIO_FORMATS()
+```
+- Utiliser cette fonction dédiée, pas un formatage manuel de plage filtrée.
+- La fonction sauvegarde le filtre actif, le retire temporairement, applique les formats sur toutes les lignes gérées, étend les règles conditionnelles, puis recrée le filtre.
+- Cause historique: formatter `Portefeuille Action` pendant que le filtre masquait des lignes laissait certaines lignes avec des formats bruts quand le filtre changeait.
 
 ### Ouvrir l'éditeur en ligne
 ```cmd

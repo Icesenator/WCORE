@@ -360,7 +360,7 @@ if (gsheetApiToken) {
         return await sharedCache.get<unknown>(key);
       },
     },
-    stockPortfolioProvider: async () => {
+    stockPortfolioProvider: async ({ fresh }) => {
       const ownerAddress = apiConfig.integrations.gsheetOwnerAddress;
       if (!ownerAddress) throw new Error("GSHEET_OWNER_ADDRESS is not configured");
       const user = await prisma.user.findFirst({
@@ -383,7 +383,7 @@ if (gsheetApiToken) {
         balance: holding.balance,
         updatedAt: holding.updatedAt,
       }));
-      const top = await service.getTopMarketCapSnapshot(5_000);
+      const top = await service.getTopMarketCapSnapshot(5_000, { fresh });
       const heldPrices = {} as Awaited<ReturnType<CanonicalStockService["getPricesForBitpandaSymbols"]>>;
       for (let index = 0; index < holdings.length; index += 50) {
         Object.assign(heldPrices, await service.getPricesForBitpandaSymbols(holdings.slice(index, index + 50).map((holding) => holding.symbol)));
@@ -397,9 +397,9 @@ if (gsheetApiToken) {
         heldPrices,
       });
     },
-    cryptoPortfolioProvider: async () => {
+    cryptoPortfolioProvider: async ({ fresh }) => {
       const service = new CanonicalCryptoService({ cache: sharedCache });
-      const snapshot = await service.getListingSnapshot(5_000);
+      const snapshot = await service.getListingSnapshot(5_000, { fresh });
       return {
         ok: true,
         generatedAt: snapshot.generatedAt,

@@ -14,7 +14,7 @@ const CMC_URL = "https://companiesmarketcap.com/?download=csv";
 const DEFAULT_SNAPSHOT_LIMIT = 300;
 const MAX_SNAPSHOT_LIMIT = 5_000;
 const STOCK_QUOTE_BATCH_SIZE = 50;
-const FRESH_TTL_MS = 6 * 60 * 60 * 1000;
+const FRESH_TTL_MS = 1 * 60 * 60 * 1000;
 const LAST_GOOD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const LOCK_TTL_MS = 60 * 1000;
 const CLOCK_TOLERANCE_MS = 2 * 60 * 1000;
@@ -82,11 +82,12 @@ export class CanonicalStockService {
     this.now = deps.now ?? (() => new Date());
   }
 
-  async getTopMarketCapSnapshot(limit = DEFAULT_SNAPSHOT_LIMIT): Promise<TopMarketCapSnapshot> {
+  async getTopMarketCapSnapshot(limit = DEFAULT_SNAPSHOT_LIMIT, opts?: { fresh?: boolean }): Promise<TopMarketCapSnapshot> {
+    const skipCache = !!(opts && opts.fresh);
     const requested = validateLimit(limit);
     const freshKey = cacheKey("stockTopMarketCapFresh", {});
     const cached = await this.safeGet<TopMarketCapSnapshot>(freshKey);
-    if (isCompleteSnapshot(cached, this.now(), FRESH_TTL_MS) && cached.rows.length >= requested) return sliceSnapshot(cached, requested);
+    if (!skipCache && isCompleteSnapshot(cached, this.now(), FRESH_TTL_MS) && cached.rows.length >= requested) return sliceSnapshot(cached, requested);
 
     const lockKey = cacheKey("stockTopMarketCapLock", {});
     let acquired: boolean;

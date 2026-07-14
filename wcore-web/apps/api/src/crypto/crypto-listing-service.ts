@@ -5,7 +5,7 @@ const CMC_LISTINGS_URL = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/li
 const DEFAULT_SNAPSHOT_LIMIT = 5_000;
 const MAX_SNAPSHOT_LIMIT = 5_000;
 const MIN_VALID_ROWS = 1_000;
-const FRESH_TTL_MS = 6 * 60 * 60 * 1000;
+const FRESH_TTL_MS = 1 * 60 * 60 * 1000;
 const LAST_GOOD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const LOCK_TTL_MS = 60 * 1000;
 const CLOCK_TOLERANCE_MS = 2 * 60 * 1000;
@@ -54,11 +54,12 @@ export class CanonicalCryptoService {
     this.now = deps.now ?? (() => new Date());
   }
 
-  async getListingSnapshot(limit = DEFAULT_SNAPSHOT_LIMIT): Promise<CryptoListingSnapshot> {
+  async getListingSnapshot(limit = DEFAULT_SNAPSHOT_LIMIT, opts?: { fresh?: boolean }): Promise<CryptoListingSnapshot> {
+    const skipCache = !!(opts && opts.fresh);
     const requested = validateLimit(limit);
     const freshKey = cacheKey("cryptoTopMarketCapFresh", {});
     const cached = await this.safeGet<CryptoListingSnapshot>(freshKey);
-    if (isUsableSnapshotForRequest(cached, this.now(), FRESH_TTL_MS, requested)) {
+    if (!skipCache && isUsableSnapshotForRequest(cached, this.now(), FRESH_TTL_MS, requested)) {
       return sliceSnapshot(cached, requested);
     }
 

@@ -589,6 +589,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     "PEPE", "SHIB", "FLOKI", "DOGE", "BONK", "WIF",
     "SOLVBTC", "CBBTC", "BTCB", "XGRAIL", "ARUSDC", "RSTONE", "LSTONE",
     "WCT", "WCT CLAIMABLE", "WCT STAKE", "COMP WETH BORROW", "COMP WRSETH", "WRSETH",
+    "USDC.E", "PATHUSD",
   ]);
   const knownTokens = new Set<string>();
   const chain = core.getChain(String(result.chain || fallbackChain));

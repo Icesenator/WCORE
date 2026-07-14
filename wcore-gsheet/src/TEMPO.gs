@@ -1,6 +1,13 @@
 /**
- * TEMPO.gs - Tempo Mainnet (v4.15.43)
+ * TEMPO.gs - Tempo Mainnet (v4.15.51)
  * ChainFactory pattern with explicit function declarations
+ *
+ * v4.15.51 - CACHE_VERSION bump 71→72 + add "USDC.E" LLAMA_ID_MAP entry.
+ *   The uppercase-E variant is needed because ERC-20 contracts may return
+ *   "USDC.E" (uppercase E) while the map had only "USDC.e" (lowercase e).
+ *   Without the uppercase variant, the CoinGecko fallback in the pricing
+ *   cascade misses and USDC.e gets priceEur=null, which causes the web
+ *   API's sanitizeGsheetScanResult to filter it as no-market.
  *
  * v4.15.43 - FIX: Bump CACHE_VERSION to invalidate E-12 cached balances.
  *   Despite TOKEN_DECIMALS being set correctly, the PREFER_CACHE_ON_DISAGREE
@@ -37,7 +44,7 @@
  */
 
 var _TEMPO = ChainFactory.createEvmChain("TEMPO", {
-  CACHE_VERSION: 71,
+  CACHE_VERSION: 72,
   RPC: {
     ENDPOINTS: ["https://tempo-mainnet.drpc.org"],
     MAX_BATCH_SIZE: 3,
@@ -62,7 +69,7 @@ var _TEMPO = ChainFactory.createEvmChain("TEMPO", {
     DISABLE_NATIVE_BALANCE: true,
     NATIVE_BALANCE_DISABLED_REASON: "sentinel"
   },
-  LLAMA_ID_MAP: { "USD":"coingecko:usd-coin", "USDC":"coingecko:usd-coin", "USDC.e":"coingecko:usd-coin", "USDT":"coingecko:tether", "DAI":"coingecko:dai", "pathUSD":"coingecko:pathusd", "PATHUSD":"coingecko:pathusd" }
+  LLAMA_ID_MAP: { "USD":"coingecko:usd-coin", "USDC":"coingecko:usd-coin", "USDC.e":"coingecko:usd-coin", "USDC.E":"coingecko:usd-coin", "USDT":"coingecko:tether", "DAI":"coingecko:dai", "pathUSD":"coingecko:pathusd", "PATHUSD":"coingecko:pathusd" }
 });
 
 // Main functions

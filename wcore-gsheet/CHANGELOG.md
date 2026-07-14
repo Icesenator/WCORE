@@ -1,5 +1,21 @@
 # GSheet Changelog
 
+## 2026-07-14 — v4.16.29 : Fix Tempo web scan preservation + USDC.e pricing cascade
+
+### `_webScanShouldPreserveExistingCache_` + DISABLE_NATIVE_BALANCE (41_GSHEET_WEB_SCAN.gs)
+- **Bug** : la fonction traitait `native_balance=0` comme une corruption de cache nécessitant préservation. Sur Tempo (`DISABLE_NATIVE_BALANCE=true`, sentinel `eth_getBalance`), le native est **toujours 0** → chaque scan dégradé déclenchait le chemin de préservation. Sans cache existant, le merge échouait → `[WEB_SCAN_PRESERVED]` retourné SANS `WalletCache.save()` → `NO_CACHE_WAITING_REFRESH` perpétuel.
+- **Fix** : passer `config` à `_webScanShouldPreserveExistingCache_` et skip le check `native_balance=0` quand `FLAGS.DISABLE_NATIVE_BALANCE` est activé.
+- **Impact** : Tempo (et toute future chaîne avec `DISABLE_NATIVE_BALANCE`) sauvegarde maintenant correctement le cache → A2 affiche les tokens.
+
+### Synchro TEMPO.gs → TEMPO.ts (LLAMA_ID_MAP + registry)
+- **`LLAMA_ID_MAP`** : ajout de `"USDC.E"` (uppercase E) en plus de `"USDC.e"` — `getSymbolLlamaId` est case-sensitive, et le contrat ERC-20 peut retourner l'un ou l'autre.
+- **CACHE_VERSION** : 71 → 72 (invalide les caches stale).
+- **Registry web** : ajout de `pathUSD` + `USDC.e` dans `registry.ts` pour que le web les reconnaisse comme `source: "registry"` → `isStable: true` → fast-path stablecoin dans le pricing cascade.
+
+### Fix `knownTokenSymbols` (gsheet.ts web API)
+- **Bug** : `isNoMarketToken` filtrait USDC.e (et tout token sans prix non-protégé). Même dans `customTokens` (I2:I), le token pouvait être drop si le pricing échouait.
+- **Fix** : ajout de `"USDC.E"` et `"PATHUSD"` dans `knownTokenSymbols` (gsheet.ts:592).
+
 ## 2026-07-14 — v4.15.164-v4.15.166 : Strat dashboard + portfolio auto-filter + chart resize + fresh pricing
 
 ### Strat — Nouvelles cellules d'alerte

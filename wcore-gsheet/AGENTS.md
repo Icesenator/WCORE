@@ -748,6 +748,10 @@ Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette a
 - **Fix** : ajout `LLAMA_CONTRACT_MAP: { "0x51e...": "bsc:0x51e..." }` dans `BSC.gs`.
 - **Prix réel** (DefiLlama/GT) : ~0.0012 USD → ~0.0011 EUR.
 
+- **Web scan preservation bloque DISABLE_NATIVE_BALANCE chains (v4.16.29, 2026-07-14)** : `_webScanShouldPreserveExistingCache_` (41_GSHEET_WEB_SCAN.gs:389) traitait `native_balance=0` comme une corruption nécessitant préservation. Sur les chaînes où `DISABLE_NATIVE_BALANCE=true` (ex: Tempo, sentinel eth_getBalance), le native est **toujours 0 par conception** → chaque scan dégradé déclenchait le chemin de préservation. Sans cache existant, le merge échouait → `[WEB_SCAN_PRESERVED]` retourné SANS sauvegarder le cache → `NO_CACHE_WAITING_REFRESH` perpétuel. **Fix** : passer `config` à la fonction et skip le check `native_balance=0` quand `DISABLE_NATIVE_BALANCE` est activé. Fichiers : `41_GSHEET_WEB_SCAN.gs:385-413`, `11_EVM_ENGINE.gs:1720`.
+
+- **USDC.e filtré par isNoMarketToken côté web API (2026-07-14)** : l'USDC.e sur Tempo (et autres chaînes non-registry) n'est pas reconnu comme stablecoin car `isStable` dans `evm-pricing.ts` est gated par `source === "registry"`. Sans fast-path stablecoin, le pricing cascade échoue (Tempo absent de DexScreener/GT) → `priceEur=null` → `sanitizeGsheetScanResult` dans `gsheet.ts` le filtre via `isNoMarketToken`. **Fix triple** : (1) ajouter `"USDC.E"` et `"PATHUSD"` dans `knownTokenSymbols` (gsheet.ts:592) pour protection no-market, (2) ajouter `"USDC.E"` uppercase au `LLAMA_ID_MAP` de TEMPO.ts/.gs pour le fallback CoinGecko case-insensitive, (3) ajouter Tempo pathUSD + USDC.e au token registry web pour `source: "registry"` → `isStable: true`. Fichiers : `gsheet.ts:584-592`, `TEMPO.ts:41`, `registry.ts:200-203`, `TEMPO.gs:65`.
+
 ## Nouveautés wcore-web — alignment v4.15.31
 
 ### strictTokens mode (/api/scan)

@@ -198,6 +198,11 @@ export const TOKEN_REGISTRY: Record<string, DiscoveredToken[]> = {
     T("0xf1f9e08a0818594fde4713ae0db1e46672ca960e", "WBTC", "Wrapped BTC", 8, LOGO("wbtc")),
   ],
 
+  TEMPO: [
+    T("0x20c0000000000000000000000000000000000000", "pathUSD", "pathUSD", 6),
+    T("0x20c000000000000000000000b9537d11c60e8b50", "USDC.e", "Bridged USDC", 6, LOGO("usdc")),
+  ],
+
   GNOSIS: [
     T("0x0AA1e96D2a46Ec6beB2923dE1E61Addf5F5f1dce", "REG", "RealToken Ecosystem Governance", 18),
     T("0x6A023CCd1ff6F2045C3309768eAd9E68F978f6e1", "WETH", "Gnosis xDai Bridged WETH", 18, LOGO("eth")),

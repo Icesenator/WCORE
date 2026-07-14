@@ -61,6 +61,14 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **GSheet watchdog WEB_SCAN_ERROR fix** : `[WEB_SCAN_ERROR]` n'était pas reconnu par `_wd_needsRefresh_` → jamais de re-pulse B1 → chaînes bloquées à jamais. Fix 3 points dans `16_REFRESH.gs` : (1) handler explicite `[WEB_SCAN_ERROR]` → `needsPulse: true`, (2) regex `_wd_extractTimestamp_` inclut `WEB_SCAN_ERROR`, (3) détection `isErr` accepte l'anglais `error` en plus du français `erreur`. GSheet web scan adapter v4.16.27 : `_webScanErrorStatus_` retire le suffixe `chain=*****` redondant.
 - **Déploiement** : API + Web deployés via `deploy.ps1`. GSheet nécessite `clasp push` pour les 3 fixs watchdog.
 
+### Session 2026-07-14 — GSheet Strat dashboard + portfolio auto-filter + chart resize + pricing fresh CMC
+
+- **GSheet — Strat dashboard** : nouvelles cellules d'alerte BK1 (erreurs Recap Portfolio), BL1 (date scan la plus ancienne), BQ1 (écart Portfolio Crypto Details), BW1 checkbox maître. Portfolios U1 en miroir.
+- **GSheet — Portfolio auto-filter** : `_portfolioReapplyFilter_()` réapplique le filtre colonne S (Achat) à chaque refresh horaire + onEdit BW1/B1. Corrige le retrait du `OR(T="X")` redondant dans la formule S Crypto.
+- **GSheet — Chart auto-resize** : `updateEmbeddedObjectPosition` redimensionne le graphique `visibleRows × 21` après chaque refresh et onEdit. `_WCORE_ORIG_FETCH` contourne le guard quota.
+- **Railway — Fresh pricing** : `?fresh=true` accepté sur les endpoints portfolio → bypass cache Redis → fetch CMC live. TTL cache réduit 6h → 1h. `EMERGENCY_RESET_QUOTA()` corrigé (faux positif breaker, 23/20000).
+- **Backlog — Pages CMC** : créer des pages publiques `/cmc/crypto` et `/cmc/stocks` sur WCORE Web affichant le top 5000 CMC en tableau simple, sans auth, avec auto-refresh.
+
 ### Session 2026-07-01 - GSheet Web scan hardening + Base Zora pricing fallback
 
 - **GSheet Web scan adapter v4.16.26** : `I2:I` token whitelists now send `strictTokens:true`; degraded partial Web scans no longer clear cache-only token prices; adapter accepts `priceEur/price_eur/price` and `valueEur/value_eur/value`, and derives a precise price from `value / balance` when the API exposes an exact value but a rounded price. This fixed the observed Solana DBR drift where GSheet recalculated a lower value from a rounded `priceEur` while Web kept the precise `valueEur`.

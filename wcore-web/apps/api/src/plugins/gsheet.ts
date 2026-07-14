@@ -34,8 +34,8 @@ export interface GsheetPluginOptions {
     get: (key: string) => Promise<unknown>;
   };
   chainbaseStakingProvider?: (address: string) => Promise<unknown>;
-  stockPortfolioProvider?: () => Promise<GsheetStockPortfolioSnapshot>;
-  cryptoPortfolioProvider?: () => Promise<GsheetCryptoPortfolioSnapshot>;
+  stockPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetStockPortfolioSnapshot>;
+  cryptoPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetCryptoPortfolioSnapshot>;
 }
 
 export interface GsheetPriceBatchInput {
@@ -824,12 +824,10 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   });
 
   app.get("/api/gsheet/stocks/portfolio", async (req, reply) => {
-    if (Object.keys(req.query as Record<string, unknown>).length > 0) {
-      return reply.code(400).send({ error: "unexpected_query" });
-    }
+    const fresh = String(req.query?.fresh || "") === "true";
     if (!opts.stockPortfolioProvider) return reply.code(503).send({ error: "stock_portfolio_unavailable" });
     try {
-      return await opts.stockPortfolioProvider();
+      return await opts.stockPortfolioProvider({ fresh });
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "gsheet stock portfolio failed");
       return reply.code(503).send({ error: "stock_portfolio_unavailable" });
@@ -837,12 +835,10 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   });
 
   app.get("/api/gsheet/crypto/portfolio", async (req, reply) => {
-    if (Object.keys(req.query as Record<string, unknown>).length > 0) {
-      return reply.code(400).send({ error: "unexpected_query" });
-    }
+    const fresh = String(req.query?.fresh || "") === "true";
     if (!opts.cryptoPortfolioProvider) return reply.code(503).send({ error: "crypto_portfolio_unavailable" });
     try {
-      return await opts.cryptoPortfolioProvider();
+      return await opts.cryptoPortfolioProvider({ fresh });
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "gsheet crypto portfolio failed");
       return reply.code(503).send({ error: "crypto_portfolio_unavailable" });

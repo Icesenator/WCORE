@@ -223,7 +223,7 @@ test("writes fresh and last-good keys with correct TTLs", async () => {
   const lastGood = cache.keys.find((k) => k.key === "crypto:top-market-cap:last-good");
   assert.ok(fresh);
   assert.ok(lastGood);
-  assert.equal(fresh.ttlMs, 6 * 60 * 60 * 1000);
+  assert.equal(fresh.ttlMs, 1 * 60 * 60 * 1000);
   assert.equal(lastGood.ttlMs, 30 * 24 * 60 * 60 * 1000);
 });
 

@@ -1,5 +1,46 @@
 # GSheet Changelog
 
+## 2026-07-14 — v4.15.164-v4.15.166 : Strat dashboard + portfolio auto-filter + chart resize + fresh pricing
+
+### Strat — Nouvelles cellules d'alerte
+- **BK1** : `X` si erreurs dans `Recap Portfolio!CA` avec `B` non vide, sinon `V`
+- **BL1** : Date de scan la plus ancienne de `Recap Portfolio!D`
+- **BQ1** : `X` si `Portefeuille Crypto Details!U1 != 0` (avec `ROUND` anti-flottant)
+- **BW1** : Case à cocher maître → `Portefeuille Action!U1` et `Portefeuille Crypto!U1` en miroir
+- **AZ1/BF1** : MFC rouge si > 2h, **BL1** rouge si > 8h
+
+### Portfolio — Filtre S (Achat) auto-réappliqué
+- `_portfolioReapplyFilter_()` dans `42_STOCK_PORTFOLIO.gs` v4.15.166
+- Supprime le filtre existant → recrée sur A2:dernière ligne → masque les vides en colonne S
+- Appelée à la fin de `UPDATE_STOCK_PORTFOLIO()` et `UPDATE_CRYPTO_PORTFOLIO_V2()`
+- Déclenchée aussi par `onEdit` sur `Strat!BW1` et `B1` des portfolios
+- **Fix S Crypto** : retrait du `OR(T="X")` redondant dans la formule S (`43_CRYPTO_PORTFOLIO.gs`)
+
+### Graphique — Redimensionnement auto
+- `updateEmbeddedObjectPosition` via `UrlFetchApp.fetch` avec le bon endpoint REST
+- Hauteur = `visibleRows × 21` (rows avec A non vide ET S="X"), offsetX préservé
+- Déclenché à chaque refresh + `onEdit` BW1/B1
+- `DIAG_PORTFOLIO_CHART_RESIZE()` pour test manuel
+
+### HTTP — Bypass quota guard
+- `_WCORE_ORIG_FETCH` exposé depuis `03E_QUOTA_CIRCUIT_BREAKER.gs` (référence originale non-patchée)
+- Utilisé pour : fetch portfolios vers Railway, resize chart vers sheets.googleapis.com
+- Permet aux appels critiques de passer même breaker trippé
+
+### Railway — Prix frais CMC live
+- `?fresh=true` accepté sur `/api/gsheet/crypto/portfolio` et `/api/gsheet/stocks/portfolio`
+- Bypass cache Redis → fetch CMC direct à chaque refresh
+- TTL cache réduit 6h → **1h** (`crypto-listing-service.ts`, `stock-service.ts`)
+- `EMERGENCY_RESET_QUOTA()` débloque le faux positif breaker (23/20000)
+
+### Changements core
+| Fichier | Version |
+|---------|---------|
+| `03E_QUOTA_CIRCUIT_BREAKER.gs` | _WCORE_ORIG_FETCH exposé |
+| `16_REFRESH.gs` | onEdit BW1 + B1 |
+| `42_STOCK_PORTFOLIO.gs` | v4.15.166 — _portfolioReapplyFilter_, _portfolioSyncBothViews_, _WCORE_ORIG_FETCH |
+| `43_CRYPTO_PORTFOLIO.gs` | v4.15.204 — _portfolioReapplyFilter_ call, S formula fix, _WCORE_ORIG_FETCH |
+
 ## 2026-07-13 — v4.15.159 : Portefeuille Action formatting sous filtre actif
 
 - **Cause racine** : `REPAIR_STOCK_PORTFOLIO_FORMATS()` appliquait les formats avec `SpreadsheetApp.getRange(...).setNumberFormat(...)` pendant que le filtre de `Portefeuille Action` etait actif. Les lignes masquees par le filtre pouvaient conserver des formats bruts (`#,##0.00`, `0.00`) au lieu des formats visibles (`€`, `%`, alignements). Quand le filtre etait modifie, les lignes reapparaissaient avec une mise en forme non harmonieuse.

@@ -2,6 +2,7 @@
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
  * v4.16.26 - Honor precise Web value aliases and derive token prices when priceEur is rounded.
+ * v4.16.28 - Preserve cached positive native balance when degraded Web returns native zero with useful tokens.
  * v4.16.25 - Preserve cached prices for cache-only tokens during degraded partial Web merges.
  * v4.16.24 - Block confirmed Base ZAMRUD fake-price spam.
  * v4.16.23 - Use strict Web scans when I2:I token whitelist is provided.
@@ -27,7 +28,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.27";
+var GSHEET_WEB_SCAN_VERSION = "4.16.28";
 var GSHEET_WEB_SCAN_MAX_ATTEMPTS = 2;
 
 var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
@@ -379,6 +380,8 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
 
 function _webScanShouldPreserveExistingCache_(payload, cache) {
   if (!payload || payload.ok !== true || payload.degraded !== true) return false;
+  var nativeAsset = cache && Array.isArray(cache.assets) ? cache.assets[0] : null;
+  if (nativeAsset && String(nativeAsset.contract || "") === "native" && _webScanNum_(nativeAsset.balance, 0) === 0) return true;
   var errors = Array.isArray(payload.errors) ? payload.errors : [];
   if (errors.length) {
     var onlyNonDestructiveGaps = true;
@@ -422,13 +425,16 @@ function _webScanHasUsefulAssets_(cache) {
 function _webScanMergeAsset_(oldAsset, newAsset) {
   var out = _webScanClone_(oldAsset || {}) || {};
   newAsset = newAsset || {};
+  var preservePositiveNative = String((oldAsset && oldAsset.contract) || (newAsset && newAsset.contract) || "").toLowerCase() === "native"
+    && _webScanNum_(oldAsset && oldAsset.balance, 0) > 0
+    && _webScanNum_(newAsset && newAsset.balance, 0) === 0;
   if (newAsset.contract) out.contract = newAsset.contract;
   if (newAsset.symbol) out.symbol = newAsset.symbol;
   if (newAsset.name) out.name = newAsset.name;
   if (newAsset.decimals != null && isFinite(Number(newAsset.decimals))) out.decimals = Number(newAsset.decimals) | 0;
-  if (newAsset.balance != null && isFinite(Number(newAsset.balance))) out.balance = Number(newAsset.balance);
+  if (!preservePositiveNative && newAsset.balance != null && isFinite(Number(newAsset.balance))) out.balance = Number(newAsset.balance);
   if (newAsset.price_eur != null && isFinite(Number(newAsset.price_eur)) && Math.abs(Number(newAsset.price_eur)) < 1000000000) out.price_eur = Number(newAsset.price_eur);
-  if (newAsset.value_eur != null && isFinite(Number(newAsset.value_eur)) && Math.abs(Number(newAsset.value_eur)) < 1000000000000) out.value_eur = Number(newAsset.value_eur);
+  if (!preservePositiveNative && newAsset.value_eur != null && isFinite(Number(newAsset.value_eur)) && Math.abs(Number(newAsset.value_eur)) < 1000000000000) out.value_eur = Number(newAsset.value_eur);
   return out;
 }
 
@@ -468,11 +474,13 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
 
   var updated = 0;
   var updatedKeys = {};
+  var nativePreserved = 0;
   for (var j = 0; j < newAssets.length; j++) {
     var newAsset = newAssets[j] || {};
     var key = _webScanAssetKey_(newAsset);
     if (!key) continue;
     if (!byKey[key]) order.push(key);
+    if (key === "native" && _webScanNum_(byKey[key] && byKey[key].balance, 0) > 0 && _webScanNum_(newAsset.balance, 0) === 0) nativePreserved++;
     byKey[key] = _webScanMergeAsset_(byKey[key], newAsset);
     updatedKeys[key] = true;
     updated++;
@@ -522,6 +530,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.scanStats.webMergePreservedAssets = Math.max(0, oldAssets.length - purgedScams - updated);
   out.scanStats.webMergePurgedScamAssets = purgedScams;
   out.scanStats.webMergeNeutralizedPrices = neutralizedPrices;
+  if (nativePreserved > 0) out.scanStats.webNativePreservedFromCache = nativePreserved;
   out.scanStats.totalValueEur = _webScanMergedTotal_(mergedAssets);
   out.lastInfoMetaRows = incoming.lastInfoMetaRows || existing.lastInfoMetaRows || [];
   try { delete out._webScanRequestedTokenSet; } catch (eTmp) {}

@@ -1015,6 +1015,8 @@ function INSTALL_GLOBAL_QUOTA_BREAKER() {
   // Store originals
   var _origFetch = UrlFetchApp.fetch;
   var _origFetchAll = UrlFetchApp.fetchAll;
+  _WCORE_ORIG_FETCH = _origFetch;
+  _WCORE_ORIG_FETCH_ALL = _origFetchAll;
   
   // Patch fetch
   UrlFetchApp.fetch = function(url, options) {

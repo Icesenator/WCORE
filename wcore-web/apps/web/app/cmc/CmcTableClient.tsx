@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { getApiUrl } from "@/lib/api";
 
 interface CmcRow {
   rank: number;
@@ -28,7 +29,8 @@ export function CmcTableClient({ endpoint, title }: { endpoint: string; title: s
     setLoading(true);
     setError(null);
     try {
-      const url = fresh ? `${endpoint}?fresh=true` : endpoint;
+      const baseUrl = getApiUrl();
+      const url = fresh ? `${baseUrl}${endpoint}?fresh=true` : `${baseUrl}${endpoint}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();

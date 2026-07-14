@@ -417,10 +417,56 @@ if (gsheetApiToken) {
       };
     },
   });
+
+  // --- Public CMC pages (no auth) ---
+
+  app.get("/api/cmc/crypto", async (req, reply) => {
+    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
+    try {
+      const service = new CanonicalCryptoService({ cache: sharedCache });
+      const snapshot = await service.getListingSnapshot(5_000, { fresh });
+      return {
+        ok: true,
+        generatedAt: snapshot.generatedAt,
+        rows: snapshot.rows.map((row) => ({
+          rank: row.rank,
+          symbol: row.symbol,
+          name: row.name,
+          priceEur: row.priceEur,
+          marketCapEur: row.marketCapEur,
+        })),
+      };
+    } catch (e) {
+      app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "cmc crypto failed");
+      return reply.code(503).send({ error: "cmc_crypto_unavailable" });
+    }
+  });
+
+  app.get("/api/cmc/stocks", async (req, reply) => {
+    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
+    try {
+      const service = new CanonicalStockService({ cache: sharedCache });
+      const snapshot = await service.getTopMarketCapSnapshot(5_000, { fresh });
+      return {
+        ok: true,
+        generatedAt: snapshot.generatedAt,
+        rows: snapshot.rows.map((row) => ({
+          rank: row.rank,
+          symbol: row.canonicalTicker,
+          name: row.company,
+          priceEur: row.priceEur,
+          marketCapEur: row.marketCapEur,
+        })),
+      };
+    } catch (e) {
+      app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "cmc stocks failed");
+      return reply.code(503).send({ error: "cmc_stocks_unavailable" });
+    }
+  });
+
 }
 
 // --- Re-exports for tests ---
-
 export { app, prisma, sharedCache, validateChains, buildChainScan };
 
 // --- Startup ---

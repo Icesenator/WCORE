@@ -824,7 +824,7 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   });
 
   app.get("/api/gsheet/stocks/portfolio", async (req, reply) => {
-    const fresh = String(req.query?.fresh || "") === "true";
+    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
     if (!opts.stockPortfolioProvider) return reply.code(503).send({ error: "stock_portfolio_unavailable" });
     try {
       return await opts.stockPortfolioProvider({ fresh });
@@ -835,7 +835,7 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   });
 
   app.get("/api/gsheet/crypto/portfolio", async (req, reply) => {
-    const fresh = String(req.query?.fresh || "") === "true";
+    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
     if (!opts.cryptoPortfolioProvider) return reply.code(503).send({ error: "crypto_portfolio_unavailable" });
     try {
       return await opts.cryptoPortfolioProvider({ fresh });

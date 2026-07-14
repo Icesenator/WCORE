@@ -1,6 +1,38 @@
+// v4.15.204 - Switch BW1 checkbox master + U1=TRUE in formulas (chart height fix: 24px/row + 100px pad + offsetX).
+// v4.15.203 - Auto-resize chart height after filter reapply based on visible rows (S=X count).
+// v4.15.202 - Reapply auto-filter on column S (Achat) after each hourly refresh.
+// v4.15.201 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.200 - Portefeuille Crypto (source WCORE API, sans SyncWith).
 
-var CRYPTO_PORTFOLIO_VERSION = "4.15.200";
+var CRYPTO_PORTFOLIO_VERSION = "4.15.204";
+
+// Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
+// unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
+// HTTP status. Retry those a few times before surfacing an error to B1. Real
+// HTTP statuses (401/500/...) are returned by fetch and handled by the caller,
+// so they are NOT retried here.
+var CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS = 3;
+var CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS = 5000;
+
+function _cryptoPortfolioFetchWithRetry_(fetchFn) {
+  var lastErr = null;
+  for (var attempt = 1; attempt <= CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS; attempt++) {
+    try {
+      return fetchFn();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
+        try {
+          if (typeof Logger !== "undefined" && Logger.log) {
+            Logger.log("[CRYPTO_PORTFOLIO] fetch attempt " + attempt + "/" + CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " — retrying in " + (CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
+          }
+        } catch (eLog) {}
+        try { Utilities.sleep(CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS); } catch (eSleep) {}
+      }
+    }
+  }
+  throw lastErr;
+}
 
 var CRYPTO_PORTFOLIO_CONFIG = {
   SHEET_NAME: "Portefeuille Crypto",
@@ -71,6 +103,7 @@ function UPDATE_CRYPTO_PORTFOLIO_V2() {
     mark("clearTail:done");
 
     _cryptoPortfolioWriteControlCells_(ss.getId(), _cryptoPortfolioCurrentRunTimestamp_(), false);
+    _portfolioReapplyFilter_(sh, CRYPTO_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 361516782, 19, 1484, 2);
     return "OK: " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + " refreshed";
   } catch (err) {
     var msg = err && err.message ? err.message : String(err);
@@ -144,9 +177,9 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
     false,
     "",
     "Bornes :",
-    "=MAX(IF(U1=\"X\";HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$35;34);HLOOKUP(max(Strat!$2:$2);Strat!$2:$35;34))/10;10)",
+    "=MAX(IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$35;34);HLOOKUP(max(Strat!$2:$2);Strat!$2:$35;34))/10;10)",
     "=SUMPRODUCT(D3:D;(H3:H=0)*1;(T3:T<>\"X\")*1;(I3:I>0)*1)+SUMPRODUCT(D3:D;(H3:H=0)*1;(T3:T<>\"X\")*1;(B3:B<=J1)*1)",
-    "=IF(U1=\"X\";HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$32;31);HLOOKUP(max(Strat!$2:$2);Strat!$2:$32;31))",
+    "=IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$32;31);HLOOKUP(max(Strat!$2:$2);Strat!$2:$32;31))",
     "=IFERROR(D1/H1;0)",
     "=SUMPRODUCT(G3:G)",
     "=ROUNDUP(SUMPRODUCT((L3:L>0)*1)-W1-Y1)",
@@ -161,7 +194,7 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
     ">",
     "=IFERROR(XLOOKUP(\"X\";R:R;A:A);\"\")",
     "Sécurisation :",
-    "=Strat!AT1",
+    "=Strat!BW1",
     "=IFERROR(XLOOKUP(J1;B3:B;K3:K)/AA1;0)",
     "=SUMPRODUCT((B3:B>J1)*1;(B3:B<=(Z1+J1))*1)",
     "=J1+W1",
@@ -228,10 +261,12 @@ function _cryptoPortfolioFetchSnapshot_() {
   var token = props.getProperty("GSHEET_API_TOKEN");
   if (!baseUrl) throw new Error("Missing ScriptProperty WCORE_WEB_API_URL");
   if (!token) throw new Error("Missing ScriptProperty GSHEET_API_TOKEN");
-  var resp = UrlFetchApp.fetch(baseUrl.replace(/\/$/, "") + CRYPTO_PORTFOLIO_CONFIG.ENDPOINT, {
-    method: "get",
-    muteHttpExceptions: true,
-    headers: { "x-gsheet-token": token, accept: "application/json" }
+  var resp = _cryptoPortfolioFetchWithRetry_(function () {
+    return (typeof _WCORE_ORIG_FETCH === "function" ? _WCORE_ORIG_FETCH : UrlFetchApp.fetch)(baseUrl.replace(/\/$/, "") + CRYPTO_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
+      method: "get",
+      muteHttpExceptions: true,
+      headers: { "x-gsheet-token": token, accept: "application/json" }
+    });
   });
   if (!resp || typeof resp.getResponseCode !== "function") {
     throw new Error("WCORE crypto portfolio HTTP blocked or empty response");

@@ -134,6 +134,15 @@ function WCORE_ON_EDIT(e) {
     var sheet = range && range.getSheet ? range.getSheet() : null;
     var name = sheet && sheet.getName ? sheet.getName() : "";
     var a1 = range && range.getA1Notation ? range.getA1Notation() : "";
+    if (a1 === "BW1" && String(name || "") === "Strat" && typeof _portfolioSyncBothViews_ === "function") {
+      try { _portfolioSyncBothViews_(); } catch (eSync) {}
+    }
+    if (a1 === "B1" && (String(name || "") === "Portefeuille Action" || String(name || "") === "Portefeuille Crypto")) {
+      if (typeof _portfolioSyncBothViews_ === "function") {
+        try { _portfolioSyncBothViews_(); } catch (eSync) {}
+      }
+      return;
+    }
     if (a1 === "A1" && String(name || "") === "Portefeuille Action") {
       var stockValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
       if (String(stockValue).toUpperCase() === "TRUE" && typeof UPDATE_STOCK_PORTFOLIO === "function") {

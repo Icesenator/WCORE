@@ -724,6 +724,51 @@ const samplePayload = JSON.stringify({
 }
 
 {
+  const degradedUsefulNativeZeroPayload = JSON.stringify({
+    ok: true,
+    chain: 'BSC',
+    chainName: 'BNB Chain',
+    vm: 'EVM',
+    timestamp: '2026-07-14T03:09:03.000Z',
+    native: { symbol: 'BNB', balance: 0, priceEur: 498.7, valueEur: 0 },
+    tokens: [
+      { symbol: 'USDT', name: 'Tether USD', contract: '0x55d398326f99059ff775485246999027b3197955', balance: 0.0214917276, decimals: 18, priceEur: 0.8777621565, valueEur: 0.01886462517 },
+    ],
+    totalValueEur: 0.01886462517,
+    errors: ['blockNumber consensus failed; token log discovery limited to latest block'],
+    degraded: true,
+    fxRate: 0.8778,
+    scanMs: 6096,
+  });
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [
+      { contract: 'native', symbol: 'BNB', name: 'BNB', balance: 0.21350178363746847, decimals: 18, price_eur: 498.7, value_eur: 106.44 },
+      { contract: '0x55d398326f99059ff775485246999027b3197955', symbol: 'USDT', name: 'Tether USD', balance: 0.0214917276, decimals: 18, price_eur: 0.8777621565, value_eur: 0.01886462517 },
+    ],
+    priceMap: { native: 498.7, '0x55d398326f99059ff775485246999027b3197955': 0.8777621565 },
+    priceTsMap: { native: 111, '0x55d398326f99059ff775485246999027b3197955': 111 },
+    balanceTsMap: { native: 111, '0x55d398326f99059ff775485246999027b3197955': 111 },
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, degradedUsefulNativeZeroPayload);
+  const res = ctx._webScanWallet_('0x17d518736ee9341dcdc0a2498e013d33cfcdd080', [], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'degraded BSC scan should merge instead of overwriting native with zero');
+  assert.equal(ctx.__saved.length, 1);
+  const savedNative = ctx.__saved[0].cache.assets.find((t) => t.contract === 'native');
+  assert.equal(savedNative.balance, 0.21350178363746847, 'degraded Web native zero must not overwrite cached positive native BNB');
+  assert.equal(ctx.__saved[0].cache.scanStats.webNativePreservedFromCache, 1, 'native preservation must be visible in Web scan stats');
+}
+
+{
   const degradedNativeZeroPayload = JSON.stringify({
     ok: true,
     chain: 'MANTLE',

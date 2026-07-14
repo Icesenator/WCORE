@@ -1,6 +1,40 @@
+// v4.15.166 - Chart height padPx=0 (exact row fit) + _WCORE_ORIG_FETCH bypass quota guard.
+// v4.15.164 - Fix chart row count (A non-empty + S=X) + BW1 onEdit syncs both portfolios.
+// v4.15.163 - Switch BW1 checkbox master + U1=TRUE in formulas (chart height fix: 24px/row + 100px pad + offsetX).
+// v4.15.162 - Auto-resize chart height after filter reapply based on visible rows (S=X count).
+// v4.15.161 - Reapply auto-filter on column S (Achat) after each hourly refresh.
+// v4.15.160 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.159 - Repair Action formats with filters suspended so hidden rows are formatted too.
 
-var STOCK_PORTFOLIO_VERSION = "4.15.159";
+var STOCK_PORTFOLIO_VERSION = "4.15.165";
+
+// Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
+// unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
+// HTTP status. Retry those a few times before surfacing an error to B1. Real
+// HTTP statuses (401/500/...) are returned by fetch and handled by the caller,
+// so they are NOT retried here.
+var STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS = 3;
+var STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS = 5000;
+
+function _stockPortfolioFetchWithRetry_(fetchFn) {
+  var lastErr = null;
+  for (var attempt = 1; attempt <= STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS; attempt++) {
+    try {
+      return fetchFn();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
+        try {
+          if (typeof Logger !== "undefined" && Logger.log) {
+            Logger.log("[STOCK_PORTFOLIO] fetch attempt " + attempt + "/" + STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " — retrying in " + (STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
+          }
+        } catch (eLog) {}
+        try { Utilities.sleep(STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS); } catch (eSleep) {}
+      }
+    }
+  }
+  throw lastErr;
+}
 
 var STOCK_PORTFOLIO_CONFIG = {
   SHEET_NAME: "Portefeuille Action",
@@ -47,6 +81,7 @@ function UPDATE_STOCK_PORTFOLIO() {
     if (sourceMatrix.length) _stockPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
     _stockPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
     _stockPortfolioWriteControlCells_(ss.getId(), _stockPortfolioCurrentRunTimestamp_(), false);
+    _portfolioReapplyFilter_(sh, STOCK_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 499972377, 18, 1489, 64);
     return "OK: Portefeuille Action refreshed";
   } catch (err) {
     var msg = err && err.message ? err.message : String(err);
@@ -128,9 +163,9 @@ function _stockPortfolioBuildRow1_(existingRow1) {
     false,
     "",
     "Bornes :",
-    "=MAX(IF(U1=\"X\";HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$82;81);HLOOKUP(max(Strat!$2:$2);Strat!$2:$82;81))/10;10)",
+    "=MAX(IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$82;81);HLOOKUP(max(Strat!$2:$2);Strat!$2:$82;81))/10;10)",
     "=SUMPRODUCT(D3:D;(H3:H=0)*1;(I3:I>0)*1)+SUMPRODUCT(D3:D;(H3:H=0)*1;(B3:B<=J1)*1)",
-    "=IF(U1=\"X\";HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$79;78);HLOOKUP(max(Strat!$2:$2);Strat!$2:$79;78))",
+    "=IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$79;78);HLOOKUP(max(Strat!$2:$2);Strat!$2:$79;78))",
     "=IFERROR(D1/H1;0)",
     "=SUMPRODUCT(G3:G)",
     "=ROUNDUP(SUMPRODUCT((L3:L>0)*1)-W1-Y1)",
@@ -145,7 +180,7 @@ function _stockPortfolioBuildRow1_(existingRow1) {
     ">",
     "=IFERROR(XLOOKUP(\"X\";R:R;A:A);\"\")",
     "Sécurisation :",
-    "=Strat!AT1",
+    "=Strat!BW1",
     "=IFERROR(XLOOKUP(J1;B3:B;K3:K)/AA1;0)",
     "=SUMPRODUCT((B3:B>J1)*1;(B3:B<=(Z1+J1))*1)",
     "=J1+W1",
@@ -169,6 +204,80 @@ function INSTALL_STOCK_PORTFOLIO_HOURLY_REFRESH() {
   }
   ScriptApp.newTrigger("STOCK_PORTFOLIO_HOURLY_REFRESH").timeBased().everyHours(1).create();
   return "OK: STOCK_PORTFOLIO_HOURLY_REFRESH hourly trigger installed";
+}
+
+function _portfolioReapplyFilter_(sh, managedLastCol, filterColPos, chartId, chartCol, chartWidth, chartOffsetX) {
+  var filter = null;
+  try { filter = sh.getFilter(); } catch (e) { filter = null; }
+  if (filter) {
+    try { filter.remove(); } catch (eRemove) {}
+  }
+  var lastRow = sh.getLastRow();
+  if (lastRow < 3) lastRow = 3;
+  try {
+    var range = sh.getRange(2, 1, lastRow - 1, managedLastCol);
+    var newFilter = range.createFilter();
+    var emptyCriteria = SpreadsheetApp.newFilterCriteria().setHiddenValues([""]).build();
+    newFilter.setColumnFilterCriteria(filterColPos, emptyCriteria);
+  } catch (eCreate) {}
+
+  if (!chartId) return;
+
+  try {
+    var aValsCol = sh.getRange(3, 1, lastRow - 2, 1).getValues();
+    var sVals = sh.getRange(3, filterColPos, lastRow - 2, 1).getValues();
+    var visibleRows = 0;
+    for (var vr = 0; vr < sVals.length; vr++) {
+      var aCell = String(aValsCol[vr] && aValsCol[vr][0] || "").trim();
+      if (aCell !== "" && String(sVals[vr][0] || "").trim() === "X") visibleRows++;
+    }
+    if (visibleRows < 1) visibleRows = 1;
+    var rowPx = 21;
+    var padPx = 0;
+    var newHeight = Math.max(150, visibleRows * rowPx + padPx);
+
+    var payload = JSON.stringify({
+      requests: [{
+        updateEmbeddedObjectPosition: {
+          objectId: chartId,
+          newPosition: { overlayPosition: { anchorCell: { sheetId: sh.getSheetId(), rowIndex: 2, columnIndex: chartCol }, offsetXPixels: chartOffsetX || 0, widthPixels: chartWidth, heightPixels: newHeight } },
+          fields: "*"
+        }
+      }]
+    });
+    try {
+      var rawResp = (typeof _WCORE_ORIG_FETCH === "function" ? _WCORE_ORIG_FETCH : UrlFetchApp.fetch).call(UrlFetchApp, "https://sheets.googleapis.com/v4/spreadsheets/" + BITPANDA_SYNC_CONFIG.SPREADSHEET_ID + ":batchUpdate", {
+        method: "post",
+        contentType: "application/json",
+        headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+        payload: payload,
+        muteHttpExceptions: true
+      });
+      try { console.log("[PORTFOLIO] chart " + chartId + " resize HTTP " + (rawResp ? rawResp.getResponseCode() : "null") + " height=" + newHeight + " visibleRows=" + visibleRows); } catch (eLog) {}
+    } catch (eFetch) {
+      try { console.log("[PORTFOLIO] chart " + chartId + " fetch FAILED: " + (eFetch && eFetch.message || eFetch)); } catch (eLog) {}
+    }
+  } catch (eChart) {
+    try { console.log("[PORTFOLIO] chart " + chartId + " resize FAILED: " + (eChart && eChart.message || eChart)); } catch (eLog) {}
+  }
+}
+
+function DIAG_PORTFOLIO_CHART_RESIZE() {
+  _portfolioSyncBothViews_();
+  return "OK: filter+chart sync triggered. Check console logs.";
+}
+
+/**
+ * Synchronise les filtres et graphiques des deux portfolios.
+ * Appele depuis onEdit (Strat!BW1). Lightweight: pas de refresh HTTP.
+ */
+function _portfolioSyncBothViews_() {
+  var ss = _wcoreGetSpreadsheet_();
+  if (!ss) return;
+  var shStock = ss.getSheetByName("Portefeuille Action");
+  if (shStock) _portfolioReapplyFilter_(shStock, STOCK_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 499972377, 18, 1489, 64);
+  var shCrypto = ss.getSheetByName("Portefeuille Crypto");
+  if (shCrypto) _portfolioReapplyFilter_(shCrypto, 20, 19, 361516782, 19, 1484, 2);
 }
 
 function _stockPortfolioWithFilterSuspended_(sh, fn) {
@@ -271,10 +380,12 @@ function _stockPortfolioFetchSnapshot_() {
   var token = props.getProperty("GSHEET_API_TOKEN");
   if (!baseUrl) throw new Error("Missing ScriptProperty WCORE_WEB_API_URL");
   if (!token) throw new Error("Missing ScriptProperty GSHEET_API_TOKEN");
-  var resp = UrlFetchApp.fetch(baseUrl.replace(/\/$/, "") + STOCK_PORTFOLIO_CONFIG.ENDPOINT, {
-    method: "get",
-    muteHttpExceptions: true,
-    headers: { "x-gsheet-token": token, accept: "application/json" }
+  var resp = _stockPortfolioFetchWithRetry_(function () {
+    return (typeof _WCORE_ORIG_FETCH === "function" ? _WCORE_ORIG_FETCH : UrlFetchApp.fetch)(baseUrl.replace(/\/$/, "") + STOCK_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
+      method: "get",
+      muteHttpExceptions: true,
+      headers: { "x-gsheet-token": token, accept: "application/json" }
+    });
   });
   if (!resp || typeof resp.getResponseCode !== "function") {
     throw new Error("WCORE stock portfolio HTTP blocked or empty response");

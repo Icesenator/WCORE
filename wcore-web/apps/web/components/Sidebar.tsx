@@ -13,6 +13,7 @@ const icons = {
   trophy: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 7.67 2 12 2c4.33 0 5 2 7.5 2a2.5 2.5 0 0 1 0 5H18"/><path d="M18.2 4A3 3 0 0 1 21 7H6.5a2.5 2.5 0 0 1 0-5h10.7"/><path d="M12 22v-7"/><path d="M12 2v7"/><path d="M6 9v2a6 6 0 0 0 12 0V9"/></svg>,
   messages: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
   info: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>,
+  table: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>,
 };
 
 const NAV_LINKS = [
@@ -23,6 +24,8 @@ const NAV_LINKS = [
   { href: "/leaderboard", label: "Leaderboard", icon: "trophy" as const },
   { href: "/support", label: "Support", icon: "messages" as const },
   { href: "/about", label: "About", icon: "info" as const },
+  { href: "/cmc/crypto", label: "CMC Crypto", icon: "table" as const },
+  { href: "/cmc/stocks", label: "CMC Stocks", icon: "table" as const },
 ];
 
 interface SidebarProps {

@@ -7,7 +7,7 @@ export const TEMPO: ChainConfig = {
   key: "TEMPO",
   vm: "EVM",
   ...({
-  CACHE_VERSION: 71,
+  CACHE_VERSION: 72,
   RPC: {
     ENDPOINTS: [
       "https://tempo-mainnet.drpc.org",
@@ -38,6 +38,7 @@ export const TEMPO: ChainConfig = {
     USD: "coingecko:usd-coin",
     USDC: "coingecko:usd-coin",
     "USDC.e": "coingecko:usd-coin",
+    "USDC.E": "coingecko:usd-coin",
     USDT: "coingecko:tether",
     DAI: "coingecko:dai",
     pathUSD: "coingecko:pathusd",

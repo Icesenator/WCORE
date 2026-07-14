@@ -39,6 +39,7 @@ export const TEMPO: ChainConfig = {
     USD: "coingecko:usd-coin",
     USDC: "coingecko:usd-coin",
     "USDC.e": "coingecko:usd-coin",
+    "USDC.E": "coingecko:usd-coin",
     USDT: "coingecko:tether",
     DAI: "coingecko:dai",
     pathUSD: "coingecko:pathusd",

@@ -1,8 +1,12 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
- * v4.16.26 - Honor precise Web value aliases and derive token prices when priceEur is rounded.
+ * v4.16.29 - Do not treat native_balance=0 as cache corruption when DISABLE_NATIVE_BALANCE
+ *   is set (e.g. Tempo sentinel eth_getBalance). Previously every degraded Web scan
+ *   on such chains triggered the preservation path; without an existing cache the
+ *   scan result was never saved → permanent NO_CACHE_WAITING_REFRESH.
  * v4.16.28 - Preserve cached positive native balance when degraded Web returns native zero with useful tokens.
+ * v4.16.26 - Honor precise Web value aliases and derive token prices when priceEur is rounded.
  * v4.16.25 - Preserve cached prices for cache-only tokens during degraded partial Web merges.
  * v4.16.24 - Block confirmed Base ZAMRUD fake-price spam.
  * v4.16.23 - Use strict Web scans when I2:I token whitelist is provided.
@@ -378,10 +382,11 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   return outCache;
 }
 
-function _webScanShouldPreserveExistingCache_(payload, cache) {
+function _webScanShouldPreserveExistingCache_(payload, cache, config) {
   if (!payload || payload.ok !== true || payload.degraded !== true) return false;
+  var nativeDisabled = config && config.FLAGS && config.FLAGS.DISABLE_NATIVE_BALANCE;
   var nativeAsset = cache && Array.isArray(cache.assets) ? cache.assets[0] : null;
-  if (nativeAsset && String(nativeAsset.contract || "") === "native" && _webScanNum_(nativeAsset.balance, 0) === 0) return true;
+  if (!nativeDisabled && nativeAsset && String(nativeAsset.contract || "") === "native" && _webScanNum_(nativeAsset.balance, 0) === 0) return true;
   var errors = Array.isArray(payload.errors) ? payload.errors : [];
   if (errors.length) {
     var onlyNonDestructiveGaps = true;
@@ -403,6 +408,7 @@ function _webScanShouldPreserveExistingCache_(payload, cache) {
   if (assets.length !== 1) return false;
   var native = assets[0] || {};
   if (String(native.contract || "") !== "native") return false;
+  if (nativeDisabled && _webScanNum_(native.balance, 0) === 0) return false;
   return _webScanNum_(native.balance, 0) === 0;
 }
 
@@ -623,7 +629,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       _webScanSetLastError_(payloadFailure.status + " " + payloadFailure.error, chainKey);
       return payloadFailure;
     }
-    if (_webScanShouldPreserveExistingCache_(payload, cache)) {
+    if (_webScanShouldPreserveExistingCache_(payload, cache, config)) {
       var existingCache = null;
       try { existingCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config); } catch (loadErr) { existingCache = null; }
       var mergedCache = _webScanMergeWithExistingCache_(existingCache, cache);

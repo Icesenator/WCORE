@@ -420,6 +420,10 @@ const {chromium}=require('playwright');
 
 ## Gotchas
 
+
+- **isNoMarketToken filtre les tokens sans prix (2026-07-14)** : sanitizeGsheetScanResult (gsheet.ts:619) appelle isNoMarketToken qui drop tout token avec priceEur=null non protege. Les tokens hors-registry sur chaines sans DEX/GT (ex: USDC.e sur Tempo) echouent au pricing cascade car isStable est gate par source === "registry" (evm-pricing.ts:95). Meme si le token est dans customTokens (I2:I), il peut etre filtre si le protectedContracts Set ne le contient pas pour une raison de casing ou de format. **Fix** : ajouter "USDC.E", "PATHUSD" et autres stablecoins connus dans knownTokenSymbols (gsheet.ts:584-592) + ajouter les tokens au registry chaine (egistry.ts) pour qu'ils beneficient du fast-path stablecoin.
+
+- **LLAMA_ID_MAP case-sensitive (2026-07-14)** : getSymbolLlamaId (cascade.ts:260) fait un lookup exact puis uppercase. Si la config a "USDC.e" (lowercase e) mais que le contrat ERC-20 retourne "USDC.E" (uppercase E), le lookup echoue. Toujours ajouter les deux variantes dans LLAMA_ID_MAP. Fichiers : TEMPO.ts:41, cascade.ts:260-267.
 - **gid === 0** : `getSheetId()` retourne 0 pour le premier onglet ÔåÆ falsy en JS. Utiliser `gid != null` au lieu de `gid ?`
 - **forceFull + quota** : forceFull bypass le L1 cache ÔåÆ plus d'appels HTTP que d'habitude. Ne pas lancer en fin de journ├®e quand le quota est bas
 - **Tokens LP non-stablecoin** : les tokens dont la seule liquidit├® est contre un quote non-USD (ex: TOKEN/CREATE) peuvent avoir des prix USD incorrects si le cache L1 est stale. Le skipL1 sur forceFull corrige ├ºa (v4.13.9+)

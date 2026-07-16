@@ -1,10 +1,22 @@
+// v4.16.30 - OKSOL (OKX liquid-staked SOL) aliased to SOL in "CEX - OKX" output.
 // v4.15.97 - OKX sync via Railway cex-relay (HMAC signed relay-side).
 // Onglet de sortie: "CEX - OKX".
 //
 // Recupere les soldes OKX et les ecrit dans l'onglet "OKX Crypto".
 // Les secrets OKX restent dans Railway. Apps Script stocke seulement URL+token relais.
 
-var OKX_SYNC_VERSION = "4.15.98";
+var OKX_SYNC_VERSION = "4.16.30";
+
+// v4.16.30: aliases appliques apres fetch relay, AVANT ecriture sheet.
+// OKSOL = SOL liquid-staked par OKX -> consolide sous SOL (pattern BITFINEX_SYMBOL_ALIASES).
+var OKX_SYMBOL_ALIASES = {
+  "OKSOL": "SOL"
+};
+
+function _okxCanonicalSymbol_(sym) {
+  var s = String(sym == null ? "" : sym).trim().toUpperCase();
+  return OKX_SYMBOL_ALIASES[s] || s;
+}
 
 var OKX_SYNC_CONFIG = {
   RELAY_URL_PROP: "OKX_RELAY_URL",
@@ -99,14 +111,27 @@ function _okxFetchBucketsViaRelay_() {
   var data = JSON.parse(text);
   if (!data || !data.ok) throw new Error("Relay error: " + (data && data.error ? data.error : "unknown").toString().substring(0, 300));
   var out = [];
+  var byKey = {};
   var spot = data.spot || [];
   for (var i = 0; i < spot.length; i++) {
-    var sym = String(spot[i][0] || "").trim().toUpperCase();
+    // v4.16.30: alias (OKSOL->SOL) + merge des doublons par (symbole, source).
+    var sym = _okxCanonicalSymbol_(spot[i][0]);
     var amt = _okxParseAmount_(spot[i][1]);
     var src = String(spot[i][2] || "spot").trim().toLowerCase() || "spot";
     var valueUsd = _okxParseAmount_(spot[i][3]);
     var priceUsd = _okxParseAmount_(spot[i][4]);
-    if (sym && amt > 0) out.push([sym, amt, src, valueUsd, priceUsd]);
+    if (!sym || amt <= 0) continue;
+    var key = sym + "|" + src;
+    var existing = byKey[key];
+    if (existing) {
+      existing[1] += amt;
+      existing[3] += valueUsd;
+      existing[4] = existing[1] > 0 ? existing[3] / existing[1] : priceUsd;
+    } else {
+      var row = [sym, amt, src, valueUsd, priceUsd];
+      byKey[key] = row;
+      out.push(row);
+    }
   }
   return { spot: out };
 }

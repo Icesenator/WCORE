@@ -63,7 +63,7 @@ function _forceRegisterAllModules() {
     "DIAGNOSTIC": { ver: "4.12.3", check: function() { return typeof Diagnostic !== 'undefined'; } },
     "DASHBOARD": { ver: "4.10.0", check: function() { return typeof DASHBOARD_CONFIG !== 'undefined'; } },
     "ACTIVITY_REFRESH": { ver: "4.15.2", check: function() { return typeof ActivityTracker !== 'undefined'; } },
-    "PRICING_WORKER": { ver: "4.15.33", check: function() { return typeof PRICING_WORKER_VERSION !== 'undefined' || typeof _runPricingWorker === 'function'; } },
+    "PRICING_WORKER": { ver: "4.15.34", check: function() { return typeof PRICING_WORKER_VERSION !== 'undefined'; } },
     "OPTIMIZATIONS": { ver: "4.12.1", check: function() { return typeof OPTIMIZATION_CONFIG !== 'undefined' || typeof ChainCircuitBreaker !== 'undefined'; } },
     "DEGRADED_MODE": { ver: "4.15.33", check: function() { return typeof DegradedMode !== 'undefined'; } },
 

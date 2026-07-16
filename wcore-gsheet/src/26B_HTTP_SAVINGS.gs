@@ -1,5 +1,5 @@
 /************************************************************
- * 26B_HTTP_SAVINGS.gs - HTTP Quota Savings Patch (v4.15.57)
+ * 26B_HTTP_SAVINGS.gs - HTTP Quota Savings Patch (v4.15.58)
  *
  * FICHIER DE PATCH SIMPLE - Modifie les constantes au chargement
  * pour reduire les appels HTTP de 30-40%.
@@ -49,7 +49,7 @@
  * 
  * ROLLBACK: Supprimer ce fichier pour revenir aux valeurs par defaut.
  ************************************************************/
-var HTTP_SAVINGS_VERSION = "4.15.34";
+var HTTP_SAVINGS_VERSION = "4.15.58";
 
 // ============================================================
 // PATCH 1: FX RATE - Cache plus long (1h Ã¢â€ â€™ 6h)
@@ -485,9 +485,12 @@ var HttpCallCounter = (function(){
 
  function getToday() {
   try {
-   var props = PropertiesService.getScriptProperties();
-   var cur = parseInt(props.getProperty(_quotaDayKey()), 10) || 0;
-   return cur + _mem;
+    // Rolling 24h from HttpCounter (hourly buckets in 03E_QUOTA_CIRCUIT_BREAKER).
+    // Google's UrlFetchApp quota is a rolling 24h window, NOT a calendar day.
+    // The calendar-day counter (_quotaDayKey) is kept for per-day host/trigger
+    // breakdowns but getToday() MUST reflect the true rolling-24h window.
+    var rolling = (typeof HttpCounter !== 'undefined' && HttpCounter.count) ? HttpCounter.count() : 0;
+    return Math.max(rolling, _mem);
   } catch (e) { return _mem; }
  }
 
@@ -765,7 +768,7 @@ function _normalizeForceWithBudgetGuard_(c1) {
  var httpToday = (typeof HttpCallCounter !== 'undefined') ? HttpCallCounter.getToday() : -1;
  var httpQuota = (typeof HttpCallCounter !== 'undefined') ? HttpCallCounter.getQuota() : -1;
  if (httpToday >= 0) {
-  Logger.log("[26B_HTTP_SAVINGS] HTTP Counter: " + httpToday + "/" + httpQuota + " today (quota day starts 09h UTC)");
+  Logger.log("[26B_HTTP_SAVINGS] HTTP Counter (rolling 24h): " + httpToday + "/" + httpQuota + " (" + Math.round(100*httpToday/Math.max(1,httpQuota)) + "%)");
  }
  } catch (e) {}
 })();

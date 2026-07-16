@@ -1,6 +1,9 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.30 - Record web scan UrlFetch calls in HttpCounter (audit G2: web delegation
+ *   was invisible to GET_HTTP_COUNT_LAST_24H/GET_HTTP_BREAKDOWN_24H because
+ *   _webScanWallet_ uses _originalUrlFetch which bypasses the counting patch).
  * v4.16.29 - Do not treat native_balance=0 as cache corruption when DISABLE_NATIVE_BALANCE
  *   is set (e.g. Tempo sentinel eth_getBalance). Previously every degraded Web scan
  *   on such chains triggered the preservation path; without an existing cache the
@@ -595,6 +598,11 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     var resp = null;
     var attempts = Math.max(1, GSHEET_WEB_SCAN_MAX_ATTEMPTS || 1);
     for (var attempt = 1; attempt <= attempts; attempt++) {
+      // v4.16.30: count every real UrlFetch attempt (even failures count against
+      // Google's quota). _originalUrlFetch bypasses the HttpCounter patch, so
+      // without this the dominant HTTP consumer is invisible to the 24h counter.
+      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("WATCHDOG_FROM_RECAP"); } catch (eCtx) {}
+      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCount) {}
       try {
         resp = fetchFn.call(UrlFetchApp, baseUrl + "/api/gsheet/scan", {
       method: "post",

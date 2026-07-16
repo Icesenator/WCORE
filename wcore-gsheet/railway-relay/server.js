@@ -1718,3 +1718,66 @@ module.exports = {
   normalizeStockFxCurrencies,
   normalizeStockQuoteSymbols,
 };
+
+// v4.16.30 — Bulk CEX endpoint: runs all legacy relay-based CEXs in one HTTP call.
+// Saves ~3 UrlFetch calls/hour vs individual GET /binance + /bybit + /coinbase + /okx.
+app.get("/all", async (req, res) => {
+  const RELAY_RPC_MCP_VERSION = "CORE_MODE";
+  try {
+    const expected = getEnv("RELAY_TOKEN");
+    const token = req.query.token || "";
+    if (!timingSafeEqual(token, expected)) {
+      return res.status(401).json({ ok: false, error: "unauthorized" });
+    }
+    const credsBinance = { key: getEnv("BINANCE_API_KEY"), secret: getEnv("BINANCE_API_SECRET") };
+    const credsBybit = { key: getEnv("BYBIT_API_KEY"), secret: getEnv("BYBIT_API_SECRET") };
+
+    const results = await Promise.allSettled([
+      // Binance
+      (async () => {
+        const flexible = await fetchEarn(credsBinance, "flexible", "totalAmount");
+        const locked = await fetchEarn(credsBinance, "locked", "amount");
+        const flexibleAssets = new Set(flexible.map((r) => String(r[0]).toUpperCase()));
+        const fetchBinanceUsd = app.locals.fetchBinancePricesUsd || fetchBinancePricesUsd;
+        const spot = await enrichRowsWithUsdPricesSafe(await fetchSpot(credsBinance, flexibleAssets), fetchBinanceUsd, "binance spot");
+        const flexibleValued = await enrichRowsWithUsdPricesSafe(flexible, fetchBinanceUsd, "binance earn-flexible");
+        const lockedValued = await enrichRowsWithUsdPricesSafe(locked, fetchBinanceUsd, "binance earn-locked");
+        return { provider: "binance", ok: true, spot, "earn-flexible": flexibleValued, "earn-locked": lockedValued };
+      })(),
+      // Bybit
+      (async () => {
+        const rows = [], seen = {};
+        await bybitFetchUnified(rows, seen, credsBybit);
+        try { await bybitFetchFund(rows, seen, credsBybit); } catch (errFund) { console.log("bybit FUND fetch skipped: " + (errFund && errFund.message ? errFund.message : errFund)); }
+        const spot = await enrichRowsWithUsdPricesSafe(rows, app.locals.fetchBybitPricesUsd || fetchBybitPricesUsd, "bybit");
+        return { provider: "bybit", ok: true, spot };
+      })(),
+      // Coinbase
+      (async () => {
+        const spotRaw = await coinbaseFetchAccounts();
+        const spot = await enrichRowsWithUsdPricesSafe(spotRaw, app.locals.fetchCoinbasePricesUsd || fetchCoinbasePricesUsd, "coinbase");
+        return { provider: "coinbase", ok: true, spot };
+      })(),
+      // OKX
+      (async () => {
+        const fetchBalances = app.locals.okxFetchBalances || okxFetchBalances;
+        const fetchPricesUsd = app.locals.fetchOkxPricesUsd || fetchOkxPricesUsd;
+        const spot = await enrichRowsWithUsdPricesSafe(await fetchBalances(), fetchPricesUsd, "okx");
+        return { provider: "okx", ok: true, spot };
+      })(),
+    ]);
+
+    const out = { ok: true, ts: new Date().toISOString(), providers: {} };
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        out.providers[r.value.provider] = r.value;
+      } else {
+        const msg = r.reason && r.reason.message ? String(r.reason.message).slice(0, 300) : "unknown error";
+        out.providers[r.reason && r.reason.provider || "unknown"] = { ok: false, error: msg };
+      }
+    }
+    res.json(out);
+  } catch (err) {
+    res.status(502).json({ ok: false, error: String(err && err.message ? err.message : err) });
+  }
+});

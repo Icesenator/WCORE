@@ -333,6 +333,7 @@ function _bfxWriteSheet_(ss, buckets) {
 }
 
 function UPDATE_BITFINEX_SPOT() {
+  try { HttpCallCounter.setTrigger('UPDATE_BITFINEX_SPOT'); } catch(e){}
   // v4.15.109: per-connector lock (see CEX_ACQUIRE_LOCK) instead of the shared
   // global ScriptLock, which the 1-min watchdog/MASTER_ON_EDIT kept held.
   if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("BITFINEX")) return "BUSY";

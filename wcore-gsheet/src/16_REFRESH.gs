@@ -1404,6 +1404,9 @@ function _recoveryPulseBatches_(ss, sheetList, batchSize, delayMs, maxRuntimeMs,
 function _recoveryProbeQuota_() {
   try {
     var fetchFn = (typeof _originalUrlFetch !== 'undefined') ? _originalUrlFetch : UrlFetchApp.fetch.bind(UrlFetchApp);
+    // v4.16.30: count the probe (real UrlFetch, bypasses the counting patch)
+    try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("QUOTA_RECOVERY_SWEEP"); } catch (eCtx) {}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCount) {}
     var resp = fetchFn("https://httpbin.org/status/200", { muteHttpExceptions: true });
     var code = resp.getResponseCode();
     if (code === 200) {
@@ -1801,11 +1804,9 @@ function REPAIR_J1_LATCH_FORMULAS(limit) {
  */
 function GET_WATCHDOG_STATS() {
   var phaseC = "false";
-  var pricingWorker = "false";
   try {
     var props = PropertiesService.getScriptProperties();
     phaseC = props.getProperty("PHASE_C_ENABLED") || "false";
-    pricingWorker = props.getProperty("PRICING_WORKER_ENABLED") || "false";
   } catch (e) {}
   return [
     ["Setting", "Value"],
@@ -1815,8 +1816,7 @@ function GET_WATCHDOG_STATS() {
     ["WD_PULSE_MIN_PARTIAL", WD_PULSE_MIN_PARTIAL],
     ["WD_PROBE_SIZE_MIN", WD_PROBE_SIZE_MIN],
     ["WD_PROBE_SIZE_MAX", WD_PROBE_SIZE_MAX],
-    ["PHASE_C_ENABLED", phaseC],
-    ["PRICING_WORKER_ENABLED", pricingWorker]
+    ["PHASE_C_ENABLED", phaseC]
   ];
 }
 

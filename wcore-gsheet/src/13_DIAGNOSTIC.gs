@@ -1549,16 +1549,7 @@ function QUOTA_RESET_READINESS_CHECK() {
     if (handler === "ACTIVITY_WATCHDOG") return "10";
     if (handler === "QUOTA_RECOVERY_SWEEP") return "30";
     if (handler === "QUOTA_RECOVERY_SWEEP_FOLLOWUP") return "one-shot after(30m)";
-    if (handler === "_runPricingWorker") {
-      try {
-        var intervalMin = (typeof _pricingWorkerIntervalMin_ === "function")
-          ? _pricingWorkerIntervalMin_()
-          : (typeof PRICING_WORKER_CONFIG !== "undefined" ? PRICING_WORKER_CONFIG.DEFAULT_INTERVAL_MIN : 90);
-        return String(normalizeTriggerMin_(Number(intervalMin) || 90));
-      } catch (e) {
-        return "30";
-      }
-    }
+    if (handler === "_runPricingWorker") return "DISABLED_v4.15.34";
     return "non expose par ScriptApp";
   }
 
@@ -1650,7 +1641,7 @@ function QUOTA_RESET_READINESS_CHECK() {
   for (var tl = 0; tl < triggerLines.length; tl++) lines.push(triggerLines[tl]);
   lines.push("   Doublons: " + (dupes.length ? dupes.join(", ") : "aucun"));
 
-  var modules = ["WCORE", "BASE_ENGINE", "EVM_ENGINE", "SVM_ENGINE", "COSMOS_ENGINE", "HTTP_SAVINGS", "REFRESH", "ACTIVITY_REFRESH", "PRICING_WORKER"];
+  var modules = ["WCORE", "BASE_ENGINE", "EVM_ENGINE", "SVM_ENGINE", "COSMOS_ENGINE", "HTTP_SAVINGS", "REFRESH", "ACTIVITY_REFRESH"];
   var moduleBits = [];
   for (var m = 0; m < modules.length; m++) {
     moduleBits.push(modules[m] + "=" + moduleVersion_(modules[m]));

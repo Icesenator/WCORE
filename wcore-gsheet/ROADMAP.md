@@ -1,17 +1,19 @@
 # WCORE GSheet - Roadmap
 
-> Etat verifie le 2026-07-13. Cette page est la source d'etat et de backlog du runtime Apps Script. Le passe appartient a `CHANGELOG.md`; l'ancien `AUDIT.md` est un snapshot historique.
+> Etat verifie le 2026-07-16. Cette page est la source d'etat et de backlog du runtime Apps Script. Le passe appartient a `CHANGELOG.md`; l'ancien `AUDIT.md` est un snapshot historique.
 
 ## Etat courant
 
 - 183 configurations generees: 169 EVM, 2 SVM, 11 Cosmos, 1 TON.
 - `src/*.gs` est la source canonique; `dist/` est genere pour `@wcore/chains`.
 - Sept CEX: Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX et Kraken.
-- Portefeuille crypto canonique: `Portefeuille Crypto` + `Portefeuille Crypto Details`; les onglets legacy et suffixes `V2` ont ete retires du fichier live le 2026-07-13.
+- Portefeuille crypto canonique: `Portefeuille Crypto` + `Portefeuille Crypto Details`.
 - Delegation de scan vers WCORE Web disponible, avec mode required par allowlist.
 - Cache wallet packed limite a 455 000 octets, TTL nominal 10 jours.
 - Validation statique: 3 107 fonctions globales au dernier audit.
-- `Portefeuille Action` utilise une reparation de formats explicite qui suspend le filtre actif avant d'appliquer les formats aux lignes masquees.
+- **Compteur HTTP**: `HttpCounter` (buckets glissants 24h) compte maintenant les web scans (v4.16.30), expose via `GET_HTTP_COUNT_LAST_24H()` / `GET_HTTP_BREAKDOWN_24H()`.
+- **ACTIVITY_WATCHDOG**: desactive (v4.16.30, -5760 UrlFetch/jour).
+- **Bulk CEX relay**: `UPDATE_CEX_RELAY_ALL()` (v4.16.30, -72 UrlFetch/jour).
 
 ## Invariants
 
@@ -24,10 +26,12 @@
 
 ## P1 - Integrite et fiabilite
 
-- [x] Eviter la casse de mise en forme `Portefeuille Action` sous filtre actif: `REPAIR_STOCK_PORTFOLIO_FORMATS()` sauvegarde/suspend/recree le filtre et etend les conditional formats a la plage geree.
+- [x] Eviter la casse de mise en forme `Portefeuille Action` sous filtre actif.
+- [x] **Audit G2** : compteur HTTP rendu fiable (web scans comptes, attribution par trigger). La partie atomique du compteur (read-modify-write sans verrou) reste a corriger.
+- [x] ACTIVITY_WATCHDOG desactive — economie ~5760 UrlFetch/jour.
 
 - [ ] Corriger `ChainFactory.createCosmosChain().getRefreshStatus` pour propager les cinq arguments standards.
-- [ ] Rendre atomique le compteur HTTP et compter les tentatives de delegation Web.
+- [ ] Rendre atomique le compteur HTTP (concurrence read-modify-write).
 - [ ] Rendre atomiques queue, pop, retry et leases CEX; supprimer toute troncature JSON dangereuse.
 - [ ] Remplacer la reinstallation globale de triggers par une reparation ciblee avec backoff.
 - [ ] Aligner `_packedGet_` avec la preservation annoncee des wallets positifs.
@@ -56,10 +60,12 @@ Statut: conception validee, implementation differee.
 
 ## Chain Lifecycle
 
+- [x] RARI Chain supprime (sunset annonce 4 juin 2026, deadline 14 juin passee, infra Caldera disparue).
 - [ ] Revalider puis desactiver/retirer Swellchain, deadline passee le 2026-06-23.
 - [ ] Finaliser le retrait code de Corn, shutdown le 2026-06-30; le ledger live est deja retire.
 - [ ] Revalider Polygon zkEVM, sunset sequencer le 2026-07-01.
 - [ ] Revalider Botanix, deadline le 2026-07-09.
+- [ ] Desactiver Ancient8 — RPC public passe derriere Conduit (cle API obligatoire), reseau inaccessible.
 - [ ] Garder ZERO jusqu'au 2026-07-31, Mint withdrawal jusqu'au 2026-10-20 et Cronos zkEVM jusqu'au 2027-06-03.
 
 Pour chaque retrait: source `.gs`, package genere, consommateurs Web/API, GM, wagmi, explorers, docs, compteurs et tests.

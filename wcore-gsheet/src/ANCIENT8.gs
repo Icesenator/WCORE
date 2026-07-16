@@ -1,10 +1,13 @@
 /**
- * ANCIENT8.gs - Ancient8 (v4.9.5)
+ * ANCIENT8.gs - Ancient8 (v4.16.30 DISABLED)
+ * RPC public passe derriere Conduit (cle API obligatoire) depuis maintenance du 19 juin 2026.
+ * Aucun endpoint public accessible. Chaîne en maintenance prolongee, pas de news depuis le 17/06.
  * ChainFactory pattern with explicit function declarations
  */
 
 var _ANCIENT8 = ChainFactory.createEvmChain("ANCIENT8", {
  CACHE_VERSION: 63,
+ FLAGS: { DISABLE_CHAIN: true },
  RPC: { ENDPOINTS: ["https://rpc.ancient8.gg"] },
  CHAIN: {
  NAME: "Ancient8",

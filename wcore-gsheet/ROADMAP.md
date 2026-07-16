@@ -65,7 +65,7 @@ Statut: conception validee, implementation differee.
 - [ ] Finaliser le retrait code de Corn, shutdown le 2026-06-30; le ledger live est deja retire.
 - [ ] Revalider Polygon zkEVM, sunset sequencer le 2026-07-01.
 - [ ] Revalider Botanix, deadline le 2026-07-09.
-- [ ] Desactiver Ancient8 — RPC public passe derriere Conduit (cle API obligatoire), reseau inaccessible.
+- [x] Ancient8 desactive (FLAGS.DISABLE_CHAIN) — maintenance depuis le 19/06, RPC Conduit payant, inaccessible. À reactiver si le reseau reprend un RPC public.
 - [ ] Garder ZERO jusqu'au 2026-07-31, Mint withdrawal jusqu'au 2026-10-20 et Cronos zkEVM jusqu'au 2027-06-03.
 
 Pour chaque retrait: source `.gs`, package genere, consommateurs Web/API, GM, wagmi, explorers, docs, compteurs et tests.

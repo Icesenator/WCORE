@@ -1,6 +1,10 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.30 - _webScanMustUse_: stronger gate. When GSHEET_WEB_SCAN_REQUIRE is set,
+ *   the engine must NEVER fall through to direct RPC, even if _webScanEnabled_()
+ *   transiently returns false (ScriptProperties pressure). Direct RPC fallback
+ *   consumes N UrlFetch calls instead of 1, defeating the quota optimization.
  * v4.16.30 - Record web scan UrlFetch calls in HttpCounter (audit G2: web delegation
  *   was invisible to GET_HTTP_COUNT_LAST_24H/GET_HTTP_BREAKDOWN_24H because
  *   _webScanWallet_ uses _originalUrlFetch which bypasses the counting patch).
@@ -100,6 +104,14 @@ function _webScanRequiredFor_(config) {
   if (!_webScanEnabled_()) return false;
   var chainKey = _webScanChainKey_(config);
   return !!(chainKey && _webScanAllowed_(chainKey));
+}
+
+// v4.16.30: Stronger gate. When GSHEET_WEB_SCAN_REQUIRE is set, the engine
+// must NEVER fall through to direct RPC, even if transient ScriptProperties
+// issues make _webScanEnabled_() return false momentarily.
+// Direct RPC fallback = N UrlFetch calls instead of 1 = quota wasted.
+function _webScanMustUse_() {
+  return _webScanRequireEnabled_();
 }
 
 function _webScanErrorStatus_(config) {

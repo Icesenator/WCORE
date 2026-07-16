@@ -650,68 +650,15 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
      if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(cfg)) {
        return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
      }
-     // v4.16.30: gate against direct RPC fallback when web scan is required.
-     if (typeof _webScanMustUse_ === "function" && _webScanMustUse_()) {
-       if (cosmosCacheBefore && cosmosCacheBefore.updatedAt) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(cosmosCacheBefore.updatedAt), _httpBefore);
-       return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
-     }
-    if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
-     var cosmosWebQuotaBlocked = BaseEngine.quotaPreCheck(address, cfg);
-     if (cosmosWebQuotaBlocked) return cosmosWebQuotaBlocked;
-   }
-   if (!cosmosForce) {
-     var quotaBlocked = BaseEngine.quotaPreCheck(address, cfg);
-     if (quotaBlocked) return quotaBlocked;
-   }
-
-  // v4.15.50: Busy-guard — avoid 30s GAS timeout (#ERROR!) under heavy load.
-  if (!cosmosForce && BaseEngine.isBusy && BaseEngine.isBusy(cfg)) {
-    var cosmosBusyTs = "";
-    try {
-      CacheManager.init();
-      var cosmosBusyCache = WalletCache.load(address, null, cfg);
-      if (cosmosBusyCache && cosmosBusyCache.updatedAt) cosmosBusyTs = Format.datetime(cosmosBusyCache.updatedAt);
-    } catch (eBusy) {}
-    return "[BUSY] " + (cosmosBusyTs || Format.now());
-  }
-
-  try {
-    CacheManager.init();
-    cosmosCacheBefore = WalletCache.load(address, null, cfg);
-    if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
-      var cosmosSkipTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
-      return cosmosSkipTs ? BaseEngine.wrapCacheOnlyMarker(cosmosSkipTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
-    }
-    // v4.15.122: I1 guard — skip if no explicit trigger and cache was updated recently.
-    if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
-      var cosmosFreshTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
-      return cosmosFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + cosmosFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
-    }
- } catch (eLatch) {}
-
- // v4.15.3: Capture scan errors instead of swallowing silently
- var refreshError = null;
- try { this.getWalletAssets(address, forceFull, cfg, walletNames); } catch (e) {
-   refreshError = String(e && (e.message || e) || "refresh_error");
- }
- try {
-    CacheManager.init();
-    var cache = WalletCache.load(address, null, cfg);
-    var _cosmosRefreshTrigger = BaseEngine.normalizeRefreshTrigger ? BaseEngine.normalizeRefreshTrigger(arg5) : String(arg5 || "").trim();
-    if (_cosmosRefreshTrigger && cache) {
-      cache.last_refresh_trigger = _cosmosRefreshTrigger;
-      try { WalletCache.save(address, cache, cfg); } catch (eSaveTrigger) {}
-    }
-    var ts = WalletCache.getLastRunUpdateStr(cache) || WalletCache.getLastUpdateStr(cache);
-   // v4.15.19: Add [CACHE_ONLY] marker if no HTTP calls were made during scan
-   if (ts) return BaseEngine.wrapCacheOnlyMarker(ts, _httpBefore);
-   if (refreshError) return "[ERROR] " + refreshError.substring(0, 200);
-   return "[NO_CACHE] " + Format.now();
- } catch (e) {
-   if (refreshError) return "[ERROR] " + refreshError.substring(0, 200);
-   return "[NO_CACHE] " + Format.now();
- }
-};
+      // v4.16.30: gate against direct RPC fallback when web scan is required.
+      if (typeof _webScanMustUse_ === "function" && _webScanMustUse_()) {
+        if (cosmosCacheBefore && cosmosCacheBefore.updatedAt) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(cosmosCacheBefore.updatedAt), _httpBefore);
+        return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
+      }
+      // v4.16.30: Direct RPC path REMOVED.
+      if (cosmosCacheBefore && cosmosCacheBefore.updatedAt) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(cosmosCacheBefore.updatedAt), _httpBefore);
+      return "[NO_CACHE] " + Format.now();
+   },
 
 CosmosEngine.getStats = function(address, rpcOrConfig, tokensRangeOrWalletNames, forceFull, triggerRefresh, config, walletNames) {
  var cfg;

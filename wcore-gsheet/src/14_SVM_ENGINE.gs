@@ -909,50 +909,10 @@ var SvmEngine = {
         if (svmCacheBefore && svmCacheBefore.updatedAt) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(svmCacheBefore.updatedAt), _httpBefore);
         return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
       }
-      if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
-       var svmWebQuotaBlocked = BaseEngine.quotaPreCheck(_svmWalletKey(addr), config);
-       if (svmWebQuotaBlocked) return svmWebQuotaBlocked;
-     }
-     if (!svmForce) {
-       var quotaBlocked = BaseEngine.quotaPreCheck(_svmWalletKey(addr), config);
-       if (quotaBlocked) return quotaBlocked;
-     }
-
-    // v4.15.50: Busy-guard — avoid 30s GAS timeout (#ERROR!) under heavy load.
-    if (!svmForce && BaseEngine.isBusy && BaseEngine.isBusy(config)) {
-      var svmBusyTs = "";
-      try {
-        CacheManager.init();
-        var svmBusyCache = WalletCache.load(_svmWalletKey(addr), null, config);
-        if (svmBusyCache && svmBusyCache.updatedAt) svmBusyTs = Format.datetime(svmBusyCache.updatedAt);
-      } catch (eBusy) {}
-      return "[BUSY] " + (svmBusyTs || Format.now());
-    }
-
-    // v4.15.3: Capture scan errors instead of swallowing silently
-   var refreshError = null;
-   try { this.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, config, walletNames); } catch (e) {
-     refreshError = String(e && (e.message || e) || "refresh_error");
-   }
-   try {
-     CacheManager.init();
-      var cache = WalletCache.load(_svmWalletKey(addr), null, config);
-      var _svmRefreshTrigger = BaseEngine.normalizeRefreshTrigger ? BaseEngine.normalizeRefreshTrigger(triggerRefresh) : String(triggerRefresh || "").trim();
-      if (_svmRefreshTrigger && cache) {
-        cache.last_refresh_trigger = _svmRefreshTrigger;
-        try { WalletCache.save(_svmWalletKey(addr), cache, config); } catch (eSaveTrigger) {}
-      }
-      var ts = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(cache) : "") || WalletCache.getLastUpdateStr(cache);
-     // v4.15.19: Add [CACHE_ONLY] marker if no HTTP calls were made during scan
-     if (ts) return BaseEngine.wrapCacheOnlyMarker(ts, _httpBefore);
-     // No cache timestamp — report error or no_cache
-     if (refreshError) return "[ERROR] " + refreshError.substring(0, 200);
-     return "[NO_CACHE] " + Format.now();
-   } catch (e) {
-     if (refreshError) return "[ERROR] " + refreshError.substring(0, 200);
-     return "[NO_CACHE] " + Format.now();
-   }
- },
+      // v4.16.30: Direct RPC path REMOVED (same as EVM).
+      if (svmCacheBefore && svmCacheBefore.updatedAt) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(svmCacheBefore.updatedAt), _httpBefore);
+      return "[NO_CACHE] " + Format.now();
+  },
 
  getStats: function(address, config, walletNames) {
  try {

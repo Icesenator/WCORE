@@ -1737,82 +1737,13 @@ var EvmEngine = {
         if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
         return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
       }
-     if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
-      var webQuotaBlocked = BaseEngine.quotaPreCheck(addrLower, config);
-      if (webQuotaBlocked) return webQuotaBlocked;
-    }
-     if (!forceBypass) {
-       var quotaBlocked = BaseEngine.quotaPreCheck(addrLower, config);
-       if (quotaBlocked) return quotaBlocked;
-     }
-
-    // v4.15.50: Busy-guard — when system is under heavy load, return last cache
-    // timestamp instead of risking a 30s GAS timeout (#ERROR!). forceFull bypasses.
-    if (!forceBypass && BaseEngine.isBusy && BaseEngine.isBusy(config)) {
-      var busyTs = "";
-      try {
-        CacheManager.init();
-        var busyCache = WalletCache.load(addrLower, null, config);
-        if (busyCache && busyCache.updatedAt) busyTs = Format.datetime(busyCache.updatedAt);
-      } catch (eBusy) {}
-      return "[BUSY] " + (busyTs || Format.now());
-    }
-
-   // v4.12.29: Honor user's forceFull/triggerRefresh parameters
-   // Default to true for backward compatibility (refresh status = do refresh)
-   // Only false if explicitly passed as false (boolean) or "false" (string)
-   var force = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
-   var trig = (triggerRefresh === false || triggerRefresh === "false" || triggerRefresh === "FALSE") ? false : true;
-   
-   try { 
-     this.getWalletAssets(address, rpc, tokensRange, force, trig, config, walletNames); 
-   } catch (e) { 
-     refreshError = String(e && (e.message || e) || "refresh_error"); 
-   }
-   
-   if (refreshError) {
-     return "[ERROR] " + refreshError.substring(0, 200);
-   }
-   
-   // v4.12.30: Read ACTUAL cache timestamp AFTER refresh
-   var actualTs = 0;
-   try {
-      var cacheAfter = WalletCache.load(addrLower, null, config);
-      if (cacheAfter && cacheAfter.updatedAt) {
-        actualTs = cacheAfter.updatedAt;
-      }
-      var _refreshTrigger = BaseEngine.normalizeRefreshTrigger ? BaseEngine.normalizeRefreshTrigger(triggerRefresh) : String(triggerRefresh || "").trim();
-      if (_refreshTrigger && cacheAfter) {
-        cacheAfter.last_refresh_trigger = _refreshTrigger;
-        try { WalletCache.save(addrLower, cacheAfter, config); } catch (eSaveTrigger) {}
-      }
-    } catch (e) {}
-   
-   // v4.12.30: Check if cache was actually updated
-   if (actualTs === 0) {
-     return "[NO_CACHE] " + Format.now();
-   }
-   
-   if (actualTs === beforeTs) {
-     // Cache wasn't updated - detect which blocker
-     var reason = BaseEngine.detectBlockReason() || "TIMEOUT";
-     
-     // Return existing cache timestamp with warning
-     var existingDate = Format.datetime(actualTs);
-     return "[BLOCKED:" + reason + "] " + existingDate;
-   }
-   
-    // Cache was updated - return actual timestamp.
-    // If the saved scan stats prove HTTP activity, avoid a false [CACHE_ONLY]
-    // marker when the global counter snapshot misses per-execution Http stats.
-    var actualDate = Format.datetime(actualTs);
-    try {
-      var ss = cacheAfter && (cacheAfter.scanStats || cacheAfter.ss);
-      if (ss && ((ss.httpCalls | 0) > 0 || (ss.fetchAllItems | 0) > 0)) return actualDate;
-    } catch (eStats) {}
-    // v4.15.19: Add [CACHE_ONLY] marker if no HTTP calls were made during scan
-    return BaseEngine.wrapCacheOnlyMarker(actualDate, _httpBefore);
-  },
+      // v4.16.30: Direct RPC path REMOVED.
+      // All wallet scans now go through the Railway web API (_webScanWallet_).
+      // If the web API is unreachable, we serve the last known cache timestamp.
+      // There is no fallback to direct blockchain RPC calls.
+      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
+      return "[NO_CACHE] " + Format.now();
+   },
  
  /**
  * getStats - Diagnostic information

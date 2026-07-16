@@ -1,4 +1,4 @@
-// Auto-generated from src/ANCIENT8.gs by tools/migrate/extract-chains.mjs
+// Auto-generated from src/ANCIENT8.gs by tools/migrate/extract-chains.mjs (v4.16.30 DISABLED)
 // Do not edit by hand. Re-run: node tools/migrate/extract-chains.mjs
 
 import type { ChainConfig } from "../types.js";
@@ -6,8 +6,10 @@ import type { ChainConfig } from "../types.js";
 export const ANCIENT8: ChainConfig = {
   key: "ANCIENT8",
   vm: "EVM",
+  disabled: true,
   ...({
   CACHE_VERSION: 64,
+  FLAGS: { DISABLE_CHAIN: true },
   RPC: {
     ENDPOINTS: [
       "https://rpc.ancient8.gg",

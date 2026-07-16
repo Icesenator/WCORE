@@ -647,9 +647,14 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
         }
        }
      } catch (eWebScan) {}
-    if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(cfg)) {
-      return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
-    }
+     if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(cfg)) {
+       return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
+     }
+     // v4.16.30: gate against direct RPC fallback when web scan is required.
+     if (typeof _webScanMustUse_ === "function" && _webScanMustUse_()) {
+       if (cosmosCacheBefore && cosmosCacheBefore.updatedAt) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(cosmosCacheBefore.updatedAt), _httpBefore);
+       return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(cfg) : ("[WEB_SCAN_ERROR] " + Format.now());
+     }
     if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
      var cosmosWebQuotaBlocked = BaseEngine.quotaPreCheck(address, cfg);
      if (cosmosWebQuotaBlocked) return cosmosWebQuotaBlocked;

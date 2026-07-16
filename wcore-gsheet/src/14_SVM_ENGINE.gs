@@ -904,6 +904,11 @@ var SvmEngine = {
       if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {
         return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
       }
+      // v4.16.30: gate against direct RPC fallback when web scan is required.
+      if (typeof _webScanMustUse_ === "function" && _webScanMustUse_()) {
+        if (svmCacheBefore && svmCacheBefore.updatedAt) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(svmCacheBefore.updatedAt), _httpBefore);
+        return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
+      }
       if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
        var svmWebQuotaBlocked = BaseEngine.quotaPreCheck(_svmWalletKey(addr), config);
        if (svmWebQuotaBlocked) return svmWebQuotaBlocked;

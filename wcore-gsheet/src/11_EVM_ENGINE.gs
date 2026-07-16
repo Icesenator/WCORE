@@ -1729,6 +1729,14 @@ var EvmEngine = {
       if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(config)) {
         return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
       }
+      // v4.16.30: If GSHEET_WEB_SCAN_REQUIRE is set, NEVER fall through to direct RPC.
+      // _webScanWallet_ may return null because of transient ScriptProperties issues
+      // (_webScanEnabled_ failed), but that doesn't mean we should waste quota on
+      // direct RPC calls. Return the last known cache timestamp, or error.
+      if (typeof _webScanMustUse_ === "function" && _webScanMustUse_()) {
+        if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
+        return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(config) : ("[WEB_SCAN_ERROR] " + Format.now());
+      }
      if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) {
       var webQuotaBlocked = BaseEngine.quotaPreCheck(addrLower, config);
       if (webQuotaBlocked) return webQuotaBlocked;

@@ -2246,6 +2246,11 @@ function _activityWatchdogPhaseCSignals_() {
  * v4.12.22: Auto-init when nonces are stale (> 1 hour without check)
  */
 function ACTIVITY_WATCHDOG() {
+  // v4.16.30: DISABLED — was consuming ~5760 UrlFetch calls/day
+  // (120+ wallets × eth_getTransactionCount via fetchAll, every 30 min).
+  // WATCHDOG_FROM_RECAP (every 5 min, I1 > 5h stale detection) handles
+  // refresh scheduling. Activity-based refresh is unnecessary.
+  return { skipped: "disabled_v4.16.30", reason: "WATCHDOG_FROM_RECAP handles refresh scheduling" };
   try { HttpCallCounter.setTrigger('ACTIVITY_WATCHDOG'); } catch(e){}
   try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("ACTIVITY_WATCHDOG", false); } catch(e){}
   // v4.15.110: CEX manual refreshes run directly from installable onEdit and
@@ -2756,7 +2761,7 @@ function INSTALL_ACTIVITY_WATCHDOG() {
     Logger.log("[INSTALL_ACTIVITY_WATCHDOG] RPC lookup empty; run BUILD_RPC_LOOKUP() manually from Apps Script editor");
   }
 
-  return "ACTIVITY_WATCHDOG installed (every 10 min) - RPC lookup: " + _RpcLookup.count() + " chains";
+  return "ACTIVITY_WATCHDOG installed (every 30 min) - RPC lookup: " + _RpcLookup.count() + " chains";
 }
 
 function UNINSTALL_ACTIVITY_WATCHDOG() {

@@ -400,6 +400,9 @@ var QuotaCircuitBreaker = (function() {
     // v4.12.31: Use _originalUrlFetch to bypass global quota patch
     try {
       var testUrl = "https://httpbin.org/status/200";
+      // v4.16.30: count the breaker test (real UrlFetch, bypasses the counting patch)
+      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("QUOTA_BREAKER_TEST"); } catch (eCtxTest) {}
+      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCountTest) {}
       var response = _originalUrlFetch.call(UrlFetchApp, testUrl, {
         muteHttpExceptions: true,
         timeout: 3000  // 3 second timeout max
@@ -555,15 +558,17 @@ var QuotaCircuitBreaker = (function() {
  */
 var HttpCounter = (function() {
   var KEY = "WCORE_HTTP_BUCKETS_v1";
+  var TRIGGER_KEY = "WCORE_HTTP_TRIGGERS_v2";
   var BUCKET_MS = 60 * 60 * 1000;  // 1h granularity
   var WINDOWS = 24;                // last 24 buckets = rolling 24h
 
   var _cache = null;
+  var _triggerCache = null;
   var _loaded = false;
 
-  function _loadRaw() {
+  function _loadRaw(key) {
     try {
-      var raw = PropertiesService.getScriptProperties().getProperty(KEY);
+      var raw = PropertiesService.getScriptProperties().getProperty(key);
       if (!raw) return {};
       var obj = JSON.parse(raw);
       return (obj && typeof obj === "object") ? obj : {};
@@ -572,12 +577,10 @@ var HttpCounter = (function() {
     }
   }
 
-  function _save(obj) {
+  function _save(obj, key) {
     try {
-      PropertiesService.getScriptProperties().setProperty(KEY, JSON.stringify(obj));
-    } catch (e) {
-      // swallow — observability must never break HTTP path
-    }
+      PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(obj));
+    } catch (e) {}
   }
 
   function _purge(obj, nowMs) {
@@ -593,7 +596,8 @@ var HttpCounter = (function() {
 
   function _ensure(nowMs) {
     if (_loaded) return;
-    _cache = _purge(_loadRaw(), nowMs);
+    _cache = _purge(_loadRaw(KEY), nowMs);
+    _triggerCache = _purge(_loadRaw(TRIGGER_KEY), nowMs);
     _loaded = true;
   }
 
@@ -605,6 +609,12 @@ var HttpCounter = (function() {
     return total;
   }
 
+  function _currentTrigger() {
+    try {
+      return PropertiesService.getScriptProperties().getProperty("WCORE_CURRENT_TRIGGER") || "unknown";
+    } catch (e) { return "unknown"; }
+  }
+
   return {
     record: function(n) {
       var inc = parseInt(n, 10) || 0;
@@ -614,33 +624,53 @@ var HttpCounter = (function() {
         _ensure(nowMs);
         var bucket = String(Math.floor(nowMs / BUCKET_MS));
         _cache[bucket] = (parseInt(_cache[bucket], 10) || 0) + inc;
-        _save(_cache);
-      } catch (e) {
-        // Never fail an HTTP call due to counter errors
-      }
+        _save(_cache, KEY);
+
+        var trigger = _currentTrigger();
+        if (!_triggerCache[bucket]) _triggerCache[bucket] = {};
+        _triggerCache[bucket][trigger] = (parseInt(_triggerCache[bucket][trigger], 10) || 0) + inc;
+        _save(_triggerCache, TRIGGER_KEY);
+      } catch (e) {}
     },
 
     count: function() {
       try {
         var nowMs = Date.now();
-        var obj = _purge(_loadRaw(), nowMs);
+        var obj = _purge(_loadRaw(KEY), nowMs);
         return _sum(obj);
-      } catch (e) {
-        return 0;
-      }
+      } catch (e) { return 0; }
+    },
+
+    byTrigger: function() {
+      try {
+        var nowMs = Date.now();
+        var obj = _purge(_loadRaw(TRIGGER_KEY), nowMs);
+        var out = {};
+        for (var bk in obj) {
+          if (!obj.hasOwnProperty(bk)) continue;
+          var bucket = obj[bk];
+          for (var t in bucket) {
+            if (!bucket.hasOwnProperty(t)) continue;
+            out[t] = (out[t] || 0) + (parseInt(bucket[t], 10) || 0);
+          }
+        }
+        return out;
+      } catch (e) { return {}; }
     },
 
     reset: function() {
       try {
         PropertiesService.getScriptProperties().deleteProperty(KEY);
+        PropertiesService.getScriptProperties().deleteProperty(TRIGGER_KEY);
       } catch (e) {}
       _cache = null;
+      _triggerCache = null;
       _loaded = false;
     },
 
     buckets: function() {
       var nowMs = Date.now();
-      return _purge(_loadRaw(), nowMs);
+      return _purge(_loadRaw(KEY), nowMs);
     }
   };
 })();
@@ -1166,6 +1196,31 @@ function GET_HTTP_COUNT_LAST_24H() {
     return HttpCounter.count();
   } catch (e) {
     return -1;
+  }
+}
+
+/**
+ * v4.15.35: Rolling-24h trigger breakdown.
+ * Returns a 2-column array: [triggerName, callCount] sorted by count desc.
+ * Only includes triggers with >0 calls in the rolling 24h window.
+ * @returns {Array<Array>}
+ * @customfunction
+ */
+function GET_HTTP_BREAKDOWN_24H() {
+  try {
+    var bt = HttpCounter.byTrigger();
+    var total = HttpCounter.count();
+    var rows = [["Trigger", "Calls", "%"]];
+    var names = Object.keys(bt);
+    names.sort(function(a, b) { return (bt[b] || 0) - (bt[a] || 0); });
+    for (var i = 0; i < names.length; i++) {
+      var n = bt[names[i]] || 0;
+      rows.push([names[i], n, total > 0 ? Math.round(100 * n / total) + "%" : "0%"]);
+    }
+    rows.push(["TOTAL", total, "100%"]);
+    return rows;
+  } catch (e) {
+    return [["ERROR", String(e.message || e)]];
   }
 }
 

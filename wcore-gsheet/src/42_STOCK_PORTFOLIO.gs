@@ -1,4 +1,4 @@
-// v4.15.166 - Chart height padPx=0 (exact row fit) + _WCORE_ORIG_FETCH bypass quota guard.
+// v4.15.167 - Remove _WCORE_ORIG_FETCH bypass; use patched UrlFetchApp.fetch (respects quota breaker).
 // v4.15.164 - Fix chart row count (A non-empty + S=X) + BW1 onEdit syncs both portfolios.
 // v4.15.163 - Switch BW1 checkbox master + U1=TRUE in formulas (chart height fix: 24px/row + 100px pad + offsetX).
 // v4.15.162 - Auto-resize chart height after filter reapply based on visible rows (S=X count).
@@ -6,7 +6,7 @@
 // v4.15.160 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.159 - Repair Action formats with filters suspended so hidden rows are formatted too.
 
-var STOCK_PORTFOLIO_VERSION = "4.15.165";
+var STOCK_PORTFOLIO_VERSION = "4.15.167";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -192,6 +192,7 @@ function _stockPortfolioBuildRow1_(existingRow1) {
 }
 
 function STOCK_PORTFOLIO_HOURLY_REFRESH() {
+  try { HttpCallCounter.setTrigger('STOCK_PORTFOLIO_HOURLY_REFRESH'); } catch(e){}
   return UPDATE_STOCK_PORTFOLIO();
 }
 
@@ -246,7 +247,7 @@ function _portfolioReapplyFilter_(sh, managedLastCol, filterColPos, chartId, cha
       }]
     });
     try {
-      var rawResp = (typeof _WCORE_ORIG_FETCH === "function" ? _WCORE_ORIG_FETCH : UrlFetchApp.fetch).call(UrlFetchApp, "https://sheets.googleapis.com/v4/spreadsheets/" + BITPANDA_SYNC_CONFIG.SPREADSHEET_ID + ":batchUpdate", {
+      var rawResp = UrlFetchApp.fetch("https://sheets.googleapis.com/v4/spreadsheets/" + BITPANDA_SYNC_CONFIG.SPREADSHEET_ID + ":batchUpdate", {
         method: "post",
         contentType: "application/json",
         headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
@@ -381,11 +382,13 @@ function _stockPortfolioFetchSnapshot_() {
   if (!baseUrl) throw new Error("Missing ScriptProperty WCORE_WEB_API_URL");
   if (!token) throw new Error("Missing ScriptProperty GSHEET_API_TOKEN");
   var resp = _stockPortfolioFetchWithRetry_(function () {
-    return (typeof _WCORE_ORIG_FETCH === "function" ? _WCORE_ORIG_FETCH : UrlFetchApp.fetch)(baseUrl.replace(/\/$/, "") + STOCK_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
+    var fetchResult = UrlFetchApp.fetch(baseUrl.replace(/\/$/, "") + STOCK_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
       method: "get",
       muteHttpExceptions: true,
       headers: { "x-gsheet-token": token, accept: "application/json" }
     });
+    if (!fetchResult) throw new Error("BLOCKED:QUOTA");
+    return fetchResult;
   });
   if (!resp || typeof resp.getResponseCode !== "function") {
     throw new Error("WCORE stock portfolio HTTP blocked or empty response");

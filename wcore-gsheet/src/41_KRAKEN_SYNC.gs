@@ -223,6 +223,7 @@ function _krakenWriteSheet_(ss, buckets) {
 }
 
 function UPDATE_KRAKEN_SPOT() {
+  try { HttpCallCounter.setTrigger('UPDATE_KRAKEN_SPOT'); } catch(e){}
   if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("KRAKEN")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(KRAKEN_SYNC_CONFIG.SPREADSHEET_ID);

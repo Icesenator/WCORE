@@ -677,6 +677,47 @@ Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette a
 - **`.temp_push` verrouillé** : `safe-push.ps1` peut échouer au cleanup (`fichier en cours d'utilisation`) si un push précédent a crashé en plein milieu. Fix : `Remove-Item .temp_push -Recurse -Force` (ou `fs.rmSync`) avant relance.
 - **Vérifier les edits AVANT de pusher** : des edits `Edit` peuvent échouer silencieusement (oldString ne matche pas exactement à cause d'indentation/whitespace) tout en laissant croire au succès si on ne revérifie pas. Lors de cette session, OUTPUT_VERSION et la fonction DIAG n'avaient PAS été appliqués au 1er push v4.15.60 → re-push nécessaire. Toujours `Read` le fichier réel après edit, et NE PAS valider via `node -e` avec regex contenant `\"` sous PowerShell (l'échappement casse). Utiliser un script `.js` ou `String.fromCharCode(34)`.
 
+## Quota Optimization Session (2026-07-15)
+
+### Problème : épuisement quota UrlFetchApp récurrent
+
+- **Symptôme** : `[BLOCKED:QUOTA]` sur 90%+ des wallets, `"Service invoked too many times for one day: urlfetch."` en B1 de Portefeuille Crypto et CEX.
+- **Cause racine** : `_runPricingWorker` faisait ~1440-2300 appels directs/jour (Llama/DexScreener/GT/CMC/RPC) depuis GAS pour pré-remplir un cache prix local. Or **tous les wallets passent par WEB_SCAN** (API Railway) qui fait le pricing côté serveur. Le cache GlobalPriceCache n'était plus consommé → gaspillage massif.
+- **Fix v4.15.34** : `_runPricingWorker` désactivé (no-op). `ACTIVITY_WATCHDOG` ralenti 10→30 min. Économie : ~2500-4200 appels/jour.
+- **Fix v4.15.35** : `HttpCounter` enrichi avec tracking par trigger (buckets horaires glissants 24h). Nouvelle fonction `GET_HTTP_BREAKDOWN_24H()`.
+- **Fix v4.15.58** : `HttpCallCounter.getToday()` utilise le rolling 24h de `HttpCounter.count()` au lieu du reset calendaire 09h UTC trompeur.
+- **Fix v4.15.167/205** : `_WCORE_ORIG_FETCH` remplacé par `UrlFetchApp.fetch` patché dans les portfolios → respectent le breaker et affichent `BLOCKED:QUOTA` au lieu d'`ERROR`.
+- **Fichiers supprimés** : `CACHE_WEB.gs` (jamais intégré), `CEX_CORE.gs` (abstraction jamais adoptée).
+
+### Compteur HTTP : deux systèmes, UNE source de vérité
+
+| Système | Fichier | Rôle |
+|---------|---------|------|
+| `HttpCounter` | `03E_QUOTA_CIRCUIT_BREAKER.gs` | **Source de vérité** — buckets horaires glissants 24h. `count()` = total rolling. `byTrigger()` = breakdown par trigger. |
+| `HttpCallCounter` | `26B_HTTP_SAVINGS.gs` | Legacy calendaire (09h UTC). `getToday()` forward vers `HttpCounter.count()`. Gardé pour per-host tracking et milestones. |
+
+### Vérifier le quota
+
+```bash
+# Dans une cellule Google Sheets :
+=TEST_QUOTA_NOW()           # "OK - Quota available" ou "EXHAUSTED - tripped at ..."
+=GET_HTTP_COUNT_LAST_24H()  # Nombre réel d'appels dans la fenêtre glissante 24h
+=GET_HTTP_BREAKDOWN_24H()   # Tableau détaillé par trigger
+```
+
+### Architecture WEB_SCAN vs pricing local
+
+- **WEB_SCAN** (via `_webScanWallet_` dans `41_GSHEET_WEB_SCAN.gs`) : 1 appel GAS → API Railway → Railway fait Llama/DexScreener/GT/RPC → retourne prix inclus. **C'est le chemin privilégié.**
+- **RPC direct** (fallback) : wallet scanné depuis GAS → RPC blockchain + pricing direct. **N'est plus utilisé** car `GSHEET_WEB_SCAN_REQUIRE=true`.
+- **GlobalPriceCache** : rempli par `_runPricingWorker` (maintenant désactivé). N'est plus consommé par les scans.
+
+### Cadences triggers optimisées
+
+| Trigger | Avant | Après | Runs/j |
+|---------|-------|-------|--------|
+| `ACTIVITY_WATCHDOG` | 10 min | **30 min** | 144→48 |
+| `_runPricingWorker` | 5 min | **DÉSACTIVÉ** | 288→0 |
+
 ## Nouveautés v4.15.59 / v4.15.60
 
 ### OutputSnapshotCache — préservation d'affichage en BLOCKED:QUOTA (10_OUTPUT.gs, 11/14/15 engines)

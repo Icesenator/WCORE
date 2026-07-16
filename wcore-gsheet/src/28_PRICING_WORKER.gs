@@ -18,7 +18,7 @@
 // v0.1.12 - visible no-market gaps stay blank and respect retry cooldown
 // v0.1.3 - instrumentation HttpCallCounter per-trigger
 
-var PRICING_WORKER_VERSION = "4.15.33";
+var PRICING_WORKER_VERSION = "4.15.34";
 
 var PRICING_WORKER_CONFIG = {
   ENABLED_KEY: "PRICING_WORKER_ENABLED",
@@ -855,7 +855,10 @@ function _pricingWorkerSaveStats_(stats) {
 }
 
 function _runPricingWorker(force) {
-  try { HttpCallCounter.setTrigger('_runPricingWorker'); } catch(e){}
+  // v4.15.34: DISABLED — all wallets use WEB_SCAN (Railway-side pricing).
+  // Direct HTTP calls to Llama/DexScreener/GT/CMC/RPCs were consuming
+  // ~1440-2304 UrlFetchApp calls/day for a cache no longer consumed.
+  return { skipped: "disabled_v4.15.34", reason: "WEB_SCAN handles pricing server-side" };
   var startedMs = Date.now();
   var timer = _pricingWorkerTimer_(startedMs);
   var stats = {

@@ -1132,12 +1132,14 @@ function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
 }
 
 function UPDATE_BITPANDA_SPOT() {
+  try { HttpCallCounter.setTrigger('UPDATE_BITPANDA_SPOT'); } catch(e){}
   // Auto trigger path: keep the regular Bitpanda spot job bounded. Stocks are
   // priced/written by UPDATE_BITPANDA_STOCKS_FIAT in a separate trigger.
   return _bpUpdateSelectedBuckets_({ crypto: true, commodity: true, fiat: true, stocks: false }, "bitpanda-api");
 }
 
 function UPDATE_BITPANDA_STOCKS_FIAT() {
+  try { HttpCallCounter.setTrigger('UPDATE_BITPANDA_STOCKS_FIAT'); } catch(e){}
   return _bpUpdateSelectedBuckets_({ fiat: true, stocks: true }, "bitpanda-api-action-rebalancing");
 }
 

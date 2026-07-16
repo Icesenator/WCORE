@@ -1,10 +1,10 @@
-// v4.15.204 - Switch BW1 checkbox master + U1=TRUE in formulas (chart height fix: 24px/row + 100px pad + offsetX).
+// v4.15.205 - Use patched UrlFetchApp.fetch (respects quota breaker) instead of _WCORE_ORIG_FETCH bypass.
 // v4.15.203 - Auto-resize chart height after filter reapply based on visible rows (S=X count).
 // v4.15.202 - Reapply auto-filter on column S (Achat) after each hourly refresh.
 // v4.15.201 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.200 - Portefeuille Crypto (source WCORE API, sans SyncWith).
 
-var CRYPTO_PORTFOLIO_VERSION = "4.15.204";
+var CRYPTO_PORTFOLIO_VERSION = "4.15.205";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -206,6 +206,7 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
 }
 
 function CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH() {
+  try { HttpCallCounter.setTrigger('CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH'); } catch(e){}
   return UPDATE_CRYPTO_PORTFOLIO_V2();
 }
 
@@ -262,11 +263,13 @@ function _cryptoPortfolioFetchSnapshot_() {
   if (!baseUrl) throw new Error("Missing ScriptProperty WCORE_WEB_API_URL");
   if (!token) throw new Error("Missing ScriptProperty GSHEET_API_TOKEN");
   var resp = _cryptoPortfolioFetchWithRetry_(function () {
-    return (typeof _WCORE_ORIG_FETCH === "function" ? _WCORE_ORIG_FETCH : UrlFetchApp.fetch)(baseUrl.replace(/\/$/, "") + CRYPTO_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
+    var fetchResult = UrlFetchApp.fetch(baseUrl.replace(/\/$/, "") + CRYPTO_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
       method: "get",
       muteHttpExceptions: true,
       headers: { "x-gsheet-token": token, accept: "application/json" }
     });
+    if (!fetchResult) throw new Error("BLOCKED:QUOTA");
+    return fetchResult;
   });
   if (!resp || typeof resp.getResponseCode !== "function") {
     throw new Error("WCORE crypto portfolio HTTP blocked or empty response");

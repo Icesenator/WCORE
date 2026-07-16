@@ -1,5 +1,39 @@
 # GSheet Changelog
 
+## 2026-07-16 — v4.16.30 : Audit G2 quota fix + bulk CEX relay + ACTIVITY_WATCHDOG disabled + OKSOL alias
+
+### Audit G2 — Compteur quota réparé (03E_QUOTA_CIRCUIT_BREAKER.gs, 41_GSHEET_WEB_SCAN.gs, 16_REFRESH.gs)
+- **Bug** : `_webScanWallet_` (consommateur HTTP #1) utilise `_originalUrlFetch` qui contourne le patch de comptage → `GET_HTTP_COUNT_LAST_24H()` affichait 0 alors que des centaines d'appels étaient faits.
+- **Fix** : `HttpCounter.record(1)` + `HttpCallCounter.setTrigger()` ajoutés dans :
+  - `41_GSHEET_WEB_SCAN.gs` — chaque tentative de web scan
+  - `16_REFRESH.gs` — probe httpbin du recovery sweep
+  - `03E_QUOTA_CIRCUIT_BREAKER.gs` — test httpbin du breaker
+- **Impact** : le compteur 24h est maintenant fiable. 185/202 appels = WATCHDOG_FROM_RECAP (92%).
+
+### Bulk CEX relay — 1 appel au lieu de 4 (44_CEX_BULK.gs, railway-relay/server.js, 16B_AUTO_HEAL.gs)
+- **railway-relay** : nouveau `GET /all?token=...` exécute Binance+Bybit+Coinbase+OKX en parallèle serveur.
+- **GAS** : `UPDATE_CEX_RELAY_ALL()` appelle `/all` une fois et écrit les 4 sheets.
+- **Auto-heal** : installe `UPDATE_CEX_RELAY_ALL` au lieu des 4 triggers individuels. Fallback aux triggers individuels si la fonction n'existe pas.
+- **Économie** : -72 UrlFetch/jour (3 appels × 24h).
+
+### ACTIVITY_WATCHDOG désactivé (27_ACTIVITY_REFRESH.gs, 16B_AUTO_HEAL.gs)
+- **Raison** : ~5760 UrlFetch/jour (120 wallets × `eth_getTransactionCount` × 48 runs) — 2e plus gros consommateur.
+- **Fonction** : `return` immédiat avec `{ skipped: "disabled_v4.16.30" }`.
+- **Auto-heal** : ne crée plus le trigger, le supprime au prochain cycle.
+- **Fallback** : `WATCHDOG_FROM_RECAP` (I1 > 5h stale detection) suffit pour le scheduling des refreshes.
+
+### OKSOL → SOL alias + merge doublons (40_OKX_SYNC.gs)
+- **Alias** : `OKSOL` (OKX liquid-staked SOL) mappé vers `SOL`.
+- **Merge** : dédoublonnage par `(symbole, source)` — les soldes OKSOL et SOL natif sont fusionnés sur une seule ligne.
+
+### Attribution trigger (35_BITPANDA_SYNC.gs, 37_BITFINEX_SYNC.gs, 41_KRAKEN_SYNC.gs, 42_STOCK_PORTFOLIO.gs, 43_CRYPTO_PORTFOLIO.gs, 44_CEX_BULK.gs)
+- Tous les triggers CEX et portfolio appellent maintenant `HttpCallCounter.setTrigger()` en entrée → le breakdown 24h distingue chaque type d'appel.
+
+### Cleanup auto-heal (16B_AUTO_HEAL.gs)
+- Suppression des triggers `_runPricingWorker` orphelins (v4.15.34 désactivé mais les vieux triggers persistaient).
+- `managed` list mise à jour : `_runPricingWorker`, `UPDATE_CEX_RELAY_ALL`, `ACTIVITY_WATCHDOG`.
+- Trigger spec bump → force réinstallation au prochain cycle.
+
 ## 2026-07-14 — v4.16.29 : Fix Tempo web scan preservation + USDC.e pricing cascade
 
 ### `_webScanShouldPreserveExistingCache_` + DISABLE_NATIVE_BALANCE (41_GSHEET_WEB_SCAN.gs)

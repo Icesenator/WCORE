@@ -388,7 +388,17 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
 function _webScanShouldPreserveExistingCache_(payload, cache, config) {
   if (!payload || payload.ok !== true || payload.degraded !== true) return false;
   var nativeDisabled = config && config.FLAGS && config.FLAGS.DISABLE_NATIVE_BALANCE;
-  var nativeAsset = cache && Array.isArray(cache.assets) ? cache.assets[0] : null;
+  // v4.16.30: do not preserve an empty cache (native=0, no extra tokens).
+  // An empty cache has zero useful information. Blocking the degraded scan
+  // here creates a permanent [WEB_SCAN_PRESERVED] loop with no way out.
+  if (!cache || !Array.isArray(cache.assets) || cache.assets.length === 0) return false;
+  var hasUsefulCache = false;
+  var nativeAsset = cache.assets[0];
+  if (nativeAsset && String(nativeAsset.contract || "") === "native" && _webScanNum_(nativeAsset.balance, 0) > 0) hasUsefulCache = true;
+  for (var ca = 1; ca < cache.assets.length; ca++) {
+    if (_webScanNum_(cache.assets[ca].balance, 0) > 0) { hasUsefulCache = true; break; }
+  }
+  if (!hasUsefulCache) return false;
   if (!nativeDisabled && nativeAsset && String(nativeAsset.contract || "") === "native" && _webScanNum_(nativeAsset.balance, 0) === 0) return true;
   var errors = Array.isArray(payload.errors) ? payload.errors : [];
   if (errors.length) {

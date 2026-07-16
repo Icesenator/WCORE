@@ -425,12 +425,12 @@ if (!autoHeal) {
   fail(errors, "WCORE_AUTO_HEAL must exist as the central automatic self-heal entry point");
 }
 if (autoHeal && (!autoHeal.includes("ACTIVITY_WATCHDOG") || !autoHeal.includes("WATCHDOG_FROM_RECAP") ||
-    !autoHeal.includes("QUOTA_RECOVERY_SWEEP") || !autoHeal.includes("LEDGER_ON_CHANGE") ||
-    !autoHeal.includes("_runPricingWorker"))) {
-  fail(errors, "WCORE_AUTO_HEAL must ensure activity, recap, quota recovery, ledger, and pricing-worker triggers");
+    !autoHeal.includes("QUOTA_RECOVERY_SWEEP") || !autoHeal.includes("LEDGER_ON_CHANGE"))) {
+  fail(errors, "WCORE_AUTO_HEAL must ensure activity, recap, quota recovery, and ledger triggers");
 }
-if (autoHeal && (!autoHeal.includes("PHASE_C_ENABLED") || !autoHeal.includes("PRICING_WORKER_ENABLED"))) {
-  fail(errors, "WCORE_AUTO_HEAL must enable the pricing worker automatically");
+// v4.15.34: PRICING_WORKER disabled — WEB_SCAN handles pricing server-side on Railway
+if (autoHeal && !autoHeal.includes("PHASE_C_ENABLED")) {
+  fail(errors, "WCORE_AUTO_HEAL must enable PHASE_C");
 }
 if (autoHeal && (!autoHeal.includes("PRUNE_ACTIVITY_NONCE_MAP_STALE") || !autoHeal.includes("DISCOVER_AND_REGISTER_WALLETS"))) {
   fail(errors, "WCORE_AUTO_HEAL must prune stale activity state and bootstrap nonce tracking automatically");

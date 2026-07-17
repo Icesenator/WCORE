@@ -8,9 +8,9 @@
 
 **Tech Stack:** TypeScript (`wcore-web/packages/core`, `wcore-web/apps/api`), Node test runner, Apps Script `.gs` tests, Google Sheets output compatibility.
 
-**Status reconciliation (2026-07-17):** Implemented in the current worktree. Core types/helpers and the DeFi registry are present; Compound V3 collateral/borrow discovery and WCT lock status are dynamic; the GSheet API applies suffixes and mirror pricing from registry metadata or inline discovered `defi` metadata; Apps Script preserves API-provided names. The implementation evolved beyond the original static Compound registry design, but retains the seven-column output contract.
+**Status reconciliation (2026-07-17):** Deployed in production for selected Compound V3, WCT, Chainbase, and selected staked assets. Core types/helpers and the DeFi registry are present; Compound V3 collateral/borrow discovery and WCT lock status are dynamic; GSheet and Web `/api/scan/batch` share suffix, mirror-pricing, readable-label, and signed-debt finalization; Apps Script preserves the seven-column output contract. This does not claim broad LP, vault, or protocol coverage.
 
-**Local verification (2026-07-17):** 19/19 targeted DeFi core tests, 36/36 EVM tests, 51/51 GSheet API tests, core/API typechecks, `web-scan-adapter.test.js`, `wallet-cache-preserve-prices.test.js`, and static validation (3,103 globals) passed. Historical red-test steps were not replayed. Deployment and live post-deploy Sheet verification remain explicitly gated and are not claimed complete.
+**Final verification (2026-07-17):** shared 21 tests, core 290 tests, Web 161 tests, 104 targeted API tests, global typecheck, targeted lint, and API/Web production builds passed. Commits `6accdda1` and `95b91591` were deployed sequentially as Railway API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f` and Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`; the forced Optimism Web batch smoke returned `degraded=false`, `errors=[]`, and signed net `10.43 EUR`. No new `clasp push` was performed for the final Web fix.
 
 ---
 

@@ -1,5 +1,3 @@
-import type { ProviderId } from "./types.js";
-
 const ZERION_CHAIN_MAP = {
   ethereum: "ETHEREUM",
   arbitrum: "ARBITRUM_ONE",
@@ -17,10 +15,7 @@ const ZERION_CHAIN_MAP = {
   solana: "SOLANA",
 } as const;
 
-export type CanonicalEnrichmentChain = (typeof ZERION_CHAIN_MAP)[keyof typeof ZERION_CHAIN_MAP];
-
-export function toWcoreChain(provider: ProviderId, providerChain: string): CanonicalEnrichmentChain | undefined {
-  if (provider !== "zerion") return undefined;
+export function toWcoreChain(providerChain: string): string | undefined {
   const normalized = providerChain.trim().toLowerCase();
   return ZERION_CHAIN_MAP[normalized as keyof typeof ZERION_CHAIN_MAP];
 }

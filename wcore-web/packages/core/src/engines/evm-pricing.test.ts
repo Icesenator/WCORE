@@ -45,3 +45,42 @@ test("priceToken prices and displays a DeFi collateral by its asset contract", a
   assert.equal(result.priceEur, 2);
   assert.equal(result.valueEur, 20);
 });
+
+test("priceToken leaves mirrored DeFi positions for API post-processing without NO_PRICE errors", async () => {
+  let pricingCalls = 0;
+  const sources: PricingSourceSet = {
+    defillama: {
+      getTokenPriceUsd: async () => { pricingCalls++; return null; },
+      getNativePriceUsd: async () => null,
+    },
+    dexscreener: { getTokenPriceUsd: async () => { pricingCalls++; return null; } },
+    geckoterminal: { getTokenPriceUsd: async () => { pricingCalls++; return null; } },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => { pricingCalls++; return null; } },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const chain = { key: "OPTIMISM", CHAIN: { NAME: "Optimism" } } as ChainConfig;
+  const debt: DiscoveredToken = {
+    contract: "0xe36a30d249f7761327fd973001a32010b521b6fd",
+    symbol: "Comp Borrow",
+    name: "Compound V3 Borrowed",
+    decimals: 18,
+    source: "registry",
+    defi: {
+      protocol: "compound-v3",
+      type: "lending_debt",
+      underlying: "native",
+      liquidityStatus: "flex",
+      confidence: "high",
+      pricing: { mode: "mirror_native", sign: "debt" },
+    },
+  };
+  const errors: string[] = [];
+
+  const result = await priceToken(chain, debt, 1, 1, sources, new MemoryPricingCache(), undefined, errors);
+
+  assert.equal(pricingCalls, 0);
+  assert.deepEqual(errors, []);
+  assert.equal(result.priceEur, null);
+  assert.equal(result.valueEur, null);
+});

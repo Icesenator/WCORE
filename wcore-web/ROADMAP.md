@@ -38,7 +38,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 - **Compound V3 corrige** : `collateralBalanceOf(user, asset)` cible maintenant le Comet, tandis que le collatéral porte l'identite de pricing/affichage. Les décimales sont derivees de `AssetInfo.scale`; les anciennes entrees statiques et positions cachees sont retirees au profit de la discovery dynamique.
 - **Pricing propre** : collatéraux pricés directement par leur contrat; positions `mirror_native`/`mirror_underlying` differees vers l'adaptateur GSheet sans faux `NO_PRICE` ni état degraded.
-- **Deploiement** : API Railway `c0a756bc-90d6-42b6-afee-0a6b9a48e621`; Web Railway `8a5d4a67-1c88-4fd2-bf41-30c43cdca05c` (un redeploiement Web final suit la mise a jour de copy About).
+- **Deploiement** : API Railway `c0a756bc-90d6-42b6-afee-0a6b9a48e621`; Web Railway `ddda829a-daf0-4af0-877a-efef9aa99adc`.
 - **Validation live** : smoke authentifie Optimism `degraded=false`, sans erreur. `Comp wrsETH` affiche le contrat collatéral, une valeur positive; la dette Compound reste negative. Lecture seule GSheet confirme les sept colonnes, `[Flex]`/`[Lock]`, WCT, Compound, sKAITO et Chainbase.
 
 ### Session 2026-07-07 — Cycle X read-only + post "Read first. Sign later."

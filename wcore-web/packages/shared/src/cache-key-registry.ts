@@ -1,3 +1,31 @@
+import { EvmAddress, SvmAddress } from "./address";
+
+type CacheKeyVars = Record<string, string>;
+
+function normalizeZerionWallet(vars: CacheKeyVars): CacheKeyVars {
+  const evm = EvmAddress.safeParse(vars.address);
+  if (evm.success) return { ...vars, address: evm.data };
+
+  const svm = SvmAddress.safeParse(vars.address);
+  if (svm.success) return { ...vars, address: svm.data };
+
+  throw new Error("Invalid Zerion wallet address");
+}
+
+function validateZerionBudgetDate(vars: CacheKeyVars): CacheKeyVars {
+  const date = vars.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? "")) {
+    throw new Error("Invalid Zerion budget date");
+  }
+
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new Error("Invalid Zerion budget date");
+  }
+
+  return vars;
+}
+
 export const CACHE_KEY_REGISTRY = {
   priceDex: {
     vars: ["chainSlug", "contract"],
@@ -124,6 +152,68 @@ export const CACHE_KEY_REGISTRY = {
     web: "crypto:top-market-cap:lock",
     storage: "web-only" as const,
     ttl: "60s",
+  },
+  zerionPortfolioFresh: {
+    vars: ["address"],
+    gsheet: null,
+    web: "zerion:portfolio:v1:{address}:fresh",
+    storage: "web-only" as const,
+    ttl: "10m",
+    normalize: normalizeZerionWallet,
+  },
+  zerionPortfolioLastGood: {
+    vars: ["address"],
+    gsheet: null,
+    web: "zerion:portfolio:v1:{address}:last-good",
+    storage: "web-only" as const,
+    ttl: "24h",
+    normalize: normalizeZerionWallet,
+  },
+  zerionPortfolioFailure: {
+    vars: ["address"],
+    gsheet: null,
+    web: "zerion:portfolio:v1:{address}:failure",
+    storage: "web-only" as const,
+    ttl: "2m",
+    normalize: normalizeZerionWallet,
+  },
+  zerionPortfolioUntracked: {
+    vars: ["address"],
+    gsheet: null,
+    web: "zerion:portfolio:v1:{address}:untracked",
+    storage: "web-only" as const,
+    ttl: "1h",
+    normalize: normalizeZerionWallet,
+  },
+  zerionRequestLease: {
+    vars: ["address"],
+    gsheet: null,
+    web: "provider:zerion:request:{address}",
+    storage: "web-only" as const,
+    ttl: "10s",
+    normalize: normalizeZerionWallet,
+  },
+  zerionHalfOpenLease: {
+    vars: [],
+    gsheet: null,
+    web: "provider:zerion:half-open-lease",
+    storage: "web-only" as const,
+    ttl: "10s",
+  },
+  zerionDailyBudget: {
+    vars: ["date"],
+    gsheet: null,
+    web: "provider:zerion:daily:{date}",
+    storage: "web-only" as const,
+    ttl: "24h",
+    normalize: validateZerionBudgetDate,
+  },
+  zerionBreakerState: {
+    vars: [],
+    gsheet: null,
+    web: "provider:zerion:breaker",
+    storage: "web-only" as const,
+    ttl: "2m",
   },
 } as const;
 

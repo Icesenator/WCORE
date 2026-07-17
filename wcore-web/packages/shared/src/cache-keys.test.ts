@@ -34,6 +34,49 @@ describe("cacheKey", () => {
     expect(cacheKey("cryptoTopMarketCapLastGood", {})).toBe("crypto:top-market-cap:last-good");
     expect(cacheKey("cryptoTopMarketCapLock", {})).toBe("crypto:top-market-cap:lock");
   });
+
+  it("builds canonical Zerion keys and normalizes EVM addresses", () => {
+    const mixedCaseAddress = "0xAbCdEf0123456789aBCdef0123456789AbCdEf01";
+    const address = mixedCaseAddress.toLowerCase();
+
+    expect(cacheKey("zerionPortfolioFresh", { address: mixedCaseAddress })).toBe(`zerion:portfolio:v1:${address}:fresh`);
+    expect(cacheKey("zerionPortfolioLastGood", { address: mixedCaseAddress })).toBe(`zerion:portfolio:v1:${address}:last-good`);
+    expect(cacheKey("zerionPortfolioFailure", { address: mixedCaseAddress })).toBe(`zerion:portfolio:v1:${address}:failure`);
+    expect(cacheKey("zerionPortfolioUntracked", { address: mixedCaseAddress })).toBe(`zerion:portfolio:v1:${address}:untracked`);
+    expect(cacheKey("zerionRequestLease", { address: mixedCaseAddress })).toBe(`provider:zerion:request:${address}`);
+    expect(cacheKey("zerionHalfOpenLease", {})).toBe("provider:zerion:half-open-lease");
+    expect(cacheKey("zerionDailyBudget", { date: "2026-07-17" })).toBe("provider:zerion:daily:2026-07-17");
+    expect(cacheKey("zerionBreakerState", {})).toBe("provider:zerion:breaker");
+  });
+
+  it("preserves valid Solana addresses in Zerion wallet keys", () => {
+    const address = "11111111111111111111111111111111";
+
+    expect(cacheKey("zerionPortfolioFresh", { address })).toBe(`zerion:portfolio:v1:${address}:fresh`);
+    expect(cacheKey("zerionRequestLease", { address })).toBe(`provider:zerion:request:${address}`);
+  });
+
+  it.each([
+    "0x1234",
+    "0xgggggggggggggggggggggggggggggggggggggggg",
+    "1111111111111111111111111111111:",
+    "wallet:injection",
+  ])("rejects malformed Zerion wallet address %s", (address) => {
+    expect(() => cacheKey("zerionPortfolioFresh", { address })).toThrow("Invalid Zerion wallet address");
+    expect(() => cacheKey("zerionRequestLease", { address })).toThrow("Invalid Zerion wallet address");
+  });
+
+  it.each(["2026-7-17", "2026-02-29", "2026-07-17:breaker", "not-a-date"])(
+    "rejects invalid Zerion budget date %s",
+    (date) => {
+      expect(() => cacheKey("zerionDailyBudget", { date })).toThrow("Invalid Zerion budget date");
+    },
+  );
+
+  it("rejects missing and extra Zerion key arguments", () => {
+    expect(() => cacheKey("zerionPortfolioFresh", {} as { address: string })).toThrow("Missing var address");
+    expect(() => cacheKey("zerionBreakerState", { address: "extra" } as Record<string, string>)).toThrow("Unexpected var address");
+  });
 });
 
 describe("cacheKeyGsheet", () => {

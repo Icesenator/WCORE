@@ -144,6 +144,7 @@ test("incrementWithTtl uses one script call and passes a millisecond TTL", async
   assert.match(String(client.evalCalls[0]![0]), /PEXPIRE/);
   await assert.rejects(cache.incrementWithTtl("counter", 0), /positive/);
   await assert.rejects(cache.incrementWithTtl("counter", 0.5), /positive integer/);
+  await assert.rejects(cache.incrementWithTtl("counter", 1e100), /safe positive integer/);
   assert.equal(client.evalCalls.length, 2);
 });
 

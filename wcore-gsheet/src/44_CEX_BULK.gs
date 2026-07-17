@@ -1,3 +1,6 @@
+// v4.16.31 - Bulk write now applies per-provider symbol canonicalizers (OKSOL->SOL, Bybit aliases)
+//            + merges duplicate (symbol, source) rows — parity with the per-connector paths.
+//            v4.16.30 wrote raw relay rows, reintroducing OKSOL every 4h bulk refresh.
 // v4.16.30 - Bulk relay-based CEX refresh: 1 HTTP call instead of 4.
 // Replaces hourly UPDATE_BINANCE_SPOT / UPDATE_BYBIT_SPOT / UPDATE_COINBASE_SPOT / UPDATE_OKX_SPOT.
 // The relay exposes GET /all?token=... which runs all 4 providers in parallel server-side.
@@ -5,7 +8,41 @@
 // Non-relay CEXs (Bitpanda direct API, Bitfinex direct API, Kraken direct API) keep
 // their own hourly triggers — they don't use the relay.
 
-var CEX_BULK_VERSION = "4.16.30";
+var CEX_BULK_VERSION = "4.16.31";
+
+// Per-provider symbol canonicalizers. Binance/Coinbase are normalized server-side
+// by the relay; OKX (OKSOL->SOL) and Bybit (aliases) normalize GAS-side, so the
+// bulk path must apply the exact same functions as the per-connector paths.
+function _cexBulkCanonicalSymbol_(provider, sym) {
+  var s = String(sym || "").trim().toUpperCase();
+  if (!s) return s;
+  try {
+    if (provider === "okx" && typeof _okxCanonicalSymbol_ === "function") return _okxCanonicalSymbol_(s);
+    if (provider === "bybit" && typeof _bybitCanonicalSymbol_ === "function") return _bybitCanonicalSymbol_(s);
+  } catch (e) {}
+  return s;
+}
+
+// Merge duplicate (symbol, source) rows: sum balances/values, recompute avg price.
+// Row layout: [sym, amt, src, stamp, valueUsd, priceUsd]
+function _cexBulkMergeRows_(rows) {
+  var merged = [];
+  var byKey = {};
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var key = r[0] + "|" + r[2];
+    var ex = byKey[key];
+    if (ex) {
+      ex[1] += r[1];
+      ex[4] += r[4];
+      ex[5] = ex[1] > 0 ? ex[4] / ex[1] : r[5];
+    } else {
+      byKey[key] = r;
+      merged.push(r);
+    }
+  }
+  return merged;
+}
 
 var CEX_BULK_CONFIG = {
   PROVIDERS: ["binance", "bybit", "coinbase", "okx"],
@@ -72,7 +109,7 @@ function _cexBulkWriteOne_(ss, sheetName, buckets, config) {
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var dataRows = [];
   for (var i = 0; i < spot.length; i++) {
-    var sym = String(spot[i][0] || "").trim().toUpperCase();
+    var sym = _cexBulkCanonicalSymbol_(config, spot[i][0]);
     var amt = Number(String(spot[i][1] == null ? "0" : spot[i][1]).replace(",", "."));
     if (!isFinite(amt)) amt = 0;
     var src = String(spot[i][2] || "spot").trim().toLowerCase() || "spot";
@@ -85,7 +122,7 @@ function _cexBulkWriteOne_(ss, sheetName, buckets, config) {
   // Also handle Binance earn buckets
   var earnFlex = (buckets && Array.isArray(buckets["earn-flexible"])) ? buckets["earn-flexible"] : [];
   for (var ef = 0; ef < earnFlex.length; ef++) {
-    var eSym = String(earnFlex[ef][0] || "").trim().toUpperCase();
+    var eSym = _cexBulkCanonicalSymbol_(config, earnFlex[ef][0]);
     var eAmt = Number(String(earnFlex[ef][1] == null ? "0" : earnFlex[ef][1]).replace(",", "."));
     if (!isFinite(eAmt)) eAmt = 0;
     var eSrc = "earn-flexible";
@@ -97,7 +134,7 @@ function _cexBulkWriteOne_(ss, sheetName, buckets, config) {
   }
   var earnLocked = (buckets && Array.isArray(buckets["earn-locked"])) ? buckets["earn-locked"] : [];
   for (var el = 0; el < earnLocked.length; el++) {
-    var lSym = String(earnLocked[el][0] || "").trim().toUpperCase();
+    var lSym = _cexBulkCanonicalSymbol_(config, earnLocked[el][0]);
     var lAmt = Number(String(earnLocked[el][1] == null ? "0" : earnLocked[el][1]).replace(",", "."));
     if (!isFinite(lAmt)) lAmt = 0;
     var lSrc = "earn-locked";
@@ -107,6 +144,8 @@ function _cexBulkWriteOne_(ss, sheetName, buckets, config) {
     if (!isFinite(lPrc)) lPrc = 0;
     if (lSym && lAmt > 0) dataRows.push([lSym, lAmt, lSrc, stamp, lVal, lPrc]);
   }
+  // v4.16.31: merge duplicates created by aliasing (e.g. OKSOL+SOL -> single SOL row)
+  dataRows = _cexBulkMergeRows_(dataRows);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
   if (typeof _cexComputeAndAppendTotal_ === "function") {
     _cexComputeAndAppendTotal_(ss, sheetName, dataRows, config, values);

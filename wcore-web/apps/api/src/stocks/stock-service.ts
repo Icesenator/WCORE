@@ -14,9 +14,12 @@ const CMC_URL = "https://companiesmarketcap.com/?download=csv";
 const DEFAULT_SNAPSHOT_LIMIT = 300;
 const MAX_SNAPSHOT_LIMIT = 5_000;
 const STOCK_QUOTE_BATCH_SIZE = 50;
+const STOCK_QUOTE_CONCURRENCY = 4;
+const CACHE_WRITE_BATCH_SIZE = 500;
+const CACHE_WRITE_CONCURRENCY = 4;
 const FRESH_TTL_MS = 1 * 60 * 60 * 1000;
 const LAST_GOOD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const LOCK_TTL_MS = 60 * 1000;
+const LOCK_TTL_MS = 15 * 60 * 1000;
 const CLOCK_TOLERANCE_MS = 2 * 60 * 1000;
 
 export interface StockSnapshotRow extends ResolvedStockPrice {
@@ -198,17 +201,21 @@ export class CanonicalStockService {
       throw new StockServiceUnavailableError(`CompaniesMarketCap returned ${sourceRows.length} valid rows, expected at least ${Math.min(DEFAULT_SNAPSHOT_LIMIT, limit)}`);
     }
 
-    const quotes = await this.fetchQuotesChunked(sourceRows.map((row) => row.sourceTicker));
+    const mappedSources = sourceRows.map((source) => ({ source, mapping: mapTopMarketCapTicker(source.sourceTicker) }));
+    const [quotes, lastGoods] = await Promise.all([
+      this.fetchQuotesChunked(sourceRows.map((row) => row.sourceTicker)),
+      this.readPrices(mappedSources.map(({ mapping }) => mapping.canonicalTicker)),
+    ]);
     const currencies = distinctFxCurrencies(Object.values(quotes).map((quote) => quote.currency));
     const [usdToEur, fx] = await Promise.all([this.usdToEur(), currencies.length ? this.fetchFx(currencies) : Promise.resolve({})]);
     if (!Number.isFinite(usdToEur) || usdToEur <= 0) throw new StockServiceUnavailableError("Canonical USD/EUR rate is unavailable");
     const generatedAt = this.now().toISOString();
     const rows: StockSnapshotRow[] = [];
 
-    for (const source of sourceRows) {
-      const mapping = mapTopMarketCapTicker(source.sourceTicker);
+    for (let index = 0; index < mappedSources.length; index++) {
+      const { source, mapping } = mappedSources[index]!;
       const quote = quotes[source.sourceTicker];
-      const lastGood = await this.readPrice(mapping.canonicalTicker, true);
+      const lastGood = lastGoods[index];
       const supplyMultiplier = mapping.supplyMultiplier ?? 1;
       const fallbackPriceEur = (source.priceUsd / supplyMultiplier) * usdToEur;
       const resolved = resolveStockPrice({
@@ -237,20 +244,64 @@ export class CanonicalStockService {
   }
 
   private async persistRows(rows: StockSnapshotRow[]): Promise<void> {
+    const writes: Array<{ key: string; value: ResolvedStockPrice; ttlMs: number }> = [];
     for (const row of rows) {
       if (row.priceEur === null || row.stale) continue;
       const resolved = pickResolved(row);
-      await this.safeSet(cacheKey("stockPriceFresh", { ticker: row.canonicalTicker }), resolved, FRESH_TTL_MS);
-      await this.safeSet(cacheKey("stockPriceLastGood", { ticker: row.canonicalTicker }), resolved, LAST_GOOD_TTL_MS);
+      writes.push(
+        { key: cacheKey("stockPriceFresh", { ticker: row.canonicalTicker }), value: resolved, ttlMs: FRESH_TTL_MS },
+        { key: cacheKey("stockPriceLastGood", { ticker: row.canonicalTicker }), value: resolved, ttlMs: LAST_GOOD_TTL_MS },
+      );
     }
+
+    if (this.deps.cache.pipeline) {
+      for (let index = 0; index < writes.length; index += CACHE_WRITE_BATCH_SIZE) {
+        const batch = writes.slice(index, index + CACHE_WRITE_BATCH_SIZE);
+        try {
+          const written = await this.deps.cache.pipeline(batch);
+          if (written !== batch.length) await this.persistRowsFallback(batch);
+        } catch {
+          await this.persistRowsFallback(batch);
+        }
+      }
+      return;
+    }
+    await this.persistRowsFallback(writes);
   }
 
   private async fetchQuotesChunked(symbols: string[]): Promise<StockNativeQuoteMap> {
-    const output: StockNativeQuoteMap = {};
+    const batches: string[][] = [];
     for (let index = 0; index < symbols.length; index += STOCK_QUOTE_BATCH_SIZE) {
-      Object.assign(output, await this.fetchQuotes(symbols.slice(index, index + STOCK_QUOTE_BATCH_SIZE)));
+      batches.push(symbols.slice(index, index + STOCK_QUOTE_BATCH_SIZE));
     }
+    const results = await mapWithConcurrencyLimit(batches, STOCK_QUOTE_CONCURRENCY, (batch) => this.fetchQuotes(batch));
+    const output: StockNativeQuoteMap = {};
+    for (const result of results) Object.assign(output, result);
     return output;
+  }
+
+  private async readPrices(tickers: string[]): Promise<Array<ResolvedStockPrice | undefined>> {
+    const freshKeys = tickers.map((ticker) => cacheKey("stockPriceFresh", { ticker }));
+    const lastGoodKeys = tickers.map((ticker) => cacheKey("stockPriceLastGood", { ticker }));
+    let values: Array<ResolvedStockPrice | undefined>;
+    try {
+      values = await this.deps.cache.mget<ResolvedStockPrice>([...freshKeys, ...lastGoodKeys]);
+    } catch {
+      return tickers.map(() => undefined);
+    }
+    const now = this.now();
+    return tickers.map((_, index) => {
+      const fresh = values[index];
+      if (isResolvedPrice(fresh, now, FRESH_TTL_MS)) return fresh;
+      const lastGood = values[index + tickers.length];
+      return isResolvedPrice(lastGood, now, LAST_GOOD_TTL_MS) ? lastGood : undefined;
+    });
+  }
+
+  private async persistRowsFallback(writes: Array<{ key: string; value: ResolvedStockPrice; ttlMs: number }>): Promise<void> {
+    await mapWithConcurrencyLimit(writes, CACHE_WRITE_CONCURRENCY, async ({ key, value, ttlMs }) => {
+      await this.safeSet(key, value, ttlMs);
+    });
   }
 
   private async readPrice(ticker: string, includeFresh: boolean): Promise<ResolvedStockPrice | undefined> {
@@ -282,6 +333,29 @@ export class CanonicalStockService {
 function stockRelayUrl(): string {
   return process.env.STOCK_RELAY_URL || process.env.CEX_RELAY_URL || process.env.BYBIT_RELAY_URL
     || process.env.BINANCE_RELAY_URL || process.env.RAILWAY_SERVICE_CEX_RELAY_URL || "";
+}
+
+async function mapWithConcurrencyLimit<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  let failed = false;
+  let firstError: unknown;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (!failed && nextIndex < items.length) {
+      const index = nextIndex++;
+      try {
+        results[index] = await mapper(items[index]!);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+    }
+  });
+  await Promise.all(workers);
+  if (failed) throw firstError;
+  return results;
 }
 
 function validateLimit(limit: number): number {

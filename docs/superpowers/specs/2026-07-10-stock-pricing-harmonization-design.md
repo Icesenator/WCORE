@@ -166,7 +166,7 @@ The bounded CEX stock route keeps its existing `{ prices: { SYMBOL: { priceEur, 
 
 WCORE stores successful per-security prices and the latest complete snapshot in the shared cache.
 
-- Fresh per-security price TTL: 6 hours, aligned with existing stock relay caching.
+- Fresh per-security price and complete snapshot TTLs: 1 hour.
 - Snapshot cache: latest successful snapshot plus generation metadata.
 - A partial refresh may reuse per-security last-good prices and marks only those rows stale.
 - A total upstream failure serves the previous complete snapshot as stale when available.

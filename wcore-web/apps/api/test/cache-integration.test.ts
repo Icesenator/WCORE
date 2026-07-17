@@ -2,7 +2,7 @@
 // Run: pnpm --filter @wcore/api test
 // Requires TEST_DATABASE_URL + TEST_REDIS_URL in .env.test pointing to Railway.
 
-import { test, describe, before } from "node:test";
+import { test, describe, before, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { app, sharedCache } from "../src/server.js";
 import bs58 from "bs58";
@@ -381,27 +381,41 @@ describe("Redis Cache Integration — SVM & Cosmos", () => {
     }
   });
 
-  test("ETHEREUM native balance cache persists after successful scan", { timeout: 60_000 }, async () => {
+  test("ETHEREUM native balance cache persists after successful scan", { timeout: 60_000 }, async (t: TestContext) => {
     const evmAddr = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
     const addr = evmAddr.toLowerCase();
+    const scanResultKey = `scan:result:${addr}:ethereum`;
+    const nativeKey = `native:ethereum:${addr}`;
+
+    await Promise.all([
+      sharedCache.delete(scanResultKey),
+      sharedCache.delete(nativeKey),
+    ]);
 
     const res = await app.inject({
       method: "POST",
       url: "/api/scan",
-      payload: { address: evmAddr, chains: ["ETHEREUM"], deepScan: false },
+      payload: { address: evmAddr, chains: ["ETHEREUM"], deepScan: false, forceRefresh: true },
     });
     assert.equal(res.statusCode, 200);
-    const data = JSON.parse(res.payload) as { chains: Array<{ native: { balance: number } }> };
-    const nativeBal = data.chains?.[0]?.native?.balance ?? 0;
+    const data = JSON.parse(res.payload) as {
+      chains: Array<{ native: { balance: number } | null; errors: unknown[]; degraded: boolean; cachedAt: string | null }>;
+    };
+    const chain = data.chains?.[0];
 
-    await new Promise(r => setTimeout(r, CACHE_FLUSH_MS));
-
-    const nativeKey = `native:ethereum:${addr}`;
-    if (nativeBal > 0) {
-      const cached = await sharedCache.get<{ balance: string }>(nativeKey);
-      assert.ok(cached, `Native cache key ${nativeKey} should exist for wallet with ETH`);
-      assert.ok(typeof cached?.balance === "string", "native cache balance should be a string");
+    if (!chain?.native || chain.native.balance <= 0 || chain.errors.length > 0 || chain.degraded || chain.cachedAt !== null) {
+      t.skip("requires a clean, positive, uncached live Ethereum scan to verify native persistence");
+      return;
     }
+
+    const deadline = Date.now() + 5_000;
+    let cached: { balance: string } | undefined;
+    while (!cached && Date.now() < deadline) {
+      cached = await sharedCache.get<{ balance: string }>(nativeKey);
+      if (!cached) await new Promise(r => setTimeout(r, 100));
+    }
+    assert.ok(cached, `Native cache key ${nativeKey} should exist for wallet with ETH`);
+    assert.ok(typeof cached?.balance === "string", "native cache balance should be a string");
   });
 
   test("SVM + COSMOS cache key isolation after independent scans", { timeout: 180_000 }, async () => {

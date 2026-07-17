@@ -1,6 +1,6 @@
 # WCORE - Audit transversal
 
-> Date de verification: 2026-07-16  
+> Date de verification: 2026-07-16; reconciliation ciblee DeFi le 2026-07-17  
 > Perimetre: depot racine, `wcore-web`, `wcore-gsheet`, package genere `@wcore/chains`, CI, documentation et roadmaps.  
 > Methode: inspection statique du worktree courant, reconciliation des audits existants, recherches ciblees et tests non destructifs. Aucun appel live aux wallets, RPC, CEX, Google Sheets ou environnements Railway n'a ete effectue.  
 > Precedent audit: 2026-07-10 (10 P1 identifies, 4 resolus). Cet audit re-evalue le statut de chaque finding et ajoute les decouvertes de l'audit complet du 2026-07-16.
@@ -26,7 +26,7 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 |---|---|
 | Chaines generees | 183: 169 EVM, 2 SVM, 11 Cosmos, 1 TON |
 | Web | Next.js 16, Fastify, Prisma/PostgreSQL, Redis, Railway |
-| GSheet | 250 fichiers `.gs` (60 342 lignes), 3 033 fonctions, v4.16.30 |
+| GSheet | 250 fichiers `.gs` (60 342 lignes), 3 103 fonctions, v4.16.30 |
 | CEX | 7 providers: Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX, Kraken |
 | Tests core/shared | 301/301 passes |
 | Tests web | 137/137 unitaires passes; 6 tests API isoles en integration explicite |
@@ -140,7 +140,7 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 ### Web/API
 
 - `wcore-web/apps/api/src/plugins/cex.ts:103-105`: `CEX_SECRET` fallback sur `JWT_SECRET`; rendre une cle CEX dediee obligatoire en production.
-- `wcore-web/package.json:39`: override `ws@8.20.1` vulnerable; passer a `>=8.21.0` et regenerer le lockfile.
+- RESOLU le 2026-07-17: override `ws@8.21.1`; audit production sans vulnerabilite HIGH/CRITICAL.
 - `wcore-web/apps/api/src/server.ts:42-51`: fallback Redis memoire en production; rendre le service non-ready ou refuser le boot si Redis configure est indisponible.
 - `wcore-web/apps/api/src/auth.ts`: access token 24 h; reduire le TTL ou ajouter une version de session utilisateur.
 - `wcore-web/apps/api/src/plugins/cex.ts`: variables d'environnement CEX encore lues hors config typee; completer `config.ts` et les templates.
@@ -237,18 +237,18 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 - **Impact**: la version du package genere ne reflete pas la realite du runtime.
 - **Action**: bumper `dist/package.json` a chaque `build:chains`.
 
-### A6 - DeFi Position Engine v1: spec complete mais zero implementation
+### A6 - DeFi Position Engine v1 - IMPLEMENTED LOCALLY, DEPLOYMENT GATED
 
-- **Preuves**: spec (317 lignes) + plan (872 lignes) dans `wcore-gsheet/docs/superpowers/`. Toutes les checkboxes du plan sont decochees. Les positions DeFi (Compound V3, WCT Staking) sont gerees par des patches one-off.
-- **Impact**: dette architecturale. Le code de production utilise des workarounds la ou un registre structurel est prevu.
-- **Action**: prioriser ou abandonner formellement le design.
+- **Correction du constat 2026-07-17**: l'implementation est structuree et ne se limite pas a des correctifs isoles. `@wcore/core` contient les types/helpers et le registre DeFi; Compound V3 decouvre dynamiquement collateraux et dette; WCT resout dynamiquement le statut de lock; les tokens transportent `defi`; l'API GSheet applique suffixes et mirror pricing depuis le registre ou les metadonnees inline decouvertes; Apps Script conserve les noms fournis par l'API.
+- **Preuves locales**: 19/19 tests DeFi core, 36/36 tests EVM, 51/51 tests API GSheet, typechecks core/API, test d'adaptateur Web Scan, test de preservation du wallet cache et validation statique de 3 103 fonctions globales passes le 2026-07-17.
+- **Limite**: aucun deploiement ni appel live Railway/Google Sheets n'a ete effectue pendant cette reconciliation. Le deploiement sur approbation explicite et la verification post-deploiement des lignes Ledger restent ouverts.
 
 ### A7 - CI GitHub non operationnelle - RESOLVED 2026-07-17
 
 - **Correction**: workflow deplace a `WCORE/.github/workflows/ci.yml`, avec chemins monorepo explicites.
 - **Validation**: installation frozen, lint, typecheck, tests et build passent localement; execution GitHub effective au prochain push.
 
-### A8 - Lint rouge non bloquant + vulnerability `ws` non patchee - RESOLVED 2026-07-17
+### A8 - Lint et dependances - RESOLVED 2026-07-17
 
 - **Correction**: 18 erreurs et 1 warning corriges; `ws` force en `8.21.1`; lint execute sans tolerance dans la CI racine.
 - **Validation**: ESLint 0 erreur/0 warning; audit production sans HIGH/CRITICAL; lockfile frozen valide.
@@ -261,10 +261,13 @@ wcore-web shared tests:         17/17 passes
 wcore-web tests:               137/137 unitaires passes; integration API separee
 wcore-web typecheck:           passe
 wcore-web lint:                0 erreur, 0 warning
-wcore-gsheet npm test:         passe, 3 033 fonctions validees, 28 guard tests
+wcore-gsheet npm test:         passe, 3 103 fonctions validees, 28 guard tests
 wcore-gsheet relay tests:        9/9 passes
+DeFi core cible:                19/19 passes (2026-07-17)
+EVM core cible:                 36/36 passes (2026-07-17)
+API GSheet cible:               51/51 passes (2026-07-17)
 git diff --check:              passe sur les perimetres audites
-pnpm audit --prod:             1 vulnerabilite haute `ws`
+pnpm audit --prod:             aucune vulnerabilite HIGH/CRITICAL
 ```
 
 Limites: l'etat live des triggers GAS, quotas, caches, bases, RPC, CEX et services Railway n'a pas ete sonde. Les constats de concurrence GSheet sont issus de l'analyse des transitions read-modify-write et demandent une validation runtime apres correction.

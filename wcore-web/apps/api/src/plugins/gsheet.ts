@@ -261,7 +261,7 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
   const chain = String(result.chain || "").toUpperCase();
   const mirrors = STAKED_PRICE_MIRRORS[chain];
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];
-  if (!mirrors && tokens.every((token) => !getDeFiPositionMetadata(chain, String((token as Record<string, unknown>).contract || ""), String((token as Record<string, unknown>).symbol || "")))) return result;
+  if (!mirrors && tokens.every((token) => !(token as Record<string, unknown>).defi && !getDeFiPositionMetadata(chain, String((token as Record<string, unknown>).contract || ""), String((token as Record<string, unknown>).symbol || "")))) return result;
   const chainMirrors = mirrors ?? {};
 
   // v0.3.x: For Compound V3 collateral positions, the engine returns the Comet contract
@@ -285,31 +285,43 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
   const updated = tokens.map((t) => {
     const contract = String((t as Record<string, unknown>).contract || "").toLowerCase();
     const sym = String((t as Record<string, unknown>).symbol || "").toLowerCase();
-    const meta = metadataForToken(t);
+    const registryMeta = metadataForToken(t);
     // v0.3.x: on-chain discovered positions (e.g. Compound V3 cTokens) carry their
-    // own liquidityStatus / type / underlying on the token.defi object. Build a synthetic
-    // meta so the suffix + pricing logic works without a registry entry.
+    // own liquidityStatus / type / underlying on the token.defi object. Use it after
+    // registry metadata so suffix + pricing logic works without a registry entry.
     const tokenDefi = (t as Record<string, unknown>).defi as
-      | { type?: "lending_collateral" | "lending_debt" | "staking_locked" | "claimable" | "liquid_staking" | "vault_share" | "real_world_asset" | "wallet_token" | "unknown_defi"; liquidityStatus?: "flex" | "lock" | "unknown"; underlying?: string }
+      | { type?: "lending_collateral" | "lending_debt" | "staking_locked" | "claimable" | "liquid_staking" | "vault_share" | "real_world_asset" | "wallet_token" | "unknown_defi"; liquidityStatus?: "flex" | "lock" | "unknown"; underlying?: string; pricing?: { mode: "mirror_underlying" | "mirror_native" | "direct" | "none"; sign?: "asset" | "debt" } }
       | undefined;
-    let tokenLiqStatus = (t as Record<string, unknown>).liquidityStatus as string | undefined ?? tokenDefi?.liquidityStatus;
+    const meta = registryMeta ?? tokenDefi;
+    let tokenLiqStatus = registryMeta?.liquidityStatus ?? ((t as Record<string, unknown>).liquidityStatus as string | undefined) ?? tokenDefi?.liquidityStatus;
     // v0.3.x: WCT Stake lockUntil query for dynamic [Lock] → [Flex] transition.
     if (sym === "wct stake" && contract === "0x521b4c065bbdbe3e20b3727340730936912dfa46" && userAddress) {
       const dynamic = wctStakeStatusCache.get(`OPTIMISM:${userAddress.toLowerCase()}`);
       if (dynamic) tokenLiqStatus = dynamic;
     }
     const effectiveMeta = meta ?? (tokenLiqStatus ? { type: (tokenDefi?.type ?? "lending_collateral") as "lending_collateral", liquidityStatus: tokenLiqStatus as "flex" | "lock" | "unknown" } : undefined);
-    // Symbol-specific variants must win when one contract exposes multiple positions.
-    let mirror = chainMirrors[`${contract}|${sym}`];
-    if (!mirror) mirror = chainMirrors[contract];
-    const registryPricing = meta?.pricing;
-    const registryUnderlying = meta?.underlying;
-    if (!mirror && registryPricing && registryUnderlying) {
+    const metadataPricing = meta?.pricing;
+    const metadataUnderlying = meta?.underlying;
+    const compatibilityMirror = chainMirrors[`${contract}|${sym}`] ?? chainMirrors[contract];
+    const mirrorUnderlying = metadataPricing?.mode === "mirror_underlying"
+      ? metadataUnderlying
+      : metadataPricing?.mode === "mirror_native"
+        ? "native"
+        : undefined;
+    let mirror;
+    if (metadataPricing && mirrorUnderlying) {
       mirror = {
-        underlying: registryUnderlying,
-        symbol: registryUnderlying === "native" ? String((result.native as Record<string, unknown> | undefined)?.symbol || "native") : registryUnderlying,
-        negate: registryPricing.sign === "debt",
+        underlying: mirrorUnderlying,
+        symbol: compatibilityMirror?.underlying.toLowerCase() === mirrorUnderlying.toLowerCase()
+          ? compatibilityMirror.symbol
+          : mirrorUnderlying === "native"
+            ? String((result.native as Record<string, unknown> | undefined)?.symbol || "native")
+            : mirrorUnderlying,
+        negate: metadataPricing.sign === "debt",
       };
+    } else if (!metadataPricing) {
+      // Compatibility mirrors are only a fallback when no explicit pricing mode exists.
+      mirror = compatibilityMirror;
     }
     // v0.3.x: For Compound V3 collateral positions, the displayed contract must
     // be the cToken (in balanceSelectorExtraArgs[0]), not the Comet call target.
@@ -350,8 +362,9 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
     }
     const rawBalance = tokenNumberField(t, "balance") ?? 0;
     const negate = !!mirror.negate;
-    const displayBalance = negate ? -rawBalance : rawBalance;
-    const newValue = rawBalance > 0 ? roundMoney(rawBalance * underlyingPriced.priceEur) : null;
+    const magnitude = Math.abs(rawBalance);
+    const displayBalance = negate ? -magnitude : rawBalance;
+    const newValue = (negate ? magnitude > 0 : rawBalance > 0) ? roundMoney(magnitude * underlyingPriced.priceEur) : null;
     const displayValue = negate && newValue != null ? -newValue : newValue;
     const originalName = String((t as Record<string, unknown>).name || "");
     const name = effectiveMeta ? withLiquiditySuffix(originalName, { ...effectiveMeta, liquidityStatus: (tokenLiqStatus as LiquidityStatus) ?? effectiveMeta.liquidityStatus }) : originalName;
@@ -824,7 +837,9 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   });
 
   app.get("/api/gsheet/stocks/portfolio", async (req, reply) => {
-    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
+    const query = req.query as Record<string, unknown>;
+    if (Object.keys(query).some((key) => key !== "fresh")) return reply.code(400).send({ error: "unexpected_query" });
+    const fresh = String(query.fresh || "") === "true";
     if (!opts.stockPortfolioProvider) return reply.code(503).send({ error: "stock_portfolio_unavailable" });
     try {
       return await opts.stockPortfolioProvider({ fresh });
@@ -835,7 +850,9 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   });
 
   app.get("/api/gsheet/crypto/portfolio", async (req, reply) => {
-    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
+    const query = req.query as Record<string, unknown>;
+    if (Object.keys(query).some((key) => key !== "fresh")) return reply.code(400).send({ error: "unexpected_query" });
+    const fresh = String(query.fresh || "") === "true";
     if (!opts.cryptoPortfolioProvider) return reply.code(503).send({ error: "crypto_portfolio_unavailable" });
     try {
       return await opts.cryptoPortfolioProvider({ fresh });

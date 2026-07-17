@@ -67,7 +67,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **GSheet — Portfolio auto-filter** : `_portfolioReapplyFilter_()` réapplique le filtre colonne S (Achat) à chaque refresh horaire + onEdit BW1/B1. Corrige le retrait du `OR(T="X")` redondant dans la formule S Crypto.
 - **GSheet — Chart auto-resize** : `updateEmbeddedObjectPosition` redimensionne le graphique `visibleRows × 21` après chaque refresh et onEdit. `_WCORE_ORIG_FETCH` contourne le guard quota.
 - **Railway — Fresh pricing** : `?fresh=true` accepté sur les endpoints portfolio → bypass cache Redis → fetch CMC live. TTL cache réduit 6h → 1h. `EMERGENCY_RESET_QUOTA()` corrigé (faux positif breaker, 23/20000).
-- **Backlog — Pages CMC** : créer des pages publiques `/cmc/crypto` et `/cmc/stocks` sur WCORE Web affichant le top 5000 CMC en tableau simple, sans auth, avec auto-refresh.
+- **Pages Market Cap — implémentées localement** : routes publiques stables `/cmc/crypto` et `/cmc/stocks`, libellés Market Cap Crypto/Stock, logos source exacts quand disponibles, pays pour les actions, résumés responsive, recherche, pagination de 100 lignes et statut de snapshot stale. Tests présents ; aucun déploiement ni contrôle live n'est attesté.
 - **Backlog — Bridge** : intégration d'un bridge cross-chain (read-only ou interactif) permettant de visualiser et/ou exécuter des transferts d'actifs entre les 183+ chaînes suivies. Priorité : affichage des routes disponibles et des frais, avant exécution.
 
 ### Session 2026-07-01 - GSheet Web scan hardening + Base Zora pricing fallback

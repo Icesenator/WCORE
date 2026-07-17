@@ -87,7 +87,8 @@
 - [ ] Finir la centralisation des variables d'environnement.
 - [ ] Ajouter un test schema sur les 183 configurations.
 - [ ] Ajouter des tests comportementaux pour les hooks CEX/GM.
-- [ ] Implementer DeFi Position Engine v1 (spec + plan existants, zero implementation).
+- [x] DeFi Position Engine v1 implemente dans le worktree courant: types/registre core, Compound V3 et WCT dynamiques, suffixes/mirrors API avec metadonnees `defi` inline, pass-through Apps Script et tests. Verification locale ciblee passee le 2026-07-17; deploiement et verification live restent gates.
+- [x] Pages Market Cap implementees localement sur les routes stables `/cmc/crypto` et `/cmc/stocks`: UI renommee Market Cap Crypto/Stock, logos source exacts quand disponibles, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut de snapshot stale. Tests presents; aucun deploiement ni controle live n'est atteste.
 - [x] Corriger les 19 erreurs lint et rendre le lint bloquant en CI. Verifie le 2026-07-17.
 
 ## Chain Lifecycle
@@ -120,9 +121,9 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 
 ## Nouveaux risques (audit 2026-07-16)
 
-- **A6 - DeFi Position Engine V1**: spec complete (317 lignes) + plan (872 lignes) sans aucune implementation. Les positions DeFi utilisent des patches one-off.
+- **A6 - DeFi Position Engine V1**: implementation locale presente et testee: modele/registre core, decouverte Compound V3, statut WCT dynamique, suffixes/mirrors API (registre + metadonnees inline) et pass-through Apps Script. Aucun deploiement ni controle live post-deploiement n'est atteste par cette reconciliation.
 - **A7 - CI inactive**: workflow dans `wcore-web/.github/workflows/`, doit etre a la racine `WCORE/.github/workflows/`.
-- **A8 - Lint rouge + vulnerabilite**: 19 erreurs ESLint non bloquantes + `ws@8.20.1` HIGH non patche.
+- **A8 - Lint + dependances - RESOLU 2026-07-17**: lint bloquant vert; `ws@8.21.1`; aucune vulnerabilite HIGH/CRITICAL.
 - **A3 - Hotspots GSheet**: 16 fichiers > 1000 lignes, plan de split (`HOTSPOT_SPLIT_PLAN.md`) abandonne.
 - **A1 - Documentation non archivee**: 19 specs/plans termines cohabitent avec les documents actifs.
 

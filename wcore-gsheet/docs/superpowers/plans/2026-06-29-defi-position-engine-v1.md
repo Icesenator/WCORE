@@ -8,6 +8,10 @@
 
 **Tech Stack:** TypeScript (`wcore-web/packages/core`, `wcore-web/apps/api`), Node test runner, Apps Script `.gs` tests, Google Sheets output compatibility.
 
+**Status reconciliation (2026-07-17):** Implemented in the current worktree. Core types/helpers and the DeFi registry are present; Compound V3 collateral/borrow discovery and WCT lock status are dynamic; the GSheet API applies suffixes and mirror pricing from registry metadata or inline discovered `defi` metadata; Apps Script preserves API-provided names. The implementation evolved beyond the original static Compound registry design, but retains the seven-column output contract.
+
+**Local verification (2026-07-17):** 19/19 targeted DeFi core tests, 36/36 EVM tests, 51/51 GSheet API tests, core/API typechecks, `web-scan-adapter.test.js`, `wallet-cache-preserve-prices.test.js`, and static validation (3,103 globals) passed. Historical red-test steps were not replayed. Deployment and live post-deploy Sheet verification remain explicitly gated and are not claimed complete.
+
 ---
 
 ## File Structure
@@ -60,7 +64,7 @@
 - Create: `wcore-web/packages/core/src/defi/positions.test.ts`
 - Modify: `wcore-web/packages/core/src/index.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add `wcore-web/packages/core/src/defi/positions.test.ts`:
 
@@ -120,7 +124,7 @@ rtk pnpm --filter @wcore/core test -- src/defi/positions.test.ts
 
 Expected: FAIL because `src/defi/positions.ts` does not exist.
 
-- [ ] **Step 3: Add minimal implementation**
+- [x] **Step 3: Add minimal implementation**
 
 Create `wcore-web/packages/core/src/defi/positions.ts`:
 
@@ -216,7 +220,7 @@ export * from "./defi/index.js";
 
 If `src/index.ts` already has grouped exports, add the line next to other core exports.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run:
 
@@ -245,7 +249,7 @@ Expected: diff only contains the new DeFi types/helpers and export. Do not commi
 - Modify: `wcore-web/packages/core/src/defi/index.ts`
 - Modify: `wcore-web/packages/core/src/defi/positions.test.ts`
 
-- [ ] **Step 1: Write the failing registry tests**
+- [x] **Step 1: Write the failing registry tests**
 
 Append to `wcore-web/packages/core/src/defi/positions.test.ts`:
 
@@ -288,7 +292,7 @@ rtk pnpm --filter @wcore/core test -- src/defi/positions.test.ts
 
 Expected: FAIL because `./registry.js` does not exist.
 
-- [ ] **Step 3: Add registry implementation**
+- [x] **Step 3: Add registry implementation**
 
 Create `wcore-web/packages/core/src/defi/registry.ts`:
 
@@ -397,7 +401,7 @@ export * from "./positions.js";
 export * from "./registry.js";
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run:
 
@@ -426,7 +430,7 @@ Expected: registry contains only v1 known positions and tests. Do not commit unl
 - Modify: `wcore-web/packages/core/src/tokens/registry.ts`
 - Modify: `wcore-web/packages/core/src/defi/positions.test.ts`
 
-- [ ] **Step 1: Write failing test that registry tokens expose DeFi metadata**
+- [x] **Step 1: Write failing test that registry tokens expose DeFi metadata**
 
 Append to `wcore-web/packages/core/src/defi/positions.test.ts`:
 
@@ -455,7 +459,7 @@ rtk pnpm --filter @wcore/core test -- src/defi/positions.test.ts
 
 Expected: FAIL because `DiscoveredToken` does not have `defi` and registry entries do not set it.
 
-- [ ] **Step 3: Extend token type**
+- [x] **Step 3: Extend token type**
 
 Modify `wcore-web/packages/core/src/tokens/types.ts`:
 
@@ -477,7 +481,7 @@ export interface DiscoveredToken {
 
 Keep the existing comments for `balanceSelector` and `balanceSelectorExtraArgs`; only add the import and `defi?: PositionMetadata`.
 
-- [ ] **Step 4: Annotate existing DeFi registry entries**
+- [x] **Step 4: Annotate existing DeFi registry entries**
 
 Modify only the known DeFi-like entries in `wcore-web/packages/core/src/tokens/registry.ts`.
 
@@ -546,7 +550,7 @@ Use this exact pattern for Optimism entries:
 
 Also annotate Base `SDAYS` and `SSWEET` entries if they exist in `TOKEN_REGISTRY.BASE`; if they do not exist yet, leave them for Task 4 API registry lookup and do not add new token registry rows in this task.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -565,7 +569,7 @@ Expected: tests PASS and typecheck reports no TypeScript errors.
 - Modify: `wcore-web/apps/api/src/plugins/gsheet.ts`
 - Modify: `wcore-web/apps/api/src/plugins/gsheet.test.ts`
 
-- [ ] **Step 1: Write failing API tests for suffixes and registry-backed behavior**
+- [x] **Step 1: Write failing API tests for suffixes and registry-backed behavior**
 
 Modify the existing tests in `wcore-web/apps/api/src/plugins/gsheet.test.ts` under `describe("applyStakedPriceMirrors", ...)`.
 
@@ -601,12 +605,12 @@ const tokens = result.tokens as Array<{ symbol: string; name: string; balance: n
 Run:
 
 ```powershell
-rtk pnpm --filter @wcore/api test -- src/plugins/gsheet.test.ts
+rtk pnpm --filter @wcore/api exec node --import ./set-test-env.js --import tsx --test src/plugins/gsheet.test.ts
 ```
 
 Expected: FAIL because suffixes are not added yet. Existing unrelated `STRETCH` failure may still appear; the new suffix assertions should fail before implementation.
 
-- [ ] **Step 3: Update gsheet plugin imports**
+- [x] **Step 3: Update gsheet plugin imports**
 
 At the top of `wcore-web/apps/api/src/plugins/gsheet.ts`, add:
 
@@ -616,7 +620,9 @@ import { getDeFiPositionMetadata, withLiquiditySuffix } from "@wcore/core";
 
 If `@wcore/core` is already imported in this file, extend the existing import instead of adding a duplicate.
 
-- [ ] **Step 4: Replace mirror lookup with registry metadata fallback**
+- [x] **Step 4: Replace mirror lookup with registry metadata fallback**
+
+Current implementation note: compatibility mirrors remain, registry metadata takes precedence where available, and inline `token.defi` metadata covers dynamically discovered positions and non-registry chains. Compound V3 is discovered on-chain rather than retained as static registry rows.
 
 Inside `applyStakedPriceMirrors`, before the `updated = tokens.map(...)` block, add this helper:
 
@@ -677,17 +683,17 @@ For DeFi metadata entries that do not need mirror pricing but still need suffixe
     }
 ```
 
-- [ ] **Step 5: Run API tests**
+- [x] **Step 5: Run API tests**
 
 Run:
 
 ```powershell
-rtk pnpm --filter @wcore/api test -- src/plugins/gsheet.test.ts
+rtk pnpm --filter @wcore/api exec node --import ./set-test-env.js --import tsx --test src/plugins/gsheet.test.ts
 ```
 
 Expected: the suffix tests pass. If the existing unrelated `STRETCH` test still fails, record it as pre-existing and continue only if the new DeFi tests pass.
 
-- [ ] **Step 6: Typecheck API**
+- [x] **Step 6: Typecheck API**
 
 Run:
 
@@ -705,7 +711,7 @@ Expected: no TypeScript errors.
 - Modify: `wcore-gsheet/tests/web-scan-adapter.test.js`
 - Verify: `wcore-gsheet/src/41_GSHEET_WEB_SCAN.gs`
 
-- [ ] **Step 1: Write failing/pass-through test**
+- [x] **Step 1: Write failing/pass-through test**
 
 Add this block to `wcore-gsheet/tests/web-scan-adapter.test.js` near existing web scan cache conversion tests:
 
@@ -735,7 +741,7 @@ Add this block to `wcore-gsheet/tests/web-scan-adapter.test.js` near existing we
 }
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 Run from `C:\Users\strau\WCORE\wcore-gsheet`:
 
@@ -745,7 +751,7 @@ rtk node tests\web-scan-adapter.test.js
 
 Expected: PASS if Apps Script already preserves names. If it fails, the failure should show where names are stripped.
 
-- [ ] **Step 3: Patch only if needed**
+- [x] **Step 3: Patch only if needed**
 
 If the test fails because `_webScanAssetFromToken_` strips suffixes, ensure it uses the raw API-provided `name`:
 
@@ -755,7 +761,9 @@ name: String(tokenObj.name || tokenObj.symbol || ""),
 
 Do not add suffix logic in Apps Script. Suffixing belongs in the API/core layer for v1.
 
-- [ ] **Step 4: Run Apps Script validation**
+No Apps Script patch was required: `_webScanAssetFromToken_` already preserves `tokenObj.name`; the regression asserts suffixed WCT and Chainbase names survive cache conversion.
+
+- [x] **Step 4: Run Apps Script validation**
 
 Run:
 
@@ -774,7 +782,7 @@ Expected: web scan adapter OK and static validation OK.
 - No planned code changes.
 - Verify live API and Sheet output after deployment.
 
-- [ ] **Step 1: Run core and API targeted tests**
+- [x] **Step 1: Run core and API targeted tests**
 
 Run from `C:\Users\strau\WCORE\wcore-web`:
 
@@ -782,7 +790,7 @@ Run from `C:\Users\strau\WCORE\wcore-web`:
 rtk pnpm --filter @wcore/core test -- src/defi/positions.test.ts
 rtk pnpm --filter @wcore/core test -- src/engines/evm.test.ts
 rtk pnpm --filter @wcore/core typecheck
-rtk pnpm --filter @wcore/api test -- src/plugins/gsheet.test.ts
+rtk pnpm --filter @wcore/api exec node --import ./set-test-env.js --import tsx --test src/plugins/gsheet.test.ts
 rtk pnpm --filter @wcore/api typecheck
 ```
 
@@ -794,7 +802,7 @@ Expected:
 - API typecheck has no errors.
 - If `gsheet.test.ts` still has an unrelated pre-existing `STRETCH` failure, document it and verify the DeFi-specific tests pass.
 
-- [ ] **Step 2: Run Apps Script tests**
+- [x] **Step 2: Run Apps Script tests**
 
 Run from `C:\Users\strau\WCORE\wcore-gsheet`:
 
@@ -842,8 +850,8 @@ Verify `Comp WETH Borrow` remains negative and `INFO_TOTAL` remains net.
 Also verify `Ledger - Base!A1:G35` contains:
 
 ```text
-Chainbase Staking (locked) [Lock]
-Chainbase Airdrop (claimable) [Flex]
+Chainbase Staking [Lock]
+Chainbase Airdrop [Flex]
 ```
 
 If SDAYS/SSWEET are present, verify their names include `[Flex]` only if registry metadata was added for them.

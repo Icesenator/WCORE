@@ -1,6 +1,16 @@
 import { MemoryCacheStore } from "./memory-cache.js";
 import type { CacheStore } from "./types.js";
 
+export function pipelineExecError(results: Array<[Error | null, unknown]> | null, expectedCount: number): Error | undefined {
+  if (results === null) return new Error("Redis pipeline returned no results");
+  if (results.length !== expectedCount) {
+    return new Error(`Redis pipeline returned ${results.length} of ${expectedCount} results`);
+  }
+  const commandError = results.find(([error]) => error !== null)?.[0];
+  if (commandError) return commandError;
+  return undefined;
+}
+
 export interface RedisCacheOptions {
   host?: string;
   port?: number;
@@ -43,7 +53,7 @@ export async function createCacheStore(options: RedisCacheOptions = {}): Promise
       expire(key: string, seconds: number): Promise<number>;
       pipeline(): {
         set(key: string, value: string, ...args: (string | number)[]): void;
-        exec(): Promise<[Error | null, unknown][]>;
+        exec(): Promise<[Error | null, unknown][] | null>;
       };
     }
     const RedisModule = await import("ioredis");
@@ -140,7 +150,11 @@ export async function createCacheStore(options: RedisCacheOptions = {}): Promise
           }
         }
         try {
-          await pipe.exec();
+          const resultError = pipelineExecError(await pipe.exec(), ops.length);
+          if (resultError) {
+            reportError("pipeline", resultError);
+            return 0;
+          }
           return ops.length;
         } catch (err) {
           reportError("pipeline", err);

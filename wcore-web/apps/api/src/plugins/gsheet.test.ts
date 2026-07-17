@@ -113,6 +113,29 @@ describe("gsheetPlugin", () => {
     await app.close();
   });
 
+  test("passes fresh=true to the stock portfolio provider", async () => {
+    const app = Fastify();
+    let providerOpts: { fresh: boolean } | undefined;
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      stockPortfolioProvider: async (opts) => {
+        providerOpts = opts;
+        return { ok: true, generatedAt: "", ownerAddress: "", dynamicLimit: 300, holdingsStale: false, rows: [], stats: { ranked: 0, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 } };
+      },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/stocks/portfolio?fresh=true",
+      headers: { "x-gsheet-token": "secret" },
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(providerOpts, { fresh: true });
+    await app.close();
+  });
+
   test("rejects arbitrary stock portfolio query parameters", async () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
@@ -171,6 +194,29 @@ describe("gsheetPlugin", () => {
       rows: [{ canonicalSymbol: "BTC", rank: 1, name: "Bitcoin", priceEur: 55_000, marketCapEur: 1_000_000_000_000 }],
       stats: { ranked: 1, unpriced: 0 },
     });
+    await app.close();
+  });
+
+  test("passes fresh=true to the crypto portfolio provider", async () => {
+    const app = Fastify();
+    let providerOpts: { fresh: boolean } | undefined;
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      cryptoPortfolioProvider: async (opts) => {
+        providerOpts = opts;
+        return { ok: true, generatedAt: "", rows: [], stats: { ranked: 0, unpriced: 0 } };
+      },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/crypto/portfolio?fresh=true",
+      headers: { "x-gsheet-token": "secret" },
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(providerOpts, { fresh: true });
     await app.close();
   });
 
@@ -1152,12 +1198,242 @@ describe("applyStakedPriceMirrors", () => {
       fxRate: 0.878,
       scanMs: 123,
     });
-    const sdays = (result.tokens as Array<{ symbol: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "SDAYS");
-    const ssweet = (result.tokens as Array<{ symbol: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "SSWEET");
+    const sdays = (result.tokens as Array<{ symbol: string; name: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "SDAYS");
+    const ssweet = (result.tokens as Array<{ symbol: string; name: string; priceEur: number | null; valueEur: number | null; source: string | null }>).find((t) => t.symbol === "SSWEET");
+    assert.equal(sdays?.name, "Staked Chrystal - The Days (NOTION Remix) [Flex]");
+    assert.equal(ssweet?.name, "Staked Sweet Memories [Flex]");
     assert.equal(sdays?.priceEur, 0.000010670443);
     assert.equal(ssweet?.priceEur, 0.000009004185);
     assert.equal(sdays?.source, "staked-mirror:DAYS");
     assert.equal(ssweet?.source, "staked-mirror:SWEET");
+  });
+
+  test("suffixes inline DeFi metadata without chain mirrors or registry metadata", () => {
+    const input = {
+      ok: true as const,
+      chain: "ARBITRUM_NOVA",
+      chainName: "Arbitrum Nova",
+      vm: "EVM",
+      timestamp: "2026-07-17T12:00:00.000Z",
+      native: { symbol: "ETH", balance: 0.001, priceEur: 2_000, valueEur: 2, arbitraryNativeField: "preserve" },
+      tokens: [{
+        symbol: "INLINE",
+        name: "Inline Position",
+        contract: "0x1111111111111111111111111111111111111111",
+        balance: 3,
+        decimals: 18,
+        priceEur: 1,
+        valueEur: 3,
+        source: "custom-source",
+        defi: { type: "vault_share", liquidityStatus: "unknown", confidence: "medium", arbitraryDefiField: 42 },
+        arbitraryTokenField: { nested: true },
+      }, {
+        symbol: "PLAIN",
+        name: "Plain Wallet Token",
+        contract: "0x2222222222222222222222222222222222222222",
+        balance: 4,
+        decimals: 6,
+        priceEur: 1,
+        valueEur: 4,
+        source: "plain-source",
+        arbitraryPlainField: { untouched: true },
+      }],
+      totalValueEur: 9,
+      errors: ["preserve-result-error"],
+      degraded: true,
+      fxRate: 0.91,
+      scanMs: 321,
+      cacheStats: { hits: 7, arbitraryResultField: "preserve" },
+    };
+    const plainTokenBefore = structuredClone(input.tokens[1]);
+
+    const result = applyStakedPriceMirrors(input);
+
+    assert.deepEqual(result.tokens[1], plainTokenBefore, "ordinary sibling token must remain unchanged");
+    assert.deepEqual(result, {
+      ...input,
+      tokens: [{ ...input.tokens[0], name: "Inline Position [Unknown]" }, plainTokenBefore],
+    });
+  });
+
+  test("registry liquidity status takes precedence over conflicting inline metadata", () => {
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "BASE",
+      chainName: "Base",
+      vm: "EVM",
+      timestamp: "2026-07-17T12:00:00.000Z",
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [{
+        symbol: "SDAYS",
+        name: "Staked Chrystal - The Days (NOTION Remix)",
+        contract: SDAYS,
+        balance: 1,
+        decimals: 18,
+        priceEur: null,
+        valueEur: null,
+        defi: { type: "vault_share", liquidityStatus: "unknown", confidence: "low" },
+      }],
+      totalValueEur: 0,
+      errors: [],
+      degraded: false,
+      fxRate: 0.91,
+      scanMs: 1,
+    });
+
+    const sdays = (result.tokens as Array<{ name: string }>)[0];
+    assert.equal(sdays?.name, "Staked Chrystal - The Days (NOTION Remix) [Flex]");
+  });
+
+  test("registry pricing takes precedence over conflicting inline pricing", () => {
+    const SKAITO = "0x548d3b444da39686d1a6f1544781d154e7cd1ef7";
+    const KAITO = "0x98d0baa52b2d063e780de12f615f963fe8537553";
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "BASE",
+      chainName: "Base",
+      vm: "EVM",
+      timestamp: "2026-07-17T12:00:00.000Z",
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [
+        { symbol: "KAITO", name: "KAITO", contract: KAITO, balance: 2, decimals: 18, priceEur: 4, valueEur: 8, source: "underlying-feed" },
+        { symbol: "sKAITO", name: "Staked KAITO", contract: SKAITO, balance: 3, decimals: 18, priceEur: 99, valueEur: 297, source: "direct-feed", defi: { type: "vault_share", liquidityStatus: "unknown", pricing: { mode: "direct", sign: "asset" } } },
+      ],
+      totalValueEur: 305,
+      errors: [],
+      degraded: false,
+      fxRate: 0.91,
+      scanMs: 1,
+    });
+
+    const skaito = (result.tokens as Array<Record<string, unknown>>)[1];
+    assert.equal(skaito?.name, "Staked KAITO [Flex]");
+    assert.equal(skaito?.priceEur, 4);
+    assert.equal(skaito?.valueEur, 12);
+    assert.equal(skaito?.source, `staked-mirror:${KAITO}`);
+  });
+
+  test("inline direct and none pricing keep existing values while adding liquidity suffixes", () => {
+    const UNDERLYING = "0x3333333333333333333333333333333333333333";
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "ARBITRUM_NOVA",
+      chainName: "Arbitrum Nova",
+      vm: "EVM",
+      timestamp: "2026-07-17T12:00:00.000Z",
+      native: { symbol: "ETH", balance: 0.0005, priceEur: 2_000, valueEur: 1 },
+      tokens: [
+        { symbol: "BASE", name: "Underlying", contract: UNDERLYING, balance: 2, decimals: 18, priceEur: 2, valueEur: 4, source: "underlying-feed" },
+        { symbol: "DIRECT", name: "Direct Position", contract: "0x4444444444444444444444444444444444444444", balance: 3, decimals: 18, priceEur: 7, valueEur: 21, source: "direct-feed", defi: { type: "vault_share", liquidityStatus: "flex", underlying: UNDERLYING, pricing: { mode: "direct", sign: "asset" } } },
+        { symbol: "NONE", name: "Unpriced Position", contract: "0x5555555555555555555555555555555555555555", balance: 4, decimals: 18, priceEur: 5, valueEur: 20, source: "manual-feed", defi: { type: "unknown_defi", liquidityStatus: "unknown", underlying: UNDERLYING, pricing: { mode: "none", sign: "asset" } } },
+      ],
+      totalValueEur: 46,
+      errors: [],
+      degraded: false,
+      fxRate: 0.91,
+      scanMs: 1,
+    });
+    const tokens = result.tokens as Array<Record<string, unknown>>;
+
+    assert.deepEqual(tokens[1], { symbol: "DIRECT", name: "Direct Position [Flex]", contract: "0x4444444444444444444444444444444444444444", balance: 3, decimals: 18, priceEur: 7, valueEur: 21, source: "direct-feed", defi: { type: "vault_share", liquidityStatus: "flex", underlying: UNDERLYING, pricing: { mode: "direct", sign: "asset" } } });
+    assert.deepEqual(tokens[2], { symbol: "NONE", name: "Unpriced Position [Unknown]", contract: "0x5555555555555555555555555555555555555555", balance: 4, decimals: 18, priceEur: 5, valueEur: 20, source: "manual-feed", defi: { type: "unknown_defi", liquidityStatus: "unknown", underlying: UNDERLYING, pricing: { mode: "none", sign: "asset" } } });
+    assert.equal(result.totalValueEur, 46);
+  });
+
+  test("inline mirror modes use their intended source and recalculate debt total", () => {
+    const UNDERLYING = "0x6666666666666666666666666666666666666666";
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "ARBITRUM_NOVA",
+      chainName: "Arbitrum Nova",
+      vm: "EVM",
+      timestamp: "2026-07-17T12:00:00.000Z",
+      native: { symbol: "ETH", balance: 0.5, priceEur: 10, valueEur: 5 },
+      tokens: [
+        { symbol: "BASE", name: "Underlying", contract: UNDERLYING, balance: 2, decimals: 18, priceEur: 2, valueEur: 4, source: "underlying-feed" },
+        { symbol: "MIRROR", name: "Underlying Mirror", contract: "0x7777777777777777777777777777777777777777", balance: 5, decimals: 18, priceEur: null, valueEur: null, defi: { type: "vault_share", liquidityStatus: "flex", underlying: UNDERLYING, pricing: { mode: "mirror_underlying", sign: "asset" } } },
+        { symbol: "NATIVE", name: "Native Mirror", contract: "0x8888888888888888888888888888888888888888", balance: 2, decimals: 18, priceEur: null, valueEur: null, defi: { type: "lending_collateral", liquidityStatus: "flex", underlying: "native", pricing: { mode: "mirror_native", sign: "asset" } } },
+        { symbol: "DEBT", name: "Native Debt", contract: "0x9999999999999999999999999999999999999999", balance: 3, decimals: 18, priceEur: null, valueEur: null, defi: { type: "lending_debt", liquidityStatus: "flex", pricing: { mode: "mirror_native", sign: "debt" } } },
+      ],
+      totalValueEur: 9,
+      errors: [],
+      degraded: false,
+      fxRate: 0.91,
+      scanMs: 1,
+    });
+    const tokens = result.tokens as Array<{ symbol: string; balance: number; priceEur: number | null; valueEur: number | null; source?: string }>;
+
+    assert.deepEqual(tokens.find((token) => token.symbol === "MIRROR"), { ...result.tokens[1] as object, balance: 5, priceEur: 2, valueEur: 10, source: `staked-mirror:${UNDERLYING}` });
+    assert.equal(tokens.find((token) => token.symbol === "NATIVE")?.source, "staked-mirror:ETH");
+    assert.deepEqual(tokens.find((token) => token.symbol === "DEBT"), { ...result.tokens[3] as object, balance: -3, priceEur: 10, valueEur: -30, source: "staked-mirror:ETH (debt)" });
+    assert.equal(result.totalValueEur, 9);
+  });
+
+  test("keeps already-negative mirrored debt negative and includes it in the net total", () => {
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "ARBITRUM_NOVA",
+      chainName: "Arbitrum Nova",
+      vm: "EVM",
+      timestamp: "2026-07-17T12:00:00.000Z",
+      native: { symbol: "ETH", balance: 1, priceEur: 10, valueEur: 10 },
+      tokens: [{
+        symbol: "DEBT",
+        name: "Native Debt",
+        contract: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        balance: -3,
+        decimals: 18,
+        priceEur: null,
+        valueEur: null,
+        defi: { type: "lending_debt", liquidityStatus: "flex", pricing: { mode: "mirror_native", sign: "debt" } },
+      }],
+      totalValueEur: 10,
+      errors: [],
+      degraded: false,
+      fxRate: 0.91,
+      scanMs: 1,
+    });
+
+    const debt = (result.tokens as Array<{ balance: number; valueEur: number | null }>)[0];
+    assert.equal(debt?.balance, -3);
+    assert.equal(debt?.valueEur, -30);
+    assert.equal(result.totalValueEur, -20);
+  });
+
+  test("inline pricing overrides a matching compatibility mirror", () => {
+    const COMET = "0xe36a30d249f7761327fd973001a32010b521b6fd";
+    const UNDERLYING = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const result = applyStakedPriceMirrors({
+      ok: true,
+      chain: "OPTIMISM",
+      chainName: "Optimism",
+      vm: "EVM",
+      timestamp: "2026-07-17T12:00:00.000Z",
+      native: { symbol: "ETH", balance: 1, priceEur: 10, valueEur: 10 },
+      tokens: [
+        { symbol: "BASE", name: "Underlying", contract: UNDERLYING, balance: 2, decimals: 18, priceEur: 4, valueEur: 8, source: "underlying-feed" },
+        { symbol: "DIRECT", name: "Direct", contract: COMET, balance: 3, decimals: 18, priceEur: 7, valueEur: 21, source: "direct-feed", defi: { type: "vault_share", liquidityStatus: "flex", underlying: UNDERLYING, pricing: { mode: "direct", sign: "asset" } } },
+        { symbol: "NONE", name: "None", contract: COMET, balance: 4, decimals: 18, priceEur: 5, valueEur: 20, source: "manual-feed", defi: { type: "unknown_defi", liquidityStatus: "unknown", underlying: UNDERLYING, pricing: { mode: "none", sign: "asset" } } },
+        { symbol: "MIRROR", name: "Mirror", contract: COMET, balance: 5, decimals: 18, priceEur: null, valueEur: null, defi: { type: "lending_collateral", liquidityStatus: "flex", underlying: UNDERLYING, pricing: { mode: "mirror_underlying", sign: "asset" } } },
+        { symbol: "NATIVE", name: "Native", contract: COMET, balance: 6, decimals: 18, priceEur: null, valueEur: null, defi: { type: "lending_collateral", liquidityStatus: "flex", pricing: { mode: "mirror_native", sign: "asset" } } },
+      ],
+      totalValueEur: 59,
+      errors: [],
+      degraded: false,
+      fxRate: 0.91,
+      scanMs: 1,
+    });
+    const tokens = result.tokens as Array<Record<string, unknown>>;
+
+    assert.deepEqual(tokens[1], { symbol: "DIRECT", name: "Direct [Flex]", contract: COMET, balance: 3, decimals: 18, priceEur: 7, valueEur: 21, source: "direct-feed", defi: { type: "vault_share", liquidityStatus: "flex", underlying: UNDERLYING, pricing: { mode: "direct", sign: "asset" } } });
+    assert.deepEqual(tokens[2], { symbol: "NONE", name: "None [Unknown]", contract: COMET, balance: 4, decimals: 18, priceEur: 5, valueEur: 20, source: "manual-feed", defi: { type: "unknown_defi", liquidityStatus: "unknown", underlying: UNDERLYING, pricing: { mode: "none", sign: "asset" } } });
+    assert.equal(tokens[3]?.priceEur, 4);
+    assert.equal(tokens[3]?.valueEur, 20);
+    assert.equal(tokens[3]?.source, `staked-mirror:${UNDERLYING}`);
+    assert.equal(tokens[4]?.priceEur, 10);
+    assert.equal(tokens[4]?.valueEur, 60);
+    assert.equal(tokens[4]?.source, "staked-mirror:ETH");
+    assert.equal(result.totalValueEur, 139);
   });
 
   test("skips staked variant when underlying is missing or unpriced", () => {
@@ -1307,6 +1583,7 @@ describe("applyStakedPriceMirrors", () => {
     assert.equal(collateral?.priceEur, 1376.91);
     assert.equal(collateral?.valueEur, 9.64);
     assert.equal(collateral?.source, "staked-mirror:wrsETH");
+    assert.equal(result.totalValueEur, 15.15, "total must include the negative debt value");
   });
 
   test("Compound V3 collateral displays the cToken contract, not the Comet", () => {

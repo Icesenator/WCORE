@@ -274,9 +274,36 @@ describe("getApiConfig", () => {
       for (const value of ["invalid", "Infinity", "0", "-1", "1.5"]) {
         assert.throws(
           () => getApiConfig({ NODE_ENV: "test", [key]: value }),
-          new RegExp(`${key} must be a positive finite integer`),
+          new RegExp(`${key} must be a positive safe integer`),
         );
       }
+    }
+  });
+
+  it("rejects unsafe Zerion numeric values", () => {
+    const keys = [
+      "ZERION_TIMEOUT_MS",
+      "ZERION_CACHE_TTL_MS",
+      "ZERION_LAST_GOOD_TTL_MS",
+      "ZERION_DAILY_BUDGET",
+      "ZERION_MAX_RESPONSE_BYTES",
+      "ZERION_MAX_POSITIONS",
+    ];
+
+    for (const key of keys) {
+      assert.throws(
+        () => getApiConfig({ NODE_ENV: "test", [key]: "9007199254740992" }),
+        new RegExp(`${key} must be a positive safe integer`),
+      );
+    }
+  });
+
+  it("rejects Zerion timer values above the Node timeout limit", () => {
+    for (const key of ["ZERION_TIMEOUT_MS", "ZERION_CACHE_TTL_MS", "ZERION_LAST_GOOD_TTL_MS"]) {
+      assert.throws(
+        () => getApiConfig({ NODE_ENV: "test", [key]: "2147483648" }),
+        new RegExp(`${key} must be at most 2147483647`),
+      );
     }
   });
 });

@@ -91,7 +91,8 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 ### W9 - Une panne CEX efface les avoirs affiches - RESOLVED 2026-07-10
 
 - Correction: les echecs transitoires conservent les derniers avoirs et totaux sains avec marqueur degrade sans duplication; 401/403, deconnexion et reponse vide autoritative restent fail-closed. L'etat est indexe par session et les reponses obsoletes sont ignorees par `requestId`.
-- Preuves: `wcore-web/apps/web/__tests__/cex-holdings-state.test.ts` et `cex-display.test.ts`, 28/28 tests passes le 2026-07-10; typecheck Web et ESLint cible passes.
+- Durcissement 2026-07-17: un acces direct `/wallet` synchronise tous les comptes avant relecture, y compris les comptes vides. Non-2xx et rejets reseau preservent le snapshot stale; tous les syncs sont attendus; les requetes sont bornees corps HTTP inclus et les refreshs concurrents sont bloques dans l'UI.
+- Preuves: `wcore-web/apps/web/__tests__/cex-holdings-state.test.ts` et `cex-display.test.ts`, 36/36 tests CEX cibles; 169/169 tests Web, typecheck, lint et build production passes. Production a attester.
 
 ### G1 - Signature Cosmos GSheet incomplete
 

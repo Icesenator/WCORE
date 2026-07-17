@@ -56,7 +56,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
   const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(connectedAddress);
   // CEX holdings (cached) load automatically when authenticated and render as
   // extra wallet cards feeding the global total + Wallets/Tokens tabs.
-  const { cexResults, reloadCex } = useCexHoldings(connectedAddress);
+  const { cexResults, refreshCex, isRefreshingCex } = useCexHoldings(connectedAddress);
   const cexAddresses = useMemo(() => cexResults.map((r) => r.address), [cexResults]);
   const [expandedWallets, setExpandedWallets] = useState<Set<string>>(new Set());
   const [refreshingWallet, setRefreshingWallet] = useState<string | null>(null);
@@ -175,7 +175,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
   const allChainCards = enabledResults.flatMap((r) => r.chains);
   const totalTokens = allChainCards.reduce((s, c) => s + c.totals.tokenCount, 0);
   const uniqueChains = new Set(allChainCards.map((c) => c.chainKey)).size;
-  const isLoading = scanOrch.progress.done < scanOrch.progress.total || !scanOrch.results;
+  const isLoading = scanOrch.progress.done < scanOrch.progress.total || !scanOrch.results || isRefreshingCex;
 
   const availableChains = [...new Set(allChainCards.map(c => c.chainKey))].sort();
   const chainNames: Record<string, string> = {};
@@ -221,22 +221,10 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
   const showDiff = false;
 
   const handleRefreshAll = useCallback(() => {
-    scanOrch.setRefreshingAll(true);
-    setTimeout(() => scanOrch.setRefreshingAll(false), 5000);
     setEnabledAddresses([...addresses, ...cexAddresses]);
-    // Re-sync CEX accounts (Binance/Bitpanda/Bitfinex/Bybit) on the server, then
-    // reload their cached holdings so Refresh All covers exchanges, not just
-    // on-chain wallets. cexResults addresses are `cex:<provider>:<id>`.
-    const cexIds = cexResults
-      .map((r) => parseCexWalletAddress(r.address)?.id)
-      .filter((id): id is string => !!id);
-    if (cexIds.length > 0) {
-      void Promise.allSettled(
-        cexIds.map((id) => apiFetch(`/api/cex/accounts/${id}/sync`, { method: "POST" })),
-      ).then(() => { void reloadCex(); });
-    }
+    void refreshCex();
     scanOrch.triggerForceRefresh();
-  }, [scanOrch, addresses, cexAddresses, cexResults, reloadCex]);
+  }, [scanOrch, addresses, cexAddresses, refreshCex]);
 
   return (
     <main className="mx-auto w-full px-4 py-8 sm:px-6 sm:py-10">
@@ -317,7 +305,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
           scanDuration={scanOrch.scanDuration}
           allChainCards={allChainCards}
           displayResultsAdjusted={displayResultsAdjusted}
-          refreshingAll={scanOrch.refreshingAll}
+          refreshingAll={scanOrch.refreshingAll || isRefreshingCex}
           onRefreshAll={handleRefreshAll}
         />
 

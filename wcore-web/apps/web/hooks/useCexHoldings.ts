@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChainScan, TokenAsset } from "@wcore/shared";
 import { apiFetch } from "@/lib/api";
+import { cexFetch, type CexFetcher } from "@/lib/cex-api";
 import { getCexStockLogoUrl } from "@/lib/cex-stock-logos";
 
 // A synthetic ScanResult shape, identical to what useScanOrchestrator produces
@@ -31,6 +32,10 @@ interface CexRequestContext {
 type CexRequestOutcome =
   | { type: "success"; results: CexScanResult[] }
   | { type: "failure"; status?: number };
+
+export type CexRefreshOutcome =
+  | { type: "success"; results: CexScanResult[] }
+  | { type: "failure"; status?: number; previousResults: CexScanResult[] };
 
 interface CexHoldingApi {
   id: string;
@@ -137,7 +142,55 @@ function accountToScanResult(account: CexAccountApi): CexScanResult {
 }
 
 export function mapCexAccounts(accounts: CexAccountApi[]): CexScanResult[] {
-  return accounts.filter((account) => account.holdings.length > 0).map(accountToScanResult);
+  return accounts.map(accountToScanResult);
+}
+
+async function loadCexAccounts(fetcher: CexFetcher): Promise<{
+  accounts?: CexAccountApi[];
+  status?: number;
+}> {
+  const res = await cexFetch("/api/cex/accounts", {}, undefined, fetcher);
+  if (!res.ok) return { status: res.status };
+  const data = await res.json() as { accounts?: CexAccountApi[] };
+  return { accounts: data.accounts ?? [] };
+}
+
+export async function refreshCexAccounts(fetcher: CexFetcher = apiFetch): Promise<CexRefreshOutcome> {
+  let initial: Awaited<ReturnType<typeof loadCexAccounts>>;
+  try {
+    initial = await loadCexAccounts(fetcher);
+  } catch (_e) {
+    return { type: "failure", previousResults: [] };
+  }
+  if (!initial.accounts) {
+    return { type: "failure", status: initial.status, previousResults: [] };
+  }
+
+  const previousResults = mapCexAccounts(initial.accounts);
+  if (initial.accounts.length === 0) return { type: "success", results: [] };
+
+  try {
+    const responses = await Promise.allSettled(initial.accounts.map((account) =>
+      cexFetch(`/api/cex/accounts/${account.id}/sync`, { method: "POST" }, undefined, fetcher)
+    ));
+    const failed = responses.find((result) => result.status === "fulfilled" && !result.value.ok);
+    const rejected = responses.some((result) => result.status === "rejected");
+    if (failed?.status === "fulfilled" || rejected) {
+      return {
+        type: "failure",
+        status: failed?.status === "fulfilled" ? failed.value.status : undefined,
+        previousResults,
+      };
+    }
+
+    const fresh = await loadCexAccounts(fetcher);
+    if (!fresh.accounts) {
+      return { type: "failure", status: fresh.status, previousResults };
+    }
+    return { type: "success", results: mapCexAccounts(fresh.accounts) };
+  } catch (_e) {
+    return { type: "failure", previousResults };
+  }
 }
 
 // Loads the user's CEX accounts (cached holdings from the last sync) and exposes
@@ -145,7 +198,9 @@ export function mapCexAccounts(accounts: CexAccountApi[]): CexScanResult[] {
 export function useCexHoldings(connectedAddress: string | null) {
   const sessionKey = connectedAddress?.toLowerCase() ?? null;
   const [state, setState] = useState<CexHoldingsState>({ sessionKey, results: [] });
+  const [isRefreshingCex, setIsRefreshingCex] = useState(false);
   const requestIdRef = useRef(0);
+  const refreshIdRef = useRef(0);
   const latestSessionRef = useRef<string | null>(sessionKey);
 
   const reload = useCallback(async () => {
@@ -166,7 +221,7 @@ export function useCexHoldings(connectedAddress: string | null) {
       }, outcome));
     };
     try {
-      const res = await apiFetch("/api/cex/accounts");
+      const res = await cexFetch("/api/cex/accounts");
       if (!res.ok) { applyOutcome({ type: "failure", status: res.status }); return; }
       const data = await res.json() as { accounts?: CexAccountApi[] };
       applyOutcome({ type: "success", results: mapCexAccounts(data.accounts ?? []) });
@@ -176,14 +231,44 @@ export function useCexHoldings(connectedAddress: string | null) {
     }
   }, [sessionKey]);
 
+  const refresh = useCallback(async () => {
+    const requestSessionKey = sessionKey;
+    if (!requestSessionKey) return;
+    const requestId = ++requestIdRef.current;
+    const refreshId = ++refreshIdRef.current;
+    setIsRefreshingCex(true);
+    try {
+      const outcome = await refreshCexAccounts();
+      setState((previous) => {
+        const seeded = outcome.type === "failure" && previous.results.length === 0
+          ? { sessionKey: requestSessionKey, results: outcome.previousResults }
+          : previous;
+        return resolveCexRequestTransition(seeded, {
+          activeSessionKey: latestSessionRef.current,
+          requestSessionKey,
+          requestId,
+          latestRequestId: requestIdRef.current,
+        }, outcome.type === "success"
+          ? outcome
+          : { type: "failure", status: outcome.status });
+      });
+    } finally {
+      if (refreshId === refreshIdRef.current && requestSessionKey === latestSessionRef.current) {
+        setIsRefreshingCex(false);
+      }
+    }
+  }, [sessionKey]);
+
   useEffect(() => {
     latestSessionRef.current = sessionKey;
     requestIdRef.current += 1;
+    refreshIdRef.current += 1;
+    setIsRefreshingCex(false);
     setState((previous) => previous.sessionKey === sessionKey
       ? previous
       : { sessionKey, results: [] });
-    if (sessionKey) void reload();
-  }, [reload, sessionKey]);
+    if (sessionKey) void refresh();
+  }, [refresh, sessionKey]);
 
   // Refresh when a CEX sync happens elsewhere (Profile > CEX dispatches this).
   useEffect(() => {
@@ -193,5 +278,5 @@ export function useCexHoldings(connectedAddress: string | null) {
   }, [reload]);
 
   const cexResults = state.sessionKey === sessionKey ? state.results : [];
-  return { cexResults, reloadCex: reload };
+  return { cexResults, reloadCex: reload, refreshCex: refresh, isRefreshingCex };
 }

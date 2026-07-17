@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { ChainScan } from "@wcore/shared";
 import { detectChainType } from "@wcore/shared";
 import { getApiUrl } from "@/lib/api";
+import { boundedApiFetch } from "@/lib/cex-api";
 import { fetchBatchScan, makeErrorChainScan } from "@/lib/scan-api";
 import { matchCompatibleChains, type ChainScanMeta, type ScanVm } from "@/lib/chain-filter";
 import { getScanProgressDisplay } from "@/components/scan-progress";
@@ -25,7 +26,7 @@ function loadChainMetaMap(): Promise<Record<string, ChainScanMeta>> {
   chainMetaMapPromise = (async () => {
     const map: Record<string, ChainScanMeta> = {};
     try {
-      const res = await fetch(`${API_URL}/api/chains`);
+      const res = await boundedApiFetch("/api/chains");
       const data = await res.json() as { chains?: Array<{ key: string; vm: string; disabled?: boolean }> };
       if (data.chains) for (const ch of data.chains) map[ch.key.toUpperCase()] = { vm: ch.vm, disabled: !!ch.disabled };
     } catch { /* fallback logic handles unknown chains */ }
@@ -328,6 +329,7 @@ export function useScanOrchestrator({
       setActiveScanChains(new Map());
       setScanStartTime(null);
       setLastScanCompleteTime(endTime);
+      setRefreshingAll(false);
       forceRefreshRef.current = false;
       forceRefreshAddrsRef.current = new Set();
       if (total > 0) {
@@ -434,6 +436,7 @@ export function useScanOrchestrator({
   /* eslint-enable react-hooks/refs */
 
   const triggerForceRefresh = useCallback(() => {
+    setRefreshingAll(true);
     forceRefreshRef.current = true;
     forceRefreshAddrsRef.current = new Set(); // global force
     setScanTrigger(s => s + 1);

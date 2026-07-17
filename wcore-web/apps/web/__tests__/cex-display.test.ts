@@ -1,9 +1,16 @@
 // Run: node --import tsx --test apps/web/__tests__/cex-display.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildCexWalletListItem, getCexProviderMeta, isCexSyntheticContract, parseCexWalletAddress, sortWalletResultsByValueDesc } from "../lib/cex-display";
+import { buildCexWalletListItem, getCexProviderMeta, isCexSyntheticContract, parseCexWalletAddress, shouldApplyCexWalletRequest, sortWalletResultsByValueDesc } from "../lib/cex-display";
 import { getCexStockLogoUrl } from "../lib/cex-stock-logos";
 import manifest from "../lib/chain-icon-manifest.json";
+
+test("shouldApplyCexWalletRequest rejects stale and cross-session responses", () => {
+  assert.equal(shouldApplyCexWalletRequest("0xbbb", "0xaaa", 2, 2), false);
+  assert.equal(shouldApplyCexWalletRequest("0xaaa", "0xaaa", 1, 2), false);
+  assert.equal(shouldApplyCexWalletRequest(null, "0xaaa", 2, 2), false);
+  assert.equal(shouldApplyCexWalletRequest("0xaaa", "0xaaa", 2, 2), true);
+});
 
 test("sortWalletResultsByValueDesc sorts on-chain and CEX wallets by value descending", () => {
   const sorted = sortWalletResultsByValueDesc([

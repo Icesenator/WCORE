@@ -86,7 +86,7 @@
 - [ ] Ne plus poller `/api/circuit` admin-only depuis l'UI publique.
 - [ ] Finir la centralisation des variables d'environnement.
 - [ ] Ajouter un test schema sur les 183 configurations.
-- [ ] Ajouter des tests comportementaux pour les hooks CEX/GM.
+- [~] Tests comportementaux CEX ajoutes le 2026-07-17 (pannes, stale, concurrence, session, timeout complet); hooks GM encore a couvrir.
 - [x] `Selected DeFi positions` V1 deploye et verifie le 2026-07-17 pour une couverture ciblee Compound V3, WCT, Chainbase et actifs stakes selectionnes. Le Web `/api/scan/batch` et GSheet partagent la finalisation `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee; Compound est decouvert une fois par batch EVM, appelle `collateralBalanceOf(user, asset)` sur le Comet, utilise le contrat collatéral pour pricing/logo/sortie et derive les decimales de `AssetInfo.scale`. Commits `6accdda1`/`95b91591`; deploys Railway API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`, Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Smoke Optimism force: `degraded=false`, `errors=[]`, WCT `0,47 EUR` + `2,61 EUR`, Comp wrsETH `12,69 EUR`, dette WETH `-10,21 EUR`, net signe `10,43 EUR`.
 - [x] Pages Market Cap livrees sur les routes stables `/cmc/crypto` et `/cmc/stocks`: 5 000 lignes par annuaire, logos, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut fresh/stale. CI et controle live attestes le 2026-07-17. Post X publie (`2078069673707348415`) et trois interactions verifiees.
 - [x] Corriger les 19 erreurs lint et rendre le lint bloquant en CI. Verifie le 2026-07-17.

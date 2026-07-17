@@ -1,8 +1,11 @@
 // Run from wcore-web: pnpm --filter @wcore/web exec node --import tsx --test __tests__/cex-holdings-state.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { cexFetch } from "../lib/cex-api";
 import {
   mapCexAccounts,
+  refreshCexAccounts,
   resolveCexLoadFailure,
   resolveCexRequestTransition,
   type CexHoldingsState,
@@ -10,6 +13,33 @@ import {
 } from "../hooks/useCexHoldings";
 
 const STALE_MESSAGE = "Showing last known CEX holdings because refresh failed";
+
+test("cexFetch bounds the complete request even when the fetcher ignores abort signals", async () => {
+  const started = Date.now();
+  await assert.rejects(
+    cexFetch("/api/cex/accounts", {}, 10, async () => new Promise<Response>(() => {})),
+    /timed out/i,
+  );
+  assert.ok(Date.now() - started < 1000);
+});
+
+test("cexFetch times out when response headers arrive but the body stalls", async () => {
+  const stalledBody = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("{"));
+    },
+  });
+
+  await assert.rejects(
+    cexFetch("/api/cex/accounts", {}, 10, async () => new Response(stalledBody)),
+    /timed out/i,
+  );
+});
+
+test("Refresh All is disabled while a refresh is active", () => {
+  const source = readFileSync(new URL("../components/PortfolioSummaryCard.tsx", import.meta.url), "utf8");
+  assert.match(source, /disabled=\{refreshingAll\}/);
+});
 
 function makeResult(): CexScanResult {
   return {
@@ -126,6 +156,108 @@ test("mapCexAccounts maps successful holdings and treats an empty response as au
   assert.equal(token.priceEur, 80_000);
   assert.deepEqual(chain.totals, { valueEur: 80, tokenCount: 1, pricedCount: 1 });
   assert.deepEqual(mapCexAccounts([]), []);
+});
+
+test("mapCexAccounts keeps accounts without holdings available for refresh", () => {
+  const mapped = mapCexAccounts([{
+    id: "empty-account",
+    provider: "okx",
+    label: "Empty OKX",
+    lastSyncAt: null,
+    lastSyncStatus: null,
+    lastSyncError: null,
+    holdings: [],
+  }]);
+
+  assert.equal(mapped.length, 1);
+  assert.equal(mapped[0]?.address, "cex:okx:empty-account");
+  assert.equal(mapped[0]?.totalEur, 0);
+});
+
+test("refreshCexAccounts syncs every account before returning fresh holdings", async () => {
+  const calls: string[] = [];
+  let accountLoads = 0;
+  const fetcher = async (path: string) => {
+    calls.push(path);
+    if (path === "/api/cex/accounts") {
+      accountLoads++;
+      return new Response(JSON.stringify({ accounts: [{
+        id: "empty-account",
+        provider: "okx",
+        label: "Empty OKX",
+        lastSyncAt: null,
+        lastSyncStatus: null,
+        lastSyncError: null,
+        holdings: accountLoads === 1 ? [] : [{
+          id: "holding-1",
+          symbol: "BTC",
+          bucket: "earn",
+          balance: 0.01,
+          priceEur: 60_000,
+          valueEur: 600,
+          source: "okx",
+          updatedAt: "2026-07-17T18:00:00.000Z",
+        }],
+      }] }), { status: 200 });
+    }
+    return new Response("{}", { status: 200 });
+  };
+
+  const result = await refreshCexAccounts(fetcher);
+
+  assert.deepEqual(calls, [
+    "/api/cex/accounts",
+    "/api/cex/accounts/empty-account/sync",
+    "/api/cex/accounts",
+  ]);
+  assert.equal(result.type, "success");
+  if (result.type === "success") assert.equal(result.results[0]?.totalEur, 600);
+});
+
+test("refreshCexAccounts reports non-2xx sync responses as failures with the stale snapshot", async () => {
+  const fetcher = async (path: string) => {
+    if (path === "/api/cex/accounts") {
+      return new Response(JSON.stringify({ accounts: [{
+        id: "account-1",
+        provider: "binance",
+        label: "Main Binance",
+        lastSyncAt: "2026-07-10T08:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        holdings: [],
+      }] }), { status: 200 });
+    }
+    return new Response("sync failed", { status: 503 });
+  };
+
+  const result = await refreshCexAccounts(fetcher);
+
+  assert.equal(result.type, "failure");
+  if (result.type === "failure") {
+    assert.equal(result.status, 503);
+    assert.equal(result.previousResults[0]?.address, "cex:binance:account-1");
+  }
+});
+
+test("refreshCexAccounts waits for every account sync after a network rejection", async () => {
+  let slowSyncFinished = false;
+  const fetcher = async (path: string) => {
+    if (path === "/api/cex/accounts") {
+      return new Response(JSON.stringify({ accounts: [
+        { id: "fails", provider: "binance", label: null, lastSyncAt: null, lastSyncStatus: null, lastSyncError: null, holdings: [] },
+        { id: "slow", provider: "okx", label: null, lastSyncAt: null, lastSyncStatus: null, lastSyncError: null, holdings: [] },
+      ] }), { status: 200 });
+    }
+    if (path.endsWith("/fails/sync")) throw new Error("network failure");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    slowSyncFinished = true;
+    return new Response("{}", { status: 200 });
+  };
+
+  const result = await refreshCexAccounts(fetcher);
+
+  assert.equal(result.type, "failure");
+  assert.equal(slowSyncFinished, true);
 });
 
 test("resolveCexRequestTransition drops previous holdings when the active session changed", () => {

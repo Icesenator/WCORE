@@ -87,6 +87,22 @@ export async function priceToken(
   skipCache?: boolean,
 ): Promise<EvmWalletToken> {
   const pricingContract = known.pricingContract ?? known.contract;
+  const pricingMode = known.defi?.pricing?.mode;
+  if (pricingMode === "mirror_native" || pricingMode === "mirror_underlying") {
+    return {
+      contract: pricingContract,
+      symbol: known.symbol,
+      name: known.name,
+      decimals: known.decimals,
+      balanceSelector: known.balanceSelector,
+      balanceSelectorExtraArgs: known.balanceSelectorExtraArgs,
+      defi: known.defi,
+      logoUrl: known.logoUrl,
+      balance,
+      priceEur: null,
+      valueEur: null,
+    };
+  }
   const token: PricingToken = {
     key: priceCacheKey(chain, pricingContract),
     contract: pricingContract,

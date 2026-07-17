@@ -44,7 +44,34 @@ async function installMockWallet(page: Page, opts: { address?: string; rejectSwi
       __txs: txs,
     };
     Object.defineProperty(window, "ethereum", { value: provider, configurable: true });
+    const announce = () => window.dispatchEvent(new CustomEvent("eip6963:announceProvider", {
+      detail: {
+        info: {
+          uuid: "wcore-e2e-wallet",
+          name: "MetaMask E2E",
+          icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
+          rdns: "io.metamask.e2e",
+        },
+        provider,
+      },
+    }));
+    window.addEventListener("eip6963:requestProvider", announce);
+    queueMicrotask(announce);
   }, { address: opts.address ?? USER_ADDRESS, rejectSwitch: !!opts.rejectSwitch });
+}
+
+async function connectMockWallet(page: Page) {
+  const connectButton = page.getByRole("button", { name: "Connect wallet" }).first();
+  await expect(connectButton).toBeVisible();
+  await page.evaluate(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((candidate) => candidate.textContent?.trim().toLowerCase() === "connect wallet");
+    (button as HTMLButtonElement | undefined)?.click();
+  });
+  const walletOption = page.getByRole("button", { name: /MetaMask E2E/ });
+  if (await walletOption.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await walletOption.click();
+  }
 }
 
 async function mockCommonApi(page: Page, address = USER_ADDRESS) {
@@ -123,7 +150,7 @@ async function mockCommonApi(page: Page, address = USER_ADDRESS) {
         { key: "ETHEREUM", name: "Ethereum", vm: "EVM" },
       ] } });
     } else if (url.includes("/api/scan")) {
-      const body = route.request().postDataJSON() as { chains?: string[]; address?: string } | null;
+      const body = route.request().postDataJSON() as { chains?: string[]; address?: string; addresses?: string[] } | null;
       const reqChains = body?.chains || ["BASE"];
       const now = "2026-05-06T12:00:00.000Z";
       const chains = reqChains.map((chainKey) => ({
@@ -146,13 +173,17 @@ async function mockCommonApi(page: Page, address = USER_ADDRESS) {
         totals: { valueEur: chainKey === "ETHEREUM" ? 850 : 4600, tokenCount: 2, pricedCount: 2 },
         errors: [], degraded: false, fxRate: 0.92, scanMs: 42, cachedAt: now, scriptVersion: "e2e",
       }));
-      await route.fulfill({ json: {
+      const totals = { valueEur: chains.reduce((sum, c) => sum + c.totals.valueEur, 0), tokenCount: chains.length * 2, pricedCount: chains.length * 2, chainsWithErrors: 0 };
+      const response = url.includes("/api/scan/batch")
+        ? { wallets: (body?.addresses ?? []).map((walletAddress) => ({ address: walletAddress, chains, totals })) }
+        : {
         address: body?.address,
         requestedChains: reqChains,
         chains,
-        totals: { valueEur: chains.reduce((sum, c) => sum + c.totals.valueEur, 0), tokenCount: chains.length * 2, pricedCount: chains.length * 2, chainsWithErrors: 0 },
+        totals,
         generatedAt: now,
-      } });
+      };
+      await route.fulfill({ json: response });
     } else {
       // Fallback: return empty success for any unmocked endpoint
       await route.fulfill({ json: {} });
@@ -169,17 +200,22 @@ async function connectFromProfile(page: Page, address = USER_ADDRESS, opts: { re
   });
   await mockCommonApi(page, address);
   await page.goto(`${WEB}/profile`);
-  await page.getByRole("button", { name: "Connect wallet" }).last().click();
+  await connectMockWallet(page);
   // Use dynamic regex based on actual address (not hardcoded)
   await expect(page.getByText(new RegExp(`${address.slice(0, 6)}.*${address.slice(-4)}`, "i")).first()).toBeVisible();
 
-  // Complete SIWE auth flow to reach "authenticated" state (required for GmButton, etc.)
-  const signInBtn = page.getByRole("button", { name: "Sign In" });
-  if (await signInBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await signInBtn.click();
-    // Wait for auth to complete — ConnectButton shows address-only after auth
-    await expect(page.getByText(new RegExp(`${address.slice(0, 6)}.*${address.slice(-4)}`, "i")).first()).toBeVisible({ timeout: 15000 });
+  // Some connector paths stop at "ready". Trigger SIWE directly through the
+  // rendered control, then wait until authenticated-only UI is available.
+  await page.evaluate(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((candidate) => candidate.textContent?.trim() === "Sign In");
+    (button as HTMLButtonElement | undefined)?.click();
+  });
+  const signInWalletOption = page.getByRole("button", { name: /MetaMask E2E/ });
+  if (await signInWalletOption.isVisible({ timeout: 1000 }).catch(() => false)) {
+    await signInWalletOption.click();
   }
+  await expect(page.getByRole("button", { name: /Sign In|Sign in your wallet/i })).toHaveCount(0);
 }
 
 async function mockScanApi(_page: Page) {
@@ -196,7 +232,7 @@ test.describe("critical mocked E2E flows", () => {
     await mockCommonApi(page);
 
     await page.goto(WEB);
-    await page.getByRole("button", { name: "Connect wallet" }).click();
+    await connectMockWallet(page);
 
     await expect(page.getByText(/0x1234\.\.\.7890/i)).toBeVisible();
     await expect.poll(() => page.evaluate(() => localStorage.getItem("wcore_address"))).toBe("0x1234567890123456789012345678901234567890");

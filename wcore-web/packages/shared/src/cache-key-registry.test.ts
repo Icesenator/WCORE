@@ -32,4 +32,23 @@ describe("CACHE_KEY_REGISTRY", () => {
     expect(CACHE_KEY_REGISTRY.cryptoTopMarketCapLastGood.ttl).toBe("30d");
     expect(CACHE_KEY_REGISTRY.cryptoTopMarketCapLock.ttl).toBe("60s");
   });
+
+  it("defines versioned Zerion portfolio cache keys", () => {
+    expect(CACHE_KEY_REGISTRY.zerionPortfolioFresh).toMatchObject({
+      vars: ["address"],
+      web: "zerion:portfolio:v1:{address}:fresh",
+      storage: "web-only",
+      ttl: "10m",
+    });
+    expect(CACHE_KEY_REGISTRY.zerionPortfolioLastGood.web).toBe("zerion:portfolio:v1:{address}:last-good");
+    expect(CACHE_KEY_REGISTRY.zerionPortfolioFailure.web).toBe("zerion:portfolio:v1:{address}:failure");
+    expect(CACHE_KEY_REGISTRY.zerionPortfolioUntracked.web).toBe("zerion:portfolio:v1:{address}:untracked");
+  });
+
+  it("defines Zerion provider coordination cache keys", () => {
+    expect(CACHE_KEY_REGISTRY.zerionRequestLease.web).toBe("provider:zerion:request:{address}");
+    expect(CACHE_KEY_REGISTRY.zerionHalfOpenLease.web).toBe("provider:zerion:half-open-lease");
+    expect(CACHE_KEY_REGISTRY.zerionDailyBudget.web).toBe("provider:zerion:daily:{date}");
+    expect(CACHE_KEY_REGISTRY.zerionBreakerState.web).toBe("provider:zerion:breaker");
+  });
 });

@@ -34,6 +34,13 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Cycle X interaction** : trois replies approuvees, publiees et verifiees sur `strivex_`, `DeFiDegen_0x` et `MARCELLUScryp`. Angles : market cap vs qualite, distinction equity/token market cap, emissions/unlocks et risque de dilution. Aucun like, follow ou autre engagement automatique.
 - **Nettoyage** : processus de brouillon X arrete, branche `feature/market-cap-x-cycle` supprimee apres fast-forward sur `master`, et dossier worktree orphelin retire. Aucun worktree ne doit etre recree pour ce projet.
 
+### Session 2026-07-17 — DeFi Position Engine V1 en production
+
+- **Compound V3 corrige** : `collateralBalanceOf(user, asset)` cible maintenant le Comet, tandis que le collatéral porte l'identite de pricing/affichage. Les décimales sont derivees de `AssetInfo.scale`; les anciennes entrees statiques et positions cachees sont retirees au profit de la discovery dynamique.
+- **Pricing propre** : collatéraux pricés directement par leur contrat; positions `mirror_native`/`mirror_underlying` differees vers l'adaptateur GSheet sans faux `NO_PRICE` ni état degraded.
+- **Deploiement** : API Railway `c0a756bc-90d6-42b6-afee-0a6b9a48e621`; Web Railway `8a5d4a67-1c88-4fd2-bf41-30c43cdca05c` (un redeploiement Web final suit la mise a jour de copy About).
+- **Validation live** : smoke authentifie Optimism `degraded=false`, sans erreur. `Comp wrsETH` affiche le contrat collatéral, une valeur positive; la dette Compound reste negative. Lecture seule GSheet confirme les sept colonnes, `[Flex]`/`[Lock]`, WCT, Compound, sKAITO et Chainbase.
+
 ### Session 2026-07-07 — Cycle X read-only + post "Read first. Sign later."
 
 - **Cycle X interaction** : scan read-only via Chrome CDP 9224, cibles filtrees contre shill cache/doublons WCORE. 3 replies publiees et verifiees : approvals/read-only (`aisama_code`), public API/private key (`NintondoWallet`), fake portfolio balance scam (`GardenGnomeCoin`). Angles propres : separation read vs sign, seed/private key jamais necessaire pour lire, clean total contre spam-token value.

@@ -76,7 +76,7 @@
 - **`decodeAddressFromWord(hex)`** ajouté dans `packages/core/src/tokens/abi.ts` : décode une address d'un word ABI 32-byte (left-padded).
 - **`positionToTokenLike`** : la logique de suffix `@collateral`/`@borrow` est retirée. Le `contract` est passé tel quel — c'est maintenant le **cToken address** (unique par collateral) qui sert de clé SUMPRODUCT dans Portefeuille Crypto Details. Plus aucune collision possible entre wrsETH, wstETH, cbETH collatéral sur le même marché.
 - **Tests** : 3 nouveaux tests dans `compound-v3.test.ts` (decouverte, numAssets=0, partial failure recovery). 4 tests Compound V3 mis à jour dans `positions.test.ts`. **15/15 positions + 3/3 compound-v3 = 18 tests verts** pour le module DeFi.
-- **État actuel** : `discoverCompoundV3CTokens` est exporté depuis `packages/core/src/defi/index.ts` et prêt à l'emploi. L'intégration dans le moteur de scan (qui boucle sur les Compound V3 markets, appelle le discoverer, lit `collateralBalanceOf(user, cToken)` et `borrowBalanceOf(user)`) reste à faire en follow-up — c'est la prochaine étape pour rendre l'engine Compound V3 100% on-chain.
+- **État historique** : cette étape intermédiaire a été finalisée depuis. L'intégration moteur et le déploiement production sont attestés dans l'entrée du 2026-07-17.
 
 ## 2026-06-29 — Scam-detector v11: 5 nouveaux contrats bloqués + 2 nouvelles règles (typo-phishing + Base impersonation)
 

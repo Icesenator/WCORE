@@ -36,7 +36,7 @@ Mapping explicite contrat → métadonnées DeFi. Utilisé pour les tokens dont 
 ```
 
 ### 2. Compound V3 (`defi/compound-v3.ts`)
-Discovery purement on-chain via `numAssets()` + `getAssetInfo(i).asset` sur le Comet proxy. Ajouter un marché dans `COMPOUND_V3_MARKETS` (une adresse Comet par chaîne).
+Discovery purement on-chain via `numAssets()` + `getAssetInfo(i)` sur le Comet proxy. Le Comet reste la cible de `collateralBalanceOf(user, asset)` ; l'adresse du collatéral devient `pricingContract` et contrat affiché. Les décimales viennent de `AssetInfo.scale`, y compris pour les actifs à 6 ou 8 décimales. Ajouter un marché dans `COMPOUND_V3_MARKETS` (une adresse Comet par chaîne).
 
 ### 3. Chainbase Staking (`plugins/chainbase-staking.ts`)
 Discovery on-chain des positions Chainbase (C-Locked, C-Airdrop) via l'API Chainbase. Géré par le plugin `chainbase-staking.ts` dans l'API, appelé depuis `gsheet.ts:injectChainbaseStakingTokens()`.
@@ -72,22 +72,21 @@ Quand `pricing.mode = "mirror_native"` :
 ## Flux de données
 
 ```
-Scan API (POST /api/scan)
+Scan GSheet (POST /api/gsheet/scan)
   → evm-scan.ts : découvre les tokens (logs + registry)
-  → evm-pricing.ts : price tous les tokens
-  → gsheet.ts : injectChainbaseStakingTokens() + decorateDefiTokens()
+  → evm-pricing.ts : price les actifs directs et diffère les positions miroir
+  → gsheet.ts : injectChainbaseStakingTokens() + applyStakedPriceMirrors()
     → getDeFiPositionMetadata() : match registre statique
     → withLiquiditySuffix() : ajoute [Flex]/[Lock] au nom
     → pricing miroir : si underlying connu
-  → Résultat stocké dans Redis scan:result:{addr}:{chain}
-  → GSheet lit depuis Redis (I1 = WEB_SCAN)
+  → réponse directe à `41_GSHEET_WEB_SCAN.gs`
+  → l'adaptateur Apps Script conserve le format à sept colonnes et son cache wallet
 ```
 
 ## Checklist : ajouter une position DeFi
 
 1. **Registre statique** : ajouter l'entrée dans `defi/registry.ts` (si protocole non-standard)
 2. **Ou discovery on-chain** : ajouter le protocole dans le plugin dédié
-3. **Bumper `SCAN_RESULT_CACHE_VERSION`** dans `apps/api/src/plugins/scan.ts` pour invalider les caches stale
-4. **Ajouter au `TOKEN_REGISTRY`** si le contrat n'est pas discoverable via logs (ex: tokens sans transfer events)
-5. **Deployer l'API** : `powershell -File scripts/deploy.ps1 -Service api`
-6. **Rescanner** les wallets concernés
+3. **Ajouter au `TOKEN_REGISTRY`** si le contrat n'est pas discoverable via logs (ex: tokens sans transfer events)
+4. **Deployer l'API** : `powershell -File scripts/deploy.ps1 -Service api`
+5. **Rescanner** les wallets concernés

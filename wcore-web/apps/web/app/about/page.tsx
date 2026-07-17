@@ -106,7 +106,7 @@ export default function AboutPage() {
           <ul className="space-y-1 text-muted list-disc list-inside text-xs">
             <li>Very new or obscure tokens may lack accurate pricing</li>
             <li>Single-RPC chains are fragile. If the node goes down, scanning pauses</li>
-            <li>Complex DeFi positions (LP staking, lending) are not yet tracked</li>
+            <li>Selected staking and lending positions are tracked; broad LP, vault, and protocol coverage remains incomplete</li>
             <li>On-chain GM deployment requires ETH on the target chain for gas</li>
             <li>CEX balances are read-only: no sync if the provider API is down and no trading surface</li>
           </ul>
@@ -116,7 +116,7 @@ export default function AboutPage() {
           <h2 className="text-lg font-semibold text-fg mb-3">What's next</h2>
           <p className="text-muted text-xs mb-3">These are ideas for the future. Priorities may evolve based on user feedback.</p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <div className="flex gap-2"><span className="text-accent">📊</span><span className="text-muted text-xs"><strong className="text-fg">DeFi positions</strong>. Track LP staking, lending, and other complex positions across 170+ chains.</span></div>
+            <div className="flex gap-2"><span className="text-accent">📊</span><span className="text-muted text-xs"><strong className="text-fg">Broader DeFi coverage</strong>. Expand beyond selected staking and lending positions to LPs, vaults, and more protocols.</span></div>
             <div className="flex gap-2"><span className="text-accent">🔍</span><span className="text-muted text-xs"><strong className="text-fg">Transaction history</strong>. Full transaction timeline across all chains and wallets.</span></div>
             <div className="flex gap-2"><span className="text-accent">📈</span><span className="text-muted text-xs"><strong className="text-fg">Portfolio charts</strong>. Historical value, allocation breakdowns, P&L tracking over time.</span></div>
             <div className="flex gap-2"><span className="text-accent">🔔</span><span className="text-muted text-xs"><strong className="text-fg">Price alerts</strong>. Notifications when tokens hit target prices or values change significantly.</span></div>

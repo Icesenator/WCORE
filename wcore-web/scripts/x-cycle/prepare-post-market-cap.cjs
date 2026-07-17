@@ -206,8 +206,8 @@ function normalizeDraft(text) {
     if (!keepPage && !page.isClosed()) await page.close();
   }
 
-  // End this client connection without closing the remote browser or owned page.
-  process.exit(0);
+  // Keep the CDP client alive so X retains the uploaded media during user review.
+  await new Promise(() => {});
 })().catch((error) => {
   console.error(error && error.stack ? error.stack : error);
   process.exit(1);

@@ -1,10 +1,11 @@
+// v4.15.206 - Retry HTTP 200 responses with empty or truncated JSON bodies.
 // v4.15.205 - Use patched UrlFetchApp.fetch (respects quota breaker) instead of _WCORE_ORIG_FETCH bypass.
 // v4.15.203 - Auto-resize chart height after filter reapply based on visible rows (S=X count).
 // v4.15.202 - Reapply auto-filter on column S (Achat) after each hourly refresh.
 // v4.15.201 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.200 - Portefeuille Crypto (source WCORE API, sans SyncWith).
 
-var CRYPTO_PORTFOLIO_VERSION = "4.15.205";
+var CRYPTO_PORTFOLIO_VERSION = "4.15.206";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -262,22 +263,30 @@ function _cryptoPortfolioFetchSnapshot_() {
   var token = props.getProperty("GSHEET_API_TOKEN");
   if (!baseUrl) throw new Error("Missing ScriptProperty WCORE_WEB_API_URL");
   if (!token) throw new Error("Missing ScriptProperty GSHEET_API_TOKEN");
-  var resp = _cryptoPortfolioFetchWithRetry_(function () {
+  var result = _cryptoPortfolioFetchWithRetry_(function () {
     var fetchResult = UrlFetchApp.fetch(baseUrl.replace(/\/$/, "") + CRYPTO_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
       method: "get",
       muteHttpExceptions: true,
       headers: { "x-gsheet-token": token, accept: "application/json" }
     });
     if (!fetchResult) throw new Error("BLOCKED:QUOTA");
-    return fetchResult;
+    if (typeof fetchResult.getResponseCode !== "function") {
+      throw new Error("WCORE crypto portfolio HTTP blocked or empty response");
+    }
+    var code = fetchResult.getResponseCode();
+    var text = fetchResult.getContentText();
+    if (code !== 200) return { code: code, text: text };
+    if (!text || !String(text).trim()) {
+      throw new Error("WCORE crypto portfolio incomplete JSON response: empty body");
+    }
+    try {
+      return { code: code, snapshot: JSON.parse(text) };
+    } catch (eParse) {
+      throw new Error("WCORE crypto portfolio incomplete JSON response: bodyLength=" + String(text).length + "; " + String(eParse && eParse.message ? eParse.message : eParse));
+    }
   });
-  if (!resp || typeof resp.getResponseCode !== "function") {
-    throw new Error("WCORE crypto portfolio HTTP blocked or empty response");
-  }
-  var code = resp.getResponseCode();
-  var text = resp.getContentText();
-  if (code !== 200) throw new Error("WCORE crypto portfolio HTTP " + code + ": " + text.substring(0, 300));
-  return JSON.parse(text);
+  if (result.code !== 200) throw new Error("WCORE crypto portfolio HTTP " + result.code + ": " + String(result.text || "").substring(0, 300));
+  return result.snapshot;
 }
 
 function _cryptoPortfolioFormatTimestamp_(value) {

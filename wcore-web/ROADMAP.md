@@ -32,7 +32,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Acces direct `/wallet`** : `useCexHoldings` charge les comptes, synchronise chacun d'eux, puis recharge les holdings frais. Les comptes vides restent presents et refreshables; le double sync historique de `/home` est supprime.
 - **Mode degrade et isolation** : tout non-2xx ou rejet reseau conserve le snapshot precedent avec marqueur stale. Les syncs utilisent `Promise.allSettled`; les identifiants de session et de requete bloquent les reponses obsoletes et les fuites inter-session.
 - **Refresh global borne** : `Refresh All` pilote les scans on-chain et CEX avec un etat reel, interdit les clics concurrents et applique un timeout de 30 s aux requetes CEX et aux metadonnees `/api/chains`, corps HTTP inclus.
-- **Validation** : tests Web cibles ajoutes pour comptes vides, ordre sync/reload, non-2xx, rejet reseau, timeout avant reponse et corps bloque, ainsi que garde inter-session. Deploiement Web a attester apres validation finale.
+- **Validation et production** : 169/169 tests Web et 36/36 tests CEX cibles, typecheck, lint et build production passes. Commit `a514a501`; deploy Railway Web `dc83a359-1e50-438b-9eed-7cef8758ced2` en `SUCCESS`; smoke public reussi sur `/` et `/wallet/0x0000000000000000000000000000000000000000`.
 
 ### Session 2026-07-17 — Market Cap en production + cycle X termine
 

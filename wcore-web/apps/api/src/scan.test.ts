@@ -107,6 +107,29 @@ describe("buildChainScan", () => {
 
     assert.equal(chainScan.scanMs, 1234);
   });
+
+  test("marks dynamically discovered DeFi positions for trusted aggregation and UI", () => {
+    const chainScan = buildChainScan("OPTIMISM", {
+      chain: "OPTIMISM",
+      chainName: "Optimism",
+      native: { symbol: "ETH", balance: 0, priceEur: 1600, valueEur: 0 },
+      tokens: [{
+        contract: "0x1111111111111111111111111111111111111111",
+        symbol: "Comp OTHER",
+        name: "Compound V3 OTHER Collateral [Flex]",
+        decimals: 18,
+        balance: 1,
+        priceEur: 1,
+        valueEur: 1,
+        defi: { protocol: "compound-v3", type: "lending_collateral", liquidityStatus: "flex", confidence: "high", pricing: { mode: "direct", sign: "asset" } },
+      }],
+      errors: [],
+      totalValueEur: 1,
+      scanMs: 10,
+    });
+
+    assert.deepEqual(chainScan.tokens[0]?.flags, ["DEFI"]);
+  });
 });
 
 describe("rateLimitIdentity", () => {

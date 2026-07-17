@@ -15,6 +15,10 @@ const COMPOUND_V3_MARKETS: Record<string, string[]> = {
   // Extend per chain as we add support
 };
 
+const COMPOUND_V3_MARKET_LABELS: Record<string, { baseSymbol: string; marketSymbol: string }> = {
+  "0xe36a30d249f7761327fd973001a32010b521b6fd": { baseSymbol: "WETH", marketSymbol: "cWETHv3" },
+};
+
 // v0.3.x: Pure on-chain discoverer — reads numAssets() + getAssetInfo(i).asset
 // from the Comet proxy to enumerate cToken addresses. No hardcoded cToken map.
 export async function discoverCompoundV3CTokens(
@@ -147,7 +151,7 @@ export async function getCompoundV3Tokens(
         const infoData = GET_ASSET_INFO_SELECTOR + i.toString(16).padStart(64, "0");
         let cToken: string | null;
         let symbol = `asset${i}`;
-        let decimals = 18;
+        let decimals: number;
         try {
           const hex = await rpc.ethCall(endpoint, market, infoData);
           cToken = decodeAddressFromWord("0x" + hex.slice(2 + 64, 2 + 64 + 64));
@@ -207,10 +211,11 @@ export async function getCompoundV3Tokens(
 
     // 3. borrow position — Comet-level, no cToken args
     const marketShort = market.slice(0, 6) + "…" + market.slice(-4);
+    const marketLabel = COMPOUND_V3_MARKET_LABELS[market.toLowerCase()];
     tokens.push({
       contract: market,
-      symbol: `Comp ${marketShort} Borrow`,
-      name: `Compound V3 ${marketShort} Borrowed`,
+      symbol: `Comp ${marketLabel?.baseSymbol ?? marketShort} Borrow`,
+      name: `Compound V3 ${marketLabel?.marketSymbol ?? marketShort} Borrowed`,
       decimals: 18,
       balanceSelector: BORROW_BALANCE_OF_SELECTOR,
       chain: chainKey,

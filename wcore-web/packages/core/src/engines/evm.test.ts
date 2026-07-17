@@ -1346,7 +1346,8 @@ test("discoveredTokenVariantKey treats selector extra args case-insensitively", 
 
 test("getEvmWalletsAssets: preserves custom selector variants on the same contract", async () => {
   const COMET = "0xE36A30D249f7761327fd973001A32010b521b6Fd";
-  const COLLATERAL_ARG = "0x00000000000000000000000087eEE96D50Fb761AD85B1c982d28A042169d61b1";
+  const CTOKEN = "0x87eEE96D50Fb761AD85B1c982d28A042169d61b1";
+  const COLLATERAL_ARG = `0x000000000000000000000000${CTOKEN.slice(2)}`;
   const borrowRaw = 2_000_000_000_000_000_000n;
   const collateralRaw = 3_000_000_000_000_000_000n;
   const ethCalls: string[] = [];
@@ -1361,14 +1362,31 @@ test("getEvmWalletsAssets: preserves custom selector variants on the same contra
           name: "Compound V3 cWETHv3 Borrowed",
           decimals: 18,
           balanceSelector: "0x374c49b4",
+          defi: {
+            protocol: "compound-v3",
+            type: "lending_debt",
+            underlying: "native",
+            liquidityStatus: "flex",
+            confidence: "high",
+            pricing: { mode: "mirror_native", sign: "debt" },
+          },
         },
         {
           contract: COMET,
+          pricingContract: CTOKEN,
           symbol: "Comp wrsETH",
           name: "Compound V3 cWETHv3 Collateral",
           decimals: 18,
           balanceSelector: "0x5c2549ee",
           balanceSelectorExtraArgs: [COLLATERAL_ARG],
+          defi: {
+            protocol: "compound-v3",
+            type: "lending_collateral",
+            underlying: CTOKEN,
+            liquidityStatus: "flex",
+            confidence: "high",
+            pricing: { mode: "direct", sign: "asset" },
+          },
         },
       ];
     },
@@ -1406,6 +1424,8 @@ test("getEvmWalletsAssets: preserves custom selector variants on the same contra
   assert.deepEqual(wallet.assets.tokens.map((t) => t.symbol).sort(), ["Comp WETH Borrow", "Comp wrsETH"]);
   assert.equal(wallet.assets.tokens.find((t) => t.symbol === "Comp WETH Borrow")?.balance, 2);
   assert.equal(wallet.assets.tokens.find((t) => t.symbol === "Comp wrsETH")?.balance, 3);
+  assert.equal(wallet.assets.tokens.find((t) => t.symbol === "Comp wrsETH")?.contract.toLowerCase(), CTOKEN.toLowerCase());
+  assert.equal((wallet.assets.tokens.find((t) => t.symbol === "Comp WETH Borrow")?.defi as { pricing?: { sign?: string } } | undefined)?.pricing?.sign, "debt");
   assert.ok(ethCalls.some((data) => data.startsWith("0x374c49b4")), "borrow selector should be called");
   assert.ok(
     ethCalls.some((data) => data.toLowerCase() === expectedCollateralCall),

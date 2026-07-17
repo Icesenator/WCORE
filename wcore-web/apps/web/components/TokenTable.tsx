@@ -66,8 +66,9 @@ export function TokenTable({ native, tokens, chainKey, connectedAddress }: Token
   // Separate healthy tokens from problematic ones (scam, no price, error)
   const tokenList = useMemo(() => tokens.map(t => {
     const isCexAsset = isCexSyntheticContract(t.contract);
-    const scam = isCexAsset ? { isSuspicious: false, reasons: [] as string[] } : detectScam(t.symbol, t.name, t.balance, t.priceEur, t.contract);
-    const adminIsScam = isCexAsset ? false : isAdminBlocked(t.symbol, t.contract) ? true : isAdminApproved(t.symbol, t.contract) ? false : scam.isSuspicious;
+    const isDefiAsset = t.flags.includes("DEFI");
+    const scam = isCexAsset || isDefiAsset ? { isSuspicious: false, reasons: [] as string[] } : detectScam(t.symbol, t.name, t.balance, t.priceEur, t.contract);
+    const adminIsScam = isCexAsset || isDefiAsset ? false : isAdminBlocked(t.symbol, t.contract) ? true : isAdminApproved(t.symbol, t.contract) ? false : scam.isSuspicious;
     return {
       ...t,
       _isScam: t.contract !== "native" && adminIsScam,
@@ -212,7 +213,7 @@ export function TokenTable({ native, tokens, chainKey, connectedAddress }: Token
             const isCexAsset = isCexSyntheticContract(asset.contract);
             const isScam = (asset as AugmentedTokenAsset)._isScam === true;
             const _hasIssue = (asset as AugmentedTokenAsset)._hasIssue === true;
-            const isDefi = !isNative && !isCexAsset && isDefiPosition(asset.symbol, asset.name);
+            const isDefi = !isNative && !isCexAsset && (asset.flags.includes("DEFI") || isDefiPosition(asset.symbol, asset.name));
             const explorerUrl = !isNative && !isCexAsset ? getExplorerUrl(chainKey, asset.contract) : null;
             const shortContract = !isNative && !isCexAsset ? asset.contract.slice(0, 6) + "..." + asset.contract.slice(-4) : null;
 

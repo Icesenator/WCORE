@@ -214,11 +214,17 @@ function hasMajorPriceableTokenWithoutPrice(assets: WalletAssets): boolean {
 // Calculate clean chain value by subtracting scam token values from the total.
 export function calcCleanChainValue(c: ChainScan, detectScam: typeof import("@wcore/core").detectScam): number {
   let val = c.totals.valueEur;
+  let hasLegitimateDebt = false;
   try {
     for (const t of c.tokens) {
+      if (t.flags.includes("DEFI")) {
+        if ((t.valueEur ?? 0) < 0) hasLegitimateDebt = true;
+        continue;
+      }
       if (detectScam(t.symbol, t.name, t.balance, t.priceEur, t.contract).isSuspicious) val -= (t.valueEur ?? 0);
     }
     if (c.native && detectScam(c.native.symbol, c.native.name, c.native.balance, c.native.priceEur, c.native.contract).isSuspicious) val -= (c.native.valueEur ?? 0);
   } catch { /* individual token error should not break the total */ }
-  return Math.max(0, Math.round(val * 100) / 100);
+  if (val < 0 && !hasLegitimateDebt) val = 0;
+  return Math.round(val * 100) / 100;
 }

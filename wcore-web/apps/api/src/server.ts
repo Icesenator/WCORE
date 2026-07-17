@@ -330,10 +330,6 @@ if (gsheetApiToken) {
       const { injectWCTStakeLockStatusFetcher } = await import("./plugins/gsheet.js");
       injectWCTStakeLockStatusFetcher(async (userAddress, rpcLike, endpoint) => {
         try {
-          const WCT_STAKE = "0x521b4c065bbdbe3e20b3727340730936912dfa46";
-          // keccak256("lockUntil(address)")[:4]
-          const data = "0x025b22f4" + userAddress.toLowerCase().replace(/^0x/, "").padStart(64, "0");
-          await rpcLike.ethCall(endpoint, WCT_STAKE, data);
           return await core.getWCTStakeLockStatus(rpcLike, endpoint, userAddress);
         } catch {
           return "flex" as const;

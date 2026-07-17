@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 15;
+export const SCAM_RULES_VERSION = 16;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -85,6 +85,13 @@ const _BLOCKED_CONTRACTS = new Set([
   "0x69ca8b02d2aa27619e02fbf6de1b1502da5f147a", // BASE: ZAMRUD fake-price spam
 ]);
 
+const _TRUSTED_DEFI_CONTRACTS = new Set([
+  "0xf368f535e329c6d08dff0d4b2da961c4e7f3fcaf", // Optimism: WCT claimable
+  "0x521b4c065bbdbe3e20b3727340730936912dfa46", // Optimism: WCT stake
+  "0xe36a30d249f7761327fd973001a32010b521b6fd", // Optimism: Compound V3 cWETHv3 Comet
+  "0x87eee96d50fb761ad85b1c982d28a042169d61b1", // Optimism: Compound V3 wrsETH collateral
+]);
+
 // Admin overrides — tokens explicitly marked as scam/legit by platform owner
 const _adminBlockedContracts = new Set<string>();
 const _adminApprovedContracts = new Set<string>();
@@ -142,6 +149,9 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
   }
   if (contract && _BLOCKED_CONTRACTS.has(contract.toLowerCase())) {
     return { isSuspicious: true, level: "scam", score: 10, reasons: ["blocked contract"] };
+  }
+  if (contract && _TRUSTED_DEFI_CONTRACTS.has(contract.toLowerCase())) {
+    return { isSuspicious: false, level: "clean", score: 0, reasons: [] };
   }
 
   const signals: Signal[] = [];

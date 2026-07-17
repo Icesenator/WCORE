@@ -1,0 +1,204 @@
+// Generates the Market Cap Crypto + Stock post visual (1200x675, WCORE DA v12).
+// Output: apps/web/public/wcore-post-market-cap.svg + .png
+
+const { readFileSync, statSync, unlinkSync, writeFileSync } = require("node:fs");
+const { resolve } = require("node:path");
+const { pathToFileURL } = require("node:url");
+
+const ROOT = resolve(__dirname, "..");
+let chromium;
+try {
+  ({ chromium } = require("playwright"));
+} catch (_e) {
+  ({ chromium } = require(resolve(ROOT, "node_modules/.pnpm/playwright@1.59.1/node_modules/playwright")));
+}
+
+const W = 1200;
+const H = 675;
+const HEADLINE = "Two markets. One clean ranking.";
+const SITE = (process.env.SITE || "https://wcore.xyz").replace(/\/$/, "");
+const PUBLIC_DIR = resolve(ROOT, "apps/web/public");
+const NAME = "wcore-post-market-cap";
+const SVG_PATH = resolve(PUBLIC_DIR, `${NAME}.svg`);
+const PNG_PATH = resolve(PUBLIC_DIR, `${NAME}.png`);
+const CRYPTO_CAPTURE = resolve(PUBLIC_DIR, `.${NAME}-crypto.tmp.png`);
+const STOCK_CAPTURE = resolve(PUBLIC_DIR, `.${NAME}-stocks.tmp.png`);
+const TMP_HTML = resolve(PUBLIC_DIR, `.${NAME}.tmp.html`);
+const fontStack = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
+function removeIfPresent(path) {
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+function pngDataUri(path) {
+  return `data:image/png;base64,${readFileSync(path).toString("base64")}`;
+}
+
+function wcoreBadge(x, y) {
+  return `<g transform="translate(${x} ${y})">
+    <rect x="0" y="0" width="164" height="52" rx="26" fill="#111722" stroke="#2a3442"/>
+    <g transform="translate(16 12) scale(0.45)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <path d="M32 20L32 8M21 40L10 46M43 40L54 46" stroke="#84cc16" stroke-opacity="0.6" stroke-width="2"/>
+      <circle cx="32" cy="8" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="10" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+      <circle cx="54" cy="46" r="2.5" fill="#84cc16" fill-opacity="0.5" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.8">WCORE</text>
+  </g>`;
+}
+
+async function captureMain(browser, route, heading, outputPath) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+  const url = `${SITE}${route}`;
+  try {
+    console.log(`Capturing ${url}`);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.getByRole("heading", { name: heading, exact: true }).waitFor({ state: "visible", timeout: 60000 });
+    await page.locator("main table").first().waitFor({ state: "visible", timeout: 60000 });
+    await page.waitForTimeout(1500);
+
+    const main = page.locator("main").first();
+    const box = await main.boundingBox();
+    if (!box) throw new Error(`Visible main content not found for ${route}`);
+    const x = Math.max(0, box.x);
+    const y = Math.max(0, box.y);
+    const width = Math.min(1440 - x, box.width);
+    const height = Math.min(1000 - y, box.height);
+    if (width <= 0 || height <= 0) throw new Error(`Invalid main capture bounds for ${route}`);
+
+    await page.screenshot({ path: outputPath, type: "png", clip: { x, y, width, height } });
+    console.log(`Captured ${route}: ${Math.round(width)}x${Math.round(height)}, ${statSync(outputPath).size} bytes`);
+  } finally {
+    await page.close();
+  }
+}
+
+function buildSvg(cryptoImage, stockImage) {
+  const [headlineTop, headlineBottom] = HEADLINE.split(". ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="${W}" height="${H}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.52" stop-color="#080f14"/>
+      <stop offset="1" stop-color="#14220f"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#84cc16" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.58"/>
+    </filter>
+    <clipPath id="cryptoClip"><rect x="0" y="0" width="508" height="186" rx="24"/></clipPath>
+    <clipPath id="stockClip"><rect x="0" y="0" width="508" height="186" rx="24"/></clipPath>
+    <style>
+      .font { font-family: ${fontStack}; }
+      .white { fill: #f7f7f8; }
+      .muted { fill: #a1a1aa; }
+      .soft { fill: #d4d4d8; }
+      .lime { fill: #a3e635; }
+    </style>
+  </defs>
+
+  <rect width="${W}" height="${H}" fill="url(#bg)"/>
+  <circle cx="178" cy="94" r="365" fill="url(#glow)"/>
+  <circle cx="1010" cy="566" r="350" fill="url(#glow)" opacity="0.74"/>
+  <g opacity="0.04" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+  <path d="M-80 122C122 30 326 78 532 142C720 200 852 130 1014 76C1112 44 1194 56 1280 112" fill="none" stroke="#84cc16" stroke-opacity="0.12" stroke-width="2"/>
+  <path d="M-80 558C128 470 306 518 492 574C680 630 842 590 1010 504C1100 458 1186 464 1280 524" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+
+  ${wcoreBadge(72, 48)}
+
+  <g transform="translate(72 154)">
+    <text x="0" y="0" class="font lime" font-size="13" font-weight="950" letter-spacing="2">MARKET CAP DIRECTORY</text>
+    <text x="0" y="62" class="font white" font-size="53" font-weight="950" letter-spacing="-2.1">${headlineTop}.</text>
+    <text x="0" y="119" class="font white" font-size="53" font-weight="950" letter-spacing="-2.1">${headlineBottom}</text>
+    <text x="2" y="165" class="font muted" font-size="18" font-weight="730">Search and compare broad market directories</text>
+    <text x="2" y="192" class="font muted" font-size="18" font-weight="730">without jumping between separate tools.</text>
+  </g>
+
+  <g transform="translate(72 390)">
+    <rect x="0" y="0" width="502" height="72" rx="22" fill="#101915" stroke="#34551f"/>
+    <text x="24" y="29" class="font muted" font-size="11" font-weight="950" letter-spacing="1.25">CRYPTO DIRECTORY</text>
+    <text x="478" y="49" text-anchor="end" class="font lime" font-size="25" font-weight="950">5,000 crypto assets</text>
+    <rect x="0" y="88" width="502" height="72" rx="22" fill="#0d1620" stroke="#28445b"/>
+    <text x="24" y="117" class="font muted" font-size="11" font-weight="950" letter-spacing="1.25">STOCK DIRECTORY</text>
+    <text x="478" y="137" text-anchor="end" class="font white" font-size="25" font-weight="950">5,000 public companies</text>
+  </g>
+
+  <g transform="translate(620 78)" filter="url(#shadow)">
+    <rect x="0" y="0" width="508" height="238" rx="26" fill="#0b1117" stroke="#34551f" stroke-width="2"/>
+    <g clip-path="url(#cryptoClip)" transform="translate(0 52)">
+      <image href="${cryptoImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMin slice"/>
+    </g>
+    <rect x="18" y="12" width="154" height="34" rx="17" fill="#111b14" stroke="#84cc16" stroke-opacity="0.72"/>
+    <circle cx="37" cy="29" r="5" fill="#84cc16"/>
+    <text x="51" y="34" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">CRYPTO RANKING</text>
+  </g>
+
+  <g transform="translate(620 350)" filter="url(#shadow)">
+    <rect x="0" y="0" width="508" height="238" rx="26" fill="#0b1117" stroke="#28445b" stroke-width="2"/>
+    <g clip-path="url(#stockClip)" transform="translate(0 52)">
+      <image href="${stockImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMin slice"/>
+    </g>
+    <rect x="18" y="12" width="146" height="34" rx="17" fill="#0d1620" stroke="#60a5fa" stroke-opacity="0.72"/>
+    <circle cx="37" cy="29" r="5" fill="#60a5fa"/>
+    <text x="51" y="34" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">STOCK RANKING</text>
+  </g>
+
+  <g transform="translate(72 630)">
+    <text x="0" y="0" class="font soft" font-size="18" font-weight="850">Search. Compare. Stay informed.</text>
+    <text x="1056" y="0" text-anchor="end" class="font" font-size="28" font-weight="950" fill="url(#lime)">wcore.xyz</text>
+  </g>
+  <rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+  </svg>`;
+}
+
+(async () => {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    await captureMain(browser, "/cmc/crypto", "Market Cap Crypto", CRYPTO_CAPTURE);
+    await captureMain(browser, "/cmc/stocks", "Market Cap Stock", STOCK_CAPTURE);
+
+    const svg = buildSvg(pngDataUri(CRYPTO_CAPTURE), pngDataUri(STOCK_CAPTURE));
+    writeFileSync(SVG_PATH, svg);
+    console.log(`SVG written: ${SVG_PATH} (${statSync(SVG_PATH).size} bytes, ${W}x${H})`);
+
+    const html = `<!doctype html><html><head><style>*{margin:0;padding:0;box-sizing:border-box}body{width:${W}px;height:${H}px;overflow:hidden;background:#050607}svg{display:block;width:${W}px;height:${H}px}</style></head><body>${svg}</body></html>`;
+    writeFileSync(TMP_HTML, html);
+    const renderPage = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
+    try {
+      await renderPage.goto(pathToFileURL(TMP_HTML).href, { waitUntil: "load" });
+      await renderPage.screenshot({ path: PNG_PATH, type: "png", omitBackground: false });
+    } finally {
+      await renderPage.close();
+    }
+    console.log(`PNG written: ${PNG_PATH} (${statSync(PNG_PATH).size} bytes, ${W}x${H})`);
+  } finally {
+    if (browser) await browser.close();
+    removeIfPresent(CRYPTO_CAPTURE);
+    removeIfPresent(STOCK_CAPTURE);
+    removeIfPresent(TMP_HTML);
+  }
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

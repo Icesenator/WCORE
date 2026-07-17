@@ -36,10 +36,11 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ### Session 2026-07-17 — DeFi Position Engine V1 en production
 
-- **Compound V3 corrige** : `collateralBalanceOf(user, asset)` cible maintenant le Comet, tandis que le collatéral porte l'identite de pricing/affichage. Les décimales sont derivees de `AssetInfo.scale`; les anciennes entrees statiques et positions cachees sont retirees au profit de la discovery dynamique.
-- **Pricing propre** : collatéraux pricés directement par leur contrat; positions `mirror_native`/`mirror_underlying` differees vers l'adaptateur GSheet sans faux `NO_PRICE` ni état degraded.
-- **Deploiement** : API Railway `c0a756bc-90d6-42b6-afee-0a6b9a48e621`; Web Railway `ddda829a-daf0-4af0-877a-efef9aa99adc`.
-- **Validation live** : smoke authentifie Optimism `degraded=false`, sans erreur. `Comp wrsETH` affiche le contrat collatéral, une valeur positive; la dette Compound reste negative. Lecture seule GSheet confirme les sept colonnes, `[Flex]`/`[Lock]`, WCT, Compound, sKAITO et Chainbase.
+- **Couverture ciblee** : wording public `Selected DeFi positions`; V1 couvre des positions Compound V3, WCT, Chainbase et des actifs stakes selectionnes. Les LP, vaults et protocoles supplementaires restent du scope futur, pas une couverture actuelle implicite.
+- **Finalisation Web + GSheet** : `/api/scan/batch` applique maintenant la meme finalisation que GSheet: suffixes `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee. Le flag `DEFI` traverse l'API; le Web exclut ces lignes officielles du filtre scam et conserve les totaux nets signes. Un `NO_PRICE` long-tail reste normal et ne degrade pas le scan.
+- **Compound V3 corrige** : discovery une seule fois par batch EVM; `collateralBalanceOf(user, asset)` cible le Comet, tandis que le contrat collatéral sert au pricing, logo et contrat de sortie. Les decimales viennent de `AssetInfo.scale`. Fixes `6accdda1` et `95b91591`.
+- **Deploiement final sequentiel** : API Railway `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`; Web Railway `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Aucun nouveau `clasp push` pour ce fix Web final.
+- **Validation live** : smoke Optimism `/api/scan/batch` avec `forceRefresh=true`: `degraded=false`, `errors=[]`; WCT Claimable `[Flex]` `0,47 EUR`, WCT Stake `[Flex]` `2,61 EUR`, Comp wrsETH `[Flex]` `12,69 EUR`, Comp WETH Borrow `[Flex]` `-10,21 EUR`, total net signe `10,43 EUR`.
 
 ### Session 2026-07-07 — Cycle X read-only + post "Read first. Sign later."
 

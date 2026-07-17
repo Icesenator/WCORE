@@ -2,17 +2,17 @@
 
 ## Architecture
 
-Le moteur identifie les positions DeFi (staking, lending, airdrops...) et leur applique :
+Le moteur couvre des `Selected DeFi positions` V1 : positions Compound V3, WCT, Chainbase et actifs stakés sélectionnés. Il ne revendique pas une couverture générale des LP, vaults ou protocoles. Il applique :
 1. Un suffixe `[Flex]` ou `[Lock]` dans le nom affiché
 2. Un pricing miroir (si l'underlying est connu, la position prend le prix du sous-jacent)
 3. Un badge `DeFi` bleu dans le TokenTable web
 
 ```
-apps/api/src/plugins/gsheet.ts          ← Orchester : appelle les 3 mécanismes
-  ├── defi/registry.ts                  ← Registre statique (contrats connus)
-  ├── defi/compound-v3.ts               ← Discovery on-chain Compound V3
-  ├── plugins/chainbase-staking.ts      ← Discovery on-chain Chainbase Staking
-  └── defi/positions.ts                 ← withLiquiditySuffix() : colle [Flex]/[Lock]
+packages/core/src/defi/                 ← Registre, Compound V3 et helpers de position
+apps/api/src/plugins/gsheet.ts          ← Finalisation partagée WCT/Compound
+apps/api/src/plugins/scan.ts            ← Applique la finalisation à /api/scan/batch
+apps/api/src/plugins/chainbase-staking.ts ← Discovery Chainbase ciblée
+apps/api/src/server-helpers.ts          ← Sérialise token.defi en flag DEFI
 ```
 
 ## Mécanismes de détection
@@ -41,30 +41,23 @@ Discovery purement on-chain via `numAssets()` + `getAssetInfo(i)` sur le Comet p
 ### 3. Chainbase Staking (`plugins/chainbase-staking.ts`)
 Discovery on-chain des positions Chainbase (C-Locked, C-Airdrop) via l'API Chainbase. Géré par le plugin `chainbase-staking.ts` dans l'API, appelé depuis `gsheet.ts:injectChainbaseStakingTokens()`.
 
-## Comment le suffixe est appliqué
+## Finalisation partagée
 
-1. Le scan API (`gsheet.ts`) itère sur les tokens découverts
-2. Pour chaque token, appelle `getDeFiPositionMetadata(chain, contract, symbol)` ou lit le champ `token.defi`
-3. Si une métadonnée est trouvée, appelle `withLiquiditySuffix(name, meta)`
-4. `withLiquiditySuffix` ajoute `[Flex]` ou `[Lock]` au nom UNIQUEMENT si le type n'est pas `"wallet_token"` et si le suffixe n'est pas déjà présent
+1. Le scan lit `getDeFiPositionMetadata(chain, contract, symbol)` ou le champ inline `token.defi`.
+2. `applyStakedPriceMirrors()` ajoute `[Flex]`/`[Lock]`, applique le pricing miroir et produit les labels lisibles. `scan.ts` réutilise ce helper via `applyDeFiPositionMirrorsToWalletAssets()` pour `/api/scan/batch`; GSheet conserve le même passage avant sa réponse à sept colonnes.
+3. Une position de dette reçoit balance et valeur négatives; `totalValueEur` agrège directement actifs et dettes pour conserver le net signé.
+4. `withLiquiditySuffix()` ne suffixe pas `wallet_token` et évite les suffixes en double.
 
 ## Badge DeFi web
 
-Le composant `TokenTable.tsx` a sa propre détection basée sur regex (indépendante du moteur DeFi). Elle couvre les patterns courants :
-- Noms contenant `[Flex]`, `[Lock]`
-- Noms commençant par `Staked`
-- Noms contenant `staking`, `liquid staking`, `receipt`, `vault`, `defi`
-- Symboles `C-*` suivis de `staking`/`lock`/`airdrop` dans le nom
-- Symboles `sXxx` + nom contenant `stak`/`receipt`
-
-Le badge est purement visuel — il n'affecte PAS le pricing ni le nom.
+Le champ inline `token.defi` est sérialisé par l'API en flag `DEFI`; ce flag est l'autorité pour les positions officielles. `TokenTable.tsx` l'utilise pour le badge et pour contourner la classification scam. `isDefiPosition(symbol, name)` reste seulement un fallback visuel legacy pour les anciennes lignes sans flag; il ne pilote ni pricing ni finalisation.
 
 ## Pricing miroir
 
 Quand `pricing.mode = "mirror_underlying"` :
 - Le token DeFi prend le prix du contrat `underlying`
 - Exemple : sKAITO (`0x548d...`) → prix de KAITO (`0x98d0...`)
-- Géré dans `gsheet.ts` (lignes 240-320)
+- Géré par le helper partagé de `gsheet.ts`, appelé par GSheet et `/api/scan/batch`
 
 Quand `pricing.mode = "mirror_native"` :
 - Prend le prix du token natif de la chaîne
@@ -72,21 +65,21 @@ Quand `pricing.mode = "mirror_native"` :
 ## Flux de données
 
 ```
-Scan GSheet (POST /api/gsheet/scan)
-  → evm-scan.ts : découvre les tokens (logs + registry)
-  → evm-pricing.ts : price les actifs directs et diffère les positions miroir
-  → gsheet.ts : injectChainbaseStakingTokens() + applyStakedPriceMirrors()
-    → getDeFiPositionMetadata() : match registre statique
-    → withLiquiditySuffix() : ajoute [Flex]/[Lock] au nom
-    → pricing miroir : si underlying connu
-  → réponse directe à `41_GSHEET_WEB_SCAN.gs`
-  → l'adaptateur Apps Script conserve le format à sept colonnes et son cache wallet
+Scan EVM
+  → découvre Compound V3 une fois par batch et les autres tokens ciblés
+  → price les actifs directs; diffère les positions miroir sans faux NO_PRICE
+  → finalisation partagée : WCT lock, [Flex]/[Lock], mirrors, labels, dette signée
+  ├── POST /api/gsheet/scan → réponse sept colonnes conservée par Apps Script
+  └── POST /api/scan/batch → sérialisation DEFI → badge/scam bypass/net signé Web
 ```
+
+Un token long-tail sans source de prix conserve `NO_PRICE`; ce cas normal n'ajoute pas à lui seul une erreur et ne rend pas le scan `degraded`. Les garde-fous restent distincts pour les actifs majeurs attendus comme priceables.
 
 ## Checklist : ajouter une position DeFi
 
 1. **Registre statique** : ajouter l'entrée dans `defi/registry.ts` (si protocole non-standard)
 2. **Ou discovery on-chain** : ajouter le protocole dans le plugin dédié
 3. **Ajouter au `TOKEN_REGISTRY`** si le contrat n'est pas discoverable via logs (ex: tokens sans transfer events)
-4. **Deployer l'API** : `powershell -File scripts/deploy.ps1 -Service api`
-5. **Rescanner** les wallets concernés
+4. **Vérifier** les tests core/shared, API et Web ciblés, le typecheck, le lint et les builds concernés
+5. **Déployer séquentiellement** l'API puis le Web avec `powershell -File scripts/deploy.ps1 -Service api|web`; ne faire un `clasp push` que si du code Apps Script a réellement changé
+6. **Contrôler** `/api/scan/batch` avec `forceRefresh=true`, les suffixes, flags, valeurs signées et `degraded/errors`, puis la sortie GSheet si elle est concernée

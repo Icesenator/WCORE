@@ -87,7 +87,7 @@
 - [ ] Finir la centralisation des variables d'environnement.
 - [ ] Ajouter un test schema sur les 183 configurations.
 - [ ] Ajouter des tests comportementaux pour les hooks CEX/GM.
-- [x] DeFi Position Engine v1 deploye et verifie en production le 2026-07-17: Compound V3 appelle `collateralBalanceOf` sur le Comet, price chaque collatéral par son contrat, derive les decimales depuis `AssetInfo.scale`, conserve dette negative et suffixes `[Flex]/[Lock]`. Smoke Optimism authentifie propre (`degraded=false`, aucune erreur) et lecture GSheet 7 colonnes confirmee.
+- [x] `Selected DeFi positions` V1 deploye et verifie le 2026-07-17 pour une couverture ciblee Compound V3, WCT, Chainbase et actifs stakes selectionnes. Le Web `/api/scan/batch` et GSheet partagent la finalisation `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee; Compound est decouvert une fois par batch EVM, appelle `collateralBalanceOf(user, asset)` sur le Comet, utilise le contrat collatéral pour pricing/logo/sortie et derive les decimales de `AssetInfo.scale`. Commits `6accdda1`/`95b91591`; deploys Railway API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`, Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Smoke Optimism force: `degraded=false`, `errors=[]`, WCT `0,47 EUR` + `2,61 EUR`, Comp wrsETH `12,69 EUR`, dette WETH `-10,21 EUR`, net signe `10,43 EUR`.
 - [x] Pages Market Cap livrees sur les routes stables `/cmc/crypto` et `/cmc/stocks`: 5 000 lignes par annuaire, logos, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut fresh/stale. CI et controle live attestes le 2026-07-17. Post X publie (`2078069673707348415`) et trois interactions verifiees.
 - [x] Corriger les 19 erreurs lint et rendre le lint bloquant en CI. Verifie le 2026-07-17.
 
@@ -121,7 +121,7 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 
 ## Nouveaux risques (audit 2026-07-16)
 
-- **A6 - DeFi Position Engine V1 - RESOLU 2026-07-17**: API et Web deployes; smoke Optimism authentifie et lecture GSheet confirment collateral, dette, pricing et suffixes.
+- **A6 - DeFi Position Engine V1 - RESOLU 2026-07-17**: finalisation partagee GSheet et Web batch deployee; le flag `DEFI`, les totaux signes et le smoke Optimism `10,43 EUR` confirment le comportement cible sans revendiquer une couverture LP/vault/protocoles generale.
 - **A7 - CI inactive - RESOLU 2026-07-17**: workflow deplace a la racine `WCORE/.github/workflows/` et CI verte.
 - **A8 - Lint + dependances - RESOLU 2026-07-17**: lint bloquant vert; `ws@8.21.1`; aucune vulnerabilite HIGH/CRITICAL.
 - **A3 - Hotspots GSheet**: 16 fichiers > 1000 lignes, plan de split (`HOTSPOT_SPLIT_PLAN.md`) abandonne.

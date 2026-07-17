@@ -2,7 +2,7 @@
 
 > Date de verification: 2026-07-16; reconciliation ciblee DeFi le 2026-07-17  
 > Perimetre: depot racine, `wcore-web`, `wcore-gsheet`, package genere `@wcore/chains`, CI, documentation et roadmaps.  
-> Methode: inspection statique du worktree courant, reconciliation des audits existants, recherches ciblees et tests non destructifs. Aucun appel live aux wallets, RPC, CEX, Google Sheets ou environnements Railway n'a ete effectue.  
+> Methode: inspection statique du worktree courant, reconciliation des audits existants, recherches ciblees et tests non destructifs, completees le 2026-07-17 par les deploys Railway et des controles cibles Optimism/GSheet. Aucun sondage general des wallets, RPC, CEX ou etats runtime n'a ete effectue.  
 > Precedent audit: 2026-07-10 (10 P1 identifies, 4 resolus). Cet audit re-evalue le statut de chaque finding et ajoute les decouvertes de l'audit complet du 2026-07-16.
 
 ## Resume executif
@@ -28,8 +28,8 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 | Web | Next.js 16, Fastify, Prisma/PostgreSQL, Redis, Railway |
 | GSheet | 250 fichiers `.gs` (60 342 lignes), 3 103 fonctions, v4.16.30 |
 | CEX | 7 providers: Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX, Kraken |
-| Tests core/shared | 301/301 passes |
-| Tests web | 137/137 unitaires passes; 6 tests API isoles en integration explicite |
+| Tests core/shared | core 290/290; shared 21/21 passes |
+| Tests web/API cibles | Web 161/161; API 104/104 passes |
 | Tests GSheet principaux | passes (`npm test`), 28 guard tests structurels |
 | Tests relay | 9/9 passes |
 | TypeScript | typecheck Web et monorepo sans erreur |
@@ -237,11 +237,11 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 - **Impact**: la version du package genere ne reflete pas la realite du runtime.
 - **Action**: bumper `dist/package.json` a chaque `build:chains`.
 
-### A6 - DeFi Position Engine v1 - IMPLEMENTED LOCALLY, DEPLOYMENT GATED
+### A6 - DeFi Position Engine v1 - RESOLU ET DEPLOYE 2026-07-17
 
-- **Correction du constat 2026-07-17**: l'implementation est structuree et ne se limite pas a des correctifs isoles. `@wcore/core` contient les types/helpers et le registre DeFi; Compound V3 decouvre dynamiquement collateraux et dette; WCT resout dynamiquement le statut de lock; les tokens transportent `defi`; l'API GSheet applique suffixes et mirror pricing depuis le registre ou les metadonnees inline decouvertes; Apps Script conserve les noms fournis par l'API.
-- **Preuves locales**: 19/19 tests DeFi core, 36/36 tests EVM, 51/51 tests API GSheet, typechecks core/API, test d'adaptateur Web Scan, test de preservation du wallet cache et validation statique de 3 103 fonctions globales passes le 2026-07-17.
-- **Limite**: aucun deploiement ni appel live Railway/Google Sheets n'a ete effectue pendant cette reconciliation. Le deploiement sur approbation explicite et la verification post-deploiement des lignes Ledger restent ouverts.
+- **Correction**: la finalisation WCT/Compound est partagee par GSheet et `/api/scan/batch`: suffixes `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee. Compound est decouvert une fois par batch EVM; `collateralBalanceOf(user, asset)` cible le Comet, le contrat collatéral sert au pricing/logo/sortie et `AssetInfo.scale` aux decimales. Le flag API `DEFI` preserve la semantique officielle jusqu'au Web, qui contourne le filtre scam pour ces lignes et conserve les nets signes. Un `NO_PRICE` long-tail ne rend pas le scan degrade.
+- **Verification**: commits `6accdda1` et `95b91591`; shared 21/21, core 290/290, Web 161/161 et API ciblee 104/104, typecheck global, lint cible et builds production API/Web passes.
+- **Production**: deploys Railway sequentiels API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f` puis Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Smoke Optimism `/api/scan/batch` force: `degraded=false`, `errors=[]`; WCT `0,47 EUR` + `2,61 EUR`, Comp wrsETH `12,69 EUR`, dette WETH `-10,21 EUR`, net signe `10,43 EUR`. Les sept colonnes GSheet ont ete controlees; aucun nouveau `clasp push` n'etait requis pour le fix Web final.
 
 ### A7 - CI GitHub non operationnelle - RESOLVED 2026-07-17
 
@@ -256,18 +256,17 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 ## Verifications executees
 
 ```text
-wcore-web core tests:          284/284 passes
-wcore-web shared tests:         17/17 passes
-wcore-web tests:               137/137 unitaires passes; integration API separee
-wcore-web typecheck:           passe
-wcore-web lint:                0 erreur, 0 warning
+wcore-web core tests:          290/290 passes
+wcore-web shared tests:         21/21 passes
+wcore-web tests:               161/161 passes
+API ciblee:                    104/104 passes
+typecheck global:              passe
+lint cible:                    passe
+builds production API/Web:     passent
 wcore-gsheet npm test:         passe, 3 103 fonctions validees, 28 guard tests
 wcore-gsheet relay tests:        9/9 passes
-DeFi core cible:                19/19 passes (2026-07-17)
-EVM core cible:                 36/36 passes (2026-07-17)
-API GSheet cible:               51/51 passes (2026-07-17)
 git diff --check:              passe sur les perimetres audites
 pnpm audit --prod:             aucune vulnerabilite HIGH/CRITICAL
 ```
 
-Limites: l'etat live des triggers GAS, quotas, caches, bases, RPC, CEX et services Railway n'a pas ete sonde. Les constats de concurrence GSheet sont issus de l'analyse des transitions read-modify-write et demandent une validation runtime apres correction.
+Limites: hors deploys Railway finaux et controles cibles Optimism `/api/scan/batch`/GSheet, l'etat live general des triggers GAS, quotas, caches, bases, RPC, CEX et services Railway n'a pas ete sonde. Les constats de concurrence GSheet sont issus de l'analyse des transitions read-modify-write et demandent une validation runtime apres correction.

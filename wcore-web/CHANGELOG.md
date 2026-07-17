@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## 2026-07-17 — DeFi Web batch finalise en production
+
+- **Perimetre** : `Selected DeFi positions` couvre en V1 des positions Compound V3, WCT, Chainbase et des actifs stakes selectionnes; aucune couverture generale des LP, vaults ou protocoles n'est revendiquee.
+- **Causes racines** : `/api/scan/batch` ne passait pas par la finalisation WCT/Compound du chemin GSheet; la serialisation perdait la semantique DeFi, le filtre scam pouvait retraiter ces lignes et le calcul Web pouvait borner un net signe. Un `NO_PRICE` long-tail marquait aussi a tort un scan comme degrade.
+- **Fixes** : le Web batch reutilise la finalisation GSheet pour suffixes `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee. Compound est decouvert une fois par batch EVM; les appels `collateralBalanceOf(user, asset)` ciblent le Comet, tandis que l'actif collatéral fournit pricing/logo/sortie et `AssetInfo.scale` fournit les decimales. Le flag `DEFI` traverse l'API, les lignes officielles contournent le filtre scam, les nets signes sont preserves et un `NO_PRICE` long-tail ne degrade plus le scan.
+- **Commits** : `6accdda1` (`fix: finalize DeFi positions in web scans`) et `95b91591` (`fix: keep missing token prices non-degrading`).
+- **Production** : deploys Railway sequentiels API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`, puis Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Aucun nouveau `clasp push` pour ce fix Web final.
+- **Smoke Optimism** : `/api/scan/batch`, `forceRefresh=true`, `degraded=false`, `errors=[]`; WCT Claimable `[Flex]` `0,47 EUR`, WCT Stake `[Flex]` `2,61 EUR`, Comp wrsETH `[Flex]` `12,69 EUR`, Comp WETH Borrow `[Flex]` `-10,21 EUR`; net signe `10,43 EUR`.
+- **Verification** : shared 21 tests, core 290 tests, Web 161 tests, 104 tests API cibles, typecheck global, lint cible et builds production API/Web.
+
 ## 2026-07-17 — Market Cap production launch + X cycle
 
 - **Market Cap Crypto/Stock** : pages publiques `/cmc/crypto` et `/cmc/stocks` livrées avec 5 000 lignes, logos, pays, recherche, pagination et statut fresh/stale. Navigation sidebar mise à jour.

@@ -104,7 +104,7 @@
 
 ### Mega-agregateur bridge/swap multi-chaine
 
-- [ ] Concevoir un moteur de comparaison de quotes distinct du portfolio: LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch et Jupiter sont des candidats, actives progressivement apres verification de leurs contrats, quotas et couvertures.
+- [ ] Concevoir un moteur de comparaison de quotes distinct du portfolio avec un registre provider ouvert. LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch et Jupiter sont des candidats initiaux non exhaustifs; tout nouvel agregateur peut etre evalue et active par configuration apres verification de ses contrats, quotas, couverture et garanties de securite.
 - [ ] Normaliser chaque route par montant net recu, gas, frais, slippage, duree, nombre d'etapes et risque du bridge; dedupliquer les routes qui utilisent le meme chemin sous-jacent.
 - [ ] Livrer d'abord un comparateur read-only de transactions non signees. Toute execution exige une specification separee, une validation explicite dans le wallet et un audit securite; WCORE ne detient jamais les fonds et ne signe jamais automatiquement.
 - [ ] Definir `toutes chaines` comme toutes les chaines dynamiquement couvertes par au moins un routeur, sans promettre que les 183 configurations WCORE disposent toutes d'une route.

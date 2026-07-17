@@ -17,7 +17,7 @@ export default function HomePage() {
           <Logo className="h-12 w-12 text-accent/80 shrink-0" />
           <div>
             <h2 className="text-2xl font-bold sm:text-3xl text-fg">Your crypto. Every chain. One view.</h2>
-            <p className="text-sm text-muted mt-0.5">183 chains. EVM, Solana, Cosmos, TON. Real-time portfolio tracking, on-chain GM, 7 CEX.</p>
+            <p className="text-sm text-muted mt-0.5">183 chains. 4 VMs. Selected DeFi positions. Real-time pricing, on-chain GM, 7 CEX.</p>
           </div>
         </div>
 
@@ -33,7 +33,7 @@ export default function HomePage() {
           <MiniCard icon="🏆" label="Leaderboard" />
           <MiniCard icon="🪙" label="Custom tokens" />
           <MiniCard icon="📊" label="CSV Export" />
-          <MiniCard icon="💾" label="Smart cache" />
+          <MiniCard icon="🌐" label="DeFi positions" />
         </div>
       </section>
 

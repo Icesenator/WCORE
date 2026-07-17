@@ -24,5 +24,5 @@ test("public site copy advertises selected DeFi coverage without stale claims", 
   assert.match(layout, /183 tracked chains/);
   assert.match(footer, /183 tracked chains.*Selected DeFi.*7 CEX.*80\+ GM chains/s);
   assert.match(welcome, /Selected DeFi positions/);
-  assert.doesNotMatch(all, /170\+ chains|Complex DeFi positions .* are not yet tracked|TON \(new\)|CEX \(new\)|Smart cache/);
+  assert.doesNotMatch(all, /170\+ chains|183 live blockchains|8 dead chains|Complex DeFi positions .* are not yet tracked|TON \(new\)|CEX \(new\)|Smart cache/);
 });

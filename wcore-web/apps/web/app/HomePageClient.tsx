@@ -340,12 +340,19 @@ export function HomePageClient() {
         </div>
       ) : null}
 
-      <div className="mt-10 grid gap-4 sm:grid-cols-3">
+      <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-2 text-2xl">⛓️</div>
-          <h3 className="text-sm font-semibold mb-1">Track 183 live blockchains</h3>
+          <h3 className="text-sm font-semibold mb-1">Track 183 chains</h3>
           <p className="text-xs text-muted leading-relaxed">
-            Paste any public EVM, Solana, Cosmos or TON address. Automatic VM detection, real-time pricing from 5 sources (DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko), multi-wallet linking, custom tokens and CSV export. 8 dead chains are auto-skipped to keep scans fast and accurate.
+            Paste any public EVM, Solana, Cosmos or TON address. Automatic VM detection, real-time pricing from 5 sources (DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko), multi-wallet linking, custom tokens and CSV export. Unavailable chains are auto-skipped to keep scans fast and accurate.
+          </p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-5">
+          <div className="mb-2 text-2xl">🌐</div>
+          <h3 className="text-sm font-semibold mb-1">Selected DeFi positions</h3>
+          <p className="text-xs text-muted leading-relaxed">
+            Track Compound V3 collateral and debt, WCT, Chainbase and selected staked assets. Net values stay signed, while [Flex] and [Lock] show current liquidity.
           </p>
         </div>
         <div className="rounded-xl border border-border bg-card p-5">

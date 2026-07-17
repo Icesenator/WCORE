@@ -3,7 +3,7 @@ export default function AboutPage() {
     <main className="mx-auto min-h-screen w-full px-4 py-8 sm:px-6 sm:py-12">
 
       <h1 className="mb-1 text-2xl font-bold">About WCORE</h1>
-      <p className="mb-8 text-sm text-muted">Your crypto. Every chain. One view. 183 chains, 80+ GM contracts, 7 CEX sources. Read only. Free.</p>
+      <p className="mb-8 text-sm text-muted">Your crypto. Every chain. One view. 183 chains, selected DeFi positions, 80+ GM contracts and 7 CEX sources. Read only. Free.</p>
 
       <div className="grid gap-6 lg:grid-cols-2 text-sm leading-relaxed">
         <section>
@@ -35,15 +35,15 @@ export default function AboutPage() {
             </div>
           </div>
           <div className="mt-3 rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3">
-            <p className="font-semibold text-cyan-300 mb-1 text-xs">TON (new)</p>
+            <p className="font-semibold text-cyan-300 mb-1 text-xs">TON</p>
             <p className="text-muted text-xs">Native Toncoin (9 decimals) plus jettons via TonAPI with Toncenter fallback. Address detection recognises user-friendly base64 (EQ/UQ) and raw -1:hex formats.</p>
           </div>
           <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
-            <p className="font-semibold text-emerald-300 mb-1 text-xs">CEX (new)</p>
+            <p className="font-semibold text-emerald-300 mb-1 text-xs">CEX</p>
             <p className="text-muted text-xs">Binance (Spot, Earn flexible, Earn locked), Bitpanda (crypto, fiat, commodities, stocks), Bitfinex (exchange/spot wallet), Bybit (Unified + Funding), Coinbase and OKX. Each user supplies their own read-only API key, encrypted server-side (AES-GCM). Prices come from the provider first, then DefiLlama or Yahoo Finance for symbols the ticker does not cover.</p>
           </div>
           <p className="mt-3 text-muted text-xs">
-            8 chains with no live RPC endpoints (CROSS_MAINNET, ETHO_PROTOCOL, HAVEN1, MOCA_CHAIN, POLYNOMIAL, RIVALZ, STACK, SURFLAYER) are auto-skipped by the scan engine. They are kept in the registry for reactivation when their RPCs return.
+            Chains without live RPC endpoints are auto-skipped by the scan engine. Their configurations remain available for reactivation when reliable infrastructure returns.
           </p>
         </section>
 
@@ -61,7 +61,8 @@ export default function AboutPage() {
           <h2 className="text-lg font-semibold text-fg mb-3">Features</h2>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="flex gap-2"><span className="text-accent">⛽</span><span className="text-muted text-xs"><strong className="text-fg">On-chain GM</strong>. Say GM across 80 supported chains. Deploy your contract, earn 50% of tips.</span></div>
-            <div className="flex gap-2"><span className="text-accent">🏦</span><span className="text-muted text-xs"><strong className="text-fg">CEX tracking</strong>. Link your own Binance, Bitpanda, Bitfinex, Bybit, Coinbase or OKX read-only API key. Spot, Earn, commodities, stocks, all in one view.</span></div>
+            <div className="flex gap-2"><span className="text-accent">🏦</span><span className="text-muted text-xs"><strong className="text-fg">CEX tracking</strong>. Link your own Binance, Bitpanda, Bitfinex, Bybit, Coinbase, Kraken or OKX read-only API key. Spot, Earn, commodities, stocks, all in one view.</span></div>
+            <div className="flex gap-2"><span className="text-accent">🌐</span><span className="text-muted text-xs"><strong className="text-fg">Selected DeFi positions</strong>. Compound V3, WCT, Chainbase and selected staked assets with signed debt and liquidity status.</span></div>
             <div className="flex gap-2"><span className="text-accent">🔗</span><span className="text-muted text-xs"><strong className="text-fg">Referral system</strong>. Share your link, earn 10% of your referrals points.</span></div>
             <div className="flex gap-2"><span className="text-accent">🚩</span><span className="text-muted text-xs"><strong className="text-fg">Scam detection</strong>. 7-rule engine flags suspicious tokens.</span></div>
             <div className="flex gap-2"><span className="text-accent">👛</span><span className="text-muted text-xs"><strong className="text-fg">Multi-wallet</strong>. Link addresses, labels, CSV export.</span></div>

@@ -2,11 +2,11 @@ import type { ProviderId } from "./types.js";
 
 const ZERION_PROTOCOL_ALIASES: Readonly<Record<string, string>> = {
   aave: "aave",
-  "aave-v2": "aave",
-  "aave-v3": "aave",
+  "aave-v2": "aave-v2",
+  "aave-v3": "aave-v3",
   compound: "compound",
-  "compound-v2": "compound",
-  "compound-v3": "compound",
+  "compound-v2": "compound-v2",
+  "compound-v3": "compound-v3",
   lido: "lido",
   "lido-staked-eth": "lido",
   "lido-steth": "lido",
@@ -21,11 +21,11 @@ const ZERION_PROTOCOL_ALIASES: Readonly<Record<string, string>> = {
   convex: "convex",
   "convex-finance": "convex",
   uniswap: "uniswap",
-  "uniswap-v2": "uniswap",
-  "uniswap-v3": "uniswap",
+  "uniswap-v2": "uniswap-v2",
+  "uniswap-v3": "uniswap-v3",
   balancer: "balancer",
-  "balancer-v1": "balancer",
-  "balancer-v2": "balancer",
+  "balancer-v1": "balancer-v1",
+  "balancer-v2": "balancer-v2",
 };
 
 const SAFE_PROVIDER_ID = /^[a-zA-Z0-9]+(?:[._ -][a-zA-Z0-9]+)*$/;
@@ -36,7 +36,7 @@ function normalizeProviderProtocolId(value: string): string | undefined {
   return trimmed.toLowerCase().replace(/[._ -]+/g, "-");
 }
 
-export function canonicalProtocolId(provider: ProviderId, providerProtocolId: string): string | undefined {
+export function canonicalProtocol(provider: ProviderId, providerProtocolId: string): string | undefined {
   const normalized = normalizeProviderProtocolId(providerProtocolId);
   if (!normalized) return undefined;
 

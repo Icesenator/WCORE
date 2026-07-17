@@ -19,7 +19,7 @@ const ZERION_CHAIN_MAP = {
 
 export type CanonicalEnrichmentChain = (typeof ZERION_CHAIN_MAP)[keyof typeof ZERION_CHAIN_MAP];
 
-export function mapProviderChain(provider: ProviderId, providerChain: string): CanonicalEnrichmentChain | undefined {
+export function toWcoreChain(provider: ProviderId, providerChain: string): CanonicalEnrichmentChain | undefined {
   if (provider !== "zerion") return undefined;
   const normalized = providerChain.trim().toLowerCase();
   return ZERION_CHAIN_MAP[normalized as keyof typeof ZERION_CHAIN_MAP];

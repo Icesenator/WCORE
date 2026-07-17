@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Build the merged chains/index.ts that re-exports from @wcore/chains + local web-only chains.
-import { readFileSync, writeFileSync, readdirSync } from "node:fs";
+import console from "node:console";
+import { writeFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,10 +26,8 @@ lines.push(`// Re-run: node tools/build-chains-index.mjs`);
 lines.push(``);
 lines.push(`import {`);
 lines.push(`  chains as gsheetChains,`);
-lines.push(`  chainList as gsheetChainList,`);
-lines.push(`  type ChainKey as GsheetChainKey,`);
 lines.push(`} from "@wcore/chains";`);
-lines.push(`import type { ChainConfig, VmType } from "@wcore/chains/types";`);
+lines.push(`import type { ChainConfig } from "@wcore/chains/types";`);
 lines.push(``);
 lines.push(`// Local web-only chains (not yet ported to wcore-gsheet/src/*.gs).`);
 for (const name of localUnique) {

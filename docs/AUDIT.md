@@ -29,15 +29,15 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 | GSheet | 250 fichiers `.gs` (60 342 lignes), 3 033 fonctions, v4.16.30 |
 | CEX | 7 providers: Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX, Kraken |
 | Tests core/shared | 301/301 passes |
-| Tests web | 129 passes, 6 echecs lies a l'API locale absente |
+| Tests web | 137/137 unitaires passes; 6 tests API isoles en integration explicite |
 | Tests GSheet principaux | passes (`npm test`), 28 guard tests structurels |
 | Tests relay | 9/9 passes |
 | TypeScript | typecheck Web et monorepo sans erreur |
-| Lint | rouge: 19 erreurs au total, non bloquant en CI |
-| Dependances | une vulnerabilite haute confirmee sur `ws@8.20.1` |
+| Lint | vert: 0 erreur, 0 warning; bloquant dans la CI racine |
+| Dependances | `ws@8.21.1`; aucune vulnerabilite HIGH/CRITICAL (`pnpm audit --prod`) |
 | Documentation | audits Web/GSheet perimes, trois gros fichiers Web en mojibake |
 | Fichiers > 1000 lignes | 16 fichiers `.gs` (max: 2 846 lignes `27_ACTIVITY_REFRESH.gs`) |
-| CI GitHub | workflow present dans `wcore-web/.github/` mais pas a la racine (inactif) |
+| CI GitHub | workflow deplace a `.github/workflows/ci.yml`, chemins monorepo adaptes |
 | Specs/plans | 20 termines (non archives), 7 en cours, 3 non commences |
 | Dead code | 9 fonctions `LEGACY_DISABLED`, module `28_PRICING_WORKER` (1 312 lignes), `ACTIVITY_WATCHDOG` desactive |
 
@@ -59,11 +59,10 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 - Impact: `prisma migrate deploy` peut echouer sur une base vide, compromettant staging et restauration apres sinistre.
 - Action minimale: migration corrective complete, puis test CI sur PostgreSQL vierge.
 
-### W4 - CI GitHub inactive
+### W4 - CI GitHub inactive - RESOLVED 2026-07-17
 
-- Preuves: le depot Git est la racine WCORE, mais le seul workflow est `wcore-web/.github/workflows/ci.yml`. GitHub ne charge que `.github/workflows/*` a la racine.
-- Impact: audit de dependances, gitleaks, lint, tests et builds ne bloquent actuellement aucun push ou PR.
-- Action minimale: deplacer le workflow a la racine et fixer les `working-directory`/chemins.
+- Correction: workflow deplace vers `.github/workflows/ci.yml`; `defaults.run.working-directory`, cache pnpm, rapport Playwright et commandes E2E adaptes a `wcore-web/`.
+- Preuves: YAML parse/formate, `pnpm install --frozen-lockfile`, lint, typecheck, tests core/web et build complet passes localement le 2026-07-17.
 
 ### W5 - Protection SSRF et DNS rebinding incomplete
 
@@ -244,26 +243,24 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 - **Impact**: dette architecturale. Le code de production utilise des workarounds la ou un registre structurel est prevu.
 - **Action**: prioriser ou abandonner formellement le design.
 
-### A7 - CI GitHub non operationnelle
+### A7 - CI GitHub non operationnelle - RESOLVED 2026-07-17
 
-- **Preuves**: le workflow est dans `wcore-web/.github/workflows/ci.yml`. GitHub ne scanne que `.github/workflows/` a la racine du repo. Le CI n'a jamais bloque un push ou une PR.
-- **Impact**: les regressions (lint, build, tests) peuvent merger sans detection.
-- **Action**: deplacer le workflow a la racine `WCORE/.github/workflows/`.
+- **Correction**: workflow deplace a `WCORE/.github/workflows/ci.yml`, avec chemins monorepo explicites.
+- **Validation**: installation frozen, lint, typecheck, tests et build passent localement; execution GitHub effective au prochain push.
 
-### A8 - Lint rouge non bloquant + vulnerability `ws` non patchée
+### A8 - Lint rouge non bloquant + vulnerability `ws` non patchee - RESOLVED 2026-07-17
 
-- **Preuves**: 19 erreurs ESLint, 0 warning. `pnpm audit` montre `ws@8.20.1` HIGH. Le step `pnpm lint` en CI ne fait pas `exit 1`.
-- **Impact**: regression continue de la qualite, fenetre de vulnerabilite ouverte.
-- **Action**: corriger les 19 erreurs lint, upgrader `ws` a `>=8.21.0`, rendre le lint bloquant en CI.
+- **Correction**: 18 erreurs et 1 warning corriges; `ws` force en `8.21.1`; lint execute sans tolerance dans la CI racine.
+- **Validation**: ESLint 0 erreur/0 warning; audit production sans HIGH/CRITICAL; lockfile frozen valide.
 
 ## Verifications executees
 
 ```text
 wcore-web core tests:          284/284 passes
 wcore-web shared tests:         17/17 passes
-wcore-web tests:               129 passes, 6 echecs API locale absente
+wcore-web tests:               137/137 unitaires passes; integration API separee
 wcore-web typecheck:           passe
-wcore-web lint:                19 erreurs, 0 warning
+wcore-web lint:                0 erreur, 0 warning
 wcore-gsheet npm test:         passe, 3 033 fonctions validees, 28 guard tests
 wcore-gsheet relay tests:        9/9 passes
 git diff --check:              passe sur les perimetres audites

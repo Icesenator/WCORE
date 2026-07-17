@@ -13,9 +13,9 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 | Exactitude | A renforcer | Conversion CEX corrigee; divergences batch/staking/TON restantes |
 | Securite | A renforcer | SSRF IPv6/DNS et CEX secret fallback; endpoint pricing CEX supprime |
 | Fiabilite | A renforcer | Jobs async en memoire et fan-outs GM; CEX UI stale-safe |
-| Tests | Bon socle | 301 tests core/shared passes; Web 129 passes et 6 tests non hermetiques |
-| Qualite | En regression | Typecheck vert, lint rouge a 19 erreurs |
-| Livraison | Risque eleve | Workflow CI place sous `wcore-web/.github`, migrations incompletes |
+| Tests | Bon socle | Core 284/284 et Web 137/137 unitaires passes; tests API separes explicitement |
+| Qualite | Verte | Typecheck et lint 0 erreur/0 warning |
+| Livraison | A renforcer | CI racine restauree; migrations Prisma encore incompletes |
 | Docs | Dette elevee | Roadmap/AGENTS/CHANGELOG volumineux et mojibakes |
 
 ## P1 - A traiter en premier
@@ -23,7 +23,7 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 - [x] **W1 - RESOLVED 2026-07-10.** `convertUsdPriceToEur` multiplie les prix USD par le taux EUR/USD canonique pour les stables et DefiLlama. Preuve: `pricing.test.ts` + `normalizers.test.ts`, 29/29 passes; typecheck API et ESLint cible passes.
 - [x] **W2 - RESOLVED 2026-07-10.** `/api/cex/prices`, requis par `_cexFetchWebPrices_` dans Google Sheets, exige maintenant `x-gsheet-token`, limite les lots a 50, envoie les actions au relais en un batch et borne le pricing crypto a 5 workers. Les anciens fan-outs multi-provider sont supprimes. Preuve: 33/33 tests API CEX/normalizers/stock-relay passes.
 - [ ] **W3 - Migrations Prisma non reconstructibles.** Le schema contient des tables/champs sans migration de creation; `20260518103000_add_scam_override_contract` altere une table supposee existante. Ajouter une migration corrective et un test sur DB vide.
-- [ ] **W4 - CI inactive.** Le seul workflow est `wcore-web/.github/workflows/ci.yml`, mais le depot Git commence un niveau au-dessus. Le deplacer vers `/.github/workflows/`.
+- [x] **W4 - RESOLVED 2026-07-17.** Workflow deplace vers `/.github/workflows/ci.yml`; working-directory, cache pnpm, E2E et artifacts adaptes au monorepo.
 - [ ] **W5 - SSRF/DNS rebinding incomplet.** `apps/api/src/lib/safe-http.ts` ne garantit ni A/AAAA publics ni epinglage de l'adresse validee. Centraliser les fetches RPC.
 - [ ] **W6 - Jobs async non bornes/persistants.** `apps/api/src/plugins/scan-job.ts:23` utilise un store memoire sans borne; les timeouts ne stoppent pas le moteur. Quotas actifs, Redis, queue et AbortSignal.
 - [ ] **W7 - Echec GM interprete comme contrat absent.** `apps/web/hooks/useOnChainGm.ts:86-101` retourne `false` sur panne. Introduire l'etat `unknown`.
@@ -35,7 +35,7 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 ### API et securite
 
 - [ ] Rendre `CEX_SECRET` obligatoire en production au lieu du fallback `JWT_SECRET` (`apps/api/src/plugins/cex.ts:103-105`).
-- [ ] Mettre `ws` a jour en `>=8.21.0`; l'override 8.20.1 reste vulnerable.
+- [x] Mettre `ws` a jour en `>=8.21.0`: override et lockfile en `8.21.1`, audit sans HIGH/CRITICAL.
 - [ ] Refuser/degrader readiness si Redis configure est indisponible en production.
 - [ ] Reduire le TTL access token ou ajouter une revocation user/session-level.
 - [ ] Integrer toutes les variables CEX/GSheet dans `config.ts` et les templates env.
@@ -61,8 +61,8 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 
 - [ ] Pruner l'image API avec un artefact de production.
 - [ ] Ajouter un `.dockerignore` racine adapte au contexte Railway parent.
-- [ ] Corriger les 19 erreurs lint et rendre le lint bloquant en CI.
-- [ ] Rendre `apps/web/__tests__/ui.test.ts` hermetique ou le deplacer en integration explicite.
+- [x] Corriger les 19 problemes lint et rendre le lint bloquant en CI: 0 erreur/0 warning.
+- [x] Deplacer `apps/web/__tests__/ui.test.ts` en `ui.integration.ts` avec commande `test:integration`; le test unitaire est hermetique.
 - [ ] Ajouter un test schema exhaustif sur les 183 chaines.
 
 ## P3 - Structure

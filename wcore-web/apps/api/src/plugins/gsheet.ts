@@ -278,7 +278,6 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
     const source = (t as Record<string, unknown>).source != null ? String((t as Record<string, unknown>).source) : null;
     priceByContract.set(contract, { priceEur, valueEur, source });
   }
-  const nativePrice = tokenNumberField(result.native, "priceEur");
   function metadataForToken(token: unknown) {
     const rec = token as Record<string, unknown>;
     return getDeFiPositionMetadata(chain, String(rec.contract || ""), String(rec.symbol || ""));
@@ -548,7 +547,7 @@ async function injectChainbaseStakingTokens(result: GsheetScanResult, address: s
     ];
     const tokens = Array.isArray(result.tokens) ? [...result.tokens, ...injected] : injected;
     return { ...result, tokens, chainbaseStaking: cb };
-  } catch (e) {
+  } catch {
     return result;
   }
 }

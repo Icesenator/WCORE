@@ -4,7 +4,6 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import { getRpcEndpoints } from "@wcore/core";
 
 const STAKING_PROXY = "0x0297E997b56017164110f75F71ecd58dA823085B";
@@ -28,7 +27,6 @@ function keccak256(bytes: Uint8Array): Uint8Array {
     0x8000000000008002n, 0x8000000000000080n, 0x000000000000800an, 0x800000008000000an,
     0x8000000080008081n, 0x8000000000008080n, 0x0000000080000001n, 0x8000000080008008n,
   ];
-  const PI: number[] = [10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4, 15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1];
   const R: number[][] = [
     [0, 1, 62, 28, 27], [36, 44, 6, 55, 20], [3, 10, 43, 25, 39], [41, 45, 15, 21, 8],
     [18, 2, 61, 56, 14], [62, 6, 43, 39, 41], [28, 10, 55, 36, 44], [45, 15, 21, 8, 18],

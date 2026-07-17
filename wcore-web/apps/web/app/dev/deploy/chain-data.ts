@@ -244,12 +244,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://cyber.alt.technology", "https://rpc.cyber.co"],
   },
-  RARI: {
-    chainId: "0x52415249",
-    chainName: "RARI Chain",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://mainnet.rpc.rarichain.org/http", "https://1380012617.rpc.thirdweb.com"],
-  },
   ZIRCUIT: {
     chainId: "0xbf04",
     chainName: "Zircuit",
@@ -701,7 +695,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   484, // CAMP
   5545, // DUCKCHAIN
   7560, // CYBER
-  1380012617, // RARI
   48900, // ZIRCUIT
   1612, // OPENLEDGER
   988, // STABLE

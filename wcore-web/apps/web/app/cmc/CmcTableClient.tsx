@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { getApiUrl } from "@/lib/api";
 
 interface CmcRow {
@@ -25,7 +25,7 @@ export function CmcTableClient({ endpoint, title }: { endpoint: string; title: s
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
 
-  async function load(fresh = false) {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -41,9 +41,9 @@ export function CmcTableClient({ endpoint, title }: { endpoint: string; title: s
     } finally {
       setLoading(false);
     }
-  }
+  }, [endpoint]);
 
-  useEffect(() => { load(); }, [endpoint]);
+  useEffect(() => { void load(); }, [load]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return rows;

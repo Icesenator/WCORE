@@ -1,5 +1,12 @@
 ﻿# Changelog
 
+## 2026-07-17 — CI racine, lint vert, ws patché et GM lifecycle aligné
+
+- **CI** : workflow déplacé de `wcore-web/.github/workflows/` vers la racine `.github/workflows/`; working-directory, cache pnpm, E2E et artifacts adaptés au monorepo.
+- **Qualité** : 18 erreurs ESLint + 1 warning corrigés. Les 6 tests UI dépendant d'une API locale sont isolés sous `test:integration`; la suite Web unitaire est hermétique (137/137).
+- **Sécurité** : override `ws` mis à jour de 8.20.1 à 8.21.1; audit production sans vulnérabilité HIGH/CRITICAL.
+- **Chain lifecycle** : factories GM retirées pour Polygon zkEVM et Ancient8 (chaînes désactivées), et retrait RARI finalisé dans factories, wagmi, deploy UI/data, explorer, manifests et scripts. Un test interdit désormais toute factory GM pointant vers une chaîne absente ou désactivée.
+
 ## 2026-07-07 — X cycle read-only + concept post
 
 - **Cycle X** : 3 replies publiees et verifiees apres scan read-only et filtrage shill/doublons : approvals/read-only, API publique sans private key, fake portfolio balance scam.

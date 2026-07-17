@@ -931,7 +931,7 @@ describe("gsheetPlugin", () => {
         stakingContract: "0x0297e997b56017164110f75f71ecd58da823085b",
         airdropContract: "0x3f2061547174d206613bc70869a454c25f84a0df",
         locked: 58.58143972,
-        claimable: 15.357840691300827409,
+        claimable: Number("15.357840691300827409"),
         tokenSymbol: "C",
         tokenAddress: "0xba12bc7b210e61e5d3110b997a63ea216e0e18f7",
         sources: { locked: "rpc", claimable: "config" },
@@ -969,7 +969,7 @@ describe("gsheetPlugin", () => {
     assert.ok(locked, "C-Locked must be injected");
     assert.ok(claimable, "C-Airdrop must be injected");
     assert.equal(locked.balance, 58.58143972);
-    assert.equal(claimable.balance, 15.357840691300827);
+    assert.equal(claimable.balance, Number("15.357840691300827"));
     assert.equal(locked.contract.toLowerCase(), "0x0297e997b56017164110f75f71ecd58da823085b");
     assert.equal(claimable.contract.toLowerCase(), "0x3f2061547174d206613bc70869a454c25f84a0df");
     assert.equal(locked.name, "Chainbase Staking [Lock]", "C-Locked must use withLiquiditySuffix to render the [Lock] badge");
@@ -980,7 +980,7 @@ describe("gsheetPlugin", () => {
     assert.equal(claimable.defi?.liquidityStatus, "flex");
     assert.ok(body.chainbaseStaking, "chainbaseStaking summary must be present");
     assert.equal(body.chainbaseStaking.locked, 58.58143972);
-    assert.equal(body.chainbaseStaking.claimable, 15.357840691300827);
+    assert.equal(body.chainbaseStaking.claimable, Number("15.357840691300827"));
     await app.close();
   });
 

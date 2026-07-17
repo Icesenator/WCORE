@@ -57,7 +57,6 @@ const EXPLORERS: Record<string, string> = {
   b3: "https://explorer.b3.fun",
   appchain: "https://explorer.appchain.xyz",
   duckchain: "https://explorer.duckchain.io",
-  rari: "https://rari.explorer.thirdweb.com",
   zircuit: "https://explorer.zircuit.com",
   stable: "https://explorer.stable.xyz",
   redstone: "https://explorer.redstone.xyz",

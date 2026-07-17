@@ -26,15 +26,14 @@ export interface ProviderWalletHint {
 }
 
 export type NormalizedPositionType =
-  | "lending-supply"
-  | "lending-borrow"
-  | "liquidity-pool"
-  | "staking"
-  | "liquid-staking"
-  | "restaking"
-  | "vault"
-  | "farming"
-  | "vesting";
+  | "collateral"
+  | "vault_share"
+  | "lending_debt"
+  | "staking_locked"
+  | "staking_liquid"
+  | "claimable"
+  | "real_world_asset"
+  | "unknown_defi";
 
 export interface NormalizedProviderPosition {
   readonly provider: ProviderId;
@@ -42,22 +41,17 @@ export interface NormalizedProviderPosition {
   readonly protocol: string;
   readonly type: NormalizedPositionType;
   readonly contract?: string;
-  readonly underlying?: string;
-  readonly receipt?: string;
-  readonly pool?: string;
-  readonly group?: string;
+  readonly underlyingContract?: string;
+  readonly receiptContract?: string;
+  readonly poolAddress?: string;
   /** Provider-owned opaque identifier. Consumers must not parse it. */
   readonly positionId: string;
-  readonly balance: number | null;
+  readonly groupId?: string;
+  readonly balance: number;
   readonly priceEur: number | null;
-  readonly valueEur: number | null;
-  readonly liquidity: "liquid" | "locked" | "unknown";
+  readonly valueEur: number;
+  readonly liquidity: "liquid" | "locked" | "claimable" | "unknown";
   readonly providerVerified: true;
-}
-
-export interface ProviderDiagnostic {
-  readonly code: string;
-  readonly message: string;
 }
 
 export interface ProviderPortfolioSnapshot {
@@ -66,7 +60,7 @@ export interface ProviderPortfolioSnapshot {
   readonly positions: readonly NormalizedProviderPosition[];
   readonly derivedPositionValueEur: number;
   readonly observedAt: string;
-  readonly diagnostics: readonly ProviderDiagnostic[];
+  readonly diagnostics: Readonly<Record<string, number | string | boolean>>;
 }
 
 export interface PortfolioEnrichmentInput {
@@ -77,13 +71,14 @@ export interface PortfolioEnrichmentInput {
 
 export interface PortfolioEnrichmentResult {
   readonly assetsByChain: Map<string, WalletAssets>;
-  readonly diagnostics: readonly ProviderDiagnostic[];
+  readonly diagnostics: Readonly<Record<string, number | string | boolean>>;
 }
 
 export interface PortfolioEnrichmentProvider {
   readonly id: ProviderId;
   readonly capabilities: ProviderCapabilities;
-  enrich(context: ProviderRequestContext): Promise<ProviderPortfolioSnapshot>;
+  supports(address: string): boolean;
+  load(context: ProviderRequestContext): Promise<ProviderPortfolioSnapshot>;
 }
 
 export interface PortfolioEnrichmentService {

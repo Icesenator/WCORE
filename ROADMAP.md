@@ -102,7 +102,7 @@
 - [ ] Ne jamais transformer une panne d'enrichissement en scan `degraded`, erreur RPC ou ouverture d'un circuit breaker de chaine. Le dernier snapshot provider sain peut etre servi stale sans remplacer le resultat on-chain.
 - Specification approuvee: `docs/superpowers/specs/2026-07-17-portfolio-enrichment-multi-provider-design.md`.
 
-### Meta-agregateur bridge/swap multi-chaine
+### Mega-agregateur bridge/swap multi-chaine
 
 - [ ] Concevoir un moteur de comparaison de quotes distinct du portfolio: LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch et Jupiter sont des candidats, actives progressivement apres verification de leurs contrats, quotas et couvertures.
 - [ ] Normaliser chaque route par montant net recu, gas, frais, slippage, duree, nombre d'etapes et risque du bridge; dedupliquer les routes qui utilisent le meme chemin sous-jacent.

@@ -1,6 +1,6 @@
 # WCORE - Roadmap
 
-> Index cross-runtime et priorites communes. Etat verifie le 2026-07-16 (audit complet). Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
+> Index cross-runtime et priorites communes. Etat verifie le 2026-07-17. Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
 
 ## Sources de verite
 
@@ -88,7 +88,7 @@
 - [ ] Ajouter un test schema sur les 183 configurations.
 - [ ] Ajouter des tests comportementaux pour les hooks CEX/GM.
 - [x] DeFi Position Engine v1 implemente dans le worktree courant: types/registre core, Compound V3 et WCT dynamiques, suffixes/mirrors API avec metadonnees `defi` inline, pass-through Apps Script et tests. Verification locale ciblee passee le 2026-07-17; deploiement et verification live restent gates.
-- [x] Pages Market Cap implementees localement sur les routes stables `/cmc/crypto` et `/cmc/stocks`: UI renommee Market Cap Crypto/Stock, logos source exacts quand disponibles, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut de snapshot stale. Tests presents; aucun deploiement ni controle live n'est atteste.
+- [x] Pages Market Cap livrees sur les routes stables `/cmc/crypto` et `/cmc/stocks`: 5 000 lignes par annuaire, logos, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut fresh/stale. CI et controle live attestes le 2026-07-17. Post X publie (`2078069673707348415`) et trois interactions verifiees.
 - [x] Corriger les 19 erreurs lint et rendre le lint bloquant en CI. Verifie le 2026-07-17.
 
 ## Chain Lifecycle

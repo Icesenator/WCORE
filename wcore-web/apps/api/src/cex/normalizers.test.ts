@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeKrakenBuckets, normalizeOkxBuckets, bitfinexCanonicalSymbol, krakenCanonicalSymbol } from "./normalizers.js";
+import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeKrakenBuckets, normalizeOkxBuckets, bitfinexCanonicalSymbol, krakenCanonicalSymbol, okxCanonicalSymbol } from "./normalizers.js";
 import { priceYahooStockSymbolEur, yahooStockSymbolCandidates } from "./stock-pricing.js";
 import { priceCexRowsForTest } from "../plugins/cex.js";
 
@@ -267,6 +267,23 @@ test("OKX normalization preserves USDC, USDT and DAI as separate web assets", ()
     ["USDT", 20, "spot", "okx-spot"],
     ["DAI", 30, "spot", "okx-spot"],
   ]);
+});
+
+test("OKX normalization aliases OKSOL to SOL and merges duplicates", () => {
+  const rows = normalizeOkxBuckets({
+    spot: [["OKSOL", "5"], ["SOL", "10"]],
+  });
+
+  assert.deepEqual(rows.map((r) => [r.symbol, r.balance, r.bucket, r.source]), [
+    ["SOL", 15, "spot", "okx-spot"],
+  ]);
+});
+
+test("okxCanonicalSymbol maps OKSOL to SOL", () => {
+  assert.equal(okxCanonicalSymbol("OKSOL"), "SOL");
+  assert.equal(okxCanonicalSymbol("oksol"), "SOL");
+  assert.equal(okxCanonicalSymbol("SOL"), "SOL");
+  assert.equal(okxCanonicalSymbol("   oksol   "), "SOL");
 });
 
 test("krakenCanonicalSymbol maps Kraken asset codes to canonical tickers", () => {

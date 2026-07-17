@@ -165,6 +165,16 @@ export function normalizeCoinbaseBuckets(buckets: CoinbaseBuckets): RawCexRow[] 
   return rows;
 }
 
+const OKX_SYMBOL_ALIASES: Record<string, string> = {
+  OKSOL: "SOL",
+};
+
+export function okxCanonicalSymbol(symbol: unknown): string {
+  const s = canonicalCexSymbol(symbol);
+  if (!s) return "";
+  return OKX_SYMBOL_ALIASES[s] ?? s;
+}
+
 export interface OkxBuckets {
   spot?: unknown[];
   prices?: Record<string, { priceEur?: number; source?: string }>;
@@ -176,7 +186,7 @@ export function normalizeOkxBuckets(buckets: OkxBuckets): RawCexRow[] {
   const list = Array.isArray(buckets.spot) ? buckets.spot : [];
   for (const item of list) {
     if (!Array.isArray(item)) continue;
-    const symbol = canonicalCexSymbol(item[0]);
+    const symbol = okxCanonicalSymbol(item[0]);
     if (!symbol) continue;
     const quote = buckets.prices?.[symbol];
     pushAggregated(rows, seen, { symbol, balance: parseCexAmount(item[1]), bucket: "spot", source: "okx-spot", quoteEur: quote?.priceEur ?? null, quoteSource: quote?.source ?? null });

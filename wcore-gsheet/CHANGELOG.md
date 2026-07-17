@@ -1,5 +1,26 @@
 # GSheet Changelog
 
+## 2026-07-17 — v4.16.31 : chain lifecycle (Corn/Polygon zkEVM disabled) + fix bulk CEX bypassing aliases
+
+### Chain lifecycle — revalidation deadlines passées (CORN.gs, POLYGON_ZKEVM.gs, SWELLCHAIN.gs)
+- **Corn** : `FLAGS.DISABLE_CHAIN` — RPC unique en 401, shutdown 2026-06-30 confirmé. Retrait complet du code à planifier.
+- **Polygon zkEVM** : `FLAGS.DISABLE_CHAIN` — chaîne HALTED depuis le 2026-07-03 (dernier bloc 33391890), sunset sequencer.
+- **Swellchain** : vivante (blocs frais), conservée. RPCs morts retirés (alt.technology 401, hypersync 401, tenderly 404).
+- **Botanix** : vivante, conservée sans changement.
+- **dist/** : rebuild rattrape le drift RARI (183 → 182 configs), Ancient8 DISABLE_CHAIN extrait.
+
+### Bug OKSOL réapparu — bulk CEX bypassait les canonicalizers (44_CEX_BULK.gs)
+- **Bug** : `UPDATE_CEX_RELAY_ALL` (v4.16.30) écrivait les lignes du relay brutes — sans `_okxCanonicalSymbol_` (OKSOL→SOL) ni aliases Bybit ni merge des doublons. Chaque refresh 4h réintroduisait OKSOL dans `CEX - OKX`.
+- **Fix** : `_cexBulkCanonicalSymbol_(provider, sym)` réutilise les fonctions exactes des connecteurs (OKX, Bybit) + `_cexBulkMergeRows_` fusionne les doublons `(symbole, source)`. Binance/Coinbase restent normalisés côté relay.
+- **Garde** : `tests/cex-bulk-canonical.test.js` (statique + fonctionnel), câblé dans `npm test`.
+- **Règle** : toute normalisation ajoutée à un connecteur individuel DOIT être appliquée aussi au chemin bulk (44_CEX_BULK.gs) — les deux chemins écrivent les mêmes sheets.
+
+### Auto-heal — marqueurs spec restaurés (16B_AUTO_HEAL.gs)
+- v4.16.30 avait supprimé `triggerFirst:skipProbesOnInstall:forceNoBootstrap` de `WCORE_AUTO_HEAL_TRIGGER_SPEC` alors que les comportements existent toujours (test `auto-heal-new-ledgers` rouge). Restaurés, spec bumpée v4.16.31.
+
+### Test web-scan-adapter aligné sur le contrat v4.16.30
+- Le cas "degraded native-zero sans cache existant" attend désormais `WEB_SCAN_DEGRADED` + save (l'ancien contrat `WEB_SCAN_PRESERVED` créait la boucle NO_CACHE permanente corrigée en v4.16.30). La protection d'écrasement pour les wallets AVEC cache utile vit dans `_mergeAssetsPreservingCached` (04C, natif préservé `_stale:native_zero_unconfirmed`).
+
 ## 2026-07-16 — v4.16.30 : Audit G2 quota fix + bulk CEX relay + ACTIVITY_WATCHDOG disabled + OKSOL alias
 
 ### Audit G2 — Compteur quota réparé (03E_QUOTA_CIRCUIT_BREAKER.gs, 41_GSHEET_WEB_SCAN.gs, 16_REFRESH.gs)

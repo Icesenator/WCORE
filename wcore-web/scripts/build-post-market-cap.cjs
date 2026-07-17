@@ -1,7 +1,7 @@
 // Generates the Market Cap Crypto + Stock post visual (1200x675, WCORE DA v12).
 // Output: apps/web/public/wcore-post-market-cap.svg + .png
 
-const { closeSync, existsSync, openSync, readdirSync, renameSync, unlinkSync, writeFileSync } = require("node:fs");
+const { closeSync, existsSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } = require("node:fs");
 const { resolve } = require("node:path");
 
 const ROOT = resolve(__dirname, "..");
@@ -46,6 +46,8 @@ const RUN_ID = `${process.pid}.${Date.now()}`;
 const TMP_SVG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.tmp.svg`);
 const TMP_PNG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.tmp.png`);
 const LOCK_PATH = resolve(PUBLIC_DIR, `.${NAME}.lock`);
+const STALE_LOCK_PATH = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.stale.lock`);
+const LOCK_STALE_MS = 10 * 60 * 1000;
 const fontStack = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 function removeIfPresent(path) {
@@ -58,6 +60,82 @@ function removeIfPresent(path) {
 
 function pngDataUri(buffer) {
   return `data:image/png;base64,${buffer.toString("base64")}`;
+}
+
+function readLockMetadata() {
+  let modifiedAt = 0;
+  try {
+    modifiedAt = statSync(LOCK_PATH).mtimeMs;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(LOCK_PATH, "utf8"));
+    return {
+      pid: Number.isInteger(parsed.pid) && parsed.pid > 0 ? parsed.pid : null,
+      timestamp: Number.isFinite(parsed.timestamp) ? parsed.timestamp : modifiedAt,
+      runId: typeof parsed.runId === "string" ? parsed.runId : null,
+    };
+  } catch (_e) {
+    return { pid: null, timestamp: modifiedAt, runId: null };
+  }
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "ESRCH") return false;
+    if (error.code === "EPERM") return true;
+    return true;
+  }
+}
+
+function acquireLock() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const fd = openSync(LOCK_PATH, "wx");
+      try {
+        writeFileSync(fd, JSON.stringify({ pid: process.pid, timestamp: Date.now(), runId: RUN_ID }));
+      } catch (error) {
+        closeSync(fd);
+        removeIfPresent(LOCK_PATH);
+        throw error;
+      }
+      console.log(`Lock acquired: pid=${process.pid}, run=${RUN_ID}`);
+      return fd;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      const metadata = readLockMetadata();
+      if (!metadata) continue;
+      const ageMs = Math.max(0, Date.now() - metadata.timestamp);
+      const alive = isProcessAlive(metadata.pid);
+      const reclaimable = alive === false || ageMs > LOCK_STALE_MS;
+      if (!reclaimable) {
+        throw new Error(`Another market cap post generation is active: pid=${metadata.pid ?? "unknown"}, age=${Math.round(ageMs / 1000)}s`);
+      }
+      try {
+        renameSync(LOCK_PATH, STALE_LOCK_PATH);
+        console.log(`Reclaiming stale lock: pid=${metadata.pid ?? "unknown"}, alive=${alive}, age=${Math.round(ageMs / 1000)}s`);
+        removeIfPresent(STALE_LOCK_PATH);
+      } catch (reclaimError) {
+        if (reclaimError.code !== "ENOENT") throw reclaimError;
+      }
+    }
+  }
+  throw new Error(`Unable to acquire market cap generation lock: ${LOCK_PATH}`);
+}
+
+function releaseLock(fd) {
+  try {
+    closeSync(fd);
+  } finally {
+    const metadata = readLockMetadata();
+    if (metadata?.runId === RUN_ID) removeIfPresent(LOCK_PATH);
+  }
 }
 
 function wcoreBadge(x, y) {
@@ -115,6 +193,41 @@ async function waitForMarketRows(page, route, expectedIdentity) {
   throw new Error(`Timed out waiting for populated market rows on ${route}. Last state: ${JSON.stringify(latest)}`);
 }
 
+async function waitForMarketLogos(page, route, count = 2) {
+  const deadline = Date.now() + 60000;
+  let latest = [];
+  while (Date.now() < deadline) {
+    latest = await page.evaluate(async (expectedCount) => {
+      const rows = Array.from(document.querySelectorAll('main table tbody tr:not([aria-hidden="true"])')).slice(0, expectedCount);
+      return Promise.all(rows.map(async (row) => {
+        const logo = row.querySelector("td:nth-child(2) > div > span");
+        const image = logo?.querySelector("img");
+        const fallback = logo?.querySelector(":scope > span");
+        if (image) {
+          if (!image.complete || image.naturalWidth <= 0) return { ready: false, kind: "pending-image" };
+          try {
+            await image.decode();
+          } catch (_e) {
+            return { ready: false, kind: "decode-failed" };
+          }
+          const visible = Number.parseFloat(getComputedStyle(image).opacity) > 0.5;
+          return { ready: visible, kind: visible ? "decoded-image" : "pending-react-state", source: image.currentSrc || image.src };
+        }
+        if (fallback) {
+          const style = getComputedStyle(fallback);
+          const rect = fallback.getBoundingClientRect();
+          const visible = style.visibility !== "hidden" && style.display !== "none" && Number.parseFloat(style.opacity) > 0.5 && rect.width > 0 && rect.height > 0;
+          return { ready: visible && Boolean(fallback.textContent?.trim()), kind: "text-fallback", text: fallback.textContent?.trim() || "" };
+        }
+        return { ready: false, kind: "missing-logo" };
+      }));
+    }, count);
+    if (latest.length === count && latest.every((item) => item.ready)) return latest;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+  }
+  throw new Error(`Timed out waiting for visible market logos on ${route}. Last state: ${JSON.stringify(latest)}`);
+}
+
 async function captureMain(browser, route, heading, expectedIdentity = [], hideCountry = false) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
   const url = `${SITE}${route}`;
@@ -139,12 +252,14 @@ async function captureMain(browser, route, heading, expectedIdentity = [], hideC
       main table { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
       main table th, main table td { padding: 5px 8px !important; }
       main table tbody td, main table tbody td p { font-size: 14px !important; line-height: 16px !important; }
+      main table td:nth-child(2) > div > span > span { color: #f4f4f5 !important; font-size: 12px !important; font-weight: 900 !important; }
       main table th:first-child, main table td:first-child { width: 54px !important; }
       main table th:nth-last-child(2), main table td:nth-last-child(2) { width: 142px !important; }
       main table th:last-child, main table td:last-child { width: 150px !important; }
       ${hideCountry ? "main table th:nth-child(3), main table td:nth-child(3) { display: none !important; }" : ""}
     ` });
     await page.evaluate(() => new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+    const logos = await waitForMarketLogos(page, route);
 
     const main = page.locator("main").first();
     const box = await main.boundingBox();
@@ -156,7 +271,7 @@ async function captureMain(browser, route, heading, expectedIdentity = [], hideC
     if (width <= 0 || height <= 0) throw new Error(`Invalid main capture bounds for ${route}`);
 
     const capture = await page.screenshot({ type: "png", clip: { x, y, width, height } });
-    console.log(`Captured ${route}: ${capture.readUInt32BE(16)}x${capture.readUInt32BE(20)} px from ${Math.round(width)}x${Math.round(height)} CSS, ${capture.length} bytes; ${readiness.statusText}; first row: ${readiness.rowText}`);
+    console.log(`Captured ${route}: ${capture.readUInt32BE(16)}x${capture.readUInt32BE(20)} px from ${Math.round(width)}x${Math.round(height)} CSS, ${capture.length} bytes; logos=${logos.map((logo) => logo.kind).join(",")}; ${readiness.statusText}; first row: ${readiness.rowText}`);
     return capture;
   } finally {
     await page.close();
@@ -255,13 +370,7 @@ function buildSvg(cryptoImage, stockImage) {
   let browser;
   let lockFd;
   try {
-    try {
-      lockFd = openSync(LOCK_PATH, "wx");
-      writeFileSync(lockFd, `${RUN_ID}\n`);
-    } catch (error) {
-      if (error.code === "EEXIST") throw new Error(`Another market cap post generation is active: ${LOCK_PATH}`);
-      throw error;
-    }
+    lockFd = acquireLock();
 
     browser = await chromium.launch({ headless: true });
     const cryptoCapture = await captureMain(browser, "/cmc/crypto", "Market Cap Crypto", ["Bitcoin", "BTC"]);
@@ -287,15 +396,13 @@ function buildSvg(cryptoImage, stockImage) {
     console.log(`SVG written atomically: ${SVG_PATH} (${Buffer.byteLength(svg)} bytes, ${W}x${H})`);
     console.log(`PNG written atomically: ${PNG_PATH} (${png.length} bytes, ${W}x${H})`);
   } finally {
-    if (browser) await browser.close();
-    removeIfPresent(TMP_SVG);
-    removeIfPresent(TMP_PNG);
-    if (lockFd !== undefined) {
-      try {
-        closeSync(lockFd);
-      } finally {
-        removeIfPresent(LOCK_PATH);
-      }
+    try {
+      if (browser) await browser.close();
+    } finally {
+      removeIfPresent(TMP_SVG);
+      removeIfPresent(TMP_PNG);
+      removeIfPresent(STALE_LOCK_PATH);
+      if (lockFd !== undefined) releaseLock(lockFd);
     }
   }
 })().catch((error) => {

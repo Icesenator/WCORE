@@ -22,7 +22,7 @@ jobs:
           version: 10.34.4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: wcore-web/pnpm-lock.yaml
 
@@ -52,7 +52,7 @@ jobs:
           version: 10.34.4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: wcore-web/pnpm-lock.yaml
 
@@ -76,7 +76,7 @@ jobs:
           version: 10.34.4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: wcore-web/pnpm-lock.yaml
 
@@ -88,7 +88,7 @@ jobs:
       - run: pnpm --filter @wcore/web postbuild
 
       - name: Install Playwright Chromium
-        run: pnpm exec playwright install chromium --with-deps
+        run: pnpm --filter @wcore/web exec playwright install chromium --with-deps
 
       - name: E2E tests (critical flows)
         run: pnpm --dir apps/web exec playwright test --config=playwright.ci.config.ts e2e/critical-flows.spec.ts

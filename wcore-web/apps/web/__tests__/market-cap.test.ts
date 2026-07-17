@@ -206,6 +206,27 @@ describe("market cap public labels", () => {
       assert.doesNotMatch(source, /CMC Crypto|CMC Stocks/);
     }
   });
+
+  test("places About after the Market Cap links in the sidebar", () => {
+    const stockIndex = sidebarSource.indexOf('label: "Market Cap Stock"');
+    const aboutIndex = sidebarSource.indexOf('label: "About"');
+    assert.ok(stockIndex >= 0 && aboutIndex > stockIndex);
+  });
+
+  test("orders the sidebar by product workflow", () => {
+    const labels = Array.from(sidebarSource.matchAll(/label: "([^"]+)"/g), (match) => match[1]);
+    assert.deepEqual(labels, [
+      "Home",
+      "Profile",
+      "History",
+      "Market Cap Crypto",
+      "Market Cap Stock",
+      "GM",
+      "Leaderboard",
+      "Support",
+      "About",
+    ]);
+  });
 });
 
 describe("market cap logo fallback", () => {

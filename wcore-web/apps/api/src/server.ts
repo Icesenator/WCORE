@@ -20,6 +20,7 @@ import { gsheetPlugin } from "./plugins/gsheet.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
+import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
 import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
@@ -428,13 +429,8 @@ if (gsheetApiToken) {
       return {
         ok: true,
         generatedAt: snapshot.generatedAt,
-        rows: snapshot.rows.map((row) => ({
-          rank: row.rank,
-          symbol: row.symbol,
-          name: row.name,
-          priceEur: row.priceEur,
-          marketCapEur: row.marketCapEur,
-        })),
+        stale: snapshot.stale,
+        rows: snapshot.rows.map(toCryptoMarketCapRow),
       };
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "cmc crypto failed");
@@ -450,13 +446,8 @@ if (gsheetApiToken) {
       return {
         ok: true,
         generatedAt: snapshot.generatedAt,
-        rows: snapshot.rows.map((row) => ({
-          rank: row.rank,
-          symbol: row.canonicalTicker,
-          name: row.company,
-          priceEur: row.priceEur,
-          marketCapEur: row.marketCapEur,
-        })),
+        stale: snapshot.stale,
+        rows: snapshot.rows.map(toStockMarketCapRow),
       };
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "cmc stocks failed");

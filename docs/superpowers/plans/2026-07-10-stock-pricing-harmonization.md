@@ -274,7 +274,7 @@ stock:top-market-cap:last-good
 stock:top-market-cap:lock
 ```
 
-Fresh price TTL is 6 hours. Last-good data uses a 30-day TTL so expiration of the fresh key does not destroy the stale fallback. The service checks timestamps itself.
+Fresh per-security price and complete snapshot TTLs are 1 hour. Last-good data uses a 30-day TTL so expiration of the fresh key does not destroy the stale fallback. The service checks timestamps itself.
 
 - [ ] **Step 4: Implement `CanonicalStockService`**
 

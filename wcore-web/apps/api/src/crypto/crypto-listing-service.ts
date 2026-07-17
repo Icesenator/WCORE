@@ -9,8 +9,10 @@ const FRESH_TTL_MS = 1 * 60 * 60 * 1000;
 const LAST_GOOD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const LOCK_TTL_MS = 60 * 1000;
 const CLOCK_TOLERANCE_MS = 2 * 60 * 1000;
+const LEGACY_FALLBACK_VALIDATION = { allowLegacyWithoutIds: true } as const;
 
 export interface CryptoListingRow {
+  id?: number;
   rank: number;
   symbol: string;
   name: string;
@@ -82,12 +84,12 @@ export class CanonicalCryptoService {
       return sliceSnapshot(snapshot, requested);
     } catch (error) {
       const fallback = await this.safeGet<CryptoListingSnapshot>(cacheKey("cryptoTopMarketCapLastGood", {}));
-      if (isUsableSnapshotForRequest(fallback, this.now(), LAST_GOOD_TTL_MS, requested)) {
+      if (isUsableSnapshotForRequest(fallback, this.now(), LAST_GOOD_TTL_MS, requested, LEGACY_FALLBACK_VALIDATION)) {
         return sliceSnapshot(markSnapshotStale(fallback), requested);
       }
       // Last-good is absent but we may still have a complete fresh snapshot from a prior run.
       const freshFallback = await this.safeGet<CryptoListingSnapshot>(cacheKey("cryptoTopMarketCapFresh", {}));
-      if (isUsableSnapshotForRequest(freshFallback, this.now(), LAST_GOOD_TTL_MS, requested)) {
+      if (isUsableSnapshotForRequest(freshFallback, this.now(), LAST_GOOD_TTL_MS, requested, LEGACY_FALLBACK_VALIDATION)) {
         return sliceSnapshot(markSnapshotStale(freshFallback), requested);
       }
       if (error instanceof CryptoServiceUnavailableError) throw error;
@@ -140,13 +142,13 @@ export class CanonicalCryptoService {
 
   private async staleSnapshotOrThrow(limit: number): Promise<CryptoListingSnapshot> {
     const lastGood = await this.safeGet<CryptoListingSnapshot>(cacheKey("cryptoTopMarketCapLastGood", {}));
-    if (isUsableSnapshotForRequest(lastGood, this.now(), LAST_GOOD_TTL_MS, limit)) {
+    if (isUsableSnapshotForRequest(lastGood, this.now(), LAST_GOOD_TTL_MS, limit, LEGACY_FALLBACK_VALIDATION)) {
       return sliceSnapshot(markSnapshotStale(lastGood), limit);
     }
     // If we hold the lock but are about to throw, prefer returning a fresh cached snapshot
     // even if it is technically older than FRESH_TTL_MS, as long as it is still complete.
     const fresh = await this.safeGet<CryptoListingSnapshot>(cacheKey("cryptoTopMarketCapFresh", {}));
-    if (isUsableSnapshotForRequest(fresh, this.now(), LAST_GOOD_TTL_MS, limit)) {
+    if (isUsableSnapshotForRequest(fresh, this.now(), LAST_GOOD_TTL_MS, limit, LEGACY_FALLBACK_VALIDATION)) {
       return sliceSnapshot(markSnapshotStale(fresh), limit);
     }
     throw new CryptoServiceUnavailableError("Canonical crypto refresh is already in progress and no last-good snapshot exists");
@@ -163,6 +165,7 @@ export class CanonicalCryptoService {
 
 interface CmcListingsPayload {
   data?: Array<{
+    id?: unknown;
     cmc_rank?: unknown;
     symbol?: unknown;
     name?: unknown;
@@ -176,6 +179,7 @@ function parseCmcListings(payload: CmcListingsPayload | null): CryptoListingRow[
   const ranks = new Set<number>();
   for (const entry of payload.data) {
     if (!entry || typeof entry !== "object") continue;
+    const id = entry.id;
     const rank = entry.cmc_rank;
     const symbol = typeof entry.symbol === "string" ? entry.symbol.trim().toUpperCase() : "";
     const name = typeof entry.name === "string" ? entry.name.trim() : "";
@@ -185,13 +189,14 @@ function parseCmcListings(payload: CmcListingsPayload | null): CryptoListingRow[
       ? quote.market_cap
       : 0;
     if (
-      !Number.isInteger(rank) || (rank as number) <= 0 || ranks.has(rank as number)
+      !Number.isInteger(id) || (id as number) <= 0
+      || !Number.isInteger(rank) || (rank as number) <= 0 || ranks.has(rank as number)
       || symbol.length === 0 || name.length === 0
       || !Number.isFinite(priceEur) || priceEur <= 0
       || !Number.isFinite(marketCapEur) || marketCapEur < 0
     ) continue;
     ranks.add(rank as number);
-    rows.push({ rank: rank as number, symbol, name, priceEur, marketCapEur });
+    rows.push({ id: id as number, rank: rank as number, symbol, name, priceEur, marketCapEur });
   }
   rows.sort((a, b) => a.rank - b.rank);
   return rows;
@@ -215,30 +220,50 @@ function makeSnapshot(rows: CryptoListingRow[], generatedAt: string, stale: bool
   };
 }
 
-function isCompleteSnapshot(value: unknown, now: Date, maxAgeMs: number): value is CryptoListingSnapshot {
+interface SnapshotValidationOptions {
+  allowLegacyWithoutIds?: boolean;
+}
+
+function isCompleteSnapshot(
+  value: unknown,
+  now: Date,
+  maxAgeMs: number,
+  options: SnapshotValidationOptions = {}
+): value is CryptoListingSnapshot {
   if (!isRecord(value) || value.ok !== true || value.universeSource !== "coinmarketcap" || typeof value.stale !== "boolean") return false;
   if (!isRecentIso(value.generatedAt, now, maxAgeMs) || !Array.isArray(value.rows)) return false;
   if (value.rows.length < MIN_VALID_ROWS || value.rows.length > MAX_SNAPSHOT_LIMIT) return false;
   if (!isRecord(value.stats) || value.stats.requested !== value.rows.length) return false;
+  let rowsHaveIds: boolean | undefined;
   for (let i = 0; i < value.rows.length; i++) {
     const row = value.rows[i];
     if (!isRecord(row)) return false;
+    const hasId = row.id !== undefined;
+    if (rowsHaveIds === undefined) rowsHaveIds = hasId;
+    if (rowsHaveIds !== hasId) return false;
     if (
-      row.rank !== i + 1
+      (hasId && (typeof row.id !== "number" || !Number.isInteger(row.id) || row.id <= 0))
+      || row.rank !== i + 1
       || !isNonemptyString(row.symbol) || !isNonemptyString(row.name)
       || typeof row.priceEur !== "number" || !Number.isFinite(row.priceEur) || row.priceEur <= 0
       || typeof row.marketCapEur !== "number" || !Number.isFinite(row.marketCapEur) || row.marketCapEur < 0
     ) return false;
   }
-  return true;
+  return rowsHaveIds === true || options.allowLegacyWithoutIds === true;
 }
 
 function hasContiguousRanks(rows: CryptoListingRow[]): boolean {
   return rows.every((row, index) => row.rank === index + 1);
 }
 
-function isUsableSnapshotForRequest(value: unknown, now: Date, maxAgeMs: number, requested: number): value is CryptoListingSnapshot {
-  return isCompleteSnapshot(value, now, maxAgeMs) && value.rows.length >= requested;
+function isUsableSnapshotForRequest(
+  value: unknown,
+  now: Date,
+  maxAgeMs: number,
+  requested: number,
+  options?: SnapshotValidationOptions
+): value is CryptoListingSnapshot {
+  return isCompleteSnapshot(value, now, maxAgeMs, options) && value.rows.length >= requested;
 }
 
 function isRecentIso(value: unknown, now: Date, maxAgeMs: number): value is string {

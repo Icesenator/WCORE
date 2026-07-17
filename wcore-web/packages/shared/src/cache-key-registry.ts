@@ -74,7 +74,7 @@ export const CACHE_KEY_REGISTRY = {
     gsheet: null,
     web: "stock:price:{ticker}:fresh",
     storage: "web-only" as const,
-    ttl: "6h",
+    ttl: "1h",
   },
   stockPriceLastGood: {
     vars: ["ticker"],
@@ -88,7 +88,7 @@ export const CACHE_KEY_REGISTRY = {
     gsheet: null,
     web: "stock:top-market-cap:fresh",
     storage: "web-only" as const,
-    ttl: "6h",
+    ttl: "1h",
   },
   stockTopMarketCapLastGood: {
     vars: [],
@@ -102,14 +102,14 @@ export const CACHE_KEY_REGISTRY = {
     gsheet: null,
     web: "stock:top-market-cap:lock",
     storage: "web-only" as const,
-    ttl: "60s",
+    ttl: "15m",
   },
   cryptoTopMarketCapFresh: {
     vars: [],
     gsheet: null,
     web: "crypto:top-market-cap:fresh",
     storage: "web-only" as const,
-    ttl: "6h",
+    ttl: "1h",
   },
   cryptoTopMarketCapLastGood: {
     vars: [],

@@ -7,6 +7,7 @@ const LAST_GOOD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function row(rank: number): object {
   return {
+    id: rank,
     cmc_rank: rank,
     symbol: `SYM${rank}`,
     name: `Token ${rank}`,
@@ -24,6 +25,7 @@ function cachedSnapshot(rowCount: number, generatedAt = "2026-07-12T10:00:00.000
     generatedAt,
     universeSource: "coinmarketcap",
     rows: Array.from({ length: rowCount }, (_, i) => ({
+      id: i + 1,
       rank: i + 1,
       symbol: `SYM${i + 1}`,
       name: `Token ${i + 1}`,
@@ -32,6 +34,22 @@ function cachedSnapshot(rowCount: number, generatedAt = "2026-07-12T10:00:00.000
     })),
     stats: { requested: rowCount },
     stale: false,
+  };
+}
+
+function legacyCachedSnapshot(rowCount: number, generatedAt = "2026-07-12T10:00:00.000Z") {
+  const snapshot = cachedSnapshot(rowCount, generatedAt);
+  return {
+    ...snapshot,
+    rows: snapshot.rows.map(({ id: _id, ...cachedRow }) => cachedRow),
+  };
+}
+
+function mixedCachedSnapshot(rowCount: number, generatedAt = "2026-07-12T10:00:00.000Z") {
+  const snapshot = cachedSnapshot(rowCount, generatedAt);
+  return {
+    ...snapshot,
+    rows: snapshot.rows.map(({ id, ...cachedRow }, index) => index === 0 ? { id, ...cachedRow } : cachedRow),
   };
 }
 
@@ -77,15 +95,57 @@ test("getListingSnapshot returns CMC top 5000 fresh", async () => {
   assert.ok(calls[0]!.includes("limit=5000"));
 });
 
+test("getListingSnapshot preserves the positive integer CMC id", async () => {
+  const { service } = deps();
+
+  const snapshot = await service.getListingSnapshot(5_000);
+
+  assert.equal(snapshot.rows[0]!.id, 1);
+  assert.equal(snapshot.rows[4_999]!.id, 5_000);
+});
+
+test("getListingSnapshot rejects upstream rows without a positive integer CMC id", async () => {
+  for (const invalidId of [undefined, 0, -1, 1.5]) {
+    const cmcRows = manyRows(5_000);
+    cmcRows[0] = { ...row(1), id: invalidId };
+    const service = new CanonicalCryptoService({
+      cache: new MemoryCacheStore(),
+      apiKeys: ["KEY1"],
+      fetchImpl: async () => cmcResponse(cmcRows),
+      now: () => new Date("2026-07-12T10:00:00.000Z"),
+    });
+
+    await assert.rejects(
+      service.getListingSnapshot(5_000),
+      /returned 4999 valid rows, expected 5000/
+    );
+  }
+});
+
+test("getListingSnapshot refreshes a cached snapshot with an invalid CMC id", async () => {
+  const cache = new MemoryCacheStore();
+  const invalidSnapshot = cachedSnapshot(5_000);
+  invalidSnapshot.rows[0]!.id = 0;
+  await cache.set("crypto:top-market-cap:fresh", invalidSnapshot, LAST_GOOD_TTL_MS);
+  const { service, calls } = deps(cache);
+
+  const snapshot = await service.getListingSnapshot(5_000);
+
+  assert.equal(snapshot.rows[0]!.id, 1);
+  assert.equal(calls.length, 1);
+});
+
 test("getListingSnapshot accepts top 5000 CMC rows with missing or zero market cap", async () => {
   const cmcRows = manyRows(5_000);
   cmcRows[123] = {
+    id: 124,
     cmc_rank: 124,
     symbol: "ZERO",
     name: "Zero Market Cap Token",
     quote: { EUR: { price: 1.23 } },
   };
   cmcRows[456] = {
+    id: 457,
     cmc_rank: 457,
     symbol: "NOMC",
     name: "No Market Cap Token",
@@ -113,6 +173,18 @@ test("getListingSnapshot slices cached full snapshot", async () => {
   await service.getListingSnapshot(5_000);
   const small = await service.getListingSnapshot(300);
   assert.equal(small.rows.length, 300);
+});
+
+test("getListingSnapshot refreshes a legacy fresh cache entry without CMC ids", async () => {
+  const cache = new MemoryCacheStore();
+  await cache.set("crypto:top-market-cap:fresh", legacyCachedSnapshot(5_000), LAST_GOOD_TTL_MS);
+  const { service, calls } = deps(cache);
+
+  const snapshot = await service.getListingSnapshot(5_000);
+
+  assert.equal(calls.length, 1);
+  assert.equal(snapshot.stale, false);
+  assert.equal(snapshot.rows[0]!.id, 1);
 });
 
 test("getListingSnapshot refreshes a fresh cache entry with fewer rows than requested", async () => {
@@ -248,6 +320,57 @@ test("last-good stale snapshot is served when refresh fails", async () => {
   assert.equal(snapshot.rows.length, 5000);
   // Stale snapshot rows share the original generatedAt, so we can assert it survived intact.
   assert.equal(snapshot.generatedAt, goodSnapshot.generatedAt);
+});
+
+test("legacy last-good snapshot without CMC ids is served stale when refresh fails", async () => {
+  const cache = new MemoryCacheStore();
+  const legacySnapshot = legacyCachedSnapshot(5_000);
+  await cache.set("crypto:top-market-cap:last-good", legacySnapshot, LAST_GOOD_TTL_MS);
+  const service = new CanonicalCryptoService({
+    cache,
+    apiKeys: ["KEY1"],
+    fetchImpl: async () => ({ ok: false, status: 500, statusText: "Error", headers: new Map() } as unknown as Response),
+    now: () => new Date("2026-07-12T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getListingSnapshot(5_000);
+
+  assert.equal(snapshot.stale, true);
+  assert.equal(snapshot.rows.length, 5_000);
+  assert.equal(snapshot.rows[0]!.id, undefined);
+});
+
+test("legacy fresh snapshot without CMC ids is served stale after refresh fails", async () => {
+  const cache = new MemoryCacheStore();
+  await cache.set(
+    "crypto:top-market-cap:fresh",
+    legacyCachedSnapshot(5_000, "2026-07-11T20:00:00.000Z"),
+    LAST_GOOD_TTL_MS
+  );
+  const service = new CanonicalCryptoService({
+    cache,
+    apiKeys: ["KEY1"],
+    fetchImpl: async () => ({ ok: false, status: 500, statusText: "Error", headers: new Map() } as unknown as Response),
+    now: () => new Date("2026-07-12T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getListingSnapshot(5_000);
+
+  assert.equal(snapshot.stale, true);
+  assert.equal(snapshot.rows[0]!.id, undefined);
+});
+
+test("mixed-id last-good snapshot is rejected when refresh fails", async () => {
+  const cache = new MemoryCacheStore();
+  await cache.set("crypto:top-market-cap:last-good", mixedCachedSnapshot(5_000), LAST_GOOD_TTL_MS);
+  const service = new CanonicalCryptoService({
+    cache,
+    apiKeys: ["KEY1"],
+    fetchImpl: async () => ({ ok: false, status: 500, statusText: "Error", headers: new Map() } as unknown as Response),
+    now: () => new Date("2026-07-12T10:00:00.000Z"),
+  });
+
+  await assert.rejects(service.getListingSnapshot(5_000), CryptoServiceUnavailableError);
 });
 
 test("getListingSnapshot rejects last-good cache with fewer rows than requested when refresh fails", async () => {

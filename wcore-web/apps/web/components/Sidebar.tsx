@@ -24,8 +24,8 @@ const NAV_LINKS = [
   { href: "/leaderboard", label: "Leaderboard", icon: "trophy" as const },
   { href: "/support", label: "Support", icon: "messages" as const },
   { href: "/about", label: "About", icon: "info" as const },
-  { href: "/cmc/crypto", label: "CMC Crypto", icon: "table" as const },
-  { href: "/cmc/stocks", label: "CMC Stocks", icon: "table" as const },
+  { href: "/cmc/crypto", label: "Market Cap Crypto", icon: "table" as const },
+  { href: "/cmc/stocks", label: "Market Cap Stock", icon: "table" as const },
 ];
 
 interface SidebarProps {

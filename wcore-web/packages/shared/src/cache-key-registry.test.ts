@@ -20,15 +20,15 @@ describe("CACHE_KEY_REGISTRY", () => {
   });
 
   it("defines stock fresh, last-good and lock lifetimes", () => {
-    expect(CACHE_KEY_REGISTRY.stockPriceFresh.ttl).toBe("6h");
+    expect(CACHE_KEY_REGISTRY.stockPriceFresh.ttl).toBe("1h");
     expect(CACHE_KEY_REGISTRY.stockPriceLastGood.ttl).toBe("30d");
-    expect(CACHE_KEY_REGISTRY.stockTopMarketCapFresh.ttl).toBe("6h");
+    expect(CACHE_KEY_REGISTRY.stockTopMarketCapFresh.ttl).toBe("1h");
     expect(CACHE_KEY_REGISTRY.stockTopMarketCapLastGood.ttl).toBe("30d");
-    expect(CACHE_KEY_REGISTRY.stockTopMarketCapLock.ttl).toBe("60s");
+    expect(CACHE_KEY_REGISTRY.stockTopMarketCapLock.ttl).toBe("15m");
   });
 
   it("defines crypto fresh, last-good and lock lifetimes", () => {
-    expect(CACHE_KEY_REGISTRY.cryptoTopMarketCapFresh.ttl).toBe("6h");
+    expect(CACHE_KEY_REGISTRY.cryptoTopMarketCapFresh.ttl).toBe("1h");
     expect(CACHE_KEY_REGISTRY.cryptoTopMarketCapLastGood.ttl).toBe("30d");
     expect(CACHE_KEY_REGISTRY.cryptoTopMarketCapLock.ttl).toBe("60s");
   });

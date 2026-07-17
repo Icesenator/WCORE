@@ -64,6 +64,41 @@ class RecordingCache extends MemoryCacheStore {
   }
 }
 
+class BatchRecordingCache extends MemoryCacheStore {
+  readonly mgetKeys: string[][] = [];
+  readonly pipelineBatches: Array<Array<{ key: string; value: unknown; ttlMs?: number }>> = [];
+  rowGetCalls = 0;
+
+  override async get<T>(key: string): Promise<T | undefined> {
+    if (key.startsWith("stock:price:")) this.rowGetCalls++;
+    return super.get<T>(key);
+  }
+
+  override async mget<T>(keys: string[]): Promise<(T | undefined)[]> {
+    this.mgetKeys.push([...keys]);
+    return super.mget<T>(keys);
+  }
+
+  override async pipeline(ops: Array<{ key: string; value: unknown; ttlMs?: number }>): Promise<number> {
+    this.pipelineBatches.push(ops.map((op) => ({ ...op })));
+    return super.pipeline(ops);
+  }
+}
+
+function cachedPrice(priceEur: number, updatedAt = "2026-07-11T10:00:00.000Z") {
+  return {
+    priceNative: priceEur,
+    currency: "EUR",
+    priceEur,
+    priceSource: "cached",
+    fallbackSource: null,
+    appliedRatio: 1,
+    stale: false,
+    updatedAt,
+    errors: [],
+  };
+}
+
 test("builds one complete normalized snapshot with batched quotes and distinct FX", async () => {
   const { service, calls } = deps();
   const snapshot = await service.getTopMarketCapSnapshot();
@@ -119,6 +154,182 @@ test("serves ranked snapshots beyond 300 rows for dynamic stock portfolios", asy
   assert.equal(snapshot.rows.length, 420);
   assert.equal(snapshot.stats.requested, 420);
   assert.equal(quoteCalls, 9);
+});
+
+test("overlaps quote batches up to four while covering every symbol exactly once", async () => {
+  const sourceCsv = csv(301);
+  const expectedSymbols = sourceCsv.split("\n").slice(1).map((row) => row.split(",")[2]!);
+  const seenSymbols: string[] = [];
+  let active = 0;
+  let maxActive = 0;
+  const service = new CanonicalStockService({
+    cache: new MemoryCacheStore(),
+    fetchImpl: async () => new Response(sourceCsv),
+    fetchStockQuotes: async (symbols) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      seenSymbols.push(...symbols);
+      await new Promise((resolve) => setTimeout(resolve, symbols[0] === "000660.KS" ? 20 : 5));
+      active--;
+      return Object.fromEntries(symbols.filter((symbol) => symbol.startsWith("TEST")).map((symbol) => [symbol, {
+        priceNative: 10,
+        currency: "USD",
+        yahooTicker: symbol,
+        source: "yahoo:relay",
+      }]));
+    },
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getTopMarketCapSnapshot(301);
+
+  assert.ok(maxActive > 1, `expected overlapping requests, observed ${maxActive}`);
+  assert.ok(maxActive <= 4, `expected at most four requests, observed ${maxActive}`);
+  assert.deepEqual([...seenSymbols].sort(), [...expectedSymbols].sort());
+  assert.equal(new Set(seenSymbols).size, expectedSymbols.length);
+  assert.deepEqual(snapshot.rows.map((row) => row.sourceTicker), expectedSymbols);
+  assert.ok(snapshot.rows.slice(3).every((row) => row.priceSource === "yahoo:relay"));
+});
+
+test("batch-reads row caches once, prefers valid fresh values, and avoids per-key gets", async () => {
+  const cache = new BatchRecordingCache();
+  await cache.set("stock:price:KRX:000660:fresh", cachedPrice(1_269));
+  await cache.set("stock:price:KRX:000660:last-good", cachedPrice(1_100));
+  await cache.set("stock:price:TYO:7203:last-good", cachedPrice(180));
+  const service = new CanonicalStockService({
+    cache,
+    fetchImpl: async () => new Response(csv(320)),
+    fetchStockQuotes: async () => ({
+      "000660.KS": { priceNative: 20_000_000, currency: "KRW", yahooTicker: "000660.KS", source: "yahoo:relay" },
+      TM: { priceNative: 2_000, currency: "USD", yahooTicker: "7203.T", source: "yahoo:relay" },
+    }),
+    fetchStockFxQuotes: async () => ({
+      KRW: { unitsPerEur: 1717.17, currency: "KRW", yahooTicker: "EURKRW=X", source: "yahoo:relay" },
+    }),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getTopMarketCapSnapshot(320);
+
+  assert.equal(cache.mgetKeys.length, 1);
+  assert.equal(cache.mgetKeys[0]!.length, 640);
+  assert.equal(new Set(cache.mgetKeys[0]).size, 640);
+  assert.equal(cache.rowGetCalls, 0);
+  assert.equal(snapshot.rows[0]!.priceEur, 1_269);
+  assert.equal(snapshot.rows[1]!.priceEur, 180);
+});
+
+test("continues with healthy upstream data when the row-cache mget fails", async () => {
+  const cache = new MemoryCacheStore();
+  cache.mget = async () => { throw new Error("redis unavailable"); };
+  const { service } = deps(cache);
+
+  const snapshot = await service.getTopMarketCapSnapshot();
+
+  assert.equal(snapshot.rows.length, 300);
+  assert.equal(snapshot.rows[0]!.priceSource, "yahoo:relay");
+});
+
+test("pipelines row cache writes in bounded chunks with exact TTLs", async () => {
+  const cache = new BatchRecordingCache();
+
+  await deps(cache).service.getTopMarketCapSnapshot();
+
+  assert.equal(cache.pipelineBatches.length, 2);
+  assert.ok(cache.pipelineBatches.every((batch) => batch.length <= 500));
+  const writes = cache.pipelineBatches.flat();
+  assert.equal(writes.length, 600);
+  assert.equal(writes.filter(({ key, ttlMs }) => key.endsWith(":fresh") && ttlMs === 60 * 60 * 1000).length, 300);
+  assert.equal(writes.filter(({ key, ttlMs }) => key.endsWith(":last-good") && ttlMs === 30 * 24 * 60 * 60 * 1000).length, 300);
+});
+
+test("falls back to bounded nonfatal row writes when pipelines report zero writes", async () => {
+  const cache = new MemoryCacheStore();
+  let active = 0;
+  let maxActive = 0;
+  let rowWrites = 0;
+  cache.pipeline = async () => 0;
+  const originalSet = cache.set.bind(cache);
+  cache.set = async (key, value, ttlMs) => {
+    if (key.startsWith("stock:price:")) {
+      active++;
+      rowWrites++;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active--;
+    }
+    await originalSet(key, value, ttlMs);
+  };
+
+  const snapshot = await deps(cache).service.getTopMarketCapSnapshot();
+
+  assert.equal(snapshot.rows.length, 300);
+  assert.equal(rowWrites, 600);
+  assert.ok(maxActive > 1);
+  assert.ok(maxActive <= 4);
+});
+
+test("stops scheduling quote batches after failure and waits for active requests", async () => {
+  const pendingResolves: Array<() => void> = [];
+  let rejectFirst!: (error: Error) => void;
+  let scheduled = 0;
+  let active = 0;
+  const service = new CanonicalStockService({
+    cache: new MemoryCacheStore(),
+    fetchImpl: async () => new Response(csv()),
+    fetchStockQuotes: async () => {
+      const call = scheduled++;
+      active++;
+      try {
+        if (call === 0) {
+          await new Promise<never>((_resolve, reject) => { rejectFirst = reject; });
+        } else if (call < 4) {
+          await new Promise<void>((resolve) => { pendingResolves.push(resolve); });
+        }
+        return {};
+      } finally {
+        active--;
+      }
+    },
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+  });
+  let settled = false;
+  let rejection: unknown;
+  const refresh = service.getTopMarketCapSnapshot().then(
+    () => { settled = true; },
+    (error) => { settled = true; rejection = error; },
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(scheduled, 4);
+
+  rejectFirst(new Error("quote batch failed"));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(settled, false);
+  assert.equal(active, 3);
+  for (const resolve of pendingResolves) resolve();
+  await refresh;
+  assert.match(String(rejection), /quote batch failed/);
+  assert.equal(active, 0);
+  assert.equal(scheduled, 4);
+});
+
+test("uses a fifteen-minute distributed lock for stock snapshot refreshes", async () => {
+  const cache = new MemoryCacheStore();
+  let lockTtlMs: number | undefined;
+  const originalAdd = cache.add.bind(cache);
+  cache.add = async (key, value, ttlMs) => {
+    if (key === "stock:top-market-cap:lock") lockTtlMs = ttlMs;
+    return originalAdd(key, value, ttlMs);
+  };
+
+  await deps(cache).service.getTopMarketCapSnapshot();
+
+  assert.equal(lockTtlMs, 15 * 60 * 1000);
 });
 
 test("accepts non-contiguous raw CompaniesMarketCap ranks", async () => {
@@ -187,9 +398,9 @@ test("uses exact TTLs for validated row and snapshot cache writes", async () => 
   const cache = new RecordingCache();
   await deps(cache).service.getTopMarketCapSnapshot();
   const ttlBySuffix = (suffix: string) => cache.writes.filter(({ key }) => key.endsWith(suffix)).map(({ ttlMs }) => ttlMs);
-  assert.ok(ttlBySuffix(":fresh").includes(6 * 60 * 60 * 1000));
+  assert.ok(ttlBySuffix(":fresh").includes(1 * 60 * 60 * 1000));
   assert.ok(ttlBySuffix(":last-good").includes(30 * 24 * 60 * 60 * 1000));
-  assert.deepEqual(cache.writes.find(({ key }) => key === "stock:top-market-cap:fresh")?.ttlMs, 6 * 60 * 60 * 1000);
+  assert.deepEqual(cache.writes.find(({ key }) => key === "stock:top-market-cap:fresh")?.ttlMs, 1 * 60 * 60 * 1000);
   assert.deepEqual(cache.writes.find(({ key }) => key === "stock:top-market-cap:last-good")?.ttlMs, 30 * 24 * 60 * 60 * 1000);
 });
 
@@ -227,7 +438,7 @@ test("rejects stale and future cached snapshots instead of trusting backend TTL"
   }
 });
 
-test("accepts a stale snapshot row older than 6h but younger than 30d", async () => {
+test("accepts a stale snapshot row older than 1h but younger than 30d", async () => {
   const cache = new MemoryCacheStore();
   const snapshot = await deps(cache).service.getTopMarketCapSnapshot();
   snapshot.rows[0]!.stale = true;

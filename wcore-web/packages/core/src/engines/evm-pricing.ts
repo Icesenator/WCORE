@@ -86,9 +86,10 @@ export async function priceToken(
   intraScanCache?: IntraScanCache,
   skipCache?: boolean,
 ): Promise<EvmWalletToken> {
+  const pricingContract = known.pricingContract ?? known.contract;
   const token: PricingToken = {
-    key: priceCacheKey(chain, known.contract),
-    contract: known.contract,
+    key: priceCacheKey(chain, pricingContract),
+    contract: pricingContract,
     symbol: known.symbol,
     name: known.name,
     chain,
@@ -106,7 +107,7 @@ export async function priceToken(
   });
   if (priced.reason) errors.push(`${known.symbol} price: ${priced.reason}`);
   return {
-    contract: known.contract,
+    contract: pricingContract,
     symbol: known.symbol,
     name: known.name,
     decimals: known.decimals,
@@ -116,7 +117,7 @@ export async function priceToken(
     balanceSelectorExtraArgs: known.balanceSelectorExtraArgs,
     defi: known.defi,
     logoUrl: known.logoUrl || await (async () => {
-      const params = { symbol: known.symbol, chainKey: chain.key, contract: known.contract, cache: logoCache };
+      const params = { symbol: known.symbol, chainKey: chain.key, contract: pricingContract, cache: logoCache };
       const fast = await resolveTokenLogoCachedOrFallback(params);
       // Single-flight background HTTP resolution so the next scan returns the high-quality logo
       // without ever blocking the pricing hot path.

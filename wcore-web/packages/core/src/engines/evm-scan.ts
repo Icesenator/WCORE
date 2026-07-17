@@ -68,10 +68,13 @@ export function discoveredTokenVariantKey(token: Pick<DiscoveredToken, "contract
   return `${token.contract.toLowerCase()}:${(token.balanceSelector || "").toLowerCase()}:${(token.balanceSelectorExtraArgs || []).join(",").toLowerCase()}`;
 }
 
-function normalizeCachedDiscoveryTokens(tokens: unknown, errors: string[]): DiscoveredToken[] | undefined {
+export function normalizeCachedDiscoveryTokens(tokens: unknown, errors: string[]): DiscoveredToken[] | undefined {
   if (!Array.isArray(tokens)) return undefined;
   const out: DiscoveredToken[] = [];
   for (const token of tokens as DiscoveredToken[]) {
+    // Compound positions are rebuilt from Comet on every scan. Persisted V1
+    // entries used the collateral asset as the call target and must not survive.
+    if (token?.defi?.protocol === "compound-v3") continue;
     if (!token?.balanceSelector) {
       out.push(token);
       continue;

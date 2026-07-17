@@ -140,31 +140,6 @@ export const TOKEN_REGISTRY: Record<string, DiscoveredToken[]> = {
         pricing: { mode: "mirror_underlying", sign: "asset" },
       },
     },
-    {
-      ...T("0xE36A30D249f7761327fd973001A32010b521b6Fd", "Comp WETH Borrow", "Compound V3 cWETHv3 Borrowed", 18),
-      balanceSelector: "0x374c49b4",
-      defi: {
-        protocol: "compound-v3",
-        type: "lending_debt",
-        underlying: "native",
-        liquidityStatus: "flex",
-        confidence: "high",
-        pricing: { mode: "mirror_native", sign: "debt" },
-      },
-    },
-    {
-      ...T("0xE36A30D249f7761327fd973001A32010b521b6Fd", "Comp wrsETH", "Compound V3 cWETHv3 Collateral", 18),
-      balanceSelector: "0x5c2549ee",
-      balanceSelectorExtraArgs: ["0x00000000000000000000000087eEE96D50Fb761AD85B1c982d28A042169d61b1"],
-      defi: {
-        protocol: "compound-v3",
-        type: "lending_collateral",
-        underlying: "native",
-        liquidityStatus: "flex",
-        confidence: "high",
-        pricing: { mode: "mirror_native", sign: "asset" },
-      },
-    },
     T("0x87eEE96D50Fb761AD85B1c982d28A042169d61b1", "wrsETH", "Wrapped rsETH (Kelp DAO)", 18),
   ],
 

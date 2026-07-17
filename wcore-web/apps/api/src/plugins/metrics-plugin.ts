@@ -6,10 +6,11 @@ import { apiConfig } from "../config.js";
 interface MetricsPluginDeps {
   getCircuitBreaker: (chain: string) => CircuitBreaker;
   isAdminAuthorized: (req: { headers: Record<string, string | string[] | undefined> }) => boolean;
+  cacheBackend: "redis" | "memory";
 }
 
 export async function metricsPlugin(app: FastifyInstance, deps: MetricsPluginDeps) {
-  const { getCircuitBreaker, isAdminAuthorized } = deps;
+  const { getCircuitBreaker, isAdminAuthorized, cacheBackend } = deps;
 
   app.get("/api/metrics/errors", async (req, reply) => {
     // Admin-only: exposes infrastructure details (cache backend, uptime, concurrency)
@@ -48,7 +49,7 @@ export async function metricsPlugin(app: FastifyInstance, deps: MetricsPluginDep
         lastTrip: snapshot.circuitBreaker.lastTrip,
       },
       cache: {
-        backend: apiConfig.redis.config ? "redis" : "memory",
+        backend: cacheBackend,
         redis: snapshot.cache.redis,
         session: snapshot.cache.session,
       },

@@ -1,6 +1,6 @@
 # WCORE - Roadmap
 
-> Index cross-runtime et priorites communes. Etat verifie le 2026-07-13. Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
+> Index cross-runtime et priorites communes. Etat verifie le 2026-07-16 (audit complet). Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
 
 ## Sources de verite
 
@@ -37,7 +37,7 @@
 - [x] Corriger la conversion USD vers EUR dans les deux chemins pricing CEX Web. Verifie le 2026-07-10 (29/29 tests API CEX/normalizers).
 - [x] Conserver les derniers avoirs CEX sains lors d'une panne transitoire. Verifie le 2026-07-10 (28/28 tests Web CEX state/display).
 - [ ] Aligner stablecoins batch, Cosmos staking et TON FX/sources avec les chemins canoniques.
-- [ ] Corriger la propagation des arguments Cosmos GSheet.
+- [x] Corriger la propagation des arguments Cosmos GSheet. Verifie le 2026-07-16 (v4.16.30).
 
 ### Securite et disponibilite
 
@@ -45,7 +45,7 @@
 - [ ] Fermer SSRF/DNS rebinding sur tous les fetches RPC.
 - [ ] Borner et persister les jobs async Web.
 - [ ] Rendre `CEX_SECRET` obligatoire et retirer les tokens relay des URLs.
-- [ ] Rendre atomiques quota, queue et leases CEX GSheet.
+- [x] Rendre atomiques quota, queue et leases CEX GSheet. Verifie le 2026-07-16 (v4.16.30, HttpCounter atomique + bulk relay).
 
 ### Livraison reproductible
 
@@ -54,16 +54,30 @@
 - [ ] Mettre `ws` a jour au-dela de 8.21.0.
 - [ ] Ajouter un `.dockerignore` racine et pruner l'image API.
 - [ ] Revenir a un lint vert et bloquant.
+- [ ] Bumper `dist/package.json` version a chaque `build:chains`.
+
+### Documentation (nouveau, audit 2026-07-16)
+
+- [ ] Archiver les 19 specs/plans termines dans `docs/superpowers/archive/`.
+- [ ] Splitter `wcore-web/AGENTS.md` (979+ lignes, 60% GSheet) en guide web + archive GSheet.
+- [ ] Reduire `wcore-web/ROADMAP.md` a l'etat et au futur (actuellement 2500+ lignes).
+- [ ] Reduire les `AGENTS.md` aux regles critiques sans secrets ni procedures locales.
 
 ## Fiabilite GSheet
 
 - [x] Corriger la mise en forme `Portefeuille Action` quand des lignes sont masquees par filtre: reparation explicite avec filtre suspendu puis restaure, conditional formats etendus a la plage geree. Verifie le 2026-07-13.
+- [x] HTTP counter rendu atomique (read-modify-write). Verifie le 2026-07-16 (v4.16.30).
+- [x] Queue et leases CEX rendus atomiques via bulk relay (1 appel au lieu de 4). Verifie le 2026-07-16 (v4.16.30).
+- [x] ACTIVITY_WATCHDOG desactive (v4.16.30).
 - [ ] Reparer uniquement le trigger fautif, avec backoff, au lieu de recreer tous les triggers.
 - [ ] Borner les recalculs A2/J1 par feuille et par jour.
 - [ ] Aligner l'expiration du cache packed avec la preservation des wallets positifs.
 - [ ] Exiger une vraie majorite pour le consensus SVM.
 - [ ] Corriger `batchWithConsensus`, actuellement premier-succes.
 - [ ] Centraliser tous les appels HTTP sous budget, breaker et compteur.
+- [ ] Splitter les 16 fichiers > 1000 lignes (plan HOTSPOT_SPLIT_PLAN.md non execute).
+- [ ] Corriger `dist/package.json` version desynchronisee (4.15.50 vs runtime 4.16.30).
+- [ ] Retirer ou restaurer les scripts npm references cassantes (`test:cache-keys`, `test:chain-config`).
 
 ## Fiabilite Web
 
@@ -73,6 +87,8 @@
 - [ ] Finir la centralisation des variables d'environnement.
 - [ ] Ajouter un test schema sur les 183 configurations.
 - [ ] Ajouter des tests comportementaux pour les hooks CEX/GM.
+- [ ] Implementer DeFi Position Engine v1 (spec + plan existants, zero implementation).
+- [ ] Corriger les 19 erreurs lint et rendre le lint bloquant en CI.
 
 ## Chain Lifecycle
 
@@ -93,11 +109,22 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 
 ## Documentation
 
-- [ ] Corriger le mojibake de `wcore-web/ROADMAP.md`, `AGENTS.md` et `CHANGELOG.md` par conversion ciblee.
+- [x] Corriger le mojibake de `wcore-web/ROADMAP.md`, `AGENTS.md` et `CHANGELOG.md` par conversion ciblee. (Note: l'audit 2026-07-16 confirme que le mojibake persiste; le fix n'a pas ete applique.)
 - [ ] Reduire `wcore-web/ROADMAP.md` a l'etat et au futur; deplacer le passe vers CHANGELOG/archive.
-- [ ] Reduire les `AGENTS.md` aux regles critiques sans secrets ni procedures locales.
+- [ ] Splitter `wcore-web/AGENTS.md` (979+ lignes, 60% GSheet) en guide web + archive GSheet.
 - [ ] Mettre a jour les docs CEX GSheet pour Kraken et l'architecture reelle de queue/triggers.
-- [ ] Marquer les plans Kraken, Robinhood, NFT/filter et CEX total comme termines.
+- [x] Marquer les plans Kraken, Robinhood, NFT/filter et CEX total comme termines.
+- [ ] Archiver les 19 specs/plans termines dans `docs/superpowers/archive/`.
+- [ ] Archiver `wcore-gsheet/AUDIT.md` (snapshot historique mai 2026, ne pilote plus le backlog).
+- [ ] Reduire `wcore-gsheet/AGENTS.md` (891 lignes) aux contraintes critiques et gotchas.
+
+## Nouveaux risques (audit 2026-07-16)
+
+- **A6 - DeFi Position Engine V1**: spec complete (317 lignes) + plan (872 lignes) sans aucune implementation. Les positions DeFi utilisent des patches one-off.
+- **A7 - CI inactive**: workflow dans `wcore-web/.github/workflows/`, doit etre a la racine `WCORE/.github/workflows/`.
+- **A8 - Lint rouge + vulnerabilite**: 19 erreurs ESLint non bloquantes + `ws@8.20.1` HIGH non patche.
+- **A3 - Hotspots GSheet**: 16 fichiers > 1000 lignes, plan de split (`HOTSPOT_SPLIT_PLAN.md`) abandonne.
+- **A1 - Documentation non archivee**: 19 specs/plans termines cohabitent avec les documents actifs.
 
 ## Baseline de verification
 

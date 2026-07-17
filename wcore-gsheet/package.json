@@ -1,7 +1,7 @@
 {
   "name": "wcore-gsheet",
   "version": "1.0.0",
-  "description": "``` wcore/ ├── .clasp.json              ← Config clasp ├── src/                     ← TES FICHIERS .gs (tu travailles ici) │   ├── 01_INIT.gs │   ├── 02_UTILS.gs │   └── ... ├── pulls/                   ← Historique des pulls (créé automatiquement) │   ├── pull_20260122_2100/ │   └── pull_20260123_0900/ ├── .backups/                ← Backups avant chaque push (créé automatiquement) ├── pull-all.ps1             ← Télécharger le projet distant └── safe-push.ps1            ← Envoyer src/ vers le projet ```",
+  "description": "WCORE Google Sheets + Apps Script runtime — multi-chain wallet tracking, CEX connectors, pricing cascade",
   "main": "index.js",
   "scripts": {
     "test": "npm run validate:static && npm run test:watchdog-quota && npm run test:listing-recap-headers && npm run test:web-scan-adapter && npm run test:packed-wallet-cache && npm run test:base-engine-stats && npm run test:wallet-cache-preserve-prices && npm run test:wallet-cache-expand-prices && npm run test:auto-heal-new-ledgers && npm run test:action-rebalancing-refresh && npm run test:cex-refresh-load && npm run test:top-marketcap-currency && npm run test:crypto-portfolio-v2",
@@ -11,8 +11,6 @@
     "test:top-marketcap-currency": "node tests/top-marketcap-currency-fallback.test.js",
     "test:crypto-portfolio-v2": "node tests/crypto-portfolio-v2.test.js",
     "validate:static": "node tools/validate-static.js",
-    "test:cache-keys": "node scripts/test-cache-keys.js",
-    "test:chain-config": "node scripts/test-chain-config.js",
     "test:phase3-chains": "node tools/test-phase3-chain-port.cjs",
     "test:watchdog-quota": "node tests/watchdog-quota-guard.test.js",
     "test:listing-recap-headers": "node tests/listing-recap-headers.test.js",

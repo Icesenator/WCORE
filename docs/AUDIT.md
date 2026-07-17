@@ -1,8 +1,9 @@
 # WCORE - Audit transversal
 
-> Date de verification: 2026-07-10  
+> Date de verification: 2026-07-16  
 > Perimetre: depot racine, `wcore-web`, `wcore-gsheet`, package genere `@wcore/chains`, CI, documentation et roadmaps.  
-> Methode: inspection statique du worktree courant, reconciliation des audits existants, recherches ciblees et tests non destructifs. Aucun appel live aux wallets, RPC, CEX, Google Sheets ou environnements Railway n'a ete effectue.
+> Methode: inspection statique du worktree courant, reconciliation des audits existants, recherches ciblees et tests non destructifs. Aucun appel live aux wallets, RPC, CEX, Google Sheets ou environnements Railway n'a ete effectue.  
+> Precedent audit: 2026-07-10 (10 P1 identifies, 4 resolus). Cet audit re-evalue le statut de chaque finding et ajoute les decouvertes de l'audit complet du 2026-07-16.
 
 ## Resume executif
 
@@ -25,16 +26,20 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 |---|---|
 | Chaines generees | 183: 169 EVM, 2 SVM, 11 Cosmos, 1 TON |
 | Web | Next.js 16, Fastify, Prisma/PostgreSQL, Redis, Railway |
-| GSheet | 250 fichiers `.gs`, 3 033 fonctions globales validees |
+| GSheet | 250 fichiers `.gs` (60 342 lignes), 3 033 fonctions, v4.16.30 |
 | CEX | 7 providers: Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX, Kraken |
 | Tests core/shared | 301/301 passes |
 | Tests web | 129 passes, 6 echecs lies a l'API locale absente |
-| Tests GSheet principaux | passes (`npm test`) |
+| Tests GSheet principaux | passes (`npm test`), 28 guard tests structurels |
 | Tests relay | 9/9 passes |
 | TypeScript | typecheck Web et monorepo sans erreur |
-| Lint | rouge: 19 erreurs au total |
+| Lint | rouge: 19 erreurs au total, non bloquant en CI |
 | Dependances | une vulnerabilite haute confirmee sur `ws@8.20.1` |
 | Documentation | audits Web/GSheet perimes, trois gros fichiers Web en mojibake |
+| Fichiers > 1000 lignes | 16 fichiers `.gs` (max: 2 846 lignes `27_ACTIVITY_REFRESH.gs`) |
+| CI GitHub | workflow present dans `wcore-web/.github/` mais pas a la racine (inactif) |
+| Specs/plans | 20 termines (non archives), 7 en cours, 3 non commences |
+| Dead code | 9 fonctions `LEGACY_DISABLED`, module `28_PRICING_WORKER` (1 312 lignes), `ACTIVITY_WATCHDOG` desactive |
 
 ## Findings P1
 
@@ -201,18 +206,68 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 - Split des documents vivants et conversion d'encodage.
 - Roadmaps courtes; historique uniquement dans CHANGELOG/archives.
 
+## Nouveaux findings (audit 2026-07-16)
+
+### A1 - 19 specs/plans termines non archives
+
+- **Preuves**: 20 fichiers dans `docs/superpowers/specs/` et `docs/superpowers/plans/` (tous niveaux), dont 19 sont termines mais non archives. Aucune structure d'archive sous `docs/superpowers/`.
+- **Impact**: confusion entre docs actifs et historiques, navigation difficile.
+- **Action**: creer `docs/superpowers/archive/`, deplacer les fichiers termines, mettre a jour les references croisees.
+
+### A2 - AGENTS.md wcore-web = 2 documents fusionnes (979+ lignes)
+
+- **Preuves**: `wcore-web/AGENTS.md` contient l'architecture Apps Script (~60% du contenu) en plus du guide web. L'audit 2026-06-07 recommandait deja le split.
+- **Impact**: les developpeurs web naviguent dans de la documentation GSheet non pertinente. Contenu contradictoire (version GSheet vs Web).
+- **Action**: splitter en `docs/apps-script-legacy.md` (archive) + garder uniquement le guide web dans AGENTS.md.
+
+### A3 - 16 fichiers .gs > 1000 lignes, plan de split abandonne
+
+- **Preuves**: `HOTSPOT_SPLIT_PLAN.md` (cree post-audit v4.15.13) identifie 3 hotspots a splitter. Aucun split effectue. Les fichiers ont continue de grossir (+826 lignes pour `27_ACTIVITY_REFRESH.gs`).
+- **Impact**: maintenabilite reduite, risque de depasser la limite GAS de 50 000 caracteres par fichier.
+- **Action**: executer le plan de split ou le marquer comme obsolete avec justification.
+
+### A4 - package.json GSheet: 2 scripts npm references cassées
+
+- **Preuves**: `test:cache-keys` et `test:chain-config` referencent `scripts/test-cache-keys.js` et `scripts/test-chain-config.js` qui n'existent pas. Le dossier `scripts/` est gitignore.
+- **Impact**: erreur si quelqu'un tente d'executer ces scripts. Confusion pour les nouveaux contributeurs.
+- **Action**: retirer les scripts ou restaurer les fichiers.
+
+### A5 - `dist/package.json` version desynchronisee
+
+- **Preuves**: `dist/package.json` indique `4.15.50`, le runtime GSheet est en `4.16.30`. Decalage de 80+ versions.
+- **Impact**: la version du package genere ne reflete pas la realite du runtime.
+- **Action**: bumper `dist/package.json` a chaque `build:chains`.
+
+### A6 - DeFi Position Engine v1: spec complete mais zero implementation
+
+- **Preuves**: spec (317 lignes) + plan (872 lignes) dans `wcore-gsheet/docs/superpowers/`. Toutes les checkboxes du plan sont decochees. Les positions DeFi (Compound V3, WCT Staking) sont gerees par des patches one-off.
+- **Impact**: dette architecturale. Le code de production utilise des workarounds la ou un registre structurel est prevu.
+- **Action**: prioriser ou abandonner formellement le design.
+
+### A7 - CI GitHub non operationnelle
+
+- **Preuves**: le workflow est dans `wcore-web/.github/workflows/ci.yml`. GitHub ne scanne que `.github/workflows/` a la racine du repo. Le CI n'a jamais bloque un push ou une PR.
+- **Impact**: les regressions (lint, build, tests) peuvent merger sans detection.
+- **Action**: deplacer le workflow a la racine `WCORE/.github/workflows/`.
+
+### A8 - Lint rouge non bloquant + vulnerability `ws` non patchée
+
+- **Preuves**: 19 erreurs ESLint, 0 warning. `pnpm audit` montre `ws@8.20.1` HIGH. Le step `pnpm lint` en CI ne fait pas `exit 1`.
+- **Impact**: regression continue de la qualite, fenetre de vulnerabilite ouverte.
+- **Action**: corriger les 19 erreurs lint, upgrader `ws` a `>=8.21.0`, rendre le lint bloquant en CI.
+
 ## Verifications executees
 
 ```text
-wcore-web core tests:       284/284 passes
-wcore-web shared tests:      17/17 passes
-wcore-web tests:            129 passes, 6 echecs API locale absente
-wcore-web typecheck:        passe
-wcore-web lint:             19 erreurs, 0 warning
-wcore-gsheet npm test:      passe, 3 033 fonctions validees
-wcore-gsheet relay tests:     9/9 passes
-git diff --check:           passe sur les perimetres audites
-pnpm audit --prod:          1 vulnerabilite haute `ws`
+wcore-web core tests:          284/284 passes
+wcore-web shared tests:         17/17 passes
+wcore-web tests:               129 passes, 6 echecs API locale absente
+wcore-web typecheck:           passe
+wcore-web lint:                19 erreurs, 0 warning
+wcore-gsheet npm test:         passe, 3 033 fonctions validees, 28 guard tests
+wcore-gsheet relay tests:        9/9 passes
+git diff --check:              passe sur les perimetres audites
+pnpm audit --prod:             1 vulnerabilite haute `ws`
 ```
 
 Limites: l'etat live des triggers GAS, quotas, caches, bases, RPC, CEX et services Railway n'a pas ete sonde. Les constats de concurrence GSheet sont issus de l'analyse des transitions read-modify-write et demandent une validation runtime apres correction.

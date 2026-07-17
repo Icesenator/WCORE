@@ -8,6 +8,9 @@ export const POLYGON_ZKEVM: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 63,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://zkevm-rpc.com",

@@ -5,7 +5,7 @@
 
 var _SWELLCHAIN = ChainFactory.createEvmChain("SWELLCHAIN", {
  CACHE_VERSION: 63,
- RPC: { ENDPOINTS: ["https://swell.drpc.org", "https://rpc.ankr.com/swell", "https://swell-mainnet.alt.technology", "https://swell.hypersync.xyz", "https://swellchain.gateway.tenderly.co"] },
+ RPC: { ENDPOINTS: ["https://swell.drpc.org", "https://rpc.ankr.com/swell"] }, // v4.16.31: alt.technology 401, hypersync 401, tenderly 404 (revalidation 2026-07-17, chaine vivante bloc frais)
  CHAIN: {
  NAME: "Swell Chain",
  CHAIN_ID: 1923,

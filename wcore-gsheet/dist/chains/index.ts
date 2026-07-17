@@ -130,7 +130,6 @@ import { POLYNOMIAL } from "./POLYNOMIAL.js";
 import { PROOF_OF_PLAY_APEX } from "./PROOF_OF_PLAY_APEX.js";
 import { PULSECHAIN } from "./PULSECHAIN.js";
 import { RACE } from "./RACE.js";
-import { RARI } from "./RARI.js";
 import { REDSTONE } from "./REDSTONE.js";
 import { REI_NETWORK } from "./REI_NETWORK.js";
 import { REYA } from "./REYA.js";
@@ -315,7 +314,6 @@ export const chains = {
   PROOF_OF_PLAY_APEX,
   PULSECHAIN,
   RACE,
-  RARI,
   REDSTONE,
   REI_NETWORK,
   REYA,

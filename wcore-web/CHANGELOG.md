@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 2026-07-17 — Market Cap production launch + X cycle
+
+- **Market Cap Crypto/Stock** : pages publiques `/cmc/crypto` et `/cmc/stocks` livrées avec 5 000 lignes, logos, pays, recherche, pagination et statut fresh/stale. Navigation sidebar mise à jour.
+- **Visuel X** : `wcore-post-market-cap.svg/.png` finalisé en 1200x675 avec quatre rangs par capture, contours arrondis lime/bleu visibles et suppression des badges redondants.
+- **Publication** : post publié sur `https://x.com/WCORExyz/status/2078069673707348415`.
+- **Interactions** : trois réponses approuvées publiées et vérifiées sur les fils `strivex_`, `DeFiDegen_0x` et `MARCELLUScryp`; aucun like ou follow automatique.
+- **Opérations** : ancien brouillon X arrêté, branche de cycle fusionnée supprimée et dossier worktree orphelin nettoyé.
+
 ## 2026-07-17 — CI racine, lint vert, ws patché et GM lifecycle aligné
 
 - **CI** : workflow déplacé de `wcore-web/.github/workflows/` vers la racine `.github/workflows/`; working-directory, cache pnpm, E2E et artifacts adaptés au monorepo.

@@ -32,10 +32,11 @@ function loadChromium() {
 const chromium = loadChromium();
 const W = 1200;
 const H = 675;
+const DISPLAY_ROWS = 4;
 const CAPTURE_W = 760;
-const CAPTURE_H = 278;
+const CAPTURE_H = 372;
 const PANEL_W = 560;
-const PANEL_H = 205;
+const PANEL_H = 274;
 const HEADLINE = "Two markets. One clean ranking.";
 const SITE = (process.env.WCORE_SITE_URL || process.env.SITE_URL || "https://wcore.xyz").replace(/\/$/, "");
 const PUBLIC_DIR = resolve(ROOT, "apps/web/public");
@@ -104,7 +105,7 @@ async function waitForMarketRows(page, route, expectedIdentity) {
   throw new Error(`Timed out waiting for populated market rows on ${route}. Last state: ${JSON.stringify(latest)}`);
 }
 
-async function waitForMarketLogos(page, route, count = 2) {
+async function waitForMarketLogos(page, route, count = DISPLAY_ROWS) {
   const deadline = Date.now() + 60000;
   let latest = [];
   while (Date.now() < deadline) {
@@ -163,6 +164,7 @@ async function captureMain(browser, route, heading, expectedIdentity = [], hideC
       main table { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
       main table th, main table td { padding: 5px 8px !important; }
       main table tbody td, main table tbody td p { font-size: 14px !important; line-height: 16px !important; }
+      main table tbody tr:nth-child(n + ${DISPLAY_ROWS + 1}) { display: none !important; }
       main table td:nth-child(2) > div > span > span { color: #f4f4f5 !important; font-size: 12px !important; font-weight: 900 !important; }
       main table th:first-child, main table td:first-child { width: 54px !important; }
       main table th:nth-last-child(2), main table td:nth-last-child(2) { width: 142px !important; }
@@ -249,24 +251,20 @@ function buildSvg(cryptoImage, stockImage) {
     <text x="436" y="137" text-anchor="end" class="font white" font-size="22" font-weight="950">5,000 public companies</text>
   </g>
 
-  <g transform="translate(568 52)" filter="url(#shadow)">
-    <rect x="0" y="42" width="${PANEL_W}" height="${PANEL_H}" rx="26" fill="#0b1117" stroke="#34551f" stroke-width="2"/>
-    <g clip-path="url(#cryptoClip)" transform="translate(0 42)">
+  <g transform="translate(568 28)" filter="url(#shadow)">
+    <rect x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" rx="24" fill="#0b1117"/>
+    <g clip-path="url(#cryptoClip)">
       <image href="${cryptoImage}" x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" preserveAspectRatio="xMidYMid meet"/>
     </g>
-    <rect x="18" y="0" width="154" height="34" rx="17" fill="#111b14" stroke="#84cc16" stroke-opacity="0.72"/>
-    <circle cx="37" cy="17" r="5" fill="#84cc16"/>
-    <text x="51" y="22" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">CRYPTO RANKING</text>
+    <rect x="1.5" y="1.5" width="${PANEL_W - 3}" height="${PANEL_H - 3}" rx="22.5" fill="none" stroke="#84cc16" stroke-width="3" stroke-opacity="0.92"/>
   </g>
 
-  <g transform="translate(568 328)" filter="url(#shadow)">
-    <rect x="0" y="42" width="${PANEL_W}" height="${PANEL_H}" rx="26" fill="#0b1117" stroke="#28445b" stroke-width="2"/>
-    <g clip-path="url(#stockClip)" transform="translate(0 42)">
+  <g transform="translate(568 315)" filter="url(#shadow)">
+    <rect x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" rx="24" fill="#0b1117"/>
+    <g clip-path="url(#stockClip)">
       <image href="${stockImage}" x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" preserveAspectRatio="xMidYMid meet"/>
     </g>
-    <rect x="18" y="0" width="146" height="34" rx="17" fill="#0d1620" stroke="#60a5fa" stroke-opacity="0.72"/>
-    <circle cx="37" cy="17" r="5" fill="#60a5fa"/>
-    <text x="51" y="22" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">STOCK RANKING</text>
+    <rect x="1.5" y="1.5" width="${PANEL_W - 3}" height="${PANEL_H - 3}" rx="22.5" fill="none" stroke="#60a5fa" stroke-width="3" stroke-opacity="0.92"/>
   </g>
 
   <g transform="translate(72 630)">

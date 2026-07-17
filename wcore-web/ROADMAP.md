@@ -27,6 +27,13 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ## Etat courant : v0.3.3 - Kraken CEX + DeFi positions + pricing fixes (2026-07-05)
 
+### Session 2026-07-17 — Market Cap en production + cycle X termine
+
+- **Pages Market Cap en production** : `/cmc/crypto` et `/cmc/stocks` exposent chacune 5 000 lignes avec logos, pays pour les actions, recherche, pagination de 100 lignes et statut fresh/stale. La sidebar place les deux pages apres History. CI GitHub verte (`29563848901`) et Web Railway redeploye (`391f780d-124b-4b21-90db-81b4a9148787`).
+- **Post X Market Cap** : publie `https://x.com/WCORExyz/status/2078069673707348415`. Image finale `apps/web/public/wcore-post-market-cap.svg` + `.png` en 1200x675, generee par `scripts/build-post-market-cap.cjs`. Les captures Crypto et Stock affichent quatre rangs, avec contours lime et bleu visibles et arrondis, sans badges redondants.
+- **Cycle X interaction** : trois replies approuvees, publiees et verifiees sur `strivex_`, `DeFiDegen_0x` et `MARCELLUScryp`. Angles : market cap vs qualite, distinction equity/token market cap, emissions/unlocks et risque de dilution. Aucun like, follow ou autre engagement automatique.
+- **Nettoyage** : processus de brouillon X arrete, branche `feature/market-cap-x-cycle` supprimee apres fast-forward sur `master`, et dossier worktree orphelin retire. Aucun worktree ne doit etre recree pour ce projet.
+
 ### Session 2026-07-07 — Cycle X read-only + post "Read first. Sign later."
 
 - **Cycle X interaction** : scan read-only via Chrome CDP 9224, cibles filtrees contre shill cache/doublons WCORE. 3 replies publiees et verifiees : approvals/read-only (`aisama_code`), public API/private key (`NintondoWallet`), fake portfolio balance scam (`GardenGnomeCoin`). Angles propres : separation read vs sign, seed/private key jamais necessaire pour lire, clean total contre spam-token value.
@@ -67,7 +74,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **GSheet — Portfolio auto-filter** : `_portfolioReapplyFilter_()` réapplique le filtre colonne S (Achat) à chaque refresh horaire + onEdit BW1/B1. Corrige le retrait du `OR(T="X")` redondant dans la formule S Crypto.
 - **GSheet — Chart auto-resize** : `updateEmbeddedObjectPosition` redimensionne le graphique `visibleRows × 21` après chaque refresh et onEdit. `_WCORE_ORIG_FETCH` contourne le guard quota.
 - **Railway — Fresh pricing** : `?fresh=true` accepté sur les endpoints portfolio → bypass cache Redis → fetch CMC live. TTL cache réduit 6h → 1h. `EMERGENCY_RESET_QUOTA()` corrigé (faux positif breaker, 23/20000).
-- **Pages Market Cap — implémentées localement** : routes publiques stables `/cmc/crypto` et `/cmc/stocks`, libellés Market Cap Crypto/Stock, logos source exacts quand disponibles, pays pour les actions, résumés responsive, recherche, pagination de 100 lignes et statut de snapshot stale. Tests présents ; aucun déploiement ni contrôle live n'est attesté.
+- **Pages Market Cap — livrées** : routes publiques stables `/cmc/crypto` et `/cmc/stocks`, libellés Market Cap Crypto/Stock, logos source exacts quand disponibles, pays pour les actions, résumés responsive, recherche, pagination de 100 lignes et statut de snapshot stale. Déploiement et contrôle live attestés le 2026-07-17 ; cycle X associé terminé.
 - **Backlog — Bridge** : intégration d'un bridge cross-chain (read-only ou interactif) permettant de visualiser et/ou exécuter des transferts d'actifs entre les 183+ chaînes suivies. Priorité : affichage des routes disponibles et des frais, avant exécution.
 
 ### Session 2026-07-01 - GSheet Web scan hardening + Base Zora pricing fallback

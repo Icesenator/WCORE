@@ -10,11 +10,13 @@ test("market cap visual uses the approved dimensions, copy, and routes", () => {
 
   assert.match(source, /const\s+W\s*=\s*1200\b/);
   assert.match(source, /const\s+H\s*=\s*675\b/);
+  assert.match(source, /const\s+DISPLAY_ROWS\s*=\s*4\b/);
   assert.match(source, /Two markets\. One clean ranking\./);
   assert.match(source, /5,000 crypto assets/);
   assert.match(source, /5,000 public companies/);
   assert.match(source, /\/cmc\/crypto/);
   assert.match(source, /\/cmc\/stocks/);
+  assert.doesNotMatch(source, /CRYPTO RANKING|STOCK RANKING/);
 });
 
 test("market cap scan remains read-only", () => {

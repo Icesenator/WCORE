@@ -27,6 +27,13 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ## Etat courant : v0.3.3 - Kraken CEX + DeFi positions + pricing fixes (2026-07-05)
 
+### Session 2026-07-17 - Rafraichissement CEX Web fiabilise
+
+- **Acces direct `/wallet`** : `useCexHoldings` charge les comptes, synchronise chacun d'eux, puis recharge les holdings frais. Les comptes vides restent presents et refreshables; le double sync historique de `/home` est supprime.
+- **Mode degrade et isolation** : tout non-2xx ou rejet reseau conserve le snapshot precedent avec marqueur stale. Les syncs utilisent `Promise.allSettled`; les identifiants de session et de requete bloquent les reponses obsoletes et les fuites inter-session.
+- **Refresh global borne** : `Refresh All` pilote les scans on-chain et CEX avec un etat reel, interdit les clics concurrents et applique un timeout de 30 s aux requetes CEX et aux metadonnees `/api/chains`, corps HTTP inclus.
+- **Validation** : tests Web cibles ajoutes pour comptes vides, ordre sync/reload, non-2xx, rejet reseau, timeout avant reponse et corps bloque, ainsi que garde inter-session. Deploiement Web a attester apres validation finale.
+
 ### Session 2026-07-17 — Market Cap en production + cycle X termine
 
 - **Pages Market Cap en production** : `/cmc/crypto` et `/cmc/stocks` exposent chacune 5 000 lignes avec logos, pays pour les actions, recherche, pagination de 100 lignes et statut fresh/stale. La sidebar place les deux pages apres History. CI GitHub verte (`29563848901`) et Web Railway redeploye (`391f780d-124b-4b21-90db-81b4a9148787`).

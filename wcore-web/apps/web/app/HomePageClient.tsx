@@ -1,5 +1,6 @@
 "use client";
 import { apiFetch } from "@/lib/api";
+import { cexFetch } from "@/lib/cex-api";
 
 import { useState, useCallback, useEffect, useRef, type FormEvent } from "react";
 import { useAccount } from "wagmi";
@@ -9,7 +10,7 @@ import { useWallet } from "@/components/ConnectButton";
 import { WalletManager, type WalletManagerProps } from "@/components/WalletManager";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { DEFAULT_CHAINS } from "@/lib/defaults";
-import { buildCexWalletListItem, parseCexWalletAddress, type CexProvider, type CexWalletListItem } from "@/lib/cex-display";
+import { buildCexWalletListItem, parseCexWalletAddress, shouldApplyCexWalletRequest, type CexProvider, type CexWalletListItem } from "@/lib/cex-display";
 
 function detectVmType(addr: string): string {
   if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return "EVM";
@@ -38,6 +39,7 @@ function cexAccountTotal(account: CexAccountApi): number {
 export function HomePageClient() {
   const router = useRouter();
   const { address: connectedAddress, authStep } = useWallet();
+  const authenticatedCexAddress = authStep === "authenticated" ? connectedAddress : null;
   const { isConnected } = useAccount();
   const { formatValue } = usePreferences();
   const [address, setAddress] = useState("");
@@ -52,8 +54,9 @@ export function HomePageClient() {
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(true);
-  const [syncingCex, setSyncingCex] = useState(false);
   const welcomeCheckedRef = useRef(false);
+  const cexRequestIdRef = useRef(0);
+  const latestCexSessionRef = useRef<string | null>(authenticatedCexAddress?.toLowerCase() ?? null);
   const [, setWelcomeLoading] = useState(true);
 
   // Show welcome modal on first wallet connection (DB-backed, cross-device)
@@ -102,11 +105,20 @@ export function HomePageClient() {
   }, [connectedAddress]);
 
   const loadCexWallets = useCallback(async () => {
-    if (!connectedAddress) { setCexWallets([]); return; }
+    const requestSessionKey = authenticatedCexAddress?.toLowerCase();
+    if (!requestSessionKey) { setCexWallets([]); return; }
+    const requestId = ++cexRequestIdRef.current;
+    const canApply = () => shouldApplyCexWalletRequest(
+      latestCexSessionRef.current,
+      requestSessionKey,
+      requestId,
+      cexRequestIdRef.current,
+    );
     try {
-      const res = await apiFetch("/api/cex/accounts");
-      if (!res.ok) { setCexWallets([]); return; }
+      const res = await cexFetch("/api/cex/accounts");
+      if (!res.ok) { if (canApply()) setCexWallets([]); return; }
       const data = await res.json() as { accounts?: CexAccountApi[] };
+      if (!canApply()) return;
       setCexWallets((data.accounts ?? []).map((account) => buildCexWalletListItem({
         id: account.id,
         provider: account.provider,
@@ -115,11 +127,16 @@ export function HomePageClient() {
       })));
     } catch (_e) {
       console.error("Failed to load CEX wallets:", _e);
-      setCexWallets([]);
+      if (canApply()) setCexWallets([]);
     }
-  }, [connectedAddress]);
+  }, [authenticatedCexAddress]);
 
-  useEffect(() => { void loadCexWallets(); }, [loadCexWallets]);
+  useEffect(() => {
+    latestCexSessionRef.current = authenticatedCexAddress?.toLowerCase() ?? null;
+    cexRequestIdRef.current += 1;
+    if (!authenticatedCexAddress) setCexWallets([]);
+    void loadCexWallets();
+  }, [authenticatedCexAddress, loadCexWallets]);
 
   useEffect(() => {
     const handler = () => { void loadCexWallets(); };
@@ -205,17 +222,6 @@ export function HomePageClient() {
     localStorage.setItem("wcore_linked", JSON.stringify(updated.map(w => ({ address: w.address, label: w.label }))));
   }
 
-  async function syncCexBeforeScan() {
-    if (cexWallets.length === 0) return;
-    setSyncingCex(true);
-    try {
-      await Promise.allSettled(cexWallets.map((wallet) => apiFetch(`/api/cex/accounts/${wallet.cexId}/sync`, { method: "POST" })));
-      window.dispatchEvent(new Event("wcore-cex-updated"));
-    } finally {
-      setSyncingCex(false);
-    }
-  }
-
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const targets: string[] = [];
@@ -240,7 +246,6 @@ export function HomePageClient() {
       return;
     }
     setError(null);
-    await syncCexBeforeScan();
     const encoded = encodeURIComponent(targets.join(","));
     const onChainLinkedWallets = linkedWallets.filter((wallet) => !wallet.isCex);
     const linkedParam = encodeURIComponent(onChainLinkedWallets.map((w) => w.address).join(","));
@@ -297,8 +302,8 @@ export function HomePageClient() {
               className="w-36 shrink-0 rounded-xl border border-border bg-bg px-3 py-4 text-fg text-sm outline-none focus:border-accent placeholder:text-muted/50"
               autoComplete="off"
             />
-            <button type="submit" disabled={syncingCex} className="rounded-xl bg-accent px-8 py-4 font-bold text-bg hover:opacity-90 transition shrink-0 text-base disabled:opacity-60">
-              {syncingCex ? "Syncing CEX..." : "Scan"}
+            <button type="submit" className="rounded-xl bg-accent px-8 py-4 font-bold text-bg hover:opacity-90 transition shrink-0 text-base disabled:opacity-60">
+              Scan
             </button>
           </div>
 

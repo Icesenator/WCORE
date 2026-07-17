@@ -46,6 +46,15 @@ export function sortWalletResultsByValueDesc<T extends WalletResultLike>(wallets
   return [...wallets].sort((a, b) => b.totalEur - a.totalEur);
 }
 
+export function shouldApplyCexWalletRequest(
+  activeSessionKey: string | null,
+  requestSessionKey: string,
+  requestId: number,
+  latestRequestId: number,
+): boolean {
+  return activeSessionKey === requestSessionKey && requestId === latestRequestId;
+}
+
 export function buildCexWalletListItem(account: CexAccountSummary): CexWalletListItem {
   const meta = getCexProviderMeta(account.provider);
   return {

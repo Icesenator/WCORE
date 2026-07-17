@@ -55,7 +55,7 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 - [ ] Nettoyer les overrides scam locaux quand le serveur renvoie une liste vide.
 - [ ] Ajouter labels aux formulaires CEX et semantique/focus au modal wallet.
 - [ ] Ajouter roles tab, `aria-selected`, `aria-sort` et actions clavier dans les tables.
-- [ ] Tester les comportements de panne de `useCexHoldings`, `useGmChain` et du warmup GM.
+- [~] `useCexHoldings` est couvert pour pannes transitoires, non-2xx, comptes vides, concurrence, session obsolete et timeouts complets. Les comportements de panne de `useGmChain` et du warmup GM restent a tester.
 
 ### Infra et qualite
 
@@ -98,14 +98,14 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 - Coinbase/OKX sont encore annonces comme futurs dans des sections historiques non clairement archivees.
 - Les deadlines Swell, Corn, Polygon zkEVM et Botanix sont passees; leur statut code doit etre revalide.
 
-## Verification 2026-07-10
+## Verification 2026-07-17
 
 ```text
 @wcore/core tests:     284/284 passes
 @wcore/shared tests:    17/17 passes
 @wcore/web tests:      129 passes, 6 ECONNREFUSED vers API locale absente
 API CEX cible:         29/29 passes (`pricing.test.ts`, `normalizers.test.ts`)
-Web CEX cible:         28/28 passes (`cex-holdings-state.test.ts`, `cex-display.test.ts`)
+Web CEX cible:         36/36 passes (`cex-holdings-state.test.ts`, `cex-display.test.ts`)
 typecheck:             passe
 lint:                  19 erreurs, 0 warning
 ESLint CEX cible:      passe

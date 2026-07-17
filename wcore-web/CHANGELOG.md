@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 2026-07-17 - Rafraichissement CEX Web fiabilise
+
+- **Acces direct `/wallet`** : tous les comptes CEX, y compris ceux sans holding, sont synchronises avant le rechargement des avoirs. Le formulaire Home ne lance plus un double sync avant la navigation.
+- **Pannes et concurrence** : les non-2xx et erreurs reseau conservent le dernier snapshot avec marqueur degrade; toutes les synchronisations sont attendues avec `Promise.allSettled`. Les reponses obsoletes ou issues d'une autre session sont ignorees.
+- **UX** : `Refresh All` couvre on-chain et CEX avec un etat reel, et le bouton est desactive pendant l'operation pour eviter les refreshs concurrents.
+- **Bornes** : les requetes CEX et le chargement des metadonnees `/api/chains` ont un timeout global de 30 s couvrant aussi la lecture du corps HTTP.
+- **Verification locale** : 169 tests Web, typecheck, lint et build production passes avant deploiement.
+
 ## 2026-07-17 — DeFi Web batch finalise en production
 
 - **Perimetre** : `Selected DeFi positions` couvre en V1 des positions Compound V3, WCT, Chainbase et des actifs stakes selectionnes; aucune couverture generale des LP, vaults ou protocoles n'est revendiquee.

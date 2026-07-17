@@ -46,7 +46,8 @@ export function PortfolioSummaryCard({
           <button
             type="button"
             onClick={onRefreshAll}
-            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${refreshingAll ? "text-accent border-accent/30 bg-accent/10 animate-pulse" : "text-accent border-accent/30 hover:bg-accent/10"}`}
+            disabled={refreshingAll}
+            className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${refreshingAll ? "cursor-not-allowed text-accent border-accent/30 bg-accent/10 animate-pulse" : "text-accent border-accent/30 hover:bg-accent/10"}`}
             title={t("refreshWallet") + " all"}
           >↻ Refresh All</button>
           <button

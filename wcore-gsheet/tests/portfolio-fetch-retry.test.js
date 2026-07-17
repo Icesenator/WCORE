@@ -97,6 +97,47 @@ test('crypto snapshot fetch retries a transient "Address unavailable" network th
   assert.equal(snapshot.ok, true, 'snapshot must be returned after a successful retry');
 });
 
+test('crypto snapshot fetch retries an HTTP 200 response with an empty JSON body', () => {
+  let calls = 0;
+  const ctx = makeContext(cryptoSource, () => {
+    calls++;
+    if (calls < 3) {
+      return { getResponseCode: () => 200, getContentText: () => '' };
+    }
+    return okResponse(cryptoSnapshot);
+  });
+  const snapshot = ctx._cryptoPortfolioFetchSnapshot_();
+  assert.equal(calls, 3, 'must retry an incomplete HTTP 200 response before succeeding');
+  assert.equal(snapshot.ok, true, 'snapshot must be returned after a complete JSON response');
+});
+
+test('crypto snapshot fetch retries an HTTP 200 response with truncated JSON', () => {
+  let calls = 0;
+  const ctx = makeContext(cryptoSource, () => {
+    calls++;
+    if (calls < 3) {
+      return { getResponseCode: () => 200, getContentText: () => '{"ok":true,"rows":[' };
+    }
+    return okResponse(cryptoSnapshot);
+  });
+  const snapshot = ctx._cryptoPortfolioFetchSnapshot_();
+  assert.equal(calls, 3, 'must retry truncated JSON before succeeding');
+  assert.equal(snapshot.ok, true, 'snapshot must be returned after a complete JSON response');
+});
+
+test('crypto snapshot fetch stops after three incomplete HTTP 200 responses', () => {
+  let calls = 0;
+  const ctx = makeContext(cryptoSource, () => {
+    calls++;
+    return { getResponseCode: () => 200, getContentText: () => '' };
+  });
+  assert.throws(
+    () => ctx._cryptoPortfolioFetchSnapshot_(),
+    /WCORE crypto portfolio incomplete JSON response: empty body/,
+  );
+  assert.equal(calls, 3, 'must stop after the configured retry limit');
+});
+
 test('crypto snapshot fetch does not retry a genuine HTTP error status', () => {
   let calls = 0;
   const ctx = makeContext(cryptoSource, () => {

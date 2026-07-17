@@ -41,6 +41,21 @@ test("detectScam treats RealToken property tokens as clean even with long symbol
   assert.equal(result.score, 0);
 });
 
+test("detectScam treats official Optimism DeFi position contracts as clean", () => {
+  const positions = [
+    ["WCT Claimable", "WCT Staking Reward Distributor [Flex]", "0xf368f535e329c6d08dff0d4b2da961c4e7f3fcaf"],
+    ["WCT Stake", "WCT Stake Weight [Lock]", "0x521b4c065bbdbe3e20b3727340730936912dfa46"],
+    ["Comp WETH Borrow", "Compound V3 cWETHv3 Borrowed [Flex]", "0xe36a30d249f7761327fd973001a32010b521b6fd"],
+    ["Comp wrsETH", "Compound V3 cWETHv3 Collateral [Flex]", "0x87eee96d50fb761ad85b1c982d28a042169d61b1"],
+  ] as const;
+
+  for (const [symbol, name, contract] of positions) {
+    const result = detectScam(symbol, name, 10, 1, contract);
+    assert.equal(result.isSuspicious, false, `${symbol} must not be flagged as scam`);
+    assert.equal(result.level, "clean");
+  }
+});
+
 // v0.3.x: Ethos - Base airdrop scam tokens (2026-06-29)
 test("detectScam flags BASED 0xf34f... as scam (hardcoded blocked contract on Base)", () => {
   const result = detectScam("BASED", "Based", 1_000_000, 0.00001, "0xf34f722fc7617300ad37f499d7a36780d81daa29");

@@ -113,6 +113,8 @@ test("getCompoundV3Tokens calls collateralBalanceOf on Comet with distinct asset
 
   const borrow = result.tokens.find((t) => t.balanceSelector === BORROW_BALANCE_OF_SEL)!;
   assert.ok(borrow, "borrow position present");
+  assert.equal(borrow.symbol, "Comp WETH Borrow");
+  assert.equal(borrow.name, "Compound V3 cWETHv3 Borrowed");
   assert.equal(borrow.contract, COMET_OPTIMISM_WETH, "borrow uses Comet proxy (1 per market)");
   assert.equal(borrow.balanceSelectorExtraArgs, undefined, "no extra args for borrow");
 

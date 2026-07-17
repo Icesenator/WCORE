@@ -10,12 +10,28 @@ import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema 
 import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout } from "./scan-utils.js";
 import { scanJobs, startJobCleanup } from "./scan-job.js";
 import { apiConfig } from "../config.js";
+import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
 
 const SCAN_CONCURRENCY = apiConfig.scan.scanConcurrency;
 const NON_EVM_SCAN_CONCURRENCY = apiConfig.scan.nonEvmScanConcurrency;
 const SCAN_RESULT_CACHE_TTL_MS = apiConfig.scan.scanResultCacheTtlMs;
 const CHAIN_TIMEOUT_MS = apiConfig.scan.chainTimeoutMs;
 const BATCH_CHAIN_TIMEOUT_MS = apiConfig.scan.batchChainTimeoutMs;
+
+async function finalizeDeFiAssets(chain: string, address: string, assets: WalletAssets): Promise<WalletAssets> {
+  await precomputeWCTStakeLockStatus(chain.toUpperCase(), address);
+  return applyDeFiPositionMirrorsToWalletAssets(chain, address, assets);
+}
+
+function hasUnfinalizedDeFiAssets(chain: string, assets: WalletAssets): boolean {
+  if (chain.toUpperCase() !== "OPTIMISM") return false;
+  return ((assets.tokens ?? []) as Array<Record<string, unknown>>).some((token) => {
+    const symbol = String(token.symbol ?? "");
+    const isDeFiPosition = /^(WCT (Stake|Claimable)|Comp )/.test(symbol);
+    const hasLiquiditySuffix = /\[(Flex|Lock)\]$/.test(String(token.name ?? ""));
+    return isDeFiPosition && (token.priceEur == null || !hasLiquiditySuffix);
+  });
+}
 
 async function fetchFxRate(): Promise<number | { code: 503; body: { error: string; message: string } }> {
   try {
@@ -115,7 +131,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
         if (cached && Date.now() - cached.ts < SCAN_RESULT_CACHE_TTL_MS) {
           const { ts: _ts, ...result } = cached;
           const assets = result as WalletAssets;
-          if (hasCachedValue(assets)) {
+          if (hasCachedValue(assets) && !hasUnfinalizedDeFiAssets(chain, assets)) {
             cachedChains.push(assets);
             return;
           }
@@ -147,10 +163,11 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
           // internal fetches. We still cache the result if the engine
           // eventually produces usable data (fire-and-forget).
           if (chainPromise) {
-            chainPromise.then((assets) => {
-              if (shouldCacheAssets(assets)) {
+            chainPromise.then(async (assets) => {
+              const finalized = await finalizeDeFiAssets(chain, parsedAddress.data, assets);
+              if (shouldCacheAssets(finalized)) {
                 const scanCacheKey = getScanResultCacheKey(parsedAddress.data, chain);
-                sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+                sharedCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
               }
             }).catch(() => {});
           }
@@ -164,15 +181,17 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       }
     })));
 
+    const finalizedRawResults = await Promise.all(rawResults.map((result) => finalizeDeFiAssets(result.chain, parsedAddress.data, result)));
+
     // Cache successful scan results
-    for (const result of rawResults) {
+    for (const result of finalizedRawResults) {
       if (shouldCacheAssets(result)) {
         const scanCacheKey = getScanResultCacheKey(parsedAddress.data, result.chain);
         sharedCache.set(scanCacheKey, { ...result, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
       }
     }
 
-    rawChains.push(...cachedChains, ...rawResults);
+    rawChains.push(...cachedChains, ...finalizedRawResults);
 
     for (const c of rawChains) {
       const breaker = getCircuitBreaker(c.chain);
@@ -312,7 +331,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
         if (cached && Date.now() - cached.ts < SCAN_RESULT_CACHE_TTL_MS) {
           const { ts: _ts, ...result } = cached;
           const assets = result as WalletAssets;
-          if (hasCachedValue(assets)) {
+          if (hasCachedValue(assets) && !hasUnfinalizedDeFiAssets(chain, assets)) {
             if (!cachedEvmByAddr.has(addr)) cachedEvmByAddr.set(addr, new Map());
             cachedEvmByAddr.get(addr)!.set(chain, assets);
             return;
@@ -352,7 +371,11 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
           return p;
         }, BATCH_CHAIN_TIMEOUT_MS);
         const result = await handle.promise;
-        return { chain, wallets: result.wallets };
+        const wallets = await Promise.all(result.wallets.map(async ({ address, assets }) => ({
+          address,
+          assets: await finalizeDeFiAssets(chain, address, assets),
+        })));
+        return { chain, wallets };
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes("chain_timeout")) {
@@ -360,11 +383,12 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
           // short-circuited its internal fetches. Cache the partial data if it
           // eventually lands.
           if (chainPromise) {
-            chainPromise.then((batchResult) => {
+            chainPromise.then(async (batchResult) => {
               for (const { address, assets } of batchResult.wallets) {
-                if (shouldCacheAssets(assets)) {
+                const finalized = await finalizeDeFiAssets(chain, address, assets);
+                if (shouldCacheAssets(finalized)) {
                   const scanCacheKey = getScanResultCacheKey(address, chain);
-                  sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+                  sharedCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
                 }
               }
             }).catch(() => {});
@@ -556,7 +580,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             chainPromise = p;
             return p;
           }, CHAIN_TIMEOUT_MS);
-          const assets = await handle.promise;
+          const assets = await finalizeDeFiAssets(chain, parsedAddress.data, await handle.promise);
           const chainScan = buildChainScan(chain, assets, fxRate);
           const cleanValue = calcCleanChainValue(chainScan, detectScam);
           const scanErrors = chainScan.errors.map((e) => e.message);
@@ -600,10 +624,11 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             // short-circuited its internal fetches. Cache the partial data if
             // it eventually lands.
             if (chainPromise) {
-              chainPromise.then((assets) => {
-                if (shouldCacheAssets(assets)) {
+              chainPromise.then(async (assets) => {
+                const finalized = await finalizeDeFiAssets(chain, parsedAddress.data, assets);
+                if (shouldCacheAssets(finalized)) {
                   const scanCacheKey = getScanResultCacheKey(parsedAddress.data, chain);
-                  sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+                  sharedCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
                 }
               }).catch(() => {});
             }

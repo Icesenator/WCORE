@@ -16,13 +16,11 @@ import {
   hasExplorerDiscovery,
 } from "../tokens/index.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
-import { prefetchTokenLogo, resolveTokenLogoCachedOrFallback } from "../tokens/index.js";
+import { getCompoundV3Tokens } from "../defi/index.js";
 import {
-  priceTokenCascade,
   type IntraScanCache,
   type PricingCache,
   type PricingSourceSet,
-  type PricingToken,
 } from "../pricing/index.js";
 import type { CacheStore } from "../cache/index.js";
 import { DISCOVERY_CACHE_TTL_MS } from "../cache/index.js";
@@ -40,7 +38,7 @@ import {
   type EvmWalletAssets,
 } from "./evm-types.js";
 import { getRecentLogRange, readNativeBalance, canServeEmptyCache, readErc20Balance } from "./evm-balances.js";
-import { sharedPriceCache, buildSources, priceNative, priceCacheKey } from "./evm-pricing.js";
+import { sharedPriceCache, buildSources, priceNative, priceToken, priceCacheKey } from "./evm-pricing.js";
 import { cacheKey } from "@wcore/shared";
 
 // ÔöÇÔöÇÔöÇ Multi-Wallet Batch Scan ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -125,6 +123,17 @@ export async function getEvmWalletsAssets(
   const currentBlock = parseInt(logRange.toBlock, 16) || 0;
   const pricingErrors: string[] = [];
   const walletErrors: Map<string, string[]> = new Map();
+  let compoundTokens: DiscoveredToken[] = [];
+  let compoundErrors: string[] = [];
+  if (!opts.tokenDiscovery) {
+    try {
+      const compound = await getCompoundV3Tokens(key, normalizedAddresses[0]!, rpc, effectiveEndpoints[0]!, { cache: opts.cache, signal: opts.signal });
+      compoundTokens = compound.tokens;
+      compoundErrors = compound.errors;
+    } catch (error) {
+      compoundErrors = [`Compound V3 discovery failed: ${error instanceof Error ? error.message : String(error)}`];
+    }
+  }
 
   // Step 1: Parallel discovery for all wallets.
   // Uses per-wallet discovery cache + incremental cursor + negative cache
@@ -221,9 +230,24 @@ export async function getEvmWalletsAssets(
           }
         }
 
-        writeDiscoveryCache(merged);
+        const staticTokens = opts.tokenDiscovery
+          ? merged
+          : merged.filter((token) => token.defi?.protocol !== "compound-v3" && !(key === "OPTIMISM" && token.symbol.startsWith("Comp ")));
+        writeDiscoveryCache(staticTokens);
+        const finalTokens = [...staticTokens];
+        if (!opts.tokenDiscovery) {
+          wErrors.push(...compoundErrors);
+          const variants = new Set(finalTokens.map(tokenVariantKey));
+          for (const token of compoundTokens) {
+            const variant = tokenVariantKey(token);
+            if (!variants.has(variant)) {
+              finalTokens.push(token);
+              variants.add(variant);
+            }
+          }
+        }
         walletErrors.set(addr, wErrors);
-        return { address: addr, tokens: merged, nativeSymbol: chain.CHAIN?.NATIVE_SYMBOL ?? "NATIVE", nativeLogo: getNativeLogo(chain), isEmpty: false, _empty: false };
+        return { address: addr, tokens: finalTokens, nativeSymbol: chain.CHAIN?.NATIVE_SYMBOL ?? "NATIVE", nativeLogo: getNativeLogo(chain), isEmpty: false, _empty: false };
       } catch {
         // On discovery failure, preserve cached tokens and write them back.
         // This prevents data loss when RPCs are temporarily unhealthy.
@@ -325,14 +349,7 @@ export async function getEvmWalletsAssets(
       if (SKIP_NATIVE_PRECOMPILES.has(c)) continue;
       const tokenKey = tokenVariantKey(t);
       if (!activeTokenMap.has(tokenKey)) {
-        activeTokenMap.set(tokenKey, {
-          contract: c,
-          symbol: t.symbol || "",
-          name: t.name || "",
-          decimals: t.decimals ?? 18,
-          ...(t.balanceSelector ? { balanceSelector: t.balanceSelector } : {}),
-          ...(t.balanceSelectorExtraArgs ? { balanceSelectorExtraArgs: t.balanceSelectorExtraArgs } : {}),
-        });
+        activeTokenMap.set(tokenKey, { ...t, contract: c });
       }
     }
   }
@@ -550,7 +567,7 @@ export async function getEvmWalletsAssets(
   if (!opts.fxRate) throw new Error("FX rate required in opts (use getEurUsdRate from ./fx.js)");
   const fxRate: number = opts.fxRate;
   const sources = opts.sources ?? buildSources(priceCache, chain, opts.cache);
-  const priceMap = new Map<string, { priceEur: number | null; symbol: string; name: string; logoUrl?: string }>();
+  const priceMap = new Map<string, EvmWalletToken>();
 
   // Collect tokens that have a balance in at least one active wallet
   const tokensToPrice = new Map<string, DiscoveredToken>();
@@ -563,14 +580,15 @@ export async function getEvmWalletsAssets(
   }
 
   const tokensToPriceArray = Array.from(tokensToPrice.values());
-  const pricedTokens: Array<{ key: string; priceEur: number | null; symbol: string; name: string; logoUrl?: string }> = [];
+  const directlyPricedTokens = tokensToPriceArray.filter((token) => !["mirror_native", "mirror_underlying"].includes(token.defi?.pricing?.mode ?? ""));
+  const pricedTokens: Array<{ key: string; token: EvmWalletToken }> = [];
 
   const livePrefetchedPriceContracts = new Set<string>();
   const skipBulkLlama = chain.CHAIN?.SKIP_LLAMA_BATCH === true || chain.key === "GNOSIS";
-  if (!skipBulkLlama && tokensToPriceArray.length > 0 && typeof sources.defillama.batchTokenPrices === "function") {
+  if (!skipBulkLlama && directlyPricedTokens.length > 0 && typeof sources.defillama.batchTokenPrices === "function") {
     const llamaSlug = String(chain.CHAIN?.LLAMA_CHAIN_SLUG ?? chain.CHAIN?.DEX_SLUG ?? "");
     if (llamaSlug) {
-      const contracts = tokensToPriceArray.map((token) => token.contract);
+      const contracts = directlyPricedTokens.map((token) => token.pricingContract ?? token.contract);
       try {
         const batchPrices = await sources.defillama.batchTokenPrices(llamaSlug, contracts);
         if (batchPrices.size > 0) {
@@ -590,9 +608,9 @@ export async function getEvmWalletsAssets(
   }
 
   const skipBulkGt = chain.key === "GNOSIS";
-  if (!skipBulkGt && tokensToPriceArray.length > 0 && typeof sources.geckoterminal.batchTokenPrices === "function") {
+  if (!skipBulkGt && directlyPricedTokens.length > 0 && typeof sources.geckoterminal.batchTokenPrices === "function") {
     const gtNetwork = String(chain.CHAIN?.GT_NETWORK ?? chain.CHAIN?.DEX_SLUG ?? chain.key);
-    const contracts = tokensToPriceArray.map((token) => token.contract);
+    const contracts = directlyPricedTokens.map((token) => token.pricingContract ?? token.contract);
     try {
       const batchPrices = await sources.geckoterminal.batchTokenPrices(gtNetwork, contracts);
       if (batchPrices instanceof Map && batchPrices.size > 0) {
@@ -615,45 +633,27 @@ export async function getEvmWalletsAssets(
     const group = tokensToPriceArray.slice(i, i + PRICE_CONCURRENCY);
     const resolvedGroup = await Promise.all(
       group.map(async (token) => {
-        const pricingToken: PricingToken = {
-          key: priceCacheKey(chain, token.contract),
-          contract: token.contract,
-          symbol: token.symbol,
-          name: token.name,
+        const pricingContract = token.pricingContract ?? token.contract;
+        const priced = await priceToken(
           chain,
-          isStable: token.source === "registry" && ["USDC", "USDT", "DAI", "USDC.e", "USDT.e", "FRAX", "LUSD", "sDAI"].includes(token.symbol),
-          peg: "USD",
-        };
-        const priced = await priceTokenCascade({
-          token: pricingToken,
+          token,
+          1,
           fxRate,
-          cache: priceCache,
           sources,
-          allowCoinGeckoTokenFallback: true,
-          skipCache: (opts.forceRefresh && !livePrefetchedPriceContracts.has(token.contract.toLowerCase())) || chain.key === "GNOSIS",
-          intraScanCache: opts.intraScanCache,
-        });
-        if (priced.reason) pricingErrors.push(`${token.symbol} price: ${priced.reason}`);
-        // Resolve a logo for tokens discovered without one (e.g. via log scanning),
-        // mirroring the single-wallet path (evm-pricing.ts). Without this, the batch
-        // engine ÔÇö used by the multi-wallet scan table ÔÇö returned logoUrl=undefined
-        // for well-known tokens, leaving a blank colored circle in the UI.
-        let logoUrl = token.logoUrl;
-        if (!logoUrl) {
-          const logoParams = { symbol: token.symbol, chainKey: chain.key, contract: token.contract, cache: opts.cache };
-          logoUrl = await resolveTokenLogoCachedOrFallback(logoParams);
-          // Single-flight background HTTP resolution so the next scan upgrades to the
-          // high-quality logo (Blockscout/DexScreener) without blocking this scan.
-          prefetchTokenLogo(logoParams);
-        }
-        return { key: tokenVariantKey(token), priceEur: priced.priceEur, symbol: token.symbol || "", name: token.name || "", logoUrl };
+          priceCache,
+          opts.cache,
+          pricingErrors,
+          opts.intraScanCache,
+          (opts.forceRefresh && !livePrefetchedPriceContracts.has(pricingContract.toLowerCase())) || chain.key === "GNOSIS",
+        );
+        return { key: tokenVariantKey(token), token: priced };
       }),
     );
     pricedTokens.push(...resolvedGroup);
   }
 
   for (const p of pricedTokens) {
-    priceMap.set(p.key, p);
+    priceMap.set(p.key, p.token);
   }
 
   const pricingMs = Date.now() - pricingStart;
@@ -691,14 +691,9 @@ export async function getEvmWalletsAssets(
       if (valueEur != null) totalValueEur += valueEur;
 
       tokens.push({
-        contract: token.contract,
-        symbol: priceInfo.symbol || token.symbol || "",
-        name: priceInfo.name || token.name || "",
+        ...priceInfo,
         balance,
-        decimals: token.decimals,
-        priceEur,
         valueEur,
-        logoUrl: priceInfo.logoUrl,
       });
     }
 

@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors, precomputeWCTStakeLockStatus, setWCTStakeLockStatusFetcher } from "./gsheet.js";
+import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors, applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus, setWCTStakeLockStatusFetcher } from "./gsheet.js";
 
 test("mapWithConcurrencyLimit bounds parallel work", async () => {
   let active = 0;
@@ -1173,6 +1173,32 @@ describe("gsheetPlugin", () => {
 });
 
 describe("applyStakedPriceMirrors", () => {
+  test("finalizes wallet assets for the web scan pipeline", () => {
+    const assets = applyDeFiPositionMirrorsToWalletAssets("OPTIMISM", "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", {
+      chain: "OPTIMISM",
+      chainName: "Optimism",
+      native: { symbol: "ETH", balance: 0.001, priceEur: 1600, valueEur: 1.6 },
+      tokens: [
+        { contract: "0xef4461891dfb3ac8572ccf7c794664a8dd927945", symbol: "WCT", name: "WalletConnect Token", decimals: 18, balance: 45, priceEur: 0.04, valueEur: 1.8 },
+        { contract: "0x521b4c065bbdbe3e20b3727340730936912dfa46", symbol: "WCT Stake", name: "WCT Stake Weight", decimals: 18, balance: 71, priceEur: null, valueEur: null },
+        { contract: "0xe36a30d249f7761327fd973001a32010b521b6fd", symbol: "Comp WETH Borrow", name: "Compound V3 cWETHv3 Borrowed", decimals: 18, balance: 0.006, priceEur: null, valueEur: null },
+      ],
+      errors: [],
+      totalValueEur: 3.4,
+      scanMs: 10,
+    });
+
+    const stake = assets.tokens.find((token) => token.symbol === "WCT Stake");
+    const debt = assets.tokens.find((token) => token.symbol === "Comp WETH Borrow");
+    assert.equal(stake?.priceEur, 0.04);
+    assert.equal(stake?.valueEur, 2.84);
+    assert.match(stake?.name ?? "", /\[Lock\]$/);
+    assert.equal(debt?.balance, -0.006);
+    assert.equal(debt?.priceEur, 1600);
+    assert.equal(debt?.valueEur, -9.6);
+    assert.equal(assets.totalValueEur, -3.36);
+  });
+
   const SDAYS = "0x8a337e3f2b63e869b085354ce28dd5902a5db038";
   const SSWEET = "0x9ebe195d685f90b9be3449fe0628af20e15f729b";
   const DAYS = "0xb58372a5bb18e10229e680d8bcc4201ca3c98301";

@@ -170,6 +170,13 @@ describe("calcCleanChainValue", () => {
     const chain = makeChainScan({ totals: { valueEur: 100, tokenCount: 1, pricedCount: 1 }, tokens: [{ contract: "0x1", symbol: "SCAM", name: "Scam", decimals: 18, balance: 1000, priceEur: 1, priceSource: "pricing-cascade", valueEur: 1000, flags: [] }] as any[] });
     assert.equal(calcCleanChainValue(chain, mockDetectScam as any), 0);
   });
+  it("preserves a legitimate net DeFi debt", () => {
+    const chain = makeChainScan({
+      totals: { valueEur: -100, tokenCount: 1, pricedCount: 1 },
+      tokens: [{ contract: "0x1", symbol: "Comp WETH Borrow", name: "Compound V3 Borrowed [Flex]", decimals: 18, balance: -0.1, priceEur: 1000, priceSource: "pricing-cascade", valueEur: -100, flags: ["DEFI"] }] as any[],
+    });
+    assert.equal(calcCleanChainValue(chain, mockDetectScam as any), -100);
+  });
   it("handles detectScam throwing gracefully", () => {
     const throwingDetectScam = () => { throw new Error("boom"); };
     const chain = makeChainScan({ totals: { valueEur: 500, tokenCount: 1, pricedCount: 1 } });

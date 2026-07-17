@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore } from "@wcore/core";
+import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore, type WalletAssets } from "@wcore/core";
 
 export interface GsheetFxTelemetry {
   rate: number;
@@ -169,7 +169,8 @@ type RpcLike = { ethCall: (endpoint: string, contract: string, data: string) => 
 type WCTStakeFetcher = (userAddress: string, rpc: RpcLike, endpoint: string) => Promise<LiquidityStatus> | LiquidityStatus;
 
 let wctStakeFetcher: WCTStakeFetcher | null = null;
-const wctStakeStatusCache = new Map<string, LiquidityStatus>();
+const WCT_STAKE_STATUS_TTL_MS = 60_000;
+const wctStakeStatusCache = new Map<string, { status: LiquidityStatus; expiresAt: number }>();
 
 export function injectWCTStakeLockStatusFetcher(fetcher: WCTStakeFetcher): void {
   wctStakeFetcher = fetcher;
@@ -193,11 +194,13 @@ export async function precomputeWCTStakeLockStatus(
   if (!userAddress) return;
   if (!wctStakeFetcher) return;
   const cacheKey = `${chain}:${userAddress.toLowerCase()}`;
-  if (wctStakeStatusCache.has(cacheKey)) return;
+  const cached = wctStakeStatusCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return;
+  wctStakeStatusCache.delete(cacheKey);
   try {
     const endpoints = await getOptimismRpcEndpoints();
     if (endpoints.length === 0) {
-      wctStakeStatusCache.set(cacheKey, "flex");
+      wctStakeStatusCache.set(cacheKey, { status: "flex", expiresAt: Date.now() + WCT_STAKE_STATUS_TTL_MS });
       return;
     }
     const rpc: RpcLike = {
@@ -206,6 +209,7 @@ export async function precomputeWCTStakeLockStatus(
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+          signal: AbortSignal.timeout(3000),
         });
         if (!r.ok) throw new Error(`HTTP_${r.status}`);
         const j = (await r.json()) as { error?: { message: string }; result?: string };
@@ -214,9 +218,9 @@ export async function precomputeWCTStakeLockStatus(
       },
     };
     const result = await wctStakeFetcher(userAddress, rpc, endpoints[0]!);
-    wctStakeStatusCache.set(cacheKey, result || "flex");
+    wctStakeStatusCache.set(cacheKey, { status: result || "flex", expiresAt: Date.now() + WCT_STAKE_STATUS_TTL_MS });
   } catch {
-    wctStakeStatusCache.set(cacheKey, "flex");
+    wctStakeStatusCache.set(cacheKey, { status: "flex", expiresAt: Date.now() + WCT_STAKE_STATUS_TTL_MS });
   }
 }
 
@@ -297,7 +301,7 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
     // v0.3.x: WCT Stake lockUntil query for dynamic [Lock] → [Flex] transition.
     if (sym === "wct stake" && contract === "0x521b4c065bbdbe3e20b3727340730936912dfa46" && userAddress) {
       const dynamic = wctStakeStatusCache.get(`OPTIMISM:${userAddress.toLowerCase()}`);
-      if (dynamic) tokenLiqStatus = dynamic;
+      if (dynamic && dynamic.expiresAt > Date.now()) tokenLiqStatus = dynamic.status;
     }
     const effectiveMeta = meta ?? (tokenLiqStatus ? { type: (tokenDefi?.type ?? "lending_collateral") as "lending_collateral", liquidityStatus: tokenLiqStatus as "flex" | "lock" | "unknown" } : undefined);
     const metadataPricing = meta?.pricing;
@@ -374,6 +378,30 @@ export function applyStakedPriceMirrors(result: GsheetScanResult): GsheetScanRes
   const tokenValue = updated.reduce<number>((sum, t) => sum + (tokenNumberField(t, "valueEur") ?? 0), 0);
   const nativeValue = tokenNumberField(result.native, "valueEur") ?? 0;
   return { ...result, tokens: updated, totalValueEur: roundMoney(nativeValue + tokenValue) };
+}
+
+export function applyDeFiPositionMirrorsToWalletAssets(chain: string, wallet: string, assets: WalletAssets): WalletAssets {
+  const result = applyStakedPriceMirrors({
+    ok: true,
+    chain,
+    chainName: assets.chainName ?? chain,
+    vm: "EVM",
+    timestamp: new Date().toISOString(),
+    native: assets.native,
+    tokens: assets.tokens,
+    totalValueEur: assets.totalValueEur ?? 0,
+    errors: assets.errors ?? [],
+    degraded: (assets.errors?.length ?? 0) > 0,
+    fxRate: 0,
+    scanMs: assets.scanMs ?? 0,
+    cacheStats: assets.cacheStats,
+    wallet,
+  });
+  return {
+    ...assets,
+    tokens: result.tokens as WalletAssets["tokens"],
+    totalValueEur: result.totalValueEur,
+  } as WalletAssets;
 }
 
 function tokenStringField(obj: unknown, key: string): string {

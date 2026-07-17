@@ -122,7 +122,10 @@ export function buildChainScan(chainKey: string, assets: WalletAssets, fxRate?: 
     priceEur: (token["priceEur"] as number | null) ?? null,
     priceSource: (token["priceEur"] as number | null) == null ? null : "pricing-cascade",
     valueEur: (token["valueEur"] as number | null) ?? null,
-    flags: (token["priceEur"] as number | null) == null ? ["NO_PRICE"] : [],
+    flags: [
+      ...(token["defi"] && typeof token["defi"] === "object" ? ["DEFI"] : []),
+      ...((token["priceEur"] as number | null) == null ? ["NO_PRICE"] : []),
+    ],
     logoUrl: typeof token["logoUrl"] === "string" ? token["logoUrl"] : undefined,
   }));
   const errors = (assets.errors ?? []).map((e: string) => e);

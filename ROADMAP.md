@@ -91,6 +91,25 @@
 - [x] Pages Market Cap livrees sur les routes stables `/cmc/crypto` et `/cmc/stocks`: 5 000 lignes par annuaire, logos, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut fresh/stale. CI et controle live attestes le 2026-07-17. Post X publie (`2078069673707348415`) et trois interactions verifiees.
 - [x] Corriger les 19 erreurs lint et rendre le lint bloquant en CI. Verifie le 2026-07-17.
 
+## Programmes data et execution
+
+### Portfolio Intelligence multi-provider
+
+- [ ] Construire un cadre serveur optionnel commun pour les enrichissements portfolio, avec cache provider separe, single-flight par wallet, budget, timeout et circuit breaker independant des chaines.
+- [ ] Activer Zerion en V1 pour trois usages: positions DeFi absentes, indices de tokens wallet manquants verifies par RPC avant inclusion et diagnostic d'ecart de total. WCORE/RPC reste toujours autoritaire et les collisions sont gagnees par les positions WCORE.
+- [ ] Ajouter ensuite Helius pour Solana, Etherscan V2 comme fallback de discovery/historique EVM et LI.FI Earn pour les vaults/yields non couverts. Ces providers sont prevus par le contrat V1 mais restent desactives jusqu'a leur propre validation.
+- [ ] Conserver Blockscout dans son role actuel: accelerateur de discovery ERC-20 et de metadata/logo par chaine EVM; les balances restent relues par RPC/Multicall et le pricing reste gere par WCORE.
+- [ ] Ne jamais transformer une panne d'enrichissement en scan `degraded`, erreur RPC ou ouverture d'un circuit breaker de chaine. Le dernier snapshot provider sain peut etre servi stale sans remplacer le resultat on-chain.
+- Specification approuvee: `docs/superpowers/specs/2026-07-17-portfolio-enrichment-multi-provider-design.md`.
+
+### Meta-agregateur bridge/swap multi-chaine
+
+- [ ] Concevoir un moteur de comparaison de quotes distinct du portfolio: LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch et Jupiter sont des candidats, actives progressivement apres verification de leurs contrats, quotas et couvertures.
+- [ ] Normaliser chaque route par montant net recu, gas, frais, slippage, duree, nombre d'etapes et risque du bridge; dedupliquer les routes qui utilisent le meme chemin sous-jacent.
+- [ ] Livrer d'abord un comparateur read-only de transactions non signees. Toute execution exige une specification separee, une validation explicite dans le wallet et un audit securite; WCORE ne detient jamais les fonds et ne signe jamais automatiquement.
+- [ ] Definir `toutes chaines` comme toutes les chaines dynamiquement couvertes par au moins un routeur, sans promettre que les 183 configurations WCORE disposent toutes d'une route.
+- [ ] Garder budgets, caches, secrets, breakers et telemetrie du routage entierement separes de ceux du scan portfolio.
+
 ## Chain Lifecycle
 
 Deadlines passees, revalidees le 2026-07-17:

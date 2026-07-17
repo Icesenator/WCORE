@@ -39,7 +39,7 @@ Mapping explicite contrat → métadonnées DeFi. Utilisé pour les tokens dont 
 Discovery purement on-chain via `numAssets()` + `getAssetInfo(i)` sur le Comet proxy. Le Comet reste la cible de `collateralBalanceOf(user, asset)` ; l'adresse du collatéral devient `pricingContract` et contrat affiché. Les décimales viennent de `AssetInfo.scale`, y compris pour les actifs à 6 ou 8 décimales. Ajouter un marché dans `COMPOUND_V3_MARKETS` (une adresse Comet par chaîne).
 
 ### 3. Chainbase Staking (`plugins/chainbase-staking.ts`)
-Discovery on-chain des positions Chainbase (C-Locked, C-Airdrop) via l'API Chainbase. Géré par le plugin `chainbase-staking.ts` dans l'API, appelé depuis `gsheet.ts:injectChainbaseStakingTokens()`.
+C-Locked lit `getDelegationAmount(address)` sur le staking proxy via le RPC Base. C-Airdrop lit `chainbase-airdrop.json`, car la claim Merkle n'est pas lisible on-chain. Le plugin `chainbase-staking.ts` est appelé depuis `gsheet.ts:injectChainbaseStakingTokens()`.
 
 ## Finalisation partagée
 

@@ -12,6 +12,8 @@
 
 **Final verification (2026-07-17):** shared 21 tests, core 290 tests, Web 161 tests, 104 targeted API tests, global typecheck, targeted lint, and API/Web production builds passed. Commits `6accdda1` and `95b91591` were deployed sequentially as Railway API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f` and Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`; the forced Optimism Web batch smoke returned `degraded=false`, `errors=[]`, and signed net `10.43 EUR`. No new `clasp push` was performed for the final Web fix.
 
+**Historical context:** The body and checkboxes below preserve the original execution plan. Final Compound support moved from the proposed static registry to dynamic discovery; unchecked deployment and Sheet-verification gates are historical and superseded by the production record above.
+
 ---
 
 ## File Structure

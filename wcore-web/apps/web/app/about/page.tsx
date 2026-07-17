@@ -40,7 +40,7 @@ export default function AboutPage() {
           </div>
           <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
             <p className="font-semibold text-emerald-300 mb-1 text-xs">CEX</p>
-            <p className="text-muted text-xs">Binance (Spot, Earn flexible, Earn locked), Bitpanda (crypto, fiat, commodities, stocks), Bitfinex (exchange/spot wallet), Bybit (Unified + Funding), Coinbase and OKX. Each user supplies their own read-only API key, encrypted server-side (AES-GCM). Prices come from the provider first, then DefiLlama or Yahoo Finance for symbols the ticker does not cover.</p>
+            <p className="text-muted text-xs">Binance (Spot, Earn flexible, Earn locked), Bitpanda (crypto, fiat, commodities, stocks), Bitfinex (exchange/spot wallet), Bybit (Unified + Funding), Coinbase, Kraken and OKX. Each user supplies their own read-only API key, encrypted server-side (AES-GCM). Prices come from the provider first, then DefiLlama or Yahoo Finance for symbols the ticker does not cover.</p>
           </div>
           <p className="mt-3 text-muted text-xs">
             Chains without live RPC endpoints are auto-skipped by the scan engine. Their configurations remain available for reactivation when reliable infrastructure returns.
@@ -91,7 +91,7 @@ export default function AboutPage() {
             Eleven defense layers keep scans fast and accurate even when public RPCs go down.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <div className="flex gap-2"><span className="text-accent">🛡️</span><span className="text-muted text-xs"><strong className="text-fg">Dead-chain filter</strong>. 8 chains with 0 live RPCs are auto-skipped (config preserved for reactivation).</span></div>
+            <div className="flex gap-2"><span className="text-accent">🛡️</span><span className="text-muted text-xs"><strong className="text-fg">Availability filter</strong>. Chains without reliable live RPCs are skipped automatically while their configurations remain available for reactivation.</span></div>
             <div className="flex gap-2"><span className="text-accent">📡</span><span className="text-muted text-xs"><strong className="text-fg">Per-endpoint health</strong>. RPCs are scored and decay in 60s when they fail. Only healthy endpoints participate in consensus.</span></div>
             <div className="flex gap-2"><span className="text-accent">✅</span><span className="text-muted text-xs"><strong className="text-fg">Strict consensus</strong>. A balance needs a strict majority of healthy RPCs to be trusted. Cached values never override confirmed consensus.</span></div>
             <div className="flex gap-2"><span className="text-accent">⏱️</span><span className="text-muted text-xs"><strong className="text-fg">Per-chain timeout</strong>. 90s per chain + 30min hard cap on the whole job. Stuck chains do not block the rest.</span></div>

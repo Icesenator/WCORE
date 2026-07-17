@@ -21,8 +21,9 @@ test("public site copy advertises selected DeFi coverage without stale claims", 
   assert.match(home, /Selected DeFi positions/);
   assert.match(homeClient, /Compound V3 collateral and debt/);
   assert.match(about, /Selected DeFi positions/);
+  assert.match(about, /Coinbase, Kraken and OKX/);
   assert.match(layout, /183 tracked chains/);
   assert.match(footer, /183 tracked chains.*Selected DeFi.*7 CEX.*80\+ GM chains/s);
   assert.match(welcome, /Selected DeFi positions/);
-  assert.doesNotMatch(all, /170\+ chains|183 live blockchains|8 dead chains|Complex DeFi positions .* are not yet tracked|TON \(new\)|CEX \(new\)|Smart cache/);
+  assert.doesNotMatch(all, /170\+ chains|183 live blockchains|8 dead chains|8 chains with 0 live RPCs|Dead-chain filter|Complex DeFi positions .* are not yet tracked|TON \(new\)|CEX \(new\)|Smart cache/);
 });

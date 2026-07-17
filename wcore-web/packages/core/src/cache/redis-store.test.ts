@@ -41,6 +41,35 @@ class FakeRedisClient implements RedisClient {
   }
 }
 
+type RedisTestEnvironment = Record<string, string | undefined>;
+
+function normalizedRedisUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "redis:" && url.protocol !== "rediss:") throw new Error();
+    url.hostname = url.hostname.toLowerCase();
+    return url.href;
+  } catch {
+    throw new Error("Test Redis URL is invalid");
+  }
+}
+
+function getSafeTestRedisUrl(env: RedisTestEnvironment): string {
+  if (env.WCORE_ALLOW_TEST_REDIS !== "1" || !env.TEST_REDIS_URL) {
+    throw new Error("Real Redis tests require explicit opt-in and a test URL");
+  }
+
+  const normalizedTestUrl = normalizedRedisUrl(env.TEST_REDIS_URL);
+  const hostname = new URL(normalizedTestUrl).hostname.toLowerCase();
+  if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname)) {
+    throw new Error("Real Redis tests require a Railway test or staging instance");
+  }
+  if (env.REDIS_URL && normalizedTestUrl === normalizedRedisUrl(env.REDIS_URL)) {
+    throw new Error("Test Redis must differ from the configured Redis instance");
+  }
+  return env.TEST_REDIS_URL;
+}
+
 test("pipelineExecError rejects null, incomplete, and per-command failures", () => {
   assert.match(pipelineExecError(null, 2)!.message, /no results/);
   assert.match(pipelineExecError([[null, "OK"]], 2)!.message, /1 of 2/);
@@ -114,6 +143,8 @@ test("incrementWithTtl uses one script call and passes a millisecond TTL", async
   assert.match(String(client.evalCalls[0]![0]), /count == 1/);
   assert.match(String(client.evalCalls[0]![0]), /PEXPIRE/);
   await assert.rejects(cache.incrementWithTtl("counter", 0), /positive/);
+  await assert.rejects(cache.incrementWithTtl("counter", 0.5), /positive integer/);
+  assert.equal(client.evalCalls.length, 2);
 });
 
 test("Redis isAvailable returns false when PING fails", async () => {
@@ -125,10 +156,32 @@ test("Redis isAvailable returns false when PING fails", async () => {
   assert.equal(cache.errorCount, 1);
 });
 
-const testRedisUrl = process.env.TEST_REDIS_URL;
-test("atomic Lua operations work against TEST_REDIS_URL", { skip: !testRedisUrl }, async () => {
-  assert.ok(testRedisUrl);
-  assert.notEqual(testRedisUrl, process.env.REDIS_URL, "TEST_REDIS_URL must not be the production REDIS_URL");
+test("real Redis safety requires explicit opt-in without exposing URLs", () => {
+  const secretUrl = "redis://user:secret@railway-test.example:6379/1";
+  assert.throws(
+    () => getSafeTestRedisUrl({ TEST_REDIS_URL: secretUrl }),
+    (error: Error) => !error.message.includes(secretUrl) && /explicit opt-in/.test(error.message),
+  );
+});
+
+test("real Redis safety rejects localhost and normalized production matches", () => {
+  assert.throws(
+    () => getSafeTestRedisUrl({ WCORE_ALLOW_TEST_REDIS: "1", TEST_REDIS_URL: "redis://127.0.0.1:6379/1" }),
+    /Railway test or staging/,
+  );
+  assert.throws(
+    () => getSafeTestRedisUrl({
+      WCORE_ALLOW_TEST_REDIS: "1",
+      TEST_REDIS_URL: "redis://user:secret@RAILWAY-TEST.example:6379/1",
+      REDIS_URL: "redis://user:secret@railway-test.example:6379/1",
+    }),
+    /must differ/,
+  );
+});
+
+const runRealRedisTests = process.env.WCORE_ALLOW_TEST_REDIS === "1" && !!process.env.TEST_REDIS_URL;
+test("atomic Lua operations work against TEST_REDIS_URL", { skip: !runRealRedisTests }, async () => {
+  const testRedisUrl = getSafeTestRedisUrl(process.env);
   const url = new URL(testRedisUrl);
   const prefix = `wcore-test:atomic:${process.pid}:${Date.now()}:`;
   const cache = await createCacheStore({
@@ -150,9 +203,12 @@ test("atomic Lua operations work against TEST_REDIS_URL", { skip: !testRedisUrl 
     assert.equal(await cache.incrementWithTtl("count", 5000), 2);
 
     const raw = new Redis(testRedisUrl, { keyPrefix: prefix, lazyConnect: true });
-    await raw.connect();
-    assert.ok((await raw.pttl("count")) > 0);
-    await raw.quit();
+    try {
+      await raw.connect();
+      assert.ok((await raw.pttl("count")) > 0);
+    } finally {
+      raw.disconnect();
+    }
   } finally {
     await cache.delete("cas");
     await cache.delete("count");

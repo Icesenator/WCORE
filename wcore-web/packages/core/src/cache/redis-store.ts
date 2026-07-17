@@ -208,7 +208,7 @@ export function createRedisCacheStore(
       }
     },
     async incrementWithTtl(key: string, ttlMs: number): Promise<number> {
-      if (!Number.isFinite(ttlMs) || ttlMs <= 0) throw new RangeError("ttlMs must be positive");
+      if (!Number.isInteger(ttlMs) || ttlMs <= 0) throw new RangeError("ttlMs must be a positive integer");
       try {
         return Number(await client.eval(INCREMENT_WITH_TTL_SCRIPT, 1, key, String(ttlMs)));
       } catch (err) {

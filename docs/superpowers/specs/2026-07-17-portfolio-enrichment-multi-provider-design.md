@@ -244,7 +244,7 @@ Use for vault and yield position coverage and APY context across supported proto
 
 The bridge and swap objective is a separate subsystem called Route Intelligence.
 
-Candidate route providers include LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch, and Jupiter. Providers are activated only after their API terms, quotas, contracts, and chain coverage are verified.
+Initial route-provider candidates include LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch, and Jupiter. This list is illustrative and explicitly non-exhaustive. Route Intelligence uses an open provider registry: a new aggregator can be discovered, evaluated, and activated by configuration without changing the normalized route contract. Activation still requires verification of API terms, quotas, underlying contracts, chain coverage, response integrity, and security behavior.
 
 The route engine will normalize:
 

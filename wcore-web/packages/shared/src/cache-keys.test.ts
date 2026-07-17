@@ -49,9 +49,11 @@ describe("cacheKey", () => {
     expect(cacheKey("zerionBreakerState", {})).toBe("provider:zerion:breaker");
   });
 
-  it("preserves valid Solana addresses in Zerion wallet keys", () => {
-    const address = "11111111111111111111111111111111";
-
+  it.each([
+    "11111111111111111111111111111111",
+    "So11111111111111111111111111111111111111112",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  ])("preserves valid 32-byte Solana address %s in Zerion wallet keys", (address) => {
     expect(cacheKey("zerionPortfolioFresh", { address })).toBe(`zerion:portfolio:v1:${address}:fresh`);
     expect(cacheKey("zerionRequestLease", { address })).toBe(`provider:zerion:request:${address}`);
   });
@@ -59,6 +61,9 @@ describe("cacheKey", () => {
   it.each([
     "0x1234",
     "0xgggggggggggggggggggggggggggggggggggggggg",
+    "1".repeat(44),
+    "z".repeat(44),
+    "00000000000000000000000000000000",
     "1111111111111111111111111111111:",
     "wallet:injection",
   ])("rejects malformed Zerion wallet address %s", (address) => {
@@ -73,15 +78,24 @@ describe("cacheKey", () => {
     },
   );
 
-  it("rejects missing and extra Zerion key arguments", () => {
+  it("rejects missing Zerion key arguments", () => {
     expect(() => cacheKey("zerionPortfolioFresh", {} as { address: string })).toThrow("Missing var address");
-    expect(() => cacheKey("zerionBreakerState", { address: "extra" } as Record<string, string>)).toThrow("Unexpected var address");
+  });
+
+  it("ignores undeclared variables for existing web cache keys", () => {
+    expect(cacheKey("priceDex", { chainSlug: "ethereum", contract: "0xabc", extra: "ignored" }))
+      .toBe("price:dex:ethereum:0xabc");
   });
 });
 
 describe("cacheKeyGsheet", () => {
   it("builds gsheet priceDex key preserving var casing", () => {
     expect(cacheKeyGsheet("priceDex", { chainSlug: "ethereum", contract: "0xabc" }))
+      .toBe("DEX:ethereum:0xabc");
+  });
+
+  it("ignores undeclared variables for existing gsheet cache keys", () => {
+    expect(cacheKeyGsheet("priceDex", { chainSlug: "ethereum", contract: "0xabc", extra: "ignored" }))
       .toBe("DEX:ethereum:0xabc");
   });
 });

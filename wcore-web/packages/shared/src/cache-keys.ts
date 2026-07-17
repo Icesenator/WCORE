@@ -39,10 +39,5 @@ function _prepareVars(
     if (!(key in vars)) throw new Error(`Missing var ${key} for cache key`);
   }
 
-  const expected = new Set<string>(def.vars);
-  for (const key of Object.keys(vars)) {
-    if (!expected.has(key)) throw new Error(`Unexpected var ${key} for cache key`);
-  }
-
   return "normalize" in def ? def.normalize(vars) : vars;
 }

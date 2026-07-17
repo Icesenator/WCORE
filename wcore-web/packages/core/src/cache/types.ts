@@ -29,5 +29,22 @@ export interface CacheStore {
   pipeline?(ops: Array<{ key: string; value: unknown; ttlMs?: number }>): Promise<number>;
 }
 
+export interface AtomicCacheStore extends CacheStore {
+  readonly backend: "redis";
+  isAvailable(): Promise<boolean>;
+  compareAndDelete<T>(key: string, expected: T): Promise<boolean>;
+  compareAndSet<T>(key: string, expected: T | undefined, next: T, ttlMs?: number): Promise<boolean>;
+  incrementWithTtl(key: string, ttlMs: number): Promise<number>;
+}
+
+export function isAtomicCacheStore(store: CacheStore): store is AtomicCacheStore {
+  const candidate = store as Partial<AtomicCacheStore>;
+  return candidate.backend === "redis"
+    && typeof candidate.isAvailable === "function"
+    && typeof candidate.compareAndDelete === "function"
+    && typeof candidate.compareAndSet === "function"
+    && typeof candidate.incrementWithTtl === "function";
+}
+
 export const DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — cursor + token list persist across restarts
 export const METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;

@@ -5,7 +5,7 @@ import cookie from "@fastify/cookie";
 import compress from "@fastify/compress";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@wcore/db";
-import { CORE_VERSION, chainList, createCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert } from "@wcore/core";
+import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert } from "@wcore/core";
 
 import { authPlugin } from "./auth.js";
 import { gamificationPlugin, seedGmContracts } from "./gamification/index.js";
@@ -53,11 +53,12 @@ const sharedCache = redisConfig
     },
   })
   : Object.assign(new MemoryCacheStore(), { errorCount: 0 });
+const cacheBackend = isAtomicCacheStore(sharedCache) ? sharedCache.backend : "memory";
 
 // Diagnostic: log cache backend at startup so we know if discovery/pricing
 // caches are shared (Redis) or per-process (MemoryCacheStore).
 app.log.info(
-  { redisConfigured: !!redisConfig, cacheType: redisConfig ? "redis" : "memory", redisHost: redisConfig?.host, redisPort: redisConfig?.port },
+  { redisConfigured: !!redisConfig, cacheType: cacheBackend, redisHost: redisConfig?.host, redisPort: redisConfig?.port },
   "cache backend initialized",
 );
 
@@ -313,7 +314,7 @@ await adminPlugin(app, { prisma, sharedCache, circuitBreakers, isAdminAuthorized
 await walletPlugin(app, { prisma, validateCustomToken });
 await cexPlugin(app, { prisma, sharedCache });
 await chainsPlugin(app, { circuitBreakers, cache: sharedCache });
-await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized });
+await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized, cacheBackend });
 
 // Gsheet bridge: expose /api/gsheet/cache/get to GAS for delegated reads of
 // the shared cache (Redis or in-memory). Gated by GSHEET_API_TOKEN so envs

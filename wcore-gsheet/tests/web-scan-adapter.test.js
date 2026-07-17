@@ -791,8 +791,14 @@ const samplePayload = JSON.stringify({
   }, degradedNativeZeroPayload);
   const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'MANTLE', NAME: 'Mantle', NATIVE_SYMBOL: 'MNT' } }, 'mantle_cache_key');
   assert.equal(res.ok, true);
-  assert.match(res.status, /WEB_SCAN_PRESERVED/, 'unsafe degraded native-zero web scan should be reported as preserved');
-  assert.equal(ctx.__saved.length, 0, 'unsafe degraded native-zero web scan must not overwrite an existing wallet cache');
+  // v4.16.30: with NO existing cache there is nothing to preserve. The degraded
+  // scan must be accepted and saved, otherwise the wallet is stuck forever in a
+  // [WEB_SCAN_PRESERVED] / NO_CACHE_WAITING_REFRESH loop with no way out.
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'degraded native-zero web scan without existing cache must be accepted (nothing to preserve)');
+  assert.equal(ctx.__saved.length, 1, 'degraded native-zero web scan without existing cache must save a cache (avoid permanent NO_CACHE loop)');
+  // Note: overwrite safety for wallets WITH a useful existing cache lives in
+  // WalletCache.save -> _mergeAssetsPreservingCached (04C_CACHE_GLOBAL.gs):
+  // old native > 0 + new native == 0 unconfirmed -> native preserved (_stale).
 }
 
 {

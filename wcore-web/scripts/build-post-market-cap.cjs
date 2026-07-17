@@ -1,29 +1,47 @@
 // Generates the Market Cap Crypto + Stock post visual (1200x675, WCORE DA v12).
 // Output: apps/web/public/wcore-post-market-cap.svg + .png
 
-const { readFileSync, statSync, unlinkSync, writeFileSync } = require("node:fs");
+const { closeSync, existsSync, openSync, readdirSync, renameSync, unlinkSync, writeFileSync } = require("node:fs");
 const { resolve } = require("node:path");
-const { pathToFileURL } = require("node:url");
 
 const ROOT = resolve(__dirname, "..");
-let chromium;
-try {
-  ({ chromium } = require("playwright"));
-} catch (_e) {
-  ({ chromium } = require(resolve(ROOT, "node_modules/.pnpm/playwright@1.59.1/node_modules/playwright")));
+
+function loadChromium() {
+  try {
+    return require("playwright").chromium;
+  } catch (directError) {
+    const pnpmDir = resolve(ROOT, "node_modules/.pnpm");
+    if (existsSync(pnpmDir)) {
+      const candidates = readdirSync(pnpmDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith("playwright@"))
+        .map((entry) => resolve(pnpmDir, entry.name, "node_modules/playwright"))
+        .filter(existsSync)
+        .sort();
+      for (const candidate of candidates) {
+        try {
+          return require(candidate).chromium;
+        } catch (_e) {
+          // Try the next pnpm candidate before reporting both resolution paths.
+        }
+      }
+    }
+    throw new Error(`Unable to resolve Playwright directly or from ${pnpmDir}`, { cause: directError });
+  }
 }
 
+const chromium = loadChromium();
 const W = 1200;
 const H = 675;
 const HEADLINE = "Two markets. One clean ranking.";
-const SITE = (process.env.SITE || "https://wcore.xyz").replace(/\/$/, "");
+const SITE = (process.env.WCORE_SITE_URL || process.env.SITE_URL || "https://wcore.xyz").replace(/\/$/, "");
 const PUBLIC_DIR = resolve(ROOT, "apps/web/public");
 const NAME = "wcore-post-market-cap";
 const SVG_PATH = resolve(PUBLIC_DIR, `${NAME}.svg`);
 const PNG_PATH = resolve(PUBLIC_DIR, `${NAME}.png`);
-const CRYPTO_CAPTURE = resolve(PUBLIC_DIR, `.${NAME}-crypto.tmp.png`);
-const STOCK_CAPTURE = resolve(PUBLIC_DIR, `.${NAME}-stocks.tmp.png`);
-const TMP_HTML = resolve(PUBLIC_DIR, `.${NAME}.tmp.html`);
+const RUN_ID = `${process.pid}.${Date.now()}`;
+const TMP_SVG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.tmp.svg`);
+const TMP_PNG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.tmp.png`);
+const LOCK_PATH = resolve(PUBLIC_DIR, `.${NAME}.lock`);
 const fontStack = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 function removeIfPresent(path) {
@@ -34,8 +52,8 @@ function removeIfPresent(path) {
   }
 }
 
-function pngDataUri(path) {
-  return `data:image/png;base64,${readFileSync(path).toString("base64")}`;
+function pngDataUri(buffer) {
+  return `data:image/png;base64,${buffer.toString("base64")}`;
 }
 
 function wcoreBadge(x, y) {
@@ -57,15 +75,51 @@ function wcoreBadge(x, y) {
   </g>`;
 }
 
-async function captureMain(browser, route, heading, outputPath) {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
+async function waitForMarketRows(page, route, expectedIdentity) {
+  const deadline = Date.now() + 60000;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await page.evaluate((expected) => {
+      const main = document.querySelector("main");
+      const status = main?.querySelector('section[aria-label="Market snapshot summary"] [role="status"]');
+      const row = main?.querySelector('table tbody tr:not([aria-hidden="true"])');
+      const cells = row ? Array.from(row.querySelectorAll("td")) : [];
+      const statusText = status?.textContent?.replace(/\s+/g, " ").trim() || "";
+      const rowText = row?.textContent?.replace(/\s+/g, " ").trim() || "";
+      const identity = cells[1]?.textContent?.replace(/\s+/g, " ").trim() || "";
+      const rank = cells[0]?.textContent?.trim() || "";
+      const marketCap = cells.at(-1)?.textContent?.trim() || "";
+      const expectedFound = expected.every((value) => identity.toLowerCase().includes(value.toLowerCase()));
+      return {
+        statusText,
+        rowText,
+        ready: Boolean(statusText)
+          && !/loading|waiting for data/i.test(statusText)
+          && /^\d+$/.test(rank)
+          && identity.length >= 3
+          && marketCap.length > 1
+          && expectedFound,
+      };
+    }, expectedIdentity);
+
+    if (/unavailable|no snapshot available/i.test(latest.statusText)) {
+      throw new Error(`Market snapshot unavailable for ${route}: ${latest.statusText}`);
+    }
+    if (latest.ready) return latest;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 200));
+  }
+  throw new Error(`Timed out waiting for populated market rows on ${route}. Last state: ${JSON.stringify(latest)}`);
+}
+
+async function captureMain(browser, route, heading, expectedIdentity = []) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
   const url = `${SITE}${route}`;
   try {
     console.log(`Capturing ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.getByRole("heading", { name: heading, exact: true }).waitFor({ state: "visible", timeout: 60000 });
     await page.locator("main table").first().waitFor({ state: "visible", timeout: 60000 });
-    await page.waitForTimeout(1500);
+    const readiness = await waitForMarketRows(page, route, expectedIdentity);
 
     const main = page.locator("main").first();
     const box = await main.boundingBox();
@@ -73,11 +127,12 @@ async function captureMain(browser, route, heading, outputPath) {
     const x = Math.max(0, box.x);
     const y = Math.max(0, box.y);
     const width = Math.min(1440 - x, box.width);
-    const height = Math.min(1000 - y, box.height);
+    const height = Math.min(1000 - y, box.height, Math.round(width * 186 / 508));
     if (width <= 0 || height <= 0) throw new Error(`Invalid main capture bounds for ${route}`);
 
-    await page.screenshot({ path: outputPath, type: "png", clip: { x, y, width, height } });
-    console.log(`Captured ${route}: ${Math.round(width)}x${Math.round(height)}, ${statSync(outputPath).size} bytes`);
+    const capture = await page.screenshot({ type: "png", clip: { x, y, width, height } });
+    console.log(`Captured ${route}: ${capture.readUInt32BE(16)}x${capture.readUInt32BE(20)} px from ${Math.round(width)}x${Math.round(height)} CSS, ${capture.length} bytes; ${readiness.statusText}; first row: ${readiness.rowText}`);
+    return capture;
   } finally {
     await page.close();
   }
@@ -146,7 +201,7 @@ function buildSvg(cryptoImage, stockImage) {
   <g transform="translate(620 78)" filter="url(#shadow)">
     <rect x="0" y="0" width="508" height="238" rx="26" fill="#0b1117" stroke="#34551f" stroke-width="2"/>
     <g clip-path="url(#cryptoClip)" transform="translate(0 52)">
-      <image href="${cryptoImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMin slice"/>
+      <image href="${cryptoImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMid meet"/>
     </g>
     <rect x="18" y="12" width="154" height="34" rx="17" fill="#111b14" stroke="#84cc16" stroke-opacity="0.72"/>
     <circle cx="37" cy="29" r="5" fill="#84cc16"/>
@@ -156,7 +211,7 @@ function buildSvg(cryptoImage, stockImage) {
   <g transform="translate(620 350)" filter="url(#shadow)">
     <rect x="0" y="0" width="508" height="238" rx="26" fill="#0b1117" stroke="#28445b" stroke-width="2"/>
     <g clip-path="url(#stockClip)" transform="translate(0 52)">
-      <image href="${stockImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMin slice"/>
+      <image href="${stockImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMid meet"/>
     </g>
     <rect x="18" y="12" width="146" height="34" rx="17" fill="#0d1620" stroke="#60a5fa" stroke-opacity="0.72"/>
     <circle cx="37" cy="29" r="5" fill="#60a5fa"/>
@@ -173,30 +228,50 @@ function buildSvg(cryptoImage, stockImage) {
 
 (async () => {
   let browser;
+  let lockFd;
   try {
-    browser = await chromium.launch({ headless: true });
-    await captureMain(browser, "/cmc/crypto", "Market Cap Crypto", CRYPTO_CAPTURE);
-    await captureMain(browser, "/cmc/stocks", "Market Cap Stock", STOCK_CAPTURE);
+    try {
+      lockFd = openSync(LOCK_PATH, "wx");
+      writeFileSync(lockFd, `${RUN_ID}\n`);
+    } catch (error) {
+      if (error.code === "EEXIST") throw new Error(`Another market cap post generation is active: ${LOCK_PATH}`);
+      throw error;
+    }
 
-    const svg = buildSvg(pngDataUri(CRYPTO_CAPTURE), pngDataUri(STOCK_CAPTURE));
-    writeFileSync(SVG_PATH, svg);
-    console.log(`SVG written: ${SVG_PATH} (${statSync(SVG_PATH).size} bytes, ${W}x${H})`);
+    browser = await chromium.launch({ headless: true });
+    const cryptoCapture = await captureMain(browser, "/cmc/crypto", "Market Cap Crypto", ["Bitcoin", "BTC"]);
+    const stockCapture = await captureMain(browser, "/cmc/stocks", "Market Cap Stock");
+
+    const svg = buildSvg(pngDataUri(cryptoCapture), pngDataUri(stockCapture));
 
     const html = `<!doctype html><html><head><style>*{margin:0;padding:0;box-sizing:border-box}body{width:${W}px;height:${H}px;overflow:hidden;background:#050607}svg{display:block;width:${W}px;height:${H}px}</style></head><body>${svg}</body></html>`;
-    writeFileSync(TMP_HTML, html);
     const renderPage = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
+    let png;
     try {
-      await renderPage.goto(pathToFileURL(TMP_HTML).href, { waitUntil: "load" });
-      await renderPage.screenshot({ path: PNG_PATH, type: "png", omitBackground: false });
+      await renderPage.setContent(html, { waitUntil: "load" });
+      await renderPage.evaluate(async () => Promise.all(Array.from(document.images, (image) => image.decode())));
+      png = await renderPage.screenshot({ type: "png", omitBackground: false });
     } finally {
       await renderPage.close();
     }
-    console.log(`PNG written: ${PNG_PATH} (${statSync(PNG_PATH).size} bytes, ${W}x${H})`);
+
+    writeFileSync(TMP_SVG, svg);
+    writeFileSync(TMP_PNG, png);
+    renameSync(TMP_SVG, SVG_PATH);
+    renameSync(TMP_PNG, PNG_PATH);
+    console.log(`SVG written atomically: ${SVG_PATH} (${Buffer.byteLength(svg)} bytes, ${W}x${H})`);
+    console.log(`PNG written atomically: ${PNG_PATH} (${png.length} bytes, ${W}x${H})`);
   } finally {
     if (browser) await browser.close();
-    removeIfPresent(CRYPTO_CAPTURE);
-    removeIfPresent(STOCK_CAPTURE);
-    removeIfPresent(TMP_HTML);
+    removeIfPresent(TMP_SVG);
+    removeIfPresent(TMP_PNG);
+    if (lockFd !== undefined) {
+      try {
+        closeSync(lockFd);
+      } finally {
+        removeIfPresent(LOCK_PATH);
+      }
+    }
   }
 })().catch((error) => {
   console.error(error);

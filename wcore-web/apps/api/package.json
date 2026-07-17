@@ -8,7 +8,7 @@
     "start": "node dist/server.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --import ./set-test-env.js --import tsx --test --test-concurrency=1 --test-force-exit \"src/**/*.test.ts\" \"test/**/*.test.ts\""
+    "test": "tsx --import ./set-test-env.js --test --test-concurrency=1 --test-force-exit \"src/**/*.test.ts\" \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@cosmjs/amino": "^0.39.0",

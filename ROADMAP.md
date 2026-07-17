@@ -87,7 +87,7 @@
 - [ ] Finir la centralisation des variables d'environnement.
 - [ ] Ajouter un test schema sur les 183 configurations.
 - [ ] Ajouter des tests comportementaux pour les hooks CEX/GM.
-- [x] DeFi Position Engine v1 implemente dans le worktree courant: types/registre core, Compound V3 et WCT dynamiques, suffixes/mirrors API avec metadonnees `defi` inline, pass-through Apps Script et tests. Verification locale ciblee passee le 2026-07-17; deploiement et verification live restent gates.
+- [x] DeFi Position Engine v1 deploye et verifie en production le 2026-07-17: Compound V3 appelle `collateralBalanceOf` sur le Comet, price chaque collatéral par son contrat, derive les decimales depuis `AssetInfo.scale`, conserve dette negative et suffixes `[Flex]/[Lock]`. Smoke Optimism authentifie propre (`degraded=false`, aucune erreur) et lecture GSheet 7 colonnes confirmee.
 - [x] Pages Market Cap livrees sur les routes stables `/cmc/crypto` et `/cmc/stocks`: 5 000 lignes par annuaire, logos, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut fresh/stale. CI et controle live attestes le 2026-07-17. Post X publie (`2078069673707348415`) et trois interactions verifiees.
 - [x] Corriger les 19 erreurs lint et rendre le lint bloquant en CI. Verifie le 2026-07-17.
 
@@ -110,7 +110,7 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 
 ## Documentation
 
-- [x] Corriger le mojibake de `wcore-web/ROADMAP.md`, `AGENTS.md` et `CHANGELOG.md` par conversion ciblee. (Note: l'audit 2026-07-16 confirme que le mojibake persiste; le fix n'a pas ete applique.)
+- [ ] Corriger le mojibake de `wcore-web/ROADMAP.md`, `AGENTS.md` et `CHANGELOG.md` par conversion ciblee. L'audit 2026-07-16 confirme que le fix n'a pas encore ete applique.
 - [ ] Reduire `wcore-web/ROADMAP.md` a l'etat et au futur; deplacer le passe vers CHANGELOG/archive.
 - [ ] Splitter `wcore-web/AGENTS.md` (979+ lignes, 60% GSheet) en guide web + archive GSheet.
 - [ ] Mettre a jour les docs CEX GSheet pour Kraken et l'architecture reelle de queue/triggers.
@@ -121,8 +121,8 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 
 ## Nouveaux risques (audit 2026-07-16)
 
-- **A6 - DeFi Position Engine V1**: implementation locale presente et testee: modele/registre core, decouverte Compound V3, statut WCT dynamique, suffixes/mirrors API (registre + metadonnees inline) et pass-through Apps Script. Aucun deploiement ni controle live post-deploiement n'est atteste par cette reconciliation.
-- **A7 - CI inactive**: workflow dans `wcore-web/.github/workflows/`, doit etre a la racine `WCORE/.github/workflows/`.
+- **A6 - DeFi Position Engine V1 - RESOLU 2026-07-17**: API et Web deployes; smoke Optimism authentifie et lecture GSheet confirment collateral, dette, pricing et suffixes.
+- **A7 - CI inactive - RESOLU 2026-07-17**: workflow deplace a la racine `WCORE/.github/workflows/` et CI verte.
 - **A8 - Lint + dependances - RESOLU 2026-07-17**: lint bloquant vert; `ws@8.21.1`; aucune vulnerabilite HIGH/CRITICAL.
 - **A3 - Hotspots GSheet**: 16 fichiers > 1000 lignes, plan de split (`HOTSPOT_SPLIT_PLAN.md`) abandonne.
 - **A1 - Documentation non archivee**: 19 specs/plans termines cohabitent avec les documents actifs.

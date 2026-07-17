@@ -2,7 +2,7 @@
 // Output: apps/web/public/wcore-post-market-cap.svg + .png
 
 const { closeSync, existsSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } = require("node:fs");
-const { resolve } = require("node:path");
+const { basename, resolve } = require("node:path");
 
 const ROOT = resolve(__dirname, "..");
 
@@ -47,6 +47,10 @@ const TMP_SVG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.tmp.svg`);
 const TMP_PNG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.tmp.png`);
 const LOCK_PATH = resolve(PUBLIC_DIR, `.${NAME}.lock`);
 const STALE_LOCK_PATH = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.stale.lock`);
+const JOURNAL_PATH = resolve(PUBLIC_DIR, `.${NAME}.transaction.json`);
+const JOURNAL_TMP = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.transaction.tmp.json`);
+const BACKUP_SVG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.backup.svg`);
+const BACKUP_PNG = resolve(PUBLIC_DIR, `.${NAME}.${RUN_ID}.backup.png`);
 const LOCK_STALE_MS = 10 * 60 * 1000;
 const fontStack = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
@@ -60,6 +64,120 @@ function removeIfPresent(path) {
 
 function pngDataUri(buffer) {
   return `data:image/png;base64,${buffer.toString("base64")}`;
+}
+
+function journalFile(name) {
+  if (typeof name !== "string" || basename(name) !== name) throw new Error(`Invalid publication journal path: ${name}`);
+  return resolve(PUBLIC_DIR, name);
+}
+
+function writeJournal(transaction) {
+  writeFileSync(JOURNAL_TMP, JSON.stringify(transaction));
+  renameSync(JOURNAL_TMP, JOURNAL_PATH);
+}
+
+function readJournal() {
+  if (!existsSync(JOURNAL_PATH)) return null;
+  const transaction = JSON.parse(readFileSync(JOURNAL_PATH, "utf8"));
+  if (transaction?.version !== 1 || typeof transaction.runId !== "string" || typeof transaction.stage !== "string") {
+    throw new Error(`Invalid market cap publication journal: ${JOURNAL_PATH}`);
+  }
+  for (const key of ["tempSvg", "tempPng", "backupSvg", "backupPng"]) journalFile(transaction[key]);
+  return transaction;
+}
+
+function cleanupTransactionFiles(transaction) {
+  for (const key of ["tempSvg", "tempPng", "backupSvg", "backupPng"]) removeIfPresent(journalFile(transaction[key]));
+  removeIfPresent(JOURNAL_TMP);
+}
+
+function restoreOutput(finalPath, backupPath, hadOriginal, stage) {
+  if (!hadOriginal) {
+    removeIfPresent(finalPath);
+    removeIfPresent(backupPath);
+    return;
+  }
+  if (existsSync(backupPath)) {
+    removeIfPresent(finalPath);
+    renameSync(backupPath, finalPath);
+    return;
+  }
+  if (stage !== "prepared" || !existsSync(finalPath)) {
+    throw new Error(`Cannot restore publication output: ${finalPath}`);
+  }
+}
+
+function recoverPublication() {
+  const transaction = readJournal();
+  if (!transaction) return false;
+  const backupSvg = journalFile(transaction.backupSvg);
+  const backupPng = journalFile(transaction.backupPng);
+  const pairPublished = transaction.stage === "published" && existsSync(SVG_PATH) && existsSync(PNG_PATH);
+  if (pairPublished) {
+    console.log(`Completing publication recovery: run=${transaction.runId}, stage=${transaction.stage}`);
+    removeIfPresent(JOURNAL_PATH);
+    cleanupTransactionFiles(transaction);
+    return true;
+  }
+
+  console.log(`Rolling back publication recovery: run=${transaction.runId}, stage=${transaction.stage}`);
+  restoreOutput(SVG_PATH, backupSvg, Boolean(transaction.hadSvg), transaction.stage);
+  restoreOutput(PNG_PATH, backupPng, Boolean(transaction.hadPng), transaction.stage);
+  cleanupTransactionFiles(transaction);
+  removeIfPresent(JOURNAL_PATH);
+  return true;
+}
+
+function cleanupOrphanBackups() {
+  const prefix = `.${NAME}.`;
+  for (const entry of readdirSync(PUBLIC_DIR, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.startsWith(prefix) && entry.name.includes(".backup.")) {
+      removeIfPresent(resolve(PUBLIC_DIR, entry.name));
+    }
+  }
+}
+
+function publishPair(svg, png) {
+  const transaction = {
+    version: 1,
+    runId: RUN_ID,
+    timestamp: Date.now(),
+    stage: "prepared",
+    hadSvg: existsSync(SVG_PATH),
+    hadPng: existsSync(PNG_PATH),
+    tempSvg: basename(TMP_SVG),
+    tempPng: basename(TMP_PNG),
+    backupSvg: basename(BACKUP_SVG),
+    backupPng: basename(BACKUP_PNG),
+  };
+
+  writeJournal(transaction);
+  try {
+    writeFileSync(TMP_SVG, svg);
+    writeFileSync(TMP_PNG, png);
+    if (transaction.hadSvg) renameSync(SVG_PATH, BACKUP_SVG);
+    if (transaction.hadPng) renameSync(PNG_PATH, BACKUP_PNG);
+    transaction.stage = "backed-up";
+    writeJournal(transaction);
+
+    renameSync(TMP_SVG, SVG_PATH);
+    transaction.stage = "svg-published";
+    writeJournal(transaction);
+    renameSync(TMP_PNG, PNG_PATH);
+    transaction.stage = "published";
+    writeJournal(transaction);
+
+    removeIfPresent(JOURNAL_PATH);
+    cleanupTransactionFiles(transaction);
+    console.log(`Published asset pair: run=${RUN_ID}`);
+  } catch (error) {
+    try {
+      recoverPublication();
+    } catch (recoveryError) {
+      throw new AggregateError([error, recoveryError], `Market cap publication and rollback failed for run ${RUN_ID}`);
+    }
+    throw error;
+  }
 }
 
 function readLockMetadata() {
@@ -113,7 +231,7 @@ function acquireLock() {
       if (!metadata) continue;
       const ageMs = Math.max(0, Date.now() - metadata.timestamp);
       const alive = isProcessAlive(metadata.pid);
-      const reclaimable = alive === false || ageMs > LOCK_STALE_MS;
+      const reclaimable = alive === false || (alive === null && ageMs > LOCK_STALE_MS);
       if (!reclaimable) {
         throw new Error(`Another market cap post generation is active: pid=${metadata.pid ?? "unknown"}, age=${Math.round(ageMs / 1000)}s`);
       }
@@ -281,6 +399,7 @@ async function captureMain(browser, route, heading, expectedIdentity = [], hideC
 function buildSvg(cryptoImage, stockImage) {
   const [headlineTop, headlineBottom] = HEADLINE.split(". ");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="${W}" height="${H}">
+  <metadata id="wcore-build">${RUN_ID}</metadata>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#050607"/>
@@ -371,6 +490,8 @@ function buildSvg(cryptoImage, stockImage) {
   let lockFd;
   try {
     lockFd = acquireLock();
+    recoverPublication();
+    cleanupOrphanBackups();
 
     browser = await chromium.launch({ headless: true });
     const cryptoCapture = await captureMain(browser, "/cmc/crypto", "Market Cap Crypto", ["Bitcoin", "BTC"]);
@@ -389,10 +510,7 @@ function buildSvg(cryptoImage, stockImage) {
       await renderPage.close();
     }
 
-    writeFileSync(TMP_SVG, svg);
-    writeFileSync(TMP_PNG, png);
-    renameSync(TMP_SVG, SVG_PATH);
-    renameSync(TMP_PNG, PNG_PATH);
+    publishPair(svg, png);
     console.log(`SVG written atomically: ${SVG_PATH} (${Buffer.byteLength(svg)} bytes, ${W}x${H})`);
     console.log(`PNG written atomically: ${PNG_PATH} (${png.length} bytes, ${W}x${H})`);
   } finally {
@@ -401,6 +519,7 @@ function buildSvg(cryptoImage, stockImage) {
     } finally {
       removeIfPresent(TMP_SVG);
       removeIfPresent(TMP_PNG);
+      removeIfPresent(JOURNAL_TMP);
       removeIfPresent(STALE_LOCK_PATH);
       if (lockFd !== undefined) releaseLock(lockFd);
     }

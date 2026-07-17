@@ -82,6 +82,7 @@ export interface ApiConfig {
 
 const DEV_ENVS = new Set(["development", "test"]);
 const DEV_JWT_SECRET = "wcore-dev-secret-change-in-prod";
+const MAX_TIMER_MS = 2_147_483_647;
 const WEAK_SECRET_PATTERNS = [/change-in-(prod|real-deploy)/i, /placeholder/i, /^wcore-staging-/i, /^test-/i, /^dev-/i];
 
 function readNumber(env: ApiEnv, key: string, fallback: number, options: { min?: number } = {}): number {
@@ -103,12 +104,15 @@ function readBoolean(env: ApiEnv, key: string, fallback: boolean): boolean {
   throw new Error(`${key} must be true or false`);
 }
 
-function readPositiveInteger(env: ApiEnv, key: string, fallback: number): number {
+function readPositiveInteger(env: ApiEnv, key: string, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
   const raw = env[key];
   if (raw == null) return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    throw new Error(`${key} must be a positive finite integer`);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${key} must be a positive safe integer`);
+  }
+  if (value > max) {
+    throw new Error(`${key} must be at most ${max}`);
   }
   return value;
 }
@@ -235,9 +239,9 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       zerion: {
         enabled: zerionEnabled,
         apiKey: zerionApiKey,
-        timeoutMs: readPositiveInteger(env, "ZERION_TIMEOUT_MS", 3000),
-        cacheTtlMs: readPositiveInteger(env, "ZERION_CACHE_TTL_MS", 600000),
-        lastGoodTtlMs: readPositiveInteger(env, "ZERION_LAST_GOOD_TTL_MS", 86400000),
+        timeoutMs: readPositiveInteger(env, "ZERION_TIMEOUT_MS", 3000, MAX_TIMER_MS),
+        cacheTtlMs: readPositiveInteger(env, "ZERION_CACHE_TTL_MS", 600000, MAX_TIMER_MS),
+        lastGoodTtlMs: readPositiveInteger(env, "ZERION_LAST_GOOD_TTL_MS", 86400000, MAX_TIMER_MS),
         dailyBudget: readPositiveInteger(env, "ZERION_DAILY_BUDGET", 1000),
         maxResponseBytes: readPositiveInteger(env, "ZERION_MAX_RESPONSE_BYTES", 2000000),
         maxPositions: readPositiveInteger(env, "ZERION_MAX_POSITIONS", 1000),

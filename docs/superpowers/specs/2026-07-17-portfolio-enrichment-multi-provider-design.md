@@ -240,7 +240,7 @@ Use as an EVM discovery and history fallback where Blockscout coverage is absent
 
 Use for vault and yield position coverage and APY context across supported protocols. It remains a portfolio data provider; transaction construction belongs to the separate routing program.
 
-## Separate Meta-Aggregator Program
+## Separate Mega-Aggregator Program
 
 The bridge and swap objective is a separate subsystem called Route Intelligence.
 

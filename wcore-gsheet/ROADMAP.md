@@ -31,8 +31,8 @@
 - [x] ACTIVITY_WATCHDOG desactive — economie ~5760 UrlFetch/jour.
 
 - [ ] Corriger `ChainFactory.createCosmosChain().getRefreshStatus` pour propager les cinq arguments standards.
-- [ ] Rendre atomique le compteur HTTP (concurrence read-modify-write).
-- [ ] Rendre atomiques queue, pop, retry et leases CEX; supprimer toute troncature JSON dangereuse.
+- [ ] Rendre atomique le compteur HTTP (concurrence read-modify-write — compteur de base fiable depuis v4.16.30, atomicite restante).
+- [ ] Rendre atomiques queue, pop, retry et leases CEX; supprimer toute troncature JSON dangereuse (bulk relay v4.16.30 reduit le risque, atomicite restante).
 - [ ] Remplacer la reinstallation globale de triggers par une reparation ciblee avec backoff.
 - [ ] Aligner `_packedGet_` avec la preservation annoncee des wallets positifs.
 - [ ] Borner les retries A2/J1 par feuille et par fenetre temporelle.
@@ -46,7 +46,7 @@
 - [ ] Passer les tokens relay dans un header, jamais dans l'URL.
 - [ ] Restreindre `executionApi.access` avant toute reactivation de l'Execution API.
 - [ ] Mettre a jour les metadonnees de `dist/package.json` et clarifier le package genere.
-- [ ] Retirer ou restaurer les scripts npm referencant des fichiers absents.
+- [x] Retirer ou restaurer les scripts npm referencant des fichiers absents (scripts `test:cache-keys` et `test:chain-config` retires le 2026-07-16).
 - [ ] Rendre les tests Phase 3 non destructifs et les inclure dans une verification explicite.
 
 ## Phase Web-Backed Cache
@@ -75,7 +75,7 @@ Pour chaque retrait: source `.gs`, package genere, consommateurs Web/API, GM, wa
 - [ ] Mettre `AGENTS.md` a jour puis le reduire aux contraintes et gotchas critiques.
 - [ ] Mettre `docs/cex-sync.md` a jour pour sept CEX et ajouter `docs/kraken-sync.md`.
 - [ ] Completer `CHANGELOG.md` pour Kraken, triggers par connecteur et `INFO_TOTAL` CEX.
-- [ ] Archiver les plans/specs termines et conserver uniquement les decisions encore actives.
+- [x] Archiver les plans/specs termines (21 fichiers deplaces vers `docs/superpowers/archive/` le 2026-07-16).
 
 ## Baseline de verification
 

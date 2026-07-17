@@ -1,4 +1,5 @@
-// Run: node --import tsx --test apps/web/__tests__/ui.test.ts
+// Requires the API on http://127.0.0.1:4000.
+// Run: pnpm --filter @wcore/web test:integration
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 

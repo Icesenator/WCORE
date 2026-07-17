@@ -49,11 +49,11 @@
 
 ### Livraison reproductible
 
-- [ ] Deplacer la CI GitHub dans `.github/workflows/` a la racine.
+- [x] Deplacer la CI GitHub dans `.github/workflows/` a la racine. Verifie localement le 2026-07-17 (working-directory/cache/artifacts adaptes au monorepo).
 - [ ] Corriger la chaine de migrations Prisma pour une base vide.
-- [ ] Mettre `ws` a jour au-dela de 8.21.0.
+- [x] Mettre `ws` a jour au-dela de 8.21.0. `ws@8.21.1`, audit sans HIGH/CRITICAL le 2026-07-17.
 - [ ] Ajouter un `.dockerignore` racine et pruner l'image API.
-- [ ] Revenir a un lint vert et bloquant.
+- [x] Revenir a un lint vert et bloquant. 0 erreur/0 warning, step CI racine bloquant le 2026-07-17.
 - [ ] Bumper `dist/package.json` version a chaque `build:chains`.
 
 ### Documentation (nouveau, audit 2026-07-16)
@@ -88,7 +88,7 @@
 - [ ] Ajouter un test schema sur les 183 configurations.
 - [ ] Ajouter des tests comportementaux pour les hooks CEX/GM.
 - [ ] Implementer DeFi Position Engine v1 (spec + plan existants, zero implementation).
-- [ ] Corriger les 19 erreurs lint et rendre le lint bloquant en CI.
+- [x] Corriger les 19 erreurs lint et rendre le lint bloquant en CI. Verifie le 2026-07-17.
 
 ## Chain Lifecycle
 

@@ -26,7 +26,7 @@ export async function discoverCompoundV3CTokens(
   const max = Math.max(0, Math.floor(opts?.maxAssets ?? 32));
   const out: string[] = [];
   const errors: string[] = [];
-  let numAssets = 0;
+  let numAssets: number;
   try {
     const hex = await rpc.ethCall(endpoint, cometAddress, NUM_ASSETS_SELECTOR);
     numAssets = Number(decodeUint256(hex));
@@ -76,13 +76,12 @@ export interface CompoundV3DiscoveryResult {
 
 export async function getCompoundV3Tokens(
   chain: string,
-  userAddress: string,
+  _userAddress: string,
   rpc: EvmRpc,
   endpoint: string,
   opts?: { marketAddresses?: string[]; maxAssets?: number; signal?: AbortSignal; cache?: CacheStore },
 ): Promise<CompoundV3DiscoveryResult> {
   const chainKey = String(chain || "").trim().toUpperCase();
-  const user = userAddress.toLowerCase();
   const markets = opts?.marketAddresses ?? COMPOUND_V3_MARKETS[chainKey] ?? [];
   const max = Math.max(0, Math.floor(opts?.maxAssets ?? MAX_ASSETS));
   const cache = opts?.cache;
@@ -111,7 +110,7 @@ export async function getCompoundV3Tokens(
 
     // 1. If no cache, run on-chain discovery (numAssets + getAssetInfo per asset + symbol)
     if (!cTokenSymbols) {
-      let numAssets = 0;
+      let numAssets: number;
       try {
         const hex = await rpc.ethCall(endpoint, market, NUM_ASSETS_SELECTOR);
         numAssets = Number(decodeUint256(hex));
@@ -128,7 +127,7 @@ export async function getCompoundV3Tokens(
 
       for (let i = 0; i < limit; i++) {
         const infoData = GET_ASSET_INFO_SELECTOR + i.toString(16).padStart(64, "0");
-        let cToken: string | null = null;
+        let cToken: string | null;
         let symbol = `asset${i}`;
         try {
           const hex = await rpc.ethCall(endpoint, market, infoData);

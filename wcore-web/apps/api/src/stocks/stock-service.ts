@@ -341,7 +341,7 @@ function isCompleteSnapshot(value: unknown, now: Date, maxAgeMs: number): value 
   const ranks = new Set<number>();
   const tickers = new Set<string>();
   let previousRank = 0;
-  for (const [index, row] of snapshot.rows.entries()) {
+  for (const row of snapshot.rows) {
     if (!isRecord(row)) return false;
     if (
       !Number.isInteger(row.rank) || row.rank <= previousRank || ranks.has(row.rank as number)

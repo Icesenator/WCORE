@@ -7,7 +7,7 @@ settings:
 overrides:
   postcss: ^8.5.13
   fast-uri: ^3.1.2
-  ws: ^8.20.1
+  ws: ^8.21.1
   qs: '>=6.15.2'
 
 importers:
@@ -1991,7 +1991,7 @@ packages:
   isows@1.0.7:
     resolution: {integrity: sha512-I1fSfDCZL5P0v33sVqeTDSpcstAg/N+wF5HS033mogOVIp4B+oHC7oOCsA3axAbBSGTJ8QubbNmnIRN/h8U7hg==}
     peerDependencies:
-      ws: ^8.20.1
+      ws: ^8.21.1
 
   jiti@1.21.7:
     resolution: {integrity: sha512-/imKNG4EbWNrVjoNC/1H5/9GFy+tqjGBHCaSsN+P2RnPqjsLmv6UD3Ej+Kj8nBWaRAwyk7kK5ZUc+OEatnTR3A==}
@@ -2851,8 +2851,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  ws@8.20.1:
-    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
+  ws@8.21.1:
+    resolution: {integrity: sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -4251,7 +4251,7 @@ snapshots:
       '@types/node': 22.7.5
       aes-js: 4.0.0-beta.5
       tslib: 2.7.0
-      ws: 8.20.1
+      ws: 8.21.1
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -4464,9 +4464,9 @@ snapshots:
 
   isexe@2.0.0: {}
 
-  isows@1.0.7(ws@8.20.1):
+  isows@1.0.7(ws@8.21.1):
     dependencies:
-      ws: 8.20.1
+      ws: 8.21.1
 
   jiti@1.21.7: {}
 
@@ -5244,9 +5244,9 @@ snapshots:
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@5.9.3)(zod@3.25.76)
-      isows: 1.0.7(ws@8.20.1)
+      isows: 1.0.7(ws@8.21.1)
       ox: 0.14.20(typescript@5.9.3)(zod@3.25.76)
-      ws: 8.20.1
+      ws: 8.21.1
     optionalDependencies:
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -5367,7 +5367,7 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  ws@8.20.1: {}
+  ws@8.21.1: {}
 
   xtend@4.0.2: {}
 

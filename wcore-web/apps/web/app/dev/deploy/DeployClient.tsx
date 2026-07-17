@@ -22,10 +22,10 @@ const DEPLOY_CHAIN_KEYS = [
   "BASE", "ETHEREUM", "ARBITRUM_ONE", "OPTIMISM", "POLYGON", "BSC", "AVALANCHE",
   "GNOSIS", "ZKSYNC_ERA", "SCROLL", "LINEA", "MANTLE", "BLAST", "SONIC", "CELO",
   "FRAXTAL", "WORLDCHAIN", "ROBINHOOD_CHAIN", "UNICHAIN", "BERACHAIN", "INK", "ABSTRACT", "SONEIUM",
-  "POLYGON_ZKEVM", "ARBITRUM_NOVA", "ZORA", "MODE", "SEI",
+  "ARBITRUM_NOVA", "ZORA", "MODE", "SEI",
   // L2s / OP Stack / Superchains
-  "SUPERSEED", "SHAPE", "ANCIENT8", "BOB", "LISK", "METAL_L2", "REDSTONE",
-  "APPCHAIN", "CAMP", "DUCKCHAIN", "CYBER", "RARI", "ZIRCUIT",
+  "SUPERSEED", "SHAPE", "BOB", "LISK", "METAL_L2", "REDSTONE",
+  "APPCHAIN", "CAMP", "DUCKCHAIN", "CYBER", "ZIRCUIT",
   "OPENLEDGER", "STABLE", "TAC", "MITOSIS", "B3", "CITREA",
   // EVM-compatible majors
   "CRONOS", "FUSE", "KAIA", "MOONBEAM", "MOONRIVER", "ASTAR", "AURORA",
@@ -65,7 +65,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   INK: { name: "Ink", chainId: 57073 },
   ABSTRACT: { name: "Abstract", chainId: 2741 },
   SONEIUM: { name: "Soneium", chainId: 1868 },
-  POLYGON_ZKEVM: { name: "Polygon zkEVM", chainId: 1101 },
   ARBITRUM_NOVA: { name: "Arbitrum Nova", chainId: 42170 },
   ZORA: { name: "Zora", chainId: 7777777 },
   MODE: { name: "Mode", chainId: 34443 },
@@ -73,7 +72,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   // L2s / OP Stack / Superchains
   SUPERSEED: { name: "Superseed", chainId: 5330 },
   SHAPE: { name: "Shape", chainId: 360 },
-  ANCIENT8: { name: "Ancient8", chainId: 888888888 },
   BOB: { name: "BOB", chainId: 60808 },
   LISK: { name: "Lisk", chainId: 1135 },
   METAL_L2: { name: "Metal L2", chainId: 1750 },
@@ -82,7 +80,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   CAMP: { name: "Camp", chainId: 484 },
   DUCKCHAIN: { name: "DuckChain", chainId: 5545 },
   CYBER: { name: "Cyber", chainId: 7560 },
-  RARI: { name: "RARI Chain", chainId: 1380012617 },
   ZIRCUIT: { name: "Zircuit", chainId: 48900 },
   OPENLEDGER: { name: "OpenLedger", chainId: 1612 },
   STABLE: { name: "Stable", chainId: 988 },

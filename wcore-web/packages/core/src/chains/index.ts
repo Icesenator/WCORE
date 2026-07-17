@@ -4,10 +4,8 @@
 
 import {
   chains as gsheetChains,
-  chainList as gsheetChainList,
-  type ChainKey as GsheetChainKey,
 } from "@wcore/chains";
-import type { ChainConfig, VmType } from "@wcore/chains/types";
+import type { ChainConfig } from "@wcore/chains/types";
 
 // Local web-only chains (not yet ported to wcore-gsheet/src/*.gs).
 

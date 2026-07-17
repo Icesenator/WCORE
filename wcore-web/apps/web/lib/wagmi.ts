@@ -1,7 +1,7 @@
 import { http, createConfig } from "wagmi";
 import type { Chain } from "viem";
 import { base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-  mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, ancient8, bob, lisk, metalL2, cyber,
+  mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, cyber,
   immutableZkEvm, morph, mezo, swellchain, swan, vana, story } from "wagmi/chains";
 // We intentionally do NOT register wagmi's `injected()` connector in the
 // static config. Reason: a broken Turbopack chunk on `injected` throws
@@ -13,20 +13,6 @@ import { base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
 // with a single working extension can still connect via EIP-6963 picker in
 // ConnectButton (we lazy-load @wagmi/connectors/injected there).
 import { walletConnect, coinbaseWallet } from "@wagmi/connectors";
-
-// Polygon zkEVM — defined manually because wagmi/chains version may have stale RPCs
-const polygonZkEvm: Chain = {
-  id: 1101,
-  name: "Polygon zkEVM",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://zkevm-rpc.com", "https://polygon-zkevm.drpc.org"] },
-    public: { http: ["https://zkevm-rpc.com", "https://polygon-zkevm.drpc.org"] },
-  },
-  blockExplorers: {
-    default: { name: "PolygonScan zkEVM", url: "https://zkevm.polygonscan.com" },
-  },
-};
 
 const redstone: Chain = {
   id: 690,
@@ -90,19 +76,6 @@ const duckchain: Chain = {
   },
   blockExplorers: {
     default: { name: "DuckChain Explorer", url: "https://scan.duckchain.io" },
-  },
-};
-
-const rari: Chain = {
-  id: 1380012617,
-  name: "RARI Chain",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://mainnet.rpc.rarichain.org/http", "https://rari.drpc.org", "https://1380012617.rpc.thirdweb.com"] },
-    public: { http: ["https://mainnet.rpc.rarichain.org/http", "https://rari.drpc.org", "https://1380012617.rpc.thirdweb.com"] },
-  },
-  blockExplorers: {
-    default: { name: "RARI Chain Explorer", url: "https://explorer.rarichain.org" },
   },
 };
 
@@ -561,7 +534,7 @@ const wagmiConnectors = [
 
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, polygonZkEvm, zora, mode, sei, superseed, shape, ancient8, bob, lisk, metalL2, redstone, robinhoodChain, appchain, camp, duckchain, cyber, rari, zircuit,
+    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, redstone, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
     mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, syndicateCommons, race, doma, b2, juchain, mind, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story],
@@ -590,13 +563,11 @@ export const config = createConfig({
     [abstract.id]: http(),
     [worldchain.id]: http(),
     [fraxtal.id]: http(),
-    [polygonZkEvm.id]: http(),
     [zora.id]: http(),
     [mode.id]: http(),
     [sei.id]: http(),
     [superseed.id]: http(),
     [shape.id]: http(),
-    [ancient8.id]: http(),
     [bob.id]: http(),
     [lisk.id]: http(),
     [metalL2.id]: http(),
@@ -606,7 +577,6 @@ export const config = createConfig({
     [camp.id]: http(),
     [duckchain.id]: http(),
     [cyber.id]: http(),
-    [rari.id]: http(),
     [zircuit.id]: http(),
     [mitosis.id]: http(),
     [fogo.id]: http(),

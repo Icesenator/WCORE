@@ -42,7 +42,7 @@ test("all active GM chains have native pricing oracle ids", () => {
     .sort()
     .filter((key) => {
       const chain = getChain(key.toUpperCase());
-      return !chain?.CHAIN?.NATIVE_SYMBOL || !chain.CHAIN.NATIVE_LLAMA_ID || !chain.CHAIN.NATIVE_GECKO_ID;
+      return !chain || chain.FLAGS?.DISABLE_CHAIN === true || !chain.CHAIN?.NATIVE_SYMBOL || !chain.CHAIN.NATIVE_LLAMA_ID || !chain.CHAIN.NATIVE_GECKO_ID;
     });
 
   assert.deepEqual(missing, []);

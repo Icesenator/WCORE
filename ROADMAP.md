@@ -121,7 +121,7 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 
 ## Nouveaux risques (audit 2026-07-16)
 
-- **A6 - DeFi Position Engine V1 - RESOLU 2026-07-17**: finalisation partagee GSheet et Web batch deployee; le flag `DEFI`, les totaux signes et le smoke Optimism `10,43 EUR` confirment le comportement cible sans revendiquer une couverture LP/vault/protocoles generale.
+- **A6 - DeFi Position Engine V1 - RESOLU 2026-07-17**: finalisation partagee GSheet et Web batch deployee; le flag `DEFI` fait autorite pour l'agregation API et le rendu TokenTable, tandis que l'allowlist de contrats proteges garde les lignes Optimism officielles propres dans l'agregation frontend wallet. Les totaux signes et le smoke Optimism `10,43 EUR` confirment le comportement cible sans revendiquer une couverture LP/vault/protocoles generale.
 - **A7 - CI inactive - RESOLU 2026-07-17**: workflow deplace a la racine `WCORE/.github/workflows/` et CI verte.
 - **A8 - Lint + dependances - RESOLU 2026-07-17**: lint bloquant vert; `ws@8.21.1`; aucune vulnerabilite HIGH/CRITICAL.
 - **A3 - Hotspots GSheet**: 16 fichiers > 1000 lignes, plan de split (`HOTSPOT_SPLIT_PLAN.md`) abandonne.

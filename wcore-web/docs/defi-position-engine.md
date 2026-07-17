@@ -50,7 +50,9 @@ C-Locked lit `getDelegationAmount(address)` sur le staking proxy via le RPC Base
 
 ## Badge DeFi web
 
-Le champ inline `token.defi` est sérialisé par l'API en flag `DEFI`; ce flag est l'autorité pour les positions officielles. `TokenTable.tsx` l'utilise pour le badge et pour contourner la classification scam. `isDefiPosition(symbol, name)` reste seulement un fallback visuel legacy pour les anciennes lignes sans flag; il ne pilote ni pricing ni finalisation.
+Le champ inline `token.defi` est sérialisé par l'API en flag `DEFI`. Ce flag fait autorité pour l'agrégation API et pour le badge/la classification dans `TokenTable.tsx`. `isDefiPosition(symbol, name)` reste seulement un fallback visuel legacy pour les anciennes lignes sans flag; il ne pilote ni pricing ni finalisation.
+
+L'agrégation frontend au niveau wallet appelle encore `detectScam` sans bypass général fondé sur `DEFI`. Les contrats des positions Optimism officielles actuelles sont propres grâce à l'allowlist trusted dédiée. Un futur contrat officiel doit donc être ajouté au traitement trusted, ou l'agrégateur doit être explicitement adapté et testé.
 
 ## Pricing miroir
 
@@ -70,7 +72,8 @@ Scan EVM
   → price les actifs directs; diffère les positions miroir sans faux NO_PRICE
   → finalisation partagée : WCT lock, [Flex]/[Lock], mirrors, labels, dette signée
   ├── POST /api/gsheet/scan → réponse sept colonnes conservée par Apps Script
-  └── POST /api/scan/batch → sérialisation DEFI → badge/scam bypass/net signé Web
+  └── POST /api/scan/batch → sérialisation DEFI → agrégation API + TokenTable + net signé
+      → agrégation frontend wallet → detectScam → allowlist trusted pour les contrats Optimism officiels actuels
 ```
 
 Un token long-tail sans source de prix conserve `NO_PRICE`; ce cas normal n'ajoute pas à lui seul une erreur et ne rend pas le scan `degraded`. Les garde-fous restent distincts pour les actifs majeurs attendus comme priceables.

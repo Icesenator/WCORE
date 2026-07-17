@@ -32,6 +32,10 @@ function loadChromium() {
 const chromium = loadChromium();
 const W = 1200;
 const H = 675;
+const CAPTURE_W = 760;
+const CAPTURE_H = 278;
+const PANEL_W = 560;
+const PANEL_H = 205;
 const HEADLINE = "Two markets. One clean ranking.";
 const SITE = (process.env.WCORE_SITE_URL || process.env.SITE_URL || "https://wcore.xyz").replace(/\/$/, "");
 const PUBLIC_DIR = resolve(ROOT, "apps/web/public");
@@ -111,7 +115,7 @@ async function waitForMarketRows(page, route, expectedIdentity) {
   throw new Error(`Timed out waiting for populated market rows on ${route}. Last state: ${JSON.stringify(latest)}`);
 }
 
-async function captureMain(browser, route, heading, expectedIdentity = []) {
+async function captureMain(browser, route, heading, expectedIdentity = [], hideCountry = false) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
   const url = `${SITE}${route}`;
   try {
@@ -121,13 +125,34 @@ async function captureMain(browser, route, heading, expectedIdentity = []) {
     await page.locator("main table").first().waitFor({ state: "visible", timeout: 60000 });
     const readiness = await waitForMarketRows(page, route, expectedIdentity);
 
+    await page.addStyleTag({ content: `
+      main { width: ${CAPTURE_W}px !important; max-width: ${CAPTURE_W}px !important; padding: 10px 12px !important; }
+      main header { margin-bottom: 8px !important; padding-bottom: 8px !important; }
+      main header > div { gap: 0 !important; }
+      main header > div > div:last-child { display: none !important; }
+      main header p { margin-bottom: 2px !important; }
+      main header h1 { font-size: 22px !important; line-height: 1.15 !important; }
+      main header h1 + p { display: none !important; }
+      main section[aria-label="Market snapshot summary"] { margin-bottom: 8px !important; gap: 8px !important; }
+      main section[aria-label="Market snapshot summary"] > div { padding: 8px 10px !important; }
+      main section[aria-label="Market snapshot summary"] p { margin-top: 2px !important; line-height: 1.15 !important; }
+      main table { min-width: 0 !important; width: 100% !important; table-layout: fixed !important; }
+      main table th, main table td { padding: 5px 8px !important; }
+      main table tbody td, main table tbody td p { font-size: 14px !important; line-height: 16px !important; }
+      main table th:first-child, main table td:first-child { width: 54px !important; }
+      main table th:nth-last-child(2), main table td:nth-last-child(2) { width: 142px !important; }
+      main table th:last-child, main table td:last-child { width: 150px !important; }
+      ${hideCountry ? "main table th:nth-child(3), main table td:nth-child(3) { display: none !important; }" : ""}
+    ` });
+    await page.evaluate(() => new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+
     const main = page.locator("main").first();
     const box = await main.boundingBox();
     if (!box) throw new Error(`Visible main content not found for ${route}`);
     const x = Math.max(0, box.x);
     const y = Math.max(0, box.y);
-    const width = Math.min(1440 - x, box.width);
-    const height = Math.min(1000 - y, box.height, Math.round(width * 186 / 508));
+    const width = Math.min(1440 - x, box.width, CAPTURE_W);
+    const height = Math.min(1000 - y, box.height, CAPTURE_H);
     if (width <= 0 || height <= 0) throw new Error(`Invalid main capture bounds for ${route}`);
 
     const capture = await page.screenshot({ type: "png", clip: { x, y, width, height } });
@@ -158,8 +183,8 @@ function buildSvg(cryptoImage, stockImage) {
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
       <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000" flood-opacity="0.58"/>
     </filter>
-    <clipPath id="cryptoClip"><rect x="0" y="0" width="508" height="186" rx="24"/></clipPath>
-    <clipPath id="stockClip"><rect x="0" y="0" width="508" height="186" rx="24"/></clipPath>
+    <clipPath id="cryptoClip"><rect x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" rx="24"/></clipPath>
+    <clipPath id="stockClip"><rect x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" rx="24"/></clipPath>
     <style>
       .font { font-family: ${fontStack}; }
       .white { fill: #f7f7f8; }
@@ -190,32 +215,32 @@ function buildSvg(cryptoImage, stockImage) {
   </g>
 
   <g transform="translate(72 390)">
-    <rect x="0" y="0" width="502" height="72" rx="22" fill="#101915" stroke="#34551f"/>
+    <rect x="0" y="0" width="460" height="72" rx="22" fill="#101915" stroke="#34551f"/>
     <text x="24" y="29" class="font muted" font-size="11" font-weight="950" letter-spacing="1.25">CRYPTO DIRECTORY</text>
-    <text x="478" y="49" text-anchor="end" class="font lime" font-size="25" font-weight="950">5,000 crypto assets</text>
-    <rect x="0" y="88" width="502" height="72" rx="22" fill="#0d1620" stroke="#28445b"/>
+    <text x="436" y="49" text-anchor="end" class="font lime" font-size="23" font-weight="950">5,000 crypto assets</text>
+    <rect x="0" y="88" width="460" height="72" rx="22" fill="#0d1620" stroke="#28445b"/>
     <text x="24" y="117" class="font muted" font-size="11" font-weight="950" letter-spacing="1.25">STOCK DIRECTORY</text>
-    <text x="478" y="137" text-anchor="end" class="font white" font-size="25" font-weight="950">5,000 public companies</text>
+    <text x="436" y="137" text-anchor="end" class="font white" font-size="22" font-weight="950">5,000 public companies</text>
   </g>
 
-  <g transform="translate(620 78)" filter="url(#shadow)">
-    <rect x="0" y="0" width="508" height="238" rx="26" fill="#0b1117" stroke="#34551f" stroke-width="2"/>
-    <g clip-path="url(#cryptoClip)" transform="translate(0 52)">
-      <image href="${cryptoImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMid meet"/>
+  <g transform="translate(568 52)" filter="url(#shadow)">
+    <rect x="0" y="42" width="${PANEL_W}" height="${PANEL_H}" rx="26" fill="#0b1117" stroke="#34551f" stroke-width="2"/>
+    <g clip-path="url(#cryptoClip)" transform="translate(0 42)">
+      <image href="${cryptoImage}" x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" preserveAspectRatio="xMidYMid meet"/>
     </g>
-    <rect x="18" y="12" width="154" height="34" rx="17" fill="#111b14" stroke="#84cc16" stroke-opacity="0.72"/>
-    <circle cx="37" cy="29" r="5" fill="#84cc16"/>
-    <text x="51" y="34" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">CRYPTO RANKING</text>
+    <rect x="18" y="0" width="154" height="34" rx="17" fill="#111b14" stroke="#84cc16" stroke-opacity="0.72"/>
+    <circle cx="37" cy="17" r="5" fill="#84cc16"/>
+    <text x="51" y="22" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">CRYPTO RANKING</text>
   </g>
 
-  <g transform="translate(620 350)" filter="url(#shadow)">
-    <rect x="0" y="0" width="508" height="238" rx="26" fill="#0b1117" stroke="#28445b" stroke-width="2"/>
-    <g clip-path="url(#stockClip)" transform="translate(0 52)">
-      <image href="${stockImage}" x="0" y="0" width="508" height="186" preserveAspectRatio="xMidYMid meet"/>
+  <g transform="translate(568 328)" filter="url(#shadow)">
+    <rect x="0" y="42" width="${PANEL_W}" height="${PANEL_H}" rx="26" fill="#0b1117" stroke="#28445b" stroke-width="2"/>
+    <g clip-path="url(#stockClip)" transform="translate(0 42)">
+      <image href="${stockImage}" x="0" y="0" width="${PANEL_W}" height="${PANEL_H}" preserveAspectRatio="xMidYMid meet"/>
     </g>
-    <rect x="18" y="12" width="146" height="34" rx="17" fill="#0d1620" stroke="#60a5fa" stroke-opacity="0.72"/>
-    <circle cx="37" cy="29" r="5" fill="#60a5fa"/>
-    <text x="51" y="34" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">STOCK RANKING</text>
+    <rect x="18" y="0" width="146" height="34" rx="17" fill="#0d1620" stroke="#60a5fa" stroke-opacity="0.72"/>
+    <circle cx="37" cy="17" r="5" fill="#60a5fa"/>
+    <text x="51" y="22" class="font white" font-size="13" font-weight="950" letter-spacing="0.8">STOCK RANKING</text>
   </g>
 
   <g transform="translate(72 630)">
@@ -240,7 +265,7 @@ function buildSvg(cryptoImage, stockImage) {
 
     browser = await chromium.launch({ headless: true });
     const cryptoCapture = await captureMain(browser, "/cmc/crypto", "Market Cap Crypto", ["Bitcoin", "BTC"]);
-    const stockCapture = await captureMain(browser, "/cmc/stocks", "Market Cap Stock");
+    const stockCapture = await captureMain(browser, "/cmc/stocks", "Market Cap Stock", [], true);
 
     const svg = buildSvg(pngDataUri(cryptoCapture), pngDataUri(stockCapture));
 

@@ -92,7 +92,7 @@ Aucun P0 n'a ete confirme statiquement. Les actions les plus urgentes sont class
 
 - Correction: les echecs transitoires conservent les derniers avoirs et totaux sains avec marqueur degrade sans duplication; 401/403, deconnexion et reponse vide autoritative restent fail-closed. L'etat est indexe par session et les reponses obsoletes sont ignorees par `requestId`.
 - Durcissement 2026-07-17: un acces direct `/wallet` synchronise tous les comptes avant relecture, y compris les comptes vides. Non-2xx et rejets reseau preservent le snapshot stale; tous les syncs sont attendus; les requetes sont bornees corps HTTP inclus et les refreshs concurrents sont bloques dans l'UI.
-- Preuves: `wcore-web/apps/web/__tests__/cex-holdings-state.test.ts` et `cex-display.test.ts`, 36/36 tests CEX cibles; 169/169 tests Web, typecheck, lint et build production passes. Production a attester.
+- Preuves: `wcore-web/apps/web/__tests__/cex-holdings-state.test.ts` et `cex-display.test.ts`, 36/36 tests CEX cibles; 169/169 tests Web, typecheck, lint et build production passes. Commit `a514a501`, deploy Web `dc83a359-1e50-438b-9eed-7cef8758ced2` en `SUCCESS` et smoke public verifies le 2026-07-17.
 
 ### G1 - Signature Cosmos GSheet incomplete
 

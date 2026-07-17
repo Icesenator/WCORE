@@ -7,6 +7,7 @@
 - **UX** : `Refresh All` couvre on-chain et CEX avec un etat reel, et le bouton est desactive pendant l'operation pour eviter les refreshs concurrents.
 - **Bornes** : les requetes CEX et le chargement des metadonnees `/api/chains` ont un timeout global de 30 s couvrant aussi la lecture du corps HTTP.
 - **Verification locale** : 169 tests Web, typecheck, lint et build production passes avant deploiement.
+- **Production** : commit `a514a501`; deploy Railway Web `dc83a359-1e50-438b-9eed-7cef8758ced2` en `SUCCESS`. Smoke public reussi sur `/` et `/wallet/0x0000000000000000000000000000000000000000`.
 
 ## 2026-07-17 — DeFi Web batch finalise en production
 

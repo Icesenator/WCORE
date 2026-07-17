@@ -82,15 +82,15 @@ test("maps reviewed Zerion mainnets to canonical WCORE chain keys", () => {
   } as const;
 
   for (const [providerChain, canonicalChain] of Object.entries(cases)) {
-    assert.equal(toWcoreChain("zerion", providerChain), canonicalChain);
+    assert.equal(toWcoreChain(providerChain), canonicalChain);
   }
 });
 
 test("chain mapping only normalizes safe casing and surrounding whitespace", () => {
-  assert.equal(toWcoreChain("zerion", "  ArBiTrUm  "), "ARBITRUM_ONE");
-  assert.equal(toWcoreChain("zerion", "arbitrum-one"), undefined);
-  assert.equal(toWcoreChain("zerion", "ethereum/mainnet"), undefined);
-  assert.equal(toWcoreChain("helius", "solana"), undefined);
+  assert.equal(toWcoreChain("  ArBiTrUm  "), "ARBITRUM_ONE");
+  assert.equal(toWcoreChain("arbitrum-one"), undefined);
+  assert.equal(toWcoreChain("ethereum/mainnet"), undefined);
+  assert.equal(toWcoreChain("unknown-chain"), undefined);
 });
 
 test("maps reviewed protocol aliases to stable canonical protocol IDs", () => {

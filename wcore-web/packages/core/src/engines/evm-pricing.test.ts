@@ -84,3 +84,27 @@ test("priceToken leaves mirrored DeFi positions for API post-processing without 
   assert.equal(result.priceEur, null);
   assert.equal(result.valueEur, null);
 });
+
+test("priceToken does not degrade a scan when a long-tail token has no market price", async () => {
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const chain = { key: "OPTIMISM", CHAIN: { NAME: "Optimism" } } as ChainConfig;
+  const token: DiscoveredToken = {
+    contract: "0x1111111111111111111111111111111111111111",
+    symbol: "NFT",
+    name: "Long-tail NFT",
+    decimals: 0,
+  };
+  const errors: string[] = [];
+
+  const result = await priceToken(chain, token, 1, 1, sources, new MemoryPricingCache(), undefined, errors);
+
+  assert.equal(result.priceEur, null);
+  assert.deepEqual(errors, []);
+});

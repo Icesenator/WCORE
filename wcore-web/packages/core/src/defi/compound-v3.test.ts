@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { discoverCompoundV3CTokens, getCompoundV3Tokens } from "./compound-v3.js";
 import type { EvmRpc } from "../rpc/index.js";
+import { TOKEN_REGISTRY } from "../tokens/registry.js";
 
 // Mock EvmRpc — only ethCall is needed for the discoverer
 function mockRpc(responses: Map<string, string>): EvmRpc {
@@ -28,14 +29,19 @@ const SYMBOL_SEL = "0x95d89b41";
 const BORROW_BALANCE_OF_SEL = "0x374c49b4";
 const COLLATERAL_BALANCE_OF_SEL = "0x5c2549ee";
 
+test("Compound V3 positions are discovered dynamically instead of duplicated in the token registry", () => {
+  const staticCompound = (TOKEN_REGISTRY.OPTIMISM ?? []).filter((token) => token.defi?.protocol === "compound-v3");
+  assert.deepEqual(staticCompound, []);
+});
+
 // Build a 256-byte (8-word) AssetInfo hex for a given cToken address
-function assetInfoHex(cTokenAddress: string): string {
+function assetInfoHex(cTokenAddress: string, scale = 1_000_000_000_000_000_000n): string {
   const addr = cTokenAddress.toLowerCase().replace(/^0x/, "");
   const fields = [
     "0".repeat(64),
     "0".repeat(24) + addr,
     "0".repeat(24) + "feed".repeat(10),
-    (1_000_000_000n).toString(16).padStart(64, "0"),
+    scale.toString(16).padStart(64, "0"),
     "0".repeat(64),
     "0".repeat(64),
     "0".repeat(64),
@@ -59,7 +65,7 @@ test("discoverCompoundV3CTokens reads numAssets + getAssetInfo via RPC", async (
   const cometKey = (d: string) => `${COMET_OPTIMISM_WETH}::${d.toLowerCase()}`;
   responses.set(cometKey(NUM_ASSETS_SEL), "0x" + (2).toString(16).padStart(64, "0"));
   responses.set(cometKey(GET_ASSET_INFO_SEL + "0".padStart(64, "0")), assetInfoHex(CTOKEN_WRSETH));
-  responses.set(cometKey(GET_ASSET_INFO_SEL + "1".padStart(64, "0")), assetInfoHex(CTOKEN_WSTETH));
+  responses.set(cometKey(GET_ASSET_INFO_SEL + "1".padStart(64, "0")), assetInfoHex(CTOKEN_WSTETH, 1_000_000n));
 
   const rpc = mockRpc(responses);
   const result = await discoverCompoundV3CTokens(rpc, "https://any-rpc", COMET_OPTIMISM_WETH);
@@ -69,7 +75,7 @@ test("discoverCompoundV3CTokens reads numAssets + getAssetInfo via RPC", async (
   assert.equal(result.cTokenAddresses[1], CTOKEN_WSTETH);
 });
 
-test("getCompoundV3Tokens returns DiscoveredToken[] with cToken contracts + selectors", async () => {
+test("getCompoundV3Tokens calls collateralBalanceOf on Comet with distinct asset arguments", async () => {
   const responses = new Map<string, string>();
   const cometKey = (d: string) => `${COMET_OPTIMISM_WETH}::${d.toLowerCase()}`;
   const wrsethKey = (d: string) => `${CTOKEN_WRSETH}::${d.toLowerCase()}`;
@@ -77,7 +83,7 @@ test("getCompoundV3Tokens returns DiscoveredToken[] with cToken contracts + sele
   // Comet calls
   responses.set(cometKey(NUM_ASSETS_SEL), "0x" + (2).toString(16).padStart(64, "0"));
   responses.set(cometKey(GET_ASSET_INFO_SEL + "0".padStart(64, "0")), assetInfoHex(CTOKEN_WRSETH));
-  responses.set(cometKey(GET_ASSET_INFO_SEL + "1".padStart(64, "0")), assetInfoHex(CTOKEN_WSTETH));
+  responses.set(cometKey(GET_ASSET_INFO_SEL + "1".padStart(64, "0")), assetInfoHex(CTOKEN_WSTETH, 1_000_000n));
   // cToken symbol() calls
   responses.set(wrsethKey(SYMBOL_SEL), symbolHex("wrsETH"));
   responses.set(wstethKey(SYMBOL_SEL), symbolHex("wstETH"));
@@ -92,25 +98,27 @@ test("getCompoundV3Tokens returns DiscoveredToken[] with cToken contracts + sele
 
   const wrseth = result.tokens.find((t) => t.symbol === "Comp wrsETH")!;
   assert.ok(wrseth, "wrsETH collateral token present");
-  assert.equal(wrseth.contract, CTOKEN_WRSETH, "cToken as contract (unique per collateral)");
+  assert.equal(wrseth.contract, COMET_OPTIMISM_WETH, "Comet is the collateralBalanceOf call target");
   assert.equal(wrseth.balanceSelector, COLLATERAL_BALANCE_OF_SEL, "collateralBalanceOf selector");
   assert.deepEqual(wrseth.balanceSelectorExtraArgs, [CTOKEN_WRSETH_WORD], "ABI word cToken as extra arg");
   assert.equal(wrseth.decimals, 18);
 
   const wsteth = result.tokens.find((t) => t.symbol === "Comp wstETH")!;
   assert.ok(wsteth);
-  assert.equal(wsteth.contract, CTOKEN_WSTETH, "different cToken per collateral type");
+  assert.equal(wsteth.contract, COMET_OPTIMISM_WETH, "all collateral calls target Comet");
+  assert.equal((wsteth as typeof wsteth & { pricingContract?: string }).pricingContract, CTOKEN_WSTETH, "collateral asset is the pricing contract");
   assert.equal(wsteth.balanceSelector, COLLATERAL_BALANCE_OF_SEL);
   assert.deepEqual(wsteth.balanceSelectorExtraArgs, [CTOKEN_WSTETH_WORD]);
+  assert.equal(wsteth.decimals, 6, "collateral decimals come from AssetInfo.scale");
 
   const borrow = result.tokens.find((t) => t.balanceSelector === BORROW_BALANCE_OF_SEL)!;
   assert.ok(borrow, "borrow position present");
   assert.equal(borrow.contract, COMET_OPTIMISM_WETH, "borrow uses Comet proxy (1 per market)");
   assert.equal(borrow.balanceSelectorExtraArgs, undefined, "no extra args for borrow");
 
-  // Critical: cToken contracts are unique per collateral type — no collision in Portefeuille Crypto Details
-  const contracts = result.tokens.map((t) => t.contract);
-  assert.equal(new Set(contracts).size, contracts.length, "all contracts are unique");
+  // The call target is shared, but selector arguments keep every position distinct.
+  const variants = result.tokens.map((t) => `${t.contract}:${t.balanceSelector}:${(t.balanceSelectorExtraArgs || []).join(",")}`);
+  assert.equal(new Set(variants).size, variants.length, "all call variants are unique");
 });
 
 test("getCompoundV3Tokens with no markets returns empty tokens", async () => {
@@ -122,8 +130,8 @@ test("getCompoundV3Tokens with no markets returns empty tokens", async () => {
 test("getCompoundV3Tokens uses cache when available, no on-chain calls", async () => {
   // Mock cache that returns pre-populated cToken list for the market
   const cachedTokens = [
-    { cToken: "0x1111111111111111111111111111111111111111", symbol: "wrsETH" },
-    { cToken: "0x2222222222222222222222222222222222222222", symbol: "wstETH" },
+    { cToken: "0x1111111111111111111111111111111111111111", symbol: "wrsETH", decimals: 18 },
+    { cToken: "0x2222222222222222222222222222222222222222", symbol: "wstETH", decimals: 18 },
   ];
   const cacheStore = {
     async get<T>(key: string): Promise<T | undefined> {
@@ -153,13 +161,13 @@ test("getCompoundV3Tokens uses cache when available, no on-chain calls", async (
   assert.equal(result.tokens.length, 3, "2 cached collaterals + 1 borrow");
   const wrseth = result.tokens.find((t) => t.symbol === "Comp wrsETH");
   assert.ok(wrseth);
-  assert.equal(wrseth.contract, "0x1111111111111111111111111111111111111111");
+  assert.equal(wrseth.contract, COMET_OPTIMISM_WETH);
 });
 
 test("getCompoundV3Tokens drops malformed cached cTokens before building extra args", async () => {
   const cachedTokens = [
-    { cToken: "0x1111111111111111111111111111111111111111", symbol: "wrsETH" },
-    { cToken: "0xnot-a-token", symbol: "broken" },
+    { cToken: "0x1111111111111111111111111111111111111111", symbol: "wrsETH", decimals: 18 },
+    { cToken: "0xnot-a-token", symbol: "broken", decimals: 18 },
   ];
   const cacheStore = {
     async get<T>(key: string): Promise<T | undefined> {

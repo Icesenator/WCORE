@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getEvmWalletAssets, getEvmWalletsAssets } from "./evm.js";
-import { discoveredTokenVariantKey, normalizeBalanceSelectorExtraArgs } from "./evm-scan.js";
+import { discoveredTokenVariantKey, normalizeBalanceSelectorExtraArgs, normalizeCachedDiscoveryTokens } from "./evm-scan.js";
 import type { RpcCallOptions } from "../rpc/index.js";
 import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
@@ -1308,6 +1308,25 @@ test("normalizeBalanceSelectorExtraArgs upgrades cached address args to ABI word
     ["0x00000000000000000000000087eee96d50fb761ad85b1c982d28a042169d61b1"],
   );
   assert.equal(normalizeBalanceSelectorExtraArgs(["0xnot-a-word"]), null);
+});
+
+test("normalizeCachedDiscoveryTokens drops persisted Compound positions for fresh dynamic discovery", () => {
+  const errors: string[] = [];
+  const cached = normalizeCachedDiscoveryTokens([
+    {
+      contract: "0x87eee96d50fb761ad85b1c982d28a042169d61b1",
+      symbol: "Comp wrsETH",
+      name: "Compound V3 wrsETH Collateral",
+      decimals: 18,
+      source: "registry",
+      balanceSelector: "0x5c2549ee",
+      balanceSelectorExtraArgs: ["0x00000000000000000000000087eee96d50fb761ad85b1c982d28a042169d61b1"],
+      defi: { protocol: "compound-v3", type: "lending_collateral", liquidityStatus: "flex", confidence: "high" },
+    },
+    { contract: CUSTOM, symbol: "KEEP", name: "Keep", decimals: 18, source: "logs" },
+  ] satisfies DiscoveredToken[], errors);
+
+  assert.deepEqual(cached?.map((token) => token.symbol), ["KEEP"]);
 });
 
 test("discoveredTokenVariantKey treats selector extra args case-insensitively", () => {

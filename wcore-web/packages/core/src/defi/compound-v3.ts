@@ -1,8 +1,8 @@
 // v0.3.x: Compound V3 cToken on-chain discoverer — returns DiscoveredToken[] for
-// an EVM chain so the engine can scan each cToken position (collateral) + the
+// an EVM chain so the engine can scan each collateral position + the
 // market's borrow position without static registry entries.
 // Pure on-chain discovery: numAssets() → getAssetInfo(i).asset per collateral →
-// cToken.symbol() for naming. No hardcoded cToken addresses.
+// collateral token symbol() for naming. No hardcoded asset addresses.
 import { decodeUint256, decodeAddressFromWord, decodeStringResult } from "../tokens/abi.js";
 import type { EvmRpc } from "../rpc/index.js";
 import type { DiscoveredToken } from "../tokens/types.js";
@@ -69,6 +69,17 @@ function decodeString(hex: string): string {
   return decodeStringResult(hex) ?? "";
 }
 
+function decimalsFromScale(scale: bigint): number | null {
+  if (scale < 1n) return null;
+  let value = scale;
+  let decimals = 0;
+  while (value > 1n && value % 10n === 0n) {
+    value /= 10n;
+    decimals++;
+  }
+  return value === 1n && decimals <= 36 ? decimals : null;
+}
+
 export interface CompoundV3DiscoveryResult {
   tokens: DiscoveredToken[];
   errors: string[];
@@ -91,17 +102,24 @@ export async function getCompoundV3Tokens(
   for (const market of markets) {
     // 0. Try cache for cToken addresses (constant per market, 7-day TTL)
     const cTokenKey = cacheKey("compoundV3CTokens", { chain: chainKey, market: market.toLowerCase() });
-    let cTokenSymbols: Array<{ cToken: string; symbol: string }> | null = null;
+    let cTokenSymbols: Array<{ cToken: string; symbol: string; decimals: number }> | null = null;
     if (cache) {
       try {
-        cTokenSymbols = (await cache.get<Array<{ cToken: string; symbol: string }>>(cTokenKey)) ?? null;
+        cTokenSymbols = (await cache.get<Array<{ cToken: string; symbol: string; decimals: number }>>(cTokenKey)) ?? null;
         if (cTokenSymbols) {
+          let schemaValid = true;
           const filtered = cTokenSymbols.filter((entry) => {
-            if (isEvmAddress(entry.cToken)) return true;
-            errors.push(`[${market}] invalid cached cToken skipped: ${String(entry.cToken || "")}`);
-            return false;
+            if (!isEvmAddress(entry.cToken)) {
+              errors.push(`[${market}] invalid cached cToken skipped: ${String(entry.cToken || "")}`);
+              return false;
+            }
+            if (!Number.isInteger(entry.decimals) || entry.decimals < 0 || entry.decimals > 36) {
+              schemaValid = false;
+              return false;
+            }
+            return true;
           });
-          cTokenSymbols = filtered;
+          cTokenSymbols = schemaValid ? filtered : null;
         }
       } catch {
         // cache miss
@@ -129,9 +147,12 @@ export async function getCompoundV3Tokens(
         const infoData = GET_ASSET_INFO_SELECTOR + i.toString(16).padStart(64, "0");
         let cToken: string | null;
         let symbol = `asset${i}`;
+        let decimals = 18;
         try {
           const hex = await rpc.ethCall(endpoint, market, infoData);
           cToken = decodeAddressFromWord("0x" + hex.slice(2 + 64, 2 + 64 + 64));
+          const scale = decodeUint256("0x" + hex.slice(2 + 64 * 3, 2 + 64 * 4));
+          decimals = decimalsFromScale(scale) ?? 18;
           if (cToken && cToken !== "0x" + "0".repeat(40)) {
             try {
               const symHex = await rpc.ethCall(endpoint, cToken, SYMBOL_SELECTOR);
@@ -146,7 +167,7 @@ export async function getCompoundV3Tokens(
           continue;
         }
         if (!cToken || cToken === "0x" + "0".repeat(40)) continue;
-        cTokenSymbols.push({ cToken, symbol });
+        cTokenSymbols.push({ cToken, symbol, decimals });
       }
       // Cache the discovered cToken addresses (7 days)
       if (cache && cTokenSymbols.length > 0) {
@@ -158,13 +179,16 @@ export async function getCompoundV3Tokens(
       }
     }
 
-    // 2. Build tokens from cTokenSymbols (from cache or fresh discovery)
-    for (const { cToken, symbol } of cTokenSymbols) {
+    // 2. Build tokens from cTokenSymbols (from cache or fresh discovery).
+    // collateralBalanceOf(user, asset) belongs to Comet; the asset address is
+    // carried as the second ABI argument and later becomes the display contract.
+    for (const { cToken, symbol, decimals } of cTokenSymbols) {
       tokens.push({
-        contract: cToken,
+        contract: market,
+        pricingContract: cToken,
         symbol: `Comp ${symbol}`,
         name: `Compound V3 ${symbol} Collateral`,
-        decimals: 18,
+        decimals,
         balanceSelector: COLLATERAL_BALANCE_OF_SELECTOR,
         balanceSelectorExtraArgs: [`0x${padAddress(cToken)}`],
         chain: chainKey,
@@ -173,9 +197,10 @@ export async function getCompoundV3Tokens(
         defi: {
           protocol: "compound-v3",
           type: "lending_collateral",
-          underlying: "native",
+          underlying: cToken,
           liquidityStatus: "flex",
           confidence: "high",
+          pricing: { mode: "direct", sign: "asset" },
         },
       } as DiscoveredToken);
     }

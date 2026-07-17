@@ -8,6 +8,9 @@ export interface DiscoveredToken {
   source?: "registry" | "logs" | "indexer";
   logoUrl?: string;
   defi?: PositionMetadata;
+  // Optional asset identity used for pricing and display when `contract` is a
+  // protocol call target (for example Compound V3 Comet collateral reads).
+  pricingContract?: string;
   // For non-standard ERC-20 contracts (no standard balanceOf): the 4-byte
   // selector of a single-arg (address) view function returning uint256 (the
   // user's balance). Example: WCT Stake Weight uses locks(address) -> (uint128,uint64)

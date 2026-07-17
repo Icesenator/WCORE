@@ -145,13 +145,12 @@ test("registry returns undefined for normal tokens", () => {
   assert.equal(getDeFiPositionMetadata("OPTIMISM", "0xef4461891dfb3ac8572ccf7c794664a8dd927945", "WCT"), undefined);
 });
 
-test("existing token registry entries can carry DeFi metadata during migration", () => {
+test("token registry keeps static DeFi metadata while Compound remains dynamic", () => {
   const optimism = TOKEN_REGISTRY.OPTIMISM ?? [];
   const stake = optimism.find((token) => token.symbol === "WCT Stake");
   const borrow = optimism.find((token) => token.symbol === "Comp WETH Borrow");
 
   assert.equal(stake?.defi?.type, "staking_locked");
   assert.equal(stake?.defi?.liquidityStatus, "lock");
-  assert.equal(borrow?.defi?.type, "lending_debt");
-  assert.equal(borrow?.defi?.pricing?.sign, "debt");
+  assert.equal(borrow, undefined);
 });

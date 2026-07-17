@@ -121,7 +121,7 @@ export async function priceToken(
     skipCache: skipCache || chain.key === "GNOSIS",
     intraScanCache,
   });
-  if (priced.reason) errors.push(`${known.symbol} price: ${priced.reason}`);
+  if (priced.reason && priced.reason !== "NO_PRICE") errors.push(`${known.symbol} price: ${priced.reason}`);
   return {
     contract: pricingContract,
     symbol: known.symbol,

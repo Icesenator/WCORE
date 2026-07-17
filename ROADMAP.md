@@ -92,12 +92,12 @@
 
 ## Chain Lifecycle
 
-Deadlines passees a revalider immediatement:
+Deadlines passees, revalidees le 2026-07-17:
 
-- Swellchain: 2026-06-23.
-- Corn: 2026-06-30; ledger live deja retire, code restant a trancher.
-- Polygon zkEVM: 2026-07-01.
-- Botanix: 2026-07-09.
+- Swellchain: vivante (blocs frais), conservee; 3 RPCs morts retires (v4.16.31).
+- Corn: morte (RPC unique en 401), `DISABLE_CHAIN` pose (v4.16.31); retrait complet du code (Web, GM, wagmi, docs, tests) reste a faire.
+- Polygon zkEVM: HALTED depuis le 2026-07-03 (sunset sequencer), `DISABLE_CHAIN` pose (v4.16.31); retrait complet a planifier.
+- Botanix: vivante (blocs frais), conservee.
 
 Deadlines futures:
 

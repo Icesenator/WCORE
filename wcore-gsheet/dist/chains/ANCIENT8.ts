@@ -8,6 +8,9 @@ export const ANCIENT8: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 63,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://rpc.ancient8.gg",

@@ -61,10 +61,10 @@ Statut: conception validee, implementation differee.
 ## Chain Lifecycle
 
 - [x] RARI Chain supprime (sunset annonce 4 juin 2026, deadline 14 juin passee, infra Caldera disparue).
-- [ ] Revalider puis desactiver/retirer Swellchain, deadline passee le 2026-06-23.
-- [ ] Finaliser le retrait code de Corn, shutdown le 2026-06-30; le ledger live est deja retire.
-- [ ] Revalider Polygon zkEVM, sunset sequencer le 2026-07-01.
-- [ ] Revalider Botanix, deadline le 2026-07-09.
+- [x] Swellchain revalidee le 2026-07-17: vivante (blocs frais), conservee; RPCs morts (alt.technology, hypersync, tenderly) retires (v4.16.31).
+- [x] Corn desactive (FLAGS.DISABLE_CHAIN, v4.16.31): RPC unique en 401, shutdown 2026-06-30 confirme. Retrait complet du code (Web/GM/wagmi/docs/tests) reste a faire.
+- [x] Polygon zkEVM desactive (FLAGS.DISABLE_CHAIN, v4.16.31): chaine HALTED depuis le 2026-07-03 (dernier bloc 33391890), sunset sequencer confirme.
+- [x] Botanix revalidee le 2026-07-17: vivante (blocs frais), conservee.
 - [x] Ancient8 desactive (FLAGS.DISABLE_CHAIN) — maintenance depuis le 19/06, RPC Conduit payant, inaccessible. À reactiver si le reseau reprend un RPC public.
 - [ ] Garder ZERO jusqu'au 2026-07-31, Mint withdrawal jusqu'au 2026-10-20 et Cronos zkEVM jusqu'au 2027-06-03.
 

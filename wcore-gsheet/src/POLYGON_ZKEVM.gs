@@ -1,10 +1,13 @@
 /**
- * POLYGON_ZKEVM.gs - Polygon zkEVM (v4.9.5)
+ * POLYGON_ZKEVM.gs - Polygon zkEVM (v4.16.31 DISABLED)
+ * Sequencer sunset 2026-07-01. Revalidation 2026-07-17: RPCs repondent encore
+ * mais chaine HALTED — dernier bloc 33391890 date du 2026-07-03T15:55:44Z.
  * ChainFactory pattern with explicit function declarations
  */
 
 var _POLYGON_ZKEVM = ChainFactory.createEvmChain("POLYGON_ZKEVM", {
  CACHE_VERSION: 63,
+ FLAGS: { DISABLE_CHAIN: true },
  RPC: { ENDPOINTS: ["https://zkevm-rpc.com", "https://polygon-zkevm.drpc.org", "https://1rpc.io/polygon/zkevm"] },
  CHAIN: {
  NAME: "Polygon zkEVM",

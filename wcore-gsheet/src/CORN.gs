@@ -1,10 +1,13 @@
 /**
- * CORN.gs - Corn (v4.9.5)
+ * CORN.gs - Corn (v4.16.31 DISABLED)
+ * Network shutdown 2026-06-30 (annonce officielle). Ledger deja retire.
+ * Revalidation 2026-07-17: unique RPC maizenet-rpc.usecorn.com repond HTTP 401.
  * ChainFactory pattern with explicit function declarations
  */
 
 var _CORN = ChainFactory.createEvmChain("CORN", {
  CACHE_VERSION: 63,
+ FLAGS: { DISABLE_CHAIN: true },
   RPC: { ENDPOINTS: ["https://maizenet-rpc.usecorn.com"] }, // mainnet.corn-rpc.com 403, drpc.org 404, ankr 403 (v4.15.49 fix)
  CHAIN: {
  NAME: "Corn",

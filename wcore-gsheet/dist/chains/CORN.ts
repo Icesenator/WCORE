@@ -8,6 +8,9 @@ export const CORN: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 63,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://maizenet-rpc.usecorn.com",

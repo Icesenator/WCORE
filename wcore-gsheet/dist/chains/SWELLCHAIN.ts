@@ -12,9 +12,6 @@ export const SWELLCHAIN: ChainConfig = {
     ENDPOINTS: [
       "https://swell.drpc.org",
       "https://rpc.ankr.com/swell",
-      "https://swell-mainnet.alt.technology",
-      "https://swell.hypersync.xyz",
-      "https://swellchain.gateway.tenderly.co",
     ],
   },
   CHAIN: {

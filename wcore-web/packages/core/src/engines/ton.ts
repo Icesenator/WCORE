@@ -14,14 +14,14 @@ import {
   type PricingSourceSet,
   type PricingToken,
 } from "../pricing/index.js";
-import type { WalletAssetsCommon, ScanPhases } from "./types.js";
+import type { WalletAssetsCommon, WalletAssetProvenance, ScanPhases } from "./types.js";
 import type { WalletAssetPrice } from "./evm.js";
 import type { CacheStore } from "../cache/index.js";
 
 const TONAPI_BASE = "https://tonapi.io/v2";
 const TONCENTER_BASE = "https://toncenter.com/api/v2";
 
-export interface TonWalletToken extends WalletAssetPrice {
+export interface TonWalletToken extends WalletAssetPrice, WalletAssetProvenance {
   [key: string]: unknown;
   jettonAddress: string;
   name: string;

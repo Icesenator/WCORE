@@ -9,6 +9,9 @@ const keysSource = fs.readFileSync(path.join(root, 'src/00C_CACHE_KEYS.gs'), 'ut
 const webSource = fs.readFileSync(path.join(root, 'src/41_GSHEET_WEB_SCAN.gs'), 'utf8');
 
 function runtime(shared, options = {}) {
+  class FakeDate extends Date {
+    static now() { return shared.nowMs; }
+  }
   const props = Object.assign({
     GSHEET_WEB_SCAN_ENABLED: 'true',
     GSHEET_WEB_SCAN_REQUIRE: 'true',
@@ -22,29 +25,32 @@ function runtime(shared, options = {}) {
   };
   const cache = {
     get(key) {
-      if (!shared.lockHeld) throw new Error('cache admission read without UserLock');
+      if (!shared.lockHeld) throw new Error('shared cache read without ScriptLock');
       const entry = shared.cache.get(key);
       if (!entry) return null;
       if (entry.expiresAt <= shared.nowMs) { shared.cache.delete(key); return null; }
       return entry.value;
     },
     put(key, value, ttl) {
-      if (!shared.lockHeld) throw new Error('cache admission write without UserLock');
+      if (!shared.lockHeld) throw new Error('shared cache write without ScriptLock');
       shared.puts.push({ key, value, ttl });
       shared.cache.set(key, { value: String(value), expiresAt: shared.nowMs + ttl * 1000 });
     },
-    remove(key) { if (!shared.lockHeld) throw new Error('cache admission remove without UserLock'); shared.cache.delete(key); }
+    remove(key) { if (!shared.lockHeld) throw new Error('shared cache remove without ScriptLock'); shared.cache.delete(key); }
   };
   const context = {
-    console, Date, JSON, Math, String, Number, Boolean, Array, Object, RegExp,
+    console, Date: FakeDate, JSON, Math, String, Number, Boolean, Array, Object, RegExp,
     encodeURIComponent, isFinite, parseInt,
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (key) => Object.prototype.hasOwnProperty.call(props, key) ? props[key] : null,
-      setProperty: (key, value) => { assert.equal(shared.lockHeld, false, 'UserLock must be released before diagnostics'); props[key] = String(value); },
+      setProperty: (key, value) => { assert.equal(shared.lockHeld, false, 'ScriptLock must be released before diagnostics'); props[key] = String(value); },
       getProperties: () => Object.assign({}, props)
     }) },
     CacheService: { getScriptCache: () => cache },
-    LockService: { getUserLock: () => lock },
+    LockService: {
+      getScriptLock: () => { shared.scriptLockRequests++; return lock; },
+      getUserLock: () => { shared.userLockRequests++; return lock; }
+    },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'SHA_256' },
       computeDigest: (_algorithm, value) => {
@@ -56,10 +62,10 @@ function runtime(shared, options = {}) {
     },
     Session: { getScriptTimeZone: () => 'Europe/Paris' },
     UrlFetchApp: { fetch() { throw new Error('patched fetch must not be selected'); } },
-    _originalUrlFetch() { assert.equal(shared.lockHeld, false, 'UserLock must be released before HTTP'); shared.fetches++; return options.response ? options.response() : { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, native: { symbol: 'ETH', balance: 1, priceEur: 1, valueEur: 1 }, tokens: [], errors: [], degraded: false, fxRate: 0.9, scanMs: 1 }) }; },
+    _originalUrlFetch() { assert.equal(shared.lockHeld, false, 'ScriptLock must be released before HTTP'); shared.fetches++; return options.response ? options.response() : { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, native: { symbol: 'ETH', balance: 1, priceEur: 1, valueEur: 1 }, tokens: [], errors: [], degraded: false, fxRate: 0.9, scanMs: 1 }) }; },
     WalletCache: {
-      load: () => { assert.equal(shared.lockHeld, false, 'UserLock must be released before wallet cache load'); return options.walletCache || null; },
-      save: (_key, value) => { assert.equal(shared.lockHeld, false, 'UserLock must be released before wallet cache save'); shared.saved.push(value); },
+      load: () => { assert.equal(shared.lockHeld, false, 'ScriptLock must be released before wallet cache load'); return options.walletCache || null; },
+      save: (_key, value) => { assert.equal(shared.lockHeld, false, 'ScriptLock must be released before wallet cache save'); shared.saved.push(value); },
       getLastUpdateStr: () => '2026-07-18 12:00:00'
     },
     CacheManager: { init() {} },
@@ -77,7 +83,36 @@ function runtime(shared, options = {}) {
 }
 
 function state() {
-  return { cache: new Map(), puts: [], saved: [], fetches: 0, lockAttempts: 0, lockHeld: false, nowMs: Date.parse('2026-07-18T12:00:00Z') };
+  return { cache: new Map(), puts: [], saved: [], fetches: 0, lockAttempts: 0, scriptLockRequests: 0, userLockRequests: 0, lockHeld: false, nowMs: Date.parse('2026-07-18T12:00:00Z') };
+}
+
+function breakerState(shared) {
+  const entry = shared.cache.get('WSCAN_BREAKER:v1');
+  return entry ? JSON.parse(entry.value) : { failures: [], openUntil: 0 };
+}
+
+function httpResponse(code, body = '{}') {
+  return { getResponseCode: () => code, getContentText: () => body };
+}
+
+function successfulResponse() {
+  return httpResponse(200, JSON.stringify({
+    ok: true,
+    native: { symbol: 'ETH', balance: 1, priceEur: 1, valueEur: 1 },
+    tokens: [],
+    errors: [],
+    degraded: false,
+    fxRate: 0.9,
+    scanMs: 1,
+  }));
+}
+
+{
+  const shared = state();
+  const result = runtime(shared)._webScanWallet_('0xgloballock', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(result.ok, true);
+  assert.equal(shared.scriptLockRequests, 2, 'automatic admission and breaker update use ScriptLock');
+  assert.equal(shared.userLockRequests, 0, 'shared ScriptCache state must not use UserLock');
 }
 
 {
@@ -148,6 +183,181 @@ for (const mode of ['lock', 'cache']) {
   const automatic = ctx._webScanWallet_('0x123', [], false, { CHAIN: { KEY: 'BASE' } });
   assert.equal(automatic.deferred, true, `${mode} failure must fail closed for automatic work`);
   assert.equal(shared.fetches, 0);
+}
+
+{
+  const shared = state();
+  const ctx = runtime(shared, { response: () => { throw new Error('Address unavailable: WCORE API'); } });
+  const result = ctx._webScanWallet_('0xauto', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(shared.fetches, 1, 'automatic scan gets exactly one HTTP attempt');
+  assert.equal(result.ok, false);
+  assert.equal(result.transient, true);
+  assert.equal(breakerState(shared).failures.length, 1);
+}
+
+{
+  const shared = state();
+  const ctx = runtime(shared, { response: () => { throw new Error('Address unavailable: WCORE API'); } });
+  const result = ctx._webScanWallet_('0xmanual', [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(shared.fetches, 2, 'explicit force scan may retry one transient failure');
+  assert.equal(result.transient, true);
+  assert.equal(breakerState(shared).failures.length, 1, 'one failed operation records one failure, not one per attempt');
+}
+
+{
+  const shared = state();
+  for (let i = 0; i < 3; i++) {
+    runtime(shared, { response: () => { throw new Error('network unavailable'); } })
+      ._webScanWallet_(`0xbreaker${i}`, [], false, { CHAIN: { KEY: 'BASE' } });
+  }
+  const opened = breakerState(shared);
+  assert.equal(opened.failures.length, 3);
+  assert.equal(opened.openUntil, shared.nowMs + 30 * 60 * 1000, 'third transient opens breaker for 30 minutes');
+
+  const blocked = runtime(shared)._webScanWallet_('0xblocked', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(shared.fetches, 3, 'open breaker suppresses the next automatic HTTP fetch');
+  assert.equal(blocked.deferred, true);
+  assert.equal(blocked.deferredReason, 'WEB_BREAKER_OPEN');
+
+  shared.nowMs += 30 * 60 * 1000 + 1;
+  const afterExpiry = runtime(shared)._webScanWallet_('0xexpired', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(afterExpiry.ok, true, 'breaker expiry permits a new fetch');
+  assert.equal(shared.fetches, 4);
+}
+
+{
+  const shared = state();
+  for (let i = 0; i < 2; i++) {
+    runtime(shared, { response: () => { throw new Error('network unavailable'); } })
+      ._webScanWallet_(`0xresetfail${i}`, [], false, { CHAIN: { KEY: 'BASE' } });
+  }
+  assert.equal(breakerState(shared).failures.length, 2);
+  const success = runtime(shared)._webScanWallet_('0xresetsuccess', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(success.ok, true);
+  assert.deepEqual(breakerState(shared), { failures: [], openUntil: 0 }, 'success clears transient failure state');
+}
+
+for (const code of [400, 401, 403, 404]) {
+  const shared = state();
+  const result = runtime(shared, { response: () => httpResponse(code, '{"error":"permanent"}') })
+    ._webScanWallet_(`0x${code}`, [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(shared.fetches, 1, `HTTP ${code} must not retry`);
+  assert.equal(result.transient, false);
+  assert.equal(breakerState(shared).failures.length, 0, `HTTP ${code} must not increment the breaker`);
+}
+
+for (const code of [408, 425]) {
+  const shared = state();
+  const result = runtime(shared, { response: () => httpResponse(code, '{"error":"transient"}') })
+    ._webScanWallet_(`0xauto${code}`, [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(shared.fetches, 1, `automatic HTTP ${code} gets exactly one attempt`);
+  assert.equal(result.transient, true, `HTTP ${code} must be transient`);
+  assert.equal(breakerState(shared).failures.length, 1, `HTTP ${code} must increment the breaker`);
+}
+
+for (const code of [408, 425]) {
+  const shared = state();
+  const result = runtime(shared, { response: () => httpResponse(code, '{"error":"transient"}') })
+    ._webScanWallet_(`0xmanual${code}`, [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(shared.fetches, 2, `manual HTTP ${code} may retry once`);
+  assert.equal(result.transient, true);
+  assert.equal(breakerState(shared).failures.length, 1, `manual HTTP ${code} records one failed operation`);
+}
+
+{
+  const shared = state();
+  const result = runtime(shared, { response: () => httpResponse(503, '{"error":"unavailable"}') })
+    ._webScanWallet_('0xauto503', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(shared.fetches, 1, 'automatic HTTP 503 gets exactly one attempt');
+  assert.equal(result.transient, true, 'HTTP 503 must be transient');
+  assert.equal(breakerState(shared).failures.length, 1, 'HTTP 503 must increment the breaker');
+}
+
+{
+  const shared = state();
+  let attempts = 0;
+  const ctx = runtime(shared, {
+    response: () => ++attempts === 1 ? httpResponse(503, '{"error":"unavailable"}') : successfulResponse(),
+  });
+  const result = ctx._webScanWallet_('0xmanualrecovery', [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(result.ok, true);
+  assert.equal(shared.fetches, 2);
+  assert.equal(ctx.__props.GSHEET_WEB_SCAN_LAST_ERROR, '', 'successful retry clears stale transport diagnostics');
+}
+
+{
+  const shared = state();
+  const outcomes = [
+    () => httpResponse(429, '{"error":"rate_limited"}'),
+    () => httpResponse(500, '{"error":"upstream"}'),
+    () => { throw new Error('network unavailable'); },
+  ];
+  outcomes.forEach((response, index) => {
+    runtime(shared, { response })._webScanWallet_(`0xtransient${index}`, [], false, { CHAIN: { KEY: 'BASE' } });
+  });
+  assert.equal(shared.fetches, 3);
+  assert.equal(breakerState(shared).failures.length, 3, '429, 5xx, and network exceptions count as transient');
+  assert(breakerState(shared).openUntil > shared.nowMs);
+}
+
+{
+  const shared = state();
+  shared.cache.set('WSCAN_BREAKER:v1', {
+    value: JSON.stringify({ failures: [shared.nowMs - 2, shared.nowMs - 1, shared.nowMs], openUntil: shared.nowMs + 30 * 60 * 1000 }),
+    expiresAt: shared.nowMs + 35 * 60 * 1000,
+  });
+  const forced = runtime(shared)._webScanWallet_('0xforcebypass', [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(forced.ok, true, 'force may bypass Web breaker admission');
+  assert.equal(shared.fetches, 1);
+}
+
+for (const mode of ['lock', 'cache']) {
+  const shared = state();
+  const ctx = runtime(shared, mode === 'lock' ? { lockFails: true } : {});
+  if (mode === 'cache') ctx.CacheService.getScriptCache = () => { throw new Error('cache unavailable'); };
+  const forced = ctx._webScanWallet_(`0xforce${mode}`, [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(forced.ok, true, `force may proceed through Web admission on ${mode} failure`);
+  assert.equal(shared.fetches, 1);
+}
+
+{
+  const shared = state();
+  const quota = {
+    isTripped: () => shared.fetches >= 1,
+    handleError: () => false,
+  };
+  const result = runtime(shared, {
+    quota,
+    response: () => { throw new Error('network unavailable'); },
+  })._webScanWallet_('0xquotabetweenattempts', [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.match(result.status, /^\[BLOCKED:QUOTA\]/, 'quota tripped after attempt one blocks the retry');
+  assert.equal(shared.fetches, 1, 'quota re-check prevents a second manual fetch');
+  assert.equal(breakerState(shared).failures.length, 0, 'Google quota transition does not increment the Web breaker');
+}
+
+{
+  const shared = state();
+  let handled = 0;
+  const quota = {
+    isTripped: () => false,
+    handleError: (err) => { handled++; return String(err && err.message || err).includes('Service invoked too many times'); },
+  };
+  const result = runtime(shared, {
+    quota,
+    response: () => { throw new Error('Service invoked too many times for one day: urlfetch.'); },
+  })._webScanWallet_('0xquotaerror', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.match(result.status, /^\[BLOCKED:QUOTA\]/);
+  assert.equal(handled, 1);
+  assert.equal(breakerState(shared).failures.length, 0, 'Google quota exceptions do not increment the Web breaker');
+}
+
+{
+  const shared = state();
+  const quota = { isTripped: () => true, handleError: () => { throw new Error('must not handle pre-tripped quota'); } };
+  const result = runtime(shared, { quota })._webScanWallet_('0xquotaforce', [], true, { CHAIN: { KEY: 'BASE' } });
+  assert.match(result.status, /^\[BLOCKED:QUOTA\]/);
+  assert.equal(shared.fetches, 0, 'force must never bypass QuotaCircuitBreaker');
+  assert.equal(breakerState(shared).failures.length, 0);
 }
 
 for (const file of ['11_EVM_ENGINE.gs', '14_SVM_ENGINE.gs', '15_COSMOS_ENGINE.gs', 'TON.gs']) {

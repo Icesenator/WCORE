@@ -132,7 +132,7 @@ function makeContext(props, fetchBody) {
       }),
     },
     LockService: {
-      getUserLock: () => ({ tryLock: () => true, releaseLock: () => {} }),
+      getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }),
     },
     Session: { getScriptTimeZone: () => 'Europe/Paris' },
     CacheManager: { init: () => {} },
@@ -868,7 +868,25 @@ const samplePayload = JSON.stringify({
     return { getResponseCode: () => 200, getContentText: () => samplePayload };
   });
   const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'ARBITRUM_ONE', NAME: 'Arbitrum One' } });
-  assert.equal(res.ok, true, 'web scan should retry transient UrlFetch failures before falling back native');
+  assert.equal(res.ok, false, 'automatic web scan must stop after one transient failure');
+  assert.equal(res.transient, true);
+  assert.equal(attempts, 1);
+}
+
+{
+  let attempts = 0;
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, () => {
+    attempts++;
+    if (attempts === 1) throw new Error('Address unavailable: https://api.example.test/api/gsheet/scan');
+    return { getResponseCode: () => 200, getContentText: () => samplePayload };
+  });
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], true, { CHAIN: { KEY: 'ARBITRUM_ONE', NAME: 'Arbitrum One' } });
+  assert.equal(res.ok, true, 'explicit force web scan may retry one transient failure');
   assert.equal(attempts, 2);
 }
 
@@ -935,10 +953,13 @@ const samplePayload = JSON.stringify({
     getResponseCode: () => 503,
     getContentText: () => '{"error":"scan_failed"}',
   }));
-  const res = ctx.DIAG_WEB_SCAN_CHAIN('CAMP', '0x0000000000000000000000000000000000000001');
+  const res = ctx.LIVE_PROBE_WEB_SCAN_CHAIN('CAMP', '0x0000000000000000000000000000000000000001');
   assert.deepEqual(res, [['status', 'HTTP_503'], ['error', 'scan_failed']]);
   assert.equal(props.GSHEET_WEB_SCAN_LAST_ERROR, 'HTTP_503 scan_failed', 'diagnostic should persist the web API failure reason');
 }
+
+assert.equal(source.includes('function DIAG_WEB_SCAN_CHAIN('), false, 'network-making diagnostic must be named as a live probe');
+assert.match(source, /function LIVE_PROBE_WEB_SCAN_CHAIN\(chain, address\)/);
 
 {
   assert.equal(source.includes('GSHEET_WEB_SCAN_DENYLIST'), false, 'web scan must not use per-address denylist; WCORE WEB is the wallet label source');

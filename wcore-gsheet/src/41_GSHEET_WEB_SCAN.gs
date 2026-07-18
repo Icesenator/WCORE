@@ -1,6 +1,7 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.33 - Bound automatic Web attempts and trip a shared transient failure breaker.
  * v4.16.32 - Preserve case-sensitive wallet identities and report admission errors safely.
  * v4.16.31 - Suppress duplicate automatic Web scans with a short hashed lease.
  * v4.16.30 - _webScanMustUse_: stronger gate. When GSHEET_WEB_SCAN_REQUIRE is set,
@@ -41,10 +42,15 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.32";
-var GSHEET_WEB_SCAN_MAX_ATTEMPTS = 2;
+var GSHEET_WEB_SCAN_VERSION = "4.16.33";
+var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
+var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 120;
 var GSHEET_WEB_SCAN_LOCK_WAIT_MS = 250;
+var GSHEET_WEB_BREAKER_THRESHOLD = 3;
+var GSHEET_WEB_BREAKER_WINDOW_MS = 5 * 60 * 1000;
+var GSHEET_WEB_BREAKER_OPEN_SEC = 30 * 60;
+var GSHEET_WEB_BREAKER_STATE_TTL_SEC = 35 * 60;
 
 var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
   "0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3": true, // BASE: AGI
@@ -613,6 +619,58 @@ function _webScanForce_(forceFull) {
   return forceFull === true || String(forceFull || '').toUpperCase() === 'TRUE';
 }
 
+function _webScanHttpClass_(code) {
+  code = Number(code || 0);
+  if (code >= 200 && code < 300) return 'success';
+  if (code === 0 || code === 408 || code === 425 || code === 429 || (code >= 500 && code < 600)) return 'transient';
+  return 'permanent';
+}
+
+function _webScanReadBreakerState_(cache) {
+  cache = cache || CacheService.getScriptCache();
+  var raw = cache.get(CK_get('webApiFailureState'));
+  var state = raw ? JSON.parse(raw) : {};
+  var failures = Array.isArray(state.failures) ? state.failures : [];
+  var bounded = [];
+  for (var i = Math.max(0, failures.length - GSHEET_WEB_BREAKER_THRESHOLD); i < failures.length; i++) {
+    var ts = Number(failures[i]);
+    if (isFinite(ts) && ts >= 0) bounded.push(ts);
+  }
+  return { failures: bounded, openUntil: Math.max(0, Number(state.openUntil || 0) || 0) };
+}
+
+function _webScanUpdateBreaker_(outcome) {
+  var lock = null;
+  var acquired = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock || !lock.tryLock(GSHEET_WEB_SCAN_LOCK_WAIT_MS)) return false;
+    acquired = true;
+    var cache = CacheService.getScriptCache();
+    if (!cache) return false;
+    var state = _webScanReadBreakerState_(cache);
+    var now = Date.now();
+    if (outcome === 'success') state = { failures: [], openUntil: 0 };
+    if (outcome === 'transient') {
+      state.failures = state.failures.filter(function(ts) {
+        var age = now - Number(ts);
+        return age >= 0 && age <= GSHEET_WEB_BREAKER_WINDOW_MS;
+      });
+      state.failures.push(now);
+      state.failures = state.failures.slice(-GSHEET_WEB_BREAKER_THRESHOLD);
+      if (state.failures.length >= GSHEET_WEB_BREAKER_THRESHOLD) {
+        state.openUntil = now + GSHEET_WEB_BREAKER_OPEN_SEC * 1000;
+      }
+    }
+    cache.put(CK_get('webApiFailureState'), JSON.stringify(state), GSHEET_WEB_BREAKER_STATE_TTL_SEC);
+    return true;
+  } catch (e) {
+    return false;
+  } finally {
+    if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+  }
+}
+
 function _webScanWalletHash_(address) {
   var identity = String(address || '').trim();
   if (/^0x[0-9a-fA-F]{40}$/.test(identity)) identity = identity.toLowerCase();
@@ -643,11 +701,13 @@ function _webScanAcquireAdmission_(address, chainKey, forceFull) {
   var acquired = false;
   var admissionError = false;
   try {
-    lock = LockService.getUserLock();
+    lock = LockService.getScriptLock();
     if (!lock || !lock.tryLock(GSHEET_WEB_SCAN_LOCK_WAIT_MS)) return { allowed: false, reason: 'LOCK_BUSY' };
     acquired = true;
     var cache = CacheService.getScriptCache();
     if (!cache) return { allowed: false, reason: 'CACHE_UNAVAILABLE' };
+    var breaker = _webScanReadBreakerState_(cache);
+    if (breaker.openUntil > Date.now()) return { allowed: false, reason: 'WEB_BREAKER_OPEN' };
     var key = CK_get('webScanLease', { chainKey: chainKey, walletHash: _webScanWalletHash_(address) });
     if (cache.get(key)) return { allowed: false, reason: 'LEASE_HELD' };
     cache.put(key, '1', GSHEET_WEB_SCAN_LEASE_SEC);
@@ -676,10 +736,11 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
     if (!req.address || !req.chain) return null;
     var fetchFn = (typeof _originalUrlFetch === "function") ? _originalUrlFetch : UrlFetchApp.fetch;
-    var lastErr = null;
     var resp = null;
-    var attempts = Math.max(1, GSHEET_WEB_SCAN_MAX_ATTEMPTS || 1);
+    var force = _webScanForce_(forceFull);
+    var attempts = force ? GSHEET_WEB_SCAN_MANUAL_ATTEMPTS : GSHEET_WEB_SCAN_AUTO_ATTEMPTS;
     for (var attempt = 1; attempt <= attempts; attempt++) {
+      if (_webScanQuotaTripped_()) return _webScanBlockedQuotaResult_(chainKey);
       // v4.16.30: count every real UrlFetch attempt (even failures count against
       // Google's quota). _originalUrlFetch bypasses the HttpCounter patch, so
       // without this the dominant HTTP consumer is invisible to the 24h counter.
@@ -693,32 +754,41 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       headers: { "x-gsheet-token": token, accept: "application/json" },
       muteHttpExceptions: true
         });
-        lastErr = null;
-        break;
+        var code = resp && resp.getResponseCode ? resp.getResponseCode() : 0;
+        var httpClass = _webScanHttpClass_(code);
+        if (httpClass === 'success') break;
+        var httpFailure = _webScanResponseError_(code, resp && resp.getContentText ? resp.getContentText() : "");
+        httpFailure.transient = httpClass === 'transient';
+        _webScanSetLastError_(httpFailure.status + " " + httpFailure.error, chainKey);
+        if (!httpFailure.transient) return httpFailure;
+        if (attempt < attempts) {
+          if (Utilities && Utilities.sleep) Utilities.sleep(250);
+          continue;
+        }
+        _webScanUpdateBreaker_('transient');
+        return httpFailure;
       } catch (fetchErr) {
-        lastErr = fetchErr;
-        if (attempt < attempts && Utilities && Utilities.sleep) Utilities.sleep(250);
+        var quotaResult = _webScanHandleQuotaError_(fetchErr, chainKey);
+        if (quotaResult) return quotaResult;
+        if (attempt < attempts) {
+          if (Utilities && Utilities.sleep) Utilities.sleep(250);
+          continue;
+        }
+        _webScanUpdateBreaker_('transient');
+        _webScanSetLastError_(String(fetchErr && (fetchErr.message || fetchErr) || fetchErr), chainKey);
+        return { ok: false, status: 'NETWORK_ERROR', error: String(fetchErr && (fetchErr.message || fetchErr) || fetchErr), transient: true };
       }
     }
-    if (lastErr) {
-      var quotaResult = _webScanHandleQuotaError_(lastErr, chainKey);
-      if (quotaResult) return quotaResult;
-      throw lastErr;
-    }
-    var code = resp && resp.getResponseCode ? resp.getResponseCode() : 0;
-    if (code < 200 || code >= 300) {
-      var httpFailure = _webScanResponseError_(code, resp && resp.getContentText ? resp.getContentText() : "");
-      _webScanSetLastError_(httpFailure.status + " " + httpFailure.error);
-      return httpFailure;
-    }
     var payload = JSON.parse(resp.getContentText() || "{}");
-    _webScanLogScanErrors_(payload, chainKey);
     var cache = _webScanConvertToWalletCache_(payload, config, tokensRange);
     if (!cache || !cache.assets || !cache.assets.length) {
       var payloadFailure = { ok: false, status: "INVALID_PAYLOAD", error: String(payload && (payload.error || payload.message) || "empty_assets") };
       _webScanSetLastError_(payloadFailure.status + " " + payloadFailure.error, chainKey);
       return payloadFailure;
     }
+    _webScanSetLastError_('', chainKey);
+    _webScanLogScanErrors_(payload, chainKey);
+    _webScanUpdateBreaker_('success');
     if (_webScanShouldPreserveExistingCache_(payload, cache, config)) {
       var existingCache = null;
       try { existingCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config); } catch (loadErr) { existingCache = null; }
@@ -774,7 +844,7 @@ function DIAG_WEB_SCAN_STATUS() {
   ];
 }
 
-function DIAG_WEB_SCAN_CHAIN(chain, address) {
+function LIVE_PROBE_WEB_SCAN_CHAIN(chain, address) {
   var cfg = { CHAIN: { NAME: String(chain || "") }, CACHE_VERSION: null };
   var res = _webScanWallet_(address, [], false, cfg);
   if (!res) return [["status", "NO_RESULT"]];

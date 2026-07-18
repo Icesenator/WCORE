@@ -8,6 +8,61 @@ const root = path.resolve(__dirname, '..');
 const keysSource = fs.readFileSync(path.join(root, 'src/00C_CACHE_KEYS.gs'), 'utf8');
 const webSource = fs.readFileSync(path.join(root, 'src/41_GSHEET_WEB_SCAN.gs'), 'utf8');
 
+function balancedBody(source, bodyStart, name) {
+  let depth = 0;
+  let state = 'code';
+  let escaped = false;
+  let quote = '';
+  let regexClass = false;
+  for (let i = bodyStart; i < source.length; i++) {
+    const ch = source[i];
+    const next = source[i + 1];
+    if (state === 'line') { if (ch === '\n') state = 'code'; continue; }
+    if (state === 'block') { if (ch === '*' && next === '/') { state = 'code'; i++; } continue; }
+    if (state === 'string' || state === 'template') {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if ((state === 'string' && ch === quote) || (state === 'template' && ch === '`')) state = 'code';
+      continue;
+    }
+    if (state === 'regex') {
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '[') regexClass = true;
+      if (ch === ']') regexClass = false;
+      if (ch === '/' && !regexClass) state = 'code';
+      continue;
+    }
+    if (ch === '/' && next === '/') { state = 'line'; i++; continue; }
+    if (ch === '/' && next === '*') { state = 'block'; i++; continue; }
+    if (ch === '"' || ch === "'") { state = 'string'; quote = ch; continue; }
+    if (ch === '`') { state = 'template'; continue; }
+    if (ch === '/') {
+      const before = source.slice(0, i).trimEnd();
+      const word = before.match(/([A-Za-z_$][\w$]*)$/);
+      const previous = before.charAt(before.length - 1);
+      if (!previous || /[([{,:;=!?&|+\-*%^~<>]/.test(previous) || (word && /^(return|case|throw|typeof|instanceof|in|of)$/.test(word[1]))) {
+        state = 'regex';
+        regexClass = false;
+        continue;
+      }
+    }
+    if (ch === '{') depth++;
+    if (ch === '}' && --depth === 0) return i;
+  }
+  throw new Error(`${name} body not closed`);
+}
+
+function extractFunction(source, name) {
+  const match = new RegExp(`\\bfunction\\s+${name}\\s*\\([^)]*\\)\\s*\\{`).exec(source);
+  assert(match, `${name} not found`);
+  const bodyStart = match.index + match[0].lastIndexOf('{');
+  return source.slice(match.index, balancedBody(source, bodyStart, name) + 1);
+}
+
+const trickyFunction = 'function compact (x){const a="}";/* { ignored */return /[}]/.test(a)&&x;}function after(){return false;}';
+assert.equal(extractFunction(trickyFunction, 'compact'), 'function compact (x){const a="}";/* { ignored */return /[}]/.test(a)&&x;}');
+
 function runtime(shared, options = {}) {
   class FakeDate extends Date {
     static now() { return shared.nowMs; }
@@ -25,7 +80,7 @@ function runtime(shared, options = {}) {
   };
   const cache = {
     get(key) {
-      if (!shared.lockHeld) throw new Error('shared cache read without ScriptLock');
+      if (!shared.lockHeld && !options.allowUnlockedCacheRead) throw new Error('shared cache read without ScriptLock');
       const entry = shared.cache.get(key);
       if (!entry) return null;
       if (entry.expiresAt <= shared.nowMs) { shared.cache.delete(key); return null; }
@@ -37,6 +92,11 @@ function runtime(shared, options = {}) {
       shared.cache.set(key, { value: String(value), expiresAt: shared.nowMs + ttl * 1000 });
     },
     remove(key) { if (!shared.lockHeld) throw new Error('shared cache remove without ScriptLock'); shared.cache.delete(key); }
+  };
+  const originalFetch = () => {
+    assert.equal(shared.lockHeld, false, 'ScriptLock must be released before HTTP');
+    shared.fetches++;
+    return options.response ? options.response() : successfulResponse();
   };
   const context = {
     console, Date: FakeDate, JSON, Math, String, Number, Boolean, Array, Object, RegExp,
@@ -62,7 +122,8 @@ function runtime(shared, options = {}) {
     },
     Session: { getScriptTimeZone: () => 'Europe/Paris' },
     UrlFetchApp: { fetch() { throw new Error('patched fetch must not be selected'); } },
-    _originalUrlFetch() { assert.equal(shared.lockHeld, false, 'ScriptLock must be released before HTTP'); shared.fetches++; return options.response ? options.response() : { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, native: { symbol: 'ETH', balance: 1, priceEur: 1, valueEur: 1 }, tokens: [], errors: [], degraded: false, fxRate: 0.9, scanMs: 1 }) }; },
+    _originalUrlFetch: originalFetch,
+    _httpTelemetryTransport_: () => ({ fetch: originalFetch, explicitTelemetry: true }),
     WalletCache: {
       load: () => { assert.equal(shared.lockHeld, false, 'ScriptLock must be released before wallet cache load'); return options.walletCache || null; },
       save: (_key, value) => { assert.equal(shared.lockHeld, false, 'ScriptLock must be released before wallet cache save'); shared.saved.push(value); },
@@ -109,8 +170,55 @@ function successfulResponse() {
 
 {
   const shared = state();
+  shared.cache.set('WSCAN_BREAKER:v1', {
+    value: JSON.stringify({ failures: [shared.nowMs - 2, shared.nowMs - 1], openUntil: shared.nowMs + 1000 }),
+    expiresAt: shared.nowMs + 2000,
+  });
+  const ctx = runtime(shared, { allowUnlockedCacheRead: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx._webScanBreakerStatus_())), {
+    open: true,
+    openUntil: shared.nowMs + 1000,
+    failures: 2,
+  });
+  assert.equal(shared.scriptLockRequests, 0, 'read-only breaker status must not acquire ScriptLock');
+  assert.equal(shared.userLockRequests, 0, 'read-only breaker status must not acquire UserLock');
+  assert.equal(shared.puts.length, 0, 'read-only breaker status must not mutate cache');
+  assert.equal(shared.fetches, 0, 'read-only breaker status must not make HTTP calls');
+  assert.equal(shared.saved.length, 0, 'read-only breaker status must not save wallet cache');
+}
+
+{
+  const shared = state();
+  const ctx = runtime(shared, { allowUnlockedCacheRead: true });
+  ctx.CacheService.getScriptCache = () => { throw new Error('cache unavailable'); };
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx._webScanBreakerStatus_())), {
+    open: true,
+    openUntil: 0,
+    failures: 0,
+    unavailable: true,
+  }, 'cache read failure must report fail-closed automatic admission');
+}
+
+{
+  const shared = state();
+  const ctx = runtime(shared, { allowUnlockedCacheRead: true });
+  const rows = JSON.parse(JSON.stringify(ctx.DIAG_WEB_SCAN_STATUS()));
+  assert.deepEqual(rows.slice(-6), [
+    ['breaker_open', false],
+    ['breaker_open_until', 0],
+    ['breaker_failures', 0],
+    ['breaker_unavailable', false],
+    ['automatic_attempts', 1],
+    ['manual_attempts', 2],
+  ]);
+  assert.equal(shared.scriptLockRequests, 0);
+  assert.equal(shared.fetches, 0);
+}
+
+{
+  const shared = state();
   const result = runtime(shared)._webScanWallet_('0xgloballock', [], false, { CHAIN: { KEY: 'BASE' } });
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(shared.scriptLockRequests, 2, 'automatic admission and breaker update use ScriptLock');
   assert.equal(shared.userLockRequests, 0, 'shared ScriptCache state must not use UserLock');
 }
@@ -366,5 +474,15 @@ for (const file of ['11_EVM_ENGINE.gs', '14_SVM_ENGINE.gs', '15_COSMOS_ENGINE.gs
   assert(!engine.includes('_webScanDeferredResult_('), `${file} must not duplicate defer logic`);
 }
 assert.match(webSource, /ok:\s*true[\s\S]*deferred:\s*true[\s\S]*WEB_SCAN_DEFERRED/);
+
+const breakerStatusSource = extractFunction(webSource, '_webScanBreakerStatus_');
+const diagStatusSource = extractFunction(webSource, 'DIAG_WEB_SCAN_STATUS');
+assert.doesNotMatch(breakerStatusSource + diagStatusSource, /UrlFetchApp|_originalUrlFetch|_webScanWallet_\(|\.put\(|\.remove\(|WalletCache\.save|ScriptApp\.newTrigger/,
+  'status diagnostics must remain read-only and network-free');
+const networkDiagnosticCallers = Array.from(webSource.matchAll(/\bfunction\s+([A-Z][A-Z0-9_]*)\s*\(/g))
+  .map((match) => ({ name: match[1], source: extractFunction(webSource, match[1]) }))
+  .filter((entry) => /_webScanWallet_\(/.test(entry.source))
+  .map((entry) => entry.name);
+assert.deepEqual(networkDiagnosticCallers, ['LIVE_PROBE_WEB_SCAN_CHAIN'], 'only LIVE_PROBE may expose a network-making Web diagnostic');
 
 console.log('web quota protection OK');

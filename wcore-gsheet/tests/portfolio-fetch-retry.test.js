@@ -42,6 +42,9 @@ function makeContext(gsSource, fetchImpl) {
     UrlFetchApp: { fetch: fetchImpl },
     Utilities: { sleep: () => { sleeps++; } },
     Logger: { log: () => {} },
+    QuotaCircuitBreaker: {
+      isQuotaError: (error) => /service invoked too many times:\s*urlfetch/i.test(String(error && error.message || error)),
+    },
   };
   context.__getSleeps = () => sleeps;
   vm.createContext(context);
@@ -81,6 +84,16 @@ test('stock snapshot fetch does not retry a genuine HTTP error status', () => {
   });
   assert.throws(() => ctx._stockPortfolioFetchSnapshot_(), /HTTP 401/);
   assert.equal(calls, 1, 'a 401 is authoritative and must not be retried');
+});
+
+test('stock snapshot fetch immediately rethrows quota blocks', () => {
+  for (const message of ['BLOCKED:QUOTA', 'Service invoked too many times: urlfetch']) {
+    let calls = 0;
+    const ctx = makeContext(stockSource, () => { calls++; throw new Error(message); });
+    assert.throws(() => ctx._stockPortfolioFetchSnapshot_(), new RegExp(message.replace(':', '\\:')));
+    assert.equal(calls, 1, 'stock quota failure must not be retried');
+    assert.equal(ctx.__getSleeps(), 0, 'stock quota failure must not sleep');
+  }
 });
 
 // --- Crypto portfolio ---
@@ -146,6 +159,16 @@ test('crypto snapshot fetch does not retry a genuine HTTP error status', () => {
   });
   assert.throws(() => ctx._cryptoPortfolioFetchSnapshot_(), /HTTP 500/);
   assert.equal(calls, 1, 'a 500 with a real response is authoritative and must not be retried');
+});
+
+test('crypto snapshot fetch immediately rethrows quota blocks', () => {
+  for (const message of ['BLOCKED:QUOTA', 'Service invoked too many times: urlfetch']) {
+    let calls = 0;
+    const ctx = makeContext(cryptoSource, () => { calls++; throw new Error(message); });
+    assert.throws(() => ctx._cryptoPortfolioFetchSnapshot_(), new RegExp(message.replace(':', '\\:')));
+    assert.equal(calls, 1, 'crypto quota failure must not be retried');
+    assert.equal(ctx.__getSleeps(), 0, 'crypto quota failure must not sleep');
+  }
 });
 
 if (failures.length) {

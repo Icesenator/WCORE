@@ -1,7 +1,10 @@
 /************************************************************
  * 24_DEGRADED_MODE.gs - Gestion du mode degrade (quota UrlFetch)
  * 
- * Version: v4.14.5
+ * Version: v4.16.32
+ *
+ * v4.16.32 - Delegate quota classification/reset to QuotaCircuitBreaker;
+ *   fallback matching is restricted to Google UrlFetch quota errors.
  *
  * Ce fichier gere le mode degrade quand le quota UrlFetch est epuise.
  * Au lieu de retourner #ERROR!, on retourne les donnees du cache
@@ -33,7 +36,7 @@
  *    -> If error: handleError -> return cache
  * 
  ************************************************************/
-var DEGRADED_MODE_VERSION = "4.15.33";
+var DEGRADED_MODE_VERSION = "4.16.32";
 
 var DegradedMode = DegradedMode || {};
 
@@ -92,12 +95,15 @@ DegradedMode.resetCircuitBreaker = function() {
  */
 DegradedMode.isQuotaError = function(error) {
  if (!error) return false;
+ try {
+  if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isQuotaError) {
+   return !!QuotaCircuitBreaker.isQuotaError(error);
+  }
+ } catch (e) {}
  var msg = String(error.message || error).toLowerCase();
- return msg.indexOf('urlfetch') !== -1 || 
- msg.indexOf('service invoked too many times') !== -1 ||
- msg.indexOf('quota') !== -1 ||
- msg.indexOf('rate limit') !== -1 ||
- msg.indexOf('exceeded maximum execution time') !== -1;
+ var serviceTarget = /service invoked too many times(?: for one day| in a short time)?\s*:\s*url\s*fetch\b/;
+ var metricTarget = /quota exceeded for quota metric[^a-z0-9]{0,3}url\s*fetch(?:\s+calls?)?\b/;
+ return serviceTarget.test(msg) || metricTarget.test(msg);
 };
 
 // ============================================================
@@ -658,10 +664,12 @@ DegradedMode._appendDegradedInfo = function(output, cache, config, circuitBreake
  */
 DegradedMode.resetCircuitBreaker = function() {
  try {
- var cache = CacheService.getScriptCache();
- cache.remove(this.CIRCUIT_BREAKER_KEY);
- // Clean orphan keys from previous versions
- cache.remove("WCORE_LAST_HTTP_ERROR");
+  if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
+   QuotaCircuitBreaker.reset();
+  }
+  var cache = CacheService.getScriptCache();
+  // Clean orphan keys from previous versions
+  cache.remove("WCORE_LAST_HTTP_ERROR");
  cache.remove("WCORE_HTTP_ERROR_COUNT");
  cache.remove("WCORE_RECOVERY_MODE");
  return "Circuit breaker reset OK";

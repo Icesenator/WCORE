@@ -262,8 +262,8 @@ context.PropertiesService = {
 context.UrlFetchApp = { fetch: () => null };
 assert.throws(
   () => context._stockPortfolioFetchSnapshot_(),
-  /WCORE stock portfolio HTTP blocked or empty response/,
-  'null UrlFetchApp responses must become an explicit stock portfolio error'
+  /BLOCKED:QUOTA/,
+  'null UrlFetchApp responses must preserve the authoritative quota block without retrying'
 );
 
 console.log('Stock portfolio sheet layout guard OK');

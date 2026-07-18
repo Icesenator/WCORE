@@ -1,6 +1,9 @@
 /************************************************************
  * 03E_QUOTA_CIRCUIT_BREAKER.gs - Instant Quota Detection
  *
+ * v4.16.32 - Expose the authoritative strict UrlFetch quota matcher and
+ *   schedule portfolio recovery only when TEST_QUOTA_NOW clears a stale trip.
+ *
  * v4.13.8 - CACHE WRITE GUARD: expose BudgetHTTP.remaining()
  *   Wallet cache writes can now refuse destructive updates when the rolling
  *   UrlFetch budget is critically low.
@@ -81,7 +84,7 @@
  * - Zero-latency blocking once quota detected
  ************************************************************/
 
-var QUOTA_CIRCUIT_BREAKER_VERSION = "4.13.8";
+var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.32";
 
 // v4.12.31: Store reference to ORIGINAL UrlFetchApp.fetch BEFORE any patching
 // Needed by testOnce() to bypass the global quota patch for real testing
@@ -158,13 +161,9 @@ var QuotaCircuitBreaker = (function() {
   function _isQuotaError(errorMessage) {
     if (!errorMessage) return false;
     var msg = String(errorMessage).toLowerCase();
-    
-    for (var i = 0; i < QUOTA_BREAKER_CONFIG.QUOTA_ERROR_PATTERNS.length; i++) {
-      if (msg.indexOf(QUOTA_BREAKER_CONFIG.QUOTA_ERROR_PATTERNS[i].toLowerCase()) !== -1) {
-        return true;
-      }
-    }
-    return false;
+    var serviceTarget = /service invoked too many times(?: for one day| in a short time)?\s*:\s*url\s*fetch\b/;
+    var metricTarget = /quota exceeded for quota metric[^a-z0-9]{0,3}url\s*fetch(?:\s+calls?)?\b/;
+    return serviceTarget.test(msg) || metricTarget.test(msg);
   }
   
   /**
@@ -431,11 +430,10 @@ var QuotaCircuitBreaker = (function() {
         _trip(e.message);
         Logger.log("[QUOTA_BREAKER] Quota test FAILED - quota exhausted: " + e.message);
       } else {
-        // Other error (network, etc.) - don't trip, but log
-        // v4.12.31: Also don't maintain a stale trip from cache on non-quota errors
+        // Other errors are inconclusive. Preserve any stale breaker until an
+        // actual HTTP response proves that Google accepts UrlFetch again.
         if (wasTrippedInCache) {
-          Logger.log("[QUOTA_BREAKER] Non-quota error during test, clearing stale breaker: " + e.message);
-          _reset();
+          Logger.log("[QUOTA_BREAKER] Non-quota probe error, preserving stale breaker: " + e.message);
         } else {
           Logger.log("[QUOTA_BREAKER] Quota test error (not quota): " + e.message);
         }
@@ -454,6 +452,15 @@ var QuotaCircuitBreaker = (function() {
      */
     isTripped: function() {
       return _isTripped();
+    },
+
+    /**
+     * Authoritative Google UrlFetch quota matcher.
+     * @param {Error|string} error - Error to classify
+     * @returns {boolean}
+     */
+    isQuotaError: function(error) {
+      return _isQuotaError(error && error.message ? error.message : error);
     },
     
     /**
@@ -1161,11 +1168,19 @@ function TRIP_QUOTA_BREAKER(confirm) {
  * v4.12.30: Test if quota is available with a REAL HTTP call
  * Use this to check quota status before starting heavy operations
  * @returns {string} "OK" if quota available, "EXHAUSTED" if not
+ * In an authorized editor/admin execution, a genuine recovery also schedules
+ * portfolio refresh triggers. Spreadsheet custom-function execution may only
+ * report status because ScriptApp authorization can be unavailable there.
  * @customfunction
  */
 function TEST_QUOTA_NOW() {
+  var wasTripped = QuotaCircuitBreaker.isTripped();
   var isOk = QuotaCircuitBreaker.testOnce();
   var status = QuotaCircuitBreaker.getStatus();
+
+  if (isOk && wasTripped && typeof _recoverySchedulePortfolioRefresh_ === "function") {
+    _recoverySchedulePortfolioRefresh_();
+  }
 
   // v4.13.7: format in the spreadsheet's timezone (human-readable)
   var tz = Session.getScriptTimeZone() || "Europe/Paris";

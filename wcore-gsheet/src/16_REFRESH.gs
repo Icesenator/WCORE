@@ -1,7 +1,10 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.5.23
+ * Version: v4.16.32
+ *
+ * v4.16.32 FIX: successful quota probes reset both guards, use trigger-safe
+ *   spreadsheet access, and persist one combined portfolio recovery trigger.
  *
  * v4.5.23 FIX: normal watchdog no longer resets or repulses QUOTA rows
  *   without a live quota probe. QUOTA recovery is owned by QUOTA_RECOVERY_SWEEP,
@@ -104,7 +107,7 @@ var P_WD_CURSOR = "WD_CURSOR";
 var P_WD_RUNS = "WD_RUNS";
 var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse timestamps
 
-var REFRESH_VERSION = "4.15.78";
+var REFRESH_VERSION = "4.16.32";
 
 function onEdit(e) {
   // v4.15.112: simple onEdit runs with limited auth and duplicates the
@@ -147,7 +150,11 @@ function WCORE_ON_EDIT(e) {
       var stockValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
       if (String(stockValue).toUpperCase() === "TRUE" && typeof UPDATE_STOCK_PORTFOLIO === "function") {
         sheet.getRange("B1").setValue("QUEUED: " + _wd_fmtDate_(new Date())).setNumberFormat("@");
-        UPDATE_STOCK_PORTFOLIO();
+        var stockResult = UPDATE_STOCK_PORTFOLIO();
+        if (String(stockResult || "").indexOf("BUSY:") === 0) {
+          sheet.getRange("B1").setValue(stockResult).setNumberFormat("@");
+          range.setValue(false);
+        }
         return;
       }
     }
@@ -155,7 +162,11 @@ function WCORE_ON_EDIT(e) {
       var cryptoValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
       if (String(cryptoValue).toUpperCase() === "TRUE" && typeof UPDATE_CRYPTO_PORTFOLIO_V2 === "function") {
         sheet.getRange("B1").setValue("QUEUED: " + _wd_fmtDate_(new Date())).setNumberFormat("@");
-        UPDATE_CRYPTO_PORTFOLIO_V2();
+        var cryptoResult = UPDATE_CRYPTO_PORTFOLIO_V2();
+        if (String(cryptoResult || "").indexOf("BUSY:") === 0) {
+          sheet.getRange("B1").setValue(cryptoResult).setNumberFormat("@");
+          range.setValue(false);
+        }
         return;
       }
     }
@@ -1421,7 +1432,9 @@ function _recoveryProbeQuota_() {
 // --- Recovery lock / followup guards (R16) ---
 var P_RECOVERY_SWEEP_LOCK = "RECOVERY_SWEEP_LOCK";
 var P_RECOVERY_FU_PENDING = "RECOVERY_FU_PENDING";
+var P_PORTFOLIO_RECOVERY_PENDING = "WCORE_PORTFOLIO_RECOVERY_PENDING";
 var RECOVERY_LOCK_TTL_MS = 10 * 60 * 1000; // 10 minutes
+var PORTFOLIO_RECOVERY_RETRY_DELAY_MS = 5 * 60 * 1000;
 
 function _recoveryAcquireLock_(key, ttlMs) {
   try {
@@ -1468,6 +1481,120 @@ function _recoveryIsFollowupPending_() {
   } catch (e) { return false; }
 }
 
+function _recoverySetPortfolioRefreshPending_() {
+  try {
+    PropertiesService.getScriptProperties().setProperty(P_PORTFOLIO_RECOVERY_PENDING, String(Date.now()));
+    return true;
+  } catch (e) { return false; }
+}
+
+function _recoveryIsPortfolioRefreshPending_() {
+  try { return !!PropertiesService.getScriptProperties().getProperty(P_PORTFOLIO_RECOVERY_PENDING); }
+  catch (e) { return false; }
+}
+
+function _recoveryClearPortfolioRefreshPending_() {
+  try { PropertiesService.getScriptProperties().deleteProperty(P_PORTFOLIO_RECOVERY_PENDING); }
+  catch (e) {}
+}
+
+/** Persist and deduplicate the single combined portfolio recovery trigger. */
+function _recoverySchedulePortfolioRefresh_(delayMs, ignoreTriggerUid) {
+  if (!_recoverySetPortfolioRefreshPending_()) {
+    Logger.log("[RECOVERY] Unable to persist portfolio recovery marker; scheduling aborted");
+    return false;
+  }
+  var scriptLock = null;
+  var acquired = false;
+  try {
+    try { scriptLock = LockService.getScriptLock(); } catch (eLock) {}
+    if (!scriptLock || !scriptLock.tryLock || !scriptLock.tryLock(2000)) {
+      Logger.log("[RECOVERY] Portfolio scheduler lock unavailable; pending marker preserved");
+      return false;
+    }
+    acquired = true;
+
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      var handler = "";
+      try { handler = triggers[i].getHandlerFunction(); } catch (eHandler) {}
+      if (handler !== "PORTFOLIO_RECOVERY_REFRESH") continue;
+      var uniqueId = "";
+      try { uniqueId = String(triggers[i].getUniqueId() || ""); } catch (eId) {}
+      if (!ignoreTriggerUid || uniqueId !== String(ignoreTriggerUid)) {
+        Logger.log("[RECOVERY] Combined portfolio recovery trigger already pending");
+        return true;
+      }
+    }
+
+    var delay = Math.max(1000, Number(delayMs) || 5000);
+    ScriptApp.newTrigger("PORTFOLIO_RECOVERY_REFRESH").timeBased().after(delay).create();
+    Logger.log("[RECOVERY] Combined portfolio recovery scheduled in " + delay + "ms");
+    return true;
+  } catch (eSchedule) {
+    Logger.log("[RECOVERY] Failed to schedule combined portfolio recovery: " + eSchedule.message + "; pending marker preserved");
+    return false;
+  } finally {
+    if (acquired && scriptLock) {
+      try { scriptLock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
+
+function _recoveryDeleteCurrentPortfolioTrigger_(e) {
+  var triggerUid = e && e.triggerUid ? String(e.triggerUid) : "";
+  if (!triggerUid) return false;
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      var uniqueId = "";
+      try { uniqueId = String(triggers[i].getUniqueId() || ""); } catch (eId) {}
+      if (uniqueId === triggerUid) {
+        ScriptApp.deleteTrigger(triggers[i]);
+        return true;
+      }
+    }
+  } catch (eDelete) {
+    Logger.log("[RECOVERY] Failed to delete current portfolio trigger: " + eDelete.message);
+  }
+  return false;
+}
+
+function PORTFOLIO_RECOVERY_REFRESH(e) {
+  try { HttpCallCounter.setTrigger('PORTFOLIO_RECOVERY_REFRESH'); } catch (eCtx) {}
+  try {
+    var stockOk = false;
+    var cryptoOk = false;
+    try {
+      var stockResult = UPDATE_STOCK_PORTFOLIO();
+      stockOk = String(stockResult || "").indexOf("OK:") === 0;
+      if (!stockOk) Logger.log("[RECOVERY] Stock portfolio incomplete: " + stockResult);
+    } catch (eStock) {
+      Logger.log("[RECOVERY] Stock portfolio failed: " + eStock.message);
+    }
+    try {
+      var cryptoResult = UPDATE_CRYPTO_PORTFOLIO_V2();
+      cryptoOk = String(cryptoResult || "").indexOf("OK:") === 0;
+      if (!cryptoOk) Logger.log("[RECOVERY] Crypto portfolio incomplete: " + cryptoResult);
+    } catch (eCrypto) {
+      Logger.log("[RECOVERY] Crypto portfolio failed: " + eCrypto.message);
+    }
+
+    if (stockOk && cryptoOk) {
+      _recoveryClearPortfolioRefreshPending_();
+      return "OK: portfolio recovery complete";
+    }
+
+    _recoverySetPortfolioRefreshPending_();
+    var triggerUid = e && e.triggerUid ? String(e.triggerUid) : "";
+    _recoveryDeleteCurrentPortfolioTrigger_(e);
+    var retryScheduled = _recoverySchedulePortfolioRefresh_(PORTFOLIO_RECOVERY_RETRY_DELAY_MS, triggerUid);
+    return "INCOMPLETE: portfolio recovery retry scheduled=" + retryScheduled;
+  } finally {
+    try { HttpCallCounter.clearTrigger(); } catch (eClear) {}
+  }
+}
+
 function QUOTA_RECOVERY_SWEEP() {
   try { HttpCallCounter.setTrigger('QUOTA_RECOVERY_SWEEP'); } catch(e){}
   try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("QUOTA_RECOVERY_SWEEP", false); } catch(e){}
@@ -1484,45 +1611,44 @@ function QUOTA_RECOVERY_SWEEP() {
     var RECOVERY_DELAY_MS = 60000; // 60s entre batchs (était 30s)
     var MAX_RUNTIME_MS = 300000;   // 5 min max (marge avant 6 min limit)
     var t0 = Date.now();
+    var qcbWasBlocked = false;
+    var httpGuardWasBlocked = false;
+    try { qcbWasBlocked = !!(typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()); } catch (eQcbState) {}
+    try { httpGuardWasBlocked = !!(typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.isQuotaExhausted && HttpErrorGuard.isQuotaExhausted()); } catch (eGuardState) {}
 
     // --- Probe quota avant tout ---
     var probe = _recoveryProbeQuota_();
     if (!probe.ok) {
-      Logger.log("[RECOVERY] Probe failed: " + probe.err + " — skipping pulse, retry in 30min");
-      // R16 guard: avoid duplicate retry trigger
-      if (!_recoveryIsFollowupPending_()) {
-        try {
-          ScriptApp.newTrigger("QUOTA_RECOVERY_SWEEP").timeBased().after(30 * 60 * 1000).create();
-          _recoverySetFollowupPending_(Date.now() + 30 * 60 * 1000);
-          Logger.log("[RECOVERY] Retry trigger scheduled in 30min");
-        } catch (te) {
-          Logger.log("[RECOVERY] Failed to schedule retry: " + te.message);
-        }
-      } else {
-        Logger.log("[RECOVERY] Retry trigger already pending — skipping duplicate");
-      }
+      Logger.log("[RECOVERY] Probe failed: " + probe.err + " — recurring 30min poller will retry");
       return;
     }
     Logger.log("[RECOVERY] Probe OK (HTTP " + probe.code + ") — proceeding");
 
+    if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
+      QuotaCircuitBreaker.reset();
+      Logger.log("[RECOVERY] QuotaCircuitBreaker reset");
+    }
+    if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.reset) {
+      HttpErrorGuard.reset();
+    }
+
     var stats = { blocked_quota: 0, blocked_timeout: 0, pulsed: 0, batches: 0, skipped: 0, exec_ms: 0 };
 
     try {
-      if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
-        QuotaCircuitBreaker.reset();
-        Logger.log("[RECOVERY] QuotaCircuitBreaker reset");
-      }
-      if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.clearQuotaFlag) {
-        HttpErrorGuard.clearQuotaFlag();
-      }
-
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var ss = (typeof _wcoreGetSpreadsheet_ === 'function')
+        ? _wcoreGetSpreadsheet_()
+        : SpreadsheetApp.getActiveSpreadsheet();
+      if (!ss) { Logger.log("[RECOVERY] Spreadsheet unavailable"); return; }
       var recap = ss.getSheetByName(RECAP_SHEET_NAME);
       if (!recap) { Logger.log("[RECOVERY] Recap Chain not found"); return; }
 
       var cat = _recoveryCollectBlocked_(recap);
       stats.blocked_quota = cat.quota.length;
       stats.blocked_timeout = cat.timeout.length;
+
+      if (qcbWasBlocked || httpGuardWasBlocked || cat.quota.length > 0 || _recoveryIsPortfolioRefreshPending_()) {
+        _recoverySchedulePortfolioRefresh_();
+      }
 
       if (cat.all.length === 0) {
         Logger.log("[RECOVERY] No blocked sheets found — clearing skipped state and skipping");
@@ -1590,6 +1716,10 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
     var RECOVERY_DELAY_MS = 30000;
     var MAX_RUNTIME_MS = 300000;
     var t0 = Date.now();
+    var qcbWasBlocked = false;
+    var httpGuardWasBlocked = false;
+    try { qcbWasBlocked = !!(typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()); } catch (eQcbState) {}
+    try { httpGuardWasBlocked = !!(typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.isQuotaExhausted && HttpErrorGuard.isQuotaExhausted()); } catch (eGuardState) {}
 
     // --- Probe quota avant tout ---
     var probe = _recoveryProbeQuota_();
@@ -1611,6 +1741,14 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
     }
     Logger.log("[RECOVERY_FU] Probe OK (HTTP " + probe.code + ") — proceeding");
 
+    if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
+      QuotaCircuitBreaker.reset();
+      Logger.log("[RECOVERY_FU] QuotaCircuitBreaker reset");
+    }
+    if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.reset) {
+      HttpErrorGuard.reset();
+    }
+
     var stats = { skipped_retry: 0, still_blocked: 0, pulsed: 0, batches: 0, skipped: 0, exec_ms: 0 };
 
     try {
@@ -1618,7 +1756,10 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
       var skippedSheets = (skipped && skipped.sheets) ? skipped.sheets : [];
       stats.skipped_retry = skippedSheets.length;
 
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var ss = (typeof _wcoreGetSpreadsheet_ === 'function')
+        ? _wcoreGetSpreadsheet_()
+        : SpreadsheetApp.getActiveSpreadsheet();
+      if (!ss) { Logger.log("[RECOVERY_FU] Spreadsheet unavailable"); return; }
       var recap = ss.getSheetByName(RECAP_SHEET_NAME);
       if (!recap) {
         Logger.log("[RECOVERY_FU] Recap Chain not found");
@@ -1628,6 +1769,10 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
 
       var cat = _recoveryCollectBlocked_(recap);
       stats.still_blocked = cat.all.length;
+
+      if (qcbWasBlocked || httpGuardWasBlocked || skippedSheets.length > 0 || cat.quota.length > 0 || _recoveryIsPortfolioRefreshPending_()) {
+        _recoverySchedulePortfolioRefresh_();
+      }
 
       // Dedup merge: skipped + still blocked
       var seen = {};

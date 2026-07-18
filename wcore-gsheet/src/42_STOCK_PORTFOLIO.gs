@@ -1,3 +1,4 @@
+// v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
 // v4.15.167 - Remove _WCORE_ORIG_FETCH bypass; use patched UrlFetchApp.fetch (respects quota breaker).
 // v4.15.164 - Fix chart row count (A non-empty + S=X) + BW1 onEdit syncs both portfolios.
 // v4.15.163 - Switch BW1 checkbox master + U1=TRUE in formulas (chart height fix: 24px/row + 100px pad + offsetX).
@@ -6,7 +7,7 @@
 // v4.15.160 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.159 - Repair Action formats with filters suspended so hidden rows are formatted too.
 
-var STOCK_PORTFOLIO_VERSION = "4.15.167";
+var STOCK_PORTFOLIO_VERSION = "4.16.32";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -23,6 +24,14 @@ function _stockPortfolioFetchWithRetry_(fetchFn) {
       return fetchFn();
     } catch (e) {
       lastErr = e;
+      var errorMessage = String(e && e.message ? e.message : e);
+      var isQuotaError = errorMessage.indexOf("BLOCKED:QUOTA") !== -1;
+      try {
+        if (!isQuotaError && typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isQuotaError) {
+          isQuotaError = QuotaCircuitBreaker.isQuotaError(e);
+        }
+      } catch (eQuotaCheck) {}
+      if (isQuotaError) throw e;
       if (attempt < STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
         try {
           if (typeof Logger !== "undefined" && Logger.log) {
@@ -68,28 +77,34 @@ function SETUP_STOCK_PORTFOLIO() {
 }
 
 function UPDATE_STOCK_PORTFOLIO() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
-  var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
-  if (!sh) throw new Error("Missing sheet " + STOCK_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_STOCK_PORTFOLIO first");
+  var portfolioLock = LockService.getDocumentLock();
+  if (!portfolioLock.tryLock(1000)) return "BUSY: another portfolio refresh is running";
   try {
-    var snapshot = _stockPortfolioFetchSnapshot_();
-    _stockPortfolioValidateSnapshot_(snapshot);
-    var includeState = _stockPortfolioReadIncludeState_(sh);
-    var matrix = _stockPortfolioBuildMatrix_(snapshot, includeState);
-    var sourceMatrix = _stockPortfolioBuildSourceMatrix_(matrix);
-    _stockPortfolioEnsureRows_(sh, matrix.length);
-    if (sourceMatrix.length) _stockPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
-    _stockPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
-    _stockPortfolioWriteControlCells_(ss.getId(), _stockPortfolioCurrentRunTimestamp_(), false);
-    _portfolioReapplyFilter_(sh, STOCK_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 499972377, 18, 1489, 64);
-    return "OK: Portefeuille Action refreshed";
-  } catch (err) {
-    var msg = err && err.message ? err.message : String(err);
-    try { _stockPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
-      sh.getRange(STOCK_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
-      sh.getRange(STOCK_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+    var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
+    var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
+    if (!sh) throw new Error("Missing sheet " + STOCK_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_STOCK_PORTFOLIO first");
+    try {
+      var snapshot = _stockPortfolioFetchSnapshot_();
+      _stockPortfolioValidateSnapshot_(snapshot);
+      var includeState = _stockPortfolioReadIncludeState_(sh);
+      var matrix = _stockPortfolioBuildMatrix_(snapshot, includeState);
+      var sourceMatrix = _stockPortfolioBuildSourceMatrix_(matrix);
+      _stockPortfolioEnsureRows_(sh, matrix.length);
+      if (sourceMatrix.length) _stockPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
+      _stockPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
+      _stockPortfolioWriteControlCells_(ss.getId(), _stockPortfolioCurrentRunTimestamp_(), false);
+      _portfolioReapplyFilter_(sh, STOCK_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 499972377, 18, 1489, 64);
+      return "OK: Portefeuille Action refreshed";
+    } catch (err) {
+      var msg = err && err.message ? err.message : String(err);
+      try { _stockPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
+        sh.getRange(STOCK_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
+        sh.getRange(STOCK_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+      }
+      throw err;
     }
-    throw err;
+  } finally {
+    portfolioLock.releaseLock();
   }
 }
 
@@ -193,7 +208,8 @@ function _stockPortfolioBuildRow1_(existingRow1) {
 
 function STOCK_PORTFOLIO_HOURLY_REFRESH() {
   try { HttpCallCounter.setTrigger('STOCK_PORTFOLIO_HOURLY_REFRESH'); } catch(e){}
-  return UPDATE_STOCK_PORTFOLIO();
+  try { return UPDATE_STOCK_PORTFOLIO(); }
+  finally { try { HttpCallCounter.clearTrigger(); } catch(e){} }
 }
 
 function INSTALL_STOCK_PORTFOLIO_HOURLY_REFRESH() {

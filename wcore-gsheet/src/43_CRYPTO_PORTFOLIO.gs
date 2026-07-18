@@ -1,3 +1,4 @@
+// v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
 // v4.15.206 - Retry HTTP 200 responses with empty or truncated JSON bodies.
 // v4.15.205 - Use patched UrlFetchApp.fetch (respects quota breaker) instead of _WCORE_ORIG_FETCH bypass.
 // v4.15.203 - Auto-resize chart height after filter reapply based on visible rows (S=X count).
@@ -5,7 +6,7 @@
 // v4.15.201 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.200 - Portefeuille Crypto (source WCORE API, sans SyncWith).
 
-var CRYPTO_PORTFOLIO_VERSION = "4.15.206";
+var CRYPTO_PORTFOLIO_VERSION = "4.16.32";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -22,6 +23,14 @@ function _cryptoPortfolioFetchWithRetry_(fetchFn) {
       return fetchFn();
     } catch (e) {
       lastErr = e;
+      var errorMessage = String(e && e.message ? e.message : e);
+      var isQuotaError = errorMessage.indexOf("BLOCKED:QUOTA") !== -1;
+      try {
+        if (!isQuotaError && typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isQuotaError) {
+          isQuotaError = QuotaCircuitBreaker.isQuotaError(e);
+        }
+      } catch (eQuotaCheck) {}
+      if (isQuotaError) throw e;
       if (attempt < CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
         try {
           if (typeof Logger !== "undefined" && Logger.log) {
@@ -71,48 +80,54 @@ function SETUP_CRYPTO_PORTFOLIO_V2() {
 }
 
 function UPDATE_CRYPTO_PORTFOLIO_V2() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
-  var sh = ss.getSheetByName(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
-  if (!sh) throw new Error("Missing sheet " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_CRYPTO_PORTFOLIO_V2 first");
-  var started = Date.now();
-  function mark(step, extra) {
-    var msg = "RUN: " + step + " " + (Date.now() - started) + "ms" + (extra ? " " + extra : "");
-    try { console.log("[CRYPTO_V2_REFRESH] " + msg); } catch (eLog) {}
-  }
+  var portfolioLock = LockService.getDocumentLock();
+  if (!portfolioLock.tryLock(1000)) return "BUSY: another portfolio refresh is running";
   try {
-    mark("fetch:start");
-    var snapshot = _cryptoPortfolioFetchSnapshot_();
-    mark("fetch:done", "rows=" + ((snapshot.rows || []).length) + " generatedAt=" + String(snapshot.generatedAt || ""));
-    _cryptoPortfolioValidateSnapshot_(snapshot);
-    mark("validate:done");
-    var manualRows = _cryptoPortfolioReadManualRows_(sh, snapshot.rows || []);
-    mark("manualRows:done", "rows=" + manualRows.length);
-    var sourceRowCount = snapshot.rows ? snapshot.rows.length : 0;
-    var manualRowCount = manualRows.length;
-    var sourceMatrix = _cryptoPortfolioBuildSourceRows_(snapshot.rows || [], manualRows);
-    mark("sourceRows:done", "rows=" + sourceMatrix.length);
-    _cryptoPortfolioEnsureRows_(sh, sourceRowCount + manualRowCount);
-    mark("ensureRows:done");
-
-    if (sourceMatrix.length) {
-      mark("write:start", "rows=" + sourceMatrix.length);
-      _cryptoPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
-      mark("write:done");
+    var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
+    var sh = ss.getSheetByName(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
+    if (!sh) throw new Error("Missing sheet " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_CRYPTO_PORTFOLIO_V2 first");
+    var started = Date.now();
+    function mark(step, extra) {
+      var msg = "RUN: " + step + " " + (Date.now() - started) + "ms" + (extra ? " " + extra : "");
+      try { console.log("[CRYPTO_V2_REFRESH] " + msg); } catch (eLog) {}
     }
-    mark("clearTail:start");
-    _cryptoPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
-    mark("clearTail:done");
+    try {
+      mark("fetch:start");
+      var snapshot = _cryptoPortfolioFetchSnapshot_();
+      mark("fetch:done", "rows=" + ((snapshot.rows || []).length) + " generatedAt=" + String(snapshot.generatedAt || ""));
+      _cryptoPortfolioValidateSnapshot_(snapshot);
+      mark("validate:done");
+      var manualRows = _cryptoPortfolioReadManualRows_(sh, snapshot.rows || []);
+      mark("manualRows:done", "rows=" + manualRows.length);
+      var sourceRowCount = snapshot.rows ? snapshot.rows.length : 0;
+      var manualRowCount = manualRows.length;
+      var sourceMatrix = _cryptoPortfolioBuildSourceRows_(snapshot.rows || [], manualRows);
+      mark("sourceRows:done", "rows=" + sourceMatrix.length);
+      _cryptoPortfolioEnsureRows_(sh, sourceRowCount + manualRowCount);
+      mark("ensureRows:done");
 
-    _cryptoPortfolioWriteControlCells_(ss.getId(), _cryptoPortfolioCurrentRunTimestamp_(), false);
-    _portfolioReapplyFilter_(sh, CRYPTO_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 361516782, 19, 1484, 2);
-    return "OK: " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + " refreshed";
-  } catch (err) {
-    var msg = err && err.message ? err.message : String(err);
-    try { _cryptoPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
-      sh.getRange(CRYPTO_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
-      sh.getRange(CRYPTO_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+      if (sourceMatrix.length) {
+        mark("write:start", "rows=" + sourceMatrix.length);
+        _cryptoPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
+        mark("write:done");
+      }
+      mark("clearTail:start");
+      _cryptoPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
+      mark("clearTail:done");
+
+      _cryptoPortfolioWriteControlCells_(ss.getId(), _cryptoPortfolioCurrentRunTimestamp_(), false);
+      _portfolioReapplyFilter_(sh, CRYPTO_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 361516782, 19, 1484, 2);
+      return "OK: " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + " refreshed";
+    } catch (err) {
+      var msg = err && err.message ? err.message : String(err);
+      try { _cryptoPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
+        sh.getRange(CRYPTO_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
+        sh.getRange(CRYPTO_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+      }
+      throw err;
     }
-    throw err;
+  } finally {
+    portfolioLock.releaseLock();
   }
 }
 
@@ -208,7 +223,8 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
 
 function CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH() {
   try { HttpCallCounter.setTrigger('CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH'); } catch(e){}
-  return UPDATE_CRYPTO_PORTFOLIO_V2();
+  try { return UPDATE_CRYPTO_PORTFOLIO_V2(); }
+  finally { try { HttpCallCounter.clearTrigger(); } catch(e){} }
 }
 
 function INSTALL_CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH() {

@@ -1,8 +1,16 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.16.32
+ * Version: v4.16.36
  *
+ * v4.16.36: Serialize direct watchdog diagnostics/force entry points and
+ *   strictly sanitize persisted partial-cycle timestamps.
+ * v4.16.35: Reserve watchdog pulse state before B1 writes and rollback failed
+ *   writes best-effort with conservative at-most-once quota safety.
+ * v4.16.34: Commit watchdog retry/partial state only after successful B1 writes;
+ *   preserve Web retry progression across fresh error timestamps and dedupe pulses.
+ * v4.16.33: Ten-minute watchdog with one five-pulse budget and bounded
+ *   30m/2h/6h/24h backoff for Web scan errors.
  * v4.16.32 FIX: successful quota probes reset both guards, use trigger-safe
  *   spreadsheet access, and persist one combined portfolio recovery trigger.
  *
@@ -100,14 +108,17 @@ var WD_PULSE_MIN_PARTIAL = 60;  // v4.15.133: 60 min — partial cycles are most
 // Probe size
 var WD_PROBE_SIZE_MIN = 5;
 var WD_PROBE_SIZE_MAX = 20;
-var WD_MAX_PULSES_PER_RUN = 15;  // v4.16.2: faster stale recovery with controlled B1 pulse cap
+var WD_MAX_PULSES_PER_RUN = 5;
+var WD_WEB_ERROR_BACKOFF_MS = [30 * 60000, 2 * 3600000, 6 * 3600000, 24 * 3600000];
+var WD_WEB_BACKOFF_MAX_ENTRIES = 200;
+var WD_WEB_BACKOFF_RETENTION_MS = 48 * 3600000;
 
 // Property keys
 var P_WD_CURSOR = "WD_CURSOR";
 var P_WD_RUNS = "WD_RUNS";
 var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse timestamps
 
-var REFRESH_VERSION = "4.16.32";
+var REFRESH_VERSION = "4.16.36";
 
 function onEdit(e) {
   // v4.15.112: simple onEdit runs with limited auth and duplicates the
@@ -248,7 +259,6 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
   var stats = { ts: new Date().toISOString(), mode: "SHEETS_API_NO_ACTIVE_SPREADSHEET", ok: false,
     exec_ms: 0, N: 0, probe: 0, toSync: 0, synced: 0, b1Set: 0, b1Empty: 0,
     b1Stale: 0, b1Error: 0, b1Blocked: 0, b1Partial: 0, staleThresholdHours: WD_STALE_I1_HOURS };
-  var actions = [];
   try {
     if (typeof Sheets === "undefined" || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) throw new Error("Advanced Sheets service unavailable");
     var resp = Sheets.Spreadsheets.Values.get(WCORE_SPREADSHEET_ID, _wd_quoteA1Sheet_(RECAP_SHEET_NAME) + "!A1:Z200");
@@ -259,17 +269,26 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
     if (stats.N === 0) throw new Error("No sheets in Recap Chain");
 
     var nowStr = Utilities.formatDate(new Date(nowMs), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-    var lastPulseMap = {};
-    try { lastPulseMap = JSON.parse(props.getProperty(P_WD_PARTIAL_LAST) || "{}"); } catch (eMap) { lastPulseMap = {}; }
+    var lastPulseMap = _wd_loadPartialPulseMap_();
+    var partialCandidates = [];
 
     for (var p = 0; p < rows.length; p++) {
       var pRow = rows[p], pSheet = _wd_cell_(pRow, 0);
       if (!_wd_rowHasPartialCycle_(pRow)) continue;
       stats.partialFound = (stats.partialFound || 0) + 1;
-      if ((nowMs - (lastPulseMap[pSheet] || 0)) >= WD_PULSE_MIN_PARTIAL * 60000) {
-        _wd_addApiWrite_(actions, pSheet, "B1", nowStr);
-        stats.b1Partial++;
-        lastPulseMap[pSheet] = nowMs;
+      var pLastPulse = Number(lastPulseMap[pSheet] || 0);
+      if (!pLastPulse) pLastPulse = _wd_parseLocalDateTimeToMs_(_wd_cell_(pRow, 3));
+      if (!isFinite(pLastPulse) || (nowMs - pLastPulse) >= WD_PULSE_MIN_PARTIAL * 60000) {
+        partialCandidates.push({
+          sheet: null,
+          sheetName: pSheet,
+          range: "B1",
+          value: nowStr,
+          type: "pulse",
+          reason: "partial",
+          priority: _wd_refreshReasonPriority_("partial"),
+          staleAgeMs: isFinite(pLastPulse) ? Math.max(0, nowMs - pLastPulse) : 0
+        });
       }
     }
 
@@ -287,21 +306,19 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
         vJ1: _wd_cell_(row, 6)
       };
     });
-    var globalActions = _wd_collectGlobalRefreshActions_(rowItems, nowMs, staleMs, nowStr, stats);
-    for (var ga = 0; ga < globalActions.length; ga++) {
-      var act = globalActions[ga];
-      if (!act.sheetName) continue;
-      _wd_addApiWrite_(actions, act.sheetName, act.range, act.value);
-    }
-
-    stats.actions = _wd_flushApiWrites_(actions);
-    stats.synced = stats.toSync;
+    var globalActions = _wd_collectGlobalRefreshActions_(rowItems, nowMs, staleMs, nowStr, stats, partialCandidates);
+    var apiExecution = _wd_executeApiActions_(globalActions, nowMs);
+    stats.actions = apiExecution.writes;
+    stats.b1Set = apiExecution.pulses;
+    stats.b1Partial = apiExecution.partialPulses;
+    stats.synced = apiExecution.synced;
+    stats.stateErrors = Number(stats.stateErrors || 0) + apiExecution.stateErrors;
     props.setProperty(P_WD_CURSOR, String((cursor + probeSize) % stats.N));
-    try { props.setProperty(P_WD_PARTIAL_LAST, JSON.stringify(lastPulseMap)); } catch (eSavePartial) {}
     stats.ok = true;
   } catch (e) {
     stats.error = e.message;
     stats.stack = e.stack || "";
+    stats.stateErrors = Number(stats.stateErrors || 0) + Number(e.stateErrors || 0);
   }
   stats.exec_ms = Date.now() - t0;
   try { props.setProperty("WCORE_WD_LAST_DIAG", JSON.stringify(stats)); } catch (eDiag) {}
@@ -310,7 +327,22 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
 }
 
 function DIAG_RUN_WATCHDOG_SHEETS_API_FALLBACK() {
-  return _wd_watchdogFromRecapViaSheetsApi_(Date.now());
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) {
+      return { ok: false, skipped: "LOCK_BUSY", b1Set: 0, stateErrors: 0 };
+    }
+    locked = true;
+    return _wd_watchdogFromRecapViaSheetsApi_(Date.now());
+  } catch (e) {
+    return { ok: false, skipped: "LOCK_FAILURE", error: String(e && (e.message || e) || e), b1Set: 0, stateErrors: 0 };
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
 }
 
 // ============================================================
@@ -335,8 +367,8 @@ if (typeof ModuleRegistry !== 'undefined') {
  * @param {number} nowMs - Current timestamp
  * @returns {Object} { checked, partial, pulsed, errors }
  */
-function _wd_checkPartialCycles_(ss, nowMs) {
-  var stats = { checked: 0, partial: 0, pulsed: 0, errors: 0 };
+function _wd_checkPartialCycles_(ss, nowMs, maxPulses) {
+  var stats = { checked: 0, partial: 0, pulsed: 0, errors: 0, actions: [] };
   
   try {
     var recap = ss.getSheetByName(RECAP_SHEET_NAME);
@@ -383,11 +415,7 @@ function _wd_checkPartialCycles_(ss, nowMs) {
     var data = recap.getRange(2, 1, lastRow - 1, recap.getLastColumn()).getValues();
     
     // Load last pulse timestamps
-    var lastPulseMap = {};
-    try {
-      var raw = PropertiesService.getScriptProperties().getProperty(P_WD_PARTIAL_LAST);
-      lastPulseMap = raw ? JSON.parse(raw) : {};
-    } catch (e) {}
+    var lastPulseMap = _wd_loadPartialPulseMap_();
     
     var tz = ss.getSpreadsheetTimeZone();
     var nowStr = Utilities.formatDate(new Date(nowMs), tz, "yyyy-MM-dd HH:mm:ss");
@@ -421,31 +449,20 @@ function _wd_checkPartialCycles_(ss, nowMs) {
           } catch (eB1) {}
         }
         
-        if ((nowMs - lastPulse) >= cooldownMs) {
-          try {
-            if (partialSheet) {
-              partialSheet.getRange("B1").setValue(nowStr);
-              partialSheet.getRange("B1").setNumberFormat("@");
-              stats.pulsed++;
-              lastPulseMap[sheetName] = nowMs;
-              Logger.log("[WD_PARTIAL] Pulsed B1 for " + sheetName + " (cycle=" + cycleVal + ")");
-            }
-          } catch (e) {
-            stats.errors++;
-            Logger.log("[WD_PARTIAL] Error pulsing " + sheetName + ": " + e.message);
-          }
+        if ((nowMs - lastPulse) >= cooldownMs && partialSheet) {
+          stats.actions.push({
+            sheet: partialSheet,
+            sheetName: sheetName,
+            range: "B1",
+            value: nowStr,
+            type: "pulse",
+            reason: "partial",
+            priority: _wd_refreshReasonPriority_("partial"),
+            staleAgeMs: lastPulse ? Math.max(0, nowMs - lastPulse) : 0
+          });
         }
       }
     }
-    
-    // Save last pulse timestamps (cleanup old entries > 24h)
-    try {
-      var cutoff = nowMs - (24 * 60 * 60 * 1000);
-      for (var k in lastPulseMap) {
-        if (lastPulseMap[k] < cutoff) delete lastPulseMap[k];
-      }
-      PropertiesService.getScriptProperties().setProperty(P_WD_PARTIAL_LAST, JSON.stringify(lastPulseMap));
-    } catch (e) {}
     
   } catch (e) {
     Logger.log("[WD_PARTIAL] Error: " + e.message);
@@ -496,11 +513,7 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
     out.push(["", "", "", ""]);
     
     // Load last pulse timestamps
-    var lastPulseMap = {};
-    try {
-      var raw = PropertiesService.getScriptProperties().getProperty(P_WD_PARTIAL_LAST);
-      lastPulseMap = raw ? JSON.parse(raw) : {};
-    } catch (e) {}
+    var lastPulseMap = _wd_loadPartialPulseMap_();
     
     // Read data
     var data = recap.getRange(2, 1, lastRow - 1, recap.getLastColumn()).getValues();
@@ -535,22 +548,46 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
  * v4.5.11: Force check partial cycles now
  */
 function FORCE_WATCHDOG_PARTIAL_CHECK() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var nowMs = Date.now();
-  var stats = _wd_checkPartialCycles_(ss, nowMs);
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(5000)) {
+      return [["Stat", "Value"], ["Status", "LOCK_BUSY"], ["Pulsed", 0], ["State Errors", 0]];
+    }
+    locked = true;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var nowMs = Date.now();
+    var partialStats = _wd_checkPartialCycles_(ss, nowMs, WD_MAX_PULSES_PER_RUN);
+    var collectStats = { b1Set: 0, b1Partial: 0, toSync: 0, stateErrors: 0 };
+    var nowStr = Utilities.formatDate(new Date(nowMs), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    var selected = _wd_collectGlobalRefreshActions_([], nowMs, WD_STALE_I1_HOURS * 3600000, nowStr, collectStats, partialStats.actions);
+    var execution = _wd_applySpreadsheetActions_(ss, selected, nowMs, WD_MAX_PULSES_PER_RUN);
+    partialStats.pulsed = execution.pulses;
+    partialStats.errors += execution.errors;
+    partialStats.stateErrors = collectStats.stateErrors + execution.stateErrors;
 
-  Logger.log("[FORCE_PARTIAL] checked=" + stats.checked +
-             " partial=" + stats.partial +
-             " pulsed=" + stats.pulsed +
-             " errors=" + stats.errors);
+    Logger.log("[FORCE_PARTIAL] checked=" + partialStats.checked +
+               " partial=" + partialStats.partial +
+               " pulsed=" + partialStats.pulsed +
+               " errors=" + partialStats.errors +
+               " stateErrors=" + partialStats.stateErrors);
 
-  return [
-    ["Stat", "Value"],
-    ["Checked", stats.checked],
-    ["Partial", stats.partial],
-    ["Pulsed", stats.pulsed],
-    ["Errors", stats.errors]
-  ];
+    return [
+      ["Stat", "Value"],
+      ["Checked", partialStats.checked],
+      ["Partial", partialStats.partial],
+      ["Pulsed", partialStats.pulsed],
+      ["Errors", partialStats.errors],
+      ["State Errors", partialStats.stateErrors]
+    ];
+  } catch (e) {
+    return [["Stat", "Value"], ["Status", "LOCK_FAILURE"], ["Error", String(e && (e.message || e) || e)], ["Pulsed", 0]];
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
 }
 
 // v0.3.x: System-driven force-rescan for a list of chain keys. Pulses B1 on the
@@ -649,9 +686,269 @@ function _wd_extractSuccessTimestamp_(vI1) {
   return vI1;
 }
 
+function _wd_loadWebBackoff_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(CK_get("watchdogWebBackoff"));
+  if (!raw) return {};
+  try {
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return _wd_pruneWebBackoff_(parsed, null);
+  } catch (e) {
+    return {};
+  }
+}
+
+function _wd_pruneWebBackoff_(state, nowMs) {
+  state = state || {};
+  var names = Object.keys(state);
+  var hasNow = isFinite(Number(nowMs)) && Number(nowMs) > 0;
+  var cutoff = hasNow ? Number(nowMs) - WD_WEB_BACKOFF_RETENTION_MS : 0;
+  for (var i = 0; i < names.length; i++) {
+    var entry = state[names[i]];
+    var attempts = entry && Number(entry.attempts);
+    var lastPulseMs = entry && Number(entry.lastPulseMs);
+    var lastErrorMs = entry && Number(entry.lastErrorMs);
+    var valid = entry && typeof entry === "object" && !Array.isArray(entry) &&
+      isFinite(attempts) && attempts >= 0 && Math.floor(attempts) === attempts && attempts <= WD_WEB_ERROR_BACKOFF_MS.length &&
+      isFinite(lastPulseMs) && lastPulseMs >= 0 && isFinite(lastErrorMs) && lastErrorMs >= 0;
+    if (!valid || (hasNow && Math.max(lastPulseMs, lastErrorMs) < cutoff)) {
+      delete state[names[i]];
+      continue;
+    }
+    state[names[i]] = { attempts: attempts, lastPulseMs: lastPulseMs, lastErrorMs: lastErrorMs };
+  }
+  names = Object.keys(state).sort(function(a, b) {
+    var ae = state[a] || {};
+    var be = state[b] || {};
+    return Math.max(Number(be.lastPulseMs || 0), Number(be.lastErrorMs || 0)) -
+      Math.max(Number(ae.lastPulseMs || 0), Number(ae.lastErrorMs || 0));
+  });
+  for (var j = WD_WEB_BACKOFF_MAX_ENTRIES; j < names.length; j++) delete state[names[j]];
+  return state;
+}
+
+function _wd_saveWebBackoff_(state, nowMs) {
+  PropertiesService.getScriptProperties().setProperty(
+    CK_get("watchdogWebBackoff"),
+    JSON.stringify(_wd_pruneWebBackoff_(state || {}, nowMs))
+  );
+}
+
+function _wd_webErrorDecision_(state, sheetName, nowMs, errorTimestampMs) {
+  var entry = state[sheetName];
+  if (errorTimestampMs == null) {
+    if (entry) delete state[sheetName];
+    return { allowed: false, nextDelayMs: 0 };
+  }
+  var attempts = entry && Number(entry.attempts);
+  var lastPulseMs = entry && Number(entry.lastPulseMs);
+  var lastErrorMs = entry && Number(entry.lastErrorMs);
+  if (entry && (!isFinite(attempts) || attempts < 0 || Math.floor(attempts) !== attempts || attempts > WD_WEB_ERROR_BACKOFF_MS.length ||
+      !isFinite(lastPulseMs) || lastPulseMs < 0 || !isFinite(lastErrorMs) || lastErrorMs < 0)) {
+    delete state[sheetName];
+    entry = null;
+  }
+  if (!entry) {
+    entry = state[sheetName] = { attempts: 0, lastPulseMs: Number(errorTimestampMs), lastErrorMs: Number(errorTimestampMs) };
+  } else {
+    entry.lastErrorMs = Number(errorTimestampMs);
+  }
+  var index = Math.min(Number(entry.attempts || 0), WD_WEB_ERROR_BACKOFF_MS.length - 1);
+  var delay = WD_WEB_ERROR_BACKOFF_MS[index];
+  if (nowMs - Number(entry.lastPulseMs || 0) < delay) return { allowed: false, nextDelayMs: delay };
+  entry.attempts = Math.min(index + 1, WD_WEB_ERROR_BACKOFF_MS.length);
+  entry.lastPulseMs = nowMs;
+  return { allowed: true, nextDelayMs: WD_WEB_ERROR_BACKOFF_MS[Math.min(entry.attempts, WD_WEB_ERROR_BACKOFF_MS.length - 1)] };
+}
+
+function _wd_loadPartialPulseMap_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(P_WD_PARTIAL_LAST);
+  if (!raw) return {};
+  try {
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    var sanitized = {};
+    for (var name in parsed) {
+      if (typeof parsed[name] === "number" && isFinite(parsed[name]) && parsed[name] >= 0) {
+        sanitized[name] = parsed[name];
+      }
+    }
+    return sanitized;
+  } catch (e) {
+    return {};
+  }
+}
+
+function _wd_reservePulseStates_(selectedPulses, webState, webStateAvailable, nowMs) {
+  selectedPulses = selectedPulses || [];
+  var result = { actions: selectedPulses.slice(), errors: 0 };
+  var webActions = result.actions.filter(function(action) { return action && action.pendingWebBackoffEntry; });
+  if (webStateAvailable) {
+    try {
+      for (var w = 0; w < webActions.length; w++) {
+        var webAction = webActions[w];
+        var previous = webState[webAction.sheetName];
+        webAction.stateReservation = {
+          type: "web",
+          previousEntry: previous ? {
+            attempts: Number(previous.attempts),
+            lastPulseMs: Number(previous.lastPulseMs),
+            lastErrorMs: Number(previous.lastErrorMs)
+          } : null
+        };
+        webState[webAction.sheetName] = webAction.pendingWebBackoffEntry;
+      }
+      _wd_saveWebBackoff_(webState, nowMs);
+    } catch (eWebReserve) {
+      result.errors++;
+      result.actions = result.actions.filter(function(action) { return !action.webError; });
+    }
+  } else {
+    result.actions = result.actions.filter(function(action) { return !action.webError; });
+  }
+
+  var partialActions = result.actions.filter(function(action) { return action && action.reason === "partial"; });
+  if (partialActions.length > 0) {
+    try {
+      var partialState = _wd_loadPartialPulseMap_();
+      for (var p = 0; p < partialActions.length; p++) {
+        var partialAction = partialActions[p];
+        partialAction.stateReservation = {
+          type: "partial",
+          hadPrevious: Object.prototype.hasOwnProperty.call(partialState, partialAction.sheetName),
+          previousValue: partialState[partialAction.sheetName]
+        };
+        partialState[partialAction.sheetName] = nowMs;
+      }
+      var cutoff = nowMs - 24 * 3600000;
+      for (var name in partialState) {
+        if (!isFinite(Number(partialState[name])) || Number(partialState[name]) < cutoff) delete partialState[name];
+      }
+      PropertiesService.getScriptProperties().setProperty(P_WD_PARTIAL_LAST, JSON.stringify(partialState));
+    } catch (ePartialReserve) {
+      result.errors++;
+      result.actions = result.actions.filter(function(action) { return action.reason !== "partial"; });
+    }
+  }
+  return result;
+}
+
+function _wd_rollbackPulseReservations_(failedActions, nowMs) {
+  failedActions = failedActions || [];
+  var result = { errors: 0, web: 0, partial: 0 };
+  var webActions = failedActions.filter(function(action) { return action && action.stateReservation && action.stateReservation.type === "web"; });
+  var partialActions = failedActions.filter(function(action) { return action && action.stateReservation && action.stateReservation.type === "partial"; });
+
+  // Apps Script has no cross-service transaction. Reserve before B1 and keep a
+  // conservative reservation if rollback fails: quota-safe at-most-once beats duplicates.
+  if (webActions.length > 0) {
+    try {
+      var webState = _wd_loadWebBackoff_();
+      for (var w = 0; w < webActions.length; w++) {
+        var webAction = webActions[w];
+        if (webAction.stateReservation.previousEntry) webState[webAction.sheetName] = webAction.stateReservation.previousEntry;
+        else delete webState[webAction.sheetName];
+        result.web++;
+      }
+      _wd_saveWebBackoff_(webState, nowMs);
+    } catch (eWebRollback) {
+      result.web = 0;
+      result.errors++;
+    }
+  }
+
+  if (partialActions.length > 0) {
+    try {
+      var partialState = _wd_loadPartialPulseMap_();
+      for (var p = 0; p < partialActions.length; p++) {
+        var partialAction = partialActions[p];
+        if (partialAction.stateReservation.hadPrevious) partialState[partialAction.sheetName] = partialAction.stateReservation.previousValue;
+        else delete partialState[partialAction.sheetName];
+        result.partial++;
+      }
+      PropertiesService.getScriptProperties().setProperty(P_WD_PARTIAL_LAST, JSON.stringify(partialState));
+    } catch (ePartialRollback) {
+      result.partial = 0;
+      result.errors++;
+    }
+  }
+  return result;
+}
+
+function _wd_applySpreadsheetActions_(ss, actions, nowMs, maxPulses) {
+  var result = { pulses: 0, partialPulses: 0, synced: 0, errors: 0 };
+  var failedPulses = [];
+  maxPulses = Number(maxPulses || WD_MAX_PULSES_PER_RUN);
+  for (var i = 0; i < (actions || []).length; i++) {
+    var action = actions[i] || {};
+    if (action.type === "pulse" && result.pulses >= maxPulses) {
+      failedPulses.push(action);
+      continue;
+    }
+    try {
+      var targetSheet = action.sheet || (ss && ss.getSheetByName ? ss.getSheetByName(action.sheetName || "") : null);
+      if (!targetSheet) {
+        result.errors++;
+        if (action.type === "pulse") failedPulses.push(action);
+        continue;
+      }
+      var range = targetSheet.getRange(action.range);
+      range.setValue(action.value);
+      try { range.setNumberFormat("@"); } catch (eFormat) {}
+      if (action.type === "pulse") {
+        result.pulses++;
+        if (action.reason === "partial") result.partialPulses++;
+      } else if (action.type === "sync") {
+        result.synced++;
+      }
+    } catch (eWrite) {
+      result.errors++;
+      if (action.type === "pulse") failedPulses.push(action);
+    }
+  }
+  var rollback = _wd_rollbackPulseReservations_(failedPulses, nowMs);
+  result.stateErrors = rollback.errors;
+  return result;
+}
+
+function _wd_executeApiActions_(actions, nowMs) {
+  var writes = [];
+  var writtenActions = [];
+  var failedPulses = [];
+  for (var i = 0; i < (actions || []).length; i++) {
+    var action = actions[i] || {};
+    if (action.sheetName && action.range) {
+      _wd_addApiWrite_(writes, action.sheetName, action.range, action.value);
+      writtenActions.push(action);
+    } else if (action.type === "pulse") {
+      failedPulses.push(action);
+    }
+  }
+  var count;
+  try {
+    count = _wd_flushApiWrites_(writes);
+  } catch (eWrite) {
+    failedPulses = failedPulses.concat(writtenActions.filter(function(action) { return action && action.type === "pulse"; }));
+    var failedRollback = _wd_rollbackPulseReservations_(failedPulses, nowMs);
+    eWrite.stateErrors = failedRollback.errors;
+    throw eWrite;
+  }
+  var rollback = _wd_rollbackPulseReservations_(failedPulses, nowMs);
+  var pulses = writtenActions.filter(function(action) { return action && action.type === "pulse"; });
+  return {
+    writes: count,
+    pulses: pulses.length,
+    partialPulses: pulses.filter(function(action) { return action.reason === "partial"; }).length,
+    synced: writtenActions.filter(function(action) { return action.type === "sync"; }).length,
+    stateErrors: rollback.errors
+  };
+}
+
 function _wd_isUnsafeLatchSource_(vI1) {
   vI1 = _wd_norm_(vI1).toUpperCase();
-  return vI1.indexOf("[BLOCKED:") === 0 || vI1.indexOf("[NO_CACHE]") === 0 || vI1.indexOf("NO_CACHE_WAITING_REFRESH") >= 0;
+  return vI1.indexOf("[BLOCKED:") === 0 || vI1.indexOf("[NO_CACHE]") === 0 ||
+    vI1.indexOf("[WEB_SCAN_ERROR]") === 0 || vI1.indexOf("[WEB_SCAN_DEFERRED]") === 0 ||
+    vI1.indexOf("NO_CACHE_WAITING_REFRESH") >= 0;
 }
 
 /**
@@ -756,6 +1053,7 @@ function _wd_refreshReasonPriority_(reason) {
   reason = String(reason || "").toLowerCase();
   if (reason === "error") return 400;
   if (reason === "empty") return 300;
+  if (reason === "partial") return 250;
   if (reason === "stale") return 200;
   if (reason === "blocked") return 100;
   return 0;
@@ -776,10 +1074,17 @@ function _wd_isCexSheet_(name) {
           (n.indexOf("binance") >= 0 && n.indexOf("web3") < 0));
 }
 
-function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) {
-  var pulseCandidates = [];
+function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, partialCandidates) {
+  var pulseCandidates = (partialCandidates || []).slice();
   var syncActions = [];
   stats = stats || {};
+  var webBackoff = {};
+  var webBackoffAvailable = true;
+  var webSuppressedTargets = {};
+  try { webBackoff = _wd_loadWebBackoff_(); } catch (eLoadWebBackoff) {
+    webBackoffAvailable = false;
+    stats.stateErrors = Number(stats.stateErrors || 0) + 1;
+  }
   var systemBlocked = _wd_isSystemBlocked_();
   var suppressB1Pulses = !!(systemBlocked && systemBlocked.blocked && systemBlocked.reason === "QUOTA");
   if (suppressB1Pulses) stats.b1SuppressedQuota = 0;
@@ -789,10 +1094,50 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
     // v4.15.85: skip CEX display-only tabs (no I1/J1, B1 is self-managed).
     if (_wd_isCexSheet_(d.name || d.sheetName || "")) continue;
 
+    var sheetName = d.name || d.sheetName || "";
+    var i1Norm = _wd_norm_(d.vI1 || "");
+    var isWebError = i1Norm.indexOf("[WEB_SCAN_ERROR]") === 0;
+    var webErrorAllowed = !isWebError;
+    var webPulseCandidateAdded = false;
+    var stagedWebBackoffEntry = null;
+    if (isWebError && webBackoffAvailable) {
+      var errorTimestamp = _wd_extractTimestamp_(i1Norm);
+      var errorTimestampMs = _wd_isLastUpdateFormat_(errorTimestamp) ? _wd_parseLocalDateTimeToMs_(errorTimestamp) : null;
+      var decisionState = {};
+      var currentEntry = webBackoff[sheetName];
+      if (isFinite(errorTimestampMs) && !currentEntry) {
+        currentEntry = {
+          attempts: 0,
+          lastPulseMs: Number(errorTimestampMs),
+          lastErrorMs: Number(errorTimestampMs)
+        };
+        webBackoff[sheetName] = currentEntry;
+      } else if (isFinite(errorTimestampMs) && currentEntry) {
+        currentEntry.lastErrorMs = Number(errorTimestampMs);
+      }
+      if (currentEntry) {
+        decisionState[sheetName] = {
+          attempts: Number(currentEntry.attempts || 0),
+          lastPulseMs: Number(currentEntry.lastPulseMs || 0),
+          lastErrorMs: Number(currentEntry.lastErrorMs || 0)
+        };
+      }
+      webErrorAllowed = _wd_webErrorDecision_(decisionState, sheetName, nowMs, isFinite(errorTimestampMs) ? errorTimestampMs : null).allowed;
+      stagedWebBackoffEntry = decisionState[sheetName] || null;
+    } else if (isWebError) {
+      webErrorAllowed = false;
+    } else {
+      var healthyTimestamp = _wd_extractTimestamp_(i1Norm);
+      var healthyPrefix = i1Norm.indexOf("[") !== 0 || i1Norm.indexOf("[CACHE_ONLY]") === 0;
+      if (healthyPrefix && _wd_isLastUpdateFormat_(healthyTimestamp)) {
+        _wd_webErrorDecision_(webBackoff, sheetName, nowMs, null);
+      }
+    }
+
     var preActualI1 = _wd_extractTimestamp_(d.vI1 || "");
     var preA2Norm = _wd_norm_(d.vA2 || "");
     if ((preA2Norm === "" || preA2Norm.indexOf("#") === 0 || preA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
-        _wd_isLastUpdateFormat_(preActualI1)) {
+        _wd_isLastUpdateFormat_(preActualI1) && _wd_shouldSyncJ1_(d.vI1 || "", "")) {
       var preBumpedJ1 = _wd_bumpTimestampSeconds_(preActualI1, 1);
       if (preBumpedJ1) {
         syncActions.push({
@@ -823,24 +1168,30 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
 
       if (suppressB1Pulses) {
         stats.b1SuppressedQuota++;
-      } else if (_wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin)) {
+      } else if (webErrorAllowed && _wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin)) {
         pulseCandidates.push({
           sheet: d.sheet || null,
-          sheetName: d.name || d.sheetName || "",
+          sheetName: sheetName,
           range: "B1",
           value: nowStr,
           type: "pulse",
           reason: refreshCheck.reason,
           priority: _wd_refreshReasonPriority_(refreshCheck.reason),
-          staleAgeMs: _wd_staleAgeMs_(d.vI1 || "", nowMs)
+          staleAgeMs: _wd_staleAgeMs_(d.vI1 || "", nowMs),
+          webError: isWebError,
+          pendingWebBackoffEntry: stagedWebBackoffEntry
         });
+        webPulseCandidateAdded = isWebError;
       }
+    }
+    if (isWebError && !webPulseCandidateAdded) {
+      webSuppressedTargets[sheetName + "\nB1"] = true;
     }
 
     var actualI1 = refreshCheck.actualTimestamp || _wd_extractTimestamp_(d.vI1 || "");
     var vA2Norm = _wd_norm_(d.vA2 || "");
     if ((vA2Norm === "" || vA2Norm.indexOf("#") === 0 || vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
-        _wd_isLastUpdateFormat_(actualI1)) {
+        _wd_isLastUpdateFormat_(actualI1) && _wd_shouldSyncJ1_(d.vI1 || "", "")) {
       var bumpedJ1 = _wd_bumpTimestampSeconds_(actualI1, 1);
       if (bumpedJ1) {
         syncActions.push({
@@ -867,15 +1218,40 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
     }
   }
 
+  pulseCandidates = pulseCandidates.filter(function(candidate) {
+    if (candidate.reason !== "partial") return true;
+    return !webSuppressedTargets[String(candidate.sheetName || "") + "\n" + String(candidate.range || "")];
+  });
+
+  if (suppressB1Pulses) {
+    stats.b1SuppressedQuota += pulseCandidates.length;
+    pulseCandidates = [];
+  }
+
+  if (!webBackoffAvailable) {
+    pulseCandidates = pulseCandidates.filter(function(candidate) { return !candidate.webError; });
+  }
+
   pulseCandidates.sort(function(a, b) {
     if (a.priority !== b.priority) return b.priority - a.priority;
     if (a.staleAgeMs !== b.staleAgeMs) return b.staleAgeMs - a.staleAgeMs;
     return String(a.sheetName || "").localeCompare(String(b.sheetName || ""));
   });
 
-  var selectedPulses = pulseCandidates.slice(0, WD_MAX_PULSES_PER_RUN);
-  stats.b1Set += selectedPulses.length;
-  stats.globalPulseCandidates = pulseCandidates.length;
+  var dedupedPulses = [];
+  var seenPulseTargets = {};
+  for (var pc = 0; pc < pulseCandidates.length; pc++) {
+    var pulseKey = String(pulseCandidates[pc].sheetName || "") + "\n" + String(pulseCandidates[pc].range || "");
+    if (seenPulseTargets[pulseKey]) continue;
+    seenPulseTargets[pulseKey] = true;
+    dedupedPulses.push(pulseCandidates[pc]);
+  }
+  var selectedPulses = dedupedPulses.slice(0, WD_MAX_PULSES_PER_RUN);
+  var reservation = _wd_reservePulseStates_(selectedPulses, webBackoff, webBackoffAvailable, nowMs);
+  selectedPulses = reservation.actions;
+  stats.stateErrors = Number(stats.stateErrors || 0) + reservation.errors;
+  stats.b1Planned = selectedPulses.length;
+  stats.globalPulseCandidates = dedupedPulses.length;
   return syncActions.concat(selectedPulses);
 }
 
@@ -887,6 +1263,9 @@ function _wd_shouldSyncJ1_(vI1, vJ1) {
 }
 
 function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
+  if (vI1.indexOf("[WEB_SCAN_DEFERRED]") === 0) {
+    return { needsPulse: false, reason: "deferred", blockedReason: null, useBlockedCooldown: false };
+  }
   const errA2 = vA2.startsWith("#") || vA2.toLowerCase().includes("erreur") || vA2.toLowerCase().includes("error");
   const errI1 = vI1.startsWith("#") || vI1.toLowerCase().includes("erreur") || vI1.toLowerCase().includes("error");
   const isErr = errA2 || errI1;
@@ -904,17 +1283,9 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
         useBlockedCooldown: false
       };
     }
-    // QUOTA only: si le timestamp extrait de I1 est frais (< staleMs), pas besoin de re-pulser
-    // Le daily QUOTA_RECOVERY_SWEEP à 10h35 CET s'en occupe
-    var blockedNeedsPulse = true;
-    if (blockedCheck.timestamp) {
-      var bTs = _wd_parseLocalDateTimeToMs_(blockedCheck.timestamp);
-      if (isFinite(bTs) && (nowMs - bTs) < staleMs) {
-        blockedNeedsPulse = false;
-      }
-    }
+    // QUOTA recovery is exclusively owned by QUOTA_RECOVERY_SWEEP.
     return {
-      needsPulse: blockedNeedsPulse,
+      needsPulse: false,
       reason: "blocked",
       blockedReason: "QUOTA",
       actualTimestamp: blockedCheck.timestamp,
@@ -1145,8 +1516,8 @@ function WATCHDOG_FROM_RECAP() {
       _wd_maybeSheetCacheCleanup_(props);
       
       // v4.5.11: Check partial cycles FIRST (independent of main loop)
-      var partialStats = _wd_checkPartialCycles_(ss, nowMs);
-      stats.b1Partial = partialStats.pulsed;
+      var partialStats = _wd_checkPartialCycles_(ss, nowMs, WD_MAX_PULSES_PER_RUN);
+      stats.b1Partial = 0;
       stats.partialChecked = partialStats.checked;
       stats.partialFound = partialStats.partial;
 
@@ -1211,29 +1582,16 @@ function WATCHDOG_FROM_RECAP() {
       const tz = ss.getSpreadsheetTimeZone();
       const nowStr = Utilities.formatDate(new Date(nowMs), tz, "yyyy-MM-dd HH:mm:ss");
 
-      const actions = _wd_collectGlobalRefreshActions_(sheetData, nowMs, staleMs, nowStr, stats);
+      const actions = _wd_collectGlobalRefreshActions_(sheetData, nowMs, staleMs, nowStr, stats, partialStats.actions);
 
       // Execute actions
       actions.sort(function(a, b) { return _wd_actionPriority_(b) - _wd_actionPriority_(a); });
-      var pulsesDone = 0;
-
-      actions.forEach(a => {
-        try {
-          if (a.type === "pulse") {
-            if (pulsesDone >= WD_MAX_PULSES_PER_RUN) return;
-            pulsesDone++;
-          }
-          var targetSheet = a.sheet || ss.getSheetByName(a.sheetName || "");
-          if (!targetSheet) return;
-          var range = targetSheet.getRange(a.range);
-          range.setValue(a.value);
-          range.setNumberFormat("@");
-          if (a.type === "sync") stats.synced++;
-        } catch (e) {
-          try { Logger.log("[WATCHDOG] Action failed: " + a.type + " on " + (a.sheetName || (a.sheet ? a.sheet.getName() : "?")) + " — " + e.message); } catch (e2) {}
-        }
-      });
-      stats.b1Set = pulsesDone;
+      var execution = _wd_applySpreadsheetActions_(ss, actions, nowMs, WD_MAX_PULSES_PER_RUN);
+      stats.b1Set = execution.pulses;
+      stats.b1Partial = execution.partialPulses;
+      stats.synced += execution.synced;
+      stats.actionErrors = execution.errors;
+      stats.stateErrors = Number(stats.stateErrors || 0) + execution.stateErrors;
 
       // Update cursor
       const newCursor = (cursor + probeSize) % stats.N;

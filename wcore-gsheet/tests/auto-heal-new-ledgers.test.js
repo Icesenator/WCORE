@@ -165,6 +165,9 @@ function makeBootstrapContext(props) {
   assert.match(autoHealSource, /if \(needsInstall\) \{\s*_wcoreAutoHealRow_\(out, "Liveness probes", "SKIP"/, 'auto-heal must skip liveness probes when reinstall is already required');
   assert.match(autoHealSource, /if \(force === true\) \{\s*_wcoreAutoHealRow_\(out, "Bootstrap", "SKIP"/, 'forced auto-heal must skip heavy bootstrap work');
   assert.match(autoHealSource, /function\s+WCORE_TRIGGER_REINSTALL_FORCE_ONLY\s*\(/, 'admin trigger reinstall-only function must exist');
+  assert.match(autoHealSource, /newTrigger\("WATCHDOG_FROM_RECAP"\)\.timeBased\(\)\.everyMinutes\(10\)\.create\(\)/);
+  assert.match(autoHealSource, /watchdog10/);
+  assert.doesNotMatch(autoHealSource, /newTrigger\("WATCHDOG_FROM_RECAP"\)\.timeBased\(\)\.everyMinutes\(5\)/);
 }
 
 {

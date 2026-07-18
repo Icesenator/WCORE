@@ -71,8 +71,8 @@ test("maps reviewed Zerion mainnets to canonical WCORE chain keys", () => {
     base: "BASE",
     polygon: "POLYGON",
     avalanche: "AVALANCHE",
-    bsc: "BSC",
-    gnosis: "GNOSIS",
+    "binance-smart-chain": "BSC",
+    xdai: "GNOSIS",
     "zksync-era": "ZKSYNC_ERA",
     linea: "LINEA",
     scroll: "SCROLL",
@@ -90,6 +90,8 @@ test("chain mapping only normalizes safe casing and surrounding whitespace", () 
   assert.equal(toWcoreChain("  ArBiTrUm  "), "ARBITRUM_ONE");
   assert.equal(toWcoreChain("arbitrum-one"), undefined);
   assert.equal(toWcoreChain("ethereum/mainnet"), undefined);
+  assert.equal(toWcoreChain("bsc"), undefined);
+  assert.equal(toWcoreChain("gnosis"), undefined);
   assert.equal(toWcoreChain("unknown-chain"), undefined);
 });
 

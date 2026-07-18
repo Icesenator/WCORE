@@ -1,3 +1,4 @@
+// v4.16.33 - Ten-minute watchdog cadence and trigger-spec reinstall.
 // v4.16.30 - Auto-heal: delete stale _runPricingWorker triggers (disabled since v4.15.34 but old triggers may persist).
 // v4.15.142 - Add hourly Portefeuille Action refresh trigger.
 // v4.15.140 - Install dedicated Bitpanda stocks/fiat trigger so Bitpanda stocks cannot starve behind crypto/fiat writes
@@ -21,7 +22,7 @@
  *   when waiting for WATCHDOG_FROM_RECAP probe window.
  ************************************************************/
 
-var WCORE_AUTO_HEAL_VERSION = "4.16.30";
+var WCORE_AUTO_HEAL_VERSION = "4.16.33";
 var WCORE_AUTO_HEAL_COOLDOWN_MS = 10 * 60 * 1000;
 var WCORE_AUTO_HEAL_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
@@ -31,7 +32,7 @@ var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
 // and revives the trigger. Spec bumped to force a clean trigger reinstall.
 // v4.15.99: MASTER_ON_EDIT re-enabled — A1 checkbox manual refresh for Ledger sheets.
 // Installable onEdit trigger pulses B1 then resets A1=FALSE when user checks A1.
-var WCORE_AUTO_HEAL_TRIGGER_SPEC = "v4.16.31:autoHealTimer10:triggerFirst:skipProbesOnInstall:forceNoBootstrap:recap5:recovery30:syncJ1Script:ledgerChange:pricingWorker:cexManualQueue:cexHourlyPerConnector:bitpandaStocksHourly:stockPortfolioHourly:topMarketcapWeekly:masterOnEdit:ssAccessProbe:pricingWorkerCleanup:activityDisabled:cexRelayAll";
+var WCORE_AUTO_HEAL_TRIGGER_SPEC = "v4.16.33:autoHealTimer10:triggerFirst:skipProbesOnInstall:forceNoBootstrap:watchdog10:recovery30:syncJ1Script:ledgerChange:pricingWorker:cexManualQueue:cexHourlyPerConnector:bitpandaStocksHourly:stockPortfolioHourly:topMarketcapWeekly:masterOnEdit:ssAccessProbe:pricingWorkerCleanup:activityDisabled:cexRelayAll";
 var WCORE_AUTO_HEAL_CEX_STALE_MS = 5 * 60 * 60 * 1000;
 
 function _wcoreAutoHealRow_(out, step, status, details) {
@@ -76,9 +77,9 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   stats.timeTriggers++;
   // v4.16.30: ACTIVITY_WATCHDOG DISABLED — was consuming ~5760 UrlFetch calls/day
   // (120+ wallets × eth_getTransactionCount via fetchAll, every 30 min).
-  // WATCHDOG_FROM_RECAP (every 5 min, I1 > 5h stale detection) is sufficient
+  // WATCHDOG_FROM_RECAP (every 10 min, I1 > 5h stale detection) is sufficient
   // for refresh scheduling. Activity-based refresh is not needed.
-  ScriptApp.newTrigger("WATCHDOG_FROM_RECAP").timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger("WATCHDOG_FROM_RECAP").timeBased().everyMinutes(10).create();
   stats.timeTriggers++;
   ScriptApp.newTrigger("QUOTA_RECOVERY_SWEEP").timeBased().everyMinutes(30).create();
   stats.timeTriggers++;

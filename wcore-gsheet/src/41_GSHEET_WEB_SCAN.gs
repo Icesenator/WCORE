@@ -639,6 +639,19 @@ function _webScanReadBreakerState_(cache) {
   return { failures: bounded, openUntil: Math.max(0, Number(state.openUntil || 0) || 0) };
 }
 
+function _webScanBreakerStatus_() {
+  try {
+    var state = _webScanReadBreakerState_(CacheService.getScriptCache());
+    return {
+      open: state.openUntil > Date.now(),
+      openUntil: state.openUntil,
+      failures: state.failures.length
+    };
+  } catch (e) {
+    return { open: true, openUntil: 0, failures: 0, unavailable: true };
+  }
+}
+
 function _webScanUpdateBreaker_(outcome) {
   var lock = null;
   var acquired = false;
@@ -833,6 +846,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
 }
 
 function DIAG_WEB_SCAN_STATUS() {
+  var breaker = _webScanBreakerStatus_();
   return [
     ["Metric", "Value"],
     ["version", GSHEET_WEB_SCAN_VERSION],
@@ -841,7 +855,13 @@ function DIAG_WEB_SCAN_STATUS() {
     ["allowlist", _webScanProp_("GSHEET_WEB_SCAN_ALLOWLIST") || "ALL"],
     ["api", _webScanProp_("WCORE_WEB_API_URL") ? "SET" : "MISSING"],
     ["token", _webScanProp_("GSHEET_API_TOKEN") ? "SET" : "MISSING"],
-    ["last_error", _webScanProp_("GSHEET_WEB_SCAN_LAST_ERROR") || ""]
+    ["last_error", _webScanProp_("GSHEET_WEB_SCAN_LAST_ERROR") || ""],
+    ["breaker_open", breaker.open],
+    ["breaker_open_until", breaker.openUntil],
+    ["breaker_failures", breaker.failures],
+    ["breaker_unavailable", !!breaker.unavailable],
+    ["automatic_attempts", GSHEET_WEB_SCAN_AUTO_ATTEMPTS],
+    ["manual_attempts", GSHEET_WEB_SCAN_MANUAL_ATTEMPTS]
   ];
 }
 

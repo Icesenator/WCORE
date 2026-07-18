@@ -569,7 +569,54 @@ var QuotaCircuitBreaker = (function() {
           : "OK - HTTP calls allowed"
       };
     },
-    
+
+    /**
+     * Read breaker status directly from cache without changing cache or memory.
+     * Cache failures fail closed because automatic HTTP admission must stay safe.
+     */
+    peekStatus: function() {
+      try {
+        var cache = CacheService.getScriptCache();
+        var raw = cache.get(QUOTA_BREAKER_CONFIG.CACHE_KEY);
+        var parsed = raw ? JSON.parse(raw) : null;
+        var trippedMs = null;
+        if (parsed && typeof parsed.trippedMs === "number") trippedMs = parsed.trippedMs;
+        if (trippedMs == null && parsed && parsed.time) {
+          var parsedTime = Date.parse(parsed.time);
+          if (!isNaN(parsedTime)) trippedMs = parsedTime;
+        }
+        if (raw && trippedMs == null) throw new Error("Invalid quota breaker cache state");
+        var tripped = trippedMs != null && (Date.now() - trippedMs) < QUOTA_BREAKER_CONFIG.TRIP_MAX_LOCKOUT_MS;
+        var tripTime = tripped && parsed ? (parsed.time || new Date(trippedMs).toISOString()) : null;
+        var maxClearAt = tripped ? new Date(trippedMs + QUOTA_BREAKER_CONFIG.TRIP_MAX_LOCKOUT_MS).toISOString() : null;
+        return {
+          tripped: tripped,
+          tripTime: tripTime,
+          trippedMs: tripped ? trippedMs : null,
+          trippedLocal: tripped ? _fmtLocal(trippedMs) : null,
+          maxClearAt: maxClearAt,
+          maxClearAtLocal: tripped ? _fmtLocal(trippedMs + QUOTA_BREAKER_CONFIG.TRIP_MAX_LOCKOUT_MS) : null,
+          date: _getTodayUTC(),
+          message: tripped
+            ? "QUOTA EXHAUSTED - auto-recovery when httpbin test passes (every 15min)"
+            : "OK - HTTP calls allowed",
+          unavailable: false
+        };
+      } catch (e) {
+        return {
+          tripped: true,
+          tripTime: null,
+          trippedMs: null,
+          trippedLocal: null,
+          maxClearAt: null,
+          maxClearAtLocal: null,
+          date: _getTodayUTC(),
+          message: "UNAVAILABLE - quota breaker cache unreadable; HTTP must remain blocked",
+          unavailable: true
+        };
+      }
+    },
+
     /**
      * Test quota with a real HTTP call (runs once per execution).
      * Call this at the START of your main function to detect quota early
@@ -628,6 +675,25 @@ var HttpCounter = (function() {
     var obj;
     try { obj = JSON.parse(raw); } catch (eParse) { return {}; }
     return (obj && typeof obj === "object") ? obj : {};
+  }
+
+  function _snapshotLoadRaw(props, key) {
+    var raw = props.getProperty(key);
+    if (raw == null) return {};
+    var obj;
+    try {
+      obj = JSON.parse(raw);
+    } catch (eParse) {
+      var malformed = new Error("Malformed HTTP telemetry: " + key);
+      malformed.telemetryCorrupt = true;
+      throw malformed;
+    }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+      var invalid = new Error("Invalid HTTP telemetry: " + key);
+      invalid.telemetryCorrupt = true;
+      throw invalid;
+    }
+    return obj;
   }
 
   function _save(props, obj, key) {
@@ -772,6 +838,37 @@ var HttpCounter = (function() {
         var nowMs = Date.now();
         return _sum(_purge(_loadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending;
       });
+    },
+
+    snapshot: function() {
+      var unavailable = {
+        available: false,
+        total: COUNT_FAILURE_CEILING,
+        categories: {},
+        hosts: {},
+        dropped: _droppedPending
+      };
+      var lock = null;
+      var acquired = false;
+      try {
+        lock = LockService.getUserLock();
+        if (!lock || !lock.tryLock(LOCK_WAIT_MS)) return unavailable;
+        acquired = true;
+        var props = PropertiesService.getScriptProperties();
+        var nowMs = Date.now();
+        return {
+          available: true,
+          total: _sum(_purge(_snapshotLoadRaw(props, KEY), nowMs)),
+          categories: _flatten(_purge(_snapshotLoadRaw(props, TRIGGER_KEY), nowMs)),
+          hosts: _flatten(_purge(_snapshotLoadRaw(props, HOST_KEY), nowMs)),
+          dropped: _sum(_purge(_snapshotLoadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending
+        };
+      } catch (e) {
+        if (e && e.telemetryCorrupt) unavailable.corrupt = true;
+        return unavailable;
+      } finally {
+        if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+      }
     },
 
     reset: function() {
@@ -1232,6 +1329,57 @@ function GET_QUOTA_BREAKER_STATUS() {
     ["Max Lockout (ceiling)", status.maxClearAtLocal || "N/A"],
     ["Message", status.message]
   ];
+}
+
+/**
+ * Read-only summary of WCORE quota protection telemetry and policy.
+ * Observed counters are project-local and do not represent Google's quota.
+ * @param {*} refreshToken Optional caller-supplied changing cell; only its
+ *   presence is checked to make spreadsheet recalculation dependencies explicit.
+ * @returns {Array<Array>} Ordered metric/value rows
+ * @customfunction
+ */
+function GET_QUOTA_PROTECTION_STATUS(refreshToken) {
+  var snapshot = HttpCounter.snapshot();
+  var rows = [["Observed rolling 24h calls", snapshot.total]];
+  var categories = snapshot.categories;
+  var categoryNames = Object.keys(categories).sort();
+  for (var i = 0; i < categoryNames.length; i++) {
+    rows.push(["Category " + categoryNames[i], categories[categoryNames[i]]]);
+  }
+
+  var hosts = snapshot.hosts;
+  var hostNames = Object.keys(hosts).sort();
+  for (var j = 0; j < hostNames.length; j++) {
+    rows.push(["Host " + hostNames[j], hosts[hostNames[j]]]);
+  }
+
+  var googleBreaker = QuotaCircuitBreaker.peekStatus();
+  var webBreaker = _webScanBreakerStatus_();
+  rows.push(["Dropped telemetry updates", snapshot.dropped]);
+  rows.push(["Google breaker status", googleBreaker.tripped ? "TRIPPED" : "OK"]);
+  rows.push(["Web breaker status", webBreaker.open ? "OPEN" : "CLOSED"]);
+  rows.push(["Watchdog cadence minutes", 10]);
+  rows.push(["Watchdog pulse cap", WD_MAX_PULSES_PER_RUN]);
+  rows.push(["Healthy freshness hours", WD_STALE_I1_HOURS]);
+  rows.push(["Web error backoff", "30m,2h,6h,24h"]);
+  rows.push(["Scope", "WCORE project only"]);
+  rows.push(["Authority", "Observed counts are not the authoritative Google account quota"]);
+  if (!snapshot.available) {
+    rows.push(["Warning telemetry snapshot", snapshot.corrupt
+      ? "CORRUPT - displayed 20000 is a fail-closed ceiling, not an observed authoritative value"
+      : "UNAVAILABLE - displayed 20000 is a fail-closed ceiling, not an observed authoritative value"]);
+  }
+  if (googleBreaker.unavailable) {
+    rows.push(["Warning Google breaker", "UNAVAILABLE - displayed TRIPPED is a fail-closed fallback, not an observed authoritative value"]);
+  }
+  if (webBreaker.unavailable) {
+    rows.push(["Warning Web breaker", "UNAVAILABLE - displayed OPEN is a fail-closed fallback, not an observed authoritative value"]);
+  }
+  if (refreshToken == null || refreshToken === "") {
+    rows.push(["Warning refresh token", "Pass a changing cell as refreshToken to refresh this diagnostic"]);
+  }
+  return rows;
 }
 
 /**

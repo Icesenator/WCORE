@@ -10,9 +10,6 @@ const NOW = Date.parse("2026-07-18T12:00:00.000Z");
 const fixture = JSON.parse(
   await readFile(fileURLToPath(new URL("./fixtures/zerion-positions.json", import.meta.url)), "utf8"),
 );
-const untracked = JSON.parse(
-  await readFile(fileURLToPath(new URL("./fixtures/zerion-untracked.json", import.meta.url)), "utf8"),
-);
 
 function asFetch(impl: (input: string | URL | Request, init?: RequestInit) => Promise<Response>): typeof fetch {
   return impl as typeof fetch;
@@ -145,6 +142,59 @@ test("accepts a structurally valid empty snapshot", async () => {
   assert.equal(snapshot.derivedPositionValueEur, 0);
 });
 
+test("rejects paginated and count-inconsistent snapshots", async () => {
+  for (const invalid of [
+    { ...fixture, links: { ...fixture.links, next: "fixture://zerion/page-2" } },
+    { ...fixture, links: { ...fixture.links, prev: "fixture://zerion/page-0" } },
+    { ...fixture, meta: { total: fixture.data.length - 1 } },
+    { ...fixture, meta: { total: -1 } },
+    { ...fixture, meta: { total: 1.5 } },
+  ]) {
+    const subject = provider(asFetch(async () => new Response(JSON.stringify(invalid))));
+    await assert.rejects(subject.load(context()), errorKind("malformed"));
+  }
+});
+
+test("rejects unknown root, links, and meta fields", async () => {
+  for (const invalid of [
+    { ...fixture, unexpected: true },
+    { ...fixture, links: { ...fixture.links, unexpected: true } },
+    { ...fixture, meta: { total: fixture.data.length, unexpected: true } },
+  ]) {
+    const subject = provider(asFetch(async () => new Response(JSON.stringify(invalid))));
+    await assert.rejects(subject.load(context()), errorKind("malformed"));
+  }
+});
+
+test("checks both declared and received raw counts before adaptation", async () => {
+  const declaredOversize = { ...fixture, meta: { total: 1001 }, data: [fixture.data[1]] };
+  const declaredSubject = provider(asFetch(async () => new Response(JSON.stringify(declaredOversize))));
+  await assert.rejects(declaredSubject.load(context()), errorKind("oversize"));
+
+  const data = Array.from({ length: 1001 }, (_, index) => ({ ...fixture.data[1], id: `raw-data-${index}` }));
+  const receivedOversize = { ...fixture, meta: { total: 1 }, data };
+  const receivedSubject = provider(asFetch(async () => new Response(JSON.stringify(receivedOversize))));
+  await assert.rejects(receivedSubject.load(context()), errorKind("oversize"));
+});
+
+test("allows contractless complex rows only with verified fungible metadata", async () => {
+  const bare = structuredClone(fixture.data.find((position: { id: string }) => position.id === "contractless"));
+  bare.id = "contractless-bare";
+  bare.attributes.fungible_info = null;
+  const verified = structuredClone(bare);
+  verified.id = "contractless-verified";
+  verified.attributes.fungible_info = { flags: { verified: true }, implementations: [] };
+  const response = {
+    links: { self: "fixture://contractless", next: null, prev: null },
+    meta: { total: 2 },
+    data: [bare, verified],
+  };
+  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(response)))).load(context());
+  assert.deepEqual(snapshot.positions.map((position) => position.positionId), ["contractless-verified"]);
+  assert.equal(snapshot.positions[0]?.providerVerified, true);
+  assert.equal(snapshot.positions[0]?.contract, undefined);
+});
+
 test("times out before response headers", async () => {
   const subject = provider(asFetch((_input, init) => new Promise((_resolve, reject) => {
     init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
@@ -212,15 +262,15 @@ test("rejects snapshots with more than 1,000 normalized positions", async () => 
   await assert.rejects(subject.load(context(1000)), errorKind("oversize"));
 });
 
-test("allowlists only the exact synthetic untracked 400 error for a locally valid address", async () => {
-  const subject = provider(asFetch(async () => new Response(JSON.stringify(untracked), { status: 400 })));
-  await assert.rejects(subject.load(context()), errorKind("untracked-candidate", 400));
-});
-
-test("treats a changed 400 payload as a malformed request failure", async () => {
-  const changed = { errors: [{ title: "Wallet not found", detail: "wording changed" }] };
-  const subject = provider(asFetch(async () => new Response(JSON.stringify(changed), { status: 400 })));
-  await assert.rejects(subject.load(context()), errorKind("malformed-request", 400));
+test("fails closed for synthetic-looking, changed, and extended 400 payloads", async () => {
+  for (const payload of [
+    { errors: [{ title: "Wallet not found", detail: "The requested wallet is not tracked" }] },
+    { errors: [{ title: "Wallet not found", detail: "wording changed" }] },
+    { errors: [{ title: "Wallet not found", detail: "The requested wallet is not tracked", code: "extra" }], extra: true },
+  ]) {
+    const subject = provider(asFetch(async () => new Response(JSON.stringify(payload), { status: 400 })));
+    await assert.rejects(subject.load(context()), errorKind("malformed-request", 400));
+  }
 });
 
 test("sanitizes auth, rate, and server HTTP errors", async (t) => {

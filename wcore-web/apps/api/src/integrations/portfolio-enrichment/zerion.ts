@@ -64,20 +64,13 @@ const positionSchema = z.object({
 
 const envelopeSchema = z.object({
   links: z.object({
-    self: z.string(),
-    next: z.string().nullable(),
-    prev: z.string().nullable(),
-  }),
-  meta: z.object({ total: z.number().int().nonnegative() }),
+    self: z.string().min(1),
+    next: z.null(),
+    prev: z.null(),
+  }).strict(),
+  meta: z.object({ total: z.number().int().nonnegative() }).strict(),
   data: z.array(positionSchema),
-});
-
-const untrackedSchema = z.object({
-  errors: z.array(z.object({
-    title: z.literal("Wallet not found"),
-    detail: z.literal("The requested wallet is not tracked"),
-  })).length(1),
-});
+}).strict();
 
 type ZerionPosition = z.infer<typeof positionSchema>;
 
@@ -90,7 +83,6 @@ export type ZerionErrorKind =
   | "auth"
   | "rate"
   | "server"
-  | "untracked-candidate"
   | "http";
 
 export class ZerionProviderError extends Error {
@@ -244,7 +236,11 @@ function adaptPosition(position: ZerionPosition): {
   }
 
   if (chain === "SOLANA") return {};
-  if (fungible && (!fungible.flags.verified || !contract)) return {};
+  if (!fungible?.flags.verified) return {};
+  const hasChainImplementation = fungible.implementations.some(
+    (candidate) => candidate.chain_id.trim().toLowerCase() === position.relationships.chain.data.id.trim().toLowerCase(),
+  );
+  if (hasChainImplementation && !contract) return {};
   const metadata = attributes.protocol_metadata;
   const dappId = position.relationships.dapp.data?.id;
   const type = getComplexType(position);
@@ -360,10 +356,6 @@ export function createZerionProvider(options: CreateZerionProviderOptions): Port
         });
 
         if (response.status === 400) {
-          const parsed = parseJson(await readBoundedBody(response, options.maxResponseBytes, abortController));
-          if (untrackedSchema.safeParse(parsed).success) {
-            throw new ZerionProviderError("untracked-candidate", 400);
-          }
           throw new ZerionProviderError("malformed-request", 400);
         }
         if (!response.ok) {
@@ -380,7 +372,10 @@ export function createZerionProvider(options: CreateZerionProviderOptions): Port
         const body = await readBoundedBody(response, options.maxResponseBytes, abortController);
         const result = envelopeSchema.safeParse(parseJson(body));
         if (!result.success) throw new ZerionProviderError("malformed");
-        if (result.data.data.length > options.maxPositions) throw new ZerionProviderError("oversize");
+        if (result.data.meta.total > options.maxPositions || result.data.data.length > options.maxPositions) {
+          throw new ZerionProviderError("oversize");
+        }
+        if (result.data.meta.total !== result.data.data.length) throw new ZerionProviderError("malformed");
         return adaptEnvelope(result.data, context, new Date(now()).toISOString());
       } catch (error) {
         if (error instanceof ZerionProviderError) throw error;

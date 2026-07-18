@@ -17,7 +17,7 @@ import {
   type PricingSourceSet,
   type PricingToken,
 } from "../pricing/index.js";
-import type { WalletAssetsCommon, ScanPhases } from "./types.js";
+import type { WalletAssetsCommon, WalletAssetProvenance, ScanPhases } from "./types.js";
 import type { WalletAssetPrice } from "./evm.js";
 import type { CacheStore } from "../cache/index.js";
 
@@ -60,7 +60,7 @@ function getKnownSvmTokenMetadata(chain: ChainConfig): Map<string, SvmTokenMetad
   return result;
 }
 
-export interface SvmWalletToken extends WalletAssetPrice {
+export interface SvmWalletToken extends WalletAssetPrice, WalletAssetProvenance {
   [key: string]: unknown;
   mint: string;
   name: string;

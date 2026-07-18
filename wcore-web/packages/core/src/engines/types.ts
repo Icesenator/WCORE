@@ -26,6 +26,15 @@ export interface WalletAssetPrice {
   priceEur: number | null;
   valueEur: number | null;
   logoUrl?: string;
+  priceSource?: string | null;
+}
+
+/** Internal provenance carried by enriched token-compatible assets. */
+export interface WalletAssetProvenance {
+  providerVerified?: boolean;
+  providerId?: string;
+  providerPositionId?: string;
+  providerGroupId?: string;
 }
 
 export interface ScanPhases {

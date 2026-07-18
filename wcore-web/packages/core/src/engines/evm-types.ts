@@ -1,6 +1,6 @@
 import type { ChainConfig } from "../types.js";
 import type { BalanceDecision, BalanceSource, BalanceVote } from "../balances/index.js";
-import type { WalletAssetsCommon, ScanPhases, CacheStats } from "./types.js";
+import type { WalletAssetsCommon, WalletAssetProvenance, ScanPhases, CacheStats } from "./types.js";
 
 export interface WalletAssetPrice {
   symbol: string;
@@ -8,9 +8,10 @@ export interface WalletAssetPrice {
   priceEur: number | null;
   valueEur: number | null;
   logoUrl?: string;
+  priceSource?: string | null;
 }
 
-export interface EvmWalletToken extends WalletAssetPrice {
+export interface EvmWalletToken extends WalletAssetPrice, WalletAssetProvenance {
   [key: string]: unknown;
   contract: string;
   name: string;

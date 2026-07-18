@@ -14,10 +14,10 @@ import {
   type PricingSourceSet,
   type PricingToken,
 } from "../pricing/index.js";
-import type { WalletAssetsCommon, ScanPhases } from "./types.js";
+import type { WalletAssetsCommon, WalletAssetProvenance, ScanPhases } from "./types.js";
 import type { WalletAssetPrice } from "./evm.js";
 
-export interface CosmosWalletToken extends WalletAssetPrice {
+export interface CosmosWalletToken extends WalletAssetPrice, WalletAssetProvenance {
   [key: string]: unknown;
   denom: string;
   name: string;

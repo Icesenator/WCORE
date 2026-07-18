@@ -89,6 +89,14 @@ var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.33";
 // Needed by testOnce() to bypass the global quota patch for real testing
 var _originalUrlFetch = UrlFetchApp.fetch;
 
+function _httpTelemetryTransport_() {
+  var bypassesPatch = typeof _originalUrlFetch === "function";
+  return {
+    fetch: bypassesPatch ? _originalUrlFetch : UrlFetchApp.fetch,
+    explicitTelemetry: bypassesPatch
+  };
+}
+
 // ============================================================
 // CONFIGURATION
 // ============================================================
@@ -433,10 +441,14 @@ var QuotaCircuitBreaker = (function() {
     // v4.12.31: Use _originalUrlFetch to bypass global quota patch
     try {
       var testUrl = "https://httpbin.org/status/200";
-      // v4.16.30: count the breaker test (real UrlFetch, bypasses the counting patch)
-      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("QUOTA_BREAKER_TEST"); } catch (eCtxTest) {}
-      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCountTest) {}
-      var response = _originalUrlFetch.call(UrlFetchApp, testUrl, {
+      var transport = typeof _httpTelemetryTransport_ === "function"
+        ? _httpTelemetryTransport_()
+        : { fetch: _originalUrlFetch, explicitTelemetry: true };
+      if (transport.explicitTelemetry) {
+        try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, "QUOTA_PROBE", testUrl); } catch (eCountTest) {}
+        try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment(testUrl, "QUOTA_PROBE"); } catch (eLegacyCountTest) {}
+      }
+      var response = transport.fetch.call(UrlFetchApp, testUrl, {
         muteHttpExceptions: true,
         timeout: 3000  // 3 second timeout max
       });
@@ -591,38 +603,35 @@ var QuotaCircuitBreaker = (function() {
  * Keeps the last 24 buckets; older ones are purged on each record.
  * Tiny footprint (~400 bytes) so writes stay cheap even on every call.
  *
- * Observability-only: record(n) is called from the global UrlFetchApp
- * patches below, so every real UrlFetchApp.fetch/fetchAll is counted
- * EXCEPT the internal httpbin test call (which uses _originalUrlFetch
- * to bypass the patch on purpose).
+ * Observability-only: record(n, category, url) is called from the global
+ * UrlFetchApp patches below. Raw bypass paths record explicitly before fetch.
  *
  * Exposed via @customfunction GET_HTTP_COUNT_LAST_24H() for the sheet.
  */
 var HttpCounter = (function() {
   var KEY = "WCORE_HTTP_BUCKETS_v1";
   var TRIGGER_KEY = "WCORE_HTTP_TRIGGERS_v2";
+  var HOST_KEY = "WCORE_HTTP_HOSTS_v1";
+  var DROPPED_KEY = CK_get('httpDroppedTelemetry');
+  // UserLock matches the user-scoped UrlFetch quota. This is observational WCORE telemetry,
+  // not authoritative cross-user accounting, and avoids watchdog ScriptLock self-deadlock.
+  var LOCK_WAIT_MS = 100;
+  var COUNT_FAILURE_CEILING = 20000;
   var BUCKET_MS = 60 * 60 * 1000;  // 1h granularity
   var WINDOWS = 24;                // last 24 buckets = rolling 24h
+  // Contention cannot safely persist without the lock, so the observed dropped total is a lower bound.
+  var _droppedPending = 0;
 
-  var _cache = null;
-  var _triggerCache = null;
-  var _loaded = false;
-
-  function _loadRaw(key) {
-    try {
-      var raw = PropertiesService.getScriptProperties().getProperty(key);
-      if (!raw) return {};
-      var obj = JSON.parse(raw);
-      return (obj && typeof obj === "object") ? obj : {};
-    } catch (e) {
-      return {};
-    }
+  function _loadRaw(props, key) {
+    var raw = props.getProperty(key);
+    if (!raw) return {};
+    var obj;
+    try { obj = JSON.parse(raw); } catch (eParse) { return {}; }
+    return (obj && typeof obj === "object") ? obj : {};
   }
 
-  function _save(obj, key) {
-    try {
-      PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(obj));
-    } catch (e) {}
+  function _save(props, obj, key) {
+    props.setProperty(key, JSON.stringify(obj));
   }
 
   function _purge(obj, nowMs) {
@@ -636,13 +645,6 @@ var HttpCounter = (function() {
     return out;
   }
 
-  function _ensure(nowMs) {
-    if (_loaded) return;
-    _cache = _purge(_loadRaw(KEY), nowMs);
-    _triggerCache = _purge(_loadRaw(TRIGGER_KEY), nowMs);
-    _loaded = true;
-  }
-
   function _sum(obj) {
     var total = 0;
     for (var k in obj) {
@@ -651,68 +653,142 @@ var HttpCounter = (function() {
     return total;
   }
 
-  function _currentTrigger() {
+  function _currentTrigger(props) {
+    return props.getProperty("WCORE_CURRENT_TRIGGER") || "unknown";
+  }
+
+  function _category(explicitCategory, props) {
+    var explicit = String(explicitCategory || "").trim();
+    return explicit ? explicit.toUpperCase() : "approx:" + _currentTrigger(props);
+  }
+
+  function _host(url) {
+    var match = String(url || "").match(/^https?:\/\/(?:[^\/@?#]*@)?([^\/:?#]+)(?::[0-9]+)?(?:[\/?#]|$)/i);
+    return match ? match[1].toLowerCase() : "unknown";
+  }
+
+  function _readLocked(fallback, reader) {
+    var lock = null;
+    var acquired = false;
     try {
-      return PropertiesService.getScriptProperties().getProperty("WCORE_CURRENT_TRIGGER") || "unknown";
-    } catch (e) { return "unknown"; }
+      lock = LockService.getUserLock();
+      if (!lock || !lock.tryLock(LOCK_WAIT_MS)) return fallback;
+      acquired = true;
+      return reader(PropertiesService.getScriptProperties());
+    } catch (e) {
+      return fallback;
+    } finally {
+      if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+
+  function _flatten(obj) {
+    var out = {};
+    for (var bk in obj) {
+      if (!obj.hasOwnProperty(bk)) continue;
+      var bucket = obj[bk];
+      for (var name in bucket) {
+        if (!bucket.hasOwnProperty(name)) continue;
+        out[name] = (out[name] || 0) + (parseInt(bucket[name], 10) || 0);
+      }
+    }
+    return out;
   }
 
   return {
-    record: function(n) {
+    record: function(n, explicitCategory, url) {
       var inc = parseInt(n, 10) || 0;
       if (inc < 1) return;
+      var lock = null;
+      var acquired = false;
       try {
+        lock = LockService.getUserLock();
+        if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+          _droppedPending += inc;
+          return;
+        }
+        acquired = true;
+        var props = PropertiesService.getScriptProperties();
         var nowMs = Date.now();
-        _ensure(nowMs);
         var bucket = String(Math.floor(nowMs / BUCKET_MS));
-        _cache[bucket] = (parseInt(_cache[bucket], 10) || 0) + inc;
-        _save(_cache, KEY);
+        var counts = _purge(_loadRaw(props, KEY), nowMs);
+        var triggers = _purge(_loadRaw(props, TRIGGER_KEY), nowMs);
+        var hosts = _purge(_loadRaw(props, HOST_KEY), nowMs);
+        var dropped = _purge(_loadRaw(props, DROPPED_KEY), nowMs);
+        var category = _category(explicitCategory, props);
+        var host = _host(url);
 
-        var trigger = _currentTrigger();
-        if (!_triggerCache[bucket]) _triggerCache[bucket] = {};
-        _triggerCache[bucket][trigger] = (parseInt(_triggerCache[bucket][trigger], 10) || 0) + inc;
-        _save(_triggerCache, TRIGGER_KEY);
-      } catch (e) {}
+        counts[bucket] = (parseInt(counts[bucket], 10) || 0) + inc;
+        if (!triggers[bucket]) triggers[bucket] = {};
+        triggers[bucket][category] = (parseInt(triggers[bucket][category], 10) || 0) + inc;
+        if (!hosts[bucket]) hosts[bucket] = {};
+        hosts[bucket][host] = (parseInt(hosts[bucket][host], 10) || 0) + inc;
+        if (_droppedPending > 0) dropped[bucket] = (parseInt(dropped[bucket], 10) || 0) + _droppedPending;
+
+        _save(props, counts, KEY);
+        _save(props, triggers, TRIGGER_KEY);
+        _save(props, hosts, HOST_KEY);
+        _save(props, dropped, DROPPED_KEY);
+        if (_droppedPending > 0) {
+          _droppedPending = 0;
+        }
+      } catch (e) {
+        _droppedPending += inc;
+      } finally {
+        if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+      }
     },
 
-    count: function() {
-      try {
+    count: function(failureCeiling) {
+      var ceiling = (failureCeiling != null && isFinite(failureCeiling)) ? Number(failureCeiling) : COUNT_FAILURE_CEILING;
+      return _readLocked(ceiling, function(props) {
         var nowMs = Date.now();
-        var obj = _purge(_loadRaw(KEY), nowMs);
+        var obj = _purge(_loadRaw(props, KEY), nowMs);
         return _sum(obj);
-      } catch (e) { return 0; }
+      });
     },
 
     byTrigger: function() {
-      try {
+      return _readLocked({}, function(props) {
         var nowMs = Date.now();
-        var obj = _purge(_loadRaw(TRIGGER_KEY), nowMs);
-        var out = {};
-        for (var bk in obj) {
-          if (!obj.hasOwnProperty(bk)) continue;
-          var bucket = obj[bk];
-          for (var t in bucket) {
-            if (!bucket.hasOwnProperty(t)) continue;
-            out[t] = (out[t] || 0) + (parseInt(bucket[t], 10) || 0);
-          }
-        }
-        return out;
-      } catch (e) { return {}; }
+        return _flatten(_purge(_loadRaw(props, TRIGGER_KEY), nowMs));
+      });
+    },
+
+    byHost: function() {
+      return _readLocked({}, function(props) {
+        var nowMs = Date.now();
+        return _flatten(_purge(_loadRaw(props, HOST_KEY), nowMs));
+      });
+    },
+
+    noteDropped: function(n) {
+      var inc = parseInt(n, 10) || 1;
+      if (inc > 0) _droppedPending += inc;
+    },
+
+    dropped: function() {
+      return _readLocked(_droppedPending, function(props) {
+        var nowMs = Date.now();
+        return _sum(_purge(_loadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending;
+      });
     },
 
     reset: function() {
-      try {
-        PropertiesService.getScriptProperties().deleteProperty(KEY);
-        PropertiesService.getScriptProperties().deleteProperty(TRIGGER_KEY);
-      } catch (e) {}
-      _cache = null;
-      _triggerCache = null;
-      _loaded = false;
+      return _readLocked(false, function(props) {
+        props.deleteProperty(KEY);
+        props.deleteProperty(TRIGGER_KEY);
+        props.deleteProperty(HOST_KEY);
+        props.deleteProperty(DROPPED_KEY);
+        _droppedPending = 0;
+        return true;
+      });
     },
 
     buckets: function() {
-      var nowMs = Date.now();
-      return _purge(_loadRaw(KEY), nowMs);
+      return _readLocked({}, function(props) {
+        return _purge(_loadRaw(props, KEY), Date.now());
+      });
     }
   };
 })();
@@ -733,9 +809,9 @@ var BudgetHTTP = BudgetHTTP || (function() {
 
   function _count() {
     try {
-      if (typeof HttpCounter !== 'undefined' && HttpCounter.count) return HttpCounter.count();
+      if (typeof HttpCounter !== 'undefined' && HttpCounter.count) return HttpCounter.count(DAILY_LIMIT);
     } catch (e) {}
-    return 0;
+    return DAILY_LIMIT;
   }
 
   function categoryForReason(reason) {
@@ -1098,7 +1174,7 @@ function INSTALL_GLOBAL_QUOTA_BREAKER() {
       return null;
     }
     // v4.13.7: observability — count BEFORE the call so failed calls still count
-    try { HttpCounter.record(1); } catch (e) {}
+    try { HttpCounter.record(1, null, url); } catch (e) {}
     try {
       return _origFetch.call(UrlFetchApp, url, options);
     } catch (e) {
@@ -1117,7 +1193,12 @@ function INSTALL_GLOBAL_QUOTA_BREAKER() {
       return nulls;
     }
     // v4.13.7: observability — 1 call per request in the batch
-    try { HttpCounter.record(requests ? requests.length : 0); } catch (e) {}
+    try {
+      for (var r = 0; r < (requests ? requests.length : 0); r++) {
+        var requestUrl = (requests[r] && requests[r].url) ? requests[r].url : requests[r];
+        HttpCounter.record(1, null, requestUrl);
+      }
+    } catch (e) {}
     try {
       return _origFetchAll.call(UrlFetchApp, requests);
     } catch (e) {
@@ -1208,7 +1289,7 @@ function TRIP_QUOTA_BREAKER(confirm) {
  * report status because ScriptApp authorization can be unavailable there.
  * @customfunction
  */
-function TEST_QUOTA_NOW() {
+function LIVE_PROBE_QUOTA_NOW() {
   var wasTripped = QuotaCircuitBreaker.isTripped();
   var isOk = QuotaCircuitBreaker.testOnce(true);
   var status = QuotaCircuitBreaker.getStatus();
@@ -1286,7 +1367,7 @@ function RESET_HTTP_COUNTER(confirm) {
   if (confirm !== true) {
     return "Usage: =RESET_HTTP_COUNTER(TRUE) - Clears the local HTTP counter (does NOT reset Google quota)";
   }
-  HttpCounter.reset();
+  if (!HttpCounter.reset()) return "HTTP counter reset failed: telemetry lock or properties unavailable";
   return "HTTP counter reset OK at " + new Date().toISOString();
 }
 
@@ -1422,7 +1503,7 @@ function shouldAbortDueToQuota() {
     }
     
     // NOTE: We do NOT test quota at load time to save HTTP calls
-    // Call QuotaCircuitBreaker.testOnce() or TEST_QUOTA_NOW() explicitly
+    // Call QuotaCircuitBreaker.testOnce() or LIVE_PROBE_QUOTA_NOW() explicitly
     // when starting a refresh operation
     
   } catch (e) {

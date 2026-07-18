@@ -735,19 +735,20 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     var token = _webScanProp_("GSHEET_API_TOKEN");
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
     if (!req.address || !req.chain) return null;
-    var fetchFn = (typeof _originalUrlFetch === "function") ? _originalUrlFetch : UrlFetchApp.fetch;
+    var transport = typeof _httpTelemetryTransport_ === "function"
+      ? _httpTelemetryTransport_()
+      : { fetch: UrlFetchApp.fetch, explicitTelemetry: false };
     var resp = null;
     var force = _webScanForce_(forceFull);
     var attempts = force ? GSHEET_WEB_SCAN_MANUAL_ATTEMPTS : GSHEET_WEB_SCAN_AUTO_ATTEMPTS;
     for (var attempt = 1; attempt <= attempts; attempt++) {
       if (_webScanQuotaTripped_()) return _webScanBlockedQuotaResult_(chainKey);
-      // v4.16.30: count every real UrlFetch attempt (even failures count against
-      // Google's quota). _originalUrlFetch bypasses the HttpCounter patch, so
-      // without this the dominant HTTP consumer is invisible to the 24h counter.
-      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("WATCHDOG_FROM_RECAP"); } catch (eCtx) {}
-      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCount) {}
+      if (transport.explicitTelemetry) {
+        try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, "WEB_SCAN", baseUrl + "/api/gsheet/scan"); } catch (eCount) {}
+        try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment(baseUrl + "/api/gsheet/scan", "WEB_SCAN"); } catch (eLegacyCount) {}
+      }
       try {
-        resp = fetchFn.call(UrlFetchApp, baseUrl + "/api/gsheet/scan", {
+        resp = transport.fetch.call(UrlFetchApp, baseUrl + "/api/gsheet/scan", {
       method: "post",
       contentType: "application/json",
       payload: JSON.stringify(req),

@@ -559,9 +559,14 @@ for (const [sheetName, updateName] of [
 }
 
 {
-  const testQuotaNow = extractFunction(quotaSource, 'TEST_QUOTA_NOW');
-  assert.match(quotaSource, /authorized editor\/admin execution[\s\S]*function TEST_QUOTA_NOW\(\)/i,
-    'TEST_QUOTA_NOW must document authorized scheduling semantics');
+  const liveProbeQuotaNow = extractFunction(quotaSource, 'LIVE_PROBE_QUOTA_NOW');
+  assert.match(quotaSource, /authorized editor\/admin execution[\s\S]*function LIVE_PROBE_QUOTA_NOW\(\)/i,
+    'LIVE_PROBE_QUOTA_NOW must document authorized scheduling semantics');
+  assert.doesNotMatch(quotaSource, /function TEST_QUOTA_NOW\s*\(/,
+    'network diagnostics must not retain the ambiguous TEST_QUOTA_NOW alias');
+  const quotaStatus = extractFunction(quotaSource, 'GET_QUOTA_BREAKER_STATUS');
+  assert.doesNotMatch(quotaStatus, /_originalUrlFetch|\.testOnce\s*\(/,
+    'GET_QUOTA_BREAKER_STATUS must remain read-only');
   function run(initiallyTripped) {
     let state = initiallyTripped;
     let scheduled = 0;
@@ -578,14 +583,14 @@ for (const [sheetName, updateName] of [
       Date
     };
     vm.createContext(context);
-    vm.runInContext(testQuotaNow, context);
-    context.TEST_QUOTA_NOW();
+    vm.runInContext(liveProbeQuotaNow, context);
+    context.LIVE_PROBE_QUOTA_NOW();
     return { scheduled, forceProbe };
   }
   assert.deepStrictEqual(run(true), { scheduled: 1, forceProbe: true },
-    'TEST_QUOTA_NOW must force a real probe and schedule after recovering a tripped QCB');
+    'LIVE_PROBE_QUOTA_NOW must force a real probe and schedule after recovering a tripped QCB');
   assert.deepStrictEqual(run(false), { scheduled: 0, forceProbe: true },
-    'TEST_QUOTA_NOW must force a real probe without scheduling when quota was already healthy');
+    'LIVE_PROBE_QUOTA_NOW must force a real probe without scheduling when quota was already healthy');
 }
 
 console.log('quota recovery state guard OK');

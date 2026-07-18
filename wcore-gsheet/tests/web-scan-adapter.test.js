@@ -1,10 +1,12 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
 const sourcePath = path.join(__dirname, '..', 'src', '41_GSHEET_WEB_SCAN.gs');
 const source = fs.readFileSync(sourcePath, 'utf8');
+const keysSource = fs.readFileSync(path.join(__dirname, '..', 'src', '00C_CACHE_KEYS.gs'), 'utf8');
 const refreshSource = fs.readFileSync(path.join(__dirname, '..', 'src', '16_REFRESH.gs'), 'utf8');
 const outputSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10_OUTPUT.gs'), 'utf8');
 const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EVM_ENGINE.gs'), 'utf8');
@@ -95,6 +97,7 @@ function makeWalletNamesContext() {
 
 function makeContext(props, fetchBody) {
   const saved = [];
+  const admissionCache = new Map();
   const fetchFn = typeof fetchBody === 'function'
     ? fetchBody
     : () => ({ getResponseCode: () => fetchBody ? 200 : 500, getContentText: () => fetchBody || '{"ok":false}' });
@@ -117,8 +120,19 @@ function makeContext(props, fetchBody) {
       }),
     },
     Utilities: {
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      computeDigest: (_algorithm, value) => Array.from(crypto.createHash('sha256').update(String(value)).digest(), (byte) => byte > 127 ? byte - 256 : byte),
       formatDate: () => '2026-06-26 19:00:00',
       sleep: () => {},
+    },
+    CacheService: {
+      getScriptCache: () => ({
+        get: (key) => admissionCache.get(key) || null,
+        put: (key, value) => admissionCache.set(key, String(value)),
+      }),
+    },
+    LockService: {
+      getUserLock: () => ({ tryLock: () => true, releaseLock: () => {} }),
     },
     Session: { getScriptTimeZone: () => 'Europe/Paris' },
     CacheManager: { init: () => {} },
@@ -141,6 +155,7 @@ function makeContext(props, fetchBody) {
     __saved: saved,
   };
   vm.createContext(context);
+  vm.runInContext(keysSource, context);
   vm.runInContext(source, context);
   return context;
 }

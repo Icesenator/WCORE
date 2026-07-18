@@ -1,6 +1,8 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.32 - Preserve case-sensitive wallet identities and report admission errors safely.
+ * v4.16.31 - Suppress duplicate automatic Web scans with a short hashed lease.
  * v4.16.30 - _webScanMustUse_: stronger gate. When GSHEET_WEB_SCAN_REQUIRE is set,
  *   the engine must NEVER fall through to direct RPC, even if _webScanEnabled_()
  *   transiently returns false (ScriptProperties pressure). Direct RPC fallback
@@ -39,8 +41,10 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.28";
+var GSHEET_WEB_SCAN_VERSION = "4.16.32";
 var GSHEET_WEB_SCAN_MAX_ATTEMPTS = 2;
+var GSHEET_WEB_SCAN_LEASE_SEC = 120;
+var GSHEET_WEB_SCAN_LOCK_WAIT_MS = 250;
 
 var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
   "0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3": true, // BASE: AGI
@@ -605,12 +609,68 @@ function _webScanHandleQuotaError_(err, chainKey) {
   return null;
 }
 
+function _webScanForce_(forceFull) {
+  return forceFull === true || String(forceFull || '').toUpperCase() === 'TRUE';
+}
+
+function _webScanWalletHash_(address) {
+  var identity = String(address || '').trim();
+  if (/^0x[0-9a-fA-F]{40}$/.test(identity)) identity = identity.toLowerCase();
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, identity);
+  var hex = '';
+  for (var i = 0; i < bytes.length && i < 16; i++) hex += ('0' + ((bytes[i] + 256) % 256).toString(16)).slice(-2);
+  if (hex.length !== 32) throw new Error('wallet_hash_unavailable');
+  return hex;
+}
+
+function _webScanDeferredResult_(address, cacheKey, config, reason) {
+  var cached = null;
+  try { cached = WalletCache.load(String(cacheKey || address || '').trim(), null, config); } catch (eLoad) {}
+  var stamp = '';
+  try { stamp = cached && cached.updatedAt ? Format.datetime(cached.updatedAt) : ''; } catch (eFmt) {}
+  return {
+    ok: true,
+    deferred: true,
+    deferredReason: String(reason || 'ADMISSION'),
+    status: stamp ? '[CACHE_ONLY] ' + stamp : '[WEB_SCAN_DEFERRED] N/A',
+    cache: cached || null
+  };
+}
+
+function _webScanAcquireAdmission_(address, chainKey, forceFull) {
+  if (_webScanForce_(forceFull)) return { allowed: true, bypassed: true };
+  var lock = null;
+  var acquired = false;
+  var admissionError = false;
+  try {
+    lock = LockService.getUserLock();
+    if (!lock || !lock.tryLock(GSHEET_WEB_SCAN_LOCK_WAIT_MS)) return { allowed: false, reason: 'LOCK_BUSY' };
+    acquired = true;
+    var cache = CacheService.getScriptCache();
+    if (!cache) return { allowed: false, reason: 'CACHE_UNAVAILABLE' };
+    var key = CK_get('webScanLease', { chainKey: chainKey, walletHash: _webScanWalletHash_(address) });
+    if (cache.get(key)) return { allowed: false, reason: 'LEASE_HELD' };
+    cache.put(key, '1', GSHEET_WEB_SCAN_LEASE_SEC);
+    return { allowed: true, leaseKey: key };
+  } catch (e) {
+    admissionError = true;
+  } finally {
+    if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+  }
+  if (admissionError) {
+    _webScanSetLastError_('WEB_SCAN_ADMISSION_ERROR', chainKey);
+    return { allowed: false, reason: 'ADMISSION_ERROR' };
+  }
+}
+
 function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
   try {
     if (!_webScanEnabled_()) return null;
     var chainKey = _webScanChainKey_(config);
     if (!chainKey || !_webScanAllowed_(chainKey)) return null;
     if (_webScanQuotaTripped_()) return _webScanBlockedQuotaResult_(chainKey);
+    var admission = _webScanAcquireAdmission_(address, chainKey, forceFull);
+    if (!admission.allowed) return _webScanDeferredResult_(address, cacheKey, config, admission.reason);
     var baseUrl = _webScanProp_("WCORE_WEB_API_URL").replace(/\/$/, "");
     var token = _webScanProp_("GSHEET_API_TOKEN");
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
@@ -668,6 +728,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
         WalletCache.save(String(cacheKey || address || "").trim(), mergedCache, config);
         return {
           ok: true,
+          deferred: false,
           status: "[WEB_SCAN_DEGRADED] " + Format.datetime(mergedCache.updatedAt),
           cache: mergedCache,
           degraded: true,
@@ -677,6 +738,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       _webScanSetLastError_("PRESERVED_DEGRADED_NATIVE_ZERO " + chainKey, chainKey);
       return {
         ok: true,
+        deferred: false,
         status: "[WEB_SCAN_PRESERVED] " + Format.datetime(cache.updatedAt),
         cache: cache,
         degraded: true
@@ -686,6 +748,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     WalletCache.save(String(cacheKey || address || "").trim(), cache, config);
     return {
       ok: true,
+      deferred: false,
       status: (payload.degraded ? "[WEB_SCAN_DEGRADED] " : "WEB_SCAN_OK ") + Format.datetime(cache.updatedAt),
       cache: cache
     };

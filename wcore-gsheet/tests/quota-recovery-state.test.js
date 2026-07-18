@@ -74,25 +74,52 @@ function loadQuotaCircuitBreaker() {
   return context.QuotaCircuitBreaker;
 }
 
-function loadQuotaCircuitBreakerRuntime(fetchImpl) {
-  const values = new Map();
-  values.set('WCORE_QUOTA_EXHAUSTED_v1', JSON.stringify({
+function createSharedQuotaRuntimeState() {
+  const values = new Map([['WCORE_QUOTA_EXHAUSTED_v1', JSON.stringify({
     time: new Date().toISOString(),
     trippedMs: Date.now(),
     error: 'Service invoked too many times for one day: urlfetch'
-  }));
+  })]]);
+  const metrics = { lockAttempts: 0, lockHeld: false, puts: [], removals: [] };
   const cache = {
-    get: (key) => values.get(key) || null,
-    put: (key, value) => values.set(key, value),
-    remove: (key) => values.delete(key)
+    get(key) {
+      if (key === 'WCORE_QUOTA_TEST_ATTEMPT_v1' && !metrics.lockHeld) {
+        throw new Error('attempt lease read must hold ScriptLock');
+      }
+      return values.get(key) || null;
+    },
+    put(key, value, ttl) {
+      if (key === 'WCORE_QUOTA_TEST_ATTEMPT_v1' && !metrics.lockHeld) {
+        throw new Error('attempt lease write must hold ScriptLock');
+      }
+      metrics.puts.push({ key, value, ttl });
+      values.set(key, value);
+    },
+    remove(key) {
+      metrics.removals.push(key);
+      values.delete(key);
+    }
   };
+  const lock = {
+    tryLock() {
+      metrics.lockAttempts++;
+      metrics.lockHeld = true;
+      return true;
+    },
+    releaseLock() { metrics.lockHeld = false; }
+  };
+  return { values, cache, lock, metrics };
+}
+
+function loadQuotaCircuitBreakerRuntime(fetchImpl, shared = createSharedQuotaRuntimeState()) {
   const configStart = quotaSource.indexOf('var QUOTA_BREAKER_CONFIG =');
   const config = `${extractBalanced(quotaSource, configStart, '{', '}')};`;
   const qcbStart = quotaSource.indexOf('var QuotaCircuitBreaker =');
   const qcbEnd = quotaSource.indexOf('})();', qcbStart);
   const context = {
-    CacheService: { getScriptCache: () => cache },
+    CacheService: { getScriptCache: () => shared.cache },
     Date,
+    LockService: { getScriptLock: () => shared.lock },
     Logger: { log() {} },
     Session: { getScriptTimeZone: () => 'UTC' },
     Utilities: { formatDate: () => '' },
@@ -131,6 +158,67 @@ nearMissQuotaErrors.forEach((error) => assert.strictEqual(qcb.isQuotaError(error
   const staleQcb = loadQuotaCircuitBreakerRuntime(() => { throw new Error('Address unavailable: httpbin.org'); });
   assert.strictEqual(staleQcb.testOnce(), false, 'an inconclusive non-quota probe must not report recovery');
   assert.strictEqual(staleQcb.isTripped(), true, 'an inconclusive non-quota probe must preserve the stale breaker');
+}
+
+{
+  const shared = createSharedQuotaRuntimeState();
+  let fetches = 0;
+  const quotaFetch = () => {
+    fetches++;
+    throw new Error('Service invoked too many times for one day: urlfetch');
+  };
+  const firstRuntime = loadQuotaCircuitBreakerRuntime(quotaFetch, shared);
+  const secondRuntime = loadQuotaCircuitBreakerRuntime(quotaFetch, shared);
+
+  assert.strictEqual(firstRuntime.testOnce(), false, 'the first tripped runtime must perform the automatic recovery probe');
+  assert.strictEqual(secondRuntime.testOnce(), false, 'the leased-out runtime must remain tripped');
+  assert.strictEqual(fetches, 1, 'shared attempt lease must allow only one automatic probe per 15 minutes');
+  assert.strictEqual(shared.metrics.lockAttempts, 2, 'each automatic runtime must coordinate through ScriptLock');
+  assert.deepStrictEqual(shared.metrics.puts.find((entry) => entry.key === 'WCORE_QUOTA_TEST_ATTEMPT_v1'), {
+    key: 'WCORE_QUOTA_TEST_ATTEMPT_v1',
+    value: '1',
+    ttl: 900
+  }, 'automatic probe lease must be cached for exactly 900 seconds');
+
+  const forcedAdminRuntime = loadQuotaCircuitBreakerRuntime(quotaFetch, shared);
+  assert.strictEqual(forcedAdminRuntime.testOnce(true), false, 'a forced admin probe must still report authoritative exhaustion');
+  assert.strictEqual(fetches, 2, 'a forced admin probe must bypass the shared attempt lease');
+  assert.strictEqual(shared.metrics.lockAttempts, 2, 'a forced admin probe must bypass ScriptLock coordination');
+}
+
+{
+  const shared = createSharedQuotaRuntimeState();
+  shared.lock.tryLock = () => false;
+  let fetches = 0;
+  const qcbWithBusyLock = loadQuotaCircuitBreakerRuntime(() => { fetches++; }, shared);
+
+  assert.strictEqual(qcbWithBusyLock.testOnce(), false, 'an automatic probe with an unavailable ScriptLock must fail closed');
+  assert.strictEqual(fetches, 0, 'an automatic probe must not fetch when ScriptLock is unavailable');
+}
+
+for (const operation of ['get', 'put']) {
+  const shared = createSharedQuotaRuntimeState();
+  const original = shared.cache[operation];
+  shared.cache[operation] = function(key, ...args) {
+    if (key === 'WCORE_QUOTA_TEST_ATTEMPT_v1') throw new Error(`cache ${operation} unavailable`);
+    return original.call(this, key, ...args);
+  };
+  let fetches = 0;
+  const qcbWithCacheFailure = loadQuotaCircuitBreakerRuntime(() => { fetches++; }, shared);
+
+  assert.strictEqual(qcbWithCacheFailure.testOnce(), false, `an automatic probe must fail closed when cache ${operation} throws`);
+  assert.strictEqual(fetches, 0, `an automatic probe must not fetch when cache ${operation} throws`);
+  assert.strictEqual(shared.metrics.lockHeld, false, `ScriptLock must be released after cache ${operation} failure`);
+}
+
+{
+  const shared = createSharedQuotaRuntimeState();
+  shared.values.set('WCORE_QUOTA_TEST_ATTEMPT_v1', '1');
+  const qcbToReset = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+
+  qcbToReset.reset();
+  assert.strictEqual(shared.values.get('WCORE_QUOTA_TEST_ATTEMPT_v1'), '1', 'reset must preserve the automatic attempt lease');
+  assert.ok(!shared.metrics.removals.includes('WCORE_QUOTA_TEST_ATTEMPT_v1'), 'reset must not remove the automatic attempt lease key');
 }
 
 function loadDegradedMode(qcbValue) {
@@ -477,10 +565,11 @@ for (const [sheetName, updateName] of [
   function run(initiallyTripped) {
     let state = initiallyTripped;
     let scheduled = 0;
+    let forceProbe;
     const context = {
       QuotaCircuitBreaker: {
         isTripped: () => state,
-        testOnce: () => { state = false; return true; },
+        testOnce: (force) => { forceProbe = force; state = false; return true; },
         getStatus: () => ({})
       },
       _recoverySchedulePortfolioRefresh_: () => { scheduled++; },
@@ -491,10 +580,12 @@ for (const [sheetName, updateName] of [
     vm.createContext(context);
     vm.runInContext(testQuotaNow, context);
     context.TEST_QUOTA_NOW();
-    return scheduled;
+    return { scheduled, forceProbe };
   }
-  assert.strictEqual(run(true), 1, 'TEST_QUOTA_NOW must schedule after recovering a tripped QCB');
-  assert.strictEqual(run(false), 0, 'TEST_QUOTA_NOW must not schedule when quota was already healthy');
+  assert.deepStrictEqual(run(true), { scheduled: 1, forceProbe: true },
+    'TEST_QUOTA_NOW must force a real probe and schedule after recovering a tripped QCB');
+  assert.deepStrictEqual(run(false), { scheduled: 0, forceProbe: true },
+    'TEST_QUOTA_NOW must force a real probe without scheduling when quota was already healthy');
 }
 
 console.log('quota recovery state guard OK');

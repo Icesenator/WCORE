@@ -118,6 +118,52 @@ test("normalizes debt as negative and retains valid grouped LP components", asyn
   assert.ok(lp.every((position) => position.poolAddress === "0xcccccccccccccccccccccccccccccccccccccccc"));
 });
 
+test("drops every LP sibling when any component fails semantic adaptation", async (t) => {
+  const mutations: Array<[string, (position: typeof fixture.data[number]) => void]> = [
+    ["pool", (position) => { position.attributes.protocol_metadata.pool_address = "invalid"; }],
+    ["receipt", (position) => { position.attributes.protocol_metadata.receipt_contract = "invalid"; }],
+    ["underlying", (position) => { position.attributes.protocol_metadata.underlying_contract = "invalid"; }],
+    ["contract", (position) => { position.attributes.fungible_info.implementations[0].address = "invalid"; }],
+    ["quantity", (position) => { position.attributes.quantity.float = "NaN"; }],
+    ["value", (position) => { position.attributes.value = "Infinity"; }],
+    ["price", (position) => { position.attributes.price = "NaN"; }],
+    ["mapping", (position) => { position.attributes.position_type = "unsupported"; }],
+    ["metadata", (position) => { position.attributes.protocol_metadata = null; }],
+    ["protocol", (position) => { position.relationships.dapp = { data: null }; }],
+    ["display", (position) => { position.attributes.flags.displayable = false; }],
+    ["trash", (position) => { position.attributes.flags.is_trash = true; }],
+  ];
+
+  for (const [name, mutate] of mutations) {
+    await t.test(name, async () => {
+      const first = structuredClone(fixture.data.find((position: { id: string }) => position.id === "lp-good-a"));
+      const second = structuredClone(fixture.data.find((position: { id: string }) => position.id === "lp-good-b"));
+      mutate(second);
+      const response = {
+        links: { self: `fixture://lp-${name}`, next: null, prev: null },
+        meta: { total: 2 },
+        data: [first, second],
+      };
+      const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(response)))).load(context());
+      assert.deepEqual(snapshot.positions, []);
+      assert.equal(snapshot.diagnostics.droppedCount, 2);
+    });
+  }
+});
+
+test("normalizes contradictory locked liquidity to locked", async () => {
+  const locked = structuredClone(fixture.data.find((position: { id: string }) => position.id === "locked"));
+  locked.attributes.protocol_metadata.liquidity = "liquid";
+  const response = {
+    links: { self: "fixture://locked", next: null, prev: null },
+    meta: { total: 1 },
+    data: [locked],
+  };
+  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(response)))).load(context());
+  assert.equal(snapshot.positions[0]?.type, "staking_locked");
+  assert.equal(snapshot.positions[0]?.liquidity, "locked");
+});
+
 test("drops hidden, trash, unknown-chain, native wallet, invalid, unverified, and whole mixed LP groups", async () => {
   const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(fixture)))).load(context());
   const ids = new Set(snapshot.positions.map((position) => position.positionId));
@@ -262,6 +308,22 @@ test("rejects snapshots with more than 1,000 normalized positions", async () => 
   await assert.rejects(subject.load(context(1000)), errorKind("oversize"));
 });
 
+test("rejects a finite-position snapshot when the derived sum overflows", async () => {
+  const data = [0, 1].map((index) => {
+    const position = structuredClone(fixture.data[1]);
+    position.id = `overflow-${index}`;
+    position.attributes.value = Number.MAX_VALUE;
+    return position;
+  });
+  const response = {
+    links: { self: "fixture://overflow", next: null, prev: null },
+    meta: { total: data.length },
+    data,
+  };
+  const subject = provider(asFetch(async () => new Response(JSON.stringify(response))));
+  await assert.rejects(subject.load(context()), errorKind("malformed"));
+});
+
 test("fails closed for synthetic-looking, changed, and extended 400 payloads", async () => {
   for (const payload of [
     { errors: [{ title: "Wallet not found", detail: "The requested wallet is not tracked" }] },
@@ -279,6 +341,26 @@ test("sanitizes auth, rate, and server HTTP errors", async (t) => {
       const subject = provider(asFetch(async () => new Response("secret upstream text", { status })));
       await assert.rejects(subject.load(context()), errorKind(kind, status));
     });
+  }
+});
+
+test("cancels every non-2xx response body and sanitizes cancellation failures", async () => {
+  for (const [status, kind] of [[400, "malformed-request"], [401, "auth"], [403, "auth"], [429, "rate"], [503, "server"]] as const) {
+    let cancellations = 0;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode("raw upstream body")); },
+      cancel() {
+        cancellations++;
+        throw new Error("raw cancellation details");
+      },
+    });
+    const subject = provider(asFetch(async () => new Response(body, { status })));
+    await assert.rejects(subject.load(context()), (error: unknown) => {
+      assert.equal((error as ZerionProviderError).kind, kind);
+      assert.doesNotMatch(String(error), /raw upstream|raw cancellation/);
+      return true;
+    });
+    assert.equal(cancellations, 1, String(status));
   }
 });
 

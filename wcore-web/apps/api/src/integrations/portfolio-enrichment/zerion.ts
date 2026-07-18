@@ -129,6 +129,10 @@ function parseRetryAfter(value: string | null, now: number): number | undefined 
   return Math.min(Math.round(delay), MAX_RETRY_AFTER_MS);
 }
 
+async function cancelResponseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
+}
+
 async function readBoundedBody(
   response: Response,
   maxResponseBytes: number,
@@ -207,12 +211,6 @@ function getComplexType(position: ZerionPosition): NormalizedPositionType | unde
   }
 }
 
-function hasInvalidLpComponent(position: ZerionPosition, chain: string | undefined): boolean {
-  if (position.attributes.protocol_metadata?.protocol_module.toLowerCase() !== "liquidity_pool") return false;
-  const fungible = position.attributes.fungible_info;
-  return !chain || !fungible?.flags.verified || !getPositionContract(position, chain);
-}
-
 function adaptPosition(position: ZerionPosition): {
   hint?: ProviderWalletHint;
   normalized?: NormalizedProviderPosition;
@@ -262,6 +260,9 @@ function adaptPosition(position: ZerionPosition): {
     || (metadata.underlying_contract && !underlyingContract)) return {};
 
   const sign = attributes.position_type === "loan" ? -1 : 1;
+  const liquidity: NormalizedProviderPosition["liquidity"] = attributes.position_type === "locked"
+    ? "locked"
+    : metadata.liquidity;
   return {
     normalized: {
       provider: "zerion",
@@ -277,7 +278,7 @@ function adaptPosition(position: ZerionPosition): {
       balance: Math.abs(quantity) * sign,
       priceEur: price,
       valueEur: Math.abs(value) * sign,
-      liquidity: metadata.liquidity,
+      liquidity,
       providerVerified: true,
     },
   };
@@ -288,29 +289,32 @@ function adaptEnvelope(
   context: ProviderRequestContext,
   observedAt: string,
 ): ProviderPortfolioSnapshot {
+  const adaptedPositions = parsed.data.map(adaptPosition);
   const invalidLpGroups = new Set<string>();
-  for (const position of parsed.data) {
+  for (let index = 0; index < parsed.data.length; index++) {
+    const position = parsed.data[index]!;
     const groupId = position.attributes.group_id;
-    if (groupId && hasInvalidLpComponent(position, toWcoreChain(position.relationships.chain.data.id))) {
-      invalidLpGroups.add(groupId);
-    }
+    if (groupId && !adaptedPositions[index]?.normalized) invalidLpGroups.add(groupId);
   }
 
   const walletHints: ProviderWalletHint[] = [];
   const positions: NormalizedProviderPosition[] = [];
-  for (const position of parsed.data) {
+  for (let index = 0; index < parsed.data.length; index++) {
+    const position = parsed.data[index]!;
     if (position.attributes.group_id && invalidLpGroups.has(position.attributes.group_id)) continue;
-    const adapted = adaptPosition(position);
+    const adapted = adaptedPositions[index]!;
     if (adapted.hint) walletHints.push(adapted.hint);
     if (adapted.normalized) positions.push(adapted.normalized);
   }
   if (positions.length > context.maxPositions) throw new ZerionProviderError("oversize");
+  const derivedPositionValueEur = positions.reduce((sum, position) => sum + position.valueEur, 0);
+  if (!Number.isFinite(derivedPositionValueEur)) throw new ZerionProviderError("malformed");
 
   return {
     provider: "zerion",
     walletHints,
     positions,
-    derivedPositionValueEur: positions.reduce((sum, position) => sum + position.valueEur, 0),
+    derivedPositionValueEur,
     observedAt,
     diagnostics: {
       status: "ok",
@@ -355,14 +359,13 @@ export function createZerionProvider(options: CreateZerionProviderOptions): Port
           signal: abortController.signal,
         });
 
-        if (response.status === 400) {
-          throw new ZerionProviderError("malformed-request", 400);
-        }
         if (!response.ok) {
+          await cancelResponseBody(response);
           const status = response.status;
           const retryAfterMs = status === 429 || status === 503
             ? parseRetryAfter(response.headers.get("retry-after"), now())
             : undefined;
+          if (status === 400) throw new ZerionProviderError("malformed-request", status);
           if (status === 401 || status === 403) throw new ZerionProviderError("auth", status);
           if (status === 429) throw new ZerionProviderError("rate", status, retryAfterMs);
           if (status >= 500) throw new ZerionProviderError("server", status, retryAfterMs);

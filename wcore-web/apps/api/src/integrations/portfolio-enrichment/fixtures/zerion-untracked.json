@@ -1,0 +1,6 @@
+{
+  "fixtureNote": "Synthetic test fixture modeled for the exact untracked-address allowlist; not a live Zerion capture.",
+  "errors": [
+    { "title": "Wallet not found", "detail": "The requested wallet is not tracked" }
+  ]
+}

@@ -1,8 +1,7 @@
 /************************************************************
  * 03E_QUOTA_CIRCUIT_BREAKER.gs - Instant Quota Detection
  *
- * v4.16.32 - Expose the authoritative strict UrlFetch quota matcher and
- *   schedule portfolio recovery only when TEST_QUOTA_NOW clears a stale trip.
+ * v4.16.33 - Lease automatic quota probes across independent executions.
  *
  * v4.13.8 - CACHE WRITE GUARD: expose BudgetHTTP.remaining()
  *   Wallet cache writes can now refuse destructive updates when the rolling
@@ -84,7 +83,7 @@
  * - Zero-latency blocking once quota detected
  ************************************************************/
 
-var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.32";
+var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.33";
 
 // v4.12.31: Store reference to ORIGINAL UrlFetchApp.fetch BEFORE any patching
 // Needed by testOnce() to bypass the global quota patch for real testing
@@ -108,6 +107,10 @@ var QUOTA_BREAKER_CONFIG = {
   // Avoids 1 httpbin.org call per execution (~119/cycle)
   TEST_COOLDOWN_KEY: "WCORE_QUOTA_TEST_OK_v1",
   TEST_COOLDOWN_SEC: 900,  // 15 minutes
+
+  // Shared lease prevents independent custom-function executions from probing together.
+  TEST_ATTEMPT_LEASE_KEY: "WCORE_QUOTA_TEST_ATTEMPT_v1",
+  TEST_ATTEMPT_LEASE_SEC: 900,  // 15 minutes
 
   // Error message patterns that indicate quota exhaustion
   // v4.14.10: ONLY match actual Google Apps Script quota errors
@@ -360,16 +363,45 @@ var QuotaCircuitBreaker = (function() {
       return true;
     }
   }
+
+  /**
+   * Atomically reserve the shared automatic-probe window. Any coordination
+   * failure skips the probe so a cache or lock outage cannot create a herd.
+   */
+  function _claimAutomaticProbeLease() {
+    var lock = null;
+    var acquired = false;
+    try {
+      lock = LockService.getScriptLock();
+      if (!lock || !lock.tryLock(250)) return false;
+      acquired = true;
+
+      var cache = CacheService.getScriptCache();
+      if (!cache || cache.get(QUOTA_BREAKER_CONFIG.TEST_ATTEMPT_LEASE_KEY)) return false;
+      cache.put(
+        QUOTA_BREAKER_CONFIG.TEST_ATTEMPT_LEASE_KEY,
+        "1",
+        QUOTA_BREAKER_CONFIG.TEST_ATTEMPT_LEASE_SEC
+      );
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      if (acquired) {
+        try { lock.releaseLock(); } catch (eRelease) {}
+      }
+    }
+  }
   
   /**
-   * v4.12.31: TEST the quota with a real HTTP call
+   * TEST the quota with a real HTTP call.
+   * Automatic probes share a cross-execution lease; authorized diagnostics
+   * may explicitly force a probe.
    * Runs ONCE per execution (first call)
-   * 
-   * CRITICAL FIX (v4.12.31): Previously, if the breaker was tripped in CacheService,
-   * testOnce() would SKIP the real HTTP test, creating a "sticky block" that persisted
-   * even after quota recovered. Now testOnce() ALWAYS tests and auto-recovers.
    */
-  function _testQuotaOnce() {
+  function _testQuotaOnce(forceProbe) {
+    var forced = forceProbe === true;
+
     // Already tested this execution? Skip
     if (_testedThisRun) return;
     _testedThisRun = true;
@@ -382,7 +414,7 @@ var QuotaCircuitBreaker = (function() {
 
     // v4.13.5: COOLDOWN - skip HTTP test if quota was OK recently
     // Only when breaker is NOT tripped (when tripped, ALWAYS test to detect recovery)
-    if (!_tripped && !wasTrippedInCache) {
+    if (!forced && !_tripped && !wasTrippedInCache) {
       try {
         var cooldownCache = CacheService.getScriptCache();
         var lastOk = cooldownCache.get(QUOTA_BREAKER_CONFIG.TEST_COOLDOWN_KEY);
@@ -395,7 +427,9 @@ var QuotaCircuitBreaker = (function() {
       }
     }
 
-    // Make a lightweight test call - ALWAYS when tripped (to detect recovery)
+    if (!forced && !_claimAutomaticProbeLease()) return;
+
+    // Make a lightweight test call after claiming the shared automatic lease.
     // v4.12.31: Use _originalUrlFetch to bypass global quota patch
     try {
       var testUrl = "https://httpbin.org/status/200";
@@ -525,12 +559,13 @@ var QuotaCircuitBreaker = (function() {
     },
     
     /**
-     * v4.12.30: Test quota with a real HTTP call (runs once per execution)
+     * Test quota with a real HTTP call (runs once per execution).
      * Call this at the START of your main function to detect quota early
+     * @param {boolean} forceProbe - true only for authorized diagnostics
      * @returns {boolean} True if quota is OK, false if exhausted
      */
-    testOnce: function() {
-      _testQuotaOnce();
+    testOnce: function(forceProbe) {
+      _testQuotaOnce(forceProbe === true);
       return !_tripped;
     },
 
@@ -1175,7 +1210,7 @@ function TRIP_QUOTA_BREAKER(confirm) {
  */
 function TEST_QUOTA_NOW() {
   var wasTripped = QuotaCircuitBreaker.isTripped();
-  var isOk = QuotaCircuitBreaker.testOnce();
+  var isOk = QuotaCircuitBreaker.testOnce(true);
   var status = QuotaCircuitBreaker.getStatus();
 
   if (isOk && wasTripped && typeof _recoverySchedulePortfolioRefresh_ === "function") {

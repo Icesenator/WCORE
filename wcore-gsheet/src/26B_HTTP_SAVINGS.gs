@@ -343,6 +343,9 @@ var HttpCallCounter = (function(){
  var _lastFlushMs = 0;
  var FLUSH_EVERY_N = 25;
  var FLUSH_EVERY_MS = 5000;
+ // UserLock matches the user-scoped UrlFetch quota. This is observational WCORE telemetry,
+ // not authoritative cross-user accounting, and avoids watchdog ScriptLock self-deadlock.
+ var LOCK_WAIT_MS = 100;
  var DAILY_QUOTA = 20000;
 
  // Per-host in-memory buffer: {host: count}
@@ -375,8 +378,17 @@ var HttpCallCounter = (function(){
  // Parse host from URL. Returns "unknown" if unparsable.
  function _parseHost(url) {
   if (!url || typeof url !== 'string') return 'unknown';
-  var m = url.match(/^https?:\/\/([^\/]+)/);
-  return m ? m[1] : 'unknown';
+  var m = url.match(/^https?:\/\/(?:[^\/@?#]*@)?([^\/:?#]+)(?::[0-9]+)?(?:[\/?#]|$)/i);
+  return m ? m[1].toLowerCase() : 'unknown';
+ }
+
+ function _parseMap(raw) {
+  if (!raw) return { map: {}, repaired: false };
+  try {
+   var parsed = JSON.parse(raw);
+   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { map: parsed, repaired: false };
+  } catch (e) {}
+  return { map: {}, repaired: true };
  }
 
  // Read current trigger from ScriptProperties with 30s in-memory cache
@@ -395,7 +407,7 @@ var HttpCallCounter = (function(){
   return _currentTrigger;
  }
 
- function increment(url) {
+ function increment(url, explicitCategory) {
   _mem++;
 
   // Host tracking
@@ -403,7 +415,8 @@ var HttpCallCounter = (function(){
   _hostMem[host] = (_hostMem[host] || 0) + 1;
 
   // Trigger tracking
-  var trigger = _readTrigger();
+  var explicit = String(explicitCategory || '').trim();
+  var trigger = explicit ? explicit.toUpperCase() : 'approx:' + _readTrigger();
   _triggerMem[trigger] = (_triggerMem[trigger] || 0) + 1;
 
   var now = Date.now();
@@ -414,16 +427,26 @@ var HttpCallCounter = (function(){
 
  function flush() {
   if (_mem <= 0 && Object.keys(_hostMem).length === 0 && Object.keys(_triggerMem).length === 0) return;
+  var lock = null;
+  var acquired = false;
   try {
-   var props = PropertiesService.getScriptProperties();
-   var dayKey = _dayKey();
+    lock = LockService.getUserLock();
+    if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+     try { if (typeof HttpCounter !== 'undefined' && HttpCounter.noteDropped) HttpCounter.noteDropped(); } catch (eDropped) {}
+     return;
+    }
+    acquired = true;
+    var props = PropertiesService.getScriptProperties();
+    var dayKey = _dayKey();
 
    // --- Global counter ---
    if (_mem > 0) {
     var gKey = _quotaDayKey();
-    var gCur = parseInt(props.getProperty(gKey), 10) || 0;
-    var gNew = gCur + _mem;
-    props.setProperty(gKey, String(gNew));
+     var memToFlush = _mem;
+     var gCur = parseInt(props.getProperty(gKey), 10) || 0;
+     var gNew = gCur + memToFlush;
+     props.setProperty(gKey, String(gNew));
+     _mem -= memToFlush;
 
     // T0 tracking: record first call of the day
     var t0Key = _t0DayKey();
@@ -434,7 +457,9 @@ var HttpCallCounter = (function(){
     // Milestone tracking
     var mileKey = _mileDayKey();
     var mileRaw = props.getProperty(mileKey);
-    var mileMap = mileRaw ? JSON.parse(mileRaw) : {};
+    var mileParsed = _parseMap(mileRaw);
+    var mileMap = mileParsed.map;
+    if (mileParsed.repaired) props.setProperty(mileKey, JSON.stringify(mileMap));
     var changed = false;
     for (var mi = 0; mi < MILESTONES.length; mi++) {
      var pct = MILESTONES[mi];
@@ -447,40 +472,54 @@ var HttpCallCounter = (function(){
      }
     }
     if (changed) props.setProperty(mileKey, JSON.stringify(mileMap));
-
-    _mem = 0;
-   }
+    }
 
    // --- Per-host counter ---
    var hostKeys = Object.keys(_hostMem);
    if (hostKeys.length > 0) {
-    var hKey = _hostDayKey();
-    var hRaw = props.getProperty(hKey);
-    var hMap = hRaw ? JSON.parse(hRaw) : {};
-    for (var hi = 0; hi < hostKeys.length; hi++) {
-     var h = hostKeys[hi];
-     hMap[h] = (hMap[h] || 0) + _hostMem[h];
-    }
-    props.setProperty(hKey, JSON.stringify(hMap));
-    _hostMem = {};
+     var hKey = _hostDayKey();
+     var hRaw = props.getProperty(hKey);
+     var hMap = _parseMap(hRaw).map;
+     var hostFlushed = {};
+     for (var hi = 0; hi < hostKeys.length; hi++) {
+      var h = hostKeys[hi];
+      hostFlushed[h] = _hostMem[h];
+      hMap[h] = (hMap[h] || 0) + hostFlushed[h];
+     }
+     props.setProperty(hKey, JSON.stringify(hMap));
+     for (var hj = 0; hj < hostKeys.length; hj++) {
+      var flushedHost = hostKeys[hj];
+      _hostMem[flushedHost] -= hostFlushed[flushedHost];
+      if (_hostMem[flushedHost] <= 0) delete _hostMem[flushedHost];
+     }
    }
 
    // --- Per-trigger counter ---
    var trigKeys = Object.keys(_triggerMem);
    if (trigKeys.length > 0) {
-    var tKey = _triggerDayKey();
-    var tRaw = props.getProperty(tKey);
-    var tMap = tRaw ? JSON.parse(tRaw) : {};
-    for (var ti = 0; ti < trigKeys.length; ti++) {
-     var t = trigKeys[ti];
-     tMap[t] = (tMap[t] || 0) + _triggerMem[t];
-    }
-    props.setProperty(tKey, JSON.stringify(tMap));
-    _triggerMem = {};
+     var tKey = _triggerDayKey();
+     var tRaw = props.getProperty(tKey);
+     var tMap = _parseMap(tRaw).map;
+     var triggerFlushed = {};
+     for (var ti = 0; ti < trigKeys.length; ti++) {
+      var t = trigKeys[ti];
+      triggerFlushed[t] = _triggerMem[t];
+      tMap[t] = (tMap[t] || 0) + triggerFlushed[t];
+     }
+     props.setProperty(tKey, JSON.stringify(tMap));
+     for (var tj = 0; tj < trigKeys.length; tj++) {
+      var flushedTrigger = trigKeys[tj];
+      _triggerMem[flushedTrigger] -= triggerFlushed[flushedTrigger];
+      if (_triggerMem[flushedTrigger] <= 0) delete _triggerMem[flushedTrigger];
+     }
    }
 
    _lastFlushMs = Date.now();
-  } catch (e) {}
+  } catch (e) {
+   try { if (typeof HttpCounter !== 'undefined' && HttpCounter.noteDropped) HttpCounter.noteDropped(); } catch (eDropped) {}
+  } finally {
+   if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+  }
  }
 
  function getToday() {

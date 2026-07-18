@@ -1772,11 +1772,15 @@ function _recoveryPulseBatches_(ss, sheetList, batchSize, delayMs, maxRuntimeMs,
  */
 function _recoveryProbeQuota_() {
   try {
-    var fetchFn = (typeof _originalUrlFetch !== 'undefined') ? _originalUrlFetch : UrlFetchApp.fetch.bind(UrlFetchApp);
-    // v4.16.30: count the probe (real UrlFetch, bypasses the counting patch)
-    try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("QUOTA_RECOVERY_SWEEP"); } catch (eCtx) {}
-    try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCount) {}
-    var resp = fetchFn("https://httpbin.org/status/200", { muteHttpExceptions: true });
+    var transport = typeof _httpTelemetryTransport_ === "function"
+      ? _httpTelemetryTransport_()
+      : { fetch: UrlFetchApp.fetch, explicitTelemetry: false };
+    var probeUrl = "https://httpbin.org/status/200";
+    if (transport.explicitTelemetry) {
+      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, "QUOTA_PROBE", probeUrl); } catch (eCount) {}
+      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment(probeUrl, "QUOTA_PROBE"); } catch (eLegacyCount) {}
+    }
+    var resp = transport.fetch.call(UrlFetchApp, probeUrl, { muteHttpExceptions: true });
     var code = resp.getResponseCode();
     if (code === 200) {
       return { ok: true, err: "", code: code };

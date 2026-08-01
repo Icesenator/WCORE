@@ -4,6 +4,13 @@ on:
   pull_request:
   push:
     branches: [master, main]
+    # Tous les jobs s'executent dans wcore-web (voir defaults.run ci-dessous).
+    # Les synchronisations du code Apps Script ne touchent rien de teste ici :
+    # les declencher ne produirait qu'un echec sans rapport avec la modification.
+    paths-ignore:
+      - 'wcore-gsheet/**'
+      - 'docs/**'
+      - '**/*.md'
 
 defaults:
   run:

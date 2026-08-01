@@ -1,14 +1,17 @@
 /************************************************************
  * 24_DEGRADED_MODE.gs - Gestion du mode degrade (quota UrlFetch)
  * 
- * Version: v4.14.5
+ * Version: v4.16.32
+ *
+ * v4.16.32 - Delegate quota classification/reset to QuotaCircuitBreaker;
+ *   fallback matching is restricted to Google UrlFetch quota errors.
  *
  * Ce fichier gere le mode degrade quand le quota UrlFetch est epuise.
  * Au lieu de retourner #ERROR!, on retourne les donnees du cache
  * avec un message informatif.
  *
  * v4.14.5 - FIX: forceFull now overrides circuit breaker and quota check
- *   wrap() accepts forceFull parameter (6th arg) — when true, skips
+ *   wrap() accepts forceFull parameter (6th arg) â€” when true, skips
  *   circuit breaker check so user can always force a fresh RPC scan.
  *   ChainFactory passes forceFull to wrap() for EVM, SVM, and Cosmos.
  *   All 3 engines skip testQuotaBlocked() when force=true.
@@ -33,7 +36,7 @@
  *    -> If error: handleError -> return cache
  * 
  ************************************************************/
-var DEGRADED_MODE_VERSION = "4.15.33";
+var DEGRADED_MODE_VERSION = "4.16.32";
 
 var DegradedMode = DegradedMode || {};
 
@@ -46,7 +49,7 @@ var DegradedMode = DegradedMode || {};
 
 /**
  * Verifie si le circuit breaker est actif (quota recemment epuise)
- * v4.15.33: Delegue a QuotaCircuitBreaker.isTripped() — source unique
+ * v4.15.33: Delegue a QuotaCircuitBreaker.isTripped() â€” source unique
  * @returns {boolean} true si on doit skip les appels HTTP
  */
 DegradedMode.isCircuitBreakerActive = function() {
@@ -92,12 +95,15 @@ DegradedMode.resetCircuitBreaker = function() {
  */
 DegradedMode.isQuotaError = function(error) {
  if (!error) return false;
+ try {
+  if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isQuotaError) {
+   return !!QuotaCircuitBreaker.isQuotaError(error);
+  }
+ } catch (e) {}
  var msg = String(error.message || error).toLowerCase();
- return msg.indexOf('urlfetch') !== -1 || 
- msg.indexOf('service invoked too many times') !== -1 ||
- msg.indexOf('quota') !== -1 ||
- msg.indexOf('rate limit') !== -1 ||
- msg.indexOf('exceeded maximum execution time') !== -1;
+ var serviceTarget = /service invoked too many times(?: for one day| in a short time)?\s*:\s*url\s*fetch\b/;
+ var metricTarget = /quota exceeded for quota metric[^a-z0-9]{0,3}url\s*fetch(?:\s+calls?)?\b/;
+ return serviceTarget.test(msg) || metricTarget.test(msg);
 };
 
 // ============================================================
@@ -119,7 +125,7 @@ DegradedMode.isQuotaError = function(error) {
  */
 DegradedMode.wrap = function(fn, address, config, walletNames, engine, forceFull) {
  // STEP 1: Circuit breaker check - NO HTTP CALL
- // v4.14.5: forceFull overrides circuit breaker — user explicitly requested fresh data
+ // v4.14.5: forceFull overrides circuit breaker â€” user explicitly requested fresh data
  var force = (typeof Bool !== 'undefined') ? Bool.parse(forceFull) : (forceFull === true);
  if (!force && this.isCircuitBreakerActive()) {
  var chainName = this._getChainName(address, config, walletNames);
@@ -658,10 +664,12 @@ DegradedMode._appendDegradedInfo = function(output, cache, config, circuitBreake
  */
 DegradedMode.resetCircuitBreaker = function() {
  try {
- var cache = CacheService.getScriptCache();
- cache.remove(this.CIRCUIT_BREAKER_KEY);
- // Clean orphan keys from previous versions
- cache.remove("WCORE_LAST_HTTP_ERROR");
+  if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
+   QuotaCircuitBreaker.reset();
+  }
+  var cache = CacheService.getScriptCache();
+  // Clean orphan keys from previous versions
+  cache.remove("WCORE_LAST_HTTP_ERROR");
  cache.remove("WCORE_HTTP_ERROR_COUNT");
  cache.remove("WCORE_RECOVERY_MODE");
  return "Circuit breaker reset OK";

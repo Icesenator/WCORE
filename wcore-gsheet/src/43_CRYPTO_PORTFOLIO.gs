@@ -1,3 +1,4 @@
+// v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
 // v4.15.206 - Retry HTTP 200 responses with empty or truncated JSON bodies.
 // v4.15.205 - Use patched UrlFetchApp.fetch (respects quota breaker) instead of _WCORE_ORIG_FETCH bypass.
 // v4.15.203 - Auto-resize chart height after filter reapply based on visible rows (S=X count).
@@ -5,7 +6,7 @@
 // v4.15.201 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.200 - Portefeuille Crypto (source WCORE API, sans SyncWith).
 
-var CRYPTO_PORTFOLIO_VERSION = "4.15.206";
+var CRYPTO_PORTFOLIO_VERSION = "4.16.32";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -22,10 +23,18 @@ function _cryptoPortfolioFetchWithRetry_(fetchFn) {
       return fetchFn();
     } catch (e) {
       lastErr = e;
+      var errorMessage = String(e && e.message ? e.message : e);
+      var isQuotaError = errorMessage.indexOf("BLOCKED:QUOTA") !== -1;
+      try {
+        if (!isQuotaError && typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isQuotaError) {
+          isQuotaError = QuotaCircuitBreaker.isQuotaError(e);
+        }
+      } catch (eQuotaCheck) {}
+      if (isQuotaError) throw e;
       if (attempt < CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
         try {
           if (typeof Logger !== "undefined" && Logger.log) {
-            Logger.log("[CRYPTO_PORTFOLIO] fetch attempt " + attempt + "/" + CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " — retrying in " + (CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
+            Logger.log("[CRYPTO_PORTFOLIO] fetch attempt " + attempt + "/" + CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " â€” retrying in " + (CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
           }
         } catch (eLog) {}
         try { Utilities.sleep(CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS); } catch (eSleep) {}
@@ -48,8 +57,8 @@ var CRYPTO_PORTFOLIO_CONFIG = {
 };
 
 var CRYPTO_PORTFOLIO_HEADERS = [
-  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance Théorique", "Total €", "Exclude", "Include", "% Stable",
-  "√ MC", "% Cible théo", "% Cible stable", "% Cible", "% Réel", "Ecart", "Actions", "Signal", "Achat", "Duplicate"
+  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance ThÃ©orique", "Total â‚¬", "Exclude", "Include", "% Stable",
+  "âˆš MC", "% Cible thÃ©o", "% Cible stable", "% Cible", "% RÃ©el", "Ecart", "Actions", "Signal", "Achat", "Duplicate"
 ];
 
 if (typeof PORTFOLIO_SHARED_COLUMN_WIDTHS === "undefined") {
@@ -71,48 +80,54 @@ function SETUP_CRYPTO_PORTFOLIO_V2() {
 }
 
 function UPDATE_CRYPTO_PORTFOLIO_V2() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
-  var sh = ss.getSheetByName(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
-  if (!sh) throw new Error("Missing sheet " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_CRYPTO_PORTFOLIO_V2 first");
-  var started = Date.now();
-  function mark(step, extra) {
-    var msg = "RUN: " + step + " " + (Date.now() - started) + "ms" + (extra ? " " + extra : "");
-    try { console.log("[CRYPTO_V2_REFRESH] " + msg); } catch (eLog) {}
-  }
+  var portfolioLock = LockService.getDocumentLock();
+  if (!portfolioLock.tryLock(1000)) return "BUSY: another portfolio refresh is running";
   try {
-    mark("fetch:start");
-    var snapshot = _cryptoPortfolioFetchSnapshot_();
-    mark("fetch:done", "rows=" + ((snapshot.rows || []).length) + " generatedAt=" + String(snapshot.generatedAt || ""));
-    _cryptoPortfolioValidateSnapshot_(snapshot);
-    mark("validate:done");
-    var manualRows = _cryptoPortfolioReadManualRows_(sh, snapshot.rows || []);
-    mark("manualRows:done", "rows=" + manualRows.length);
-    var sourceRowCount = snapshot.rows ? snapshot.rows.length : 0;
-    var manualRowCount = manualRows.length;
-    var sourceMatrix = _cryptoPortfolioBuildSourceRows_(snapshot.rows || [], manualRows);
-    mark("sourceRows:done", "rows=" + sourceMatrix.length);
-    _cryptoPortfolioEnsureRows_(sh, sourceRowCount + manualRowCount);
-    mark("ensureRows:done");
-
-    if (sourceMatrix.length) {
-      mark("write:start", "rows=" + sourceMatrix.length);
-      _cryptoPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
-      mark("write:done");
+    var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
+    var sh = ss.getSheetByName(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
+    if (!sh) throw new Error("Missing sheet " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_CRYPTO_PORTFOLIO_V2 first");
+    var started = Date.now();
+    function mark(step, extra) {
+      var msg = "RUN: " + step + " " + (Date.now() - started) + "ms" + (extra ? " " + extra : "");
+      try { console.log("[CRYPTO_V2_REFRESH] " + msg); } catch (eLog) {}
     }
-    mark("clearTail:start");
-    _cryptoPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
-    mark("clearTail:done");
+    try {
+      mark("fetch:start");
+      var snapshot = _cryptoPortfolioFetchSnapshot_();
+      mark("fetch:done", "rows=" + ((snapshot.rows || []).length) + " generatedAt=" + String(snapshot.generatedAt || ""));
+      _cryptoPortfolioValidateSnapshot_(snapshot);
+      mark("validate:done");
+      var manualRows = _cryptoPortfolioReadManualRows_(sh, snapshot.rows || []);
+      mark("manualRows:done", "rows=" + manualRows.length);
+      var sourceRowCount = snapshot.rows ? snapshot.rows.length : 0;
+      var manualRowCount = manualRows.length;
+      var sourceMatrix = _cryptoPortfolioBuildSourceRows_(snapshot.rows || [], manualRows);
+      mark("sourceRows:done", "rows=" + sourceMatrix.length);
+      _cryptoPortfolioEnsureRows_(sh, sourceRowCount + manualRowCount);
+      mark("ensureRows:done");
 
-    _cryptoPortfolioWriteControlCells_(ss.getId(), _cryptoPortfolioCurrentRunTimestamp_(), false);
-    _portfolioReapplyFilter_(sh, CRYPTO_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 361516782, 19, 1484, 2);
-    return "OK: " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + " refreshed";
-  } catch (err) {
-    var msg = err && err.message ? err.message : String(err);
-    try { _cryptoPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
-      sh.getRange(CRYPTO_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
-      sh.getRange(CRYPTO_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+      if (sourceMatrix.length) {
+        mark("write:start", "rows=" + sourceMatrix.length);
+        _cryptoPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
+        mark("write:done");
+      }
+      mark("clearTail:start");
+      _cryptoPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
+      mark("clearTail:done");
+
+      _cryptoPortfolioWriteControlCells_(ss.getId(), _cryptoPortfolioCurrentRunTimestamp_(), false);
+      _portfolioReapplyFilter_(sh, CRYPTO_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 361516782, 19, 1484, 2);
+      return "OK: " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + " refreshed";
+    } catch (err) {
+      var msg = err && err.message ? err.message : String(err);
+      try { _cryptoPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
+        sh.getRange(CRYPTO_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
+        sh.getRange(CRYPTO_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+      }
+      throw err;
     }
-    throw err;
+  } finally {
+    portfolioLock.releaseLock();
   }
 }
 
@@ -194,7 +209,7 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
     "=IFERROR(XLOOKUP(\"V\";R:R;A:A);\"\")",
     ">",
     "=IFERROR(XLOOKUP(\"X\";R:R;A:A);\"\")",
-    "Sécurisation :",
+    "SÃ©curisation :",
     "=Strat!BW1",
     "=IFERROR(XLOOKUP(J1;B3:B;K3:K)/AA1;0)",
     "=SUMPRODUCT((B3:B>J1)*1;(B3:B<=(Z1+J1))*1)",
@@ -208,7 +223,8 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
 
 function CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH() {
   try { HttpCallCounter.setTrigger('CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH'); } catch(e){}
-  return UPDATE_CRYPTO_PORTFOLIO_V2();
+  try { return UPDATE_CRYPTO_PORTFOLIO_V2(); }
+  finally { try { HttpCallCounter.clearTrigger(); } catch(e){} }
 }
 
 function INSTALL_CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH() {
@@ -232,16 +248,16 @@ function REPAIR_CRYPTO_PORTFOLIO_V2_FORMATS() {
   var dataRows = Math.max(1, CRYPTO_PORTFOLIO_CONFIG.MAX_ROWS - CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW + 1);
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 1, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 2, dataRows, 1).setNumberFormat("0").setHorizontalAlignment("center");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"€\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"â‚¬\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 5, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 6, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 8, dataRows, 2).setNumberFormat("0").setHorizontalAlignment("center");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 10, dataRows, 1).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 11, dataRows, 1).setNumberFormat("0.00").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 12, dataRows, 4).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 17, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 18, dataRows, 3).setNumberFormat("@").setHorizontalAlignment("center");
   sh.getRange(2, 1, 1, CRYPTO_PORTFOLIO_HEADERS.length)
@@ -524,8 +540,10 @@ function _cryptoPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[14] = "=G" + sheetRow + "/$H$1*100";
   row[15] = "=G" + sheetRow + "-F" + sheetRow + "*C" + sheetRow;
   row[16] = "=IFERROR(P" + sheetRow + "/C" + sheetRow + ";0)";
-  row[17] = "=IF(P" + sheetRow + "=MAXIFS($P$3:P;$S$3:S;\"X\");\"V\";IF(P" + sheetRow + "=MINIFS($P$3:P;$S$3:S;\"X\");\"X\";\"\"))";
-  row[18] = "=IF(OR(H" + sheetRow + "<>0;T" + sheetRow + "=\"X\");\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\"))";
+  if (sheetRow === CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
+    row[17] = "=ARRAYFORMULA(IF(P3:P=\"\";\"\";IF(P3:P=MAX(P3:P);\"V\";IF(P3:P=MIN(P3:P);\"X\";\"\"))))";
+  }
+  row[18] = "=IF(R" + sheetRow + "=\"V\";\"X\";IF(OR(H" + sheetRow + "<>0;T" + sheetRow + "=\"X\");\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\")))";
   row[19] = "=IF(B" + sheetRow + "=5002;IF(COUNTIFS($A$3:A" + sheetRow + ";A" + sheetRow + ";$B$3:B" + sheetRow + ";5002)>1;\"X\";\"\");IF(COUNTIF($A$3:A" + sheetRow + ";A" + sheetRow + ")>1;\"X\";\"\"))";
 }
 

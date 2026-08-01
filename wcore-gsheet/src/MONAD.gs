@@ -5,7 +5,7 @@
 
 var _MONAD = ChainFactory.createEvmChain("MONAD", {
  CACHE_VERSION: 63,
- RPC: { ENDPOINTS: ["https://rpc.monad.xyz", "https://rpc1.monad.xyz", "https://rpc3.monad.xyz", "https://rpc-mainnet.monadinfra.com"] },
+ RPC: { ENDPOINTS: ["https://rpc.monad.xyz", "https://rpc1.monad.xyz", "https://rpc3.monad.xyz", "https://rpc-mainnet.monadinfra.com"], MAX_LOG_RANGE: 1000 },
  CHAIN: {
  NAME: "Monad",
  CHAIN_ID: 143,

@@ -1,7 +1,41 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.5.23
+ * Version: v4.16.47
+ *
+ * v4.16.46: Detect CACHE_ONLY B1/I1 mismatch â€” when B1 advances but
+ *   the scan keeps serving a stale [CACHE_ONLY] timestamp, re-pulse
+ *   aggressively and use I1 as the age anchor for priority sorting.
+ *
+ * v4.16.45: Atomically claim fair J1 slices and extend watchdog lease TTL.
+ *
+ * v4.16.44: Isolate watchdog/auto-heal leases, remove inline maintenance,
+ *   recover deferred scans after cooldown, and cap fair J1 writes at 20.
+ *
+ * v4.16.43: Resolve ambiguous local DST timestamps to their latest occurrence.
+ *
+ * v4.16.42: Roundtrip zone-less ISO timestamps as local wall-clock time.
+ *
+ * v4.16.41: Strictly validate local and ISO watchdog timestamps.
+ *
+ * v4.16.40: Admit no-usable-cache wallets to both cycle and urgent lanes.
+ *
+ * v4.16.39: Parse explicit TON_SCAN_OK timestamps for scheduling and J1 sync.
+ *
+ * v4.16.38: Treat B1 as an immediate scheduling reservation and fill unused
+ *   pulse capacity symmetrically without displacing the four-slot cycle lane.
+ * v4.16.37: Schedule four oldest eligible wallets plus one urgent target so
+ *   every managed on-chain wallet receives a bounded periodic B1 pulse.
+ * v4.16.36: Serialize direct watchdog diagnostics/force entry points and
+ *   strictly sanitize persisted partial-cycle timestamps.
+ * v4.16.35: Reserve watchdog pulse state before B1 writes and rollback failed
+ *   writes best-effort with conservative at-most-once quota safety.
+ * v4.16.34: Commit watchdog retry/partial state only after successful B1 writes;
+ *   preserve Web retry progression across fresh error timestamps and dedupe pulses.
+ * v4.16.33: Ten-minute watchdog with one five-pulse budget and bounded
+ *   30m/2h/6h/24h backoff for Web scan errors.
+ * v4.16.32 FIX: successful quota probes reset both guards, use trigger-safe
+ *   spreadsheet access, and persist one combined portfolio recovery trigger.
  *
  * v4.5.23 FIX: normal watchdog no longer resets or repulses QUOTA rows
  *   without a live quota probe. QUOTA recovery is owned by QUOTA_RECOVERY_SWEEP,
@@ -9,12 +43,12 @@
  *
  * v4.15.58 FIX: never sync J1 from BLOCKED/NO_CACHE I1 values; preserving
  *   the old J1 latch is what keeps A1 on the last good cache during quota outages.
- * v4.5.21 ADD: SYNC_J1_ALL_SHEETS() — lightweight dedicated J1 sync for all
- *   wallet-chain sheets. Reads I1/J1 for every " - " sheet, writes I1→J1 when
+ * v4.5.21 ADD: SYNC_J1_ALL_SHEETS() â€” lightweight dedicated J1 sync for all
+ *   wallet-chain sheets. Reads I1/J1 for every " - " sheet, writes I1â†’J1 when
  *   I1 > J1. Triggered every 2 min by auto-heal + every 10 min by ACTIVITY_WATCHDOG.
  *   Eliminates ~60 min worst-case J1 sync delay from probe window limitation.
  *
- * v4.5.22 FIX: R16 — prevent duplicate QUOTA_RECOVERY_SWEEP_FOLLOWUP triggers
+ * v4.5.22 FIX: R16 â€” prevent duplicate QUOTA_RECOVERY_SWEEP_FOLLOWUP triggers
  *   and overlap between SWEEP and FOLLOWUP via ScriptProperties locks/flags.
  *   - _recoveryAcquireLock_ / _recoveryIsSweepRunning_ guard concurrent execution
  *   - _recoveryIsFollowupPending_ prevents duplicate FOLLOWUP scheduling
@@ -25,22 +59,22 @@
  *   pulsing B1 during quota blocks.
  *
  * v4.5.18: probe-gated recovery + poller-based scheduling (no more DST-fixed hour)
- *   - _recoveryProbeQuota_() vérifie le quota réel avant tout reset/pulse
+ *   - _recoveryProbeQuota_() vÃ©rifie le quota rÃ©el avant tout reset/pulse
  *   - QUOTA_RECOVERY_SWEEP : probe-gate + retry 30min si quota absent, batch 5/60s au 1er passage
- *   - QUOTA_RECOVERY_SWEEP_FOLLOWUP : même probe-gate
+ *   - QUOTA_RECOVERY_SWEEP_FOLLOWUP : mÃªme probe-gate
  *   - INSTALL_QUOTA_RECOVERY : poller everyMinutes(30), plus de logique DST
  *
  * v4.5.17 FIX: QUOTA_RECOVERY_SWEEP recovery hardening
- *   - Pulse B1=timestamp(text) directement (time-based triggers ne déclenchent pas onEdit,
- *     donc A1=TRUE ne se propagerait pas — A1 reste manual-only)
- *   - Sépare [BLOCKED:QUOTA] (prioritaire) et [BLOCKED:TIMEOUT]/#ERROR dans les stats
+ *   - Pulse B1=timestamp(text) directement (time-based triggers ne dÃ©clenchent pas onEdit,
+ *     donc A1=TRUE ne se propagerait pas â€” A1 reste manual-only)
+ *   - SÃ©pare [BLOCKED:QUOTA] (prioritaire) et [BLOCKED:TIMEOUT]/#ERROR dans les stats
  *   - Persiste la liste des sheets skipped dans ScriptProperties (WCORE_RECOVERY_SKIPPED_v1)
- *   - NOUVEAU: QUOTA_RECOVERY_SWEEP_FOLLOWUP à T+30min — retente skipped + rescanne Recap Chain
+ *   - NOUVEAU: QUOTA_RECOVERY_SWEEP_FOLLOWUP Ã  T+30min â€” retente skipped + rescanne Recap Chain
  *   - INSTALL_QUOTA_RECOVERY installe les 2 triggers (10h35/11h05 CET ou 11h35/12h05 CEST)
  *
  * v4.5.15 FIX: BLOCKED sheets with fresh timestamp (< 5h) no longer re-pulsed
  *   - _wd_needsRefresh_ now checks extracted timestamp from [BLOCKED:*] I1 values
- *   - If timestamp is < staleMs (5h), needsPulse=false — avoids thundering herd
+ *   - If timestamp is < staleMs (5h), needsPulse=false â€” avoids thundering herd
  *   - Before: all [BLOCKED:QUOTA] sheets always re-pulsed regardless of freshness
  *
  * v4.5.14 FIX: [NO_CACHE] sheets not re-pulsed by WATCHDOG
@@ -50,7 +84,7 @@
  * v4.5.13 CHANGES (MASTER_ON_EDIT RESTORED + CACHE REFRESH FIX):
  * - RESTORED: MASTER_ON_EDIT function (was accidentally removed in v4.5.10+)
  * - FIX: Installable onEdit trigger now finds its target function again
- * - A1=TRUE â†’ pulse B1 â†’ reset A1=FALSE manual refresh mechanism
+ * - A1=TRUE Ã¢â€ â€™ pulse B1 Ã¢â€ â€™ reset A1=FALSE manual refresh mechanism
  * - CHANGED: WD_STALE_I1_HOURS from 12h to 5h (before CacheService 6h expiry)
  * - Prevents "No cache available" by refreshing data before Google evicts it
  *
@@ -76,9 +110,9 @@
  * - NEW: _wd_tryUnblock_() attempts to reset blocker FLAGS before pulsing B1
  * - FIX: Blocked sheets now ALWAYS pulse B1 (with 30min cooldown)
  * 
- * ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â CRITICAL RULE: Watchdog NEVER clears/purges cache data!
- * ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â _wd_tryUnblock_ only resets FLAGS (lockdown, degraded, error states)
- * ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â CLEAR_* functions are MANUAL ONLY (require confirm=TRUE)
+ * ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â CRITICAL RULE: Watchdog NEVER clears/purges cache data!
+ * ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â _wd_tryUnblock_ only resets FLAGS (lockdown, degraded, error states)
+ * ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â CLEAR_* functions are MANUAL ONLY (require confirm=TRUE)
  ************************************************************/
 
 // ============================================================
@@ -90,21 +124,75 @@ var WCORE_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 
 // Timing configs
 var WD_STALE_I1_HOURS = 5;      // v4.5.13: I1 > 5h => pulse B1 (before CacheService 6h expiry)
-var WD_PULSE_MIN = 30;          // v4.15.135: 30 min — 10 min was too aggressive on quota
+var WD_PULSE_MIN = 30;          // v4.15.135: 30 min â€” 10 min was too aggressive on quota
 var WD_PULSE_MIN_BLOCKED = 30;  // v4.5.8: Cooldown for blocked sheets (30 min)
-var WD_PULSE_MIN_PARTIAL = 60;  // v4.15.133: 60 min — partial cycles are mostly unpriced tokens, re-pulsing too fast wastes quota
+var WD_PULSE_MIN_PARTIAL = 60;  // v4.15.133: 60 min â€” partial cycles are mostly unpriced tokens, re-pulsing too fast wastes quota
 
 // Probe size
 var WD_PROBE_SIZE_MIN = 5;
 var WD_PROBE_SIZE_MAX = 20;
-var WD_MAX_PULSES_PER_RUN = 15;  // v4.16.2: faster stale recovery with controlled B1 pulse cap
+var WD_MAX_PULSES_PER_RUN = 10;
+var WD_CYCLE_SLOTS_PER_RUN = 7;
+var WD_WEB_ERROR_BACKOFF_MS = [30 * 60000, 2 * 3600000, 6 * 3600000, 24 * 3600000];
+var WD_WEB_BACKOFF_MAX_ENTRIES = 200;
+var WD_WEB_BACKOFF_RETENTION_MS = 48 * 3600000;
+var WCORE_WATCHDOG_LEASE_KEY = "WCORE_WATCHDOG_LEASE";
+var WCORE_WATCHDOG_LEASE_TTL_MS = 10 * 60 * 1000;
 
 // Property keys
 var P_WD_CURSOR = "WD_CURSOR";
 var P_WD_RUNS = "WD_RUNS";
 var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse timestamps
+var P_WD_J1_CURSOR = "WD_J1_CURSOR";
+var P_SYNC_J1_CURSOR = "SYNC_J1_CURSOR";
 
-var REFRESH_VERSION = "4.15.78";
+var REFRESH_VERSION = "4.16.47";
+
+function _wcoreAcquireLease_(key, ttlMs, owner) {
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) return null;
+    locked = true;
+    var nowMs = Date.now();
+    var props = PropertiesService.getScriptProperties();
+    var current = null;
+    try { current = JSON.parse(props.getProperty(key) || "null"); } catch (eParse) {}
+    if (current && current.owner && isFinite(Number(current.until)) && Number(current.until) > nowMs) return null;
+    var leaseOwner = String(owner || Utilities.getUuid());
+    props.setProperty(key, JSON.stringify({ owner: leaseOwner, until: nowMs + Number(ttlMs || 0) }));
+    return leaseOwner;
+  } catch (e) {
+    return null;
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
+
+function _wcoreReleaseLease_(key, owner) {
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) return false;
+    locked = true;
+    var props = PropertiesService.getScriptProperties();
+    var current = null;
+    try { current = JSON.parse(props.getProperty(key) || "null"); } catch (eParse) {}
+    if (!current || String(current.owner || "") !== String(owner || "")) return false;
+    props.deleteProperty(key);
+    return true;
+  } catch (e) {
+    return false;
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
 
 function onEdit(e) {
   // v4.15.112: simple onEdit runs with limited auth and duplicates the
@@ -114,7 +202,7 @@ function onEdit(e) {
 }
 
 // v4.15.104: WCORE_ON_EDIT also calls _bpDetailsAutoLink_ after CEX handlers for per-cell auto-link of Portefeuille Crypto Details column E.
-// v4.15.99: installable onEdit trigger wrapper — A1=TRUE → pulse B1 → reset A1=FALSE.
+// v4.15.99: installable onEdit trigger wrapper â€” A1=TRUE â†’ pulse B1 â†’ reset A1=FALSE.
 // Standalone name so WCORE_ON_EDIT can also be called directly if needed.
 function MASTER_ON_EDIT(e) {
   return WCORE_ON_EDIT(e);
@@ -147,7 +235,11 @@ function WCORE_ON_EDIT(e) {
       var stockValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
       if (String(stockValue).toUpperCase() === "TRUE" && typeof UPDATE_STOCK_PORTFOLIO === "function") {
         sheet.getRange("B1").setValue("QUEUED: " + _wd_fmtDate_(new Date())).setNumberFormat("@");
-        UPDATE_STOCK_PORTFOLIO();
+        var stockResult = UPDATE_STOCK_PORTFOLIO();
+        if (String(stockResult || "").indexOf("BUSY:") === 0) {
+          sheet.getRange("B1").setValue(stockResult).setNumberFormat("@");
+          range.setValue(false);
+        }
         return;
       }
     }
@@ -155,7 +247,11 @@ function WCORE_ON_EDIT(e) {
       var cryptoValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
       if (String(cryptoValue).toUpperCase() === "TRUE" && typeof UPDATE_CRYPTO_PORTFOLIO_V2 === "function") {
         sheet.getRange("B1").setValue("QUEUED: " + _wd_fmtDate_(new Date())).setNumberFormat("@");
-        UPDATE_CRYPTO_PORTFOLIO_V2();
+        var cryptoResult = UPDATE_CRYPTO_PORTFOLIO_V2();
+        if (String(cryptoResult || "").indexOf("BUSY:") === 0) {
+          sheet.getRange("B1").setValue(cryptoResult).setNumberFormat("@");
+          range.setValue(false);
+        }
         return;
       }
     }
@@ -237,7 +333,6 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
   var stats = { ts: new Date().toISOString(), mode: "SHEETS_API_NO_ACTIVE_SPREADSHEET", ok: false,
     exec_ms: 0, N: 0, probe: 0, toSync: 0, synced: 0, b1Set: 0, b1Empty: 0,
     b1Stale: 0, b1Error: 0, b1Blocked: 0, b1Partial: 0, staleThresholdHours: WD_STALE_I1_HOURS };
-  var actions = [];
   try {
     if (typeof Sheets === "undefined" || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) throw new Error("Advanced Sheets service unavailable");
     var resp = Sheets.Spreadsheets.Values.get(WCORE_SPREADSHEET_ID, _wd_quoteA1Sheet_(RECAP_SHEET_NAME) + "!A1:Z200");
@@ -248,17 +343,26 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
     if (stats.N === 0) throw new Error("No sheets in Recap Chain");
 
     var nowStr = Utilities.formatDate(new Date(nowMs), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-    var lastPulseMap = {};
-    try { lastPulseMap = JSON.parse(props.getProperty(P_WD_PARTIAL_LAST) || "{}"); } catch (eMap) { lastPulseMap = {}; }
+    var lastPulseMap = _wd_loadPartialPulseMap_();
+    var partialCandidates = [];
 
     for (var p = 0; p < rows.length; p++) {
       var pRow = rows[p], pSheet = _wd_cell_(pRow, 0);
       if (!_wd_rowHasPartialCycle_(pRow)) continue;
       stats.partialFound = (stats.partialFound || 0) + 1;
-      if ((nowMs - (lastPulseMap[pSheet] || 0)) >= WD_PULSE_MIN_PARTIAL * 60000) {
-        _wd_addApiWrite_(actions, pSheet, "B1", nowStr);
-        stats.b1Partial++;
-        lastPulseMap[pSheet] = nowMs;
+      var pLastPulse = Number(lastPulseMap[pSheet] || 0);
+      if (!pLastPulse) pLastPulse = _wd_parseLocalDateTimeToMs_(_wd_cell_(pRow, 3));
+      if (!isFinite(pLastPulse) || (nowMs - pLastPulse) >= WD_PULSE_MIN_PARTIAL * 60000) {
+        partialCandidates.push({
+          sheet: null,
+          sheetName: pSheet,
+          range: "B1",
+          value: nowStr,
+          type: "pulse",
+          reason: "partial",
+          priority: _wd_refreshReasonPriority_("partial"),
+          staleAgeMs: isFinite(pLastPulse) ? Math.max(0, nowMs - pLastPulse) : 0
+        });
       }
     }
 
@@ -276,21 +380,19 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
         vJ1: _wd_cell_(row, 6)
       };
     });
-    var globalActions = _wd_collectGlobalRefreshActions_(rowItems, nowMs, staleMs, nowStr, stats);
-    for (var ga = 0; ga < globalActions.length; ga++) {
-      var act = globalActions[ga];
-      if (!act.sheetName) continue;
-      _wd_addApiWrite_(actions, act.sheetName, act.range, act.value);
-    }
-
-    stats.actions = _wd_flushApiWrites_(actions);
-    stats.synced = stats.toSync;
+    var globalActions = _wd_collectGlobalRefreshActions_(rowItems, nowMs, staleMs, nowStr, stats, partialCandidates);
+    var apiExecution = _wd_executeApiActions_(globalActions, nowMs);
+    stats.actions = apiExecution.writes;
+    stats.b1Set = apiExecution.pulses;
+    stats.b1Partial = apiExecution.partialPulses;
+    stats.synced = apiExecution.synced;
+    stats.stateErrors = Number(stats.stateErrors || 0) + apiExecution.stateErrors;
     props.setProperty(P_WD_CURSOR, String((cursor + probeSize) % stats.N));
-    try { props.setProperty(P_WD_PARTIAL_LAST, JSON.stringify(lastPulseMap)); } catch (eSavePartial) {}
     stats.ok = true;
   } catch (e) {
     stats.error = e.message;
     stats.stack = e.stack || "";
+    stats.stateErrors = Number(stats.stateErrors || 0) + Number(e.stateErrors || 0);
   }
   stats.exec_ms = Date.now() - t0;
   try { props.setProperty("WCORE_WD_LAST_DIAG", JSON.stringify(stats)); } catch (eDiag) {}
@@ -299,7 +401,18 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
 }
 
 function DIAG_RUN_WATCHDOG_SHEETS_API_FALLBACK() {
-  return _wd_watchdogFromRecapViaSheetsApi_(Date.now());
+  var leaseOwner = null;
+  try {
+    leaseOwner = _wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY, WCORE_WATCHDOG_LEASE_TTL_MS);
+    if (!leaseOwner) {
+      return { ok: false, skipped: "LOCK_BUSY", b1Set: 0, stateErrors: 0 };
+    }
+    return _wd_watchdogFromRecapViaSheetsApi_(Date.now());
+  } catch (e) {
+    return { ok: false, skipped: "LOCK_FAILURE", error: String(e && (e.message || e) || e), b1Set: 0, stateErrors: 0 };
+  } finally {
+    if (leaseOwner) _wcoreReleaseLease_(WCORE_WATCHDOG_LEASE_KEY, leaseOwner);
+  }
 }
 
 // ============================================================
@@ -324,8 +437,8 @@ if (typeof ModuleRegistry !== 'undefined') {
  * @param {number} nowMs - Current timestamp
  * @returns {Object} { checked, partial, pulsed, errors }
  */
-function _wd_checkPartialCycles_(ss, nowMs) {
-  var stats = { checked: 0, partial: 0, pulsed: 0, errors: 0 };
+function _wd_checkPartialCycles_(ss, nowMs, maxPulses) {
+  var stats = { checked: 0, partial: 0, pulsed: 0, errors: 0, actions: [] };
   
   try {
     var recap = ss.getSheetByName(RECAP_SHEET_NAME);
@@ -372,11 +485,7 @@ function _wd_checkPartialCycles_(ss, nowMs) {
     var data = recap.getRange(2, 1, lastRow - 1, recap.getLastColumn()).getValues();
     
     // Load last pulse timestamps
-    var lastPulseMap = {};
-    try {
-      var raw = PropertiesService.getScriptProperties().getProperty(P_WD_PARTIAL_LAST);
-      lastPulseMap = raw ? JSON.parse(raw) : {};
-    } catch (e) {}
+    var lastPulseMap = _wd_loadPartialPulseMap_();
     
     var tz = ss.getSpreadsheetTimeZone();
     var nowStr = Utilities.formatDate(new Date(nowMs), tz, "yyyy-MM-dd HH:mm:ss");
@@ -397,7 +506,7 @@ function _wd_checkPartialCycles_(ss, nowMs) {
         var partialSheet = null;
         try { partialSheet = ss.getSheetByName(sheetName); } catch (eGet) {}
         
-        // Check cooldown — use ScriptProperties tracking, fallback to B1 value
+        // Check cooldown â€” use ScriptProperties tracking, fallback to B1 value
         var lastPulse = lastPulseMap[sheetName] || 0;
         var cooldownMs = WD_PULSE_MIN_PARTIAL * 60000;
         // v4.15.135: if tracking was lost (ScriptProperties purge), read B1
@@ -410,31 +519,20 @@ function _wd_checkPartialCycles_(ss, nowMs) {
           } catch (eB1) {}
         }
         
-        if ((nowMs - lastPulse) >= cooldownMs) {
-          try {
-            if (partialSheet) {
-              partialSheet.getRange("B1").setValue(nowStr);
-              partialSheet.getRange("B1").setNumberFormat("@");
-              stats.pulsed++;
-              lastPulseMap[sheetName] = nowMs;
-              Logger.log("[WD_PARTIAL] Pulsed B1 for " + sheetName + " (cycle=" + cycleVal + ")");
-            }
-          } catch (e) {
-            stats.errors++;
-            Logger.log("[WD_PARTIAL] Error pulsing " + sheetName + ": " + e.message);
-          }
+        if ((nowMs - lastPulse) >= cooldownMs && partialSheet) {
+          stats.actions.push({
+            sheet: partialSheet,
+            sheetName: sheetName,
+            range: "B1",
+            value: nowStr,
+            type: "pulse",
+            reason: "partial",
+            priority: _wd_refreshReasonPriority_("partial"),
+            staleAgeMs: lastPulse ? Math.max(0, nowMs - lastPulse) : 0
+          });
         }
       }
     }
-    
-    // Save last pulse timestamps (cleanup old entries > 24h)
-    try {
-      var cutoff = nowMs - (24 * 60 * 60 * 1000);
-      for (var k in lastPulseMap) {
-        if (lastPulseMap[k] < cutoff) delete lastPulseMap[k];
-      }
-      PropertiesService.getScriptProperties().setProperty(P_WD_PARTIAL_LAST, JSON.stringify(lastPulseMap));
-    } catch (e) {}
     
   } catch (e) {
     Logger.log("[WD_PARTIAL] Error: " + e.message);
@@ -485,11 +583,7 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
     out.push(["", "", "", ""]);
     
     // Load last pulse timestamps
-    var lastPulseMap = {};
-    try {
-      var raw = PropertiesService.getScriptProperties().getProperty(P_WD_PARTIAL_LAST);
-      lastPulseMap = raw ? JSON.parse(raw) : {};
-    } catch (e) {}
+    var lastPulseMap = _wd_loadPartialPulseMap_();
     
     // Read data
     var data = recap.getRange(2, 1, lastRow - 1, recap.getLastColumn()).getValues();
@@ -507,7 +601,7 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
       if (cycleVal.toLowerCase().indexOf("partial") !== -1) {
         var cooldownMs = WD_PULSE_MIN_PARTIAL * 60000;
         var canPulse = (nowMs - lastPulse) >= cooldownMs;
-        status = canPulse ? "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â PARTIAL - Will pulse" : "ÃƒÂ¢Ã‚ÂÃ‚Â³ PARTIAL - Cooldown";
+        status = canPulse ? "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PARTIAL - Will pulse" : "ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â³ PARTIAL - Cooldown";
       }
       
       out.push([sheetName, cycleVal, lastPulseStr, status]);
@@ -524,29 +618,49 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
  * v4.5.11: Force check partial cycles now
  */
 function FORCE_WATCHDOG_PARTIAL_CHECK() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var nowMs = Date.now();
-  var stats = _wd_checkPartialCycles_(ss, nowMs);
+  var leaseOwner = null;
+  try {
+    leaseOwner = _wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY, WCORE_WATCHDOG_LEASE_TTL_MS);
+    if (!leaseOwner) {
+      return [["Stat", "Value"], ["Status", "LOCK_BUSY"], ["Pulsed", 0], ["State Errors", 0]];
+    }
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var nowMs = Date.now();
+    var partialStats = _wd_checkPartialCycles_(ss, nowMs, WD_MAX_PULSES_PER_RUN);
+    var collectStats = { b1Set: 0, b1Partial: 0, toSync: 0, stateErrors: 0 };
+    var nowStr = Utilities.formatDate(new Date(nowMs), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd HH:mm:ss");
+    var selected = _wd_collectGlobalRefreshActions_([], nowMs, WD_STALE_I1_HOURS * 3600000, nowStr, collectStats, partialStats.actions);
+    var execution = _wd_applySpreadsheetActions_(ss, selected, nowMs, WD_MAX_PULSES_PER_RUN);
+    partialStats.pulsed = execution.pulses;
+    partialStats.errors += execution.errors;
+    partialStats.stateErrors = collectStats.stateErrors + execution.stateErrors;
 
-  Logger.log("[FORCE_PARTIAL] checked=" + stats.checked +
-             " partial=" + stats.partial +
-             " pulsed=" + stats.pulsed +
-             " errors=" + stats.errors);
+    Logger.log("[FORCE_PARTIAL] checked=" + partialStats.checked +
+               " partial=" + partialStats.partial +
+               " pulsed=" + partialStats.pulsed +
+               " errors=" + partialStats.errors +
+               " stateErrors=" + partialStats.stateErrors);
 
-  return [
-    ["Stat", "Value"],
-    ["Checked", stats.checked],
-    ["Partial", stats.partial],
-    ["Pulsed", stats.pulsed],
-    ["Errors", stats.errors]
-  ];
+    return [
+      ["Stat", "Value"],
+      ["Checked", partialStats.checked],
+      ["Partial", partialStats.partial],
+      ["Pulsed", partialStats.pulsed],
+      ["Errors", partialStats.errors],
+      ["State Errors", partialStats.stateErrors]
+    ];
+  } catch (e) {
+    return [["Stat", "Value"], ["Status", "LOCK_FAILURE"], ["Error", String(e && (e.message || e) || e)], ["Pulsed", 0]];
+  } finally {
+    if (leaseOwner) _wcoreReleaseLease_(WCORE_WATCHDOG_LEASE_KEY, leaseOwner);
+  }
 }
 
 // v0.3.x: System-driven force-rescan for a list of chain keys. Pulses B1 on the
 // matching Ledger sheet so the next scan (manual or time-based) re-fetches the
 // latest API payload. This bypasses the I1-staleness cooldown for callers who
 // know the payload is stale (e.g. right after an API deploy). The action is
-// system-driven (not a manual Sheet edit) — it uses a fresh timestamp that the
+// system-driven (not a manual Sheet edit) â€” it uses a fresh timestamp that the
 // C1/FORCE/A1 check paths already treat as a legitimate trigger.
 //
 // No-argument wrapper: forces a rescan of Optimism and Base (the most recent
@@ -606,9 +720,7 @@ function _wd_fmtDate_(d) {
 }
 
 function _wd_isLastUpdateFormat_(s) {
-  s = _wd_norm_(s);
-  // Match: "2025-01-15 12:34:56" or ISO "2025-01-15T12:34:56..."
-  return /^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}(:\d{2})?/.test(s);
+  return isFinite(_wd_parseLocalDateTimeToMs_(s));
 }
 
 /**
@@ -624,9 +736,12 @@ function _wd_extractTimestamp_(vI1) {
   // Match usable prefixes followed by timestamp.
   var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
   if (match && match[1]) {
-    return match[1].trim();
+    vI1 = match[1].trim();
   }
-  match = vI1.match(/^WEB_SCAN_OK\s+(.+)$/);
+  // v4.16.46: strip [FRESH] prefix that may be nested inside [CACHE_ONLY].
+  var freshMatch = vI1.match(/^\[FRESH\]\s+(.+)$/);
+  if (freshMatch && freshMatch[1]) vI1 = freshMatch[1].trim();
+  match = vI1.match(/^(?:WEB_SCAN_OK|TON_SCAN_OK)\s+(.+)$/);
   if (match && match[1]) return match[1].trim();
   return vI1;
 }
@@ -635,12 +750,339 @@ function _wd_extractSuccessTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   var match = vI1.match(/^\[CACHE_ONLY\]\s*(.+)$/);
   if (match && match[1]) return match[1].trim();
+  match = vI1.match(/^(?:WEB_SCAN_OK|TON_SCAN_OK)\s+(.+)$/);
+  if (match && match[1]) return match[1].trim();
   return vI1;
+}
+
+function _wd_loadWebBackoff_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(CK_get("watchdogWebBackoff"));
+  if (!raw) return {};
+  try {
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return _wd_pruneWebBackoff_(parsed, null);
+  } catch (e) {
+    return {};
+  }
+}
+
+function _wd_pruneWebBackoff_(state, nowMs) {
+  state = state || {};
+  var names = Object.keys(state);
+  var hasNow = isFinite(Number(nowMs)) && Number(nowMs) > 0;
+  var cutoff = hasNow ? Number(nowMs) - WD_WEB_BACKOFF_RETENTION_MS : 0;
+  for (var i = 0; i < names.length; i++) {
+    var entry = state[names[i]];
+    var attempts = entry && Number(entry.attempts);
+    var lastPulseMs = entry && Number(entry.lastPulseMs);
+    var lastErrorMs = entry && Number(entry.lastErrorMs);
+    var valid = entry && typeof entry === "object" && !Array.isArray(entry) &&
+      isFinite(attempts) && attempts >= 0 && Math.floor(attempts) === attempts && attempts <= WD_WEB_ERROR_BACKOFF_MS.length &&
+      isFinite(lastPulseMs) && lastPulseMs >= 0 && isFinite(lastErrorMs) && lastErrorMs >= 0;
+    if (!valid || (hasNow && Math.max(lastPulseMs, lastErrorMs) < cutoff)) {
+      delete state[names[i]];
+      continue;
+    }
+    state[names[i]] = { attempts: attempts, lastPulseMs: lastPulseMs, lastErrorMs: lastErrorMs };
+  }
+  names = Object.keys(state).sort(function(a, b) {
+    var ae = state[a] || {};
+    var be = state[b] || {};
+    return Math.max(Number(be.lastPulseMs || 0), Number(be.lastErrorMs || 0)) -
+      Math.max(Number(ae.lastPulseMs || 0), Number(ae.lastErrorMs || 0));
+  });
+  for (var j = WD_WEB_BACKOFF_MAX_ENTRIES; j < names.length; j++) delete state[names[j]];
+  return state;
+}
+
+function _wd_saveWebBackoff_(state, nowMs) {
+  PropertiesService.getScriptProperties().setProperty(
+    CK_get("watchdogWebBackoff"),
+    JSON.stringify(_wd_pruneWebBackoff_(state || {}, nowMs))
+  );
+}
+
+function _wd_webErrorDecision_(state, sheetName, nowMs, errorTimestampMs) {
+  var entry = state[sheetName];
+  if (errorTimestampMs == null) {
+    if (entry) delete state[sheetName];
+    return { allowed: false, nextDelayMs: 0 };
+  }
+  var attempts = entry && Number(entry.attempts);
+  var lastPulseMs = entry && Number(entry.lastPulseMs);
+  var lastErrorMs = entry && Number(entry.lastErrorMs);
+  if (entry && (!isFinite(attempts) || attempts < 0 || Math.floor(attempts) !== attempts || attempts > WD_WEB_ERROR_BACKOFF_MS.length ||
+      !isFinite(lastPulseMs) || lastPulseMs < 0 || !isFinite(lastErrorMs) || lastErrorMs < 0)) {
+    delete state[sheetName];
+    entry = null;
+  }
+  if (!entry) {
+    entry = state[sheetName] = { attempts: 0, lastPulseMs: Number(errorTimestampMs), lastErrorMs: Number(errorTimestampMs) };
+  } else {
+    entry.lastErrorMs = Number(errorTimestampMs);
+  }
+  var index = Math.min(Number(entry.attempts || 0), WD_WEB_ERROR_BACKOFF_MS.length - 1);
+  var delay = WD_WEB_ERROR_BACKOFF_MS[index];
+  if (nowMs - Number(entry.lastPulseMs || 0) < delay) return { allowed: false, nextDelayMs: delay };
+  entry.attempts = Math.min(index + 1, WD_WEB_ERROR_BACKOFF_MS.length);
+  entry.lastPulseMs = nowMs;
+  return { allowed: true, nextDelayMs: WD_WEB_ERROR_BACKOFF_MS[Math.min(entry.attempts, WD_WEB_ERROR_BACKOFF_MS.length - 1)] };
+}
+
+function _wd_loadPartialPulseMap_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(P_WD_PARTIAL_LAST);
+  if (!raw) return {};
+  try {
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    var sanitized = {};
+    for (var name in parsed) {
+      if (typeof parsed[name] === "number" && isFinite(parsed[name]) && parsed[name] >= 0) {
+        sanitized[name] = parsed[name];
+      }
+    }
+    return sanitized;
+  } catch (e) {
+    return {};
+  }
+}
+
+function _wd_reservePulseStates_(selectedPulses, webState, webStateAvailable, nowMs) {
+  selectedPulses = selectedPulses || [];
+  var result = { actions: selectedPulses.slice(), errors: 0 };
+  var webActions = result.actions.filter(function(action) { return action && action.pendingWebBackoffEntry; });
+  if (webStateAvailable) {
+    try {
+      for (var w = 0; w < webActions.length; w++) {
+        var webAction = webActions[w];
+        var previous = webState[webAction.sheetName];
+        webAction.stateReservation = {
+          type: "web",
+          previousEntry: previous ? {
+            attempts: Number(previous.attempts),
+            lastPulseMs: Number(previous.lastPulseMs),
+            lastErrorMs: Number(previous.lastErrorMs)
+          } : null
+        };
+        webState[webAction.sheetName] = webAction.pendingWebBackoffEntry;
+      }
+      _wd_saveWebBackoff_(webState, nowMs);
+    } catch (eWebReserve) {
+      result.errors++;
+      result.actions = result.actions.filter(function(action) { return !action.webError; });
+    }
+  } else {
+    result.actions = result.actions.filter(function(action) { return !action.webError; });
+  }
+
+  var partialActions = result.actions.filter(function(action) { return action && action.reason === "partial"; });
+  if (partialActions.length > 0) {
+    try {
+      var partialState = _wd_loadPartialPulseMap_();
+      for (var p = 0; p < partialActions.length; p++) {
+        var partialAction = partialActions[p];
+        partialAction.stateReservation = {
+          type: "partial",
+          hadPrevious: Object.prototype.hasOwnProperty.call(partialState, partialAction.sheetName),
+          previousValue: partialState[partialAction.sheetName]
+        };
+        partialState[partialAction.sheetName] = nowMs;
+      }
+      var cutoff = nowMs - 24 * 3600000;
+      for (var name in partialState) {
+        if (!isFinite(Number(partialState[name])) || Number(partialState[name]) < cutoff) delete partialState[name];
+      }
+      PropertiesService.getScriptProperties().setProperty(P_WD_PARTIAL_LAST, JSON.stringify(partialState));
+    } catch (ePartialReserve) {
+      result.errors++;
+      result.actions = result.actions.filter(function(action) { return action.reason !== "partial"; });
+    }
+  }
+  return result;
+}
+
+function _wd_rollbackPulseReservations_(failedActions, nowMs) {
+  failedActions = failedActions || [];
+  var result = { errors: 0, web: 0, partial: 0 };
+  var webActions = failedActions.filter(function(action) { return action && action.stateReservation && action.stateReservation.type === "web"; });
+  var partialActions = failedActions.filter(function(action) { return action && action.stateReservation && action.stateReservation.type === "partial"; });
+
+  // Apps Script has no cross-service transaction. Reserve before B1 and keep a
+  // conservative reservation if rollback fails: quota-safe at-most-once beats duplicates.
+  if (webActions.length > 0) {
+    try {
+      var webState = _wd_loadWebBackoff_();
+      for (var w = 0; w < webActions.length; w++) {
+        var webAction = webActions[w];
+        if (webAction.stateReservation.previousEntry) webState[webAction.sheetName] = webAction.stateReservation.previousEntry;
+        else delete webState[webAction.sheetName];
+        result.web++;
+      }
+      _wd_saveWebBackoff_(webState, nowMs);
+    } catch (eWebRollback) {
+      result.web = 0;
+      result.errors++;
+    }
+  }
+
+  if (partialActions.length > 0) {
+    try {
+      var partialState = _wd_loadPartialPulseMap_();
+      for (var p = 0; p < partialActions.length; p++) {
+        var partialAction = partialActions[p];
+        if (partialAction.stateReservation.hadPrevious) partialState[partialAction.sheetName] = partialAction.stateReservation.previousValue;
+        else delete partialState[partialAction.sheetName];
+        result.partial++;
+      }
+      PropertiesService.getScriptProperties().setProperty(P_WD_PARTIAL_LAST, JSON.stringify(partialState));
+    } catch (ePartialRollback) {
+      result.partial = 0;
+      result.errors++;
+    }
+  }
+  return result;
+}
+
+function _wd_applySpreadsheetActions_(ss, actions, nowMs, maxPulses) {
+  var result = { pulses: 0, partialPulses: 0, synced: 0, errors: 0 };
+  var failedPulses = [];
+  maxPulses = Number(maxPulses || WD_MAX_PULSES_PER_RUN);
+  for (var i = 0; i < (actions || []).length; i++) {
+    var action = actions[i] || {};
+    if (action.type === "pulse" && result.pulses >= maxPulses) {
+      failedPulses.push(action);
+      continue;
+    }
+    try {
+      var targetSheet = action.sheet || (ss && ss.getSheetByName ? ss.getSheetByName(action.sheetName || "") : null);
+      if (!targetSheet) {
+        result.errors++;
+        if (action.type === "pulse") failedPulses.push(action);
+        continue;
+      }
+      var range = targetSheet.getRange(action.range);
+      range.setValue(action.value);
+      try { range.setNumberFormat("@"); } catch (eFormat) {}
+      if (action.type === "pulse") {
+        result.pulses++;
+        if (action.reason === "partial") result.partialPulses++;
+      } else if (action.type === "sync") {
+        result.synced++;
+      }
+    } catch (eWrite) {
+      result.errors++;
+      if (action.type === "pulse") failedPulses.push(action);
+    }
+  }
+  var rollback = _wd_rollbackPulseReservations_(failedPulses, nowMs);
+  result.stateErrors = rollback.errors;
+  return result;
+}
+
+function _wd_selectFairJ1Actions_(actions, totalRows, cursorKey, stats) {
+  actions = actions || [];
+  totalRows = Math.max(0, Number(totalRows || 0));
+  var limit = Math.max(0, Number(SYNC_J1_MAX_SYNCS_PER_RUN || 20));
+  if (actions.length === 0 || totalRows === 0 || limit === 0) return [];
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) {
+      if (stats) stats.j1ClaimBusy = true;
+      return [];
+    }
+    locked = true;
+    var props = PropertiesService.getScriptProperties();
+    var cursor = parseInt(props.getProperty(cursorKey) || "0", 10);
+    if (!isFinite(cursor) || cursor < 0 || cursor >= totalRows) cursor = 0;
+    actions.sort(function(a, b) {
+      var ad = (Number(a.fairnessIndex || 0) - cursor + totalRows) % totalRows;
+      var bd = (Number(b.fairnessIndex || 0) - cursor + totalRows) % totalRows;
+      return ad - bd;
+    });
+    var selected = actions.slice(0, limit);
+    if (stats) stats.skippedSync = Math.max(0, actions.length - selected.length);
+    var nextCursor = (Number(selected[selected.length - 1].fairnessIndex || 0) + 1) % totalRows;
+    props.setProperty(cursorKey, String(nextCursor));
+    return selected;
+  } catch (eClaim) {
+    if (stats) stats.stateErrors = Number(stats.stateErrors || 0) + 1;
+    return [];
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
+
+function _wd_applyJ1Actions_(ss, actions) {
+  var selected = (actions || []).slice(0, SYNC_J1_MAX_SYNCS_PER_RUN);
+  var result = { synced: 0, errors: 0, batch: false };
+  if (selected.length === 0) return result;
+  if (typeof Sheets !== "undefined" && Sheets.Spreadsheets && Sheets.Spreadsheets.Values) {
+    try {
+      var writes = [];
+      for (var i = 0; i < selected.length; i++) {
+        _wd_addApiWrite_(writes, selected[i].sheetName, "J1", selected[i].value);
+      }
+      result.synced = _wd_flushApiWrites_(writes);
+      result.batch = true;
+      return result;
+    } catch (eBatch) {}
+  }
+  for (var j = 0; j < selected.length; j++) {
+    try {
+      var sheet = ss && ss.getSheetByName ? ss.getSheetByName(selected[j].sheetName) : null;
+      if (!sheet) { result.errors++; continue; }
+      var range = sheet.getRange("J1");
+      range.setValue(selected[j].value);
+      try { range.setNumberFormat("@"); } catch (eFormat) {}
+      result.synced++;
+    } catch (eWrite) { result.errors++; }
+  }
+  return result;
+}
+
+function _wd_executeApiActions_(actions, nowMs) {
+  var writes = [];
+  var writtenActions = [];
+  var failedPulses = [];
+  for (var i = 0; i < (actions || []).length; i++) {
+    var action = actions[i] || {};
+    if (action.sheetName && action.range) {
+      _wd_addApiWrite_(writes, action.sheetName, action.range, action.value);
+      writtenActions.push(action);
+    } else if (action.type === "pulse") {
+      failedPulses.push(action);
+    }
+  }
+  var count;
+  try {
+    count = _wd_flushApiWrites_(writes);
+  } catch (eWrite) {
+    failedPulses = failedPulses.concat(writtenActions.filter(function(action) { return action && action.type === "pulse"; }));
+    var failedRollback = _wd_rollbackPulseReservations_(failedPulses, nowMs);
+    eWrite.stateErrors = failedRollback.errors;
+    throw eWrite;
+  }
+  var rollback = _wd_rollbackPulseReservations_(failedPulses, nowMs);
+  var pulses = writtenActions.filter(function(action) { return action && action.type === "pulse"; });
+  return {
+    writes: count,
+    pulses: pulses.length,
+    partialPulses: pulses.filter(function(action) { return action.reason === "partial"; }).length,
+    synced: writtenActions.filter(function(action) { return action.type === "sync"; }).length,
+    stateErrors: rollback.errors
+  };
 }
 
 function _wd_isUnsafeLatchSource_(vI1) {
   vI1 = _wd_norm_(vI1).toUpperCase();
-  return vI1.indexOf("[BLOCKED:") === 0 || vI1.indexOf("[NO_CACHE]") === 0 || vI1.indexOf("NO_CACHE_WAITING_REFRESH") >= 0;
+  return vI1.indexOf("[BLOCKED:") === 0 || vI1.indexOf("[NO_CACHE]") === 0 ||
+    vI1.indexOf("[WEB_SCAN_ERROR]") === 0 || vI1.indexOf("[WEB_SCAN_DEFERRED]") === 0 ||
+    vI1.indexOf("NO_CACHE_WAITING_REFRESH") >= 0;
 }
 
 /**
@@ -661,35 +1103,64 @@ function _wd_isBlocked_(vI1) {
 }
 
 function _wd_parseLocalDateTimeToMs_(s) {
-  s = _wd_norm_(s);
-  if (!s) return NaN;
+  try { s = String(s == null ? "" : s); } catch (eString) { return NaN; }
+  if (!s || s !== s.trim()) return NaN;
 
-  // Si "T", tente Date.parse (souvent ok)
-  if (s.indexOf("T") !== -1) {
-    const t = Date.parse(s);
-    if (isFinite(t)) return t;
+  function validComponents_(yyyy, mm, dd, HH, MI, SS) {
+    if (mm < 1 || mm > 12 || dd < 1 || HH < 0 || HH > 23 || MI < 0 || MI > 59 || SS < 0 || SS > 59) return false;
+    var leap = (yyyy % 4 === 0 && yyyy % 100 !== 0) || yyyy % 400 === 0;
+    var days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return dd <= days[mm - 1];
   }
 
-  // Parse manuel "YYYY-MM-DD HH:MM:SS" (ou sans SS)
-  const parts = s.replace("T", " ").split(" ");
-  if (parts.length < 2) return NaN;
+  function latestLocalOccurrence_(dt, yyyy, mm, dd, HH, MI, SS, millis) {
+    var latestMs = dt.getTime();
+    var shifts = [30 * 60000, 60 * 60000];
+    for (var shiftIndex = 0; shiftIndex < shifts.length; shiftIndex++) {
+      var candidate = new Date(dt.getTime() + shifts[shiftIndex]);
+      if (candidate.getFullYear() === yyyy && candidate.getMonth() === mm - 1 && candidate.getDate() === dd &&
+          candidate.getHours() === HH && candidate.getMinutes() === MI && candidate.getSeconds() === SS &&
+          candidate.getMilliseconds() === millis) {
+        latestMs = Math.max(latestMs, candidate.getTime());
+      }
+    }
+    return latestMs;
+  }
 
-  const d = parts[0].split("-");
-  const hm = parts[1].split(":");
-  if (d.length !== 3 || hm.length < 2) return NaN;
+  var local = s.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (local) {
+    var yyyy = Number(local[1]), mm = Number(local[2]), dd = Number(local[3]);
+    var HH = Number(local[4]), MI = Number(local[5]), SS = local[6] == null ? 0 : Number(local[6]);
+    if (!validComponents_(yyyy, mm, dd, HH, MI, SS)) return NaN;
+    var dt = new Date(yyyy, mm - 1, dd, HH, MI, SS, 0);
+    var localMs = dt.getTime();
+    if (!isFinite(localMs) || dt.getFullYear() !== yyyy || dt.getMonth() !== mm - 1 || dt.getDate() !== dd ||
+        dt.getHours() !== HH || dt.getMinutes() !== MI || dt.getSeconds() !== SS) return NaN;
+    return latestLocalOccurrence_(dt, yyyy, mm, dd, HH, MI, SS, 0);
+  }
 
-  const yyyy = parseInt(d[0], 10);
-  const mm = parseInt(d[1], 10);
-  const dd = parseInt(d[2], 10);
-  const HH = parseInt(hm[0], 10);
-  const MI = parseInt(hm[1], 10);
-  const SS = hm.length >= 3 ? parseInt(hm[2], 10) : 0;
-
-  if (![yyyy,mm,dd,HH,MI,SS].every(n => isFinite(n))) return NaN;
-
-  const dt = new Date(yyyy, mm - 1, dd, HH, MI, SS, 0);
-  const t = dt.getTime();
-  return isFinite(t) ? t : NaN;
+  var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})?$/);
+  if (!iso) return NaN;
+  var isoYear = Number(iso[1]), isoMonth = Number(iso[2]), isoDay = Number(iso[3]);
+  var isoHour = Number(iso[4]), isoMinute = Number(iso[5]), isoSecond = iso[6] == null ? 0 : Number(iso[6]);
+  if (!validComponents_(isoYear, isoMonth, isoDay, isoHour, isoMinute, isoSecond)) return NaN;
+  var zone = iso[8] || "";
+  var isoMillis = iso[7] ? Number((iso[7] + "00").substring(0, 3)) : 0;
+  if (!zone) {
+    var localIsoDate = new Date(isoYear, isoMonth - 1, isoDay, isoHour, isoMinute, isoSecond, isoMillis);
+    var localIsoMs = localIsoDate.getTime();
+    if (!isFinite(localIsoMs) || localIsoDate.getFullYear() !== isoYear || localIsoDate.getMonth() !== isoMonth - 1 ||
+        localIsoDate.getDate() !== isoDay || localIsoDate.getHours() !== isoHour || localIsoDate.getMinutes() !== isoMinute ||
+        localIsoDate.getSeconds() !== isoSecond || localIsoDate.getMilliseconds() !== isoMillis) return NaN;
+    return latestLocalOccurrence_(localIsoDate, isoYear, isoMonth, isoDay, isoHour, isoMinute, isoSecond, isoMillis);
+  }
+  if (zone && zone !== "Z") {
+    var zoneHour = Number(zone.substring(1, 3));
+    var zoneMinute = Number(zone.substring(4, 6));
+    if (zoneHour > 23 || zoneMinute > 59) return NaN;
+  }
+  var isoMs = Date.parse(s);
+  return isFinite(isoMs) ? isoMs : NaN;
 }
 
 function _wd_bumpTimestampSeconds_(timestamp, seconds) {
@@ -745,6 +1216,7 @@ function _wd_refreshReasonPriority_(reason) {
   reason = String(reason || "").toLowerCase();
   if (reason === "error") return 400;
   if (reason === "empty") return 300;
+  if (reason === "partial") return 250;
   if (reason === "stale") return 200;
   if (reason === "blocked") return 100;
   return 0;
@@ -765,10 +1237,18 @@ function _wd_isCexSheet_(name) {
           (n.indexOf("binance") >= 0 && n.indexOf("web3") < 0));
 }
 
-function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) {
-  var pulseCandidates = [];
+function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, partialCandidates) {
+  var urgentCandidates = (partialCandidates || []).slice();
+  var cycleCandidates = [];
   var syncActions = [];
   stats = stats || {};
+  var webBackoff = {};
+  var webBackoffAvailable = true;
+  var webSuppressedTargets = {};
+  try { webBackoff = _wd_loadWebBackoff_(); } catch (eLoadWebBackoff) {
+    webBackoffAvailable = false;
+    stats.stateErrors = Number(stats.stateErrors || 0) + 1;
+  }
   var systemBlocked = _wd_isSystemBlocked_();
   var suppressB1Pulses = !!(systemBlocked && systemBlocked.blocked && systemBlocked.reason === "QUOTA");
   if (suppressB1Pulses) stats.b1SuppressedQuota = 0;
@@ -778,27 +1258,91 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
     // v4.15.85: skip CEX display-only tabs (no I1/J1, B1 is self-managed).
     if (_wd_isCexSheet_(d.name || d.sheetName || "")) continue;
 
-    var preActualI1 = _wd_extractTimestamp_(d.vI1 || "");
-    var preA2Norm = _wd_norm_(d.vA2 || "");
-    if ((preA2Norm === "" || preA2Norm.indexOf("#") === 0 || preA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
-        _wd_isLastUpdateFormat_(preActualI1)) {
-      var preBumpedJ1 = _wd_bumpTimestampSeconds_(preActualI1, 1);
-      if (preBumpedJ1) {
-        syncActions.push({
-          sheet: d.sheet || null,
-          sheetName: d.name || d.sheetName || "",
-          range: "J1",
-          value: preBumpedJ1,
-          type: "sync",
-          reason: "a2_error_recalc"
-        });
-        stats.toSync++;
+    var sheetName = d.name || d.sheetName || "";
+    var i1Norm = _wd_norm_(d.vI1 || "");
+    var isWebError = i1Norm.indexOf("[WEB_SCAN_ERROR]") === 0;
+    var webErrorAllowed = !isWebError;
+    var webPulseCandidateAdded = false;
+    var stagedWebBackoffEntry = null;
+    if (isWebError && webBackoffAvailable) {
+      var errorTimestamp = _wd_extractTimestamp_(i1Norm);
+      var errorTimestampMs = _wd_isLastUpdateFormat_(errorTimestamp) ? _wd_parseLocalDateTimeToMs_(errorTimestamp) : null;
+      var decisionState = {};
+      var currentEntry = webBackoff[sheetName];
+      if (isFinite(errorTimestampMs) && !currentEntry) {
+        currentEntry = {
+          attempts: 0,
+          lastPulseMs: Number(errorTimestampMs),
+          lastErrorMs: Number(errorTimestampMs)
+        };
+        webBackoff[sheetName] = currentEntry;
+      } else if (isFinite(errorTimestampMs) && currentEntry) {
+        currentEntry.lastErrorMs = Number(errorTimestampMs);
       }
-      continue;
+      if (currentEntry) {
+        decisionState[sheetName] = {
+          attempts: Number(currentEntry.attempts || 0),
+          lastPulseMs: Number(currentEntry.lastPulseMs || 0),
+          lastErrorMs: Number(currentEntry.lastErrorMs || 0)
+        };
+      }
+      webErrorAllowed = _wd_webErrorDecision_(decisionState, sheetName, nowMs, isFinite(errorTimestampMs) ? errorTimestampMs : null).allowed;
+      stagedWebBackoffEntry = decisionState[sheetName] || null;
+    } else if (isWebError) {
+      webErrorAllowed = false;
+    } else {
+      var healthyTimestamp = _wd_extractTimestamp_(i1Norm);
+      var healthyPrefix = i1Norm.indexOf("[") !== 0 || i1Norm.indexOf("[CACHE_ONLY]") === 0;
+      if (healthyPrefix && _wd_isLastUpdateFormat_(healthyTimestamp)) {
+        _wd_webErrorDecision_(webBackoff, sheetName, nowMs, null);
+      }
     }
 
-    var refreshCheck = _wd_needsRefresh_(d.vA2 || "", d.vI1 || "", nowMs, staleMs);
+    var refreshCheck = _wd_needsRefresh_(d.vA2 || "", d.vI1 || "", nowMs, staleMs, d.vB1);
+    var extractedI1 = _wd_extractTimestamp_(i1Norm);
+    var extractedI1Ms = _wd_parseLocalDateTimeToMs_(extractedI1);
+    var noUsableCache = !i1Norm || i1Norm.indexOf("[NO_CACHE]") === 0 || i1Norm.indexOf("[WEB_SCAN_DEFERRED]") === 0 ||
+      (i1Norm.indexOf("[CACHE_ONLY]") === 0 &&
+        (!_wd_isLastUpdateFormat_(extractedI1) || !isFinite(extractedI1Ms)));
     var cooldownMin = refreshCheck.useBlockedCooldown ? WD_PULSE_MIN_BLOCKED : WD_PULSE_MIN;
+    var canPulseNormally = !suppressB1Pulses && webErrorAllowed &&
+      refreshCheck.blockedReason !== "QUOTA" &&
+      _wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin);
+    var cycleAgeMs = Number.MAX_SAFE_INTEGER;
+    var cycleI1Ms = _wd_parseLocalDateTimeToMs_(_wd_extractTimestamp_(d.vI1 || ""));
+    var cycleB1Ms = _wd_parseLocalDateTimeToMs_(d.vB1 || "");
+    var cycleLatestMs = Math.max(isFinite(cycleI1Ms) ? cycleI1Ms : 0, isFinite(cycleB1Ms) ? cycleB1Ms : 0);
+    // v4.16.46: [CACHE_ONLY] stays stale even when B1 is refreshed.
+    // Use I1 as the age anchor so the wallet doesn't look "recently serviced".
+    if (i1Norm.indexOf("[CACHE_ONLY]") === 0 && isFinite(cycleI1Ms) && isFinite(cycleB1Ms) && cycleB1Ms > cycleI1Ms) {
+      cycleLatestMs = cycleI1Ms;
+    }
+    if (cycleLatestMs > 0) cycleAgeMs = Math.max(0, nowMs - cycleLatestMs);
+
+    var pulseCandidate = null;
+    if (canPulseNormally) {
+      var pulseReason = refreshCheck.needsPulse ? refreshCheck.reason : "cycle";
+      pulseCandidate = {
+        sheet: d.sheet || null,
+        sheetName: sheetName,
+        range: "B1",
+        value: nowStr,
+        type: "pulse",
+        reason: pulseReason,
+        priority: _wd_refreshReasonPriority_(pulseReason),
+        staleAgeMs: _wd_staleAgeMs_(d.vI1 || "", nowMs),
+        cycleAgeMs: cycleAgeMs,
+        webError: isWebError,
+        pendingWebBackoffEntry: stagedWebBackoffEntry
+      };
+      if (pulseReason === "cycle" || pulseReason === "stale" || noUsableCache) {
+        cycleCandidates.push(pulseCandidate);
+      }
+      if (pulseReason === "error" || pulseReason === "empty") {
+        urgentCandidates.push(pulseCandidate);
+      }
+      webPulseCandidateAdded = isWebError && (pulseReason === "error" || pulseReason === "empty");
+    }
 
     if (refreshCheck.needsPulse) {
       if (refreshCheck.reason === "blocked") stats.b1Blocked++;
@@ -812,24 +1356,16 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
 
       if (suppressB1Pulses) {
         stats.b1SuppressedQuota++;
-      } else if (_wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin)) {
-        pulseCandidates.push({
-          sheet: d.sheet || null,
-          sheetName: d.name || d.sheetName || "",
-          range: "B1",
-          value: nowStr,
-          type: "pulse",
-          reason: refreshCheck.reason,
-          priority: _wd_refreshReasonPriority_(refreshCheck.reason),
-          staleAgeMs: _wd_staleAgeMs_(d.vI1 || "", nowMs)
-        });
       }
+    }
+    if (isWebError && !webPulseCandidateAdded) {
+      webSuppressedTargets[sheetName + "\nB1"] = true;
     }
 
     var actualI1 = refreshCheck.actualTimestamp || _wd_extractTimestamp_(d.vI1 || "");
     var vA2Norm = _wd_norm_(d.vA2 || "");
     if ((vA2Norm === "" || vA2Norm.indexOf("#") === 0 || vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
-        _wd_isLastUpdateFormat_(actualI1)) {
+        _wd_isLastUpdateFormat_(actualI1) && _wd_shouldSyncJ1_(d.vI1 || "", "")) {
       var bumpedJ1 = _wd_bumpTimestampSeconds_(actualI1, 1);
       if (bumpedJ1) {
         syncActions.push({
@@ -838,7 +1374,8 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
           range: "J1",
           value: bumpedJ1,
           type: "sync",
-          reason: "a2_error_recalc"
+          reason: "a2_error_recalc",
+          fairnessIndex: i
         });
         stats.toSync++;
       }
@@ -850,21 +1387,78 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats) 
         sheetName: d.name || d.sheetName || "",
         range: "J1",
         value: actualI1,
-        type: "sync"
+        type: "sync",
+        fairnessIndex: i
       });
       stats.toSync++;
     }
   }
 
-  pulseCandidates.sort(function(a, b) {
-    if (a.priority !== b.priority) return b.priority - a.priority;
-    if (a.staleAgeMs !== b.staleAgeMs) return b.staleAgeMs - a.staleAgeMs;
+  urgentCandidates = urgentCandidates.filter(function(candidate) {
+    if (candidate.reason !== "partial") return true;
+    return !webSuppressedTargets[String(candidate.sheetName || "") + "\n" + String(candidate.range || "")];
+  });
+
+  if (suppressB1Pulses) {
+    stats.b1SuppressedQuota += urgentCandidates.length;
+    urgentCandidates = [];
+    cycleCandidates = [];
+  }
+
+  if (!webBackoffAvailable) {
+    urgentCandidates = urgentCandidates.filter(function(candidate) { return !candidate.webError; });
+    cycleCandidates = cycleCandidates.filter(function(candidate) { return !candidate.webError; });
+  }
+
+  var urgentByTarget = {};
+  urgentCandidates.forEach(function(candidate) {
+    var key = String(candidate.sheetName || "") + "\n" + String(candidate.range || "");
+    var current = urgentByTarget[key];
+    if (!current || Number(candidate.priority || 0) > Number(current.priority || 0)) urgentByTarget[key] = candidate;
+  });
+  urgentCandidates = Object.keys(urgentByTarget).map(function(key) { return urgentByTarget[key]; });
+
+  cycleCandidates.sort(function(a, b) {
+    if (a.cycleAgeMs !== b.cycleAgeMs) return b.cycleAgeMs - a.cycleAgeMs;
+    return String(a.sheetName || "").localeCompare(String(b.sheetName || ""));
+  });
+  urgentCandidates.sort(function(a, b) {
+    var aAge = isFinite(Number(a.cycleAgeMs)) ? Number(a.cycleAgeMs) : Number(a.staleAgeMs || 0);
+    var bAge = isFinite(Number(b.cycleAgeMs)) ? Number(b.cycleAgeMs) : Number(b.staleAgeMs || 0);
+    if (aAge !== bAge) return bAge - aAge;
     return String(a.sheetName || "").localeCompare(String(b.sheetName || ""));
   });
 
-  var selectedPulses = pulseCandidates.slice(0, WD_MAX_PULSES_PER_RUN);
-  stats.b1Set += selectedPulses.length;
-  stats.globalPulseCandidates = pulseCandidates.length;
+  var selectedPulses = [];
+  var seenPulseTargets = {};
+  function takeNextDistinct_(lane, limit) {
+    for (var li = 0; li < lane.length && selectedPulses.length < limit; li++) {
+      var candidate = lane[li];
+      var key = String(candidate.sheetName || "") + "\n" + String(candidate.range || "");
+      if (seenPulseTargets[key]) continue;
+      seenPulseTargets[key] = true;
+      selectedPulses.push(candidate);
+    }
+  }
+
+  takeNextDistinct_(cycleCandidates, Math.min(WD_CYCLE_SLOTS_PER_RUN, WD_MAX_PULSES_PER_RUN));
+  var cycleSelected = selectedPulses.length;
+  takeNextDistinct_(urgentCandidates, Math.min(WD_MAX_PULSES_PER_RUN, selectedPulses.length + 1));
+  if (cycleSelected < WD_CYCLE_SLOTS_PER_RUN) takeNextDistinct_(urgentCandidates, WD_MAX_PULSES_PER_RUN);
+  takeNextDistinct_(cycleCandidates, WD_MAX_PULSES_PER_RUN);
+
+  var allPulseTargets = {};
+  cycleCandidates.concat(urgentCandidates).forEach(function(candidate) {
+    var key = String(candidate.sheetName || "") + "\n" + String(candidate.range || "");
+    allPulseTargets[key] = true;
+  });
+
+  var reservation = _wd_reservePulseStates_(selectedPulses, webBackoff, webBackoffAvailable, nowMs);
+  selectedPulses = reservation.actions;
+  stats.stateErrors = Number(stats.stateErrors || 0) + reservation.errors;
+  stats.b1Planned = selectedPulses.length;
+  stats.globalPulseCandidates = Object.keys(allPulseTargets).length;
+  syncActions = _wd_selectFairJ1Actions_(syncActions, items.length, P_WD_J1_CURSOR, stats);
   return syncActions.concat(selectedPulses);
 }
 
@@ -875,7 +1469,10 @@ function _wd_shouldSyncJ1_(vI1, vJ1) {
   return _wd_norm_(actualI1) !== _wd_norm_(vJ1);
 }
 
-function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
+function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
+  if (vI1.indexOf("[WEB_SCAN_DEFERRED]") === 0) {
+    return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
+  }
   const errA2 = vA2.startsWith("#") || vA2.toLowerCase().includes("erreur") || vA2.toLowerCase().includes("error");
   const errI1 = vI1.startsWith("#") || vI1.toLowerCase().includes("erreur") || vI1.toLowerCase().includes("error");
   const isErr = errA2 || errI1;
@@ -893,17 +1490,9 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
         useBlockedCooldown: false
       };
     }
-    // QUOTA only: si le timestamp extrait de I1 est frais (< staleMs), pas besoin de re-pulser
-    // Le daily QUOTA_RECOVERY_SWEEP à 10h35 CET s'en occupe
-    var blockedNeedsPulse = true;
-    if (blockedCheck.timestamp) {
-      var bTs = _wd_parseLocalDateTimeToMs_(blockedCheck.timestamp);
-      if (isFinite(bTs) && (nowMs - bTs) < staleMs) {
-        blockedNeedsPulse = false;
-      }
-    }
+    // QUOTA recovery is exclusively owned by QUOTA_RECOVERY_SWEEP.
     return {
-      needsPulse: blockedNeedsPulse,
+      needsPulse: false,
       reason: "blocked",
       blockedReason: "QUOTA",
       actualTimestamp: blockedCheck.timestamp,
@@ -911,17 +1500,17 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
     };
   }
   
-  // v4.14.10: [NO_CACHE] = wallet never scanned successfully — re-pulse with short cooldown
+  // v4.14.10: [NO_CACHE] = wallet never scanned successfully â€” re-pulse with short cooldown
   if (vI1.indexOf("[NO_CACHE]") === 0) {
     return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
   }
 
-  // v4.15.3: [ERROR] = scan failed (RPC timeout, etc.) — re-pulse with normal cooldown
+  // v4.15.3: [ERROR] = scan failed (RPC timeout, etc.) â€” re-pulse with normal cooldown
   if (vI1.indexOf("[ERROR]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
 
-  // v4.16.27: [WEB_SCAN_ERROR] = WCORE Web API failed (timeout, 5xx, network) — re-pulse
+  // v4.16.27: [WEB_SCAN_ERROR] = WCORE Web API failed (timeout, 5xx, network) â€” re-pulse
   if (vI1.indexOf("[WEB_SCAN_ERROR]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
@@ -938,15 +1527,24 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
 
-  // v4.16.28: Cache-only markers without a real timestamp mean no usable scan
-  // was available (ex: "[CACHE_ONLY] [FRESH] N/A"). Re-pulse B1 instead of
-  // treating the row as healthy forever.
-  if (vI1.indexOf("[CACHE_ONLY]") === 0) {
-    var cacheOnlyTs = _wd_extractTimestamp_(vI1);
-    if (!_wd_isLastUpdateFormat_(cacheOnlyTs)) {
-      return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
-    }
-  }
+   // v4.16.46: Cache-only detection with B1/I1 mismatch.
+   // When B1 was pulsed but the scan kept serving a stale [CACHE_ONLY]
+   // timestamp, re-pulse aggressively so the wallet keeps being retried
+   // instead of looking "recently serviced" and starving for hours.
+   var WD_CACHE_ONLY_MISMATCH_MS = 20 * 60 * 1000; // 20 min
+   if (vI1.indexOf("[CACHE_ONLY]") === 0) {
+     var cacheOnlyTs = _wd_extractTimestamp_(vI1);
+     if (!_wd_isLastUpdateFormat_(cacheOnlyTs)) {
+       return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
+     }
+     if (vB1 !== undefined) {
+       var cacheOnlyI1Ms = _wd_parseLocalDateTimeToMs_(cacheOnlyTs);
+       var b1Ms = _wd_parseLocalDateTimeToMs_(String(vB1 || ""));
+       if (isFinite(cacheOnlyI1Ms) && isFinite(b1Ms) && b1Ms - cacheOnlyI1Ms >= WD_CACHE_ONLY_MISMATCH_MS) {
+         return { needsPulse: true, reason: "stale", blockedReason: null, useBlockedCooldown: false };
+       }
+     }
+   }
 
   const isEmpty = !vI1 || vI1 === "" || vI1.trim() === "";
 
@@ -1047,38 +1645,14 @@ function _wd_tryUnblock_(blockedReason) {
  */
 function WATCHDOG_FROM_RECAP() {
   try { HttpCallCounter.setTrigger('WATCHDOG_FROM_RECAP'); } catch(e){}
-  try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("WATCHDOG_FROM_RECAP", false); } catch(e){}
-
-  const lock = LockService.getScriptLock();
-  try {
-    if (!lock.tryLock(5000)) {
-      Logger.log("[WATCHDOG] Could not acquire lock");
-      return;
-    }
-  } catch (e) {
+  var leaseOwner = _wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY, WCORE_WATCHDOG_LEASE_TTL_MS);
+  if (!leaseOwner) {
+    Logger.log("[WATCHDOG] Lease busy");
+    try { HttpCallCounter.clearTrigger(); } catch(eClear){}
     return;
   }
 
   try {
-    // v4.5.3: Refresh ledger sheet cache if stale (safe in trigger context, unlike @customfunction)
-    try { if (typeof _ensureLedgerCache_ === 'function') _ensureLedgerCache_(false); } catch (e) {}
-
-    // v4.15.62: Proactive ScriptProperties purge. Triggered when usage > 85% of the
-    // 500KB quota. Avoids the 2026-06-01 freeze where _emergencyPurge_ was
-    // deadlocked (it only runs on write-failure, and writes fail at >100%).
-    try {
-      var _wdProps = PropertiesService.getScriptProperties();
-      var _wdAll = _wdProps.getProperties();
-      var _wdSize = 0;
-      for (var _wdk in _wdAll) { _wdSize += _wdk.length + String(_wdAll[_wdk] || "").length; }
-      if (_wdSize > 425 * 1024 && typeof CacheManager !== 'undefined' && CacheManager._emergencyPurge_) {
-        var _wdFreed = CacheManager._emergencyPurge_();
-        if (_wdFreed !== false) {
-          try { Logger.log("[WATCHDOG] Pre-emptive storage purge freed=" + _wdFreed); } catch (ePL) {}
-        }
-      }
-    } catch (ePre) {}
-
     // v4.15.83: Small, reliable heartbeat. WCORE_WD_LAST_DIAG can be a large
     // JSON blob and may fail to update under ScriptProperties pressure; auto-heal
     // must not rely on that bulky diagnostic as the only liveness signal.
@@ -1094,7 +1668,6 @@ function WATCHDOG_FROM_RECAP() {
         var safe = WCORE_IS_SAFE("recovery");
         if (safe && safe.safe === false) {
           Logger.log("[WATCHDOG] WCORE_IS_SAFE=false, skipping: " + (safe.reason || "UNKNOWN"));
-          lock.releaseLock();
           return;
         }
       } catch (e) {}
@@ -1131,11 +1704,10 @@ function WATCHDOG_FROM_RECAP() {
       if (!recap) throw new Error("Sheet not found: " + RECAP_SHEET_NAME);
 
       const props = PropertiesService.getScriptProperties();
-      _wd_maybeSheetCacheCleanup_(props);
       
       // v4.5.11: Check partial cycles FIRST (independent of main loop)
-      var partialStats = _wd_checkPartialCycles_(ss, nowMs);
-      stats.b1Partial = partialStats.pulsed;
+      var partialStats = _wd_checkPartialCycles_(ss, nowMs, WD_MAX_PULSES_PER_RUN);
+      stats.b1Partial = 0;
       stats.partialChecked = partialStats.checked;
       stats.partialFound = partialStats.partial;
 
@@ -1200,38 +1772,21 @@ function WATCHDOG_FROM_RECAP() {
       const tz = ss.getSpreadsheetTimeZone();
       const nowStr = Utilities.formatDate(new Date(nowMs), tz, "yyyy-MM-dd HH:mm:ss");
 
-      const actions = _wd_collectGlobalRefreshActions_(sheetData, nowMs, staleMs, nowStr, stats);
+      const actions = _wd_collectGlobalRefreshActions_(sheetData, nowMs, staleMs, nowStr, stats, partialStats.actions);
 
       // Execute actions
       actions.sort(function(a, b) { return _wd_actionPriority_(b) - _wd_actionPriority_(a); });
-      var pulsesDone = 0;
-
-      actions.forEach(a => {
-        try {
-          if (a.type === "pulse") {
-            if (pulsesDone >= WD_MAX_PULSES_PER_RUN) return;
-            pulsesDone++;
-          }
-          var targetSheet = a.sheet || ss.getSheetByName(a.sheetName || "");
-          if (!targetSheet) return;
-          var range = targetSheet.getRange(a.range);
-          range.setValue(a.value);
-          range.setNumberFormat("@");
-          if (a.type === "sync") stats.synced++;
-        } catch (e) {
-          try { Logger.log("[WATCHDOG] Action failed: " + a.type + " on " + (a.sheetName || (a.sheet ? a.sheet.getName() : "?")) + " — " + e.message); } catch (e2) {}
-        }
-      });
-      stats.b1Set = pulsesDone;
+      var execution = _wd_applySpreadsheetActions_(ss, actions, nowMs, WD_MAX_PULSES_PER_RUN);
+      stats.b1Set = execution.pulses;
+      stats.b1Partial = execution.partialPulses;
+      stats.synced += execution.synced;
+      stats.actionErrors = execution.errors;
+      stats.stateErrors = Number(stats.stateErrors || 0) + execution.stateErrors;
 
       // Update cursor
       const newCursor = (cursor + probeSize) % stats.N;
       try { props.setProperty(P_WD_CURSOR, String(newCursor)); } catch (eCur) {
-        // v4.15.62: storage quota exceeded — try one purge and retry once
-        try { if (typeof CacheManager !== 'undefined' && CacheManager._emergencyPurge_) CacheManager._emergencyPurge_(); } catch (eEP2) {}
-        try { props.setProperty(P_WD_CURSOR, String(newCursor)); } catch (eCur2) {
-          try { Logger.log("[WATCHDOG] cursor write failed: " + eCur2); } catch (eL3) {}
-        }
+        try { Logger.log("[WATCHDOG] cursor write failed: " + eCur); } catch (eL3) {}
       }
 
       stats.ok = true;
@@ -1283,7 +1838,7 @@ function WATCHDOG_FROM_RECAP() {
     Logger.log("[WATCHDOG] " + JSON.stringify(stats));
 
   } finally {
-    lock.releaseLock();
+    _wcoreReleaseLease_(WCORE_WATCHDOG_LEASE_KEY, leaseOwner);
     try { HttpCallCounter.clearTrigger(); } catch(e){}
   }
 }
@@ -1328,7 +1883,7 @@ function _recoveryClearSkipped_() {
 }
 
 /**
- * Scan Recap Chain → categorized blocked sheet lists.
+ * Scan Recap Chain â†’ categorized blocked sheet lists.
  * Returns { quota: [...], timeout: [...], all: [...] } (BLOCKED:QUOTA first for priority)
  */
 function _recoveryCollectBlocked_(recap) {
@@ -1391,23 +1946,27 @@ function _recoveryPulseBatches_(ss, sheetList, batchSize, delayMs, maxRuntimeMs,
       }
     }
     res.batches++;
-    Logger.log("[" + logTag + "] Batch " + res.batches + " done: pulsed " + (batchEnd - b) + " (" + sheetList[b] + " … " + sheetList[batchEnd - 1] + ")");
+    Logger.log("[" + logTag + "] Batch " + res.batches + " done: pulsed " + (batchEnd - b) + " (" + sheetList[b] + " â€¦ " + sheetList[batchEnd - 1] + ")");
   }
   return res;
 }
 
 /**
- * Probe UrlFetchApp quota réel avant de déclencher un sweep.
- * Utilise _originalUrlFetch (capturé dans 03E_QUOTA_CIRCUIT_BREAKER.gs).
+ * Probe UrlFetchApp quota rÃ©el avant de dÃ©clencher un sweep.
+ * Utilise _originalUrlFetch (capturÃ© dans 03E_QUOTA_CIRCUIT_BREAKER.gs).
  * @return {{ ok: boolean, err: string, code: number }}
  */
 function _recoveryProbeQuota_() {
   try {
-    var fetchFn = (typeof _originalUrlFetch !== 'undefined') ? _originalUrlFetch : UrlFetchApp.fetch.bind(UrlFetchApp);
-    // v4.16.30: count the probe (real UrlFetch, bypasses the counting patch)
-    try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("QUOTA_RECOVERY_SWEEP"); } catch (eCtx) {}
-    try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCount) {}
-    var resp = fetchFn("https://httpbin.org/status/200", { muteHttpExceptions: true });
+    var transport = typeof _httpTelemetryTransport_ === "function"
+      ? _httpTelemetryTransport_()
+      : { fetch: UrlFetchApp.fetch, explicitTelemetry: false };
+    var probeUrl = "https://httpbin.org/status/200";
+    if (transport.explicitTelemetry) {
+      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, "QUOTA_PROBE", probeUrl); } catch (eCount) {}
+      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment(probeUrl, "QUOTA_PROBE"); } catch (eLegacyCount) {}
+    }
+    var resp = transport.fetch.call(UrlFetchApp, probeUrl, { muteHttpExceptions: true });
     var code = resp.getResponseCode();
     if (code === 200) {
       return { ok: true, err: "", code: code };
@@ -1421,7 +1980,9 @@ function _recoveryProbeQuota_() {
 // --- Recovery lock / followup guards (R16) ---
 var P_RECOVERY_SWEEP_LOCK = "RECOVERY_SWEEP_LOCK";
 var P_RECOVERY_FU_PENDING = "RECOVERY_FU_PENDING";
+var P_PORTFOLIO_RECOVERY_PENDING = "WCORE_PORTFOLIO_RECOVERY_PENDING";
 var RECOVERY_LOCK_TTL_MS = 10 * 60 * 1000; // 10 minutes
+var PORTFOLIO_RECOVERY_RETRY_DELAY_MS = 5 * 60 * 1000;
 
 function _recoveryAcquireLock_(key, ttlMs) {
   try {
@@ -1468,6 +2029,120 @@ function _recoveryIsFollowupPending_() {
   } catch (e) { return false; }
 }
 
+function _recoverySetPortfolioRefreshPending_() {
+  try {
+    PropertiesService.getScriptProperties().setProperty(P_PORTFOLIO_RECOVERY_PENDING, String(Date.now()));
+    return true;
+  } catch (e) { return false; }
+}
+
+function _recoveryIsPortfolioRefreshPending_() {
+  try { return !!PropertiesService.getScriptProperties().getProperty(P_PORTFOLIO_RECOVERY_PENDING); }
+  catch (e) { return false; }
+}
+
+function _recoveryClearPortfolioRefreshPending_() {
+  try { PropertiesService.getScriptProperties().deleteProperty(P_PORTFOLIO_RECOVERY_PENDING); }
+  catch (e) {}
+}
+
+/** Persist and deduplicate the single combined portfolio recovery trigger. */
+function _recoverySchedulePortfolioRefresh_(delayMs, ignoreTriggerUid) {
+  if (!_recoverySetPortfolioRefreshPending_()) {
+    Logger.log("[RECOVERY] Unable to persist portfolio recovery marker; scheduling aborted");
+    return false;
+  }
+  var scriptLock = null;
+  var acquired = false;
+  try {
+    try { scriptLock = LockService.getScriptLock(); } catch (eLock) {}
+    if (!scriptLock || !scriptLock.tryLock || !scriptLock.tryLock(2000)) {
+      Logger.log("[RECOVERY] Portfolio scheduler lock unavailable; pending marker preserved");
+      return false;
+    }
+    acquired = true;
+
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      var handler = "";
+      try { handler = triggers[i].getHandlerFunction(); } catch (eHandler) {}
+      if (handler !== "PORTFOLIO_RECOVERY_REFRESH") continue;
+      var uniqueId = "";
+      try { uniqueId = String(triggers[i].getUniqueId() || ""); } catch (eId) {}
+      if (!ignoreTriggerUid || uniqueId !== String(ignoreTriggerUid)) {
+        Logger.log("[RECOVERY] Combined portfolio recovery trigger already pending");
+        return true;
+      }
+    }
+
+    var delay = Math.max(1000, Number(delayMs) || 5000);
+    ScriptApp.newTrigger("PORTFOLIO_RECOVERY_REFRESH").timeBased().after(delay).create();
+    Logger.log("[RECOVERY] Combined portfolio recovery scheduled in " + delay + "ms");
+    return true;
+  } catch (eSchedule) {
+    Logger.log("[RECOVERY] Failed to schedule combined portfolio recovery: " + eSchedule.message + "; pending marker preserved");
+    return false;
+  } finally {
+    if (acquired && scriptLock) {
+      try { scriptLock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
+
+function _recoveryDeleteCurrentPortfolioTrigger_(e) {
+  var triggerUid = e && e.triggerUid ? String(e.triggerUid) : "";
+  if (!triggerUid) return false;
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      var uniqueId = "";
+      try { uniqueId = String(triggers[i].getUniqueId() || ""); } catch (eId) {}
+      if (uniqueId === triggerUid) {
+        ScriptApp.deleteTrigger(triggers[i]);
+        return true;
+      }
+    }
+  } catch (eDelete) {
+    Logger.log("[RECOVERY] Failed to delete current portfolio trigger: " + eDelete.message);
+  }
+  return false;
+}
+
+function PORTFOLIO_RECOVERY_REFRESH(e) {
+  try { HttpCallCounter.setTrigger('PORTFOLIO_RECOVERY_REFRESH'); } catch (eCtx) {}
+  try {
+    var stockOk = false;
+    var cryptoOk = false;
+    try {
+      var stockResult = UPDATE_STOCK_PORTFOLIO();
+      stockOk = String(stockResult || "").indexOf("OK:") === 0;
+      if (!stockOk) Logger.log("[RECOVERY] Stock portfolio incomplete: " + stockResult);
+    } catch (eStock) {
+      Logger.log("[RECOVERY] Stock portfolio failed: " + eStock.message);
+    }
+    try {
+      var cryptoResult = UPDATE_CRYPTO_PORTFOLIO_V2();
+      cryptoOk = String(cryptoResult || "").indexOf("OK:") === 0;
+      if (!cryptoOk) Logger.log("[RECOVERY] Crypto portfolio incomplete: " + cryptoResult);
+    } catch (eCrypto) {
+      Logger.log("[RECOVERY] Crypto portfolio failed: " + eCrypto.message);
+    }
+
+    if (stockOk && cryptoOk) {
+      _recoveryClearPortfolioRefreshPending_();
+      return "OK: portfolio recovery complete";
+    }
+
+    _recoverySetPortfolioRefreshPending_();
+    var triggerUid = e && e.triggerUid ? String(e.triggerUid) : "";
+    _recoveryDeleteCurrentPortfolioTrigger_(e);
+    var retryScheduled = _recoverySchedulePortfolioRefresh_(PORTFOLIO_RECOVERY_RETRY_DELAY_MS, triggerUid);
+    return "INCOMPLETE: portfolio recovery retry scheduled=" + retryScheduled;
+  } finally {
+    try { HttpCallCounter.clearTrigger(); } catch (eClear) {}
+  }
+}
+
 function QUOTA_RECOVERY_SWEEP() {
   try { HttpCallCounter.setTrigger('QUOTA_RECOVERY_SWEEP'); } catch(e){}
   try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("QUOTA_RECOVERY_SWEEP", false); } catch(e){}
@@ -1475,48 +2150,43 @@ function QUOTA_RECOVERY_SWEEP() {
   try {
     // R16 guard: prevent concurrent sweep execution
     if (!_recoveryAcquireLock_(P_RECOVERY_SWEEP_LOCK, RECOVERY_LOCK_TTL_MS)) {
-      Logger.log("[RECOVERY] Another SWEEP is already running — aborting");
+      Logger.log("[RECOVERY] Another SWEEP is already running â€” aborting");
       return;
     }
     acquired = true;
 
-    var RECOVERY_BATCH_SIZE = 5;   // Réduit à 5 au 1er passage (conservative)
-    var RECOVERY_DELAY_MS = 60000; // 60s entre batchs (était 30s)
+    var RECOVERY_BATCH_SIZE = 5;   // RÃ©duit Ã  5 au 1er passage (conservative)
+    var RECOVERY_DELAY_MS = 60000; // 60s entre batchs (Ã©tait 30s)
     var MAX_RUNTIME_MS = 300000;   // 5 min max (marge avant 6 min limit)
     var t0 = Date.now();
+    var qcbWasBlocked = false;
+    var httpGuardWasBlocked = false;
+    try { qcbWasBlocked = !!(typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()); } catch (eQcbState) {}
+    try { httpGuardWasBlocked = !!(typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.isQuotaExhausted && HttpErrorGuard.isQuotaExhausted()); } catch (eGuardState) {}
 
     // --- Probe quota avant tout ---
     var probe = _recoveryProbeQuota_();
     if (!probe.ok) {
-      Logger.log("[RECOVERY] Probe failed: " + probe.err + " — skipping pulse, retry in 30min");
-      // R16 guard: avoid duplicate retry trigger
-      if (!_recoveryIsFollowupPending_()) {
-        try {
-          ScriptApp.newTrigger("QUOTA_RECOVERY_SWEEP").timeBased().after(30 * 60 * 1000).create();
-          _recoverySetFollowupPending_(Date.now() + 30 * 60 * 1000);
-          Logger.log("[RECOVERY] Retry trigger scheduled in 30min");
-        } catch (te) {
-          Logger.log("[RECOVERY] Failed to schedule retry: " + te.message);
-        }
-      } else {
-        Logger.log("[RECOVERY] Retry trigger already pending — skipping duplicate");
-      }
+      Logger.log("[RECOVERY] Probe failed: " + probe.err + " â€” recurring 30min poller will retry");
       return;
     }
-    Logger.log("[RECOVERY] Probe OK (HTTP " + probe.code + ") — proceeding");
+    Logger.log("[RECOVERY] Probe OK (HTTP " + probe.code + ") â€” proceeding");
+
+    if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
+      QuotaCircuitBreaker.reset();
+      Logger.log("[RECOVERY] QuotaCircuitBreaker reset");
+    }
+    if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.reset) {
+      HttpErrorGuard.reset();
+    }
 
     var stats = { blocked_quota: 0, blocked_timeout: 0, pulsed: 0, batches: 0, skipped: 0, exec_ms: 0 };
 
     try {
-      if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
-        QuotaCircuitBreaker.reset();
-        Logger.log("[RECOVERY] QuotaCircuitBreaker reset");
-      }
-      if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.clearQuotaFlag) {
-        HttpErrorGuard.clearQuotaFlag();
-      }
-
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var ss = (typeof _wcoreGetSpreadsheet_ === 'function')
+        ? _wcoreGetSpreadsheet_()
+        : SpreadsheetApp.getActiveSpreadsheet();
+      if (!ss) { Logger.log("[RECOVERY] Spreadsheet unavailable"); return; }
       var recap = ss.getSheetByName(RECAP_SHEET_NAME);
       if (!recap) { Logger.log("[RECOVERY] Recap Chain not found"); return; }
 
@@ -1524,14 +2194,18 @@ function QUOTA_RECOVERY_SWEEP() {
       stats.blocked_quota = cat.quota.length;
       stats.blocked_timeout = cat.timeout.length;
 
+      if (qcbWasBlocked || httpGuardWasBlocked || cat.quota.length > 0 || _recoveryIsPortfolioRefreshPending_()) {
+        _recoverySchedulePortfolioRefresh_();
+      }
+
       if (cat.all.length === 0) {
-        Logger.log("[RECOVERY] No blocked sheets found — clearing skipped state and skipping");
+        Logger.log("[RECOVERY] No blocked sheets found â€” clearing skipped state and skipping");
         _recoveryClearSkipped_();
         _recoveryClearFollowupPending_();
         return;
       }
 
-      Logger.log("[RECOVERY] Found " + cat.quota.length + " BLOCKED:QUOTA + " + cat.timeout.length + " BLOCKED:TIMEOUT/#ERROR — pulsing in batches of " + RECOVERY_BATCH_SIZE);
+      Logger.log("[RECOVERY] Found " + cat.quota.length + " BLOCKED:QUOTA + " + cat.timeout.length + " BLOCKED:TIMEOUT/#ERROR â€” pulsing in batches of " + RECOVERY_BATCH_SIZE);
 
       var r = _recoveryPulseBatches_(ss, cat.all, RECOVERY_BATCH_SIZE, RECOVERY_DELAY_MS, MAX_RUNTIME_MS, t0, "RECOVERY");
       stats.pulsed = r.pulsed;
@@ -1551,7 +2225,7 @@ function QUOTA_RECOVERY_SWEEP() {
             Logger.log("[RECOVERY] Failed to schedule FOLLOWUP: " + te.message);
           }
         } else {
-          Logger.log("[RECOVERY] FOLLOWUP already pending — skipping duplicate scheduling");
+          Logger.log("[RECOVERY] FOLLOWUP already pending â€” skipping duplicate scheduling");
         }
       } else {
         _recoveryClearSkipped_();
@@ -1580,7 +2254,7 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
   try { HttpCallCounter.setTrigger('QUOTA_RECOVERY_SWEEP_FOLLOWUP'); } catch(e){}
   // R16 guard: abort if SWEEP is currently running to avoid overlap
   if (_recoveryIsSweepRunning_()) {
-    Logger.log("[RECOVERY_FU] SWEEP is currently running — aborting FOLLOWUP to avoid overlap");
+    Logger.log("[RECOVERY_FU] SWEEP is currently running â€” aborting FOLLOWUP to avoid overlap");
     return;
   }
   // Clear stale pending flag regardless
@@ -1590,11 +2264,15 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
     var RECOVERY_DELAY_MS = 30000;
     var MAX_RUNTIME_MS = 300000;
     var t0 = Date.now();
+    var qcbWasBlocked = false;
+    var httpGuardWasBlocked = false;
+    try { qcbWasBlocked = !!(typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()); } catch (eQcbState) {}
+    try { httpGuardWasBlocked = !!(typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.isQuotaExhausted && HttpErrorGuard.isQuotaExhausted()); } catch (eGuardState) {}
 
     // --- Probe quota avant tout ---
     var probe = _recoveryProbeQuota_();
     if (!probe.ok) {
-      Logger.log("[RECOVERY_FU] Probe failed: " + probe.err + " — skipping pulse, retry in 30min");
+      Logger.log("[RECOVERY_FU] Probe failed: " + probe.err + " â€” skipping pulse, retry in 30min");
       // R16 guard: avoid duplicate retry trigger
       if (!_recoveryIsFollowupPending_()) {
         try {
@@ -1605,11 +2283,19 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
           Logger.log("[RECOVERY_FU] Failed to schedule retry: " + te.message);
         }
       } else {
-        Logger.log("[RECOVERY_FU] Retry trigger already pending — skipping duplicate");
+        Logger.log("[RECOVERY_FU] Retry trigger already pending â€” skipping duplicate");
       }
       return;
     }
-    Logger.log("[RECOVERY_FU] Probe OK (HTTP " + probe.code + ") — proceeding");
+    Logger.log("[RECOVERY_FU] Probe OK (HTTP " + probe.code + ") â€” proceeding");
+
+    if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
+      QuotaCircuitBreaker.reset();
+      Logger.log("[RECOVERY_FU] QuotaCircuitBreaker reset");
+    }
+    if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.reset) {
+      HttpErrorGuard.reset();
+    }
 
     var stats = { skipped_retry: 0, still_blocked: 0, pulsed: 0, batches: 0, skipped: 0, exec_ms: 0 };
 
@@ -1618,7 +2304,10 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
       var skippedSheets = (skipped && skipped.sheets) ? skipped.sheets : [];
       stats.skipped_retry = skippedSheets.length;
 
-      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var ss = (typeof _wcoreGetSpreadsheet_ === 'function')
+        ? _wcoreGetSpreadsheet_()
+        : SpreadsheetApp.getActiveSpreadsheet();
+      if (!ss) { Logger.log("[RECOVERY_FU] Spreadsheet unavailable"); return; }
       var recap = ss.getSheetByName(RECAP_SHEET_NAME);
       if (!recap) {
         Logger.log("[RECOVERY_FU] Recap Chain not found");
@@ -1629,6 +2318,10 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
       var cat = _recoveryCollectBlocked_(recap);
       stats.still_blocked = cat.all.length;
 
+      if (qcbWasBlocked || httpGuardWasBlocked || skippedSheets.length > 0 || cat.quota.length > 0 || _recoveryIsPortfolioRefreshPending_()) {
+        _recoverySchedulePortfolioRefresh_();
+      }
+
       // Dedup merge: skipped + still blocked
       var seen = {};
       var merged = [];
@@ -1637,7 +2330,7 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
       });
 
       if (merged.length === 0) {
-        Logger.log("[RECOVERY_FU] Nothing to retry — clearing and exiting");
+        Logger.log("[RECOVERY_FU] Nothing to retry â€” clearing and exiting");
         _recoveryClearSkipped_();
         return;
       }
@@ -1667,8 +2360,8 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
 /**
  * Install poller trigger for QUOTA_RECOVERY_SWEEP.
  * Remplace la logique DST-based (heure fixe) par un poller everyMinutes(30).
- * Le sweep probe le quota réel et se reschedule lui-même ; il s'arrête quand
- * il n'y a plus de sheets bloquées.
+ * Le sweep probe le quota rÃ©el et se reschedule lui-mÃªme ; il s'arrÃªte quand
+ * il n'y a plus de sheets bloquÃ©es.
  */
 function INSTALL_QUOTA_RECOVERY() {
   // Supprimer tous les triggers existants (main + followup)
@@ -1684,7 +2377,7 @@ function INSTALL_QUOTA_RECOVERY() {
   _recoveryReleaseLock_(P_RECOVERY_SWEEP_LOCK);
   _recoveryClearFollowupPending_();
 
-  // Poller toutes les 30 min — probe-gated, early-exit si quota absent
+  // Poller toutes les 30 min â€” probe-gated, early-exit si quota absent
   ScriptApp.newTrigger("QUOTA_RECOVERY_SWEEP")
     .timeBased().everyMinutes(30).create();
 
@@ -1704,13 +2397,13 @@ var SYNC_J1_MAX_SYNCS_PER_RUN = 20;
  * No heartbeat writes: changing J1 triggers cache-only recalculation and can block
  * the Execution API when done as a periodic pulse.
  * Sync writes are capped per run because each J1 write can trigger sheet recalculation.
- * No HTTP calls — only sheet cell I/O, so it is safe to run every minute.
+ * No HTTP calls â€” only sheet cell I/O, so it is safe to run every minute.
  *
  * Called by ACTIVITY_WATCHDOG (27_ACTIVITY_REFRESH.gs).
  * @returns {Object} { checked, synced, skippedSync, errors }
  */
 function SYNC_J1_ALL_SHEETS() {
-  var stats = { checked: 0, synced: 0, errors: 0 };
+  var stats = { checked: 0, synced: 0, skippedSync: 0, errors: 0 };
   // v4.15.112: keep this function as sheet I/O only. Running auto-heal here
   // makes a lightweight latch sync reinstall triggers and churn the workbook.
   try {
@@ -1726,12 +2419,14 @@ function SYNC_J1_ALL_SHEETS() {
     var valsI1 = recap.getRange(2, 6, lastRow - 1, 1).getValues();
     var valsJ1 = recap.getRange(2, 7, lastRow - 1, 1).getValues();
 
+    var actions = [];
     for (var i = 0; i < valsI1.length; i++) {
       var rawI1 = (valsI1[i] && valsI1[i][0]);
       var rawJ1 = (valsJ1[i] && valsJ1[i][0]);
       var i1 = (rawI1 instanceof Date) ? _wd_fmtDate_(rawI1) : String(rawI1 || "").trim();
       var j1 = (rawJ1 instanceof Date) ? _wd_fmtDate_(rawJ1) : String(rawJ1 || "").trim();
       var cleanI1 = _wd_extractTimestamp_(i1);
+      if (_wd_isUnsafeLatchSource_(i1)) continue;
       if (!_wd_isLastUpdateFormat_(cleanI1)) continue;
       if (cleanI1 === j1) continue;
       stats.checked++;
@@ -1740,14 +2435,13 @@ function SYNC_J1_ALL_SHEETS() {
       if (!sheetName) continue;
       // v4.15.85: never write J1 on CEX display-only tabs.
       if (_wd_isCexSheet_(sheetName)) continue;
-      try {
-        var sh = ss.getSheetByName(sheetName);
-        if (!sh) continue;
-        sh.getRange("J1").setValue(cleanI1);
-        sh.getRange("J1").setNumberFormat("@");
-        stats.synced++;
-      } catch (e) { stats.errors++; }
+      actions.push({ sheetName: sheetName, value: cleanI1, fairnessIndex: i });
     }
+    actions = _wd_selectFairJ1Actions_(actions, valsI1.length, P_SYNC_J1_CURSOR, stats);
+    var execution = _wd_applyJ1Actions_(ss, actions);
+    stats.synced = execution.synced;
+    stats.errors += execution.errors;
+    stats.batch = execution.batch;
   } catch (e) { stats.errors++; }
   return stats;
 }

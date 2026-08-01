@@ -18,9 +18,9 @@
  * v4.5.9 - FIX: exclude retired Ledger - Mint and clear stale Recap A:J rows
  * v4.5.8 - menu Reinstaller Quota Recovery
  * v4.5.7 - FEAT: Menu WCORE (onOpen) avec "Refresh Recap Chain"
- *   - onOpen() crée un menu custom "WCORE" dans la barre du spreadsheet
- *   - Entrée "Refresh Recap Chain" appelle REFRESH_LEDGER_CACHE() en 1 clic
- *   - Évite d'ouvrir l'éditeur Apps Script pour lancer la fonction
+ *   - onOpen() crÃ©e un menu custom "WCORE" dans la barre du spreadsheet
+ *   - EntrÃ©e "Refresh Recap Chain" appelle REFRESH_LEDGER_CACHE() en 1 clic
+ *   - Ã‰vite d'ouvrir l'Ã©diteur Apps Script pour lancer la fonction
  * v4.5.6 - FEAT: Auto-refresh on sheet add/remove via onChange trigger
  *   - LEDGER_ON_CHANGE(e) detects INSERT_GRID / REMOVE_GRID events
  *   - INSTALL_LEDGER_ONCHANGE() to install trigger once from editor
@@ -31,7 +31,7 @@
  *     using RichTextValue API (no formula dependency)
  *   - Removed ARRAYFORMULA re-set from cache rebuild (replaced by RichTextValue)
  *   - SHEET_LINK function kept for backward compatibility
- * v4.5.4 - FIX: gid === 0 treated as falsy → sheet with GID 0 never got a link
+ * v4.5.4 - FIX: gid === 0 treated as falsy â†’ sheet with GID 0 never got a link
  * v4.5.3 - FIX: LIST_SHEETS_LEDGER timeout breaking Recap Chain dashboard
  *   - Custom functions no longer rebuild cache (getSheets() on 137 sheets = timeout)
  *   - Cache read only in @customfunction context; rebuild via REFRESH_LEDGER_CACHE() only
@@ -62,9 +62,10 @@ function _isLedgerLike_(name) {
   n.indexOf("warpcast") >= 0 ||
   n.indexOf("binance") >= 0 ||
   n.indexOf("smart") >= 0 ||
-   n.indexOf("safepal") >= 0 ||
-   n.indexOf("space") >= 0 ||
-   n.indexOf("startale") >= 0 ||
+    n.indexOf("safepal") >= 0 ||
+    n.indexOf("space") >= 0 ||
+    n.indexOf("grass") >= 0 ||
+    n.indexOf("startale") >= 0 ||
    // v4.15.85: include CEX sync tabs (display-only in Recap, B1 self-managed).
    n.indexOf("bitpanda") >= 0 ||
    n.indexOf("bitfinex") >= 0 ||
@@ -125,10 +126,10 @@ function _ensureLedgerCache_(force) {
 
 /**
  * Set hyperlinks in Recap Chain column A using RichTextValue
- * Called after cache rebuild — no dependency on @customfunction inside formulas
+ * Called after cache rebuild â€” no dependency on @customfunction inside formulas
  * @param {Spreadsheet} ss - Active spreadsheet
  * @param {string[]} names - Sorted array of ledger sheet names
- * @param {Object} map - name → gid mapping
+ * @param {Object} map - name â†’ gid mapping
  */
 function _setRecapHyperlinks_(ss, names, map) {
  try {
@@ -261,7 +262,7 @@ function LIST_SHEETS_LEDGER(trigger) {
  var json = props.getProperty(LEDGER_NAMES_KEY);
 
  // v4.5.3: Only rebuild if cache is completely absent (first-time setup)
- // Never rebuild on TTL expiry — that's REFRESH_LEDGER_CACHE()'s job
+ // Never rebuild on TTL expiry â€” that's REFRESH_LEDGER_CACHE()'s job
  if (!json) {
  _ensureLedgerCache_(true);
  json = props.getProperty(LEDGER_NAMES_KEY);
@@ -289,7 +290,7 @@ function LIST_SHEETS_LEDGER(trigger) {
  */
 function SHEET_LINK(chainName, trigger) {
  try {
- // v4.5.3: No rebuild in @customfunction — read cache only
+ // v4.5.3: No rebuild in @customfunction â€” read cache only
  var props = PropertiesService.getScriptProperties();
  var mapJson = props.getProperty(LEDGER_MAP_KEY);
  if (!mapJson) return "";
@@ -339,7 +340,7 @@ function REFRESH_LEDGER_CACHE() {
 
 /**
  * Auto-install onChange trigger if missing (called from REFRESH_LEDGER_CACHE)
- * Silent — logs result but never throws
+ * Silent â€” logs result but never throws
  */
 function _ensureLedgerOnChangeTrigger_() {
  try {
@@ -358,7 +359,7 @@ function _ensureLedgerOnChangeTrigger_() {
 }
 
 /**
- * Installable onChange trigger — detects sheet add/remove
+ * Installable onChange trigger â€” detects sheet add/remove
  * and refreshes ledger cache + Recap Chain hyperlinks automatically.
  *
  * Install once via: INSTALL_LEDGER_ONCHANGE()
@@ -395,7 +396,7 @@ function INSTALL_LEDGER_ONCHANGE() {
 }
 
 // ============================================================
-// v4.15.121 — Recap Portfolio column B (CEX INFO_TOTAL)
+// v4.15.121 â€” Recap Portfolio column B (CEX INFO_TOTAL)
 // Populates column B with the value of the TOTAL row of each
 // CEX sheet (CEX - Binance, CEX - Bitpanda Crypto, etc.). Called
 // from _setRecapHyperlinks_ so the column stays in sync whenever
@@ -411,7 +412,7 @@ function _setRecapCexInfoTotal_(ss, ledgerNames) {
 
     for (var i = 0; i < ledgerNames.length; i++) {
       var name = String(ledgerNames[i] || "");
-      // Only handle CEX sheets (skip on-chain ledger rows — those
+      // Only handle CEX sheets (skip on-chain ledger rows â€” those
       // already have their INFO_TOTAL populated by the I1 formula).
       if (name.toLowerCase().indexOf("cex - ") !== 0) continue;
 

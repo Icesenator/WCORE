@@ -1,3 +1,4 @@
+// v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
 // v4.15.167 - Remove _WCORE_ORIG_FETCH bypass; use patched UrlFetchApp.fetch (respects quota breaker).
 // v4.15.164 - Fix chart row count (A non-empty + S=X) + BW1 onEdit syncs both portfolios.
 // v4.15.163 - Switch BW1 checkbox master + U1=TRUE in formulas (chart height fix: 24px/row + 100px pad + offsetX).
@@ -6,7 +7,7 @@
 // v4.15.160 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.159 - Repair Action formats with filters suspended so hidden rows are formatted too.
 
-var STOCK_PORTFOLIO_VERSION = "4.15.167";
+var STOCK_PORTFOLIO_VERSION = "4.16.32";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -23,10 +24,18 @@ function _stockPortfolioFetchWithRetry_(fetchFn) {
       return fetchFn();
     } catch (e) {
       lastErr = e;
+      var errorMessage = String(e && e.message ? e.message : e);
+      var isQuotaError = errorMessage.indexOf("BLOCKED:QUOTA") !== -1;
+      try {
+        if (!isQuotaError && typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isQuotaError) {
+          isQuotaError = QuotaCircuitBreaker.isQuotaError(e);
+        }
+      } catch (eQuotaCheck) {}
+      if (isQuotaError) throw e;
       if (attempt < STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
         try {
           if (typeof Logger !== "undefined" && Logger.log) {
-            Logger.log("[STOCK_PORTFOLIO] fetch attempt " + attempt + "/" + STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " — retrying in " + (STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
+            Logger.log("[STOCK_PORTFOLIO] fetch attempt " + attempt + "/" + STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " â€” retrying in " + (STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
           }
         } catch (eLog) {}
         try { Utilities.sleep(STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS); } catch (eSleep) {}
@@ -47,8 +56,8 @@ var STOCK_PORTFOLIO_CONFIG = {
 };
 
 var STOCK_PORTFOLIO_HEADERS = [
-  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance Théorique", "Total €", "Exclude", "Include", "% Stable",
-  "√ MC", "% Cible théo", "% Cible stable", "% Cible", "% Réel", "Ecart", "Actions", "Signal", "Achat", ""
+  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance ThÃ©orique", "Total â‚¬", "Exclude", "Include", "% Stable",
+  "âˆš MC", "% Cible thÃ©o", "% Cible stable", "% Cible", "% RÃ©el", "Ecart", "Actions", "Signal", "Achat", ""
 ];
 
 var PORTFOLIO_SHARED_COLUMN_WIDTHS = [87, 131, 91, 131, 168, 91, 69, 78, 74, 83, 59, 75, 75, 75, 71, 60, 76, 67, 64, 88];
@@ -68,28 +77,34 @@ function SETUP_STOCK_PORTFOLIO() {
 }
 
 function UPDATE_STOCK_PORTFOLIO() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
-  var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
-  if (!sh) throw new Error("Missing sheet " + STOCK_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_STOCK_PORTFOLIO first");
+  var portfolioLock = LockService.getDocumentLock();
+  if (!portfolioLock.tryLock(1000)) return "BUSY: another portfolio refresh is running";
   try {
-    var snapshot = _stockPortfolioFetchSnapshot_();
-    _stockPortfolioValidateSnapshot_(snapshot);
-    var includeState = _stockPortfolioReadIncludeState_(sh);
-    var matrix = _stockPortfolioBuildMatrix_(snapshot, includeState);
-    var sourceMatrix = _stockPortfolioBuildSourceMatrix_(matrix);
-    _stockPortfolioEnsureRows_(sh, matrix.length);
-    if (sourceMatrix.length) _stockPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
-    _stockPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
-    _stockPortfolioWriteControlCells_(ss.getId(), _stockPortfolioCurrentRunTimestamp_(), false);
-    _portfolioReapplyFilter_(sh, STOCK_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 499972377, 18, 1489, 64);
-    return "OK: Portefeuille Action refreshed";
-  } catch (err) {
-    var msg = err && err.message ? err.message : String(err);
-    try { _stockPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
-      sh.getRange(STOCK_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
-      sh.getRange(STOCK_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+    var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
+    var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
+    if (!sh) throw new Error("Missing sheet " + STOCK_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_STOCK_PORTFOLIO first");
+    try {
+      var snapshot = _stockPortfolioFetchSnapshot_();
+      _stockPortfolioValidateSnapshot_(snapshot);
+      var includeState = _stockPortfolioReadIncludeState_(sh);
+      var matrix = _stockPortfolioBuildMatrix_(snapshot, includeState);
+      var sourceMatrix = _stockPortfolioBuildSourceMatrix_(matrix);
+      _stockPortfolioEnsureRows_(sh, matrix.length);
+      if (sourceMatrix.length) _stockPortfolioWriteSourceRows_(ss.getId(), sourceMatrix);
+      _stockPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
+      _stockPortfolioWriteControlCells_(ss.getId(), _stockPortfolioCurrentRunTimestamp_(), false);
+      _portfolioReapplyFilter_(sh, STOCK_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 499972377, 18, 1489, 64);
+      return "OK: Portefeuille Action refreshed";
+    } catch (err) {
+      var msg = err && err.message ? err.message : String(err);
+      try { _stockPortfolioWriteControlCells_(ss.getId(), "ERROR: " + msg.substring(0, 400), false); } catch (eApiStatus) {
+        sh.getRange(STOCK_PORTFOLIO_CONFIG.STATUS_CELL).setValue("ERROR: " + msg.substring(0, 400));
+        sh.getRange(STOCK_PORTFOLIO_CONFIG.REFRESH_CELL).setValue(false);
+      }
+      throw err;
     }
-    throw err;
+  } finally {
+    portfolioLock.releaseLock();
   }
 }
 
@@ -179,7 +194,7 @@ function _stockPortfolioBuildRow1_(existingRow1) {
     "=IFERROR(XLOOKUP(\"V\";R:R;A:A);\"\")",
     ">",
     "=IFERROR(XLOOKUP(\"X\";R:R;A:A);\"\")",
-    "Sécurisation :",
+    "SÃ©curisation :",
     "=Strat!BW1",
     "=IFERROR(XLOOKUP(J1;B3:B;K3:K)/AA1;0)",
     "=SUMPRODUCT((B3:B>J1)*1;(B3:B<=(Z1+J1))*1)",
@@ -193,7 +208,8 @@ function _stockPortfolioBuildRow1_(existingRow1) {
 
 function STOCK_PORTFOLIO_HOURLY_REFRESH() {
   try { HttpCallCounter.setTrigger('STOCK_PORTFOLIO_HOURLY_REFRESH'); } catch(e){}
-  return UPDATE_STOCK_PORTFOLIO();
+  try { return UPDATE_STOCK_PORTFOLIO(); }
+  finally { try { HttpCallCounter.clearTrigger(); } catch(e){} }
 }
 
 function INSTALL_STOCK_PORTFOLIO_HOURLY_REFRESH() {
@@ -348,16 +364,16 @@ function REPAIR_STOCK_PORTFOLIO_FORMATS() {
   _stockPortfolioWithFilterSuspended_(sh, function () {
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 1, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 2, dataRows, 1).setNumberFormat("0").setHorizontalAlignment("center");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"€\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"â‚¬\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 5, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 6, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 8, dataRows, 2).setNumberFormat("0").setHorizontalAlignment("center");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 10, dataRows, 1).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 11, dataRows, 1).setNumberFormat("0.00").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 12, dataRows, 4).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 17, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 18, dataRows, 2).setNumberFormat("@").setHorizontalAlignment("center");
     sh.getRange(2, 1, 1, STOCK_PORTFOLIO_HEADERS.length)
@@ -547,7 +563,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[6] = isCashRow
     ? _stockPortfolioEurSpotFormula_(sheetRow)
     : "=(IFERROR(VLOOKUP(A" + sheetRow + ";'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(REGEXREPLACE(A" + sheetRow + ";\"^.*:\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(SWITCH(A" + sheetRow + ";\"GOOG\";\"GOOGL\";\"META\";\"FB\";\"NYSE:BRK.B\";\"BRKB\";\"KRX:005930\";\"SSU\";\"KRX:000660\";\"HYXS\";\"EPA:MC\";\"MC\";\"EPA:OR\";\"OR\";\"NVO\";\"NOVO\";\"CPH:NOVO-B\";\"NOVO\";\"SWX:NESN\";\"NESN\";\"SWX:RO\";\"ROG\";\"TYO:7203\";\"TM\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(SWITCH(A" + sheetRow + ";\"KRX:005930\";\"SMSN\";\"005930\";\"SMSN\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);0)))))*C" + sheetRow;
-  // Exclude: mirror of Portefeuille Crypto!O on the "Stratégie Action" Exclude column.
+  // Exclude: mirror of Portefeuille Crypto!O on the "StratÃ©gie Action" Exclude column.
   row[7] = "=SUMPRODUCT((Rebalancing!F$7:F=A" + sheetRow + ")*1)";
   // Include: gated by Exclude (same pattern as Portefeuille Crypto!P).
   row[8] = "=IF(H" + sheetRow + "<>0;0;SUMPRODUCT((Rebalancing!G$7:G=A" + sheetRow + ")*1))";
@@ -559,8 +575,10 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[14] = "=G" + sheetRow + "/$H$1*100";
   row[15] = "=G" + sheetRow + "-F" + sheetRow + "*C" + sheetRow;
   row[16] = "=IFERROR(P" + sheetRow + "/C" + sheetRow + ";0)";
-  row[17] = "=IF(P" + sheetRow + "=MAXIFS($P$3:P;$S$3:S;\"X\");\"V\";IF(P" + sheetRow + "=MINIFS($P$3:P;$S$3:S;\"X\");\"X\";\"\"))";
-  row[18] = "=IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\"))";
+  if (sheetRow === STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
+    row[17] = "=ARRAYFORMULA(IF(P3:P=\"\";\"\";IF(P3:P=MAX(P3:P);\"V\";IF(P3:P=MIN(P3:P);\"X\";\"\"))))";
+  }
+  row[18] = "=IF(R" + sheetRow + "=\"V\";\"X\";IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\")))";
 }
 
 // Action Rebalancing!F3 equivalent for the EUR cash row: Bitpanda EUR/BCPEUR cash across the

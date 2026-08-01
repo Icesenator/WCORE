@@ -1,3 +1,4 @@
+// v4.16.34 - Relay rotation scheduling and non-mutating legacy watchdog.
 // v4.16.30 - OKSOL (OKX liquid-staked SOL) aliased to SOL in "CEX - OKX" output.
 // v4.15.97 - OKX sync via Railway cex-relay (HMAC signed relay-side).
 // Onglet de sortie: "CEX - OKX".
@@ -5,7 +6,7 @@
 // Recupere les soldes OKX et les ecrit dans l'onglet "OKX Crypto".
 // Les secrets OKX restent dans Railway. Apps Script stocke seulement URL+token relais.
 
-var OKX_SYNC_VERSION = "4.16.30";
+var OKX_SYNC_VERSION = "4.16.34";
 
 // v4.16.30: aliases appliques apres fetch relay, AVANT ecriture sheet.
 // OKSOL = SOL liquid-staked par OKX -> consolide sous SOL (pattern BITFINEX_SYMBOL_ALIASES).
@@ -252,17 +253,5 @@ function _okxSetRefreshFlag_() {
 }
 
 function OKX_REFRESH_WATCHDOG() {
-  if (typeof CEX_GET_SPREADSHEET === "function" && typeof CEX_HAS_MANUAL_REQUEST === "function") {
-    var ss = CEX_GET_SPREADSHEET();
-    if (!CEX_HAS_MANUAL_REQUEST(ss, OKX_SYNC_CONFIG.SHEET, OKX_SYNC_CONFIG.REFRESH_FLAG_PROP)) return "NO_REQUEST";
-    CEX_CLEAR_MANUAL_REQUEST(OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    return CEX_RUN_MANUAL_UPDATE(ss, OKX_SYNC_CONFIG.SHEET, "OKX", UPDATE_OKX_SPOT);
-  }
-  var props = PropertiesService.getScriptProperties();
-  var userProps = PropertiesService.getUserProperties();
-  var flag = props.getProperty(OKX_SYNC_CONFIG.REFRESH_FLAG_PROP) || userProps.getProperty(OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  if (!flag) return "NO_REQUEST";
-  props.deleteProperty(OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  userProps.deleteProperty(OKX_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  return UPDATE_OKX_SPOT();
+  return "LEGACY_DISABLED: manual requests use CEX_MANUAL_REFRESH_WORKER";
 }

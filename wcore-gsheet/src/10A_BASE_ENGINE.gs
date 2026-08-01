@@ -1,7 +1,9 @@
 /************************************************************
  * 10A_BASE_ENGINE.gs - Unified Base Engine for EVM/SVM/Cosmos
  *
- * Version: v4.15.73
+ * Version: v4.15.74
+ *
+ * v4.15.74: Emit deterministic [CACHE_ONLY] markers for cache-served status.
  *
  * v4.15.73: Treat stale B1 timestamps as sheet recalculations, not refresh
  *   authorization. REFRESH_STATUS only scans for fresh B1 pulses.
@@ -37,17 +39,17 @@
  *
  * v4.15.6: FIX: evictStalePrices ne supprime plus le cache sans remplacement
  *   - Cause racine des cellules price_eur vides pendant les refresh (Base, etc.)
- *   - Avant: à chaque pulse WATCHDOG, les prix > PRICE_TTL_MS (4h) étaient
- *     supprimés de state.priceMap/priceTsMap ET asset.price_eur, AVANT toute
- *     tentative de re-fetch. Si le fetch échouait (GT 404, quota, cooldown),
- *     le cache était sauvé sans prix → cellule vide dans le Ledger.
- *   - Maintenant: les valeurs stales sont PRÉSERVÉES. Le "due check" basé sur
- *     priceTsMap âge (11_EVM_ENGINE.gs:593) continue de déclencher le re-fetch.
- *     Si fetch réussit → nouveau prix overwrite l'ancien. Si échec → ancien
- *     prix préservé (pas de cellule vide).
+ *   - Avant: Ã  chaque pulse WATCHDOG, les prix > PRICE_TTL_MS (4h) Ã©taient
+ *     supprimÃ©s de state.priceMap/priceTsMap ET asset.price_eur, AVANT toute
+ *     tentative de re-fetch. Si le fetch Ã©chouait (GT 404, quota, cooldown),
+ *     le cache Ã©tait sauvÃ© sans prix â†’ cellule vide dans le Ledger.
+ *   - Maintenant: les valeurs stales sont PRÃ‰SERVÃ‰ES. Le "due check" basÃ© sur
+ *     priceTsMap Ã¢ge (11_EVM_ENGINE.gs:593) continue de dÃ©clencher le re-fetch.
+ *     Si fetch rÃ©ussit â†’ nouveau prix overwrite l'ancien. Si Ã©chec â†’ ancien
+ *     prix prÃ©servÃ© (pas de cellule vide).
  *   - Les prix vraiment incorrects expirent naturellement via v4.13.9
  *     (timestamp refresh uniquement sur changement >0.1%).
- *   - Conforme au principe AGENTS.md: "Ne JAMAIS écraser du cache valide".
+ *   - Conforme au principe AGENTS.md: "Ne JAMAIS Ã©craser du cache valide".
  *
  * v4.15.2: ForceRefresh flag expires on full scan completion (last_full_scan_ms > requestedAt)
  *   instead of fixed 30-min TTL. Ensures activity flag persists exactly until all
@@ -58,11 +60,11 @@
  *   from polluting wallet state. Tracks gpcMerged/gpcSkippedStale in state.
  *
  * v4.13.7: FIX: Tighter stale price eviction (1x TTL instead of 2x TTL)
- *   - evictStalePrices now uses 1x PRICE_TTL_MS (was 2x) — 4h instead of 8h
+ *   - evictStalePrices now uses 1x PRICE_TTL_MS (was 2x) â€” 4h instead of 8h
  *   - Combined with EVM_ENGINE v4.13.9 (no timestamp refresh on cached returns),
  *     wrong prices now self-correct within TTL instead of persisting indefinitely
  *   - Root cause: OutputBuilder._getPrice uses priceMap as fallback even when
- *     computePriceEur returns null — stale wrong prices must be evicted to fix
+ *     computePriceEur returns null â€” stale wrong prices must be evicted to fix
  *
  * v4.13.6: FIX: Stale price eviction prevents wrong prices from persisting
  *   - New: evictStalePrices() removes prices older than 2x PRICE_TTL_MS
@@ -98,7 +100,7 @@
 // ============================================================
 // AUTO-REGISTRATION (v4.13.3)
 // ============================================================
-var BASE_ENGINE_VERSION = "4.15.73";
+var BASE_ENGINE_VERSION = "4.15.74";
 
 if (typeof ModuleRegistry !== 'undefined') {
   ModuleRegistry.register("BASE_ENGINE", BASE_ENGINE_VERSION, {
@@ -157,14 +159,14 @@ BaseEngine.shouldSkipRefreshForSameTrigger = function(walletKey, config, cache, 
   } catch (e) { return false; }
 };
 
-// v4.15.122: I1 re-evaluation guard — when Google Sheets re-evaluates I1
+// v4.15.122: I1 re-evaluation guard â€” when Google Sheets re-evaluates I1
 // without a fresh B1 pulse, compare J1 (last scan = cache.updatedAt) with
 // B1 (pulse timestamp). If J1 >= B1, the cache is already up-to-date and
 // no rescan is needed.
-var I1_GUARD_MS = 120 * 1000; // 2 min — only used as a hard floor to avoid
+var I1_GUARD_MS = 180 * 1000; // 3 min â€” only used as a hard floor to avoid
                                 // scan spam on initial deployment.
-var B1_TRIGGER_FRESH_MS = 30 * 60 * 1000; // B1 pulses should be consumed promptly;
-                                          // older timestamps are recalculations.
+var B1_TRIGGER_FRESH_MS = 35 * 60 * 1000; // B1 pulses should be consumed promptly;
+                                          // 5 min buffer over WD_PULSE_MIN (30 min) to avoid race condition.
 
 BaseEngine.isFreshRefreshTrigger = function(triggerRefresh) {
   try {
@@ -457,7 +459,7 @@ BaseEngine.testQuotaBlocked = function() {
 
 /**
  * Check if any protection layer is currently blocking operations.
- * Does NOT make HTTP calls — reads in-memory/cache state only.
+ * Does NOT make HTTP calls â€” reads in-memory/cache state only.
  * Use in getCachedWalletAssets for cache-touch decisions.
  */
 BaseEngine.isSystemBlocked = function() {
@@ -489,14 +491,14 @@ BaseEngine.detectBlockReason = function() {
 
 /**
  * v4.15.50: Returns true when the system is under heavy load and a fresh
- * scan would risk the GAS 30s timeout (→ #ERROR! cell). Read-only (no HTTP).
+ * scan would risk the GAS 30s timeout (â†’ #ERROR! cell). Read-only (no HTTP).
  * Used by getRefreshStatus busy-guard. forceFull bypasses this.
  */
 BaseEngine.isBusy = function(config) {
   try {
-    // Quota circuit breaker tripped → definitely busy/blocked
+    // Quota circuit breaker tripped â†’ definitely busy/blocked
     if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) return true;
-    // Degraded mode active → system already struggling
+    // Degraded mode active â†’ system already struggling
     if (typeof DegradedMode !== 'undefined' && DegradedMode.isCircuitBreakerActive && DegradedMode.isCircuitBreakerActive()) return true;
     // HTTP budget near daily ceiling (>= 99% internal threshold)
     if (typeof HttpErrorGuard !== 'undefined' && HttpErrorGuard.isQuotaExhausted && HttpErrorGuard.isQuotaExhausted()) return true;
@@ -526,20 +528,18 @@ BaseEngine.cexBusyStatus = function(walletKey, config) {
 // ============================================================
 
 /**
- * Wraps a success timestamp with [CACHE_ONLY] if no HTTP calls were made
- * during the scan (httpBefore === HttpCallCounter.getToday()).
+ * Wraps a timestamp returned by an explicit cache-only branch with [CACHE_ONLY].
+ * The current global HTTP counter is concurrency-unsafe and cannot identify
+ * whether this execution made an HTTP call.
  *
  * Usage in getRefreshStatus:
  *   var _httpBefore = BaseEngine.httpSnapshot();
  *   // ... scan ...
  *   return BaseEngine.wrapCacheOnlyMarker(ts, _httpBefore);
  *
- * Fail-open: if HttpCallCounter unavailable or delta < 0 (day rollover),
- * returns ts unchanged.
- *
  * @param {string} ts - Timestamp string to return
- * @param {number} httpBefore - Snapshot taken before scan
- * @returns {string} "[CACHE_ONLY] ts" or "ts"
+ * @param {number} httpBefore - Retained snapshot argument for existing callers
+ * @returns {string} "[CACHE_ONLY] ts"
  */
 BaseEngine.httpSnapshot = function() {
   try {
@@ -549,14 +549,12 @@ BaseEngine.httpSnapshot = function() {
 };
 
 BaseEngine.wrapCacheOnlyMarker = function(ts, httpBefore) {
+  var value = "";
   try {
-    if (httpBefore < 0) return ts; // HttpCallCounter indispo
-    if (typeof HttpCallCounter === 'undefined') return ts;
-    var delta = HttpCallCounter.getToday() - httpBefore;
-    if (delta === 0) return "[CACHE_ONLY] " + ts;
-    // delta < 0 = rollover jour ou reset manuel → fail-open
+    value = String(ts == null ? "" : ts);
   } catch (e) {}
-  return ts;
+  if (value.indexOf("[CACHE_ONLY]") === 0) return value;
+  return value ? ("[CACHE_ONLY] " + value) : "[CACHE_ONLY]";
 };
 
 // ============================================================
@@ -612,30 +610,30 @@ BaseEngine.checkActivityForceRefresh = function(config, address, state) {
  try {
  // Check if _activity_checkForceRefreshFlag function exists
  if (typeof _activity_checkForceRefreshFlag !== "function") {
- Logger.log("[ACTIVITY_FORCE] checkActivityForceRefresh skipped — _activity_checkForceRefreshFlag not available");
+ Logger.log("[ACTIVITY_FORCE] checkActivityForceRefresh skipped â€” _activity_checkForceRefreshFlag not available");
  return false;
  }
 
- // v4.14.8: Use CHAIN.NAME normalized (spaces→underscores) to match ForceRefreshManager keys
+ // v4.14.8: Use CHAIN.NAME normalized (spacesâ†’underscores) to match ForceRefreshManager keys
  var chainId = (config.CHAIN && config.CHAIN.NAME) || (config.CHAIN && config.CHAIN.ID) || "UNKNOWN";
  Logger.log("[ACTIVITY_FORCE] Checking flag for chain=" + chainId + " addr=" + String(address).substring(0, 10) + "... lastFullScanMs=" + (state.lastFullScanMs || 0));
  var forceFlag = _activity_checkForceRefreshFlag(chainId, address);
 
  if (forceFlag) {
  // v4.15.2: Check if a full scan completed AFTER the TX was detected
- // If so, all balances are already up-to-date — no need to force anymore
+ // If so, all balances are already up-to-date â€” no need to force anymore
  var requestedAt = forceFlag.requestedAt || 0;
  Logger.log("[ACTIVITY_FORCE] Flag FOUND requestedAt=" + requestedAt + " lastFullScanMs=" + (state.lastFullScanMs || 0));
  if (state.lastFullScanMs && state.lastFullScanMs > requestedAt) {
-   // Full cycle completed after TX detection — clear the flag
-   Logger.log("[ACTIVITY_FORCE] Full scan after TX — clearing flag");
+   // Full cycle completed after TX detection â€” clear the flag
+   Logger.log("[ACTIVITY_FORCE] Full scan after TX â€” clearing flag");
    if (typeof _activity_clearForceRefreshFlag === "function") {
      _activity_clearForceRefreshFlag(chainId, address);
    }
    return false;
  }
 
- Logger.log("[ACTIVITY_FORCE] Activating force refresh — state.activityForced=true");
+ Logger.log("[ACTIVITY_FORCE] Activating force refresh â€” state.activityForced=true");
  state.force = true;
  state.autoForced = true;
  state.activityForced = true;
@@ -792,21 +790,21 @@ BaseEngine.restoreFromCache = function(cache, state) {
 };
 
 /**
- * v4.15.6: DÉSACTIVÉ - Ne supprime plus les prix stales, compte seulement.
+ * v4.15.6: DÃ‰SACTIVÃ‰ - Ne supprime plus les prix stales, compte seulement.
  *
  * Historique:
- * - v4.13.6 introduisait la suppression pour éviter que des prix incorrects
- *   persistent indéfiniment. Mais si le re-fetch échouait (GT 404, quota,
- *   cooldown attemptTsMap), le prix était perdu → cellule vide dans le Ledger.
- * - v4.13.9 a résolu le problème des prix "stuck" différemment: le timestamp
- *   n'est rafraîchi que si le prix change réellement (>0.1% delta). Les prix
- *   vraiment stales expirent naturellement via le "due check" (priceTsMap âge)
- *   dans les engines, qui déclenche un re-fetch tant que le prix est ancien.
- * - v4.15.6: on GARDE les valeurs cached. Si re-fetch réussit → overwrite.
- *   Si échec → ancien prix préservé (pas de cellule vide).
+ * - v4.13.6 introduisait la suppression pour Ã©viter que des prix incorrects
+ *   persistent indÃ©finiment. Mais si le re-fetch Ã©chouait (GT 404, quota,
+ *   cooldown attemptTsMap), le prix Ã©tait perdu â†’ cellule vide dans le Ledger.
+ * - v4.13.9 a rÃ©solu le problÃ¨me des prix "stuck" diffÃ©remment: le timestamp
+ *   n'est rafraÃ®chi que si le prix change rÃ©ellement (>0.1% delta). Les prix
+ *   vraiment stales expirent naturellement via le "due check" (priceTsMap Ã¢ge)
+ *   dans les engines, qui dÃ©clenche un re-fetch tant que le prix est ancien.
+ * - v4.15.6: on GARDE les valeurs cached. Si re-fetch rÃ©ussit â†’ overwrite.
+ *   Si Ã©chec â†’ ancien prix prÃ©servÃ© (pas de cellule vide).
  *
- * Le compteur state._priceEvicted est conservé pour diagnostics (nombre de
- * prix qui AURAIENT été évincés sous l'ancien comportement).
+ * Le compteur state._priceEvicted est conservÃ© pour diagnostics (nombre de
+ * prix qui AURAIENT Ã©tÃ© Ã©vincÃ©s sous l'ancien comportement).
  *
  * @param {Object} state - Execution state (modified in place)
  * @param {Object} config - Chain config (for PRICE_TTL_MS)
@@ -828,8 +826,8 @@ BaseEngine.evictStalePrices = function(state, config) {
  }
  }
 
- // v4.15.6: on ne supprime plus. Les prix stales seront remplacés uniquement
- // si un nouveau fetch réussit. Sinon, l'ancien prix reste visible dans le Ledger.
+ // v4.15.6: on ne supprime plus. Les prix stales seront remplacÃ©s uniquement
+ // si un nouveau fetch rÃ©ussit. Sinon, l'ancien prix reste visible dans le Ledger.
  state._priceEvicted = 0;
  state._priceStaleKept = staleCount;
 };

@@ -1,7 +1,8 @@
+// v4.16.34 - Dedicated hourly installer and non-mutating legacy watchdog.
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
 // Onglet de sortie: "CEX - Kraken".
 
-var KRAKEN_SYNC_VERSION = "4.15.119";
+var KRAKEN_SYNC_VERSION = "4.16.34";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
@@ -284,5 +285,15 @@ function _krakenSetRefreshFlag_() {
 }
 
 function KRAKEN_REFRESH_WATCHDOG() {
-  return "LEGACY_DISABLED: central CEX manual queue handles Kraken requests";
+  return "LEGACY_DISABLED: manual requests use CEX_MANUAL_REFRESH_WORKER";
+}
+
+function INSTALL_KRAKEN_SYNC_TRIGGER() {
+  var trs = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < trs.length; i++) {
+    var fn = trs[i].getHandlerFunction();
+    if (fn === "UPDATE_KRAKEN_SPOT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
+  }
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
+  return "Trigger installed: UPDATE_KRAKEN_SPOT (1h)";
 }

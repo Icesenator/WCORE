@@ -1,5 +1,5 @@
 // wcore-gsheet/src/00C_CACHE_KEYS.gs
-// v1.0.2 - Cache Key Registry helpers loaded before cache modules.
+// v1.0.3 - Add bounded Web quota-protection keys.
 // Provides canonical cache key builders for gsheet runtime.
 // v1.0.2: renamed from CACHE_KEYS.gs so CK_get exists before 04C_CACHE_GLOBAL.gs.
 // v1.0.1: removed buggy scanResult entry (did not match CacheManager.walletKey format);
@@ -17,6 +17,10 @@
     walletGlobal: { vars: [], pattern: "GLOBAL_WALLET_CACHE_V1" },
     fxEurUsd: { vars: [], pattern: "FX_EUR_USD" },
     emptyWallet: { vars: ["chainKey", "address"], pattern: "EMPTY_{chainKey}_{address}" },
+    webScanLease: { vars: ["chainKey", "walletHash"], pattern: "WSCAN_LEASE:{chainKey}:{walletHash}" },
+    webApiFailureState: { vars: [], pattern: "WSCAN_BREAKER:v1" },
+    watchdogWebBackoff: { vars: [], pattern: "WD_WEB_BACKOFF:v1" },
+    httpDroppedTelemetry: { vars: [], pattern: "HTTP_DROPPED:v1" },
   };
 
   function _ckInterpolate(pattern, vars) {

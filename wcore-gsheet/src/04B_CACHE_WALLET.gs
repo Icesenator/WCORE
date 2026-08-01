@@ -57,7 +57,7 @@
  *
  * v4.15.7 - FIX: Skip size prune when quota exhausted
  *   Overnight quota exhaustion caused size prune to evict old cache entries
- *   that could not be rebuilt (no quota to rescan) → permanent "No cache available"
+ *   that could not be rebuilt (no quota to rescan) â†’ permanent "No cache available"
  *   Fix: check QuotaCircuitBreaker.isTripped() before size prune, skip if tripped
  *
  * v4.15.6 - FIX: "No cache available" caused by race conditions
@@ -98,11 +98,11 @@
  *
  * v4.13.4 - CRITICAL FIX: Prune no longer evicts entries with balance data
  *   Previous: prune sorted by timestamp only, entries blocked by quota
- *   (old timestamps) were evicted â†’ permanent "No cache available"
+ *   (old timestamps) were evicted Ã¢â€ â€™ permanent "No cache available"
  *   Fix: 3-tier protection in size prune:
- *     Tier 1: entries with balance > 0 â†’ NEVER evict
- *     Tier 2: entries < 1h old â†’ protected
- *     Tier 3: rest â†’ evictable by age (oldest first)
+ *     Tier 1: entries with balance > 0 Ã¢â€ â€™ NEVER evict
+ *     Tier 2: entries < 1h old Ã¢â€ â€™ protected
+ *     Tier 3: rest Ã¢â€ â€™ evictable by age (oldest first)
  * v4.8.2 - Increased packed cache limit from 485KB to 495KB
  *          Wallets with 50+ assets need more space
  *          Keeping only 5KB margin before 500KB hard limit
@@ -180,15 +180,16 @@ CacheManager._toEpochSec_ = function(x) {
 CacheManager._fromEpochSec_ = function(sec) {
  if (sec === null || sec === undefined) return "";
  if (typeof sec !== "number") return "";
+ // Guard symetrique de _toEpochSec_ : certaines entrees de cache heritees
+ // stockent "u" en millisecondes. Sans cette normalisation, sec * 1000
+ // projette la date ~1000x trop loin (ex. an 58548), ce qui casse ensuite
+ // la recopie I1 -> J1 du watchdog (regex \d{4} sur l'annee).
+ if (sec > 1e12) sec = Math.floor(sec / 1000);
  try {
- var d = new Date(sec * 1000);
- var yyyy = d.getUTCFullYear();
- var mm = ("0" + (d.getUTCMonth() + 1)).slice(-2);
- var dd = ("0" + d.getUTCDate()).slice(-2);
- var hh = ("0" + d.getUTCHours()).slice(-2);
- var mi = ("0" + d.getUTCMinutes()).slice(-2);
- var ss = ("0" + d.getUTCSeconds()).slice(-2);
- return yyyy + "-" + mm + "-" + dd + " " + hh + ":" + mi + ":" + ss;
+ // Rend l'heure dans le fuseau du script, pas en UTC : _toEpochSec_ relit
+ // ces chaines comme de l'heure locale, et Format.datetime affiche en local.
+ // Formater en UTC decalait chaque aller-retour (2h en ete a Paris).
+ return Utilities.formatDate(new Date(sec * 1000), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
  } catch (e) {
  return "";
  }
@@ -199,14 +200,14 @@ CacheManager._jsonSizeBytes_ = function(obj) {
 };
 
 // ============================================================
-// DEFLATE / INFLATE WALLET PAYLOADS (v4.8.0 â†’ v4.13.5)
+// DEFLATE / INFLATE WALLET PAYLOADS (v4.8.0 Ã¢â€ â€™ v4.13.5)
 // ============================================================
 
 /**
  * Deflate wallet-cache payloads to compact format.
  * v4.13.5: PRESERVE METADATA (symbol, name, decimals) in compact rows!
- *   Old format: [contract, balance]           â†’ metadata LOST
- *   New format: [contract, balance, sym, name, dec] â†’ metadata PRESERVED
+ *   Old format: [contract, balance]           Ã¢â€ â€™ metadata LOST
+ *   New format: [contract, balance, sym, name, dec] Ã¢â€ â€™ metadata PRESERVED
  *   Empty strings for sym/name are stored as "" (minimal overhead).
  *   Decimals stored only if != 18 (default) to save space.
  * v4.8.0: Conserve priceMap (pm) avec limite 100 entrees
@@ -447,7 +448,7 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  return packed;
  }
 
- // v4.15.7: Skip size prune when quota is exhausted — evicting cache
+ // v4.15.7: Skip size prune when quota is exhausted â€” evicting cache
  // entries is pointless if we can't rescan to rebuild them.
  // Without this, overnight quota exhaustion causes permanent "No cache available".
   if (!CacheManager._FORCE_PACKED_SIZE_PRUNE && typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) {
@@ -825,7 +826,7 @@ CacheManager._packedGet_ = function(key) {
  // v4.15.6 FIX: Do NOT delete entries during reads (_packedDel_ triggers a write
  // to GLOBAL_WALLET which races with concurrent _packedPut_ writes from other
  // wallets, potentially overwriting their updates). Let the prune handle cleanup
- // during the next _packedPut_ → _savePackedWalletCache_ cycle instead.
+ // during the next _packedPut_ â†’ _savePackedWalletCache_ cycle instead.
  if (!out) {
  return null;
  }

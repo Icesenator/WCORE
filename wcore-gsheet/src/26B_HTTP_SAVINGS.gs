@@ -4,10 +4,10 @@
  * FICHIER DE PATCH SIMPLE - Modifie les constantes au chargement
  * pour reduire les appels HTTP de 30-40%.
  *
- * v4.15.57 — Remove misleading GET_HTTP_COUNTER_STATS public diagnostic
- * v4.15.34 — R15 FIX: GT throttle 50 -> 80/run (GT-only tokens coverage)
- * v4.15.15 — budget guard: forceFull rétrogradé si HTTP >70% (_forceFullAllowed_, _normalizeForceWithBudgetGuard)
- * v4.15.14 — HttpCallCounter extended:
+ * v4.15.57 â€” Remove misleading GET_HTTP_COUNTER_STATS public diagnostic
+ * v4.15.34 â€” R15 FIX: GT throttle 50 -> 80/run (GT-only tokens coverage)
+ * v4.15.15 â€” budget guard: forceFull rÃ©trogradÃ© si HTTP >70% (_forceFullAllowed_, _normalizeForceWithBudgetGuard)
+ * v4.15.14 â€” HttpCallCounter extended:
  *   - Per-host counter (WCORE_HTTP_HOST_{YYYY-M-D})
  *   - Per-trigger counter (WCORE_HTTP_TRIGGER_{YYYY-M-D})
  *   - T0 tracking (WCORE_HTTP_T0_{YYYY-M-D}) + milestones (WCORE_HTTP_MILE_{YYYY-M-D})
@@ -21,30 +21,30 @@
  * 
  * CE FICHIER NE CHANGE PAS LA LOGIQUE, seulement les parametres.
  * 
- * OPTIMISATIONS APPLIQUÃƒâ€°ES:
+ * OPTIMISATIONS APPLIQUÃƒÆ’Ã¢â‚¬Â°ES:
  * 
- * 1. FX Rate TTL: 1h Ã¢â€ â€™ 6h (-80% appels FX)
+ * 1. FX Rate TTL: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 6h (-80% appels FX)
  * Le taux EUR/USD ne change pas significativement en 6h
  * 
- * 2. Price Stale Threshold: 15min Ã¢â€ â€™ 45min (-60% re-fetch prix)
+ * 2. Price Stale Threshold: 15min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 45min (-60% re-fetch prix)
  * Les prix sont consideres frais plus longtemps
  * 
- * 3. Price Cache TTL: 2h Ã¢â€ â€™ 4h (-50% prix expires)
+ * 3. Price Cache TTL: 2h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 4h (-50% prix expires)
  * Les prix restent valides plus longtemps
  * 
- * 4. Circuit Breaker: 2min Ã¢â€ â€™ 5min (-60% health checks)
+ * 4. Circuit Breaker: 2min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 5min (-60% health checks)
  * Quand quota epuise, attendre plus avant retry
  * 
- * 5. GeckoTerminal Throttle: illimite Ã¢â€ â€™ 80/run (v4.15.34: 50 -> 80)
+ * 5. GeckoTerminal Throttle: illimite ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 80/run (v4.15.34: 50 -> 80)
  * Les tokens GT-only n'ont pas d'autre source de prix. 80/run couvre
  * les chains Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, ZERO.
  * 
- * 6. Price Attempt Cooldown: 1h Ã¢â€ â€™ 2h (-50% retry echecs)
+ * 6. Price Attempt Cooldown: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 2h (-50% retry echecs)
  * Attendre plus longtemps avant de retenter un prix echoue
  * 
- * IMPACT ESTIMÃƒâ€°: -30% ÃƒÂ  -40% appels HTTP quotidiens
+ * IMPACT ESTIMÃƒÆ’Ã¢â‚¬Â°: -30% ÃƒÆ’Ã‚Â  -40% appels HTTP quotidiens
  * 
- * DÃƒâ€°PLOIEMENT: Copier ce fichier dans le projet Apps Script.
+ * DÃƒÆ’Ã¢â‚¬Â°PLOIEMENT: Copier ce fichier dans le projet Apps Script.
  * Il se charge automatiquement et patche les valeurs.
  * 
  * ROLLBACK: Supprimer ce fichier pour revenir aux valeurs par defaut.
@@ -52,32 +52,32 @@
 var HTTP_SAVINGS_VERSION = "4.15.58";
 
 // ============================================================
-// PATCH 1: FX RATE - Cache plus long (1h Ã¢â€ â€™ 6h)
+// PATCH 1: FX RATE - Cache plus long (1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 6h)
 // ============================================================
 
 (function patchFxRate() {
  try {
  if (typeof FxRate !== 'undefined') {
- // Memory cache: 1h Ã¢â€ â€™ 6h
+ // Memory cache: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 6h
  FxRate._TTL_MS = 21600000; // 6h
  }
  } catch (e) {}
 })();
 
 // ============================================================
-// PATCH 2: PRICE STALENESS - Plus tolerant (15min Ã¢â€ â€™ 45min)
+// PATCH 2: PRICE STALENESS - Plus tolerant (15min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 45min)
 // ============================================================
 
 (function patchPriceStaleness() {
  try {
  if (typeof WCORE_CACHE_CONFIG !== 'undefined') {
- // Prix considere frais: 15min Ã¢â€ â€™ 45min
+ // Prix considere frais: 15min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 45min
  WCORE_CACHE_CONFIG.PRICE_STALE_MS = 5400000; // v4.15.13: 45min -> 90min
  
- // Prix valide: 2h Ã¢â€ â€™ 4h 
- WCORE_CACHE_CONFIG.PRICE_TTL_MS = 21600000; // v4.5.17: 4h -> 6h (aligné L1 CacheService cap, -30% cascade calls)
+ // Prix valide: 2h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 4h 
+ WCORE_CACHE_CONFIG.PRICE_TTL_MS = 21600000; // v4.5.17: 4h -> 6h (alignÃ© L1 CacheService cap, -30% cascade calls)
  
- // Cooldown echec prix: 1h Ã¢â€ â€™ 2h
+ // Cooldown echec prix: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 2h
  WCORE_CACHE_CONFIG.PRICE_ATTEMPT_COOLDOWN_MS = 14400000; // v4.5.17: 2h -> 4h (-50% retries tokens KO)
  }
  
@@ -91,7 +91,7 @@ var HTTP_SAVINGS_VERSION = "4.15.58";
 })();
 
 // ============================================================
-// PATCH 3: CIRCUIT BREAKER - Attente plus longue (2min Ã¢â€ â€™ 5min)
+// PATCH 3: CIRCUIT BREAKER - Attente plus longue (2min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 5min)
 // ============================================================
 
 (function patchCircuitBreaker() {
@@ -108,7 +108,7 @@ var HTTP_SAVINGS_VERSION = "4.15.58";
 
 var _GT_THROTTLE = {
  count: 0,
- max: 80, // v4.15.34: 50 -> 80 (R15 fix: GT-only tokens need more headroom — Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, ZERO)
+ max: 80, // v4.15.34: 50 -> 80 (R15 fix: GT-only tokens need more headroom â€” Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, ZERO)
  resetTime: 0
 };
 
@@ -149,7 +149,7 @@ var _GT_THROTTLE = {
 })();
 
 // ============================================================
-// PATCH 5: L1 CACHE TTL - Plus long pour prix (2h Ã¢â€ â€™ 4h)
+// PATCH 5: L1 CACHE TTL - Plus long pour prix (2h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 4h)
 // ============================================================
 
 (function patchL1CacheTtl() {
@@ -165,7 +165,7 @@ var _GT_THROTTLE = {
  
  // Augmenter le TTL du cache FX dans CacheService
  if (typeof CACHE_L1_TTL_FX_SEC !== 'undefined') {
- // 4h Ã¢â€ â€™ 12h pour FX
+ // 4h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 12h pour FX
  // Note: var globale, peut etre modifiee
  }
  } catch (e) {}
@@ -343,6 +343,9 @@ var HttpCallCounter = (function(){
  var _lastFlushMs = 0;
  var FLUSH_EVERY_N = 25;
  var FLUSH_EVERY_MS = 5000;
+ // UserLock matches the user-scoped UrlFetch quota. This is observational WCORE telemetry,
+ // not authoritative cross-user accounting, and avoids watchdog ScriptLock self-deadlock.
+ var LOCK_WAIT_MS = 100;
  var DAILY_QUOTA = 20000;
 
  // Per-host in-memory buffer: {host: count}
@@ -350,7 +353,7 @@ var HttpCallCounter = (function(){
  // Per-trigger in-memory buffer: {triggerFn: count}
  var _triggerMem = {};
 
- // Current trigger name — cached from ScriptProperties (30s TTL)
+ // Current trigger name â€” cached from ScriptProperties (30s TTL)
  var _currentTrigger = null;
  var _triggerCacheMs = 0;
  var TRIGGER_CACHE_TTL = 30000;
@@ -375,8 +378,17 @@ var HttpCallCounter = (function(){
  // Parse host from URL. Returns "unknown" if unparsable.
  function _parseHost(url) {
   if (!url || typeof url !== 'string') return 'unknown';
-  var m = url.match(/^https?:\/\/([^\/]+)/);
-  return m ? m[1] : 'unknown';
+  var m = url.match(/^https?:\/\/(?:[^\/@?#]*@)?([^\/:?#]+)(?::[0-9]+)?(?:[\/?#]|$)/i);
+  return m ? m[1].toLowerCase() : 'unknown';
+ }
+
+ function _parseMap(raw) {
+  if (!raw) return { map: {}, repaired: false };
+  try {
+   var parsed = JSON.parse(raw);
+   if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { map: parsed, repaired: false };
+  } catch (e) {}
+  return { map: {}, repaired: true };
  }
 
  // Read current trigger from ScriptProperties with 30s in-memory cache
@@ -395,7 +407,7 @@ var HttpCallCounter = (function(){
   return _currentTrigger;
  }
 
- function increment(url) {
+ function increment(url, explicitCategory) {
   _mem++;
 
   // Host tracking
@@ -403,7 +415,8 @@ var HttpCallCounter = (function(){
   _hostMem[host] = (_hostMem[host] || 0) + 1;
 
   // Trigger tracking
-  var trigger = _readTrigger();
+  var explicit = String(explicitCategory || '').trim();
+  var trigger = explicit ? explicit.toUpperCase() : 'approx:' + _readTrigger();
   _triggerMem[trigger] = (_triggerMem[trigger] || 0) + 1;
 
   var now = Date.now();
@@ -414,16 +427,26 @@ var HttpCallCounter = (function(){
 
  function flush() {
   if (_mem <= 0 && Object.keys(_hostMem).length === 0 && Object.keys(_triggerMem).length === 0) return;
+  var lock = null;
+  var acquired = false;
   try {
-   var props = PropertiesService.getScriptProperties();
-   var dayKey = _dayKey();
+    lock = LockService.getUserLock();
+    if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+     try { if (typeof HttpCounter !== 'undefined' && HttpCounter.noteDropped) HttpCounter.noteDropped(); } catch (eDropped) {}
+     return;
+    }
+    acquired = true;
+    var props = PropertiesService.getScriptProperties();
+    var dayKey = _dayKey();
 
    // --- Global counter ---
    if (_mem > 0) {
     var gKey = _quotaDayKey();
-    var gCur = parseInt(props.getProperty(gKey), 10) || 0;
-    var gNew = gCur + _mem;
-    props.setProperty(gKey, String(gNew));
+     var memToFlush = _mem;
+     var gCur = parseInt(props.getProperty(gKey), 10) || 0;
+     var gNew = gCur + memToFlush;
+     props.setProperty(gKey, String(gNew));
+     _mem -= memToFlush;
 
     // T0 tracking: record first call of the day
     var t0Key = _t0DayKey();
@@ -434,7 +457,9 @@ var HttpCallCounter = (function(){
     // Milestone tracking
     var mileKey = _mileDayKey();
     var mileRaw = props.getProperty(mileKey);
-    var mileMap = mileRaw ? JSON.parse(mileRaw) : {};
+    var mileParsed = _parseMap(mileRaw);
+    var mileMap = mileParsed.map;
+    if (mileParsed.repaired) props.setProperty(mileKey, JSON.stringify(mileMap));
     var changed = false;
     for (var mi = 0; mi < MILESTONES.length; mi++) {
      var pct = MILESTONES[mi];
@@ -447,40 +472,54 @@ var HttpCallCounter = (function(){
      }
     }
     if (changed) props.setProperty(mileKey, JSON.stringify(mileMap));
-
-    _mem = 0;
-   }
+    }
 
    // --- Per-host counter ---
    var hostKeys = Object.keys(_hostMem);
    if (hostKeys.length > 0) {
-    var hKey = _hostDayKey();
-    var hRaw = props.getProperty(hKey);
-    var hMap = hRaw ? JSON.parse(hRaw) : {};
-    for (var hi = 0; hi < hostKeys.length; hi++) {
-     var h = hostKeys[hi];
-     hMap[h] = (hMap[h] || 0) + _hostMem[h];
-    }
-    props.setProperty(hKey, JSON.stringify(hMap));
-    _hostMem = {};
+     var hKey = _hostDayKey();
+     var hRaw = props.getProperty(hKey);
+     var hMap = _parseMap(hRaw).map;
+     var hostFlushed = {};
+     for (var hi = 0; hi < hostKeys.length; hi++) {
+      var h = hostKeys[hi];
+      hostFlushed[h] = _hostMem[h];
+      hMap[h] = (hMap[h] || 0) + hostFlushed[h];
+     }
+     props.setProperty(hKey, JSON.stringify(hMap));
+     for (var hj = 0; hj < hostKeys.length; hj++) {
+      var flushedHost = hostKeys[hj];
+      _hostMem[flushedHost] -= hostFlushed[flushedHost];
+      if (_hostMem[flushedHost] <= 0) delete _hostMem[flushedHost];
+     }
    }
 
    // --- Per-trigger counter ---
    var trigKeys = Object.keys(_triggerMem);
    if (trigKeys.length > 0) {
-    var tKey = _triggerDayKey();
-    var tRaw = props.getProperty(tKey);
-    var tMap = tRaw ? JSON.parse(tRaw) : {};
-    for (var ti = 0; ti < trigKeys.length; ti++) {
-     var t = trigKeys[ti];
-     tMap[t] = (tMap[t] || 0) + _triggerMem[t];
-    }
-    props.setProperty(tKey, JSON.stringify(tMap));
-    _triggerMem = {};
+     var tKey = _triggerDayKey();
+     var tRaw = props.getProperty(tKey);
+     var tMap = _parseMap(tRaw).map;
+     var triggerFlushed = {};
+     for (var ti = 0; ti < trigKeys.length; ti++) {
+      var t = trigKeys[ti];
+      triggerFlushed[t] = _triggerMem[t];
+      tMap[t] = (tMap[t] || 0) + triggerFlushed[t];
+     }
+     props.setProperty(tKey, JSON.stringify(tMap));
+     for (var tj = 0; tj < trigKeys.length; tj++) {
+      var flushedTrigger = trigKeys[tj];
+      _triggerMem[flushedTrigger] -= triggerFlushed[flushedTrigger];
+      if (_triggerMem[flushedTrigger] <= 0) delete _triggerMem[flushedTrigger];
+     }
    }
 
    _lastFlushMs = Date.now();
-  } catch (e) {}
+  } catch (e) {
+   try { if (typeof HttpCounter !== 'undefined' && HttpCounter.noteDropped) HttpCounter.noteDropped(); } catch (eDropped) {}
+  } finally {
+   if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+  }
  }
 
  function getToday() {
@@ -706,11 +745,11 @@ function GET_HTTP_TIMELINE() {
 }
 
 // ============================================================
-// BUDGET GUARD — forceFull rétrogradé si HTTP >70% (v4.15.15)
+// BUDGET GUARD â€” forceFull rÃ©trogradÃ© si HTTP >70% (v4.15.15)
 // ============================================================
 
 /**
- * Retourne true si forceFull est autorisé (bucket HTTP < 70%).
+ * Retourne true si forceFull est autorisÃ© (bucket HTTP < 70%).
  * Fail-open : si HttpCallCounter indispo, accorde le forceFull.
  */
 function _forceFullAllowed_() {
@@ -725,14 +764,14 @@ function _forceFullAllowed_() {
 
 /**
  * Normalise forceFull depuis c1 et applique le garde-fou budget HTTP.
- * Utiliser à la place de Bool.parse(forceFull) dans les engines.
- * @param {*} c1 - valeur brute du paramètre forceFull/c1
+ * Utiliser Ã  la place de Bool.parse(forceFull) dans les engines.
+ * @param {*} c1 - valeur brute du paramÃ¨tre forceFull/c1
  * @return {boolean}
  */
 function _normalizeForceWithBudgetGuard_(c1) {
   var force = (typeof Bool !== 'undefined') ? Bool.parse(c1) : (c1 === true || String(c1).toUpperCase() === 'TRUE');
   if (force && !_forceFullAllowed_()) {
-    Logger.log("[BUDGET_GUARD] forceFull demandé mais bucket HTTP >70% — rétrogradé en scan incremental");
+    Logger.log("[BUDGET_GUARD] forceFull demandÃ© mais bucket HTTP >70% â€” rÃ©trogradÃ© en scan incremental");
     force = false;
   }
   return force;
@@ -757,9 +796,9 @@ function _normalizeForceWithBudgetGuard_(c1) {
  var gt  = (typeof _GT_THROTTLE !== 'undefined' && _GT_THROTTLE.max) ? _GT_THROTTLE.max : 0;
 
  Logger.log("[26B_HTTP_SAVINGS] HTTP optimization patches loaded v" + HTTP_SAVINGS_VERSION);
- // budget guard helper — log at load time
+ // budget guard helper â€” log at load time
  var _guardPct = (typeof HttpCallCounter !== 'undefined') ? (HttpCallCounter.getToday() / Math.max(1, HttpCallCounter.getQuota())) : -1;
- Logger.log("[26B_HTTP_SAVINGS] forceFull budget guard: " + (_guardPct >= 0 ? Math.round(_guardPct * 100) + "% utilisé (seuil 70%)" : "HttpCallCounter indispo"));
+ Logger.log("[26B_HTTP_SAVINGS] forceFull budget guard: " + (_guardPct >= 0 ? Math.round(_guardPct * 100) + "% utilisÃ© (seuil 70%)" : "HttpCallCounter indispo"));
  Logger.log("[26B_HTTP_SAVINGS] FX TTL: " + fmtMs(fx)
    + ", Price Stale: " + fmtMs(cfg.PRICE_STALE_MS)
    + ", Price TTL: " + fmtMs(cfg.PRICE_TTL_MS)

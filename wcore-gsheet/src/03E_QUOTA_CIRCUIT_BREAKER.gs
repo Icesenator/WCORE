@@ -1,6 +1,8 @@
 /************************************************************
  * 03E_QUOTA_CIRCUIT_BREAKER.gs - Instant Quota Detection
  *
+ * v4.16.34 - Do not turn telemetry read contention into synthetic quota exhaustion.
+ *
  * v4.13.8 - CACHE WRITE GUARD: expose BudgetHTTP.remaining()
  *   Wallet cache writes can now refuse destructive updates when the rolling
  *   UrlFetch budget is critically low.
@@ -81,11 +83,19 @@
  * - Zero-latency blocking once quota detected
  ************************************************************/
 
-var QUOTA_CIRCUIT_BREAKER_VERSION = "4.13.8";
+var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.34";
 
 // v4.12.31: Store reference to ORIGINAL UrlFetchApp.fetch BEFORE any patching
 // Needed by testOnce() to bypass the global quota patch for real testing
 var _originalUrlFetch = UrlFetchApp.fetch;
+
+function _httpTelemetryTransport_() {
+  var bypassesPatch = typeof _originalUrlFetch === "function";
+  return {
+    fetch: bypassesPatch ? _originalUrlFetch : UrlFetchApp.fetch,
+    explicitTelemetry: bypassesPatch
+  };
+}
 
 // ============================================================
 // CONFIGURATION
@@ -106,9 +116,13 @@ var QUOTA_BREAKER_CONFIG = {
   TEST_COOLDOWN_KEY: "WCORE_QUOTA_TEST_OK_v1",
   TEST_COOLDOWN_SEC: 900,  // 15 minutes
 
+  // Shared lease prevents independent custom-function executions from probing together.
+  TEST_ATTEMPT_LEASE_KEY: "WCORE_QUOTA_TEST_ATTEMPT_v1",
+  TEST_ATTEMPT_LEASE_SEC: 900,  // 15 minutes
+
   // Error message patterns that indicate quota exhaustion
   // v4.14.10: ONLY match actual Google Apps Script quota errors
-  // Removed "rate limit exceeded" and "too many requests" — these are RPC 429 errors,
+  // Removed "rate limit exceeded" and "too many requests" â€” these are RPC 429 errors,
   // NOT Google quota exhaustion. A single RPC rate-limiting was tripping the breaker
   // and blocking ALL HTTP calls across ALL chains (false positive).
   QUOTA_ERROR_PATTERNS: [
@@ -126,7 +140,7 @@ var QUOTA_BREAKER_CONFIG = {
   THRESHOLD_WINDOW_SEC: 120,
 
   // v4.13.7: Safety CEILING on how long the breaker stays tripped.
-  // The real Google quota is a SLIDING 24h window — recovery happens
+  // The real Google quota is a SLIDING 24h window â€” recovery happens
   // gradually as old calls drop off the tail, NOT at a fixed T+24h.
   // Actual recovery is driven by testOnce() (httpbin, every 15min)
   // which auto-resets the breaker as soon as Google accepts calls again.
@@ -158,13 +172,9 @@ var QuotaCircuitBreaker = (function() {
   function _isQuotaError(errorMessage) {
     if (!errorMessage) return false;
     var msg = String(errorMessage).toLowerCase();
-    
-    for (var i = 0; i < QUOTA_BREAKER_CONFIG.QUOTA_ERROR_PATTERNS.length; i++) {
-      if (msg.indexOf(QUOTA_BREAKER_CONFIG.QUOTA_ERROR_PATTERNS[i].toLowerCase()) !== -1) {
-        return true;
-      }
-    }
-    return false;
+    var serviceTarget = /service invoked too many times(?: for one day| in a short time)?\s*:\s*url\s*fetch\b/;
+    var metricTarget = /quota exceeded for quota metric[^a-z0-9]{0,3}url\s*fetch(?:\s+calls?)?\b/;
+    return serviceTarget.test(msg) || metricTarget.test(msg);
   }
   
   /**
@@ -207,7 +217,7 @@ var QuotaCircuitBreaker = (function() {
         var data = cache.get(QUOTA_BREAKER_CONFIG.CACHE_KEY);
         if (data) {
           var parsed = JSON.parse(data);
-          // v4.13.7: Sliding 24h window — NOT calendar-midnight-UTC.
+          // v4.13.7: Sliding 24h window â€” NOT calendar-midnight-UTC.
           // Actual recovery is driven by testOnce() (httpbin every 15min).
           // TRIP_MAX_LOCKOUT_MS is just a safety ceiling to avoid sticky blocks
           // if no refresh cycles run for >24h (testOnce would never fire).
@@ -224,7 +234,7 @@ var QuotaCircuitBreaker = (function() {
             _trippedMs = trippedMs;
             return true;
           }
-          // Expired (rolling window elapsed) — clear stale breaker
+          // Expired (rolling window elapsed) â€” clear stale breaker
           cache.remove(QUOTA_BREAKER_CONFIG.CACHE_KEY);
         }
       } catch (e) {
@@ -361,16 +371,45 @@ var QuotaCircuitBreaker = (function() {
       return true;
     }
   }
+
+  /**
+   * Atomically reserve the shared automatic-probe window. Any coordination
+   * failure skips the probe so a cache or lock outage cannot create a herd.
+   */
+  function _claimAutomaticProbeLease() {
+    var lock = null;
+    var acquired = false;
+    try {
+      lock = LockService.getScriptLock();
+      if (!lock || !lock.tryLock(250)) return false;
+      acquired = true;
+
+      var cache = CacheService.getScriptCache();
+      if (!cache || cache.get(QUOTA_BREAKER_CONFIG.TEST_ATTEMPT_LEASE_KEY)) return false;
+      cache.put(
+        QUOTA_BREAKER_CONFIG.TEST_ATTEMPT_LEASE_KEY,
+        "1",
+        QUOTA_BREAKER_CONFIG.TEST_ATTEMPT_LEASE_SEC
+      );
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      if (acquired) {
+        try { lock.releaseLock(); } catch (eRelease) {}
+      }
+    }
+  }
   
   /**
-   * v4.12.31: TEST the quota with a real HTTP call
+   * TEST the quota with a real HTTP call.
+   * Automatic probes share a cross-execution lease; authorized diagnostics
+   * may explicitly force a probe.
    * Runs ONCE per execution (first call)
-   * 
-   * CRITICAL FIX (v4.12.31): Previously, if the breaker was tripped in CacheService,
-   * testOnce() would SKIP the real HTTP test, creating a "sticky block" that persisted
-   * even after quota recovered. Now testOnce() ALWAYS tests and auto-recovers.
    */
-  function _testQuotaOnce() {
+  function _testQuotaOnce(forceProbe) {
+    var forced = forceProbe === true;
+
     // Already tested this execution? Skip
     if (_testedThisRun) return;
     _testedThisRun = true;
@@ -383,7 +422,7 @@ var QuotaCircuitBreaker = (function() {
 
     // v4.13.5: COOLDOWN - skip HTTP test if quota was OK recently
     // Only when breaker is NOT tripped (when tripped, ALWAYS test to detect recovery)
-    if (!_tripped && !wasTrippedInCache) {
+    if (!forced && !_tripped && !wasTrippedInCache) {
       try {
         var cooldownCache = CacheService.getScriptCache();
         var lastOk = cooldownCache.get(QUOTA_BREAKER_CONFIG.TEST_COOLDOWN_KEY);
@@ -396,14 +435,20 @@ var QuotaCircuitBreaker = (function() {
       }
     }
 
-    // Make a lightweight test call - ALWAYS when tripped (to detect recovery)
+    if (!forced && !_claimAutomaticProbeLease()) return;
+
+    // Make a lightweight test call after claiming the shared automatic lease.
     // v4.12.31: Use _originalUrlFetch to bypass global quota patch
     try {
       var testUrl = "https://httpbin.org/status/200";
-      // v4.16.30: count the breaker test (real UrlFetch, bypasses the counting patch)
-      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.setTrigger) HttpCallCounter.setTrigger("QUOTA_BREAKER_TEST"); } catch (eCtxTest) {}
-      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1); } catch (eCountTest) {}
-      var response = _originalUrlFetch.call(UrlFetchApp, testUrl, {
+      var transport = typeof _httpTelemetryTransport_ === "function"
+        ? _httpTelemetryTransport_()
+        : { fetch: _originalUrlFetch, explicitTelemetry: true };
+      if (transport.explicitTelemetry) {
+        try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, "QUOTA_PROBE", testUrl); } catch (eCountTest) {}
+        try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment(testUrl, "QUOTA_PROBE"); } catch (eLegacyCountTest) {}
+      }
+      var response = transport.fetch.call(UrlFetchApp, testUrl, {
         muteHttpExceptions: true,
         timeout: 3000  // 3 second timeout max
       });
@@ -431,11 +476,10 @@ var QuotaCircuitBreaker = (function() {
         _trip(e.message);
         Logger.log("[QUOTA_BREAKER] Quota test FAILED - quota exhausted: " + e.message);
       } else {
-        // Other error (network, etc.) - don't trip, but log
-        // v4.12.31: Also don't maintain a stale trip from cache on non-quota errors
+        // Other errors are inconclusive. Preserve any stale breaker until an
+        // actual HTTP response proves that Google accepts UrlFetch again.
         if (wasTrippedInCache) {
-          Logger.log("[QUOTA_BREAKER] Non-quota error during test, clearing stale breaker: " + e.message);
-          _reset();
+          Logger.log("[QUOTA_BREAKER] Non-quota probe error, preserving stale breaker: " + e.message);
         } else {
           Logger.log("[QUOTA_BREAKER] Quota test error (not quota): " + e.message);
         }
@@ -454,6 +498,15 @@ var QuotaCircuitBreaker = (function() {
      */
     isTripped: function() {
       return _isTripped();
+    },
+
+    /**
+     * Authoritative Google UrlFetch quota matcher.
+     * @param {Error|string} error - Error to classify
+     * @returns {boolean}
+     */
+    isQuotaError: function(error) {
+      return _isQuotaError(error && error.message ? error.message : error);
     },
     
     /**
@@ -516,20 +569,68 @@ var QuotaCircuitBreaker = (function() {
           : "OK - HTTP calls allowed"
       };
     },
-    
+
     /**
-     * v4.12.30: Test quota with a real HTTP call (runs once per execution)
+     * Read breaker status directly from cache without changing cache or memory.
+     * Cache failures fail closed because automatic HTTP admission must stay safe.
+     */
+    peekStatus: function() {
+      try {
+        var cache = CacheService.getScriptCache();
+        var raw = cache.get(QUOTA_BREAKER_CONFIG.CACHE_KEY);
+        var parsed = raw ? JSON.parse(raw) : null;
+        var trippedMs = null;
+        if (parsed && typeof parsed.trippedMs === "number") trippedMs = parsed.trippedMs;
+        if (trippedMs == null && parsed && parsed.time) {
+          var parsedTime = Date.parse(parsed.time);
+          if (!isNaN(parsedTime)) trippedMs = parsedTime;
+        }
+        if (raw && trippedMs == null) throw new Error("Invalid quota breaker cache state");
+        var tripped = trippedMs != null && (Date.now() - trippedMs) < QUOTA_BREAKER_CONFIG.TRIP_MAX_LOCKOUT_MS;
+        var tripTime = tripped && parsed ? (parsed.time || new Date(trippedMs).toISOString()) : null;
+        var maxClearAt = tripped ? new Date(trippedMs + QUOTA_BREAKER_CONFIG.TRIP_MAX_LOCKOUT_MS).toISOString() : null;
+        return {
+          tripped: tripped,
+          tripTime: tripTime,
+          trippedMs: tripped ? trippedMs : null,
+          trippedLocal: tripped ? _fmtLocal(trippedMs) : null,
+          maxClearAt: maxClearAt,
+          maxClearAtLocal: tripped ? _fmtLocal(trippedMs + QUOTA_BREAKER_CONFIG.TRIP_MAX_LOCKOUT_MS) : null,
+          date: _getTodayUTC(),
+          message: tripped
+            ? "QUOTA EXHAUSTED - auto-recovery when httpbin test passes (every 15min)"
+            : "OK - HTTP calls allowed",
+          unavailable: false
+        };
+      } catch (e) {
+        return {
+          tripped: true,
+          tripTime: null,
+          trippedMs: null,
+          trippedLocal: null,
+          maxClearAt: null,
+          maxClearAtLocal: null,
+          date: _getTodayUTC(),
+          message: "UNAVAILABLE - quota breaker cache unreadable; HTTP must remain blocked",
+          unavailable: true
+        };
+      }
+    },
+
+    /**
+     * Test quota with a real HTTP call (runs once per execution).
      * Call this at the START of your main function to detect quota early
+     * @param {boolean} forceProbe - true only for authorized diagnostics
      * @returns {boolean} True if quota is OK, false if exhausted
      */
-    testOnce: function() {
-      _testQuotaOnce();
+    testOnce: function(forceProbe) {
+      _testQuotaOnce(forceProbe === true);
       return !_tripped;
     },
 
     /**
      * v4.14.9: Prevent re-tripping for this execution.
-     * Used by forceFull scans — once testOnce() confirms quota OK,
+     * Used by forceFull scans â€” once testOnce() confirms quota OK,
      * prevent a single RPC error from re-blocking the entire scan.
      */
     disableTripping: function() {
@@ -539,7 +640,7 @@ var QuotaCircuitBreaker = (function() {
 })();
 
 // ============================================================
-// HTTP COUNTER — 24h ROLLING WINDOW (v4.13.7 / Phase A')
+// HTTP COUNTER â€” 24h ROLLING WINDOW (v4.13.7 / Phase A')
 // ============================================================
 
 /**
@@ -549,38 +650,55 @@ var QuotaCircuitBreaker = (function() {
  * Keeps the last 24 buckets; older ones are purged on each record.
  * Tiny footprint (~400 bytes) so writes stay cheap even on every call.
  *
- * Observability-only: record(n) is called from the global UrlFetchApp
- * patches below, so every real UrlFetchApp.fetch/fetchAll is counted
- * EXCEPT the internal httpbin test call (which uses _originalUrlFetch
- * to bypass the patch on purpose).
+ * Observability-only: record(n, category, url) is called from the global
+ * UrlFetchApp patches below. Raw bypass paths record explicitly before fetch.
  *
  * Exposed via @customfunction GET_HTTP_COUNT_LAST_24H() for the sheet.
  */
 var HttpCounter = (function() {
   var KEY = "WCORE_HTTP_BUCKETS_v1";
   var TRIGGER_KEY = "WCORE_HTTP_TRIGGERS_v2";
+  var HOST_KEY = "WCORE_HTTP_HOSTS_v1";
+  var DROPPED_KEY = CK_get('httpDroppedTelemetry');
+  // UserLock matches the user-scoped UrlFetch quota. This is observational WCORE telemetry,
+  // not authoritative cross-user accounting, and avoids watchdog ScriptLock self-deadlock.
+  var LOCK_WAIT_MS = 100;
   var BUCKET_MS = 60 * 60 * 1000;  // 1h granularity
   var WINDOWS = 24;                // last 24 buckets = rolling 24h
+  // Contention cannot safely persist without the lock, so the observed dropped total is a lower bound.
+  var _droppedPending = 0;
+  var _lastValidCount = 0;
+  var _telemetryDegraded = false;
 
-  var _cache = null;
-  var _triggerCache = null;
-  var _loaded = false;
-
-  function _loadRaw(key) {
-    try {
-      var raw = PropertiesService.getScriptProperties().getProperty(key);
-      if (!raw) return {};
-      var obj = JSON.parse(raw);
-      return (obj && typeof obj === "object") ? obj : {};
-    } catch (e) {
-      return {};
-    }
+  function _loadRaw(props, key) {
+    var raw = props.getProperty(key);
+    if (!raw) return {};
+    var obj;
+    try { obj = JSON.parse(raw); } catch (eParse) { return {}; }
+    return (obj && typeof obj === "object") ? obj : {};
   }
 
-  function _save(obj, key) {
+  function _snapshotLoadRaw(props, key) {
+    var raw = props.getProperty(key);
+    if (raw == null) return {};
+    var obj;
     try {
-      PropertiesService.getScriptProperties().setProperty(key, JSON.stringify(obj));
-    } catch (e) {}
+      obj = JSON.parse(raw);
+    } catch (eParse) {
+      var malformed = new Error("Malformed HTTP telemetry: " + key);
+      malformed.telemetryCorrupt = true;
+      throw malformed;
+    }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+      var invalid = new Error("Invalid HTTP telemetry: " + key);
+      invalid.telemetryCorrupt = true;
+      throw invalid;
+    }
+    return obj;
+  }
+
+  function _save(props, obj, key) {
+    props.setProperty(key, JSON.stringify(obj));
   }
 
   function _purge(obj, nowMs) {
@@ -594,13 +712,6 @@ var HttpCounter = (function() {
     return out;
   }
 
-  function _ensure(nowMs) {
-    if (_loaded) return;
-    _cache = _purge(_loadRaw(KEY), nowMs);
-    _triggerCache = _purge(_loadRaw(TRIGGER_KEY), nowMs);
-    _loaded = true;
-  }
-
   function _sum(obj) {
     var total = 0;
     for (var k in obj) {
@@ -609,68 +720,205 @@ var HttpCounter = (function() {
     return total;
   }
 
-  function _currentTrigger() {
+  function _currentTrigger(props) {
+    return props.getProperty("WCORE_CURRENT_TRIGGER") || "unknown";
+  }
+
+  function _category(explicitCategory, props) {
+    var explicit = String(explicitCategory || "").trim();
+    return explicit ? explicit.toUpperCase() : "approx:" + _currentTrigger(props);
+  }
+
+  function _host(url) {
+    var match = String(url || "").match(/^https?:\/\/(?:[^\/@?#]*@)?([^\/:?#]+)(?::[0-9]+)?(?:[\/?#]|$)/i);
+    return match ? match[1].toLowerCase() : "unknown";
+  }
+
+  function _readLocked(fallback, reader) {
+    var lock = null;
+    var acquired = false;
     try {
-      return PropertiesService.getScriptProperties().getProperty("WCORE_CURRENT_TRIGGER") || "unknown";
-    } catch (e) { return "unknown"; }
+      lock = LockService.getUserLock();
+      if (!lock || !lock.tryLock(LOCK_WAIT_MS)) return fallback;
+      acquired = true;
+      return reader(PropertiesService.getScriptProperties());
+    } catch (e) {
+      return fallback;
+    } finally {
+      if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+
+  function _fallbackCount() {
+    _telemetryDegraded = true;
+    try {
+      // ScriptProperties returns the complete stored string; this read-only snapshot
+      // cannot interfere with a concurrent writer even when UserLock is contended.
+      var props = PropertiesService.getScriptProperties();
+      var total = _sum(_purge(_snapshotLoadRaw(props, KEY), Date.now()));
+      _lastValidCount = total;
+      return total;
+    } catch (e) {
+      return _lastValidCount;
+    }
+  }
+
+  function _flatten(obj) {
+    var out = {};
+    for (var bk in obj) {
+      if (!obj.hasOwnProperty(bk)) continue;
+      var bucket = obj[bk];
+      for (var name in bucket) {
+        if (!bucket.hasOwnProperty(name)) continue;
+        out[name] = (out[name] || 0) + (parseInt(bucket[name], 10) || 0);
+      }
+    }
+    return out;
   }
 
   return {
-    record: function(n) {
+    record: function(n, explicitCategory, url) {
       var inc = parseInt(n, 10) || 0;
       if (inc < 1) return;
+      var lock = null;
+      var acquired = false;
       try {
+        lock = LockService.getUserLock();
+        if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+          _droppedPending += inc;
+          return;
+        }
+        acquired = true;
+        var props = PropertiesService.getScriptProperties();
         var nowMs = Date.now();
-        _ensure(nowMs);
         var bucket = String(Math.floor(nowMs / BUCKET_MS));
-        _cache[bucket] = (parseInt(_cache[bucket], 10) || 0) + inc;
-        _save(_cache, KEY);
+        var counts = _purge(_loadRaw(props, KEY), nowMs);
+        var triggers = _purge(_loadRaw(props, TRIGGER_KEY), nowMs);
+        var hosts = _purge(_loadRaw(props, HOST_KEY), nowMs);
+        var dropped = _purge(_loadRaw(props, DROPPED_KEY), nowMs);
+        var category = _category(explicitCategory, props);
+        var host = _host(url);
 
-        var trigger = _currentTrigger();
-        if (!_triggerCache[bucket]) _triggerCache[bucket] = {};
-        _triggerCache[bucket][trigger] = (parseInt(_triggerCache[bucket][trigger], 10) || 0) + inc;
-        _save(_triggerCache, TRIGGER_KEY);
-      } catch (e) {}
+        counts[bucket] = (parseInt(counts[bucket], 10) || 0) + inc;
+        if (!triggers[bucket]) triggers[bucket] = {};
+        triggers[bucket][category] = (parseInt(triggers[bucket][category], 10) || 0) + inc;
+        if (!hosts[bucket]) hosts[bucket] = {};
+        hosts[bucket][host] = (parseInt(hosts[bucket][host], 10) || 0) + inc;
+        if (_droppedPending > 0) dropped[bucket] = (parseInt(dropped[bucket], 10) || 0) + _droppedPending;
+
+        _save(props, counts, KEY);
+        _save(props, triggers, TRIGGER_KEY);
+        _save(props, hosts, HOST_KEY);
+        _save(props, dropped, DROPPED_KEY);
+        _lastValidCount = _sum(counts);
+        _telemetryDegraded = false;
+        if (_droppedPending > 0) {
+          _droppedPending = 0;
+        }
+      } catch (e) {
+        _droppedPending += inc;
+      } finally {
+        if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+      }
     },
 
     count: function() {
-      try {
+      var measured = _readLocked(null, function(props) {
         var nowMs = Date.now();
-        var obj = _purge(_loadRaw(KEY), nowMs);
+        var obj = _purge(_loadRaw(props, KEY), nowMs);
         return _sum(obj);
-      } catch (e) { return 0; }
+      });
+      if (measured == null) return _fallbackCount();
+      _lastValidCount = measured;
+      _telemetryDegraded = false;
+      return measured;
+    },
+
+    isDegraded: function() {
+      return _telemetryDegraded;
     },
 
     byTrigger: function() {
-      try {
+      return _readLocked({}, function(props) {
         var nowMs = Date.now();
-        var obj = _purge(_loadRaw(TRIGGER_KEY), nowMs);
-        var out = {};
-        for (var bk in obj) {
-          if (!obj.hasOwnProperty(bk)) continue;
-          var bucket = obj[bk];
-          for (var t in bucket) {
-            if (!bucket.hasOwnProperty(t)) continue;
-            out[t] = (out[t] || 0) + (parseInt(bucket[t], 10) || 0);
-          }
+        return _flatten(_purge(_loadRaw(props, TRIGGER_KEY), nowMs));
+      });
+    },
+
+    byHost: function() {
+      return _readLocked({}, function(props) {
+        var nowMs = Date.now();
+        return _flatten(_purge(_loadRaw(props, HOST_KEY), nowMs));
+      });
+    },
+
+    noteDropped: function(n) {
+      var inc = parseInt(n, 10) || 1;
+      if (inc > 0) _droppedPending += inc;
+    },
+
+    dropped: function() {
+      return _readLocked(_droppedPending, function(props) {
+        var nowMs = Date.now();
+        return _sum(_purge(_loadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending;
+      });
+    },
+
+    snapshot: function() {
+      var unavailable = {
+        available: false,
+        total: _lastValidCount,
+        categories: {},
+        hosts: {},
+        dropped: _droppedPending
+      };
+      var lock = null;
+      var acquired = false;
+      try {
+        lock = LockService.getUserLock();
+        if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+          unavailable.total = _fallbackCount();
+          return unavailable;
         }
-        return out;
-      } catch (e) { return {}; }
+        acquired = true;
+        var props = PropertiesService.getScriptProperties();
+        var nowMs = Date.now();
+        var total = _sum(_purge(_snapshotLoadRaw(props, KEY), nowMs));
+        _lastValidCount = total;
+        _telemetryDegraded = false;
+        return {
+          available: true,
+          total: total,
+          categories: _flatten(_purge(_snapshotLoadRaw(props, TRIGGER_KEY), nowMs)),
+          hosts: _flatten(_purge(_snapshotLoadRaw(props, HOST_KEY), nowMs)),
+          dropped: _sum(_purge(_snapshotLoadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending
+        };
+      } catch (e) {
+        if (e && e.telemetryCorrupt) unavailable.corrupt = true;
+        unavailable.total = _fallbackCount();
+        return unavailable;
+      } finally {
+        if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+      }
     },
 
     reset: function() {
-      try {
-        PropertiesService.getScriptProperties().deleteProperty(KEY);
-        PropertiesService.getScriptProperties().deleteProperty(TRIGGER_KEY);
-      } catch (e) {}
-      _cache = null;
-      _triggerCache = null;
-      _loaded = false;
+      return _readLocked(false, function(props) {
+        props.deleteProperty(KEY);
+        props.deleteProperty(TRIGGER_KEY);
+        props.deleteProperty(HOST_KEY);
+        props.deleteProperty(DROPPED_KEY);
+        _droppedPending = 0;
+        _lastValidCount = 0;
+        _telemetryDegraded = false;
+        return true;
+      });
     },
 
     buckets: function() {
-      var nowMs = Date.now();
-      return _purge(_loadRaw(KEY), nowMs);
+      return _readLocked({}, function(props) {
+        return _purge(_loadRaw(props, KEY), Date.now());
+      });
     }
   };
 })();
@@ -688,11 +936,18 @@ var BudgetHTTP = BudgetHTTP || (function() {
     other: 1000
   };
   var adminMinRemaining = CATEGORY_MIN_REMAINING.admin;
+  var telemetryDegraded = false;
 
   function _count() {
     try {
-      if (typeof HttpCounter !== 'undefined' && HttpCounter.count) return HttpCounter.count();
-    } catch (e) {}
+      if (typeof HttpCounter !== 'undefined' && HttpCounter.count) {
+        var count = HttpCounter.count();
+        telemetryDegraded = !!(HttpCounter.isDegraded && HttpCounter.isDegraded());
+        return count;
+      }
+    } catch (e) {
+      telemetryDegraded = true;
+    }
     return 0;
   }
 
@@ -744,6 +999,7 @@ var BudgetHTTP = BudgetHTTP || (function() {
         remaining: remaining,
         criticalThreshold: CRITICAL_REMAINING,
         critical: remaining < CRITICAL_REMAINING,
+        telemetryDegraded: telemetryDegraded,
         adminMinRemaining: adminMinRemaining
       };
     }
@@ -1055,8 +1311,8 @@ function INSTALL_GLOBAL_QUOTA_BREAKER() {
       // Or throw a controlled error
       return null;
     }
-    // v4.13.7: observability — count BEFORE the call so failed calls still count
-    try { HttpCounter.record(1); } catch (e) {}
+    // v4.13.7: observability â€” count BEFORE the call so failed calls still count
+    try { HttpCounter.record(1, null, url); } catch (e) {}
     try {
       return _origFetch.call(UrlFetchApp, url, options);
     } catch (e) {
@@ -1074,8 +1330,13 @@ function INSTALL_GLOBAL_QUOTA_BREAKER() {
       }
       return nulls;
     }
-    // v4.13.7: observability — 1 call per request in the batch
-    try { HttpCounter.record(requests ? requests.length : 0); } catch (e) {}
+    // v4.13.7: observability â€” 1 call per request in the batch
+    try {
+      for (var r = 0; r < (requests ? requests.length : 0); r++) {
+        var requestUrl = (requests[r] && requests[r].url) ? requests[r].url : requests[r];
+        HttpCounter.record(1, null, requestUrl);
+      }
+    } catch (e) {}
     try {
       return _origFetchAll.call(UrlFetchApp, requests);
     } catch (e) {
@@ -1109,6 +1370,57 @@ function GET_QUOTA_BREAKER_STATUS() {
     ["Max Lockout (ceiling)", status.maxClearAtLocal || "N/A"],
     ["Message", status.message]
   ];
+}
+
+/**
+ * Read-only summary of WCORE quota protection telemetry and policy.
+ * Observed counters are project-local and do not represent Google's quota.
+ * @param {*} refreshToken Optional caller-supplied changing cell; only its
+ *   presence is checked to make spreadsheet recalculation dependencies explicit.
+ * @returns {Array<Array>} Ordered metric/value rows
+ * @customfunction
+ */
+function GET_QUOTA_PROTECTION_STATUS(refreshToken) {
+  var snapshot = HttpCounter.snapshot();
+  var rows = [["Observed rolling 24h calls", snapshot.total]];
+  var categories = snapshot.categories;
+  var categoryNames = Object.keys(categories).sort();
+  for (var i = 0; i < categoryNames.length; i++) {
+    rows.push(["Category " + categoryNames[i], categories[categoryNames[i]]]);
+  }
+
+  var hosts = snapshot.hosts;
+  var hostNames = Object.keys(hosts).sort();
+  for (var j = 0; j < hostNames.length; j++) {
+    rows.push(["Host " + hostNames[j], hosts[hostNames[j]]]);
+  }
+
+  var googleBreaker = QuotaCircuitBreaker.peekStatus();
+  var webBreaker = _webScanBreakerStatus_();
+  rows.push(["Dropped telemetry updates", snapshot.dropped]);
+  rows.push(["Google breaker status", googleBreaker.tripped ? "TRIPPED" : "OK"]);
+  rows.push(["Web breaker status", webBreaker.open ? "OPEN" : "CLOSED"]);
+  rows.push(["Watchdog cadence minutes", 10]);
+  rows.push(["Watchdog pulse cap", WD_MAX_PULSES_PER_RUN]);
+  rows.push(["Healthy freshness hours", WD_STALE_I1_HOURS]);
+  rows.push(["Web error backoff", "30m,2h,6h,24h"]);
+  rows.push(["Scope", "WCORE project only"]);
+  rows.push(["Authority", "Observed counts are not the authoritative Google account quota"]);
+  if (!snapshot.available) {
+    rows.push(["Warning telemetry snapshot", snapshot.corrupt
+      ? "CORRUPT - displayed count is a non-authoritative safe fallback"
+      : "UNAVAILABLE - displayed count is a non-authoritative safe fallback"]);
+  }
+  if (googleBreaker.unavailable) {
+    rows.push(["Warning Google breaker", "UNAVAILABLE - displayed TRIPPED is a fail-closed fallback, not an observed authoritative value"]);
+  }
+  if (webBreaker.unavailable) {
+    rows.push(["Warning Web breaker", "UNAVAILABLE - displayed OPEN is a fail-closed fallback, not an observed authoritative value"]);
+  }
+  if (refreshToken == null || refreshToken === "") {
+    rows.push(["Warning refresh token", "Pass a changing cell as refreshToken to refresh this diagnostic"]);
+  }
+  return rows;
 }
 
 /**
@@ -1161,11 +1473,19 @@ function TRIP_QUOTA_BREAKER(confirm) {
  * v4.12.30: Test if quota is available with a REAL HTTP call
  * Use this to check quota status before starting heavy operations
  * @returns {string} "OK" if quota available, "EXHAUSTED" if not
+ * In an authorized editor/admin execution, a genuine recovery also schedules
+ * portfolio refresh triggers. Spreadsheet custom-function execution may only
+ * report status because ScriptApp authorization can be unavailable there.
  * @customfunction
  */
-function TEST_QUOTA_NOW() {
-  var isOk = QuotaCircuitBreaker.testOnce();
+function LIVE_PROBE_QUOTA_NOW() {
+  var wasTripped = QuotaCircuitBreaker.isTripped();
+  var isOk = QuotaCircuitBreaker.testOnce(true);
   var status = QuotaCircuitBreaker.getStatus();
+
+  if (isOk && wasTripped && typeof _recoverySchedulePortfolioRefresh_ === "function") {
+    _recoverySchedulePortfolioRefresh_();
+  }
 
   // v4.13.7: format in the spreadsheet's timezone (human-readable)
   var tz = Session.getScriptTimeZone() || "Europe/Paris";
@@ -1174,7 +1494,7 @@ function TEST_QUOTA_NOW() {
   if (isOk) {
     return "OK - Quota available (tested at " + nowLocal + ")";
   } else {
-    // Sliding 24h window — no fixed reset time. Recovery is driven by
+    // Sliding 24h window â€” no fixed reset time. Recovery is driven by
     // testOnce() (httpbin every 15min), not a T+24h timer.
     return "EXHAUSTED - tripped at " + (status.trippedLocal || "unknown") +
            " - auto-recovery via httpbin every 15min (ceiling: " +
@@ -1185,7 +1505,7 @@ function TEST_QUOTA_NOW() {
 /**
  * v4.13.7: Rolling-24h HTTP call count (from internal HttpCounter).
  * Counts every UrlFetchApp.fetch / fetchAll routed through the global
- * patch — i.e. the real call volume WCORE is sending. Excludes the
+ * patch â€” i.e. the real call volume WCORE is sending. Excludes the
  * internal httpbin breaker test (uses _originalUrlFetch on purpose).
  *
  * @returns {number} Calls in the last 24h
@@ -1226,7 +1546,7 @@ function GET_HTTP_BREAKDOWN_24H() {
 
 /**
  * v4.13.7: Reset the HTTP counter (clears all buckets).
- * For debugging only — quota is Google-side, resetting this counter
+ * For debugging only â€” quota is Google-side, resetting this counter
  * does NOT affect the actual quota.
  *
  * @param {boolean} confirm - Must be TRUE
@@ -1236,7 +1556,7 @@ function RESET_HTTP_COUNTER(confirm) {
   if (confirm !== true) {
     return "Usage: =RESET_HTTP_COUNTER(TRUE) - Clears the local HTTP counter (does NOT reset Google quota)";
   }
-  HttpCounter.reset();
+  if (!HttpCounter.reset()) return "HTTP counter reset failed: telemetry lock or properties unavailable";
   return "HTTP counter reset OK at " + new Date().toISOString();
 }
 
@@ -1372,7 +1692,7 @@ function shouldAbortDueToQuota() {
     }
     
     // NOTE: We do NOT test quota at load time to save HTTP calls
-    // Call QuotaCircuitBreaker.testOnce() or TEST_QUOTA_NOW() explicitly
+    // Call QuotaCircuitBreaker.testOnce() or LIVE_PROBE_QUOTA_NOW() explicitly
     // when starting a refresh operation
     
   } catch (e) {

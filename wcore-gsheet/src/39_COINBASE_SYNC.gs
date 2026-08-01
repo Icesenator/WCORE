@@ -1,3 +1,4 @@
+// v4.16.34 - Relay rotation scheduling and non-mutating legacy watchdog.
 // v4.15.96 - Coinbase sync via Railway cex-relay (CDP ES256 signed relay-side).
 // Onglet de sortie: "CEX - Coinbase".
 //
@@ -11,7 +12,7 @@
 // Mise a jour:
 //   UPDATE_COINBASE_SPOT()
 
-var COINBASE_SYNC_VERSION = "4.15.96";
+var COINBASE_SYNC_VERSION = "4.16.34";
 
 var COINBASE_SYNC_CONFIG = {
   RELAY_URL_PROP: "COINBASE_RELAY_URL",
@@ -231,17 +232,5 @@ function _cbSetRefreshFlag_() {
 }
 
 function COINBASE_REFRESH_WATCHDOG() {
-  if (typeof CEX_GET_SPREADSHEET === "function" && typeof CEX_HAS_MANUAL_REQUEST === "function") {
-    var ss = CEX_GET_SPREADSHEET();
-    if (!CEX_HAS_MANUAL_REQUEST(ss, COINBASE_SYNC_CONFIG.SHEET, COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP)) return "NO_REQUEST";
-    CEX_CLEAR_MANUAL_REQUEST(COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-    return CEX_RUN_MANUAL_UPDATE(ss, COINBASE_SYNC_CONFIG.SHEET, "COINBASE", UPDATE_COINBASE_SPOT);
-  }
-  var props = PropertiesService.getScriptProperties();
-  var userProps = PropertiesService.getUserProperties();
-  var flag = props.getProperty(COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP) || userProps.getProperty(COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  if (!flag) return "NO_REQUEST";
-  props.deleteProperty(COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  userProps.deleteProperty(COINBASE_SYNC_CONFIG.REFRESH_FLAG_PROP);
-  return UPDATE_COINBASE_SPOT();
+  return "LEGACY_DISABLED: manual requests use CEX_MANUAL_REFRESH_WORKER";
 }

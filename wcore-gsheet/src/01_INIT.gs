@@ -38,8 +38,8 @@ var INIT_VERSION = "4.15.63";
 
 var WCORE_VERSION = {
   MAJOR: 4,
-  MINOR: 15,
-  PATCH: 99,
+  MINOR: 16,
+  PATCH: 40,
 
   toString: function() {
     return 'v' + this.MAJOR + '.' + this.MINOR + '.' + this.PATCH;
@@ -57,10 +57,10 @@ var WCORE_VERSION = {
 // ============================================================
 // CACHE VERSIONS - Centralized cache version management
 // NOTE: Three separate systems coexist (by design):
-//   1. WCORE_CACHE_VERSION (integer 11) — bumps invalidate ALL wallet caches
-//   2. CACHE_VERSIONS (object below) — per-category TTLs and version tags
-//   3. WCORE_VM_CACHE_VERSIONS (EVM:64, SVM:65, COSMOS:68) — per-VM invalidation
-// Do NOT consolidate — each serves a distinct invalidation scope.
+//   1. WCORE_CACHE_VERSION (integer 11) â€” bumps invalidate ALL wallet caches
+//   2. CACHE_VERSIONS (object below) â€” per-category TTLs and version tags
+//   3. WCORE_VM_CACHE_VERSIONS (EVM:64, SVM:65, COSMOS:68) â€” per-VM invalidation
+// Do NOT consolidate â€” each serves a distinct invalidation scope.
 // ============================================================
 
 var CACHE_VERSIONS = {
@@ -620,7 +620,7 @@ function WCORE_IS_SAFE(priority) {
       var mode = WcoreHttpMode.getEffectiveMode ? WcoreHttpMode.getEffectiveMode() : WcoreHttpMode.getMode();
       // v4.15.62: in recovery mode, CACHE_ONLY is acceptable (no HTTP needed for
       // the recovery sweep / J1 sync / B1 pulse). Blocking the watchdog on a
-      // tripped breaker is what froze everything on 2026-06-01 — the watchdog
+      // tripped breaker is what froze everything on 2026-06-01 â€” the watchdog
       // needs to run to *clear* the trip.
       if (mode === "CACHE_ONLY" && _prio !== "recovery") {
         return { safe: false, reason: "HTTP_MODE_CACHE_ONLY", mode: mode };

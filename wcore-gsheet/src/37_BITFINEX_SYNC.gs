@@ -1,5 +1,5 @@
 // v4.16.34 - Keep dedicated hourly sync; disable legacy watchdog installation.
-// v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers prÃ©sents mais mal autorisÃ©s" v4.15.61).
+// v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers présents mais mal autorisés" v4.15.61).
 // v4.15.89 - Use shared CEX manual-refresh helpers.
 // v4.15.88 - Store Bitfinex credentials in DocumentProperties so time triggers can read them.
 // v4.15.87 - Manual refresh writes visible B1 REQUEST flag for trigger-context safe handoff.

@@ -34,7 +34,7 @@ function _cryptoPortfolioFetchWithRetry_(fetchFn) {
       if (attempt < CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
         try {
           if (typeof Logger !== "undefined" && Logger.log) {
-            Logger.log("[CRYPTO_PORTFOLIO] fetch attempt " + attempt + "/" + CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " â€” retrying in " + (CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
+            Logger.log("[CRYPTO_PORTFOLIO] fetch attempt " + attempt + "/" + CRYPTO_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " — retrying in " + (CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
           }
         } catch (eLog) {}
         try { Utilities.sleep(CRYPTO_PORTFOLIO_FETCH_RETRY_DELAY_MS); } catch (eSleep) {}
@@ -57,8 +57,8 @@ var CRYPTO_PORTFOLIO_CONFIG = {
 };
 
 var CRYPTO_PORTFOLIO_HEADERS = [
-  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance ThÃ©orique", "Total â‚¬", "Exclude", "Include", "% Stable",
-  "âˆš MC", "% Cible thÃ©o", "% Cible stable", "% Cible", "% RÃ©el", "Ecart", "Actions", "Signal", "Achat", "Duplicate"
+  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance Théorique", "Total €", "Exclude", "Include", "% Stable",
+  "√ MC", "% Cible théo", "% Cible stable", "% Cible", "% Réel", "Ecart", "Actions", "Signal", "Achat", "Duplicate"
 ];
 
 if (typeof PORTFOLIO_SHARED_COLUMN_WIDTHS === "undefined") {
@@ -209,7 +209,7 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
     "=IFERROR(XLOOKUP(\"V\";R:R;A:A);\"\")",
     ">",
     "=IFERROR(XLOOKUP(\"X\";R:R;A:A);\"\")",
-    "SÃ©curisation :",
+    "Sécurisation :",
     "=Strat!BW1",
     "=IFERROR(XLOOKUP(J1;B3:B;K3:K)/AA1;0)",
     "=SUMPRODUCT((B3:B>J1)*1;(B3:B<=(Z1+J1))*1)",
@@ -248,16 +248,16 @@ function REPAIR_CRYPTO_PORTFOLIO_V2_FORMATS() {
   var dataRows = Math.max(1, CRYPTO_PORTFOLIO_CONFIG.MAX_ROWS - CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW + 1);
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 1, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 2, dataRows, 1).setNumberFormat("0").setHorizontalAlignment("center");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"â‚¬\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"€\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 5, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 6, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 8, dataRows, 2).setNumberFormat("0").setHorizontalAlignment("center");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 10, dataRows, 1).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 11, dataRows, 1).setNumberFormat("0.00").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 12, dataRows, 4).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
-  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
+  sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 17, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
   sh.getRange(CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 18, dataRows, 3).setNumberFormat("@").setHorizontalAlignment("center");
   sh.getRange(2, 1, 1, CRYPTO_PORTFOLIO_HEADERS.length)

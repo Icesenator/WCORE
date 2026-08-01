@@ -30,10 +30,10 @@ var WCORE_AUTO_HEAL_COOLDOWN_MS = 10 * 60 * 1000;
 var WCORE_AUTO_HEAL_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
 // v4.16.30: _runPricingWorker added to managed trigger list + active cleanup.
-// v4.15.51: J1 staleness self-repair (_wcoreAutoHealJ1Staleness_) â€” detects a
+// v4.15.51: J1 staleness self-repair (_wcoreAutoHealJ1Staleness_) — detects a
 // SYNC_J1 trigger that is present but silently stopped firing, force-syncs J1
 // and revives the trigger. Spec bumped to force a clean trigger reinstall.
-// v4.15.99: MASTER_ON_EDIT re-enabled â€” A1 checkbox manual refresh for Ledger sheets.
+// v4.15.99: MASTER_ON_EDIT re-enabled — A1 checkbox manual refresh for Ledger sheets.
 // Installable onEdit trigger pulses B1 then resets A1=FALSE when user checks A1.
 var WCORE_AUTO_HEAL_TRIGGER_SPEC = "v4.16.35:autoHealTimer10:triggerFirst:skipProbesOnInstall:forceNoBootstrap:watchdog10:recovery30:syncJ1Script:ledgerChange:pricingWorker:cexManualQueue:cexRelayRotation15:bitpandaStocksHourly:stockPortfolioHourly:topMarketcapWeekly:masterOnEdit:ssAccessProbe:pricingWorkerCleanup:activityDisabled:dedicatedLeases";
 var WCORE_AUTO_HEAL_CEX_STALE_MS = 5 * 60 * 60 * 1000;
@@ -80,15 +80,15 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   var stats = { timeTriggers: 0, spreadsheetTriggers: 0, spreadsheetSkipped: "" };
   ScriptApp.newTrigger("WCORE_AUTO_HEAL_TIMER").timeBased().everyMinutes(10).create();
   stats.timeTriggers++;
-  // v4.16.30: ACTIVITY_WATCHDOG DISABLED â€” was consuming ~5760 UrlFetch calls/day
-  // (120+ wallets Ã— eth_getTransactionCount via fetchAll, every 30 min).
+  // v4.16.30: ACTIVITY_WATCHDOG DISABLED — was consuming ~5760 UrlFetch calls/day
+  // (120+ wallets × eth_getTransactionCount via fetchAll, every 30 min).
   // WATCHDOG_FROM_RECAP (every 10 min, I1 > 5h stale detection) is sufficient
   // for refresh scheduling. Activity-based refresh is not needed.
   ScriptApp.newTrigger("WATCHDOG_FROM_RECAP").timeBased().everyMinutes(10).create();
   stats.timeTriggers++;
   ScriptApp.newTrigger("QUOTA_RECOVERY_SWEEP").timeBased().everyMinutes(30).create();
   stats.timeTriggers++;
-  // v4.15.34: _runPricingWorker DISABLED â€” WEB_SCAN handles pricing server-side on Railway
+  // v4.15.34: _runPricingWorker DISABLED — WEB_SCAN handles pricing server-side on Railway
   ScriptApp.newTrigger("SYNC_J1_ALL_SHEETS").timeBased().everyMinutes(5).create();
   stats.timeTriggers++;
   // v4.15.120: hourly per-connector CEX triggers. The old central 4h refresh
@@ -239,7 +239,7 @@ function _wcoreAutoHealEnsureTriggers_(out, props, force) {
     // v4.15.61: A trigger can be present (count=1) but run under a STALE
     // authorization (e.g. after repeated clasp pushes), making
     // SpreadsheetApp.openById() and the advanced Sheets service fail inside the
-    // trigger context â€” the watchdog then silently writes nothing (root cause of
+    // trigger context — the watchdog then silently writes nothing (root cause of
     // the 2026-06-01 freeze: B1/I1/J1 frozen while triggers showed "Completed").
     // Detect that "present-but-unauthorized" blind spot by probing real
     // spreadsheet access and force a reinstall so the handlers are re-authorized.
@@ -298,7 +298,7 @@ function _wcoreAutoHealEnsureTriggers_(out, props, force) {
 function _wcoreAutoHealEnsurePricingWorker_(out, props) {
   try {
     props.setProperty("PHASE_C_ENABLED", "true");
-    // v4.15.34: PRICING_WORKER disabled â€” redundant with WEB_SCAN server-side pricing.
+    // v4.15.34: PRICING_WORKER disabled — redundant with WEB_SCAN server-side pricing.
     // v4.16.30: Actively delete any stale _runPricingWorker triggers that may have
     // persisted from before v4.15.34, since the managed trigger list only deletes
     // triggers it knows about and _runPricingWorker was never added to it.
@@ -319,7 +319,7 @@ function _wcoreAutoHealEnsurePricingWorker_(out, props) {
         }
       }
     } catch (ePwClean) {}
-    _wcoreAutoHealRow_(out, "Pricing worker", "DISABLED", "v4.15.34 â€” WEB_SCAN handles pricing" + (pwRemoved > 0 ? "; removed " + pwRemoved + " stale trigger(s)" : ""));
+    _wcoreAutoHealRow_(out, "Pricing worker", "DISABLED", "v4.15.34 — WEB_SCAN handles pricing" + (pwRemoved > 0 ? "; removed " + pwRemoved + " stale trigger(s)" : ""));
   } catch (eWorker) {
     _wcoreAutoHealRow_(out, "Pricing worker", "WARN", eWorker.message);
   }
@@ -634,7 +634,7 @@ function WCORE_AUTO_HEAL_STATUS() {
   out.push(["CEX heartbeat mode", cexStatus == null ? "UNKNOWN" : cexStatus.mode + " stale=" + cexStatus.staleCount + "/" + cexStatus.total]);
   out.push(["CEX last result", props.getProperty("CEX_HOURLY_REFRESH_LAST_RESULT") || ""]);
   out.push(["PHASE_C_ENABLED", props.getProperty("PHASE_C_ENABLED") || ""]);
-  // PRICING_WORKER removed v4.15.34 â€” WEB_SCAN handles pricing server-side on Railway
+  // PRICING_WORKER removed v4.15.34 — WEB_SCAN handles pricing server-side on Railway
   return out;
 }
 

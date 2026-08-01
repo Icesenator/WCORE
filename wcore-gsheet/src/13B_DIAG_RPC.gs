@@ -468,16 +468,16 @@ function DIAG_WATCHDOG() {
  }
  
  if (triggerCount === 0) {
- out.push(["1. Trigger installe", "aÃ‚ÂÃ…â€™ NON", "Aucun trigger WATCHDOG_FROM_RECAP trouve", "Executer INSTALL_WATCHDOG()"]);
+ out.push(["1. Trigger installe", "aÂÅ’ NON", "Aucun trigger WATCHDOG_FROM_RECAP trouve", "Executer INSTALL_WATCHDOG()"]);
  hasIssue = true;
  } else if (triggerCount > 1) {
- out.push(["1. Trigger installe", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â MULTIPLE", triggerCount + " triggers trouves (devrait ÃƒÆ’Ã‚Âªtre 1)", "Executer UNINSTALL_WATCHDOG() puis INSTALL_WATCHDOG()"]);
+ out.push(["1. Trigger installe", "aÅ¡Â iÂ¸Â MULTIPLE", triggerCount + " triggers trouves (devrait ÃƒÂªtre 1)", "Executer UNINSTALL_WATCHDOG() puis INSTALL_WATCHDOG()"]);
  hasIssue = true;
  } else {
- out.push(["1. Trigger installe", "aÃ…â€œÃ¢EURÂ¦ OUI", "1 trigger actif", ""]);
+ out.push(["1. Trigger installe", "aÅ“âEUR¦ OUI", "1 trigger actif", ""]);
  }
  } catch (e) {
- out.push(["1. Trigger installe", "aÃ‚ÂÃ…â€™ ERREUR", e.message, "Verifier les permissions"]);
+ out.push(["1. Trigger installe", "aÂÅ’ ERREUR", e.message, "Verifier les permissions"]);
  hasIssue = true;
  }
  
@@ -489,19 +489,19 @@ function DIAG_WATCHDOG() {
  var recap = ss.getSheetByName("Recap Portfolio");
  
  if (!recap) {
- out.push(["2. Feuille Recap Chain", "aÃ‚ÂÃ…â€™ ABSENTE", "La feuille 'Recap Chain' n'existe pas", "Creer une feuille 'Recap Chain' avec les noms des feuilles en colonne A"]);
+ out.push(["2. Feuille Recap Chain", "aÂÅ’ ABSENTE", "La feuille 'Recap Chain' n'existe pas", "Creer une feuille 'Recap Chain' avec les noms des feuilles en colonne A"]);
  hasIssue = true;
  } else {
  var lastRow = recap.getLastRow();
  if (lastRow < 2) {
- out.push(["2. Feuille Recap Chain", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â VIDE", "Aucune feuille listee", "Ajouter les noms des feuilles ÃƒÆ’Ã‚Â  monitorer en colonne A (ÃƒÆ’Ã‚Â  partir de A2)"]);
+ out.push(["2. Feuille Recap Chain", "aÅ¡Â iÂ¸Â VIDE", "Aucune feuille listee", "Ajouter les noms des feuilles ÃƒÂ  monitorer en colonne A (ÃƒÂ  partir de A2)"]);
  hasIssue = true;
  } else {
  var sheetNames = recap.getRange(2, 1, lastRow - 1, 1).getValues()
  .map(function(r) { return String(r[0] || "").trim(); })
   .filter(function(n) { return n && n !== "Recap Portfolio"; });
  
- out.push(["2. Feuille Recap Chain", "aÃ…â€œÃ¢EURÂ¦ OK", sheetNames.length + " feuilles listees", ""]);
+ out.push(["2. Feuille Recap Chain", "aÅ“âEUR¦ OK", sheetNames.length + " feuilles listees", ""]);
  
  // Lister les 5 premieres feuilles
  var sample = sheetNames.slice(0, 5).join(", ");
@@ -510,7 +510,7 @@ function DIAG_WATCHDOG() {
  }
  }
  } catch (e) {
- out.push(["2. Feuille Recap Chain", "aÃ‚ÂÃ…â€™ ERREUR", e.message, ""]);
+ out.push(["2. Feuille Recap Chain", "aÂÅ’ ERREUR", e.message, ""]);
  hasIssue = true;
  }
  
@@ -522,7 +522,7 @@ function DIAG_WATCHDOG() {
  var lastStats = props.getProperty("WD_LAST_STATS_v1");
  
  if (!lastStats) {
- out.push(["3. Derniere execution", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â AUCUNE", "Le watchdog n'a jamais ete execute", "Attendre 1 minute ou executer WATCHDOG_FROM_RECAP() manuellement"]);
+ out.push(["3. Derniere execution", "aÅ¡Â iÂ¸Â AUCUNE", "Le watchdog n'a jamais ete execute", "Attendre 1 minute ou executer WATCHDOG_FROM_RECAP() manuellement"]);
  hasIssue = true;
  } else {
  var stats = JSON.parse(lastStats);
@@ -530,10 +530,10 @@ function DIAG_WATCHDOG() {
  var ageMinutes = execTime ? Math.round((Date.now() - execTime.getTime()) / 60000) : -1;
  
  if (ageMinutes > 5) {
- out.push(["3. Derniere execution", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â ANCIENNE", "Il y a " + ageMinutes + " minutes", "Le trigger ne semble pas s'executer"]);
+ out.push(["3. Derniere execution", "aÅ¡Â iÂ¸Â ANCIENNE", "Il y a " + ageMinutes + " minutes", "Le trigger ne semble pas s'executer"]);
  hasIssue = true;
  } else {
- out.push(["3. Derniere execution", "aÃ…â€œÃ¢EURÂ¦ RÃƒÆ’Ã¢EURÂ°CENTE", "Il y a " + ageMinutes + " min (" + stats.ts + ")", ""]);
+ out.push(["3. Derniere execution", "aÅ“âEUR¦ RÃƒâEUR°CENTE", "Il y a " + ageMinutes + " min (" + stats.ts + ")", ""]);
  }
  
  // Details de la derniere execution
@@ -544,12 +544,12 @@ function DIAG_WATCHDOG() {
  out.push([" Duree exec", "", stats.exec_ms + " ms", ""]);
  
  if (stats.note && stats.note !== "ok") {
- out.push([" Note/Erreur", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â", stats.note, ""]);
+ out.push([" Note/Erreur", "aÅ¡Â iÂ¸Â", stats.note, ""]);
  hasIssue = true;
  }
  }
  } catch (e) {
- out.push(["3. Derniere execution", "aÃ‚ÂÃ…â€™ ERREUR", e.message, ""]);
+ out.push(["3. Derniere execution", "aÂÅ’ ERREUR", e.message, ""]);
  hasIssue = true;
  }
  
@@ -566,7 +566,7 @@ function DIAG_WATCHDOG() {
  out.push([" Installe le", "", installedAt, ""]);
  }
  } catch (e) {
- out.push(["4. Curseur rotation", "aÃ‚ÂÃ…â€™ ERREUR", e.message, ""]);
+ out.push(["4. Curseur rotation", "aÂÅ’ ERREUR", e.message, ""]);
  }
  
  // ============================================================
@@ -583,7 +583,7 @@ function DIAG_WATCHDOG() {
  var testSheet = ss.getSheetByName(firstSheetName);
  
  if (!testSheet) {
- out.push(["5. Test feuille '" + firstSheetName + "'", "aÃ‚ÂÃ…â€™ INTROUVABLE", "La feuille listee n'existe pas", "Verifier le nom dans Recap Chain"]);
+ out.push(["5. Test feuille '" + firstSheetName + "'", "aÂÅ’ INTROUVABLE", "La feuille listee n'existe pas", "Verifier le nom dans Recap Chain"]);
  hasIssue = true;
  } else {
  var vA2 = String(testSheet.getRange("A2").getDisplayValue() || "");
@@ -591,35 +591,35 @@ function DIAG_WATCHDOG() {
  var vJ1 = String(testSheet.getRange("J1").getDisplayValue() || "");
  var vB1 = String(testSheet.getRange("B1").getDisplayValue() || "");
  
- out.push(["5. Test feuille '" + firstSheetName + "'", "ÃƒÂ°Ã…Â¸Ã¢EURÅ“Ã¢EURÂ¹ VALEURS", "", ""]);
+ out.push(["5. Test feuille '" + firstSheetName + "'", "Ã°Å¸âEURœâEUR¹ VALEURS", "", ""]);
  out.push([" A2 (chain_name)", "", vA2.substring(0, 50), ""]);
- out.push([" I1 (last_update)", "", vI1, _isValidDateFormat(vI1) ? "aÃ…â€œÃ¢EURÂ¦ Format OK" : "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â Format invalide"]);
+ out.push([" I1 (last_update)", "", vI1, _isValidDateFormat(vI1) ? "aÅ“âEUR¦ Format OK" : "aÅ¡Â iÂ¸Â Format invalide"]);
  out.push([" J1 (synced)", "", vJ1, ""]);
  out.push([" B1 (pulse)", "", vB1, ""]);
  
- // Verifier si I1 > J1 (devrait ÃƒÆ’Ã‚Âªtre synchronise)
+ // Verifier si I1 > J1 (devrait ÃƒÂªtre synchronise)
  if (_isValidDateFormat(vI1)) {
  var i1Ms = _parseDate(vI1);
  var j1Ms = _isValidDateFormat(vJ1) ? _parseDate(vJ1) : 0;
  
  if (i1Ms > j1Ms) {
- out.push([" aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â DÃƒÆ’Ã¢EURÂ°SYNCHRONISÃƒÆ’Ã¢EURÂ°", "", "I1 (" + vI1 + ") > J1 (" + vJ1 + ")", "Le watchdog devrait synchroniser"]);
+ out.push([" aÅ¡Â iÂ¸Â DÃƒâEUR°SYNCHRONISÃƒâEUR°", "", "I1 (" + vI1 + ") > J1 (" + vJ1 + ")", "Le watchdog devrait synchroniser"]);
  hasIssue = true;
  } else if (i1Ms === j1Ms) {
- out.push([" aÃ…â€œÃ¢EURÂ¦ SYNCHRONISÃƒÆ’Ã¢EURÂ°", "", "I1 = J1", ""]);
+ out.push([" aÅ“âEUR¦ SYNCHRONISÃƒâEUR°", "", "I1 = J1", ""]);
  }
  } else if (vI1) {
- out.push([" aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â FORMAT I1", "", "'" + vI1 + "' n'est pas au format YYYY-MM-DD HH:MM:SS", "Verifier la formule qui genere I1"]);
+ out.push([" aÅ¡Â iÂ¸Â FORMAT I1", "", "'" + vI1 + "' n'est pas au format YYYY-MM-DD HH:MM:SS", "Verifier la formule qui genere I1"]);
  hasIssue = true;
  } else {
- out.push([" aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â I1 VIDE", "", "Aucune valeur dans I1", "Verifier que GET_WALLET_ASSETS fonctionne"]);
+ out.push([" aÅ¡Â iÂ¸Â I1 VIDE", "", "Aucune valeur dans I1", "Verifier que GET_WALLET_ASSETS fonctionne"]);
  hasIssue = true;
  }
  }
  }
  }
  } catch (e) {
- out.push(["5. Test feuille", "aÃ‚ÂÃ…â€™ ERREUR", e.message, ""]);
+ out.push(["5. Test feuille", "aÂÅ’ ERREUR", e.message, ""]);
  hasIssue = true;
  }
  
@@ -628,9 +628,9 @@ function DIAG_WATCHDOG() {
  // ============================================================
  out.push(["", "", "", ""]);
  if (hasIssue) {
- out.push(["ÃƒÂ°Ã…Â¸Ã¢EURÂÃ‚Â´ RÃƒÆ’Ã¢EURÂ°SUMÃƒÆ’Ã¢EURÂ°", "PROBLÃƒÆ’Ã‹â€ ME DÃƒÆ’Ã¢EURÂ°TECTÃƒÆ’Ã¢EURÂ°", "Voir les actions recommandees ci-dessus", ""]);
+ out.push(["Ã°Å¸âEURÂ´ RÃƒâEUR°SUMÃƒâEUR°", "PROBLÃƒË†ME DÃƒâEUR°TECTÃƒâEUR°", "Voir les actions recommandees ci-dessus", ""]);
  } else {
- out.push(["ÃƒÂ°Ã…Â¸Ã…Â¸Ã‚Â¢ RÃƒÆ’Ã¢EURÂ°SUMÃƒÆ’Ã¢EURÂ°", "TOUT SEMBLE OK", "Si J1 ne se met pas ÃƒÆ’Ã‚Â  jour, attendre quelques minutes", ""]);
+ out.push(["Ã°Å¸Å¸Â¢ RÃƒâEUR°SUMÃƒâEUR°", "TOUT SEMBLE OK", "Si J1 ne se met pas ÃƒÂ  jour, attendre quelques minutes", ""]);
  }
  
  return out;
@@ -638,7 +638,7 @@ function DIAG_WATCHDOG() {
 
 /**
  * Diagnostic d'une feuille specifique
- * @param {string} sheetName - Nom de la feuille ÃƒÆ’Ã‚Â  diagnostiquer
+ * @param {string} sheetName - Nom de la feuille ÃƒÂ  diagnostiquer
  * @returns {Array} Rapport de diagnostic
  * @customfunction
  */
@@ -667,25 +667,25 @@ function DIAG_WATCHDOG_SHEET(sheetName) {
  
  // A2 - chain_name
  var vA2 = String(cells["A2"] || "");
- var a2Status = vA2.startsWith("#") || vA2.toLowerCase().includes("erreur") ? "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â ERREUR" : "aÃ…â€œÃ¢EURÂ¦ OK";
+ var a2Status = vA2.startsWith("#") || vA2.toLowerCase().includes("erreur") ? "aÅ¡Â iÂ¸Â ERREUR" : "aÅ“âEUR¦ OK";
  out.push(["A2", vA2.substring(0, 60), a2Status, "chain_name de la premiere ligne de donnees"]);
  
  // B1 - pulse trigger
  var vB1 = String(cells["B1"] || "");
- var b1Status = vB1 ? (_isValidDateFormat(vB1) ? "aÃ…â€œÃ¢EURÂ¦ OK" : "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â Format?") : "aÃ…Â¡Ã‚Âª Vide";
+ var b1Status = vB1 ? (_isValidDateFormat(vB1) ? "aÅ“âEUR¦ OK" : "aÅ¡Â iÂ¸Â Format?") : "aÅ¡Âª Vide";
  out.push(["B1", vB1, b1Status, "Timestamp du dernier pulse (trigger refresh)"]);
  
  // I1 - last_update
  var vI1 = String(cells["I1"] || "");
- var i1Status = "aÃ…Â¡Ã‚Âª Vide";
+ var i1Status = "aÅ¡Âª Vide";
  if (vI1) {
- i1Status = _isValidDateFormat(vI1) ? "aÃ…â€œÃ¢EURÂ¦ Format OK" : "aÃ‚ÂÃ…â€™ Format invalide";
+ i1Status = _isValidDateFormat(vI1) ? "aÅ“âEUR¦ Format OK" : "aÂÅ’ Format invalide";
  }
  out.push(["I1", vI1, i1Status, "Dernier update des donnees (source)"]);
  
  // J1 - synced
  var vJ1 = String(cells["J1"] || "");
- var j1Status = vJ1 ? (_isValidDateFormat(vJ1) ? "aÃ…â€œÃ¢EURÂ¦ OK" : "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â Format?") : "aÃ…Â¡Ã‚Âª Vide";
+ var j1Status = vJ1 ? (_isValidDateFormat(vJ1) ? "aÅ“âEUR¦ OK" : "aÅ¡Â iÂ¸Â Format?") : "aÅ¡Âª Vide";
  out.push(["J1", vJ1, j1Status, "Copie de I1 par le watchdog (destination)"]);
  
  // Analyse de synchronisation
@@ -693,24 +693,24 @@ function DIAG_WATCHDOG_SHEET(sheetName) {
  out.push(["--- ANALYSE ---", "", "", ""]);
  
  if (!vI1) {
- out.push(["Probleme", "I1 est vide", "aÃ‚ÂÃ…â€™", "La formule GET_WALLET_ASSETS ne retourne pas de last_update"]);
+ out.push(["Probleme", "I1 est vide", "aÂÅ’", "La formule GET_WALLET_ASSETS ne retourne pas de last_update"]);
  } else if (!_isValidDateFormat(vI1)) {
- out.push(["Probleme", "Format I1 invalide", "aÃ‚ÂÃ…â€™", "Attendu: YYYY-MM-DD HH:MM:SS, recu: '" + vI1 + "'"]);
+ out.push(["Probleme", "Format I1 invalide", "aÂÅ’", "Attendu: YYYY-MM-DD HH:MM:SS, recu: '" + vI1 + "'"]);
  } else {
  var i1Ms = _parseDate(vI1);
  var j1Ms = vJ1 && _isValidDateFormat(vJ1) ? _parseDate(vJ1) : 0;
  var nowMs = Date.now();
  var ageMinutes = Math.round((nowMs - i1Ms) / 60000);
  
- out.push(["ÃƒÆ’Ã¢EURÅ¡ge de I1", ageMinutes + " minutes", ageMinutes > 60 ? "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â > 1h" : "aÃ…â€œÃ¢EURÂ¦", ""]);
+ out.push(["ÃƒâEURšge de I1", ageMinutes + " minutes", ageMinutes > 60 ? "aÅ¡Â iÂ¸Â > 1h" : "aÅ“âEUR¦", ""]);
  
  if (j1Ms === 0) {
- out.push(["Sync status", "J1 vide ou invalide", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â", "Le watchdog devrait copier I1 vers J1"]);
+ out.push(["Sync status", "J1 vide ou invalide", "aÅ¡Â iÂ¸Â", "Le watchdog devrait copier I1 vers J1"]);
  } else if (i1Ms > j1Ms) {
  var diffSec = Math.round((i1Ms - j1Ms) / 1000);
- out.push(["Sync status", "DÃƒÆ’Ã¢EURÂ°SYNCHRONISÃƒÆ’Ã¢EURÂ°", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â", "I1 est plus recent que J1 de " + diffSec + " secondes"]);
+ out.push(["Sync status", "DÃƒâEUR°SYNCHRONISÃƒâEUR°", "aÅ¡Â iÂ¸Â", "I1 est plus recent que J1 de " + diffSec + " secondes"]);
  } else {
- out.push(["Sync status", "SYNCHRONISÃƒÆ’Ã¢EURÂ°", "aÃ…â€œÃ¢EURÂ¦", "I1 = J1"]);
+ out.push(["Sync status", "SYNCHRONISÃƒâEUR°", "aÅ“âEUR¦", "I1 = J1"]);
  }
  }
  
@@ -723,12 +723,12 @@ function DIAG_WATCHDOG_SHEET(sheetName) {
  .map(function(r) { return String(r[0] || "").trim(); });
  
  var isListed = recapNames.indexOf(sheetName) >= 0;
- out.push(["Dans Recap Chain", isListed ? "OUI" : "NON", isListed ? "aÃ…â€œÃ¢EURÂ¦" : "aÃ‚ÂÃ…â€™", isListed ? "" : "Ajouter '" + sheetName + "' dans Recap Chain!A"]);
+ out.push(["Dans Recap Chain", isListed ? "OUI" : "NON", isListed ? "aÅ“âEUR¦" : "aÂÅ’", isListed ? "" : "Ajouter '" + sheetName + "' dans Recap Chain!A"]);
  }
  }
  
  } catch (e) {
- out.push(["ERROR", e.message, "aÃ‚ÂÃ…â€™", ""]);
+ out.push(["ERROR", e.message, "aÂÅ’", ""]);
  }
  
  return out;
@@ -753,34 +753,34 @@ function DIAG_WATCHDOG_FIX() {
  removed++;
  }
  }
- out.push(["1. Suppression anciens triggers", "aÃ…â€œÃ¢EURÂ¦", removed + " trigger(s) supprime(s)"]);
+ out.push(["1. Suppression anciens triggers", "aÅ“âEUR¦", removed + " trigger(s) supprime(s)"]);
  
  // 2. Installer le trigger a la cadence canonique du watchdog
  ScriptApp.newTrigger("WATCHDOG_FROM_RECAP")
  .timeBased()
  .everyMinutes(10)
  .create();
- out.push(["2. Installation nouveau trigger", "aÃ…â€œÃ¢EURÂ¦", "Trigger cree (every 10 min)"]);
+ out.push(["2. Installation nouveau trigger", "aÅ“âEUR¦", "Trigger cree (every 10 min)"]);
  
  // 3. Reset du curseur
  var props = PropertiesService.getScriptProperties();
  props.setProperty("WD_CURSOR_v2", "0");
  props.setProperty("WD_INSTALLED_AT_v2", new Date().toISOString());
- out.push(["3. Reset curseur", "aÃ…â€œÃ¢EURÂ¦", "Curseur remis ÃƒÆ’Ã‚Â  0"]);
+ out.push(["3. Reset curseur", "aÅ“âEUR¦", "Curseur remis ÃƒÂ  0"]);
  
  // 4. Execution manuelle pour test
  try {
  WATCHDOG_FROM_RECAP();
- out.push(["4. Execution test", "aÃ…â€œÃ¢EURÂ¦", "Watchdog execute avec succes"]);
+ out.push(["4. Execution test", "aÅ“âEUR¦", "Watchdog execute avec succes"]);
  } catch (e) {
- out.push(["4. Execution test", "aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â", "Erreur: " + e.message]);
+ out.push(["4. Execution test", "aÅ¡Â iÂ¸Â", "Erreur: " + e.message]);
  }
  
  out.push(["", "", ""]);
- out.push(["ÃƒÂ°Ã…Â¸Ã…Â¸Ã‚Â¢ WATCHDOG RÃƒÆ’Ã¢EURÂ°INSTALLÃƒÆ’Ã¢EURÂ°", "", "Attendez 1-2 minutes et verifiez avec =DIAG_WATCHDOG()"]);
+ out.push(["Ã°Å¸Å¸Â¢ WATCHDOG RÃƒâEUR°INSTALLÃƒâEUR°", "", "Attendez 1-2 minutes et verifiez avec =DIAG_WATCHDOG()"]);
  
  } catch (e) {
- out.push(["ERREUR", "aÃ‚ÂÃ…â€™", e.message]);
+ out.push(["ERREUR", "aÂÅ’", e.message]);
  }
  
  return out;
@@ -808,7 +808,7 @@ function FORCE_SYNC_J1(sheetName) {
  var vI1 = String(sheet.getRange("I1").getDisplayValue() || "");
  
  if (!vI1) {
- return "I1 est vide - rien ÃƒÆ’Ã‚Â  synchroniser";
+ return "I1 est vide - rien ÃƒÂ  synchroniser";
  }
  
  sheet.getRange("J1").setValue(vI1);
@@ -830,7 +830,7 @@ function _isValidDateFormat(s) {
 }
 
 /**
- * v4.15.23: Diag cell reader â€” returns the last WATCHDOG_FROM_RECAP dump
+ * v4.15.23: Diag cell reader — returns the last WATCHDOG_FROM_RECAP dump
  * Written by WATCHDOG_FROM_RECAP at end of every run (property WCORE_WD_LAST_DIAG)
  * Usage: =WCORE_WD_LAST_DIAG_READ() in any empty cell
  * @customfunction
@@ -838,7 +838,7 @@ function _isValidDateFormat(s) {
 function WCORE_WD_LAST_DIAG_READ(_force) {
   try {
     var raw = PropertiesService.getScriptProperties().getProperty("WCORE_WD_LAST_DIAG");
-    if (!raw) return "[UNSET] WATCHDOG_FROM_RECAP jamais exÃ©cutÃ© depuis dÃ©ploiement du diag";
+    if (!raw) return "[UNSET] WATCHDOG_FROM_RECAP jamais exécuté depuis déploiement du diag";
     return raw;
   } catch (e) {
     return "[ERR] " + e.message;
@@ -846,7 +846,7 @@ function WCORE_WD_LAST_DIAG_READ(_force) {
 }
 
 /**
- * v4.15.23: Trigger inventory diag â€” lists handler functions installed as triggers.
+ * v4.15.23: Trigger inventory diag — lists handler functions installed as triggers.
  * Uses PropertiesService-cached snapshot written by WATCHDOG_FROM_RECAP diag path.
  * Falls back to empty string if no snapshot yet.
  * @customfunction

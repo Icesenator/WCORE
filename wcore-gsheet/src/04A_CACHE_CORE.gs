@@ -480,7 +480,7 @@ CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(target
  // > other caches(60) > old wallets(90)
  // v4.15.62: WCORE_HTTP_* daily counters and OUTSNAP_* output snapshots accumulate
  // without bound and were the overflow tipping ScriptProperties past 500KB
- // (2026-06-01 storage-quota freeze). Purge them FIRST â€” they are reconstructible.
+ // (2026-06-01 storage-quota freeze). Purge them FIRST — they are reconstructible.
   pushIf(function(k){ return k.indexOf("WCORE_HTTP_") === 0; }, 5);
   pushIf(function(k){ return k.indexOf("OUTSNAP_") === 0; }, 8);
   // v4.15.100: stale activity data stored in ScriptProperties (should be SheetCache/memory)
@@ -571,7 +571,7 @@ var GLOBAL_CACHE_KEYS = {
 
 var GLOBAL_CACHE_CONFIG = {
  PRICE_TTL_MS: 600000, // 10 min
- PRICE_STALE_MS: 5400000, // 90min (alignÃ© avec WCORE_CACHE_CONFIG.PRICE_STALE_MS)
+ PRICE_STALE_MS: 5400000, // 90min (aligné avec WCORE_CACHE_CONFIG.PRICE_STALE_MS)
  FX_TTL_MS: 3600000, // 1h
  META_TTL_MS: 604800000, // 7d
  CLEANUP_INTERVAL_MS: 86400000, // 24h

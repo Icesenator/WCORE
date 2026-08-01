@@ -35,7 +35,7 @@ function _stockPortfolioFetchWithRetry_(fetchFn) {
       if (attempt < STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
         try {
           if (typeof Logger !== "undefined" && Logger.log) {
-            Logger.log("[STOCK_PORTFOLIO] fetch attempt " + attempt + "/" + STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " â€” retrying in " + (STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
+            Logger.log("[STOCK_PORTFOLIO] fetch attempt " + attempt + "/" + STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: " + String(e && e.message ? e.message : e) + " — retrying in " + (STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
           }
         } catch (eLog) {}
         try { Utilities.sleep(STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS); } catch (eSleep) {}
@@ -56,8 +56,8 @@ var STOCK_PORTFOLIO_CONFIG = {
 };
 
 var STOCK_PORTFOLIO_HEADERS = [
-  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance ThÃ©orique", "Total â‚¬", "Exclude", "Include", "% Stable",
-  "âˆš MC", "% Cible thÃ©o", "% Cible stable", "% Cible", "% RÃ©el", "Ecart", "Actions", "Signal", "Achat", ""
+  "Symbol", "CMC Rank", "Price EUR", "Market Cap EUR", "Name", "Balance Théorique", "Total €", "Exclude", "Include", "% Stable",
+  "√ MC", "% Cible théo", "% Cible stable", "% Cible", "% Réel", "Ecart", "Actions", "Signal", "Achat", ""
 ];
 
 var PORTFOLIO_SHARED_COLUMN_WIDTHS = [87, 131, 91, 131, 168, 91, 69, 78, 74, 83, 59, 75, 75, 75, 71, 60, 76, 67, 64, 88];
@@ -194,7 +194,7 @@ function _stockPortfolioBuildRow1_(existingRow1) {
     "=IFERROR(XLOOKUP(\"V\";R:R;A:A);\"\")",
     ">",
     "=IFERROR(XLOOKUP(\"X\";R:R;A:A);\"\")",
-    "SÃ©curisation :",
+    "Sécurisation :",
     "=Strat!BW1",
     "=IFERROR(XLOOKUP(J1;B3:B;K3:K)/AA1;0)",
     "=SUMPRODUCT((B3:B>J1)*1;(B3:B<=(Z1+J1))*1)",
@@ -364,16 +364,16 @@ function REPAIR_STOCK_PORTFOLIO_FORMATS() {
   _stockPortfolioWithFilterSuspended_(sh, function () {
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 1, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 2, dataRows, 1).setNumberFormat("0").setHorizontalAlignment("center");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"â‚¬\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0 \"€\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 5, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 6, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 7, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 8, dataRows, 2).setNumberFormat("0").setHorizontalAlignment("center");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 10, dataRows, 1).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 11, dataRows, 1).setNumberFormat("0.00").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 12, dataRows, 4).setNumberFormat("0.00\"%\"").setHorizontalAlignment("right");
-    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"â‚¬\"").setHorizontalAlignment("right");
+    sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 16, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 17, dataRows, 1).setNumberFormat("#,##0.00").setHorizontalAlignment("right");
     sh.getRange(STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW, 18, dataRows, 2).setNumberFormat("@").setHorizontalAlignment("center");
     sh.getRange(2, 1, 1, STOCK_PORTFOLIO_HEADERS.length)
@@ -563,7 +563,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[6] = isCashRow
     ? _stockPortfolioEurSpotFormula_(sheetRow)
     : "=(IFERROR(VLOOKUP(A" + sheetRow + ";'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(REGEXREPLACE(A" + sheetRow + ";\"^.*:\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(SWITCH(A" + sheetRow + ";\"GOOG\";\"GOOGL\";\"META\";\"FB\";\"NYSE:BRK.B\";\"BRKB\";\"KRX:005930\";\"SSU\";\"KRX:000660\";\"HYXS\";\"EPA:MC\";\"MC\";\"EPA:OR\";\"OR\";\"NVO\";\"NOVO\";\"CPH:NOVO-B\";\"NOVO\";\"SWX:NESN\";\"NESN\";\"SWX:RO\";\"ROG\";\"TYO:7203\";\"TM\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(SWITCH(A" + sheetRow + ";\"KRX:005930\";\"SMSN\";\"005930\";\"SMSN\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);0)))))*C" + sheetRow;
-  // Exclude: mirror of Portefeuille Crypto!O on the "StratÃ©gie Action" Exclude column.
+  // Exclude: mirror of Portefeuille Crypto!O on the "Stratégie Action" Exclude column.
   row[7] = "=SUMPRODUCT((Rebalancing!F$7:F=A" + sheetRow + ")*1)";
   // Include: gated by Exclude (same pattern as Portefeuille Crypto!P).
   row[8] = "=IF(H" + sheetRow + "<>0;0;SUMPRODUCT((Rebalancing!G$7:G=A" + sheetRow + ")*1))";

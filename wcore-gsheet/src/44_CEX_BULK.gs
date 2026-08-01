@@ -1,14 +1,14 @@
 // v4.16.34 - Rotate relay providers every 15 minutes; bulk stays manual-only.
 //            Manual bulk status is globally successful only when every provider succeeds.
 // v4.16.31 - Bulk write now applies per-provider symbol canonicalizers (OKSOL->SOL, Bybit aliases)
-//            + merges duplicate (symbol, source) rows â€” parity with the per-connector paths.
+//            + merges duplicate (symbol, source) rows — parity with the per-connector paths.
 //            v4.16.30 wrote raw relay rows, reintroducing OKSOL every 4h bulk refresh.
 // v4.16.30 - Bulk relay-based CEX refresh: 1 HTTP call instead of 4.
 // Replaces hourly UPDATE_BINANCE_SPOT / UPDATE_BYBIT_SPOT / UPDATE_COINBASE_SPOT / UPDATE_OKX_SPOT.
 // The relay exposes GET /all?token=... which runs all 4 providers in parallel server-side.
 //
 // Non-relay CEXs (Bitpanda direct API, Bitfinex direct API, Kraken direct API) keep
-// their own hourly triggers â€” they don't use the relay.
+// their own hourly triggers — they don't use the relay.
 
 var CEX_BULK_VERSION = "4.16.34";
 

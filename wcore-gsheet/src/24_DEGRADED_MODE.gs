@@ -11,7 +11,7 @@
  * avec un message informatif.
  *
  * v4.14.5 - FIX: forceFull now overrides circuit breaker and quota check
- *   wrap() accepts forceFull parameter (6th arg) â€” when true, skips
+ *   wrap() accepts forceFull parameter (6th arg) — when true, skips
  *   circuit breaker check so user can always force a fresh RPC scan.
  *   ChainFactory passes forceFull to wrap() for EVM, SVM, and Cosmos.
  *   All 3 engines skip testQuotaBlocked() when force=true.
@@ -49,7 +49,7 @@ var DegradedMode = DegradedMode || {};
 
 /**
  * Verifie si le circuit breaker est actif (quota recemment epuise)
- * v4.15.33: Delegue a QuotaCircuitBreaker.isTripped() â€” source unique
+ * v4.15.33: Delegue a QuotaCircuitBreaker.isTripped() — source unique
  * @returns {boolean} true si on doit skip les appels HTTP
  */
 DegradedMode.isCircuitBreakerActive = function() {
@@ -125,7 +125,7 @@ DegradedMode.isQuotaError = function(error) {
  */
 DegradedMode.wrap = function(fn, address, config, walletNames, engine, forceFull) {
  // STEP 1: Circuit breaker check - NO HTTP CALL
- // v4.14.5: forceFull overrides circuit breaker â€” user explicitly requested fresh data
+ // v4.14.5: forceFull overrides circuit breaker — user explicitly requested fresh data
  var force = (typeof Bool !== 'undefined') ? Bool.parse(forceFull) : (forceFull === true);
  if (!force && this.isCircuitBreakerActive()) {
  var chainName = this._getChainName(address, config, walletNames);

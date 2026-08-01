@@ -1629,6 +1629,28 @@ var EvmEngine = {
  out.push(OutputBuilder.metaRow("script_version", config.VERSION));
  }
 
+ // Signalement des donnees figees.
+ // Le chemin cache rejoue les lignes INFO du dernier scan live (rot=WEB,
+ // degraded=false...). Rien n'y reflete l'age reel de la donnee : une chaine
+ // injoignable depuis des heures s'affiche comme nominale. On emet une ligne
+ // ERROR, lue telle quelle par la colonne ERROR de "Recap Portfolio" via
+ // MATCH("ERROR") sur la colonne B de l'onglet.
+ // Horodatage absolu volontaire : cette fonction personnalisee ne se recalcule
+ // que lorsque son argument (J1) change, or J1 est justement fige sur une
+ // chaine bloquee. Une duree relative ("depuis 17 h") vieillirait donc en
+ // silence et redeviendrait fausse.
+ // On reutilise _webScanCacheTimestamp_ plutot que WalletCache.getLastUpdateStr :
+ // cette derniere renvoie "" sur ce chemin (aucun de ses quatre champs n'est
+ // renseigne), alors que la premiere resout correctement le meme cache.
+ try {
+ var _staleMs = (typeof _webScanCacheTimestamp_ === "function") ? _webScanCacheTimestamp_(cache) : 0;
+ if (isFinite(_staleMs) && _staleMs > 0 && (Date.now() - _staleMs) >= 7200000) {
+ out.push(OutputBuilder.infoRow(chainName, "ERROR",
+ "DONNEES FIGEES - dernier scan reussi le " +
+ Utilities.formatDate(new Date(_staleMs), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss")));
+ }
+ } catch (eStale) {}
+
  // Ensure script_version is present and up-to-date
  try {
  var foundSv = false;

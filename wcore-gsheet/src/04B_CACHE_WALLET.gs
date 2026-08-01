@@ -57,7 +57,7 @@
  *
  * v4.15.7 - FIX: Skip size prune when quota exhausted
  *   Overnight quota exhaustion caused size prune to evict old cache entries
- *   that could not be rebuilt (no quota to rescan) â†’ permanent "No cache available"
+ *   that could not be rebuilt (no quota to rescan) → permanent "No cache available"
  *   Fix: check QuotaCircuitBreaker.isTripped() before size prune, skip if tripped
  *
  * v4.15.6 - FIX: "No cache available" caused by race conditions
@@ -98,11 +98,11 @@
  *
  * v4.13.4 - CRITICAL FIX: Prune no longer evicts entries with balance data
  *   Previous: prune sorted by timestamp only, entries blocked by quota
- *   (old timestamps) were evicted Ã¢â€ â€™ permanent "No cache available"
+ *   (old timestamps) were evicted â†’ permanent "No cache available"
  *   Fix: 3-tier protection in size prune:
- *     Tier 1: entries with balance > 0 Ã¢â€ â€™ NEVER evict
- *     Tier 2: entries < 1h old Ã¢â€ â€™ protected
- *     Tier 3: rest Ã¢â€ â€™ evictable by age (oldest first)
+ *     Tier 1: entries with balance > 0 â†’ NEVER evict
+ *     Tier 2: entries < 1h old â†’ protected
+ *     Tier 3: rest â†’ evictable by age (oldest first)
  * v4.8.2 - Increased packed cache limit from 485KB to 495KB
  *          Wallets with 50+ assets need more space
  *          Keeping only 5KB margin before 500KB hard limit
@@ -200,14 +200,14 @@ CacheManager._jsonSizeBytes_ = function(obj) {
 };
 
 // ============================================================
-// DEFLATE / INFLATE WALLET PAYLOADS (v4.8.0 Ã¢â€ â€™ v4.13.5)
+// DEFLATE / INFLATE WALLET PAYLOADS (v4.8.0 â†’ v4.13.5)
 // ============================================================
 
 /**
  * Deflate wallet-cache payloads to compact format.
  * v4.13.5: PRESERVE METADATA (symbol, name, decimals) in compact rows!
- *   Old format: [contract, balance]           Ã¢â€ â€™ metadata LOST
- *   New format: [contract, balance, sym, name, dec] Ã¢â€ â€™ metadata PRESERVED
+ *   Old format: [contract, balance]           â†’ metadata LOST
+ *   New format: [contract, balance, sym, name, dec] â†’ metadata PRESERVED
  *   Empty strings for sym/name are stored as "" (minimal overhead).
  *   Decimals stored only if != 18 (default) to save space.
  * v4.8.0: Conserve priceMap (pm) avec limite 100 entrees
@@ -448,7 +448,7 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  return packed;
  }
 
- // v4.15.7: Skip size prune when quota is exhausted â€” evicting cache
+ // v4.15.7: Skip size prune when quota is exhausted — evicting cache
  // entries is pointless if we can't rescan to rebuild them.
  // Without this, overnight quota exhaustion causes permanent "No cache available".
   if (!CacheManager._FORCE_PACKED_SIZE_PRUNE && typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) {
@@ -826,7 +826,7 @@ CacheManager._packedGet_ = function(key) {
  // v4.15.6 FIX: Do NOT delete entries during reads (_packedDel_ triggers a write
  // to GLOBAL_WALLET which races with concurrent _packedPut_ writes from other
  // wallets, potentially overwriting their updates). Let the prune handle cleanup
- // during the next _packedPut_ â†’ _savePackedWalletCache_ cycle instead.
+ // during the next _packedPut_ → _savePackedWalletCache_ cycle instead.
  if (!out) {
  return null;
  }

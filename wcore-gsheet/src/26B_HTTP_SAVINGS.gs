@@ -4,10 +4,10 @@
  * FICHIER DE PATCH SIMPLE - Modifie les constantes au chargement
  * pour reduire les appels HTTP de 30-40%.
  *
- * v4.15.57 â€” Remove misleading GET_HTTP_COUNTER_STATS public diagnostic
- * v4.15.34 â€” R15 FIX: GT throttle 50 -> 80/run (GT-only tokens coverage)
- * v4.15.15 â€” budget guard: forceFull rÃ©trogradÃ© si HTTP >70% (_forceFullAllowed_, _normalizeForceWithBudgetGuard)
- * v4.15.14 â€” HttpCallCounter extended:
+ * v4.15.57 — Remove misleading GET_HTTP_COUNTER_STATS public diagnostic
+ * v4.15.34 — R15 FIX: GT throttle 50 -> 80/run (GT-only tokens coverage)
+ * v4.15.15 — budget guard: forceFull rétrogradé si HTTP >70% (_forceFullAllowed_, _normalizeForceWithBudgetGuard)
+ * v4.15.14 — HttpCallCounter extended:
  *   - Per-host counter (WCORE_HTTP_HOST_{YYYY-M-D})
  *   - Per-trigger counter (WCORE_HTTP_TRIGGER_{YYYY-M-D})
  *   - T0 tracking (WCORE_HTTP_T0_{YYYY-M-D}) + milestones (WCORE_HTTP_MILE_{YYYY-M-D})
@@ -21,30 +21,30 @@
  * 
  * CE FICHIER NE CHANGE PAS LA LOGIQUE, seulement les parametres.
  * 
- * OPTIMISATIONS APPLIQUÃƒÆ’Ã¢â‚¬Â°ES:
+ * OPTIMISATIONS APPLIQUÃƒâ€°ES:
  * 
- * 1. FX Rate TTL: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 6h (-80% appels FX)
+ * 1. FX Rate TTL: 1h Ã¢â€ â€™ 6h (-80% appels FX)
  * Le taux EUR/USD ne change pas significativement en 6h
  * 
- * 2. Price Stale Threshold: 15min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 45min (-60% re-fetch prix)
+ * 2. Price Stale Threshold: 15min Ã¢â€ â€™ 45min (-60% re-fetch prix)
  * Les prix sont consideres frais plus longtemps
  * 
- * 3. Price Cache TTL: 2h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 4h (-50% prix expires)
+ * 3. Price Cache TTL: 2h Ã¢â€ â€™ 4h (-50% prix expires)
  * Les prix restent valides plus longtemps
  * 
- * 4. Circuit Breaker: 2min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 5min (-60% health checks)
+ * 4. Circuit Breaker: 2min Ã¢â€ â€™ 5min (-60% health checks)
  * Quand quota epuise, attendre plus avant retry
  * 
- * 5. GeckoTerminal Throttle: illimite ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 80/run (v4.15.34: 50 -> 80)
+ * 5. GeckoTerminal Throttle: illimite Ã¢â€ â€™ 80/run (v4.15.34: 50 -> 80)
  * Les tokens GT-only n'ont pas d'autre source de prix. 80/run couvre
  * les chains Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, ZERO.
  * 
- * 6. Price Attempt Cooldown: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 2h (-50% retry echecs)
+ * 6. Price Attempt Cooldown: 1h Ã¢â€ â€™ 2h (-50% retry echecs)
  * Attendre plus longtemps avant de retenter un prix echoue
  * 
- * IMPACT ESTIMÃƒÆ’Ã¢â‚¬Â°: -30% ÃƒÆ’Ã‚Â  -40% appels HTTP quotidiens
+ * IMPACT ESTIMÃƒâ€°: -30% ÃƒÂ  -40% appels HTTP quotidiens
  * 
- * DÃƒÆ’Ã¢â‚¬Â°PLOIEMENT: Copier ce fichier dans le projet Apps Script.
+ * DÃƒâ€°PLOIEMENT: Copier ce fichier dans le projet Apps Script.
  * Il se charge automatiquement et patche les valeurs.
  * 
  * ROLLBACK: Supprimer ce fichier pour revenir aux valeurs par defaut.
@@ -52,32 +52,32 @@
 var HTTP_SAVINGS_VERSION = "4.15.58";
 
 // ============================================================
-// PATCH 1: FX RATE - Cache plus long (1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 6h)
+// PATCH 1: FX RATE - Cache plus long (1h Ã¢â€ â€™ 6h)
 // ============================================================
 
 (function patchFxRate() {
  try {
  if (typeof FxRate !== 'undefined') {
- // Memory cache: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 6h
+ // Memory cache: 1h Ã¢â€ â€™ 6h
  FxRate._TTL_MS = 21600000; // 6h
  }
  } catch (e) {}
 })();
 
 // ============================================================
-// PATCH 2: PRICE STALENESS - Plus tolerant (15min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 45min)
+// PATCH 2: PRICE STALENESS - Plus tolerant (15min Ã¢â€ â€™ 45min)
 // ============================================================
 
 (function patchPriceStaleness() {
  try {
  if (typeof WCORE_CACHE_CONFIG !== 'undefined') {
- // Prix considere frais: 15min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 45min
+ // Prix considere frais: 15min Ã¢â€ â€™ 45min
  WCORE_CACHE_CONFIG.PRICE_STALE_MS = 5400000; // v4.15.13: 45min -> 90min
  
- // Prix valide: 2h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 4h 
- WCORE_CACHE_CONFIG.PRICE_TTL_MS = 21600000; // v4.5.17: 4h -> 6h (alignÃ© L1 CacheService cap, -30% cascade calls)
+ // Prix valide: 2h Ã¢â€ â€™ 4h 
+ WCORE_CACHE_CONFIG.PRICE_TTL_MS = 21600000; // v4.5.17: 4h -> 6h (aligné L1 CacheService cap, -30% cascade calls)
  
- // Cooldown echec prix: 1h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 2h
+ // Cooldown echec prix: 1h Ã¢â€ â€™ 2h
  WCORE_CACHE_CONFIG.PRICE_ATTEMPT_COOLDOWN_MS = 14400000; // v4.5.17: 2h -> 4h (-50% retries tokens KO)
  }
  
@@ -91,7 +91,7 @@ var HTTP_SAVINGS_VERSION = "4.15.58";
 })();
 
 // ============================================================
-// PATCH 3: CIRCUIT BREAKER - Attente plus longue (2min ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 5min)
+// PATCH 3: CIRCUIT BREAKER - Attente plus longue (2min Ã¢â€ â€™ 5min)
 // ============================================================
 
 (function patchCircuitBreaker() {
@@ -108,7 +108,7 @@ var HTTP_SAVINGS_VERSION = "4.15.58";
 
 var _GT_THROTTLE = {
  count: 0,
- max: 80, // v4.15.34: 50 -> 80 (R15 fix: GT-only tokens need more headroom â€” Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, ZERO)
+ max: 80, // v4.15.34: 50 -> 80 (R15 fix: GT-only tokens need more headroom — Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, ZERO)
  resetTime: 0
 };
 
@@ -149,7 +149,7 @@ var _GT_THROTTLE = {
 })();
 
 // ============================================================
-// PATCH 5: L1 CACHE TTL - Plus long pour prix (2h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 4h)
+// PATCH 5: L1 CACHE TTL - Plus long pour prix (2h Ã¢â€ â€™ 4h)
 // ============================================================
 
 (function patchL1CacheTtl() {
@@ -165,7 +165,7 @@ var _GT_THROTTLE = {
  
  // Augmenter le TTL du cache FX dans CacheService
  if (typeof CACHE_L1_TTL_FX_SEC !== 'undefined') {
- // 4h ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 12h pour FX
+ // 4h Ã¢â€ â€™ 12h pour FX
  // Note: var globale, peut etre modifiee
  }
  } catch (e) {}
@@ -353,7 +353,7 @@ var HttpCallCounter = (function(){
  // Per-trigger in-memory buffer: {triggerFn: count}
  var _triggerMem = {};
 
- // Current trigger name â€” cached from ScriptProperties (30s TTL)
+ // Current trigger name — cached from ScriptProperties (30s TTL)
  var _currentTrigger = null;
  var _triggerCacheMs = 0;
  var TRIGGER_CACHE_TTL = 30000;
@@ -745,11 +745,11 @@ function GET_HTTP_TIMELINE() {
 }
 
 // ============================================================
-// BUDGET GUARD â€” forceFull rÃ©trogradÃ© si HTTP >70% (v4.15.15)
+// BUDGET GUARD — forceFull rétrogradé si HTTP >70% (v4.15.15)
 // ============================================================
 
 /**
- * Retourne true si forceFull est autorisÃ© (bucket HTTP < 70%).
+ * Retourne true si forceFull est autorisé (bucket HTTP < 70%).
  * Fail-open : si HttpCallCounter indispo, accorde le forceFull.
  */
 function _forceFullAllowed_() {
@@ -764,14 +764,14 @@ function _forceFullAllowed_() {
 
 /**
  * Normalise forceFull depuis c1 et applique le garde-fou budget HTTP.
- * Utiliser Ã  la place de Bool.parse(forceFull) dans les engines.
- * @param {*} c1 - valeur brute du paramÃ¨tre forceFull/c1
+ * Utiliser à la place de Bool.parse(forceFull) dans les engines.
+ * @param {*} c1 - valeur brute du paramètre forceFull/c1
  * @return {boolean}
  */
 function _normalizeForceWithBudgetGuard_(c1) {
   var force = (typeof Bool !== 'undefined') ? Bool.parse(c1) : (c1 === true || String(c1).toUpperCase() === 'TRUE');
   if (force && !_forceFullAllowed_()) {
-    Logger.log("[BUDGET_GUARD] forceFull demandÃ© mais bucket HTTP >70% â€” rÃ©trogradÃ© en scan incremental");
+    Logger.log("[BUDGET_GUARD] forceFull demandé mais bucket HTTP >70% — rétrogradé en scan incremental");
     force = false;
   }
   return force;
@@ -796,9 +796,9 @@ function _normalizeForceWithBudgetGuard_(c1) {
  var gt  = (typeof _GT_THROTTLE !== 'undefined' && _GT_THROTTLE.max) ? _GT_THROTTLE.max : 0;
 
  Logger.log("[26B_HTTP_SAVINGS] HTTP optimization patches loaded v" + HTTP_SAVINGS_VERSION);
- // budget guard helper â€” log at load time
+ // budget guard helper — log at load time
  var _guardPct = (typeof HttpCallCounter !== 'undefined') ? (HttpCallCounter.getToday() / Math.max(1, HttpCallCounter.getQuota())) : -1;
- Logger.log("[26B_HTTP_SAVINGS] forceFull budget guard: " + (_guardPct >= 0 ? Math.round(_guardPct * 100) + "% utilisÃ© (seuil 70%)" : "HttpCallCounter indispo"));
+ Logger.log("[26B_HTTP_SAVINGS] forceFull budget guard: " + (_guardPct >= 0 ? Math.round(_guardPct * 100) + "% utilisé (seuil 70%)" : "HttpCallCounter indispo"));
  Logger.log("[26B_HTTP_SAVINGS] FX TTL: " + fmtMs(fx)
    + ", Price Stale: " + fmtMs(cfg.PRICE_STALE_MS)
    + ", Price TTL: " + fmtMs(cfg.PRICE_TTL_MS)

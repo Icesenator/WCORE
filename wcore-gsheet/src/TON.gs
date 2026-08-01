@@ -30,7 +30,7 @@ var TON_CONFIG = {
     "GRAM": "coingecko:the-open-network",
     "TON": "coingecko:the-open-network",
     "USDT": "coingecko:tether",
-    "USDâ‚®": "coingecko:tether"
+    "USD₮": "coingecko:tether"
   }
 };
 
@@ -80,7 +80,7 @@ var _TON = ChainFactory.createTonChain("TON", {
     "GRAM": "coingecko:the-open-network",
     "TON": "coingecko:the-open-network",
     "USDT": "coingecko:tether",
-    "USDâ‚®": "coingecko:tether"
+    "USD₮": "coingecko:tether"
   }
 });
 

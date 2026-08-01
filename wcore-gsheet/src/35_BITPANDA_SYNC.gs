@@ -2,7 +2,7 @@
 // v4.15.146 - Clear full CEX managed A:G area before INFO_TOTAL rewrite so stale totals don't remain when row count grows.
 // v4.15.145 - Wrap _bpFetch_ with shared _cexRelayFetchWithRetry_ so direct Bitpanda calls survive transient UrlFetch null responses (same protection as relay connectors + Bitfinex).
 
-// v4.15.137 - CEX pricing via WCORE Web API (centralized provider-first, local fallback) VÃ©rif MAP auto-restore on every sync (_cexWriteVerifMap_ called from _cexComputeAndAppendTotal_).
+// v4.15.137 - CEX pricing via WCORE Web API (centralized provider-first, local fallback) Vérif MAP auto-restore on every sync (_cexWriteVerifMap_ called from _cexComputeAndAppendTotal_).
 // v4.15.124 - INFO_TOTAL A column sentinel "." instead of "" (prevent VLOOKUP("") fallback #VALUE! in Action Rebalancing).
 // v4.15.123 - CEX INFO_TOTAL: batch-read scan window (1 API call vs ~100), orphan-row cleanup, atomic A:G write (label+value never diverge).
 // v4.15.105 - Action Rebalancing!Z1 runs direct refresh immediately, with watchdog fallback on BUSY/error.
@@ -431,14 +431,14 @@ function CEX_MANUAL_REFRESH_WORKER() {
       if (!queue.length) { remaining = 0; break; }
       var job = queue.shift();
       props.setProperty("CEX_MANUAL_JOB_QUEUE", JSON.stringify(queue).substring(0, 8000));
-      // v4.15.118: short BUSY:CEX window (90s) â€” must clear quickly after the
+      // v4.15.118: short BUSY:CEX window (90s) — must clear quickly after the
       // last job so on-chain wallets resume scans.
       props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 90 * 1000));
       lastResult = _cexRunManualJob_(job);
       results.push(lastResult);
       try { props.setProperty("CEX_WORKER_LEASE", String(Date.now() + _CEX_WORKER_LEASE_TTL_MS)); } catch (eLease) {}
       // Transient failure (per-connector lock BUSY, Spreadsheets timeout...): the job was
-      // requeued at the TAIL â€” keep draining the OTHER jobs instead of stalling
+      // requeued at the TAIL — keep draining the OTHER jobs instead of stalling
       // the whole queue for 60s. Short pause to let the collision pass.
       if (String(lastResult).indexOf("=RETRY") >= 0) {
         try { Utilities.sleep(2000); } catch (eSleep) {}
@@ -452,7 +452,7 @@ function CEX_MANUAL_REFRESH_WORKER() {
     _cexWorkerReleaseLease_();
   }
   if (remaining) {
-    // v4.15.118: 5s backoff on transient, 1s otherwise. Both are short â€” GAS
+    // v4.15.118: 5s backoff on transient, 1s otherwise. Both are short — GAS
     // one-shot triggers have ~1 min granularity anyway, so this is just a hint.
     var nextDelayMs = (String(lastResult).indexOf("=RETRY") >= 0) ? 5 * 1000 : 1000;
     try { _cexEnsureManualWorkerTrigger_(nextDelayMs); } catch (eNext) {}
@@ -512,7 +512,7 @@ function _cexWriteManualJobRetryStatus_(job, msg) {
 // update succeeded but the status write got lost. Force B1 to row stamp.
 // v4.15.118: forced recovery for sheets left in QUEUED/RETRY state at boot.
 // We do NOT call this from the worker (extra Sheet I/O per job); we let the
-// watchdog (WATCHDOG_FROM_RECAP) re-process them through _bpSheetHasRequest_ â€”
+// watchdog (WATCHDOG_FROM_RECAP) re-process them through _bpSheetHasRequest_ —
 // the request flag is cleared only on success or after MAX_RETRIES.
 
 function _cexRunManualJob_(job) {
@@ -620,7 +620,7 @@ var BITPANDA_SYMBOL_ALIASES = {
   "NOVN": "NVS", "RDSA": "SHEL", "TCTZF": "TCEHY"
 };
 
-// Action Rebalancing equivalence: CEX symbol â†’ AR ticker (col A formula).
+// Action Rebalancing equivalence: CEX symbol → AR ticker (col A formula).
 // AR uses GOOGLEFINANCE exchange-prefixed tickers for non-US securities.
 // Without this map, the stockPriceMap lookup misses 12 positions (~301 EUR).
 var BP_AR_ALIASES = {
@@ -911,7 +911,7 @@ function _bpGetManagedSheetRefreshPlan_(sheetName) {
 }
 
 // v4.15.103 PERMANENT FIX: self-heal list + helpers.
-// Per AGENTS.md "triggers prÃ©sents mais mal autorisÃ©s" (v4.15.61).
+// Per AGENTS.md "triggers présents mais mal autorisés" (v4.15.61).
 // Admin repair re-installs canonical CEX triggers with fresh user auth.
 var _BP_CEX_TRIGGERS_TO_HEAL = [
   { name: "UPDATE_BITPANDA_SPOT", unit: "hours", value: 1 },
@@ -1160,7 +1160,7 @@ function UPDATE_BITPANDA_CRYPTO_FIAT() {
   return _bpUpdateSelectedBuckets_({ crypto: true, fiat: true }, "bitpanda-api-crypto-cex");
 }
 
-// v4.15.115: crypto uniquement â€” le bloc CEX de Portefeuille Crypto!AC2 n'a pas
+// v4.15.115: crypto uniquement — le bloc CEX de Portefeuille Crypto!AC2 n'a pas
 // besoin de rafraichir CEX - Bitpanda Fiat (la fiat n'est pas trackee la-bas).
 function UPDATE_BITPANDA_CRYPTO() {
   return _bpUpdateSelectedBuckets_({ crypto: true }, "bitpanda-api-crypto-only");
@@ -1194,9 +1194,9 @@ function INSTALL_BITPANDA_SYNC_TRIGGER() {
 }
 
 // ============================================================
-// INFO_TOTAL CEX â€” v4.15.121
+// INFO_TOTAL CEX — v4.15.121
 // Appends a TOTAL row at the bottom of a CEX sheet, summing
-// balance Ã— price_eur for each line. Idempotent: removes any
+// balance × price_eur for each line. Idempotent: removes any
 // prior TOTAL row before appending. Uses the existing
 // PriceManager.computePriceEur(symbol) cascade.
 // ============================================================
@@ -1205,7 +1205,7 @@ function INSTALL_BITPANDA_SYNC_TRIGGER() {
  * Cached price map for CEX INFO_TOTAL.
  * Reads "Portefeuille Crypto" (CMC top 5000+) once, caches the result
  * in ScriptProperties for 1h. Avoids reading 5000+ rows on every CEX
- * sync (6 syncs Ã— 4h = 36/day + manual A1), which was pushing
+ * sync (6 syncs × 4h = 36/day + manual A1), which was pushing
  * UPDATE_*_SPOT past the 6-min trigger limit.
  * To force a rebuild, call _cexClearPriceMapCache_() or set
  * CEX_PRICE_MAP_CACHE_V2 = "" in ScriptProperties.
@@ -1467,7 +1467,7 @@ function _cexSymbolToGeckoId_(symbol) {
   if (!s) return null;
   // Direct map (most common CEX assets)
   if (CEX_SYMBOL_GECKO_IDS[s]) return CEX_SYMBOL_GECKO_IDS[s];
-  // Strip common suffixes (w / wrapped variants) â€” best-effort only
+  // Strip common suffixes (w / wrapped variants) — best-effort only
   // for top-50 tokens; longer-tail assets should be added explicitly.
   if (s.indexOf("W") === 0 && s.length > 1) {
     var unwrapped = s.substring(1);
@@ -1521,7 +1521,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
             if (aSym && isFinite(aPrc) && aPrc > 0) {
               stockPriceMap[aSym] = aPrc;
               // v4.15.139: also index by CEX symbol so the pricing loop finds
-              // GOOGLâ†’GOOG, FBâ†’META, BRKBâ†’NYSE:BRK.B, etc.
+              // GOOGL→GOOG, FB→META, BRKB→NYSE:BRK.B, etc.
               for (var bk in BP_AR_ALIASES) {
                 if (BP_AR_ALIASES[bk].toUpperCase() === aSym) stockPriceMap[bk] = aPrc;
               }
@@ -1595,7 +1595,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
           if (isFinite(pv) && pv > 0) prevVal = pv;
         }
         if (prevVal > 0) {
-          Logger.log("[CEX_TOTAL] pricing-failed " + symbol + " â€” using last-known price " + prevVal + " EUR in " + sheetName);
+          Logger.log("[CEX_TOTAL] pricing-failed " + symbol + " — using last-known price " + prevVal + " EUR in " + sheetName);
           eValues.push([prevVal]); total += prevVal; valued++;
         } else {
           Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);
@@ -1638,7 +1638,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       var base = (opt_values[fv] || []).slice(0, 4);
       while (base.length < 4) base.push("");
       base.push(fv === 1 ? "value_eur" : (fv >= 2 && eValues[fv - 1] ? eValues[fv - 1][0] : ""));
-      base.push(fv === 1 ? "VÃ©rif" : (fv === 2 ? _cexBuildVerifFormula_(sheetName) : ""));
+      base.push(fv === 1 ? "Vérif" : (fv === 2 ? _cexBuildVerifFormula_(sheetName) : ""));
       base.push("");
       fullValues.push(base);
     }
@@ -1713,11 +1713,11 @@ function _cexWriteVerifMap_(sh, sheetName) {
   try {
     var existingLabel = String(sh.getRange(2, 6).getValue() || "");
     var existingFormula = String(sh.getRange(3, 6).getFormula() || "");
-    if (existingLabel === "VÃ©rif" && existingFormula.indexOf("MAP(") >= 0) return;
-    sh.getRange(2, 6, 1, 1).setValue("VÃ©rif");
+    if (existingLabel === "Vérif" && existingFormula.indexOf("MAP(") >= 0) return;
+    sh.getRange(2, 6, 1, 1).setValue("Vérif");
     sh.getRange(3, 6, 1, 1).setFormula(_cexBuildVerifFormula_(sheetName));
   } catch (e) {
-    Logger.log("[CEX_VERIF] Failed to write VÃ©rif MAP for " + sheetName + ": " + (e && e.message ? e.message : e));
+    Logger.log("[CEX_VERIF] Failed to write Vérif MAP for " + sheetName + ": " + (e && e.message ? e.message : e));
   }
 }
 
@@ -1838,7 +1838,7 @@ function _cexRelayFetchWithRetry_(fetchFn, name) {
     } catch (e) {
       var msg = String(e && e.message ? e.message : e);
       if (attempt < CEX_RELAY_MAX_RETRIES && msg.indexOf("blocked/null response") >= 0) {
-        Logger.log("[CEX_RELAY] " + name + " attempt " + attempt + "/" + CEX_RELAY_MAX_RETRIES + " failed: " + msg + " â€” retrying in " + (CEX_RELAY_RETRY_DELAY_MS / 1000) + "s");
+        Logger.log("[CEX_RELAY] " + name + " attempt " + attempt + "/" + CEX_RELAY_MAX_RETRIES + " failed: " + msg + " — retrying in " + (CEX_RELAY_RETRY_DELAY_MS / 1000) + "s");
         Utilities.sleep(CEX_RELAY_RETRY_DELAY_MS);
       } else {
         throw e;

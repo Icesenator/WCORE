@@ -122,7 +122,7 @@ var QUOTA_BREAKER_CONFIG = {
 
   // Error message patterns that indicate quota exhaustion
   // v4.14.10: ONLY match actual Google Apps Script quota errors
-  // Removed "rate limit exceeded" and "too many requests" â€” these are RPC 429 errors,
+  // Removed "rate limit exceeded" and "too many requests" — these are RPC 429 errors,
   // NOT Google quota exhaustion. A single RPC rate-limiting was tripping the breaker
   // and blocking ALL HTTP calls across ALL chains (false positive).
   QUOTA_ERROR_PATTERNS: [
@@ -140,7 +140,7 @@ var QUOTA_BREAKER_CONFIG = {
   THRESHOLD_WINDOW_SEC: 120,
 
   // v4.13.7: Safety CEILING on how long the breaker stays tripped.
-  // The real Google quota is a SLIDING 24h window â€” recovery happens
+  // The real Google quota is a SLIDING 24h window — recovery happens
   // gradually as old calls drop off the tail, NOT at a fixed T+24h.
   // Actual recovery is driven by testOnce() (httpbin, every 15min)
   // which auto-resets the breaker as soon as Google accepts calls again.
@@ -217,7 +217,7 @@ var QuotaCircuitBreaker = (function() {
         var data = cache.get(QUOTA_BREAKER_CONFIG.CACHE_KEY);
         if (data) {
           var parsed = JSON.parse(data);
-          // v4.13.7: Sliding 24h window â€” NOT calendar-midnight-UTC.
+          // v4.13.7: Sliding 24h window — NOT calendar-midnight-UTC.
           // Actual recovery is driven by testOnce() (httpbin every 15min).
           // TRIP_MAX_LOCKOUT_MS is just a safety ceiling to avoid sticky blocks
           // if no refresh cycles run for >24h (testOnce would never fire).
@@ -234,7 +234,7 @@ var QuotaCircuitBreaker = (function() {
             _trippedMs = trippedMs;
             return true;
           }
-          // Expired (rolling window elapsed) â€” clear stale breaker
+          // Expired (rolling window elapsed) — clear stale breaker
           cache.remove(QUOTA_BREAKER_CONFIG.CACHE_KEY);
         }
       } catch (e) {
@@ -630,7 +630,7 @@ var QuotaCircuitBreaker = (function() {
 
     /**
      * v4.14.9: Prevent re-tripping for this execution.
-     * Used by forceFull scans â€” once testOnce() confirms quota OK,
+     * Used by forceFull scans — once testOnce() confirms quota OK,
      * prevent a single RPC error from re-blocking the entire scan.
      */
     disableTripping: function() {
@@ -640,7 +640,7 @@ var QuotaCircuitBreaker = (function() {
 })();
 
 // ============================================================
-// HTTP COUNTER â€” 24h ROLLING WINDOW (v4.13.7 / Phase A')
+// HTTP COUNTER — 24h ROLLING WINDOW (v4.13.7 / Phase A')
 // ============================================================
 
 /**
@@ -1311,7 +1311,7 @@ function INSTALL_GLOBAL_QUOTA_BREAKER() {
       // Or throw a controlled error
       return null;
     }
-    // v4.13.7: observability â€” count BEFORE the call so failed calls still count
+    // v4.13.7: observability — count BEFORE the call so failed calls still count
     try { HttpCounter.record(1, null, url); } catch (e) {}
     try {
       return _origFetch.call(UrlFetchApp, url, options);
@@ -1330,7 +1330,7 @@ function INSTALL_GLOBAL_QUOTA_BREAKER() {
       }
       return nulls;
     }
-    // v4.13.7: observability â€” 1 call per request in the batch
+    // v4.13.7: observability — 1 call per request in the batch
     try {
       for (var r = 0; r < (requests ? requests.length : 0); r++) {
         var requestUrl = (requests[r] && requests[r].url) ? requests[r].url : requests[r];
@@ -1494,7 +1494,7 @@ function LIVE_PROBE_QUOTA_NOW() {
   if (isOk) {
     return "OK - Quota available (tested at " + nowLocal + ")";
   } else {
-    // Sliding 24h window â€” no fixed reset time. Recovery is driven by
+    // Sliding 24h window — no fixed reset time. Recovery is driven by
     // testOnce() (httpbin every 15min), not a T+24h timer.
     return "EXHAUSTED - tripped at " + (status.trippedLocal || "unknown") +
            " - auto-recovery via httpbin every 15min (ceiling: " +
@@ -1505,7 +1505,7 @@ function LIVE_PROBE_QUOTA_NOW() {
 /**
  * v4.13.7: Rolling-24h HTTP call count (from internal HttpCounter).
  * Counts every UrlFetchApp.fetch / fetchAll routed through the global
- * patch â€” i.e. the real call volume WCORE is sending. Excludes the
+ * patch — i.e. the real call volume WCORE is sending. Excludes the
  * internal httpbin breaker test (uses _originalUrlFetch on purpose).
  *
  * @returns {number} Calls in the last 24h
@@ -1546,7 +1546,7 @@ function GET_HTTP_BREAKDOWN_24H() {
 
 /**
  * v4.13.7: Reset the HTTP counter (clears all buckets).
- * For debugging only â€” quota is Google-side, resetting this counter
+ * For debugging only — quota is Google-side, resetting this counter
  * does NOT affect the actual quota.
  *
  * @param {boolean} confirm - Must be TRUE

@@ -9,7 +9,7 @@
  *   WEB_SCAN_ERROR when no useful cache exists, while retaining diagnostic cache.
  * v4.16.37 - Removed global admission lease bottleneck.  Per-wallet leases now
  *   the sole gate (reduced to 30s, released after HTTP response).  Multiple
- *   wallets scan concurrently â€” 100% of B1 pulses result in live scans instead
+ *   wallets scan concurrently — 100% of B1 pulses result in live scans instead
  *   of the previous ~20% LOCK_BUSY waste.  No retry loop needed.
  * v4.16.36 - Admission LOCK_BUSY retry (3x800ms) to reduce wasted B1 pulses from
  *   concurrent I1 evaluations.  Quota breaker auto-probe via testOnce() on first
@@ -30,7 +30,7 @@
  * v4.16.29 - Do not treat native_balance=0 as cache corruption when DISABLE_NATIVE_BALANCE
  *   is set (e.g. Tempo sentinel eth_getBalance). Previously every degraded Web scan
  *   on such chains triggered the preservation path; without an existing cache the
- *   scan result was never saved â†’ permanent NO_CACHE_WAITING_REFRESH.
+ *   scan result was never saved → permanent NO_CACHE_WAITING_REFRESH.
  * v4.16.28 - Preserve cached positive native balance when degraded Web returns native zero with useful tokens.
  * v4.16.26 - Honor precise Web value aliases and derive token prices when priceEur is rounded.
  * v4.16.25 - Preserve cached prices for cache-only tokens during degraded partial Web merges.
@@ -790,7 +790,7 @@ function _webScanAcquireAdmission_(address, chainKey, forceFull) {
   }
 }
 
-// v4.16.37: Removed global admission lease â€” per-wallet CacheService leases (120s)
+// v4.16.37: Removed global admission lease — per-wallet CacheService leases (120s)
 // already prevent double-scanning.  Multiple wallets can now scan concurrently,
 // eliminating the LOCK_BUSY bottleneck that caused 80% of B1 pulses to be wasted.
 function _webScanAcquireAdmissionV2_(address, chainKey, forceFull) {

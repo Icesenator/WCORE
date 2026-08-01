@@ -74,7 +74,7 @@ function _forceRegisterAllModules() {
   };
   
   // v4.13.3: Dynamic version lookup for ALL modules
-  // Convention: MODULE_NAME â†’ MODULE_NAME_VERSION variable
+  // Convention: MODULE_NAME → MODULE_NAME_VERSION variable
   // Since autoregister loads last (file 32), all *_VERSION variables are defined
   for (var name in modules) {
     if (ModuleRegistry.has(name)) continue;
@@ -137,7 +137,7 @@ function TEST_MODULE_AUTOREGISTER() {
   for (var i = 0; i < modules.length; i++) {
     var mod = modules[i];
     var ver = ModuleRegistry.get(mod);
-    var status = ver ? "Ã¢Å“â€œ" : "Ã¢Å“â€”";
+    var status = ver ? "âœ“" : "âœ—";
     if (ver) registered++;
     out.push([mod, ver || "N/A", status]);
   }

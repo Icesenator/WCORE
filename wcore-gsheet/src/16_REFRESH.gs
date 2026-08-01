@@ -3,7 +3,7 @@
  *
  * Version: v4.16.47
  *
- * v4.16.46: Detect CACHE_ONLY B1/I1 mismatch â€” when B1 advances but
+ * v4.16.46: Detect CACHE_ONLY B1/I1 mismatch — when B1 advances but
  *   the scan keeps serving a stale [CACHE_ONLY] timestamp, re-pulse
  *   aggressively and use I1 as the age anchor for priority sorting.
  *
@@ -43,12 +43,12 @@
  *
  * v4.15.58 FIX: never sync J1 from BLOCKED/NO_CACHE I1 values; preserving
  *   the old J1 latch is what keeps A1 on the last good cache during quota outages.
- * v4.5.21 ADD: SYNC_J1_ALL_SHEETS() â€” lightweight dedicated J1 sync for all
- *   wallet-chain sheets. Reads I1/J1 for every " - " sheet, writes I1â†’J1 when
+ * v4.5.21 ADD: SYNC_J1_ALL_SHEETS() — lightweight dedicated J1 sync for all
+ *   wallet-chain sheets. Reads I1/J1 for every " - " sheet, writes I1→J1 when
  *   I1 > J1. Triggered every 2 min by auto-heal + every 10 min by ACTIVITY_WATCHDOG.
  *   Eliminates ~60 min worst-case J1 sync delay from probe window limitation.
  *
- * v4.5.22 FIX: R16 â€” prevent duplicate QUOTA_RECOVERY_SWEEP_FOLLOWUP triggers
+ * v4.5.22 FIX: R16 — prevent duplicate QUOTA_RECOVERY_SWEEP_FOLLOWUP triggers
  *   and overlap between SWEEP and FOLLOWUP via ScriptProperties locks/flags.
  *   - _recoveryAcquireLock_ / _recoveryIsSweepRunning_ guard concurrent execution
  *   - _recoveryIsFollowupPending_ prevents duplicate FOLLOWUP scheduling
@@ -59,22 +59,22 @@
  *   pulsing B1 during quota blocks.
  *
  * v4.5.18: probe-gated recovery + poller-based scheduling (no more DST-fixed hour)
- *   - _recoveryProbeQuota_() vÃ©rifie le quota rÃ©el avant tout reset/pulse
+ *   - _recoveryProbeQuota_() vérifie le quota réel avant tout reset/pulse
  *   - QUOTA_RECOVERY_SWEEP : probe-gate + retry 30min si quota absent, batch 5/60s au 1er passage
- *   - QUOTA_RECOVERY_SWEEP_FOLLOWUP : mÃªme probe-gate
+ *   - QUOTA_RECOVERY_SWEEP_FOLLOWUP : même probe-gate
  *   - INSTALL_QUOTA_RECOVERY : poller everyMinutes(30), plus de logique DST
  *
  * v4.5.17 FIX: QUOTA_RECOVERY_SWEEP recovery hardening
- *   - Pulse B1=timestamp(text) directement (time-based triggers ne dÃ©clenchent pas onEdit,
- *     donc A1=TRUE ne se propagerait pas â€” A1 reste manual-only)
- *   - SÃ©pare [BLOCKED:QUOTA] (prioritaire) et [BLOCKED:TIMEOUT]/#ERROR dans les stats
+ *   - Pulse B1=timestamp(text) directement (time-based triggers ne déclenchent pas onEdit,
+ *     donc A1=TRUE ne se propagerait pas — A1 reste manual-only)
+ *   - Sépare [BLOCKED:QUOTA] (prioritaire) et [BLOCKED:TIMEOUT]/#ERROR dans les stats
  *   - Persiste la liste des sheets skipped dans ScriptProperties (WCORE_RECOVERY_SKIPPED_v1)
- *   - NOUVEAU: QUOTA_RECOVERY_SWEEP_FOLLOWUP Ã  T+30min â€” retente skipped + rescanne Recap Chain
+ *   - NOUVEAU: QUOTA_RECOVERY_SWEEP_FOLLOWUP à T+30min — retente skipped + rescanne Recap Chain
  *   - INSTALL_QUOTA_RECOVERY installe les 2 triggers (10h35/11h05 CET ou 11h35/12h05 CEST)
  *
  * v4.5.15 FIX: BLOCKED sheets with fresh timestamp (< 5h) no longer re-pulsed
  *   - _wd_needsRefresh_ now checks extracted timestamp from [BLOCKED:*] I1 values
- *   - If timestamp is < staleMs (5h), needsPulse=false â€” avoids thundering herd
+ *   - If timestamp is < staleMs (5h), needsPulse=false — avoids thundering herd
  *   - Before: all [BLOCKED:QUOTA] sheets always re-pulsed regardless of freshness
  *
  * v4.5.14 FIX: [NO_CACHE] sheets not re-pulsed by WATCHDOG
@@ -84,7 +84,7 @@
  * v4.5.13 CHANGES (MASTER_ON_EDIT RESTORED + CACHE REFRESH FIX):
  * - RESTORED: MASTER_ON_EDIT function (was accidentally removed in v4.5.10+)
  * - FIX: Installable onEdit trigger now finds its target function again
- * - A1=TRUE Ã¢â€ â€™ pulse B1 Ã¢â€ â€™ reset A1=FALSE manual refresh mechanism
+ * - A1=TRUE â†’ pulse B1 â†’ reset A1=FALSE manual refresh mechanism
  * - CHANGED: WD_STALE_I1_HOURS from 12h to 5h (before CacheService 6h expiry)
  * - Prevents "No cache available" by refreshing data before Google evicts it
  *
@@ -110,9 +110,9 @@
  * - NEW: _wd_tryUnblock_() attempts to reset blocker FLAGS before pulsing B1
  * - FIX: Blocked sheets now ALWAYS pulse B1 (with 30min cooldown)
  * 
- * ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â CRITICAL RULE: Watchdog NEVER clears/purges cache data!
- * ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â _wd_tryUnblock_ only resets FLAGS (lockdown, degraded, error states)
- * ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â CLEAR_* functions are MANUAL ONLY (require confirm=TRUE)
+ * ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â CRITICAL RULE: Watchdog NEVER clears/purges cache data!
+ * ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â _wd_tryUnblock_ only resets FLAGS (lockdown, degraded, error states)
+ * ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â CLEAR_* functions are MANUAL ONLY (require confirm=TRUE)
  ************************************************************/
 
 // ============================================================
@@ -124,9 +124,9 @@ var WCORE_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 
 // Timing configs
 var WD_STALE_I1_HOURS = 5;      // v4.5.13: I1 > 5h => pulse B1 (before CacheService 6h expiry)
-var WD_PULSE_MIN = 30;          // v4.15.135: 30 min â€” 10 min was too aggressive on quota
+var WD_PULSE_MIN = 30;          // v4.15.135: 30 min — 10 min was too aggressive on quota
 var WD_PULSE_MIN_BLOCKED = 30;  // v4.5.8: Cooldown for blocked sheets (30 min)
-var WD_PULSE_MIN_PARTIAL = 60;  // v4.15.133: 60 min â€” partial cycles are mostly unpriced tokens, re-pulsing too fast wastes quota
+var WD_PULSE_MIN_PARTIAL = 60;  // v4.15.133: 60 min — partial cycles are mostly unpriced tokens, re-pulsing too fast wastes quota
 
 // Probe size
 var WD_PROBE_SIZE_MIN = 5;
@@ -202,7 +202,7 @@ function onEdit(e) {
 }
 
 // v4.15.104: WCORE_ON_EDIT also calls _bpDetailsAutoLink_ after CEX handlers for per-cell auto-link of Portefeuille Crypto Details column E.
-// v4.15.99: installable onEdit trigger wrapper â€” A1=TRUE â†’ pulse B1 â†’ reset A1=FALSE.
+// v4.15.99: installable onEdit trigger wrapper — A1=TRUE → pulse B1 → reset A1=FALSE.
 // Standalone name so WCORE_ON_EDIT can also be called directly if needed.
 function MASTER_ON_EDIT(e) {
   return WCORE_ON_EDIT(e);
@@ -506,7 +506,7 @@ function _wd_checkPartialCycles_(ss, nowMs, maxPulses) {
         var partialSheet = null;
         try { partialSheet = ss.getSheetByName(sheetName); } catch (eGet) {}
         
-        // Check cooldown â€” use ScriptProperties tracking, fallback to B1 value
+        // Check cooldown — use ScriptProperties tracking, fallback to B1 value
         var lastPulse = lastPulseMap[sheetName] || 0;
         var cooldownMs = WD_PULSE_MIN_PARTIAL * 60000;
         // v4.15.135: if tracking was lost (ScriptProperties purge), read B1
@@ -601,7 +601,7 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
       if (cycleVal.toLowerCase().indexOf("partial") !== -1) {
         var cooldownMs = WD_PULSE_MIN_PARTIAL * 60000;
         var canPulse = (nowMs - lastPulse) >= cooldownMs;
-        status = canPulse ? "ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â PARTIAL - Will pulse" : "ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚Â³ PARTIAL - Cooldown";
+        status = canPulse ? "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â PARTIAL - Will pulse" : "ÃƒÂ¢Ã‚ÂÃ‚Â³ PARTIAL - Cooldown";
       }
       
       out.push([sheetName, cycleVal, lastPulseStr, status]);
@@ -660,7 +660,7 @@ function FORCE_WATCHDOG_PARTIAL_CHECK() {
 // matching Ledger sheet so the next scan (manual or time-based) re-fetches the
 // latest API payload. This bypasses the I1-staleness cooldown for callers who
 // know the payload is stale (e.g. right after an API deploy). The action is
-// system-driven (not a manual Sheet edit) â€” it uses a fresh timestamp that the
+// system-driven (not a manual Sheet edit) — it uses a fresh timestamp that the
 // C1/FORCE/A1 check paths already treat as a legitimate trigger.
 //
 // No-argument wrapper: forces a rescan of Optimism and Base (the most recent
@@ -1500,17 +1500,17 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
     };
   }
   
-  // v4.14.10: [NO_CACHE] = wallet never scanned successfully â€” re-pulse with short cooldown
+  // v4.14.10: [NO_CACHE] = wallet never scanned successfully — re-pulse with short cooldown
   if (vI1.indexOf("[NO_CACHE]") === 0) {
     return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
   }
 
-  // v4.15.3: [ERROR] = scan failed (RPC timeout, etc.) â€” re-pulse with normal cooldown
+  // v4.15.3: [ERROR] = scan failed (RPC timeout, etc.) — re-pulse with normal cooldown
   if (vI1.indexOf("[ERROR]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
 
-  // v4.16.27: [WEB_SCAN_ERROR] = WCORE Web API failed (timeout, 5xx, network) â€” re-pulse
+  // v4.16.27: [WEB_SCAN_ERROR] = WCORE Web API failed (timeout, 5xx, network) — re-pulse
   if (vI1.indexOf("[WEB_SCAN_ERROR]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
@@ -1883,7 +1883,7 @@ function _recoveryClearSkipped_() {
 }
 
 /**
- * Scan Recap Chain â†’ categorized blocked sheet lists.
+ * Scan Recap Chain → categorized blocked sheet lists.
  * Returns { quota: [...], timeout: [...], all: [...] } (BLOCKED:QUOTA first for priority)
  */
 function _recoveryCollectBlocked_(recap) {
@@ -1946,14 +1946,14 @@ function _recoveryPulseBatches_(ss, sheetList, batchSize, delayMs, maxRuntimeMs,
       }
     }
     res.batches++;
-    Logger.log("[" + logTag + "] Batch " + res.batches + " done: pulsed " + (batchEnd - b) + " (" + sheetList[b] + " â€¦ " + sheetList[batchEnd - 1] + ")");
+    Logger.log("[" + logTag + "] Batch " + res.batches + " done: pulsed " + (batchEnd - b) + " (" + sheetList[b] + " … " + sheetList[batchEnd - 1] + ")");
   }
   return res;
 }
 
 /**
- * Probe UrlFetchApp quota rÃ©el avant de dÃ©clencher un sweep.
- * Utilise _originalUrlFetch (capturÃ© dans 03E_QUOTA_CIRCUIT_BREAKER.gs).
+ * Probe UrlFetchApp quota réel avant de déclencher un sweep.
+ * Utilise _originalUrlFetch (capturé dans 03E_QUOTA_CIRCUIT_BREAKER.gs).
  * @return {{ ok: boolean, err: string, code: number }}
  */
 function _recoveryProbeQuota_() {
@@ -2150,13 +2150,13 @@ function QUOTA_RECOVERY_SWEEP() {
   try {
     // R16 guard: prevent concurrent sweep execution
     if (!_recoveryAcquireLock_(P_RECOVERY_SWEEP_LOCK, RECOVERY_LOCK_TTL_MS)) {
-      Logger.log("[RECOVERY] Another SWEEP is already running â€” aborting");
+      Logger.log("[RECOVERY] Another SWEEP is already running — aborting");
       return;
     }
     acquired = true;
 
-    var RECOVERY_BATCH_SIZE = 5;   // RÃ©duit Ã  5 au 1er passage (conservative)
-    var RECOVERY_DELAY_MS = 60000; // 60s entre batchs (Ã©tait 30s)
+    var RECOVERY_BATCH_SIZE = 5;   // Réduit à 5 au 1er passage (conservative)
+    var RECOVERY_DELAY_MS = 60000; // 60s entre batchs (était 30s)
     var MAX_RUNTIME_MS = 300000;   // 5 min max (marge avant 6 min limit)
     var t0 = Date.now();
     var qcbWasBlocked = false;
@@ -2167,10 +2167,10 @@ function QUOTA_RECOVERY_SWEEP() {
     // --- Probe quota avant tout ---
     var probe = _recoveryProbeQuota_();
     if (!probe.ok) {
-      Logger.log("[RECOVERY] Probe failed: " + probe.err + " â€” recurring 30min poller will retry");
+      Logger.log("[RECOVERY] Probe failed: " + probe.err + " — recurring 30min poller will retry");
       return;
     }
-    Logger.log("[RECOVERY] Probe OK (HTTP " + probe.code + ") â€” proceeding");
+    Logger.log("[RECOVERY] Probe OK (HTTP " + probe.code + ") — proceeding");
 
     if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
       QuotaCircuitBreaker.reset();
@@ -2199,13 +2199,13 @@ function QUOTA_RECOVERY_SWEEP() {
       }
 
       if (cat.all.length === 0) {
-        Logger.log("[RECOVERY] No blocked sheets found â€” clearing skipped state and skipping");
+        Logger.log("[RECOVERY] No blocked sheets found — clearing skipped state and skipping");
         _recoveryClearSkipped_();
         _recoveryClearFollowupPending_();
         return;
       }
 
-      Logger.log("[RECOVERY] Found " + cat.quota.length + " BLOCKED:QUOTA + " + cat.timeout.length + " BLOCKED:TIMEOUT/#ERROR â€” pulsing in batches of " + RECOVERY_BATCH_SIZE);
+      Logger.log("[RECOVERY] Found " + cat.quota.length + " BLOCKED:QUOTA + " + cat.timeout.length + " BLOCKED:TIMEOUT/#ERROR — pulsing in batches of " + RECOVERY_BATCH_SIZE);
 
       var r = _recoveryPulseBatches_(ss, cat.all, RECOVERY_BATCH_SIZE, RECOVERY_DELAY_MS, MAX_RUNTIME_MS, t0, "RECOVERY");
       stats.pulsed = r.pulsed;
@@ -2225,7 +2225,7 @@ function QUOTA_RECOVERY_SWEEP() {
             Logger.log("[RECOVERY] Failed to schedule FOLLOWUP: " + te.message);
           }
         } else {
-          Logger.log("[RECOVERY] FOLLOWUP already pending â€” skipping duplicate scheduling");
+          Logger.log("[RECOVERY] FOLLOWUP already pending — skipping duplicate scheduling");
         }
       } else {
         _recoveryClearSkipped_();
@@ -2254,7 +2254,7 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
   try { HttpCallCounter.setTrigger('QUOTA_RECOVERY_SWEEP_FOLLOWUP'); } catch(e){}
   // R16 guard: abort if SWEEP is currently running to avoid overlap
   if (_recoveryIsSweepRunning_()) {
-    Logger.log("[RECOVERY_FU] SWEEP is currently running â€” aborting FOLLOWUP to avoid overlap");
+    Logger.log("[RECOVERY_FU] SWEEP is currently running — aborting FOLLOWUP to avoid overlap");
     return;
   }
   // Clear stale pending flag regardless
@@ -2272,7 +2272,7 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
     // --- Probe quota avant tout ---
     var probe = _recoveryProbeQuota_();
     if (!probe.ok) {
-      Logger.log("[RECOVERY_FU] Probe failed: " + probe.err + " â€” skipping pulse, retry in 30min");
+      Logger.log("[RECOVERY_FU] Probe failed: " + probe.err + " — skipping pulse, retry in 30min");
       // R16 guard: avoid duplicate retry trigger
       if (!_recoveryIsFollowupPending_()) {
         try {
@@ -2283,11 +2283,11 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
           Logger.log("[RECOVERY_FU] Failed to schedule retry: " + te.message);
         }
       } else {
-        Logger.log("[RECOVERY_FU] Retry trigger already pending â€” skipping duplicate");
+        Logger.log("[RECOVERY_FU] Retry trigger already pending — skipping duplicate");
       }
       return;
     }
-    Logger.log("[RECOVERY_FU] Probe OK (HTTP " + probe.code + ") â€” proceeding");
+    Logger.log("[RECOVERY_FU] Probe OK (HTTP " + probe.code + ") — proceeding");
 
     if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.reset) {
       QuotaCircuitBreaker.reset();
@@ -2330,7 +2330,7 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
       });
 
       if (merged.length === 0) {
-        Logger.log("[RECOVERY_FU] Nothing to retry â€” clearing and exiting");
+        Logger.log("[RECOVERY_FU] Nothing to retry — clearing and exiting");
         _recoveryClearSkipped_();
         return;
       }
@@ -2360,8 +2360,8 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
 /**
  * Install poller trigger for QUOTA_RECOVERY_SWEEP.
  * Remplace la logique DST-based (heure fixe) par un poller everyMinutes(30).
- * Le sweep probe le quota rÃ©el et se reschedule lui-mÃªme ; il s'arrÃªte quand
- * il n'y a plus de sheets bloquÃ©es.
+ * Le sweep probe le quota réel et se reschedule lui-même ; il s'arrête quand
+ * il n'y a plus de sheets bloquées.
  */
 function INSTALL_QUOTA_RECOVERY() {
   // Supprimer tous les triggers existants (main + followup)
@@ -2377,7 +2377,7 @@ function INSTALL_QUOTA_RECOVERY() {
   _recoveryReleaseLock_(P_RECOVERY_SWEEP_LOCK);
   _recoveryClearFollowupPending_();
 
-  // Poller toutes les 30 min â€” probe-gated, early-exit si quota absent
+  // Poller toutes les 30 min — probe-gated, early-exit si quota absent
   ScriptApp.newTrigger("QUOTA_RECOVERY_SWEEP")
     .timeBased().everyMinutes(30).create();
 
@@ -2397,7 +2397,7 @@ var SYNC_J1_MAX_SYNCS_PER_RUN = 20;
  * No heartbeat writes: changing J1 triggers cache-only recalculation and can block
  * the Execution API when done as a periodic pulse.
  * Sync writes are capped per run because each J1 write can trigger sheet recalculation.
- * No HTTP calls â€” only sheet cell I/O, so it is safe to run every minute.
+ * No HTTP calls — only sheet cell I/O, so it is safe to run every minute.
  *
  * Called by ACTIVITY_WATCHDOG (27_ACTIVITY_REFRESH.gs).
  * @returns {Object} { checked, synced, skippedSync, errors }

@@ -2,7 +2,7 @@
 // v4.15.100 - RPC_LOOKUP: no ScriptProperties persistence (memory-only, rebuilt from ChainFactory, saves ~28KB quota)
 // v4.15.7 - stale cache diagnostics keep partial while price/meta gaps remain
 // v4.15.6 - prune stale ActivityTracker entries for retired Ledger sheets
-// v4.15.4 - cooldown 10min B1 pulse pour Ã©viter doublon avec WATCHDOG_FROM_RECAP
+// v4.15.4 - cooldown 10min B1 pulse pour éviter doublon avec WATCHDOG_FROM_RECAP
 /************************************************************
  * 27_ACTIVITY_REFRESH.gs - Activity-Based Refresh System (v4.16.40)
  *
@@ -28,22 +28,22 @@
  * - NEW: ACTIVITY_TRACKER_STATS() and DIAG_NATIVE_BALANCE_ONE()
  *
  * v4.15.0 - FEAT: Unified activity detection for EVM, SVM, and Cosmos
- * - NEW: fetchSvmSignatureBatch() â€” uses getSignaturesForAddress(limit=1)
+ * - NEW: fetchSvmSignatureBatch() — uses getSignaturesForAddress(limit=1)
  *   Compares latest tx signature (string) instead of nonce (integer)
- * - NEW: fetchCosmosSequenceBatch() â€” uses /cosmos/auth/v1beta1/accounts/
+ * - NEW: fetchCosmosSequenceBatch() — uses /cosmos/auth/v1beta1/accounts/
  *   Account sequence is the Cosmos equivalent of EVM nonce
  * - CHANGED: WATCHDOG now processes all 3 VM types (was EVM-only)
  * - CHANGED: BUILD_RPC_LOOKUP now handles Cosmos API.REST_URL config
  * - HTTP impact: ~6-7 extra calls/cycle (2 SVM + 4 Cosmos) = +1728/day
  *
- * v4.14.8 - FIX: ACTIVITY DETECTION â†’ SHEET REFRESH BROKEN
+ * v4.14.8 - FIX: ACTIVITY DETECTION → SHEET REFRESH BROKEN
  * - BUG 1: _activity_pulseB1ForChain_ couldn't find sheets (case mismatch)
  *   "ARBITRUM_ONE" tried "Ledger - ARBITRUM_ONE" but sheet = "Ledger - Arbitrum One"
  *   Now: case-insensitive suffix match across ALL sheets
  * - BUG 2: ForceRefreshManager key mismatch between set() and check()
  *   WATCHDOG set key with "ARBITRUM_ONE" (underscore) but BaseEngine read with
- *   "ARBITRUM ONE" (space from config.CHAIN.NAME) â†’ flag never found
- *   Now: _normalizeChain() used everywhere (spacesâ†’underscores)
+ *   "ARBITRUM ONE" (space from config.CHAIN.NAME) → flag never found
+ *   Now: _normalizeChain() used everywhere (spaces→underscores)
  * - ForceRefresh flag expiry increased from 10min to 30min (WATCHDOG rotation ~30min)
  *
  * v4.14.7 - RPC-FAIL GRACEFUL REGISTRATION
@@ -78,7 +78,7 @@
  *
  * v4.12.24 - Cache Age Priority
  * - DIAG_STALE_CACHES() diagnostic des caches vieillissants
- * - _getWalletForChain_() helper pour lookup wallet par chaÃƒÂ®ne
+ * - _getWalletForChain_() helper pour lookup wallet par chaÃ®ne
  * 
  * v4.12.22 - CRITICAL FIX: RPC Lookup Table
  * - WATCHDOG now uses persistent RPC_LOOKUP instead of eval()
@@ -88,14 +88,14 @@
  * - Added support for SVM/Cosmos activity detection (future)
  * 
  * v4.12.21 - CLEAN REWRITE:
- * - ClÃƒÂ©s TOUJOURS normalisÃƒÂ©es: CHAIN_UPPER:wallet_lower
- * - ActivityTracker intÃƒÂ©grÃƒÂ© avec API cohÃƒÂ©rente
+ * - ClÃ©s TOUJOURS normalisÃ©es: CHAIN_UPPER:wallet_lower
+ * - ActivityTracker intÃ©grÃ© avec API cohÃ©rente
  * - Compatible avec tous les formats de config.CHAIN.NAME
  * 
  * PRINCIPE:
  * - Stocke le nonce/tx count de chaque wallet EVM
- * - Compare ÃƒÂ  chaque check: si diffÃƒÂ©rent = transaction dÃƒÂ©tectÃƒÂ©e
- * - Transaction dÃƒÂ©tectÃƒÂ©e = flag force refresh
+ * - Compare Ã  chaque check: si diffÃ©rent = transaction dÃ©tectÃ©e
+ * - Transaction dÃ©tectÃ©e = flag force refresh
  * 
  ************************************************************/
 
@@ -149,7 +149,7 @@ if (typeof ModuleRegistry !== 'undefined') {
 var ACTIVITY_CONFIG = {
   // Intervalles de refresh (ms)
   INTERVALS: {
-    ACTIVE:     300000,    // 5 min - TX rÃƒÂ©cente dÃƒÂ©tectÃƒÂ©e
+    ACTIVE:     300000,    // 5 min - TX rÃ©cente dÃ©tectÃ©e
     HIGH_VALUE: 1800000,   // 30 min - Wallet > 1000 EUR
     MEDIUM:     7200000,   // 2h - Wallet > 100 EUR
     LOW:        21600000,  // 6h - Wallet > 1 EUR
@@ -163,10 +163,10 @@ var ACTIVITY_CONFIG = {
     LOW:    1
   },
   
-  // FenÃƒÂªtre d'activitÃƒÂ© rÃƒÂ©cente
+  // FenÃªtre d'activitÃ© rÃ©cente
   ACTIVITY_WINDOW_MS: 300000, // 5 min
   
-  // ClÃƒÂ©s de stockage
+  // ClÃ©s de stockage
   STORAGE: {
     NONCE_MAP: "ACTIVITY_NONCE_MAP",
     FORCE_REFRESH_PREFIX: "ACTIVITY_FORCE_",
@@ -233,7 +233,7 @@ var _RpcLookup = (function() {
   
   function _load() {
     if (_cache !== null) return;
-    // v4.15.100: Memory-only â€” rebuild from ChainFactory on each run instead
+    // v4.15.100: Memory-only — rebuild from ChainFactory on each run instead
     // of persisting to ScriptProperties (saves ~28KB of 500KB quota).
     // Falls back to legacy ScriptProperties key if ChainFactory not available.
     _initFromChainFactory();
@@ -248,7 +248,7 @@ var _RpcLookup = (function() {
   }
   
   function _save() {
-    // v4.15.100: No-op â€” RPC lookup is rebuilt from ChainFactory on each watchdog
+    // v4.15.100: No-op — RPC lookup is rebuilt from ChainFactory on each watchdog
     // cycle. The old ACTIVITY_RPC_LOOKUP key (28+ KB) is cleaned by emergency purge.
   }
   
@@ -371,8 +371,8 @@ var ActivityTracker = (function() {
   var _dirty = false;
   
   /**
-   * NORMALISE une clÃƒÂ©: TOUJOURS CHAIN_UPPER:wallet_lower
-   * Accepte n'importe quel format en entrÃƒÂ©e
+   * NORMALISE une clÃ©: TOUJOURS CHAIN_UPPER:wallet_lower
+   * Accepte n'importe quel format en entrÃ©e
    */
   function _normalizeKey(chain, wallet) {
     // Chain: toujours UPPERCASE, remplacer espaces par underscore
@@ -383,10 +383,10 @@ var ActivityTracker = (function() {
   }
   
   /**
-   * Extrait le nom de chaÃƒÂ®ne normalisÃƒÂ© depuis config
+   * Extrait le nom de chaÃ®ne normalisÃ© depuis config
    */
   function _getChainKey(config) {
-    // PrioritÃƒÂ©: CHAIN.NAME > CHAIN_ID > "UNKNOWN"
+    // PrioritÃ©: CHAIN.NAME > CHAIN_ID > "UNKNOWN"
     if (config && config.CHAIN && config.CHAIN.NAME) {
       return String(config.CHAIN.NAME).toUpperCase().replace(/\s+/g, "_").replace(/-/g, "_");
     }
@@ -475,7 +475,7 @@ var ActivityTracker = (function() {
   function _save() {
     if (!_dirty || !_cache) return;
     try {
-      // Nettoyer les entrÃƒÂ©es trop vieilles
+      // Nettoyer les entrÃ©es trop vieilles
       var cutoff = Date.now() - (ACTIVITY_CONFIG.MAX_AGE_DAYS * 86400000);
       var clean = {};
       for (var k in _cache) {
@@ -489,7 +489,7 @@ var ActivityTracker = (function() {
       );
       _dirty = false;
     } catch (e) {
-      // v4.15.100: Stop retry loop â€” if storage is full, don't keep retrying
+      // v4.15.100: Stop retry loop — if storage is full, don't keep retrying
       // in the same execution. Next watchdog cycle will retry.
       _dirty = false;
       Logger.log("[ActivityTracker] Save error: " + e);
@@ -498,8 +498,8 @@ var ActivityTracker = (function() {
   
   return {
     /**
-     * Obtenir les infos d'activitÃƒÂ© pour un wallet
-     * @param {string|Object} chainOrConfig - Nom de chaÃƒÂ®ne OU objet config
+     * Obtenir les infos d'activitÃ© pour un wallet
+     * @param {string|Object} chainOrConfig - Nom de chaÃ®ne OU objet config
      * @param {string} wallet - Adresse du wallet
      * @returns {Object|null} {nonce, lastCheck, lastActivity, prevNonce}
      */
@@ -518,8 +518,8 @@ var ActivityTracker = (function() {
     },
     
     /**
-     * Mettre ÃƒÂ  jour le nonce d'un wallet
-     * @returns {boolean} true si activitÃƒÂ© dÃƒÂ©tectÃƒÂ©e (nonce changÃƒÂ©)
+     * Mettre Ã  jour le nonce d'un wallet
+     * @returns {boolean} true si activitÃ© dÃ©tectÃ©e (nonce changÃ©)
      */
     updateSignals: function(chainOrConfig, wallet, signals) {
       _load();
@@ -570,7 +570,7 @@ var ActivityTracker = (function() {
     },
     
     /**
-     * VÃƒÂ©rifier si activitÃƒÂ© rÃƒÂ©cente (< 5 min)
+     * VÃ©rifier si activitÃ© rÃ©cente (< 5 min)
      */
     hasRecentActivity: function(chainOrConfig, wallet) {
       var info = this.getInfo(chainOrConfig, wallet);
@@ -579,7 +579,7 @@ var ActivityTracker = (function() {
     },
     
     /**
-     * Obtenir tous les wallets avec activitÃƒÂ© rÃƒÂ©cente
+     * Obtenir tous les wallets avec activitÃ© rÃ©cente
      */
     getActiveWallets: function() {
       _load();
@@ -608,7 +608,7 @@ var ActivityTracker = (function() {
     },
     
     /**
-     * Obtenir tous les wallets trackÃƒÂ©s
+     * Obtenir tous les wallets trackÃ©s
      */
     getAllTracked: function() {
       _load();
@@ -636,7 +636,7 @@ var ActivityTracker = (function() {
     },
     
     /**
-     * Nombre total de wallets trackÃƒÂ©s
+     * Nombre total de wallets trackÃ©s
      */
     count: function() {
       _load();
@@ -668,7 +668,7 @@ var ActivityTracker = (function() {
     },
     
     /**
-     * Vider complÃƒÂ¨tement le cache
+     * Vider complÃ¨tement le cache
      */
     clear: function() {
       _cache = {};
@@ -829,7 +829,7 @@ function PRUNE_ACTIVITY_NONCE_MAP_STALE(force) {
 var ForceRefreshManager = {
   /**
    * Normalize chain key: ALWAYS uppercase + underscores (matches ActivityTracker._normalizeKey)
-   * "Arbitrum One" â†’ "ARBITRUM_ONE", "ARBITRUM_ONE" â†’ "ARBITRUM_ONE"
+   * "Arbitrum One" → "ARBITRUM_ONE", "ARBITRUM_ONE" → "ARBITRUM_ONE"
    */
   _normalizeChain: function(chain) {
     return String(chain || "").toUpperCase().replace(/\s+/g, "_").replace(/-/g, "_");
@@ -861,7 +861,7 @@ var ForceRefreshManager = {
   },
 
   /**
-   * VÃ©rifier si force refresh demandÃ©
+   * Vérifier si force refresh demandé
    */
   check: function(chain, wallet) {
     try {
@@ -871,12 +871,12 @@ var ForceRefreshManager = {
 
       var raw = PropertiesService.getScriptProperties().getProperty(key);
       if (!raw) {
-        Logger.log("[FORCE_REFRESH] CHECK " + key + " â€” NOT FOUND");
+        Logger.log("[FORCE_REFRESH] CHECK " + key + " — NOT FOUND");
         return null;
       }
 
       var data = JSON.parse(raw);
-      // v4.15.2: Safety TTL only (2h) â€” real expiry is in BaseEngine when last_full_scan_ms > requestedAt
+      // v4.15.2: Safety TTL only (2h) — real expiry is in BaseEngine when last_full_scan_ms > requestedAt
       if (Date.now() - data.requestedAt > 7200000) {
         PropertiesService.getScriptProperties().deleteProperty(key);
         Logger.log("[FORCE_REFRESH] EXPIRED " + key + " age=" + (Date.now() - data.requestedAt) + "ms");
@@ -891,7 +891,7 @@ var ForceRefreshManager = {
   },
 
   /**
-   * Effacer le flag aprÃ¨s refresh
+   * Effacer le flag après refresh
    */
   clear: function(chain, wallet) {
     try {
@@ -912,7 +912,7 @@ var ForceRefreshManager = {
 
 /**
  * Calculer l'intervalle de refresh optimal
- * @param {string} chainName - Nom de la chaÃƒÂ®ne
+ * @param {string} chainName - Nom de la chaÃ®ne
  * @param {string} wallet - Adresse wallet
  * @param {number} valueEur - Valeur totale en EUR
  * @param {number} cacheAgeMs - Age du cache en ms
@@ -923,7 +923,7 @@ function calculateRefreshInterval(chainName, wallet, valueEur, cacheAgeMs) {
   var name = "LOW";
   var reason = "";
   
-  // 1. Force refresh demandÃƒÂ©?
+  // 1. Force refresh demandÃ©?
   var forceRefresh = ForceRefreshManager.check(chainName, wallet);
   if (forceRefresh) {
     return { 
@@ -933,7 +933,7 @@ function calculateRefreshInterval(chainName, wallet, valueEur, cacheAgeMs) {
     };
   }
   
-  // 2. ActivitÃƒÂ© rÃƒÂ©cente dÃƒÂ©tectÃƒÂ©e?
+  // 2. ActivitÃ© rÃ©cente dÃ©tectÃ©e?
   if (ActivityTracker.hasRecentActivity(chainName, wallet)) {
     return { 
       name: "ACTIVE", 
@@ -942,7 +942,7 @@ function calculateRefreshInterval(chainName, wallet, valueEur, cacheAgeMs) {
     };
   }
   
-  // 3. BasÃƒÂ© sur la valeur
+  // 3. BasÃ© sur la valeur
   if (valueEur >= ACTIVITY_CONFIG.THRESHOLDS.HIGH) {
     interval = ACTIVITY_CONFIG.INTERVALS.HIGH_VALUE;
     name = "HIGH";
@@ -961,7 +961,7 @@ function calculateRefreshInterval(chainName, wallet, valueEur, cacheAgeMs) {
     reason = "Dust wallet";
   }
   
-  // 4. VÃƒÂ©rifier si refresh nÃƒÂ©cessaire
+  // 4. VÃ©rifier si refresh nÃ©cessaire
   if (cacheAgeMs === null || cacheAgeMs === undefined) {
     return { name: "NORMAL", reason: "Refresh due", interval: interval };
   }
@@ -1219,7 +1219,7 @@ function fetchEvmNonceBatch(items, oldNonceMap) {
 
 /**
  * v4.15.0: Fetch latest tx signature for SVM wallets (Solana, Fogo)
- * Uses getSignaturesForAddress with limit=1 â€” returns the latest tx signature.
+ * Uses getSignaturesForAddress with limit=1 — returns the latest tx signature.
  * Solana JSON-RPC does NOT support batch arrays, so we use fetchAll for parallelism.
  *
  * @param {Array} items - Array of {chain, wallet, rpc} objects
@@ -1275,7 +1275,7 @@ function fetchSvmSignatureBatch(items) {
         // Use signature as activity marker (string, ~88 chars base58)
         results[m.key] = json.result[0].signature || null;
       } else {
-        // No transactions found â€” use "0" as marker (new/empty wallet)
+        // No transactions found — use "0" as marker (new/empty wallet)
         results[m.key] = "0";
       }
     } catch (e2) {
@@ -1461,7 +1461,7 @@ function fetchEvmNativeBalanceBatch(items) {
     results[outKey] = _activityStrictMajorityValue_(votesByKey[outKey], totalsByKey[outKey]);
   }
 
-  // v4.15.40: Stale RPC detection â€” compare per-RPC nonces with old cached value.
+  // v4.15.40: Stale RPC detection — compare per-RPC nonces with old cached value.
   // If a majority of RPCs return a new (higher) nonce but one RPC returns the old value,
   // flag that RPC as potentially stale.
   try {
@@ -1483,7 +1483,7 @@ function fetchEvmNativeBalanceBatch(items) {
           staleCount++;
         }
       }
-      // If majority found a HIGHER nonce â†’ some RPCs are stale
+      // If majority found a HIGHER nonce → some RPCs are stale
       if (freshCount > 0 && freshCount > staleCount) {
         for (var rj = 0; rj < rpcUrls.length; rj++) {
           var rUrl2 = rpcUrls[rj];
@@ -1823,8 +1823,8 @@ function SHOW_RPC_LOOKUP() {
 // ============================================================
 
 /**
- * Initialiser/Mettre ÃƒÂ  jour les nonces pour tous les wallets EVM dÃƒÂ©jÃƒÂ  trackÃƒÂ©s
- * Utilise ActivityTracker.getAllTracked() - les wallets sont dÃƒÂ©jÃƒÂ  connus!
+ * Initialiser/Mettre Ã  jour les nonces pour tous les wallets EVM dÃ©jÃ  trackÃ©s
+ * Utilise ActivityTracker.getAllTracked() - les wallets sont dÃ©jÃ  connus!
  * @customfunction
  */
 function INIT_ALL_NONCES() {
@@ -1863,7 +1863,7 @@ function INIT_ALL_NONCES() {
     out.push(["", "", "", "", ""]);
 
     if (tracked.length === 0) {
-      out.push(["WARNING", "No wallets in ACTIVITY_NONCE_MAP â€” auto-discovering from Recap Chain...", "", "", ""]);
+      out.push(["WARNING", "No wallets in ACTIVITY_NONCE_MAP — auto-discovering from Recap Chain...", "", "", ""]);
       // v4.14.6: Auto-discover wallets instead of giving up
       var discovered = _discoverWalletsFromRecap_();
       if (discovered.length === 0) {
@@ -1960,7 +1960,7 @@ function INIT_ALL_NONCES() {
 // ============================================================
 
 /**
- * Diagnostic complet du systÃƒÂ¨me Activity
+ * Diagnostic complet du systÃ¨me Activity
  * @customfunction
  */
 function ACTIVITY_REFRESH_STATUS() {
@@ -1987,7 +1987,7 @@ function ACTIVITY_REFRESH_STATUS() {
     var lastCheckAgo = mostRecent > 0 ? Math.round((Date.now() - mostRecent) / 60000) + " min ago" : "never";
     out.push(["Last check", mostRecent > 0 ? "OK" : "STALE", lastCheckAgo, ""]);
     
-    // 4. ActivitÃƒÂ© rÃƒÂ©cente
+    // 4. ActivitÃ© rÃ©cente
     var active = ActivityTracker.getActiveWallets();
     out.push(["Recent activity", active.length + " wallets", "Last 5 min", ""]);
     
@@ -2247,8 +2247,8 @@ function _activityWatchdogPhaseCSignals_() {
  * v4.12.22: Auto-init when nonces are stale (> 1 hour without check)
  */
 function ACTIVITY_WATCHDOG() {
-  // v4.16.30: DISABLED â€” was consuming ~5760 UrlFetch calls/day
-  // (120+ wallets Ã— eth_getTransactionCount via fetchAll, every 30 min).
+  // v4.16.30: DISABLED — was consuming ~5760 UrlFetch calls/day
+  // (120+ wallets × eth_getTransactionCount via fetchAll, every 30 min).
   // WATCHDOG_FROM_RECAP (every 10 min, I1 > 5h stale detection) handles
   // refresh scheduling. Activity-based refresh is unnecessary.
   return { skipped: "disabled_v4.16.30", reason: "WATCHDOG_FROM_RECAP handles refresh scheduling" };
@@ -2578,7 +2578,7 @@ function ACTIVITY_WATCHDOG() {
 /**
  * v4.13.7: Check all wallet-chain sheets for #ERROR! in A2 or J2
  * If found, increment J1 by 1 second to trigger formula recalculation
- * v4.15.42 â€” R9 FIX: Max 3 retries / 24h per sheet to prevent infinite churn
+ * v4.15.42 — R9 FIX: Max 3 retries / 24h per sheet to prevent infinite churn
  *
  * @returns {Object} { checked, errors, pulsed, skipped }
  */
@@ -2617,7 +2617,7 @@ function _checkSheetErrors_() {
 
         stats.errors++;
 
-        // v4.15.42: Retry limiter â€” max 3 pulses / 24h per sheet
+        // v4.15.42: Retry limiter — max 3 pulses / 24h per sheet
         var retryKey = RETRY_PREFIX + name;
         var retryRaw = props.getProperty(retryKey);
         var retryData = { count: 0, lastRetryMs: 0 };
@@ -2627,7 +2627,7 @@ function _checkSheetErrors_() {
         var inWindow = retryData.lastRetryMs && (nowMs - retryData.lastRetryMs) < RETRY_WINDOW_MS;
         if (inWindow && retryData.count >= RETRY_MAX) {
           stats.skipped++;
-          Logger.log("[ERROR_RETRY] SKIP " + name + " â€” retry limit (" + RETRY_MAX + "/24h) reached");
+          Logger.log("[ERROR_RETRY] SKIP " + name + " — retry limit (" + RETRY_MAX + "/24h) reached");
           continue;
         }
 
@@ -2697,7 +2697,7 @@ function _activity_pulseB1ForChain_(chainName) {
     var ss = _wcoreGetSpreadsheet_();
     if (!ss) return;
 
-    // Normalize: "ARBITRUM_ONE" â†’ "arbitrumone" for comparison
+    // Normalize: "ARBITRUM_ONE" → "arbitrumone" for comparison
     var norm = String(chainName).toLowerCase().replace(/[_\s\-]+/g, "");
     var sheets = ss.getSheets();
     var tz = ss.getSpreadsheetTimeZone() || "Europe/Paris";
@@ -2706,7 +2706,7 @@ function _activity_pulseB1ForChain_(chainName) {
 
     for (var i = 0; i < sheets.length; i++) {
       var name = sheets[i].getName();
-      // Normalize sheet name: "Ledger - Arbitrum One" â†’ "ledgerarbitrumone"
+      // Normalize sheet name: "Ledger - Arbitrum One" → "ledgerarbitrumone"
       var normName = name.toLowerCase().replace(/[_\s\-]+/g, "");
 
       // Match if sheet name ends with chain (e.g., "ledgerarbitrumone" ends with "arbitrumone")
@@ -2751,7 +2751,7 @@ function INSTALL_ACTIVITY_WATCHDOG() {
     }
   }
   
-  // Installer nouveau trigger (v4.5.17: 5min -> 10min â€” Ã©conomie ~50% nonce calls)
+  // Installer nouveau trigger (v4.5.17: 5min -> 10min — économie ~50% nonce calls)
   ScriptApp.newTrigger("ACTIVITY_WATCHDOG")
     .timeBased()
     .everyMinutes(10)

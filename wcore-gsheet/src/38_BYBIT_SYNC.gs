@@ -1,5 +1,5 @@
 // v4.16.34 - Relay rotation scheduling; individual installer and watchdog disabled.
-// v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers prÃ©sents mais mal autorisÃ©s" v4.15.61).
+// v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers présents mais mal autorisés" v4.15.61).
 // v4.15.95 - Use shared CEX manual-refresh helpers.
 // v4.15.94 - Manual refresh writes visible B1 REQUEST flag for trigger-context safe handoff.
 // v4.15.93 - Manual A1 refresh flag falls back to UserProperties when ScriptProperties is full.

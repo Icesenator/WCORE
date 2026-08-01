@@ -926,7 +926,12 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
         return {
           ok: true,
           deferred: false,
-          status: "[WEB_SCAN_PRESERVED] " + Format.datetime(preservedAt),
+          // I1 porte l'heure du DERNIER CONTROLE, pas l'age de la donnee : sans
+          // cela, J1 (recopie de I1 par le watchdog) reste fige et donne
+          // l'impression que le systeme ne tourne plus, alors qu'il pulse
+          // toujours. L'anciennete reelle est reportee par le moteur dans une
+          // ligne ERROR indiquant le dernier scan reussi.
+          status: "[WEB_SCAN_PRESERVED] " + Format.now(),
           cache: existingCache,
           degraded: true
         };

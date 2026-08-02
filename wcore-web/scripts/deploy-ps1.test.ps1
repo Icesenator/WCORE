@@ -20,6 +20,7 @@ function Test-Deploy {
     [string]$Service = "web",
     [string[]]$ExpectIgnoreContains = @(),
     [string[]]$ExpectIgnoreExcludes = @(),
+    [string]$ExpectDockerfile,
     [string]$PreExistingIgnore,
     [string]$Label
   )
@@ -45,10 +46,11 @@ function Test-Deploy {
       Set-Content -LiteralPath $ignorePath -Value $PreExistingIgnore -NoNewline
     }
 
-    # The mock snapshots .railwayignore as seen by `railway up`, then exits.
+    # The mock snapshots .railwayignore and railway.json as seen by `railway up`, then exits.
     $capturePath = Join-Path $testRoot "captured-ignore.txt"
+    $captureJsonPath = Join-Path $testRoot "captured-json.txt"
     $mockRailwayPath = Join-Path $mockBin "railway.cmd"
-    $mockBody = "@echo off`r`nif exist `"$ignorePath`" copy /Y `"$ignorePath`" `"$capturePath`" >nul`r`nexit /b $RailwayExitCode`r`n"
+    $mockBody = "@echo off`r`nif exist `"$ignorePath`" copy /Y `"$ignorePath`" `"$capturePath`" >nul`r`ncopy /Y `"$testJsonPath`" `"$captureJsonPath`" >nul`r`nexit /b $RailwayExitCode`r`n"
     Set-Content -LiteralPath $mockRailwayPath -Value $mockBody -NoNewline
 
     $oldPath = $env:PATH
@@ -77,18 +79,31 @@ function Test-Deploy {
       $errors.Add("deploy lock file was not cleaned up")
     }
 
-    $captured = if (Test-Path $capturePath) { Get-Content -LiteralPath $capturePath -Raw } else { $null }
-    if (($ExpectIgnoreContains.Count -gt 0 -or $ExpectIgnoreExcludes.Count -gt 0) -and $null -eq $captured) {
+    # Match whole lines: "wcore-web/apps/web/__tests__/" must not satisfy a check for
+    # "wcore-web/apps/web/", otherwise the guard silently accepts an over-broad exclusion.
+    $capturedLines = if (Test-Path $capturePath) {
+      @(Get-Content -LiteralPath $capturePath | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" -and -not $_.StartsWith("#") })
+    } else { $null }
+    if (($ExpectIgnoreContains.Count -gt 0 -or $ExpectIgnoreExcludes.Count -gt 0) -and $null -eq $capturedLines) {
       $errors.Add(".railwayignore was not present during railway up")
     }
     foreach ($needle in $ExpectIgnoreContains) {
-      if ($null -ne $captured -and $captured -notmatch [regex]::Escape($needle)) {
-        $errors.Add(".railwayignore should exclude '$needle'")
+      if ($null -ne $capturedLines -and $capturedLines -notcontains $needle) {
+        $errors.Add(".railwayignore should exclude '$needle'. Got: $($capturedLines -join ', ')")
       }
     }
     foreach ($needle in $ExpectIgnoreExcludes) {
-      if ($null -ne $captured -and $captured -match [regex]::Escape($needle)) {
+      if ($null -ne $capturedLines -and $capturedLines -contains $needle) {
         $errors.Add(".railwayignore must NOT exclude '$needle'")
+      }
+    }
+
+    if ($PSBoundParameters.ContainsKey("ExpectDockerfile")) {
+      $capturedJson = if (Test-Path $captureJsonPath) { Get-Content -LiteralPath $captureJsonPath -Raw } else { $null }
+      if ($null -eq $capturedJson) {
+        $errors.Add("railway.json was not present during railway up")
+      } elseif ($capturedJson -notmatch [regex]::Escape($ExpectDockerfile)) {
+        $errors.Add("railway.json should pin '$ExpectDockerfile'. Got: $capturedJson")
       }
     }
 
@@ -137,13 +152,23 @@ Write-Host "=== .railwayignore build-context scoping (upload timeout 2026-08-02)
 Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "api" `
   -ExpectIgnoreContains @("wcore-web/apps/web/") `
   -ExpectIgnoreExcludes @("wcore-web/apps/api/", "wcore-web/packages/", "wcore-gsheet/dist") `
+  -ExpectDockerfile "wcore-web/apps/api/Dockerfile.railway" `
   -Label "api deploy excludes apps/web but keeps its own build inputs"
 
 # The web image needs apps/web/public, so it must never be excluded there.
 Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "web" `
   -ExpectIgnoreContains @("wcore-web/apps/api/") `
   -ExpectIgnoreExcludes @("wcore-web/apps/web/", "wcore-web/packages/", "wcore-gsheet/dist") `
+  -ExpectDockerfile "wcore-web/apps/web/Dockerfile.railway" `
   -Label "web deploy excludes apps/api but keeps apps/web"
+
+# The relay builds from the repo root too: railway.json must be pinned to its own
+# Dockerfile, and railway-relay/ must survive the ignore list.
+Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "cex-relay" `
+  -ExpectIgnoreContains @("wcore-web/") `
+  -ExpectIgnoreExcludes @("wcore-gsheet/railway-relay/") `
+  -ExpectDockerfile "wcore-gsheet/railway-relay/Dockerfile" `
+  -Label "cex-relay deploy pins its Dockerfile and keeps railway-relay"
 
 # A user-authored .railwayignore must survive the deploy untouched.
 Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "api" `

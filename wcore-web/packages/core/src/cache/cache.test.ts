@@ -2,6 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MemoryCacheStore } from "./memory-cache.js";
+import { isAtomicCacheStore } from "./types.js";
+
+test("MemoryCacheStore reports the active memory backend", () => {
+  const cache = new MemoryCacheStore();
+  assert.equal(isAtomicCacheStore(cache), true);
+  assert.equal(cache.backend, "memory");
+  assert.equal(isAtomicCacheStore({} as never), false);
+});
 
 test("MemoryCacheStore set and get", async () => {
   const cache = new MemoryCacheStore();

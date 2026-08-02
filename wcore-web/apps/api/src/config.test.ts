@@ -193,4 +193,85 @@ describe("getApiConfig", () => {
     assert.equal(config.scan.jobTtlDoneMs, 5555);
     assert.equal(config.scan.jobTtlNoProgressMs, 10 * 60 * 1000);
   });
+
+  it("uses disabled Zerion portfolio enrichment defaults", () => {
+    const config = getApiConfig({ NODE_ENV: "test" });
+    assert.deepEqual(config.portfolioEnrichment.zerion, {
+      enabled: false,
+      apiKey: undefined,
+      timeoutMs: 3000,
+      cacheTtlMs: 600000,
+      lastGoodTtlMs: 86400000,
+      dailyBudget: 1000,
+      maxResponseBytes: 2000000,
+      maxPositions: 1000,
+    });
+  });
+
+  it("parses all Zerion portfolio enrichment overrides", () => {
+    const config = getApiConfig({
+      NODE_ENV: "test",
+      ZERION_ENRICHMENT_ENABLED: " TRUE ",
+      ZERION_API_KEY: " secret-key ",
+      ZERION_TIMEOUT_MS: "4000",
+      ZERION_CACHE_TTL_MS: "700000",
+      ZERION_LAST_GOOD_TTL_MS: "90000000",
+      ZERION_DAILY_BUDGET: "1200",
+      ZERION_MAX_RESPONSE_BYTES: "3000000",
+      ZERION_MAX_POSITIONS: "1500",
+    });
+    assert.deepEqual(config.portfolioEnrichment.zerion, {
+      enabled: true,
+      apiKey: "secret-key",
+      timeoutMs: 4000,
+      cacheTtlMs: 700000,
+      lastGoodTtlMs: 90000000,
+      dailyBudget: 1200,
+      maxResponseBytes: 3000000,
+      maxPositions: 1500,
+    });
+  });
+
+  it("normalizes blank keys and requires a key when Zerion is enabled", () => {
+    assert.equal(getApiConfig({ NODE_ENV: "test", ZERION_API_KEY: "   " }).portfolioEnrichment.zerion.apiKey, undefined);
+    for (const apiKey of [undefined, "   "]) {
+      assert.throws(() => getApiConfig({
+        NODE_ENV: "test",
+        ZERION_ENRICHMENT_ENABLED: "true",
+        ZERION_API_KEY: apiKey,
+      }), /ZERION_API_KEY is required/);
+    }
+  });
+
+  it("strictly validates Zerion booleans and positive safe integers", () => {
+    assert.throws(
+      () => getApiConfig({ NODE_ENV: "test", ZERION_ENRICHMENT_ENABLED: "yes" }),
+      /ZERION_ENRICHMENT_ENABLED must be true or false/,
+    );
+    const keys = [
+      "ZERION_TIMEOUT_MS",
+      "ZERION_CACHE_TTL_MS",
+      "ZERION_LAST_GOOD_TTL_MS",
+      "ZERION_DAILY_BUDGET",
+      "ZERION_MAX_RESPONSE_BYTES",
+      "ZERION_MAX_POSITIONS",
+    ];
+    for (const key of keys) {
+      for (const value of ["invalid", "Infinity", "0", "-1", "1.5", "9007199254740992"]) {
+        assert.throws(
+          () => getApiConfig({ NODE_ENV: "test", [key]: value }),
+          new RegExp(`${key} must be a positive safe integer`),
+        );
+      }
+    }
+  });
+
+  it("rejects Zerion timer values above the Node timeout limit", () => {
+    for (const key of ["ZERION_TIMEOUT_MS", "ZERION_CACHE_TTL_MS", "ZERION_LAST_GOOD_TTL_MS"]) {
+      assert.throws(
+        () => getApiConfig({ NODE_ENV: "test", [key]: "2147483648" }),
+        new RegExp(`${key} must be at most 2147483647`),
+      );
+    }
+  });
 });

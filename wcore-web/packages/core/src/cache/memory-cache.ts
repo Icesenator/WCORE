@@ -6,6 +6,7 @@ interface MemoryEntry {
 }
 
 export class MemoryCacheStore implements CacheStore {
+  readonly backend = "memory" as const;
   private store = new Map<string, MemoryEntry>();
 
   async get<T>(key: string): Promise<T | undefined> {

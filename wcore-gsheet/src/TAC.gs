@@ -8,7 +8,13 @@ var _TAC = ChainFactory.createEvmChain("TAC", {
  CACHE_VERSION: 64,
  // 2026-08-02: second endpoint added, it was single-RPC. Verified same chain as
  // rpc.tac.build (identical head block, chainId 239, eth_getBalance/eth_call OK).
- RPC: { ENDPOINTS: ["https://rpc.tac.build", "https://rpc.ankr.com/tac"] },
+ // MAX_LOG_RANGE: both endpoints reject eth_getLogs with -32062 "Block range is too
+ // large" above 1000 blocks inclusive. The engine builds fromBlock = toBlock - value,
+ // so the span is the value itself: 999 passes, 1000 fails. Do not raise to 1000.
+ RPC: {
+ ENDPOINTS: ["https://rpc.tac.build", "https://rpc.ankr.com/tac"],
+ MAX_LOG_RANGE: 999
+ },
  CHAIN: {
  NAME: "TAC",
  CHAIN_ID: 239,

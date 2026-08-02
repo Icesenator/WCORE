@@ -1,5 +1,5 @@
 import { MemoryCacheStore } from "./memory-cache.js";
-import type { BackendAwareCacheStore, CacheStore } from "./types.js";
+import type { BackendAwareCacheStore } from "./types.js";
 
 export function pipelineExecError(results: Array<[Error | null, unknown]> | null, expectedCount: number): Error | undefined {
   if (results === null) return new Error("Redis pipeline returned no results");

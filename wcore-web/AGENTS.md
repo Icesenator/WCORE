@@ -1,4 +1,4 @@
-﻿# WCORE ÔÇö Wallet CORE
+# WCORE ÔÇö Wallet CORE
 
 ## Outils actifs (auto-activation pour Codex)
 
@@ -1140,3 +1140,15 @@ Stablecoins ÔåÆ Cache ÔåÆ DefiLlama ÔåÆ DexScreener ÔåÆ GT Try1/2/3 
 - **Pro tier** : set `COINGECKO_API_KEY` ÔåÆ auto-rout├® vers pro-api
 - **Batch** : toujours `gecko_batch_prices` pour multi-tokens
 - **Jamais deviner un CG id** : `gecko_search_coin(symbol)` avant `gecko_get_price(ids)`
+
+### Gotchas déploiement Railway — incident et corrections 2026-08-02
+
+- **L'archive envoyée par `railway up` EST le contexte de build Docker.** Envoyer des chemins que le Dockerfile ne copie jamais gaspille de la bande passante et peut faire expirer la requête `up`. Mesure du jour : 31,6 MiB envoyés pour un contexte API réellement utile de 2,01 MiB, dont 24,11 MiB de `wcore-web/apps/web` (des PNG marketing) que l'image API ne copie pas. Sur un lien montant à ~0,8 Mbps, cela dépassait le délai de la requête et le CLI n'expose aucun réglage de timeout. `deploy.ps1` génère désormais un `.railwayignore` par service, restauré/supprimé en `finally` comme il le fait déjà pour `railway.json`. **Garder ces listes synchronisées avec les deux `Dockerfile.railway`** : exclure un chemin réellement copié fait échouer le build (échec propre, l'ancien déploiement reste actif).
+- **Les trois services buildent depuis la racine du dépôt**, donc `railway.json` doit être épinglé sur le bon Dockerfile à chaque déploiement, y compris pour `cex-relay` (`RAILWAY_DOCKERFILE_PATH = wcore-gsheet/railway-relay/Dockerfile`). Déployer le relais sans épingler aurait construit le web dans le service relais — exactement l'incident du 2026-05-19. `deploy.ps1` accepte maintenant `api|web|cex-relay` et le test de garde vérifie le Dockerfile épinglé par service.
+- **CRLF casse les scripts shell déployés.** `railway up` envoie la copie de travail. Avec `core.autocrlf=true` sous Windows, `start-production.sh` est extrait en CRLF, le shebang devient `#!/bin/sh\r`, et le conteneur meurt sur `./start-production.sh: not found` (API en HTTP 502, build pourtant `SUCCESS`). Le dépôt stocke bien du LF : seule la copie de travail est en cause, d'où des déploiements qui passent depuis d'autres machines. Corrigé par `.gitattributes` (`*.sh text eol=lf`). **Tout nouveau `.sh` déployé doit rester en LF.**
+- **Un code de sortie non nul ne garantit pas l'absence de déploiement.** Le CLI peut expirer sur `backboard.railway.com/graphql/v2` (flux de logs) alors que l'upload a réussi et que le build démarre. Toujours vérifier `railway deployment list` avant de relancer, sinon on empile des builds.
+- **Un upload expiré laisse un déploiement fantôme** en `INITIALIZING` sans image ni instance, qui bascule ensuite en `FAILED`. Il ne remplace pas la production : le déploiement précédent continue de servir.
+- **Le service `web` est relié à GitHub mais ne se déploie pas tout seul sur push.** Le modèle réel est un build depuis la source déclenché explicitement : `railway redeploy --service web --from-source --yes`. C'est le seul chemin viable pour le web, dont l'archive (~22 MiB compressés, `apps/web/public` étant indispensable) ne passe pas dans le délai d'upload. `railway.json` porte des `watchPatterns` limités aux chemins que son image consomme.
+- **`/api/metrics/errors` exige une authentification** (401). Pour diagnostiquer en production sans jeton admin, utiliser un `POST /api/scan` réel : le tableau `errors` de chaque chaîne est la source la plus fiable.
+- **`POST /api/scan` applique une vérification CSRF d'origine.** Sans en-tête `Origin: https://wcore.xyz`, la réponse est `403 csrf_origin_mismatch`.
+- **Choisir une adresse de test représentative.** Un scan sur l'adresse de Vitalik fait expirer la découverte Blockscout (2500 ms) et marque la chaîne `degraded`, alors qu'une adresse réelle du classeur passe sans aucune erreur. Ne pas conclure à une panne à partir d'une adresse hors norme.

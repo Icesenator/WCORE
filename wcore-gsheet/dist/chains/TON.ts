@@ -7,7 +7,7 @@ export const TON: ChainConfig = {
   key: "TON",
   vm: "TON",
   ...({
-  VERSION: "TON_v4.15.81",
+  VERSION: "TON_v4.15.83",
   CACHE_VERSION: 5,
   RPC: {
     ENDPOINTS: [

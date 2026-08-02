@@ -10,10 +10,11 @@ export const BSC: ChainConfig = {
   CACHE_VERSION: 63,
   RPC: {
     ENDPOINTS: [
-      "https://bsc-rpc.publicnode.com",
       "https://bsc.drpc.org",
-      "https://bsc-dataseed.binance.org",
+      "https://bsc-dataseed1.binance.org",
+      "https://bsc-dataseed2.binance.org",
     ],
+    MAX_LOG_RANGE: 5000,
     DISABLE_JSON_RPC_BATCH: true,
   },
   CHAIN: {

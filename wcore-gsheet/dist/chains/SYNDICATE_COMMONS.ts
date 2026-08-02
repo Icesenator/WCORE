@@ -17,8 +17,6 @@ export const SYNDICATE_COMMONS: ChainConfig = {
   RPC: {
     ENDPOINTS: [
       "https://commons.rpc.syndicate.io",
-      "https://510003.rpc.thirdweb.com",
-      "https://rpc.commons.syndicate.io",
     ],
     MAX_FAILURES_BEFORE_BLOCK: 5,
     BLOCK_DURATION_MS: 30000,

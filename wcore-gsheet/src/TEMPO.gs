@@ -46,7 +46,9 @@
 var _TEMPO = ChainFactory.createEvmChain("TEMPO", {
   CACHE_VERSION: 72,
   RPC: {
-    ENDPOINTS: ["https://tempo-mainnet.drpc.org"],
+    // 2026-08-02: second endpoint added, it was single-RPC. Verified same chain as
+    // tempo-mainnet.drpc.org (identical head block, chainId 4217, eth_getBalance/eth_call OK).
+    ENDPOINTS: ["https://tempo-mainnet.drpc.org", "https://rpc.mainnet.tempo.xyz"],
     MAX_BATCH_SIZE: 3,
     TOKEN_DECIMALS: {
       "0x20c0000000000000000000000000000000000000": 6,

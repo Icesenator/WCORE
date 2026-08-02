@@ -6,7 +6,9 @@
 
 var _TAC = ChainFactory.createEvmChain("TAC", {
  CACHE_VERSION: 64,
- RPC: { ENDPOINTS: ["https://rpc.tac.build"] },
+ // 2026-08-02: second endpoint added, it was single-RPC. Verified same chain as
+ // rpc.tac.build (identical head block, chainId 239, eth_getBalance/eth_call OK).
+ RPC: { ENDPOINTS: ["https://rpc.tac.build", "https://rpc.ankr.com/tac"] },
  CHAIN: {
  NAME: "TAC",
  CHAIN_ID: 239,

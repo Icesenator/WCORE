@@ -435,9 +435,8 @@ if (autoHeal && !autoHeal.includes("PHASE_C_ENABLED")) {
 if (autoHeal && (!autoHeal.includes("PRUNE_ACTIVITY_NONCE_MAP_STALE") || !autoHeal.includes("DISCOVER_AND_REGISTER_WALLETS"))) {
   fail(errors, "WCORE_AUTO_HEAL must prune stale activity state and bootstrap nonce tracking automatically");
 }
-if (!refresh.includes("WCORE_AUTO_HEAL(\"WATCHDOG_FROM_RECAP\"")) {
-  fail(errors, "WATCHDOG_FROM_RECAP must invoke WCORE_AUTO_HEAL automatically");
-}
+// WCORE_AUTO_HEAL_TIMER owns periodic healing. Do not invoke it from the recap
+// watchdog: both paths use leases and nesting them creates avoidable contention.
 if (!refresh.includes("WCORE_AUTO_HEAL(\"QUOTA_RECOVERY_SWEEP\"")) {
   fail(errors, "QUOTA_RECOVERY_SWEEP must invoke WCORE_AUTO_HEAL automatically");
 }

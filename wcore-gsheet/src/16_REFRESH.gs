@@ -1304,8 +1304,12 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     var noUsableCache = !i1Norm || i1Norm.indexOf("[NO_CACHE]") === 0 || i1Norm.indexOf("[WEB_SCAN_DEFERRED]") === 0 ||
       (i1Norm.indexOf("[CACHE_ONLY]") === 0 &&
         (!_wd_isLastUpdateFormat_(extractedI1) || !isFinite(extractedI1Ms)));
+    var vA2Norm = _wd_norm_(d.vA2 || "");
+    var needsA2Recalc = (vA2Norm === "" || vA2Norm.indexOf("#") === 0 ||
+      vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
+      _wd_isLastUpdateFormat_(extractedI1) && _wd_shouldSyncJ1_(d.vI1 || "", "");
     var cooldownMin = refreshCheck.useBlockedCooldown ? WD_PULSE_MIN_BLOCKED : WD_PULSE_MIN;
-    var canPulseNormally = !suppressB1Pulses && webErrorAllowed &&
+    var canPulseNormally = !needsA2Recalc && !suppressB1Pulses && webErrorAllowed &&
       refreshCheck.blockedReason !== "QUOTA" &&
       _wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin);
     var cycleAgeMs = Number.MAX_SAFE_INTEGER;
@@ -1363,9 +1367,7 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     }
 
     var actualI1 = refreshCheck.actualTimestamp || _wd_extractTimestamp_(d.vI1 || "");
-    var vA2Norm = _wd_norm_(d.vA2 || "");
-    if ((vA2Norm === "" || vA2Norm.indexOf("#") === 0 || vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
-        _wd_isLastUpdateFormat_(actualI1) && _wd_shouldSyncJ1_(d.vI1 || "", "")) {
+    if (needsA2Recalc) {
       var bumpedJ1 = _wd_bumpTimestampSeconds_(actualI1, 1);
       if (bumpedJ1) {
         syncActions.push({

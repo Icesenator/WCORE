@@ -58,10 +58,13 @@ if (!autoHeal.includes('cexManualQueue')) {
   throw new Error('Auto-heal trigger spec must be bumped for queued manual CEX refreshes');
 }
 
-for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
+for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
   if (!autoHeal.includes(`ScriptApp.newTrigger("${handler}").timeBased().everyHours(1).create()`)) {
     throw new Error(`CEX auto refresh must install an hourly per-connector trigger for ${handler}`);
   }
+}
+if (!autoHeal.includes('ScriptApp.newTrigger("UPDATE_CEX_RELAY_ROTATION").timeBased().everyMinutes(15).create()')) {
+  throw new Error('CEX auto refresh must install the 15-minute relay rotation trigger');
 }
 
 // v4.15.140: Bitpanda stocks must not be starved behind crypto/commodity/fiat
@@ -98,11 +101,11 @@ const cleanupBody = extractFunction(autoHeal, 'WCORE_CEX_TRIGGER_CLEANUP_FORCE')
 if (cleanupBody.includes('WCORE_AUTO_HEAL(')) {
   throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must not call full WCORE_AUTO_HEAL; it times out in listing/hyperlink maintenance');
 }
-if (!cleanupBody.includes('MASTER_ON_EDIT') || !cleanupBody.includes('UPDATE_BINANCE_SPOT') || !cleanupBody.includes('UPDATE_KRAKEN_SPOT')) {
-  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall MASTER_ON_EDIT and hourly per-connector CEX triggers directly');
+if (!cleanupBody.includes('MASTER_ON_EDIT') || !cleanupBody.includes('UPDATE_CEX_RELAY_ROTATION') || !cleanupBody.includes('UPDATE_KRAKEN_SPOT')) {
+  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall MASTER_ON_EDIT and canonical CEX triggers directly');
 }
-if (!cleanupBody.includes('everyHours(1)')) {
-  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall CEX auto triggers every hour');
+if (!cleanupBody.includes('everyHours(1)') || !cleanupBody.includes('everyMinutes(15)')) {
+  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall hourly direct CEX triggers and 15-minute relay rotation');
 }
 const cexTriggerList = bitpanda.slice(
   bitpanda.indexOf('var _BP_CEX_TRIGGERS_TO_HEAL'),
@@ -116,9 +119,9 @@ for (const legacy of ['BINANCE_REFRESH_WATCHDOG', 'BITFINEX_REFRESH_WATCHDOG', '
 if (cexTriggerList.includes('BITPANDA_REFRESH_WATCHDOG')) {
   throw new Error('CEX onEdit self-heal must not recreate BITPANDA_REFRESH_WATCHDOG');
 }
-for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_BINANCE_SPOT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
+for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_CEX_RELAY_ROTATION', 'UPDATE_BITFINEX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
   if (!cexTriggerList.includes(handler)) {
-    throw new Error(`CEX onEdit self-heal must keep hourly ${handler}`);
+    throw new Error(`CEX onEdit self-heal must keep canonical ${handler}`);
   }
 }
 
@@ -300,8 +303,8 @@ if (!hourlyBody.includes('UPDATE_KRAKEN_SPOT')) {
   throw new Error('CEX_HOURLY_REFRESH must include Kraken');
 }
 const installCexHourlyBody = extractFunction(bitpanda, 'INSTALL_CEX_HOURLY_REFRESH');
-if (!installCexHourlyBody.includes('UPDATE_BINANCE_SPOT') || !installCexHourlyBody.includes('everyHours(1)') || installCexHourlyBody.includes('everyHours(4)')) {
-  throw new Error('INSTALL_CEX_HOURLY_REFRESH must install per-connector CEX updates every hour');
+if (!installCexHourlyBody.includes('LEGACY_DISABLED') || !installCexHourlyBody.includes('UPDATE_CEX_RELAY_ROTATION')) {
+  throw new Error('INSTALL_CEX_HOURLY_REFRESH must remain disabled in favor of the auto-healed relay rotation');
 }
 const directCryptoBody = extractFunction(bitpanda, '_bpRunCryptoCexRefreshDirect_');
 if (!directCryptoBody.includes('UPDATE_KRAKEN_SPOT')) {

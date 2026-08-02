@@ -119,7 +119,20 @@ function makeContext(props, fetchBody) {
     Utilities: {
       formatDate: () => '2026-06-26 19:00:00',
       sleep: () => {},
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      computeDigest: () => Array(32).fill(1),
     },
+    CacheService: {
+      getScriptCache: () => ({
+        get: () => null,
+        put: () => {},
+        remove: () => {},
+      }),
+    },
+    LockService: {
+      getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }),
+    },
+    CK_get: (name, parts) => `${name}:${parts && parts.chainKey || ''}:${parts && parts.walletHash || ''}`,
     Session: { getScriptTimeZone: () => 'Europe/Paris' },
     CacheManager: { init: () => {} },
     WalletCache: {
@@ -507,8 +520,10 @@ const samplePayload = JSON.stringify({
   }, degradedWithAssetsPayload);
   const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
   assert.equal(res.ok, true);
-  assert.match(res.status, /WEB_SCAN_PRESERVED/, 'any degraded web scan with errors must preserve existing cache');
-  assert.equal(ctx.__saved.length, 0, 'degraded web scan with errors must not overwrite a valid wallet cache');
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'a useful degraded scan should replace a corrupted cache after sanitization');
+  assert.equal(ctx.__saved.length, 1, 'a useful degraded scan should save its sanitized assets');
+  assert.equal(ctx.__saved[0].cache.priceMap['0x14778860e937f509e651192a90589de711fb88a9'], undefined,
+    'an absurd token price must never enter the wallet cache');
 }
 
 {
@@ -853,7 +868,22 @@ const samplePayload = JSON.stringify({
     return { getResponseCode: () => 200, getContentText: () => samplePayload };
   });
   const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'ARBITRUM_ONE', NAME: 'Arbitrum One' } });
-  assert.equal(res.ok, true, 'web scan should retry transient UrlFetch failures before falling back native');
+  assert.equal(res.ok, false, 'automatic web scans should not retry immediately and consume extra quota');
+  assert.equal(attempts, 1);
+
+  attempts = 0;
+  const manualCtx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, () => {
+    attempts++;
+    if (attempts === 1) throw new Error('Address unavailable: https://api.example.test/api/gsheet/scan');
+    return { getResponseCode: () => 200, getContentText: () => samplePayload };
+  });
+  const manualRes = manualCtx._webScanWallet_('0x0000000000000000000000000000000000000001', [], true, { CHAIN: { KEY: 'ARBITRUM_ONE', NAME: 'Arbitrum One' } });
+  assert.equal(manualRes.ok, true, 'manual forced web scans should retain one transient retry');
   assert.equal(attempts, 2);
 }
 
@@ -920,9 +950,12 @@ const samplePayload = JSON.stringify({
     getResponseCode: () => 503,
     getContentText: () => '{"error":"scan_failed"}',
   }));
-  const res = ctx.DIAG_WEB_SCAN_CHAIN('CAMP', '0x0000000000000000000000000000000000000001');
-  assert.deepEqual(res, [['status', 'HTTP_503'], ['error', 'scan_failed']]);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false,
+    { CHAIN: { KEY: 'CAMP', NAME: 'Camp' } });
+  assert.equal(res.status, 'HTTP_503');
+  assert.equal(res.error, 'scan_failed');
   assert.equal(props.GSHEET_WEB_SCAN_LAST_ERROR, 'HTTP_503 scan_failed', 'diagnostic should persist the web API failure reason');
+  assert.equal(props.GSHEET_WEB_SCAN_LAST_ERROR_CAMP, 'HTTP_503 scan_failed');
 }
 
 {

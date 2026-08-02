@@ -23,7 +23,7 @@ const watchdog = extractFunction('WATCHDOG_FROM_RECAP');
 const tryUnblock = extractFunction('_wd_tryUnblock_');
 const maxPulsesMatch = source.match(/var\s+WD_MAX_PULSES_PER_RUN\s*=\s*(\d+)\s*;/);
 assert(maxPulsesMatch, 'WD_MAX_PULSES_PER_RUN must be defined');
-assert.strictEqual(Number(maxPulsesMatch[1]), 15, 'WATCHDOG should allow 15 B1 pulses per run');
+assert.strictEqual(Number(maxPulsesMatch[1]), 10, 'WATCHDOG should cap B1 pulses at 10 per run');
 
 function loadWatchdogHelpers() {
   const names = [
@@ -49,8 +49,17 @@ function loadWatchdogHelpers() {
   const code = names.map(extractFunction).join('\n');
   const context = {
     WD_MAX_PULSES_PER_RUN: 5,
+    WD_CYCLE_SLOTS_PER_RUN: 3,
     WD_PULSE_MIN: 10,
     WD_PULSE_MIN_BLOCKED: 30,
+    P_WD_J1_CURSOR: 'WD_J1_CURSOR',
+    _wd_loadWebBackoff_: () => ({}),
+    _wd_webErrorDecision_: (state, sheetName, _nowMs, errorTimestampMs) => {
+      if (errorTimestampMs == null) delete state[sheetName];
+      return { allowed: errorTimestampMs != null, nextDelayMs: 0 };
+    },
+    _wd_reservePulseStates_: (actions) => ({ actions, errors: 0 }),
+    _wd_selectFairJ1Actions_: (actions) => actions,
     QuotaCircuitBreaker: { isTripped: () => false },
     HttpErrorGuard: { isQuotaExhausted: () => false },
     CacheGuard: { isBlocked: () => false },
@@ -119,7 +128,8 @@ assert(
     range: 'J1',
     value: '2026-07-08 20:16:29',
     type: 'sync',
-    reason: 'a2_error_recalc'
+    reason: 'a2_error_recalc',
+    fairnessIndex: 0
   }], 'A2 custom-function errors should bump J1 by one second without pulsing B1');
 }
 
@@ -140,7 +150,8 @@ assert(
     range: 'J1',
     value: '2026-07-08 20:21:36',
     type: 'sync',
-    reason: 'a2_error_recalc'
+    reason: 'a2_error_recalc',
+    fairnessIndex: 0
   }], 'Blank Recap total with fresh I1/J1 should bump J1 by one second, not B1');
 }
 

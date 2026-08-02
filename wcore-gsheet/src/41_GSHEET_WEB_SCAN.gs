@@ -1,6 +1,7 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.41 - Reject absurd token price/value magnitudes before they enter WalletCache.
  * v4.16.40 - Preserve useful assets but emit a retryable WEB_SCAN_ERROR when a
  *   preserved legacy cache has no usable timestamp, never WEB_SCAN_PRESERVED N/A.
  * v4.16.39 - Keep useful partial payloads degraded and expose cache-load failures
@@ -58,7 +59,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.40";
+var GSHEET_WEB_SCAN_VERSION = "4.16.41";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -67,6 +68,8 @@ var GSHEET_WEB_BREAKER_THRESHOLD = 3;
 var GSHEET_WEB_BREAKER_WINDOW_MS = 5 * 60 * 1000;
 var GSHEET_WEB_BREAKER_OPEN_SEC = 30 * 60;
 var GSHEET_WEB_BREAKER_STATE_TTL_SEC = 35 * 60;
+var GSHEET_WEB_MAX_TOKEN_PRICE_EUR = 1e9;
+var GSHEET_WEB_MAX_TOKEN_VALUE_EUR = 1e12;
 
 var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
   "0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3": true, // BASE: AGI
@@ -324,6 +327,12 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   var priorityAssets = [];
   var extraAssets = [];
   var seenTokenSet = {};
+  var absurdPriceSymbols = {};
+  var payloadErrors = Array.isArray(payload.errors) ? payload.errors : [];
+  for (var pe = 0; pe < payloadErrors.length; pe++) {
+    var absurdMatch = String(payloadErrors[pe] || "").match(/^(.+?)\s+price:\s*ABSURD_PRICE\b/i);
+    if (absurdMatch && absurdMatch[1]) absurdPriceSymbols[String(absurdMatch[1]).trim().toUpperCase()] = true;
+  }
 
   var nativeAsset = _webScanAssetFromNative_(payload.native || {}, config || {});
   assets.push(nativeAsset);
@@ -337,7 +346,22 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   var tokens = Array.isArray(payload.tokens) ? payload.tokens : [];
   for (var i = 0; i < tokens.length; i++) {
     if (_webScanIsScamToken_(tokens[i])) { scamFiltered++; continue; }
-    var asset = _webScanAssetFromToken_(tokens[i]);
+    var tokenForCache = tokens[i];
+    var rawTokenPrice = _webScanFirstNum_(tokenForCache || {}, ["priceEur", "price_eur", "price"], null);
+    var rawTokenValue = _webScanFirstNum_(tokenForCache || {}, ["valueEur", "value_eur", "value"], null);
+    var absurdMagnitude = (rawTokenPrice != null && Math.abs(rawTokenPrice) > GSHEET_WEB_MAX_TOKEN_PRICE_EUR) ||
+      (rawTokenValue != null && Math.abs(rawTokenValue) > GSHEET_WEB_MAX_TOKEN_VALUE_EUR);
+    if (absurdMagnitude || absurdPriceSymbols[String(tokenForCache && tokenForCache.symbol || "").trim().toUpperCase()]) {
+      tokenForCache = Object.assign({}, tokenForCache, {
+        priceEur: null,
+        price_eur: null,
+        price: null,
+        valueEur: null,
+        value_eur: null,
+        value: null
+      });
+    }
+    var asset = _webScanAssetFromToken_(tokenForCache);
     if (!asset) continue;
     var assetKey = String(asset.contract || "").toLowerCase();
     if (assetKey) seenTokenSet[assetKey] = true;

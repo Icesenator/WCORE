@@ -1155,10 +1155,14 @@ describe("gsheetPlugin", () => {
 
   test("maps missing web scan chain to 404", async () => {
     const app = Fastify();
+    let scanRunnerCalls = 0;
     await app.register(gsheetPlugin, {
       token: "secret",
       cacheStore: { get: async () => null },
-      scanRunner: async () => { throw new Error("chain_not_found"); },
+      scanRunner: async () => {
+        scanRunnerCalls++;
+        throw new Error("scan_runner_invoked");
+      },
     });
     const res = await app.inject({
       method: "POST",
@@ -1168,6 +1172,32 @@ describe("gsheetPlugin", () => {
     });
     assert.equal(res.statusCode, 404);
     assert.deepEqual(JSON.parse(res.body), { error: "chain_not_found" });
+    assert.equal(scanRunnerCalls, 0);
+    await app.close();
+  });
+
+  test("returns degraded chain_disabled without invoking the scan runner", async () => {
+    const app = Fastify();
+    let scanRunnerCalls = 0;
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async () => {
+        scanRunnerCalls++;
+        throw new Error("scan_runner_invoked");
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "ancient8" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(scanRunnerCalls, 0);
+    assert.equal(body.degraded, true);
+    assert.deepEqual(body.errors, ["[WEB_SCAN_ERROR] chain_disabled chain=ANCIENT8"]);
     await app.close();
   });
 });

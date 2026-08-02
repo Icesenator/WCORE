@@ -41,6 +41,7 @@ export function getChainRpcs(chainKey: string): string[] | undefined {
 }
 
 async function rpcFetch(rpcs: string[], body: unknown): Promise<{ result?: unknown; error?: unknown }> {
+  let lastError: string | undefined;
   for (const rpc of rpcs) {
     try {
       assertPublicHttp(rpc);
@@ -52,8 +53,12 @@ async function rpcFetch(rpcs: string[], body: unknown): Promise<{ result?: unkno
       if (!res.ok) continue;
       const data = await res.json() as { result?: unknown; error?: unknown };
       if (!data.error) return data;
-    } catch (e) { console.error("rpcFetch RPC error:", (e as Error).message || String(e)); /* try next RPC */ }
+      lastError = "rpc_response_error";
+    } catch (e) {
+      lastError = (e as Error).message || String(e);
+    }
   }
+  console.warn("rpcFetch: all RPC endpoints failed", { rpcCount: rpcs.length, error: lastError });
   return {};
 }
 

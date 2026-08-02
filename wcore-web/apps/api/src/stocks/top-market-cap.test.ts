@@ -18,6 +18,13 @@ test("maps CompaniesMarketCap exchange suffixes and explicit overrides", () => {
   assert.equal(mapTopMarketCapTicker("BRK-B").canonicalTicker, "NYSE:BRK.B");
   assert.equal(mapTopMarketCapTicker("TM").canonicalTicker, "TYO:7203");
   assert.equal(mapTopMarketCapTicker("TM").supplyMultiplier, 10);
+  assert.deepEqual(mapTopMarketCapTicker("SHEL"), {
+    canonicalTicker: "SHEL",
+    yahooTickers: ["SHEL.L"],
+    bitpandaAliases: ["SHEL", "RDSA"],
+    expectedCurrency: "GBp",
+    supplyMultiplier: 2,
+  });
   assert.equal(mapTopMarketCapTicker("2222.SR").canonicalTicker, "2222.SR");
   assert.deepEqual(mapTopMarketCapTicker("2222.SR").yahooTickers, ["2222.SR"]);
 });
@@ -56,6 +63,17 @@ test("records receipt metadata without changing canonical ordinary-share prices"
 
   assert.equal(normalizeSupply("TM", 100), 1_000);
   assert.equal(normalizeSupply("005930.KS", 100), 100);
+});
+
+test("maps both Shell aliases to the London share and normalizes ADR supply", () => {
+  for (const symbol of ["SHEL", "RDSA"]) {
+    const shell = getBitpandaSecurity(symbol);
+    assert.equal(shell.canonicalTicker, "SHEL");
+    assert.deepEqual(shell.yahooTickers, ["SHEL.L"]);
+    assert.equal(shell.expectedCurrency, "GBp");
+    assert.equal(shell.supplyMultiplier, 2);
+  }
+  assert.equal(normalizeSupply("SHEL", 100), 200);
 });
 
 test("parses normalized headers and quoted CSV fields", () => {

@@ -29,5 +29,16 @@ export interface CacheStore {
   pipeline?(ops: Array<{ key: string; value: unknown; ttlMs?: number }>): Promise<number>;
 }
 
+export type CacheBackend = "memory" | "redis";
+
+export interface BackendAwareCacheStore extends CacheStore {
+  readonly backend: CacheBackend;
+}
+
+export function isAtomicCacheStore(store: CacheStore): store is BackendAwareCacheStore {
+  const backend = (store as Partial<BackendAwareCacheStore>).backend;
+  return backend === "memory" || backend === "redis";
+}
+
 export const DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — cursor + token list persist across restarts
 export const METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;

@@ -1,5 +1,5 @@
 import { MemoryCacheStore } from "./memory-cache.js";
-import type { CacheStore } from "./types.js";
+import type { BackendAwareCacheStore, CacheStore } from "./types.js";
 
 export function pipelineExecError(results: Array<[Error | null, unknown]> | null, expectedCount: number): Error | undefined {
   if (results === null) return new Error("Redis pipeline returned no results");
@@ -23,7 +23,7 @@ export interface RedisCacheOptions {
   onFallback?: (err: unknown) => void;
 }
 
-export async function createCacheStore(options: RedisCacheOptions = {}): Promise<CacheStore & { errorCount: number }> {
+export async function createCacheStore(options: RedisCacheOptions = {}): Promise<BackendAwareCacheStore & { errorCount: number }> {
   const { host = "127.0.0.1", port = 6380, password = "", keyPrefix = "wcore:", onError, onFallback } = options;
 
   let errorCount = 0;
@@ -70,6 +70,7 @@ export async function createCacheStore(options: RedisCacheOptions = {}): Promise
     await client.ping();
 
     return {
+      backend: "redis" as const,
       errorCount,  // mutated by reference via closures below
       async get<T>(key: string): Promise<T | undefined> {
         try {

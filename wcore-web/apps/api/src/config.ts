@@ -7,6 +7,17 @@ export interface RedisConfig {
   fromUrl: boolean;
 }
 
+export interface ZerionEnrichmentConfig {
+  enabled: boolean;
+  apiKey?: string;
+  timeoutMs: number;
+  cacheTtlMs: number;
+  lastGoodTtlMs: number;
+  dailyBudget: number;
+  maxResponseBytes: number;
+  maxPositions: number;
+}
+
 export interface ApiConfig {
   runtime: {
     nodeEnv: string;
@@ -58,6 +69,9 @@ export interface ApiConfig {
     jobTtlDoneMs: number;
     jobTtlNoProgressMs: number;
   };
+  portfolioEnrichment: {
+    zerion: ZerionEnrichmentConfig;
+  };
   integrations: {
     gsheetApiToken: string | undefined;
     gsheetOwnerAddress: string | undefined;
@@ -68,6 +82,7 @@ export interface ApiConfig {
 
 const DEV_ENVS = new Set(["development", "test"]);
 const DEV_JWT_SECRET = "wcore-dev-secret-change-in-prod";
+const MAX_TIMER_MS = 2_147_483_647;
 const WEAK_SECRET_PATTERNS = [/change-in-(prod|real-deploy)/i, /placeholder/i, /^wcore-staging-/i, /^test-/i, /^dev-/i];
 
 function readNumber(env: ApiEnv, key: string, fallback: number, options: { min?: number } = {}): number {
@@ -77,6 +92,31 @@ function readNumber(env: ApiEnv, key: string, fallback: number, options: { min?:
   if (!Number.isFinite(parsed)) return fallback;
   const value = Math.floor(parsed);
   if (options.min != null) return Math.max(options.min, value);
+  return value;
+}
+
+function readBoolean(env: ApiEnv, key: string, fallback: boolean): boolean {
+  const raw = env[key];
+  if (raw == null) return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  throw new Error(`${key} must be true or false`);
+}
+
+function readPositiveInteger(
+  env: ApiEnv,
+  key: string,
+  fallback: number,
+  max = Number.MAX_SAFE_INTEGER,
+): number {
+  const raw = env[key];
+  if (raw == null) return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${key} must be a positive safe integer`);
+  }
+  if (value > max) throw new Error(`${key} must be at most ${max}`);
   return value;
 }
 
@@ -140,6 +180,12 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
   const scanConcurrency = readNumber(env, "SCAN_CONCURRENCY", 50, { min: 1 });
   const nonEvmScanConcurrency = readNumber(env, "NON_EVM_SCAN_CONCURRENCY", 5, { min: 1 });
   const usedDevelopmentJwtFallback = env.JWT_SECRET == null && isDevelopmentLike;
+  const zerionEnabled = readBoolean(env, "ZERION_ENRICHMENT_ENABLED", false);
+  const zerionApiKey = env.ZERION_API_KEY?.trim() || undefined;
+
+  if (zerionEnabled && !zerionApiKey) {
+    throw new Error("ZERION_API_KEY is required when Zerion enrichment is enabled");
+  }
 
   return {
     runtime: {
@@ -191,6 +237,18 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       jobTtlRunningMs: readNumber(env, "JOB_TTL_RUNNING_MS", 30 * 60 * 1000, { min: 1 }),
       jobTtlDoneMs: readNumber(env, "JOB_TTL_DONE_MS", 30 * 60 * 1000, { min: 1 }),
       jobTtlNoProgressMs: 10 * 60 * 1000,
+    },
+    portfolioEnrichment: {
+      zerion: {
+        enabled: zerionEnabled,
+        apiKey: zerionApiKey,
+        timeoutMs: readPositiveInteger(env, "ZERION_TIMEOUT_MS", 3000, MAX_TIMER_MS),
+        cacheTtlMs: readPositiveInteger(env, "ZERION_CACHE_TTL_MS", 600000, MAX_TIMER_MS),
+        lastGoodTtlMs: readPositiveInteger(env, "ZERION_LAST_GOOD_TTL_MS", 86400000, MAX_TIMER_MS),
+        dailyBudget: readPositiveInteger(env, "ZERION_DAILY_BUDGET", 1000),
+        maxResponseBytes: readPositiveInteger(env, "ZERION_MAX_RESPONSE_BYTES", 2000000),
+        maxPositions: readPositiveInteger(env, "ZERION_MAX_POSITIONS", 1000),
+      },
     },
     integrations: {
       gsheetApiToken: env.GSHEET_API_TOKEN,

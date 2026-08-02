@@ -6,7 +6,14 @@
 var _LAYERAI = ChainFactory.createEvmChain("LAYERAI", {
   CACHE_VERSION: 1,
   RPC: {
+    // 2026-08-02: the thirdweb endpoint was the only one configured and answers
+    // "We are not able to process your request" on eth_blockNumber/eth_getBalance
+    // (3/3 probes), so this chain could not be scanned at all. Both aere.network
+    // hosts return chainId 2800 and serve eth_getBalance/eth_call, and agree on the
+    // head block within one. Kept thirdweb last in case its block is IP-scoped.
     ENDPOINTS: [
+      "https://rpc.aere.network",
+      "https://rpc2.aere.network",
       "https://2800.rpc.thirdweb.com"
     ]
   },

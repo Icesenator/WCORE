@@ -11,6 +11,7 @@ export const TAC: ChainConfig = {
   RPC: {
     ENDPOINTS: [
       "https://rpc.tac.build",
+      "https://rpc.ankr.com/tac",
     ],
   },
   CHAIN: {

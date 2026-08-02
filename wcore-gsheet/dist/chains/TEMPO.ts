@@ -11,6 +11,7 @@ export const TEMPO: ChainConfig = {
   RPC: {
     ENDPOINTS: [
       "https://tempo-mainnet.drpc.org",
+      "https://rpc.mainnet.tempo.xyz",
     ],
     MAX_BATCH_SIZE: 3,
     TOKEN_DECIMALS: {

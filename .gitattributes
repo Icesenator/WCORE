@@ -1,0 +1,7 @@
+* text=auto
+
+# Shell scripts must keep LF in the working tree. `railway up` uploads the working
+# copy as the Docker build context, so a CRLF checkout (core.autocrlf=true on
+# Windows) turns the shebang into `#!/bin/sh\r` and the container dies with
+# "./start-production.sh: not found" (incident 2026-08-02, API 502).
+*.sh text eol=lf

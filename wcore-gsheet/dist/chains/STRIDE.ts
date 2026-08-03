@@ -9,7 +9,12 @@ export const STRIDE: ChainConfig = {
   ...({
   CACHE_VERSION: 67,
   API: {
-    REST_URL: "https://stride-rest.publicnode.com",
+    REST_URL: "https://stride-api.polkachu.com",
+    REST_URLS: [
+      "https://stride-api.polkachu.com",
+      "https://rest.cosmos.directory/stride",
+      "https://stride-rest.publicnode.com",
+    ],
     RPC_URL: "https://stride-rpc.publicnode.com",
   },
   CHAIN: {

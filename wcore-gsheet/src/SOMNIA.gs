@@ -1,6 +1,10 @@
 /**
- * SOMNIA.gs - Somnia (v4.9.5)
+ * SOMNIA.gs - Somnia (v4.16.42)
  * ChainFactory pattern with explicit function declarations
+ *
+ * v4.16.42 - CHAIN_ID corrected from 50311 to 5031. All five configured RPCs
+ *            answer eth_chainId with 0x13a7 (5031); 50311 matched no endpoint,
+ *            so every consensus check on the chainId failed silently.
  */
 
 var _SOMNIA = ChainFactory.createEvmChain("SOMNIA", {
@@ -8,7 +12,7 @@ var _SOMNIA = ChainFactory.createEvmChain("SOMNIA", {
  RPC: { ENDPOINTS: ["https://somnia-rpc.publicnode.com", "https://somnia.publicnode.com", "https://api.infra.mainnet.somnia.network", "https://somnia-json-rpc.stakely.io", "https://5031.rpc.thirdweb.com"] },
  CHAIN: {
  NAME: "Somnia",
- CHAIN_ID: 50311,
+ CHAIN_ID: 5031,
  NATIVE_SYMBOL: "STT",
  NATIVE_NAME: "Somnia Token",
  NATIVE_DECIMALS: 18,

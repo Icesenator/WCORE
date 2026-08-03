@@ -19,7 +19,7 @@ export const SOMNIA: ChainConfig = {
   },
   CHAIN: {
     NAME: "Somnia",
-    CHAIN_ID: 50311,
+    CHAIN_ID: 5031,
     NATIVE_SYMBOL: "STT",
     NATIVE_NAME: "Somnia Token",
     NATIVE_DECIMALS: 18,

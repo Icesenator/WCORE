@@ -21,6 +21,7 @@ function Test-Deploy {
     [string[]]$ExpectIgnoreContains = @(),
     [string[]]$ExpectIgnoreExcludes = @(),
     [string]$ExpectDockerfile,
+    [string[]]$ExpectWatchContains = @(),
     [string]$PreExistingIgnore,
     [string]$Label
   )
@@ -107,6 +108,22 @@ function Test-Deploy {
       }
     }
 
+    # watchPatterns must be pinned per service too. Leaving the committed web-scoped
+    # list in place made `railway up --service api` answer "no changes detected in watch
+    # paths, build will skip": it returned success and deployed nothing.
+    if ($ExpectWatchContains.Count -gt 0) {
+      $capturedJson = if (Test-Path $captureJsonPath) { Get-Content -LiteralPath $captureJsonPath -Raw } else { $null }
+      if ($null -eq $capturedJson) {
+        $errors.Add("railway.json was not present during railway up")
+      } else {
+        foreach ($needle in $ExpectWatchContains) {
+          if ($capturedJson -notmatch [regex]::Escape($needle)) {
+            $errors.Add("watchPatterns should cover '$needle'. Got: $capturedJson")
+          }
+        }
+      }
+    }
+
     if ($PSBoundParameters.ContainsKey("PreExistingIgnore")) {
       if (-not (Test-Path $ignorePath)) {
         $errors.Add("pre-existing .railwayignore was deleted instead of restored")
@@ -153,6 +170,7 @@ Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "api" `
   -ExpectIgnoreContains @("wcore-web/apps/web/") `
   -ExpectIgnoreExcludes @("wcore-web/apps/api/", "wcore-web/packages/", "wcore-gsheet/dist") `
   -ExpectDockerfile "wcore-web/apps/api/Dockerfile.railway" `
+  -ExpectWatchContains @("wcore-web/apps/api/**", "wcore-web/packages/db/**") `
   -Label "api deploy excludes apps/web but keeps its own build inputs"
 
 # The web image needs apps/web/public, so it must never be excluded there.
@@ -160,6 +178,7 @@ Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "web" `
   -ExpectIgnoreContains @("wcore-web/apps/api/") `
   -ExpectIgnoreExcludes @("wcore-web/apps/web/", "wcore-web/packages/", "wcore-gsheet/dist") `
   -ExpectDockerfile "wcore-web/apps/web/Dockerfile.railway" `
+  -ExpectWatchContains @("wcore-web/apps/web/**") `
   -Label "web deploy excludes apps/api but keeps apps/web"
 
 # The relay builds from the repo root too: railway.json must be pinned to its own
@@ -168,6 +187,7 @@ Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "cex-relay" `
   -ExpectIgnoreContains @("wcore-web/") `
   -ExpectIgnoreExcludes @("wcore-gsheet/railway-relay/") `
   -ExpectDockerfile "wcore-gsheet/railway-relay/Dockerfile" `
+  -ExpectWatchContains @("wcore-gsheet/railway-relay/**") `
   -Label "cex-relay deploy pins its Dockerfile and keeps railway-relay"
 
 # A user-authored .railwayignore must survive the deploy untouched.

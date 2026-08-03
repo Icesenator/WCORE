@@ -48,6 +48,49 @@ jobs:
         run: pnpm --filter @wcore/api test
       - run: pnpm build
 
+  # The schema maps tables that no migration created, so `migrate deploy` used to fail
+  # on an empty database while production kept working (it was created with `db push`
+  # and baselined). Staging from scratch and disaster recovery were both broken without
+  # any signal. This job rebuilds the whole history on a blank PostgreSQL and then
+  # asserts the result matches the schema exactly.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wcore
+          POSTGRES_PASSWORD: wcore
+          POSTGRES_DB: wcore_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wcore"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://wcore:wcore@localhost:5432/wcore_migrations?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: wcore-web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply every migration to an empty database
+        run: pnpm --filter @wcore/db exec prisma migrate deploy
+
+      # Exit code 2 means the rebuilt database differs from schema.prisma.
+      - name: Rebuilt database must match the schema
+        run: pnpm --filter @wcore/db exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
+
   security:
     runs-on: ubuntu-latest
     steps:

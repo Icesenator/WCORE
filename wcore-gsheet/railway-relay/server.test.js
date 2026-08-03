@@ -787,12 +787,13 @@ test("relay auth still refuses a query token where none was ever accepted", asyn
 
 test("relay rate limit caps a flood and never throttles the health probe", async () => {
   const previousLimit = process.env.RELAY_RATE_LIMIT;
+  process.env.RELAY_RATE_LIMIT = "5";
   try {
     await withServer(async (baseUrl) => {
       // The relay had no limit at all, so anyone could drive unbounded signed traffic
       // toward the exchanges from this single IP.
       let sawRateLimited = false;
-      for (let i = 0; i < 200; i++) {
+      for (let i = 0; i < 50; i++) {
         const res = await fetch(baseUrl + "/stock/quotes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

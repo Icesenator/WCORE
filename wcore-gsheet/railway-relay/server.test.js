@@ -724,3 +724,89 @@ test("POST /stock/prices keeps legacy GBp-to-EUR conversion behavior", async () 
     else process.env.RELAY_TOKEN = previousToken;
   }
 });
+
+test("relay auth accepts the token as a header, keeping it out of URLs and logs", async () => {
+  const previousToken = process.env.RELAY_TOKEN;
+  const previousFetch = global.fetch;
+  process.env.RELAY_TOKEN = "relay-test-token";
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ chart: { result: [{ meta: { regularMarketPrice: 0.86, currency: "EUR" } }] } }),
+  });
+  try {
+    await withServer(async (baseUrl) => {
+      // A query string leaks the shared secret into access logs and Referer headers,
+      // so the header is the supported way to authenticate.
+      const viaHeader = await previousFetch(baseUrl + "/stock/fx-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-relay-token": "relay-test-token" },
+        body: JSON.stringify({ currencies: ["KRW"] }),
+      });
+      assert.equal(viaHeader.status, 200);
+
+      const viaBearer = await previousFetch(baseUrl + "/stock/fx-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authorization: "Bearer relay-test-token" },
+        body: JSON.stringify({ currencies: ["KRW"] }),
+      });
+      assert.equal(viaBearer.status, 200);
+
+      const wrongHeader = await previousFetch(baseUrl + "/stock/fx-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-relay-token": "nope" },
+        body: JSON.stringify({ currencies: ["KRW"] }),
+      });
+      assert.equal(wrongHeader.status, 401);
+    });
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken == null) delete process.env.RELAY_TOKEN;
+    else process.env.RELAY_TOKEN = previousToken;
+  }
+});
+
+test("relay auth still refuses a query token where none was ever accepted", async () => {
+  const previousToken = process.env.RELAY_TOKEN;
+  process.env.RELAY_TOKEN = "relay-test-token";
+  try {
+    await withServer(async (baseUrl) => {
+      // Centralising the auth check must not widen where a token is accepted:
+      // /stock/quotes only ever read it from the body.
+      const viaQuery = await fetch(baseUrl + "/stock/quotes?token=relay-test-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: ["AAPL"] }),
+      });
+      assert.equal(viaQuery.status, 401);
+    });
+  } finally {
+    if (previousToken == null) delete process.env.RELAY_TOKEN;
+    else process.env.RELAY_TOKEN = previousToken;
+  }
+});
+
+test("relay rate limit caps a flood and never throttles the health probe", async () => {
+  const previousLimit = process.env.RELAY_RATE_LIMIT;
+  try {
+    await withServer(async (baseUrl) => {
+      // The relay had no limit at all, so anyone could drive unbounded signed traffic
+      // toward the exchanges from this single IP.
+      let sawRateLimited = false;
+      for (let i = 0; i < 200; i++) {
+        const res = await fetch(baseUrl + "/stock/quotes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (res.status === 429) { sawRateLimited = true; break; }
+      }
+      assert.equal(sawRateLimited, true, "a flood must eventually be rate limited");
+
+      const health = await fetch(baseUrl + "/health");
+      assert.equal(health.status, 200, "the Railway health probe must never be throttled");
+    });
+  } finally {
+    if (previousLimit == null) delete process.env.RELAY_RATE_LIMIT;
+    else process.env.RELAY_RATE_LIMIT = previousLimit;
+  }
+});

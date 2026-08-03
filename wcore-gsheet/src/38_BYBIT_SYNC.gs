@@ -85,12 +85,14 @@ function _bybitGetRelay_() {
 
 // Recupere les buckets via le relais Railway (un seul appel HTTP, deja normalise).
 function _bybitFetchBucketsViaRelay_(relay) {
-  var url = relay.url + "/bybit?token=" + encodeURIComponent(relay.token);
+  // Token as a header, not in the URL: a query string leaks it into access logs.
+  var url = relay.url + "/bybit";
+  var relayOptions = { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": relay.token } };
   var resp = null;
   var lastErr = null;
   for (var attempt = 0; attempt < 3; attempt++) {
     try {
-      resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
+      resp = UrlFetchApp.fetch(url, relayOptions);
       lastErr = null;
       break;
     } catch (err) {

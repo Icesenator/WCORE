@@ -419,6 +419,28 @@ async function pricedRows(rows: RawCexRow[], stockCache?: StockPriceCache): Prom
   return priceCexRowsForTest(rows, { priceStockSymbolEur: (s) => priceStockSymbolEur(s, stockCache), priceSymbolEur });
 }
 
+/**
+ * Turns an upstream failure into a stable, safe reason.
+ *
+ * The exchange helpers embed up to 300 characters of the raw response in their error
+ * message, and that message used to be returned to the browser and stored verbatim on
+ * the account. Those bodies can carry request ids, internal hostnames and account
+ * context. Each reason below is still actionable for the user, which is the only part
+ * of the detail that was ever worth showing.
+ */
+export function describeCexSyncFailure(raw: string): string {
+  if (/\b(401|403)\b|unauthorized|invalid api|invalid key|signature|permission denied/i.test(raw)) {
+    return "credentials_rejected";
+  }
+  if (/\b429\b|rate limit|too many requests/i.test(raw)) return "rate_limited_by_exchange";
+  if (/timeout|timed out|aborted|etimedout|econnreset|enotfound|fetch failed/i.test(raw)) {
+    return "exchange_unreachable";
+  }
+  const status = raw.match(/\bHTTP (\d{3})\b/);
+  if (status) return `exchange_http_${status[1]}`;
+  return "sync_failed";
+}
+
 export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
   const { prisma } = deps;
   const stockPriceCache = toStockPriceCache(deps.sharedCache);
@@ -562,9 +584,13 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
       await prisma.$transaction(writes);
       return { ok: true, rows: holdings.length, totalEur: holdings.reduce((sum, h) => sum + (h.valueEur ?? 0), 0) };
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      await prisma.cexAccount.update({ where: { id: account.id }, data: { lastSyncAt: new Date(), lastSyncStatus: "error", lastSyncError: message.slice(0, 500) } }).catch(() => {});
-      return reply.code(502).send({ error: "sync_failed", message });
+      const raw = e instanceof Error ? e.message : String(e);
+      // The raw text stays in the server log, where it is useful, and never reaches
+      // the response or the stored record.
+      console.error(`[cex] sync failed for ${account.provider} account ${account.id}:`, raw);
+      const reason = describeCexSyncFailure(raw);
+      await prisma.cexAccount.update({ where: { id: account.id }, data: { lastSyncAt: new Date(), lastSyncStatus: "error", lastSyncError: reason } }).catch(() => {});
+      return reply.code(502).send({ error: "sync_failed", message: reason });
     }
   });
 }

@@ -192,6 +192,38 @@ async function incrRateLimit(
   return false;
 }
 
+/**
+ * Cost of a scan request, expressed in chain-checks rather than in requests.
+ *
+ * The request-count limit alone cannot bound this workload: one request may cover
+ * up to MAX_CHAINS_PER_SCAN chains across a batch of wallets, and each pair triggers
+ * RPC, discovery and pricing. Counting every request as 1 let a single authenticated
+ * account issue orders of magnitude more outbound work than the limit suggests.
+ */
+export function scanRequestCost(chainCount: number, walletCount = 1): number {
+  const chains = Number.isFinite(chainCount) ? Math.max(0, Math.floor(chainCount)) : 0;
+  const wallets = Number.isFinite(walletCount) ? Math.max(1, Math.floor(walletCount)) : 1;
+  return Math.max(1, chains * wallets);
+}
+
+/**
+ * Consume `cost` units from a per-minute budget. Returns false once the budget is
+ * exhausted, without consuming further, so a single oversized request cannot be
+ * rejected repeatedly while still burning the budget.
+ */
+export async function consumeScanBudget(
+  sharedCache: CacheStore,
+  key: string,
+  cost: number,
+  limit: number,
+): Promise<boolean> {
+  const entry = await sharedCache.get<{ count: number }>(key);
+  const used = entry?.count ?? 0;
+  if (used >= limit) return false;
+  await sharedCache.set(key, { count: used + cost }, 60_000);
+  return true;
+}
+
 export async function applyPostAuthRateLimit(
   req: FastifyRequest,
   reply: FastifyReply,

@@ -140,12 +140,11 @@ export async function registerGmContractsRoutes(
   async function fetchDeployReceipt(chainKey: string, txHash: string): Promise<DeployReceipt | null> {
     const rpcs = getChainRpcs(chainKey);
     if (!rpcs?.length) return null;
-    const { assertPublicHttp } = await import("../lib/safe-http.js");
+    const { safeFetch } = await import("../lib/safe-http.js");
 
     const fetchReceipt = async (rpc: string): Promise<DeployReceipt | null> => {
       try {
-        assertPublicHttp(rpc);
-        const response = await fetch(rpc, {
+        const response = await safeFetch(rpc, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
@@ -256,7 +255,10 @@ export async function registerGmContractsRoutes(
         if (!rpcs || rpcs.length === 0) return;
         const rpc = rpcs[0]!;
         try {
-          const res = await fetch(rpc, {
+          // This call had no SSRF guard at all before: the endpoint comes from the
+          // chain registry, so it must clear the same checks as every other RPC.
+          const { safeFetch } = await import("../lib/safe-http.js");
+          const res = await safeFetch(rpc, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [userAddress, "latest"] }),

@@ -9,7 +9,7 @@ import { registerGmContractsRoutes } from "./gm-contracts.js";
 import { registerLeaderboardRoutes } from "./leaderboard.js";
 import { registerCreatorRoutes } from "./creator.js";
 import { registerNotificationRoutes } from "./notifications.js";
-import { assertAllPublicHttp, assertPublicHttp } from "../lib/safe-http.js";
+import { assertAllPublicHttp, safeFetch } from "../lib/safe-http.js";
 
 const PLATFORM_OWNER = {
   EVM: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
@@ -44,8 +44,7 @@ async function rpcFetch(rpcs: string[], body: unknown): Promise<{ result?: unkno
   let lastError: string | undefined;
   for (const rpc of rpcs) {
     try {
-      assertPublicHttp(rpc);
-      const res = await fetch(rpc, {
+      const res = await safeFetch(rpc, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(8000),

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "@wcore/db";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
+import { safeEq } from "../admin-auth.js";
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { CexAccountBodySchema, CexAccountParamsSchema } from "../schemas.js";
 import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, normalizeKrakenBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type KrakenBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
@@ -424,7 +425,11 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
 
   app.get("/api/cex/prices", async (req, reply) => {
     const expectedToken = process.env.GSHEET_API_TOKEN;
-    if (!expectedToken || req.headers["x-gsheet-token"] !== expectedToken) {
+    const presented = req.headers["x-gsheet-token"];
+    // Constant time, like the admin token: `!==` leaks the shared secret one byte at
+    // a time to anyone who can measure the response, and this token opens the whole
+    // /api/gsheet surface.
+    if (!expectedToken || typeof presented !== "string" || !safeEq(presented, expectedToken)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
 

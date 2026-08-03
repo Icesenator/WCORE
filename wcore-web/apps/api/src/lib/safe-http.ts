@@ -1,12 +1,60 @@
 // Guards outbound HTTP against SSRF. Every RPC URL — whether from env, chain
-// configs, or DB — must clear assertPublicHttp before any fetch. Without this
+// configs, or DB — must clear these checks before any fetch. Without this
 // a malicious operator (or a compromised packages/core update) could point
 // the API at the Railway metadata endpoint, internal Redis, or localhost.
+//
+// The hostname check alone is not enough: a perfectly public name can resolve to
+// 169.254.169.254. Use `safeFetch`, which validates every address the name
+// resolves to, rather than calling fetch directly.
 
-import { lookup } from "node:dns";
+import { lookup } from "node:dns/promises";
 
-// Covers loopback, link-local, private ranges, IPv4-mapped IPv6, and 0.0.0.0.
-const PRIVATE_HOSTNAME = /^(localhost|.*\.local|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|::1|::ffff:|fc00:|fe80:)/i;
+// Hostnames that never need a DNS round-trip to be rejected.
+const PRIVATE_HOSTNAME = /^(localhost|.*\.local|.*\.internal|.*\.localhost)$/i;
+
+/**
+ * True for any address that must never be reached from the API.
+ *
+ * Written as explicit ranges rather than a regex because the previous regex missed
+ * whole families: fd00::/8 (half of the IPv6 unique-local block), CGNAT 100.64/10,
+ * and the cloud metadata paths reachable through 0.0.0.0 and IPv4-mapped IPv6.
+ */
+export function isPrivateAddress(rawIp: string): boolean {
+  const ip = rawIp.trim().replace(/^\[|\]$/g, "").toLowerCase();
+
+  // IPv4-mapped and IPv4-compatible IPv6 (::ffff:169.254.169.254) must be judged
+  // on the embedded IPv4 address, not on the IPv6 prefix.
+  const mapped = ip.match(/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return isPrivateAddress(mapped[1]!);
+
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    const parts = ip.split(".").map(Number);
+    if (parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true; // malformed → refuse
+    const [a, b] = parts as [number, number, number, number];
+    if (a === 0) return true;                        // 0.0.0.0/8, "this network"
+    if (a === 10) return true;                       // private
+    if (a === 127) return true;                      // loopback
+    if (a === 169 && b === 254) return true;         // link-local, cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true; // private
+    if (a === 192 && b === 168) return true;         // private
+    if (a === 192 && b === 0) return true;           // IETF protocol assignments
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
+    if (a >= 224) return true;                       // multicast and reserved
+    return false;
+  }
+
+  if (ip.includes(":")) {
+    if (ip === "::" || ip === "::1") return true;    // unspecified, loopback
+    if (/^f[cd]/.test(ip)) return true;              // fc00::/7 unique-local
+    if (/^fe[89ab]/.test(ip)) return true;           // fe80::/10 link-local
+    if (/^ff/.test(ip)) return true;                 // multicast
+    if (ip.startsWith("64:ff9b:")) return true;      // NAT64, can wrap a private v4
+    return false;
+  }
+
+  return true; // not an address we can reason about → refuse
+}
 
 export class UnsafeUrlError extends Error {
   constructor(reason: string, url: string) {
@@ -15,6 +63,7 @@ export class UnsafeUrlError extends Error {
   }
 }
 
+/** Cheap, synchronous check: protocol, obvious private names, and IP literals. */
 export function assertPublicHttp(rawUrl: string): URL {
   let url: URL;
   try { url = new URL(rawUrl); }
@@ -23,30 +72,67 @@ export function assertPublicHttp(rawUrl: string): URL {
     throw new UnsafeUrlError(`bad_protocol_${url.protocol}`, rawUrl);
   }
   const host = url.hostname.toLowerCase();
+  if (!host) throw new UnsafeUrlError("empty_host", rawUrl);
   if (PRIVATE_HOSTNAME.test(host)) {
     throw new UnsafeUrlError(`private_host_${host}`, rawUrl);
+  }
+  // An IP literal can be judged immediately, with no DNS involved.
+  const bare = host.replace(/^\[|\]$/g, "");
+  const isLiteral = /^\d{1,3}(\.\d{1,3}){3}$/.test(bare) || bare.includes(":");
+  if (isLiteral && isPrivateAddress(bare)) {
+    throw new UnsafeUrlError(`private_host_${bare}`, rawUrl);
   }
   return url;
 }
 
-// DNS rebinding protection: resolve the hostname and verify the IP is not private.
-// Must be called before fetch() since DNS could resolve to a private IP between
-// the initial hostname check and the actual connection.
-export async function assertNoDnsRebind(url: URL): Promise<void> {
-  const hostname = url.hostname;
-  // Skip DNS check for IP literals (already checked by assertPublicHttp)
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(":")) return;
+/**
+ * Rejects a hostname whose DNS records point anywhere private.
+ *
+ * Checks EVERY address, both families. The previous implementation resolved a single
+ * IPv4 address, so a name publishing one public A record next to a private AAAA record
+ * passed, and it was dead code besides: nothing ever called it.
+ *
+ * Residual risk, deliberately not papered over: the connection performs its own
+ * resolution, so a record that flips between this check and the fetch is still possible.
+ * Closing that needs the connection pinned to the address validated here, which the
+ * global fetch cannot express without adopting a custom HTTP dispatcher.
+ */
+export type ResolveAddresses = (hostname: string) => Promise<Array<{ address: string }>>;
+
+const defaultResolve: ResolveAddresses = (hostname) => lookup(hostname, { all: true, verbatim: true });
+
+export async function assertResolvesPublic(url: URL, resolveAddresses: ResolveAddresses = defaultResolve): Promise<void> {
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(":")) return; // literal, already judged
+
+  let addresses: Array<{ address: string }>;
   try {
-    const { address } = await new Promise<{ address: string }>((resolve, reject) =>
-      lookup(hostname, { family: 4 }, (err, addr) => err ? reject(err) : resolve({ address: addr }))
-    );
-    if (PRIVATE_HOSTNAME.test(address)) {
+    addresses = await resolveAddresses(host);
+  } catch {
+    // The name does not resolve for us, so the fetch cannot reach anything either.
+    return;
+  }
+  for (const { address } of addresses) {
+    if (isPrivateAddress(address)) {
       throw new UnsafeUrlError(`dns_rebind_${address}`, url.toString());
     }
-  } catch (e) {
-    if (e instanceof UnsafeUrlError) throw e;
-    // DNS resolution failure is non-fatal — the fetch will fail naturally
   }
+}
+
+/**
+ * The single outbound HTTP entry point for operator- and chain-supplied URLs.
+ *
+ * Exists because the guards were previously left to each call site, and the DNS half
+ * was never wired at all.
+ */
+export async function safeFetch(
+  rawUrl: string,
+  init?: RequestInit,
+  opts?: { resolveAddresses?: ResolveAddresses; fetchImpl?: typeof fetch },
+): Promise<Response> {
+  const url = assertPublicHttp(rawUrl);
+  await assertResolvesPublic(url, opts?.resolveAddresses);
+  return (opts?.fetchImpl ?? fetch)(url, init);
 }
 
 export function isPublicHttp(rawUrl: string): boolean {

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore, type WalletAssets } from "@wcore/core";
+import { safeEq } from "../admin-auth.js";
 
 export interface GsheetFxTelemetry {
   rate: number;
@@ -862,7 +863,8 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url || !req.url.startsWith("/api/gsheet/")) return;
     const header = req.headers["x-gsheet-token"];
-    if (header !== opts.token) {
+    // Constant time: this hook is the only thing standing in front of /api/gsheet/*.
+    if (typeof header !== "string" || !opts.token || !safeEq(header, opts.token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
   });

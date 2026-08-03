@@ -104,8 +104,10 @@ jobs:
           unexpected=$(grep -vE '^\s*(--|/\*|\*|$)' /tmp/drift.sql \
             | grep -vE '^\s*(DROP INDEX|DROP COLUMN|ALTER TABLE "[^"]+" DROP COLUMN)' || true)
           if [ -n "$unexpected" ]; then
-            echo "::error::the migration history does not create everything schema.prisma declares"
             echo "$unexpected"
+            # Inlined in the annotation so the failure is readable without log access.
+            encoded=$(printf '%s' "$unexpected" | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::the migration history does not create everything schema.prisma declares:%0A$encoded"
             exit 1
           fi
 

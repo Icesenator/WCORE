@@ -60,7 +60,9 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Constat issu des scans de verification post-deploiement, sur `SOMNIA`, `POLYNOMIAL` et `REYA`: `blockNumber consensus failed; token log discovery limited to latest block`.
 - Le consensus exige une majorite stricte sur une valeur qui change en permanence. Sur une chaine rapide ou peu d'endpoints repondent, deux endpoints sains renvoient naturellement deux hauteurs differentes et le consensus echoue alors qu'aucun n'est fautif.
 - Impact: la chaine reste scannable mais est marquee `degraded`, la decouverte est limitee au dernier bloc, et le drapeau perd sa valeur de signal puisqu'il ne distingue plus une panne d'une simple course entre endpoints.
-- Ce n'est pas corrigeable par configuration: il faut une tolerance sur la hauteur de bloc, ou retirer `blockNumber` du consensus strict. A traiter avec la redefinition de la semantique de `degraded`.
+- Correction 2026-08-03: la hauteur retenue est la mediane basse des endpoints qui ont repondu, ce qui absorbe un noeud en retard et un noeud en avance sans jamais depasser la tete du plus lent. Une erreur n'est signalee que si tous echouent.
+- Corollaire trouve dans la foulee: le curseur incremental reecrivait `fromBlock` sans respecter `MAX_LOG_RANGE`, donc des qu'il devenait plus ancien que la fenetre autorisee il l'**elargissait** et le RPC rejetait tout l'appel. Invisible jusqu'ici puisque l'echec de consensus empechait d'atteindre `eth_getLogs`. Toute chaine plafonnee etait exposee.
+- Production apres deploiement: `SOMNIA` et `REYA` reviennent `degraded=false` avec zero erreur. `POLYNOMIAL` reste degradee mais pour une raison desormais exacte, ses deux miroirs repondent HTTP 429 depuis Railway.
 
 ### P1-10 - Endpoint testnet dans le pool mainnet de Reya - RESOLU 2026-08-03
 
@@ -105,13 +107,16 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Impact: un nom DNS public controle peut etre rebinde vers loopback, metadata cloud ou reseau prive.
 - Action: client HTTP unique avec validation A/AAAA, epinglage de l'adresse validee et tests IPv4/IPv6/TOCTOU.
 
-### P1-7 - Trigger manuel CEX requis mais desactive
+### P1-7 - Trigger manuel CEX requis mais desactive, et l'auto-heal ne le recupere pas
 
 - Apps Script affiche `CEX_MANUAL_REFRESH_WORKER` comme `Desactive`.
 - Le code le declare requis dans `wcore-gsheet/src/16B_AUTO_HEAL.gs:217` et l'installe toutes les minutes (`:118`, `:715`). La queue est drainee par `wcore-gsheet/src/35_BITPANDA_SYNC.gs:415`.
 - Impact: les refreshs manuels mis en queue depuis A1/Z1/AC2 peuvent rester bloques.
 - Signaux associes: taux d'erreur UI de 29,79% pour `WCORE_AUTO_HEAL_TIMER`, 12,9% pour `QUOTA_RECOVERY_SWEEP` et 6,67% pour `STOCK_PORTFOLIO_HOURLY_REFRESH`; les executions les plus recentes chargees sont terminees.
-- Action: reparer/reautoriser le trigger depuis l'editeur, puis verifier la cause des taux d'erreur au lieu de se fier au seul statut `Terminee`.
+- Verifie le 2026-08-03 apres le `clasp push`: le gel de triggers documente apres chaque push ne s'est **pas** produit, 13 des 15 triggers ont tourne normalement dans les minutes suivantes. `WCORE_AUTO_HEAL_FORCE()` a bien ete executee depuis l'editeur (18:11:07, 5,95 s, `Terminee`), et `CEX_MANUAL_REFRESH_WORKER` est **reste desactive**.
+- Le remede documente est donc insuffisant pour ce trigger. `_wcoreAutoHealEnsureTriggers_` le declare requis et le recree en `force`, mais la creation est enveloppee dans un `try/catch` muet (`16B_AUTO_HEAL.gs:715`), donc un echec de recreation est invisible. Un trigger `everyMinutes(1)` est aussi le plus expose a une desactivation par Google.
+- Signal corrobore: `WCORE_AUTO_HEAL_TIMER` affiche 33,55% d'erreurs et `QUOTA_RECOVERY_SWEEP` 40%. `PORTFOLIO_RECOVERY_REFRESH` est desactive de la meme facon.
+- Action: essayer `WCORE_CEX_TRIGGER_CLEANUP_FORCE()`, qui cible specifiquement les triggers CEX; si la desactivation revient, remonter l'erreur de creation au lieu de l'avaler et revoir la cadence d'une minute.
 
 ### P1-8 - Contrats de concurrence GSheet encore incorrects
 
@@ -219,11 +224,11 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 2. FAIT: Polynomial, Noble et Stride repares; BASE reordonne; endpoint testnet de Reya supprime.
 3. FAIT: migrations Prisma reconstructibles + job CI sur base vierge.
 4. FAIT: garde-fou planifie `Chain IDs` contre la derive de chainId.
-5. RESTE: reparer `CEX_MANUAL_REFRESH_WORKER` et analyser les echecs auto-heal/quota. Necessite l'editeur Apps Script, `clasp run` etant indisponible.
-6. FAIT: API et Web deployes et verifies depuis la production.
-7. RESTE: deployer Apps Script (`clasp push`) pour que le runtime GSheet recoive les memes configs de chaines.
-8. RESTE: trancher le sort de `DUCKCHAIN`, `SYNDICATE_COMMONS` et `STARGAZE`.
-9. RESTE: traiter P1-11, qui masque desormais l'essentiel du bruit `degraded` restant.
+5. FAIT: API et Web deployes et verifies depuis la production.
+6. FAIT: Apps Script pousse (250 fichiers) et verifie par relecture du projet distant: `WCORE_VERSION` 4.16.43, Somnia `5031` + `MAX_LOG_RANGE`, adaptateur Web Scan 4.16.43.
+7. FAIT: P1-11 corrige et deploye. Somnia et Reya reviennent `degraded=false` sans aucune erreur.
+8. RESTE: `CEX_MANUAL_REFRESH_WORKER` toujours desactive malgre un auto-heal force reussi, cf. P1-7.
+9. RESTE: trancher le sort de `DUCKCHAIN`, `SYNDICATE_COMMONS` et `STARGAZE`, et trouver un endpoint Polynomial non limite depuis Railway.
 
 ### Sprint 1 - resilience et securite
 

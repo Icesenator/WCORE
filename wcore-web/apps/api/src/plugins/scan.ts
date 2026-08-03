@@ -9,6 +9,7 @@ import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
 import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout } from "./scan-utils.js";
 import { scanJobs, startJobCleanup } from "./scan-job.js";
+import { consumeScanBudget, scanRequestCost } from "../server-helpers.js";
 import { apiConfig } from "../config.js";
 import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
 
@@ -71,6 +72,29 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
 
   startJobCleanup();
 
+  /**
+   * Charge a scan against the per-minute chain-check budget.
+   *
+   * The request-count rate limit runs in onRequest, before the body exists, so it
+   * cannot see how much work a request actually asks for. This runs where the chain
+   * and wallet counts are known and is the only control that bounds outbound RPC.
+   */
+  async function chargeScanBudget(
+    req: { user?: { id: string } | null; ip: string },
+    chainCount: number,
+    walletCount = 1,
+  ): Promise<boolean> {
+    const authenticated = Boolean(req.user);
+    const limit = authenticated
+      ? apiConfig.limits.rateLimitScanChainChecks
+      : apiConfig.limits.rateLimitScanChainChecksAnon;
+    const identity = req.user?.id ?? req.ip;
+    const key = `rate_limit:scan_chain_checks:${identity}`;
+    return consumeScanBudget(sharedCache, key, scanRequestCost(chainCount, walletCount), limit);
+  }
+
+  const budgetExceeded = { error: "rate_limited", message: "Scan budget exhausted. Wait 1 minute." } as const;
+
   // --- Sync Scan ---
 
   app.post("/api/scan", async (req, reply) => {
@@ -85,6 +109,8 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
 
     const maxChains = await resolveScanChainLimit(req.user?.id, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN);
     if (chainValidation.chains.length > maxChains) { reply.code(400); return { error: "too_many_chains", message: `Max ${maxChains} chains per scan.` }; }
+
+    if (!await chargeScanBudget(req, chainValidation.chains.length)) { reply.code(429); return budgetExceeded; }
 
     const deepScan = typeof body.deepScan === "boolean" ? body.deepScan : false;
     const forceRefresh = typeof body.forceRefresh === "boolean" ? body.forceRefresh : false;
@@ -272,6 +298,9 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
 
     const maxChains = await resolveScanChainLimit(req.user?.id, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN);
     if (chainValidation.chains.length > maxChains) { reply.code(400); return { error: "too_many_chains", message: `Max ${maxChains} chains per scan.` }; }
+
+    // Batch multiplies the work by the number of wallets, so the cost must too.
+    if (!await chargeScanBudget(req, chainValidation.chains.length, addresses.length)) { reply.code(429); return budgetExceeded; }
 
     const deepScan = typeof body.deepScan === "boolean" ? body.deepScan : false;
     const forceRefresh = typeof body.forceRefresh === "boolean" ? body.forceRefresh : false;
@@ -534,6 +563,8 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
 
     const asyncMaxChains = await resolveScanChainLimit(req.user?.id, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN);
     if (chainValidation.chains.length > asyncMaxChains) { reply.code(400); return { error: "too_many_chains", message: `Max ${asyncMaxChains} chains` }; }
+
+    if (!await chargeScanBudget(req, chainValidation.chains.length)) { reply.code(429); return budgetExceeded; }
 
     const requestedChains = chainValidation.chains;
     const openCircuits = requestedChains.filter((chain) => !getCircuitBreaker(chain).allowRequest());

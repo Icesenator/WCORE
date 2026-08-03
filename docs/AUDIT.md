@@ -4,7 +4,7 @@
 > Revision auditee: `beb465ffbc542d6acef4e1cabe08c8f434334d19` (`master`, identique a `origin/master`)
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections du Sprint 0 ont ete appliquees le meme jour et sont marquees RESOLU ci-dessous. Elles sont committees mais **pas encore deployees**.
+> Suivi: les corrections du Sprint 0 ont ete appliquees, verifiees par la CI, puis deployees le meme jour. API `e18f126f` puis rebuild avec le correctif Somnia, Web `2ffd50b7`, toutes deux en `SUCCESS`. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
@@ -52,7 +52,15 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Preuve: `wcore-gsheet/src/SOMNIA.gs:11` et `wcore-gsheet/dist/chains/SOMNIA.ts:22` declaraient `50311`.
 - Preuve croisee: les cinq RPC configures repondent `5031`.
 - Production au moment du constat: scan Somnia `degraded=true` avec `errors=80`.
-- Correction: `CHAIN_ID` passe a `5031` dans la source canonique, `dist/` regenere, et la valeur est desormais epinglee par un test hors ligne (`packages/core/src/chains/chains.test.ts`). Le sondage live confirme la concordance.
+- Correction: `CHAIN_ID` passe a `5031` dans la source canonique, `dist/` regenere, et la valeur est desormais epinglee par un test hors ligne (`packages/core/src/chains/chains.test.ts`). Production confirme `chainId: 5031`.
+- Suite directe: le premier scan reel apres correction a revele ce que ce bug masquait, aucun `MAX_LOG_RANGE` n'etait configure et toute la decouverte echouait en `block range exceeds 1000`. Limite mesuree: un span de 1000 passe, 1001 est rejete; `MAX_LOG_RANGE: 999` applique et les endpoints bloques depuis Railway retrogrades. Cette erreur a disparu en production.
+
+### P1-11 - Le consensus sur blockNumber marque des chaines saines comme degradees
+
+- Constat issu des scans de verification post-deploiement, sur `SOMNIA`, `POLYNOMIAL` et `REYA`: `blockNumber consensus failed; token log discovery limited to latest block`.
+- Le consensus exige une majorite stricte sur une valeur qui change en permanence. Sur une chaine rapide ou peu d'endpoints repondent, deux endpoints sains renvoient naturellement deux hauteurs differentes et le consensus echoue alors qu'aucun n'est fautif.
+- Impact: la chaine reste scannable mais est marquee `degraded`, la decouverte est limitee au dernier bloc, et le drapeau perd sa valeur de signal puisqu'il ne distingue plus une panne d'une simple course entre endpoints.
+- Ce n'est pas corrigeable par configuration: il faut une tolerance sur la hauteur de bloc, ou retirer `blockNumber` du consensus strict. A traiter avec la redefinition de la semantique de `degraded`.
 
 ### P1-10 - Endpoint testnet dans le pool mainnet de Reya - RESOLU 2026-08-03
 
@@ -212,8 +220,10 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 3. FAIT: migrations Prisma reconstructibles + job CI sur base vierge.
 4. FAIT: garde-fou planifie `Chain IDs` contre la derive de chainId.
 5. RESTE: reparer `CEX_MANUAL_REFRESH_WORKER` et analyser les echecs auto-heal/quota. Necessite l'editeur Apps Script, `clasp run` etant indisponible.
-6. RESTE: deployer les corrections (API, Web, Apps Script) et confirmer depuis Railway.
-7. RESTE: trancher le sort de `DUCKCHAIN`, `SYNDICATE_COMMONS` et `STARGAZE`.
+6. FAIT: API et Web deployes et verifies depuis la production.
+7. RESTE: deployer Apps Script (`clasp push`) pour que le runtime GSheet recoive les memes configs de chaines.
+8. RESTE: trancher le sort de `DUCKCHAIN`, `SYNDICATE_COMMONS` et `STARGAZE`.
+9. RESTE: traiter P1-11, qui masque desormais l'essentiel du bruit `degraded` restant.
 
 ### Sprint 1 - resilience et securite
 

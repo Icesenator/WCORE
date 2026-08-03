@@ -1,0 +1,38 @@
+name: Chain IDs
+
+# Deliberately NOT part of the blocking CI: this check talks to public RPC endpoints,
+# so its reachability results depend on the runner IP and would make a required job
+# flaky. It runs on a schedule instead, and only fails on a contradiction between a
+# config chainId and the value an endpoint actually serves.
+#
+# It exists because this bug class shipped twice without any signal: a wrong chainId
+# (SOMNIA declared 50311 while its endpoints serve 5031) and a testnet endpoint inside
+# a mainnet pool (REYA carried a Reya Cronos RPC). Neither is detectable offline, and
+# neither makes a scan fail loudly. Both only surface as a permanently degraded chain.
+
+on:
+  schedule:
+    # Monday 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: wcore-gsheet
+
+jobs:
+  chain-ids:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Regenerated first so the probe reads the same configs the runtime consumes,
+      # even if dist/ were to drift from src/.
+      - name: Regenerate the chain package
+        run: npm run build:chains
+
+      - name: Configured chainIds must match what the endpoints serve
+        run: node tools/verify-chain-ids.mjs

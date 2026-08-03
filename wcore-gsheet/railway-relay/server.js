@@ -47,6 +47,46 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: "16kb" }));
 
+// Per-IP request cap.
+//
+// The relay had no limit at all: anyone holding the shared token, or simply hammering
+// the endpoints to probe them, could drive unbounded signed traffic toward Binance,
+// Bybit, Coinbase, OKX and Yahoo from this single IP, risking a block that would hit
+// every user at once. Fixed one-minute window, in memory: the relay is one small
+// single-instance service, so a shared store would buy nothing here.
+const RELAY_RATE_LIMIT = Math.max(1, Number(process.env.RELAY_RATE_LIMIT || 120));
+const RELAY_RATE_WINDOW_MS = 60_000;
+const relayHits = new Map();
+
+function relayRateLimitExceeded(key, now) {
+  const entry = relayHits.get(key);
+  if (!entry || now >= entry.resetAt) {
+    relayHits.set(key, { count: 1, resetAt: now + RELAY_RATE_WINDOW_MS });
+    return false;
+  }
+  entry.count++;
+  return entry.count > RELAY_RATE_LIMIT;
+}
+
+app.use((req, res, next) => {
+  if (req.path === "/health") return next(); // Railway probes must never be throttled
+  const now = Date.now();
+
+  // Bounded cleanup so a long-running process cannot accumulate one entry per IP seen.
+  if (relayHits.size > 10_000) {
+    for (const [key, entry] of relayHits) {
+      if (now >= entry.resetAt) relayHits.delete(key);
+    }
+  }
+
+  const key = req.ip || req.connection?.remoteAddress || "unknown";
+  if (relayRateLimitExceeded(key, now)) {
+    res.set("Retry-After", "60");
+    return res.status(429).json({ ok: false, error: "rate_limited" });
+  }
+  next();
+});
+
 const BASE_URL = "https://api.binance.com";
 const COINBASE_BASE_URL = "https://api.coinbase.com";
 const OKX_BASE_URL = process.env.OKX_BASE_URL || "https://my.okx.com";
@@ -657,6 +697,47 @@ function timingSafeEqual(a, b) {
   const bb = Buffer.from(String(b));
   if (ba.length !== bb.length) return false;
   return crypto.timingSafeEqual(ba, bb);
+}
+
+// Where the shared token may be read from, in order of preference.
+//
+// A secret in a query string ends up in Railway access logs, in any intermediate proxy
+// log and in Referer headers. The header is the only correct place; a POST body is
+// acceptable since it is never logged as part of the URL.
+//
+// The query string is accepted ONLY where a caller already relies on it: the legacy GET
+// endpoints that wcore-gsheet drives. It is opt-in per endpoint rather than global, so
+// this refactor cannot widen where a token is accepted, and every such use is reported
+// once so the remaining callers can be migrated to the header.
+const warnedQueryTokenPaths = new Set();
+
+function readRelayToken(req, allowQueryToken) {
+  const header = typeof req.get === "function" ? (req.get("x-relay-token") || "") : "";
+  if (header) return { token: header, source: "header" };
+  const auth = typeof req.get === "function" ? (req.get("authorization") || "") : "";
+  if (auth.startsWith("Bearer ")) return { token: auth.slice(7), source: "header" };
+  const bodyToken = req.body && req.body.token ? String(req.body.token) : "";
+  if (bodyToken) return { token: bodyToken, source: "body" };
+  if (allowQueryToken) {
+    const queryToken = req.query && req.query.token ? String(req.query.token) : "";
+    if (queryToken) return { token: queryToken, source: "query" };
+  }
+  return { token: "", source: "none" };
+}
+
+function relayAuthorized(req, opts) {
+  const allowQueryToken = Boolean(opts && opts.allowQueryToken);
+  const expected = getEnv("RELAY_TOKEN");
+  const { token, source } = readRelayToken(req, allowQueryToken);
+  if (!timingSafeEqual(token, expected)) return false;
+  if (source === "query") {
+    const path = req.path || req.url || "unknown";
+    if (!warnedQueryTokenPaths.has(path)) {
+      warnedQueryTokenPaths.add(path);
+      console.warn("[relay] deprecated: token read from the query string on " + path + "; send it as the x-relay-token header instead");
+    }
+  }
+  return true;
 }
 
 // --- Multi-user (WCORE web) ---------------------------------------------------
@@ -1295,10 +1376,8 @@ async function fetchStockPricesEur(symbols) {
 
 app.post("/stock/prices", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
     const body = req.body || {};
-    const token = body.token || req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const symbols = Array.isArray(body.symbols) ? body.symbols.slice(0, 300) : [];
@@ -1311,10 +1390,8 @@ app.post("/stock/prices", async (req, res) => {
 
 app.post("/stock/quotes", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
     const body = req.body || {};
-    const token = body.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req)) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const symbols = normalizeStockQuoteSymbols(body.symbols);
@@ -1335,10 +1412,8 @@ app.post("/stock/quotes", async (req, res) => {
 
 app.post("/stock/fx-quotes", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
     const body = req.body || {};
-    const token = body.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req)) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const currencies = normalizeStockFxCurrencies(body.currencies);
@@ -1363,9 +1438,7 @@ app.post("/stock/fx-quotes", async (req, res) => {
 
 app.get("/coinbase", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
-    const token = req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const spotRaw = await coinbaseFetchAccounts();
@@ -1378,9 +1451,7 @@ app.get("/coinbase", async (req, res) => {
 
 app.get("/okx", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
-    const token = req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const fetchBalances = app.locals.okxFetchBalances || okxFetchBalances;
@@ -1394,10 +1465,8 @@ app.get("/okx", async (req, res) => {
 
 app.post("/coinbase/account", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
     const body = req.body || {};
-    const token = body.token || req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const keyName = String(body.apiKey || "").trim();
@@ -1418,10 +1487,8 @@ app.post("/coinbase/account", async (req, res) => {
 
 app.post("/okx/account", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
     const body = req.body || {};
-    const token = body.token || req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const key = String(body.apiKey || "").trim();
@@ -1588,9 +1655,7 @@ async function bybitFetchFundExact(rows, seen, creds) {
 
 app.get("/bybit", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
-    const token = req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const creds = { key: getEnv("BYBIT_API_KEY"), secret: getEnv("BYBIT_API_SECRET") };
@@ -1611,10 +1676,8 @@ app.get("/bybit", async (req, res) => {
 
 app.post("/bybit/account", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
     const body = req.body || {};
-    const token = body.token || req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const key = String(body.apiKey || "").trim();
@@ -1642,9 +1705,7 @@ app.post("/bybit/account", async (req, res) => {
 
 app.get("/binance", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
-    const token = req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const creds = { key: getEnv("BINANCE_API_KEY"), secret: getEnv("BINANCE_API_SECRET") };
@@ -1671,10 +1732,8 @@ app.get("/binance", async (req, res) => {
 // navigateur). Protege par RELAY_TOKEN. Symboles NON fusionnes.
 app.post("/binance/account", async (req, res) => {
   try {
-    const expected = getEnv("RELAY_TOKEN");
     const body = req.body || {};
-    const token = body.token || req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const key = String(body.apiKey || "").trim();
@@ -1738,9 +1797,7 @@ module.exports = {
 app.get("/all", async (req, res) => {
   const RELAY_RPC_MCP_VERSION = "CORE_MODE";
   try {
-    const expected = getEnv("RELAY_TOKEN");
-    const token = req.query.token || "";
-    if (!timingSafeEqual(token, expected)) {
+    if (!relayAuthorized(req, { allowQueryToken: true })) {
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
     const credsBinance = { key: getEnv("BINANCE_API_KEY"), secret: getEnv("BINANCE_API_SECRET") };

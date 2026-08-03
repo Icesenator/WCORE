@@ -61,8 +61,10 @@ function _binGetRelay_() {
 // Recupere les buckets depuis le relais Railway (un seul appel HTTP).
 function _binFetchBucketsViaRelay_() {
   var relay = _binGetRelay_();
-  var url = relay.url + "/binance?token=" + encodeURIComponent(relay.token);
-  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
+  // Token sent as a header, not in the URL: a query string lands in the relay access
+  // logs, in any intermediate proxy log and in Referer headers.
+  var url = relay.url + "/binance";
+  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": relay.token } });
   if (!resp) throw new Error("Binance relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();

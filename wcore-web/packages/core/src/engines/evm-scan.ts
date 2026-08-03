@@ -64,6 +64,27 @@ export function normalizeBalanceSelectorExtraArgs(args: string[] | undefined): s
   return out;
 }
 
+/**
+ * Moves the log window forward to the incremental cursor, but only when that actually
+ * narrows it.
+ *
+ * `cappedFromBlock` already accounts for the chain's MAX_LOG_RANGE. Rewriting it to the
+ * cursor unconditionally, as this used to, silently WIDENS the window whenever the cursor
+ * predates the cap: on a chain that bounds eth_getLogs the RPC then rejects the whole
+ * request and discovery finds nothing. Somnia surfaced it, but every capped chain is
+ * exposed as soon as a cursor is older than its window.
+ *
+ * Returns null when the cursor brings nothing, leaving the capped window untouched.
+ */
+export function narrowToIncrementalRange(cappedFromBlock: string, cachedLastBlock: number): string | null {
+  const cappedFrom = parseInt(cappedFromBlock, 16);
+  // "latest": the head block was unavailable, so there is no numeric window to narrow.
+  if (!Number.isFinite(cappedFrom)) return null;
+  const incrementalFrom = cachedLastBlock + 1;
+  if (incrementalFrom <= cappedFrom) return null;
+  return `0x${incrementalFrom.toString(16)}`;
+}
+
 export function discoveredTokenVariantKey(token: Pick<DiscoveredToken, "contract" | "balanceSelector" | "balanceSelectorExtraArgs">): string {
   return `${token.contract.toLowerCase()}:${(token.balanceSelector || "").toLowerCase()}:${(token.balanceSelectorExtraArgs || []).join(",").toLowerCase()}`;
 }
@@ -269,8 +290,11 @@ export async function getEvmWalletAssets(
 
       // Narrow the log range to the unseen delta when a valid cursor exists.
       if (cachedLastBlock != null && hasCachedDiscovery && currentBlock > cachedLastBlock) {
-        logRange.fromBlock = `0x${(cachedLastBlock + 1).toString(16)}`;
-        usedIncremental = true;
+        const narrowed = narrowToIncrementalRange(logRange.fromBlock, cachedLastBlock);
+        if (narrowed) {
+          logRange.fromBlock = narrowed;
+          usedIncremental = true;
+        }
       }
 
       discoveredTokens = await discoverTokensForWallet(normalizedAddress, key, {

@@ -10,12 +10,13 @@ export const SOMNIA: ChainConfig = {
   CACHE_VERSION: 63,
   RPC: {
     ENDPOINTS: [
+      "https://api.infra.mainnet.somnia.network",
+      "https://5031.rpc.thirdweb.com",
       "https://somnia-rpc.publicnode.com",
       "https://somnia.publicnode.com",
-      "https://api.infra.mainnet.somnia.network",
       "https://somnia-json-rpc.stakely.io",
-      "https://5031.rpc.thirdweb.com",
     ],
+    MAX_LOG_RANGE: 999,
   },
   CHAIN: {
     NAME: "Somnia",

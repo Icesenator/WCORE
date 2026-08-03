@@ -22,6 +22,7 @@ export {
   _blockCache,
   _BLOCK_CACHE_TTL_MS,
   getRecentLogRange,
+  pickHeadBlock,
   readNativeBalance,
   canServeEmptyCache,
   readErc20Balance,

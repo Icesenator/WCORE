@@ -1,6 +1,10 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.43 - Stopped treating a blockNumber failure as a non-destructive gap. The Web
+ *   engine no longer reports one when endpoints merely disagree on the head block, so
+ *   the only remaining case is every endpoint failing, which yields no data and must
+ *   preserve the existing cache instead of overwriting it.
  * v4.16.41 - Reject absurd token price/value magnitudes before they enter WalletCache.
  * v4.16.40 - Preserve useful assets but emit a retryable WEB_SCAN_ERROR when a
  *   preserved legacy cache has no usable timestamp, never WEB_SCAN_PRESERVED N/A.
@@ -59,7 +63,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.41";
+var GSHEET_WEB_SCAN_VERSION = "4.16.43";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -471,7 +475,6 @@ function _webScanShouldPreserveExistingCache_(payload, cache, config) {
       if (/\bprice:\s*NO_PRICE\b/i.test(err)) continue;
       if (/^explorer cooldown active\b/i.test(err)) continue;
       if (/^explorer error\s+[^:]+:\s+This operation was aborted\b/i.test(err)) continue;
-      if (/^blockNumber consensus failed\b/i.test(err)) continue;
       if (/^\[DEGRADED\].*\bbalance:\s*cache_fallback_live_failed,\s*using cache fallback\b/i.test(err)) continue;
       onlyNonDestructiveGaps = false;
       break;

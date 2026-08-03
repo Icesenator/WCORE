@@ -29,6 +29,41 @@ $dockerfile = switch ($Service) {
   "cex-relay" { "wcore-gsheet/railway-relay/Dockerfile" }
 }
 
+# watchPatterns must be pinned per service too, not just the Dockerfile.
+# The committed value is scoped to the web image, so `railway up --service api` answered
+# "no changes detected in watch paths, build will skip" and returned success while
+# deploying nothing (incident 2026-08-03: an entire security release was skipped this
+# way). Each list must cover every path the matching Dockerfile copies.
+$watchPatterns = switch ($Service) {
+  "web" { @(
+    "railway.json",
+    "wcore-gsheet/dist/**",
+    "wcore-web/package.json",
+    "wcore-web/pnpm-lock.yaml",
+    "wcore-web/pnpm-workspace.yaml",
+    "wcore-web/tsconfig.base.json",
+    "wcore-web/packages/shared/**",
+    "wcore-web/packages/core/**",
+    "wcore-web/apps/web/**"
+  ) }
+  "api" { @(
+    "railway.json",
+    "wcore-gsheet/dist/**",
+    "wcore-web/package.json",
+    "wcore-web/pnpm-lock.yaml",
+    "wcore-web/pnpm-workspace.yaml",
+    "wcore-web/tsconfig.base.json",
+    "wcore-web/packages/shared/**",
+    "wcore-web/packages/core/**",
+    "wcore-web/packages/db/**",
+    "wcore-web/apps/api/**"
+  ) }
+  "cex-relay" { @(
+    "railway.json",
+    "wcore-gsheet/railway-relay/**"
+  ) }
+}
+
 # The archive uploaded by `railway up` IS the Docker build context. Shipping paths that
 # the selected Dockerfile never COPYs wasted 15x the bytes and made the upload exceed the
 # CLI request timeout on a slow uplink (incident 2026-08-02, ~0.8 Mbps up, 31.6 MiB sent
@@ -55,8 +90,11 @@ $originalIgnore = if ($hadIgnore) { Get-Content -LiteralPath $ignorePath -Raw } 
 
 $deployExitCode = 0
 try {
-  $updated = $original -replace '"dockerfilePath":\s*"[^"]*"', """dockerfilePath"": ""$dockerfile"""
-  Set-Content -LiteralPath $jsonPath -Value $updated -NoNewline
+  $config = $original | ConvertFrom-Json
+  # Add-Member -Force rather than direct assignment: watchPatterns may be absent.
+  $config.build | Add-Member -NotePropertyName dockerfilePath -NotePropertyValue $dockerfile -Force
+  $config.build | Add-Member -NotePropertyName watchPatterns -NotePropertyValue $watchPatterns -Force
+  Set-Content -LiteralPath $jsonPath -Value ($config | ConvertTo-Json -Depth 10) -NoNewline
   Set-Content -LiteralPath $ignorePath -Value ($ignoreLines -join "`n") -NoNewline
 
   railway up (Join-Path $PSScriptRoot "..\..") --path-as-root --service $Service --ci

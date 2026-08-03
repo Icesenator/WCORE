@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getRecentLogRange, pickHeadBlock } from "./evm.js";
+import { narrowToIncrementalRange } from "./evm-scan.js";
 
 // Mirrors the real dispatcher closely enough for this call: it reports the same
 // strict-majority equality consensus, which getRecentLogRange must now ignore.
@@ -80,6 +81,20 @@ test("getRecentLogRange still reports an error when every endpoint fails", async
   assert.equal(errors.length, 1);
   assert.match(errors[0]!, /blockNumber unavailable on every endpoint/);
   assert.deepEqual(range, { fromBlock: "latest", toBlock: "latest" });
+});
+
+test("narrowToIncrementalRange never widens a capped window", () => {
+  // Cursor older than the cap: keeping it would ask for ~9000 blocks on a chain that
+  // rejects anything past 1000, so the capped window must win.
+  assert.equal(narrowToIncrementalRange("0x2710", 1_000), null); // capped from 10000
+  // Cursor inside the window: it genuinely narrows the scan.
+  assert.equal(narrowToIncrementalRange("0x2710", 10_500), `0x${(10_501).toString(16)}`);
+  // Cursor exactly at the window start brings nothing.
+  assert.equal(narrowToIncrementalRange("0x2710", 10_000 - 1), null);
+});
+
+test("narrowToIncrementalRange ignores a non-numeric window", () => {
+  assert.equal(narrowToIncrementalRange("latest", 10_000), null);
 });
 
 test("getRecentLogRange keeps honouring the chain log-range cap", async () => {

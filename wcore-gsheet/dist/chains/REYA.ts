@@ -13,7 +13,6 @@ export const REYA: ChainConfig = {
       "https://rpc.reya.network",
       "https://reya.drpc.org",
       "https://1729.rpc.thirdweb.com",
-      "https://rpc.reya-cronos.gelato.digital",
     ],
   },
   CHAIN: {

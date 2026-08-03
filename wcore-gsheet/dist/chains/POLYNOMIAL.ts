@@ -10,6 +10,8 @@ export const POLYNOMIAL: ChainConfig = {
   CACHE_VERSION: 63,
   RPC: {
     ENDPOINTS: [
+      "https://polynomial.rpc.thirdweb.com",
+      "https://8008.rpc.thirdweb.com",
       "https://rpc.polynomial.fi",
       "https://rpc-proxy.polynomial.fi",
     ],

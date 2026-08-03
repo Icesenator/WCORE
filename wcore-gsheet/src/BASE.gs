@@ -1,7 +1,11 @@
 /**
- * BASE.gs - Base (v4.12.8)
+ * BASE.gs - Base (v4.16.42)
  * ChainFactory pattern with explicit function declarations
  *
+ * v4.16.42 - Demoted base.drpc.org (HTTP 408) and base-rpc.publicnode.com (HTTP 403)
+ *            below the endpoints that answer from Railway. Both were tried first on
+ *            every scan, which flagged each Base scan degraded even when it succeeded.
+ *            They are demoted rather than removed because a block can be IP-scoped.
  * v4.12.8 - Added VISION ai by Virtuals to LLAMA_CONTRACT_MAP (missing from DexScreener/GT)
  * v4.12.7 - Added LLAMA_CONTRACT_MAP for Chainbase Token (C) - low DEX liquidity on Base
  * v4.12.6 - REMOVED base.meowrpc.com (returns "method not supported" errors)
@@ -15,10 +19,11 @@ var _BASE = ChainFactory.createEvmChain("BASE", {
  CACHE_VERSION: 64,
   RPC: { 
   ENDPOINTS: [
-  "https://base.drpc.org",
-  "https://base-rpc.publicnode.com",
   "https://mainnet.base.org",
-  "https://1rpc.io/base"
+  "https://1rpc.io/base",
+  // DEMOTED v4.16.42: both fail from Railway datacenter IPs but may answer elsewhere.
+  "https://base.drpc.org",
+  "https://base-rpc.publicnode.com"
   // REMOVED v4.12.6: "https://base.meowrpc.com" - returns "method not supported" errors
   // REMOVED v4.12.5: "https://base.llamarpc.com" - returns stale data (zombie tokens)
   ]

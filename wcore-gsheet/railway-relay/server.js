@@ -34,6 +34,11 @@ const crypto = require("crypto");
 
 const app = express();
 app.disable("x-powered-by");
+// Behind Railway's proxy, req.ip is the proxy address unless this is set, so every
+// caller shares one identity. Trusting exactly one hop uses the address that proxy
+// observed; trusting all hops would let a client forge X-Forwarded-For and pick its
+// own rate-limit bucket.
+app.set("trust proxy", 1);
 app.use((req, res, next) => {
   res.set({
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
@@ -54,9 +59,19 @@ app.use(express.json({ limit: "16kb" }));
 // Bybit, Coinbase, OKX and Yahoo from this single IP, risking a block that would hit
 // every user at once. Fixed one-minute window, in memory: the relay is one small
 // single-instance service, so a shared store would buy nothing here.
-const RELAY_RATE_LIMIT = Math.max(1, Number(process.env.RELAY_RATE_LIMIT || 120));
+// Sized for the real callers sharing this service: the WCORE API syncing several CEX
+// accounts, the Apps Script triggers, and the hourly bulk refresh. A first deploy used
+// 120 and was reached immediately, because req.ip was still the proxy address and every
+// caller counted into a single bucket.
 const RELAY_RATE_WINDOW_MS = 60_000;
 const relayHits = new Map();
+
+// Read per request rather than captured at import: the limit can then be tuned from the
+// Railway variables without a redeploy, and tests can exercise the cap without issuing
+// hundreds of requests.
+function relayRateLimit() {
+  return Math.max(1, Number(process.env.RELAY_RATE_LIMIT || 600));
+}
 
 function relayRateLimitExceeded(key, now) {
   const entry = relayHits.get(key);
@@ -65,7 +80,7 @@ function relayRateLimitExceeded(key, now) {
     return false;
   }
   entry.count++;
-  return entry.count > RELAY_RATE_LIMIT;
+  return entry.count > relayRateLimit();
 }
 
 app.use((req, res, next) => {

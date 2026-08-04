@@ -55,7 +55,7 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Correction: `CHAIN_ID` passe a `5031` dans la source canonique, `dist/` regenere, et la valeur est desormais epinglee par un test hors ligne (`packages/core/src/chains/chains.test.ts`). Production confirme `chainId: 5031`.
 - Suite directe: le premier scan reel apres correction a revele ce que ce bug masquait, aucun `MAX_LOG_RANGE` n'etait configure et toute la decouverte echouait en `block range exceeds 1000`. Limite mesuree: un span de 1000 passe, 1001 est rejete; `MAX_LOG_RANGE: 999` applique et les endpoints bloques depuis Railway retrogrades. Cette erreur a disparu en production.
 
-### P1-11 - Le consensus sur blockNumber marque des chaines saines comme degradees
+### P1-11 - Le consensus sur blockNumber marque des chaines saines comme degradees - RESOLU 2026-08-03
 
 - Constat issu des scans de verification post-deploiement, sur `SOMNIA`, `POLYNOMIAL` et `REYA`: `blockNumber consensus failed; token log discovery limited to latest block`.
 - Le consensus exige une majorite stricte sur une valeur qui change en permanence. Sur une chaine rapide ou peu d'endpoints repondent, deux endpoints sains renvoient naturellement deux hauteurs differentes et le consensus echoue alors qu'aucun n'est fautif.
@@ -104,12 +104,29 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Chaque bloc est garde par `to_regclass(...) IS NULL`, donc strictement no-op sur la base de production creee historiquement par `db push` puis baselinee.
 - Verification: nouveau job CI `migrations` qui rejoue tout l'historique sur un PostgreSQL vierge puis exige `prisma migrate diff --exit-code` sans derive. Non verifiable localement, Docker n'etant pas disponible sur cette machine.
 
-### P1-6 - Protection DNS rebinding inactive
+### P1-6 - Protection DNS rebinding inactive - RESOLU 2026-08-03
 
 - `wcore-web/apps/api/src/lib/safe-http.ts:35` definit `assertNoDnsRebind`, mais aucun appelant n'a ete trouve.
 - Les quatre fetches GM utilisent seulement `assertPublicHttp`, qui filtre le hostname litteral sans epingler les resolutions A/AAAA.
 - Impact: un nom DNS public controle peut etre rebinde vers loopback, metadata cloud ou reseau prive.
-- Action: client HTTP unique avec validation A/AAAA, epinglage de l'adresse validee et tests IPv4/IPv6/TOCTOU.
+- Correction: `safeFetch` unique, qui valide **toutes** les adresses A/AAAA et non la premiere. Plages ajoutees: `fd00::/8`, CGNAT `100.64/10`, IPv4 mappee en IPv6. Cinq appelants (`gm-contracts.ts:147,261`, `gm-helpers.ts:40`, `gm-onchain.ts:91`, `gm-streak-rebuild.ts:62`), dont deux que l'audit n'avait pas releves: `gm-contracts.ts:261` n'avait aucune protection et `gm-streak-rebuild.ts` ne verifiait que le protocole.
+- Limite assumee: une fenetre TOCTOU subsiste entre la resolution validee et la connexion, Node n'exposant pas d'epinglage d'adresse sur `fetch`.
+
+### P1-8 - Contrats de concurrence GSheet encore incorrects - RESOLU 2026-08-04
+
+- Cosmos: la factory et quatre wrappers exposaient `(address, forceFull)` alors que la feuille appelle `CHAIN_REFRESH_STATUS(addr;"";I2:I;C1;B1)` et que `18_CLEANUP.gs:662` appelle `getWalletAssets(wallet,"","",true,false)`. `forceFull` recevait donc la case RPC vide: **la case C1 n'a jamais force un rafraichissement sur aucune chaine Cosmos**, et `B1` n'atteignait pas le garde-fou anti-repetition du moteur. Les 11 chaines Cosmos utilisent desormais le meme contrat a 5 arguments qu'EVM et SVM.
+- Verification production: sur `Ledger - Cosmos Hub`, cocher C1 fait passer I1 de `[CACHE_ONLY] 11:49:57` a un scan reel `12:39:43`. Avant le correctif, le garde-fou aurait renvoye `[CACHE_ONLY]`.
+- Queue CEX: lecture-modification-ecriture sans exclusion mutuelle, et plafonnement par `substring` sur le JSON serialise. Tronquer au milieu d'une structure rendait la valeur illisible, donc chaque lecteur repartait d'un tableau vide: un depassement **effacait toute la file** au lieu d'ecarter un job. Les mutations passent par un helper verrouille qui evince les entrees les plus anciennes et n'ecrit que du JSON valide.
+- Consensus SVM: `getBalanceWithConsensus` retournait la premiere valeur ayant le plus de voix sans jamais exiger de majorite, donc trois endpoints en desaccord publiaient une minorite 1/3 comme un accord. La regle `votes * 2 > total` est appliquee sur les endpoints ayant repondu; sans majorite la fonction signale l'echec, ce qui fait conserver la balance en cache au lieu de l'ecraser.
+- Chaque test de garde a ete valide par mutation du code de production.
+
+### P1-12 - Denominations IBC irresolubles depuis IBC-Go v10 - RESOLU 2026-08-04
+
+- Trouve en verifiant P1-8, pas par l'audit initial: `Ledger - Cosmos Hub` affichait `[WEB_SCAN_DEGRADED]` a chaque cycle.
+- Le moteur n'interrogeait que `/ibc/apps/transfer/v1/denom_traces/{hash}`. IBC-Go v10 a retire cette route au profit de `/denoms/{hash}`, et les chaines scannees couvrent les deux generations: Cosmos Hub repond 501 sur l'ancienne, Injective et Terra repondent 501 sur la nouvelle. N'en interroger qu'une laissait donc tous les jetons IBC non resolus sur la moitie des chaines. Les deux sont desormais essayees.
+- L'echec remontait `fetch failed` et non `HTTP 501`: le failover REST parcourt sa liste sur tout 5xx et le dernier endpoint de Cosmos Hub, `cosmoshub-api.lavenderfive.com`, ne resout plus. L'erreur reseau masquait la cause reelle.
+- La convention micro-denom s'applique aussi au denom de base resolu, y compris aux derives de liquid staking qui heritent de l'echelle de ce qu'ils enveloppent (`stuatom` = `uatom` = 6). `staevmos` enveloppe `aevmos` en 18: lire tout `st` comme 6 serait faux de douze ordres de grandeur, donc seuls les cas reductibles a un micro-denom sont resolus.
+- Production apres deploiement: **0 jeton resolu et 12 `decimals_unknown (fetch failed)` avant, 10 jetons resolus apres**. Restent `staevmos` et `stinj`, dont l'echelle est signalee plutot que devinee.
 
 ### P1-7 - Trigger manuel CEX requis mais desactive, et l'auto-heal ne le recupere pas
 
@@ -122,20 +139,13 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Signal corrobore: `WCORE_AUTO_HEAL_TIMER` affiche 33,55% d'erreurs et `QUOTA_RECOVERY_SWEEP` 40%. `PORTFOLIO_RECOVERY_REFRESH` est desactive de la meme facon.
 - Action: essayer `WCORE_CEX_TRIGGER_CLEANUP_FORCE()`, qui cible specifiquement les triggers CEX; si la desactivation revient, remonter l'erreur de creation au lieu de l'avaler et revoir la cadence d'une minute.
 
-### P1-8 - Contrats de concurrence GSheet encore incorrects
-
-- Cosmos: `wcore-gsheet/src/19_CHAIN_FACTORY.gs:393` expose `getRefreshStatus(address, forceFull)` au lieu des cinq arguments utilises par les wrappers.
-- Queue CEX: `_cexEnqueueManualJobs_` dans `35_BITPANDA_SYNC.gs:316-324` fait encore un read-modify-write sans verrou; les `.substring(0, 8000)` peuvent produire un JSON invalide.
-- Consensus SVM: `14_SVM_ENGINE.gs:217-229` retourne la meilleure valeur sans exiger `maxCount * 2 > successfulVotes`.
-- Impact: arguments perdus, jobs perdus/doubles et valeur minoritaire presentee comme consensus.
-
-### P1-9 - Limite de scan authentifie trop permissive
+### P1-9 - Limite de scan authentifie trop permissive - RESOLU 2026-08-03/04
 
 - `wcore-web/apps/api/src/config.ts:222` autorise par defaut 2 000 requetes scan/minute par IP authentifiee.
 - Chaque requete peut couvrir jusqu'a 120 chaines et declencher RPC, discovery et pricing.
 - Impact: un seul compte peut saturer les RPC gratuits et le budget fournisseur.
-- La documentation de production indique parfois 60, mais le defaut code et `.env.example` valent 2 000.
-- Action: quota par utilisateur, cout pondere par chain-check, limite de jobs simultanes et valeur production explicitement verifiee.
+- Correction: le cout n'est plus compte en requetes mais en chain-checks. Budget `RATE_LIMIT_SCAN_CHAIN_CHECKS` (5 000, 1 000 en anonyme) preleve dans les trois handlers de scan via `consumeScanBudget` / `scanRequestCost`, ce qui facture une requete a la hauteur de ce qu'elle declenche reellement.
+- Complement 2026-08-04 (P1-4): plafond de jobs simultanes par appelant, ce que cette action reclamait aussi.
 
 ## Findings P2
 

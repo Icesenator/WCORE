@@ -94,3 +94,25 @@ test("a base denom of unknown scale is not assumed to be six decimals", async ()
   assert.equal(token, undefined, "a non micro-denom base must stay unvalued");
   assert.ok(assets.errors.some((e) => e.includes("factory/neutron1abc/astro")));
 });
+
+test("a liquid-staking derivative inherits the scale of the denomination it wraps", async () => {
+  const { assets } = await scan({
+    newRoute: () => json({ denom: { base: "stuatom" } }),
+  });
+
+  const token = assets.tokens.find((t) => t.denom === IBC_DENOM);
+  assert.ok(token, "stuatom wraps uatom and shares its scale");
+  assert.equal(token.decimals, 6);
+});
+
+test("an atto-scaled derivative is not read as a micro denomination", async () => {
+  // staevmos wraps aevmos, which is 18. Treating every st denomination as 6 would be
+  // twelve orders of magnitude off.
+  const { assets } = await scan({
+    newRoute: () => json({ denom: { base: "staevmos" } }),
+  });
+
+  const token = assets.tokens.find((t) => t.denom === IBC_DENOM);
+  assert.equal(token, undefined, "an unproven scale must never be assumed");
+  assert.ok(assets.errors.some((e) => e.includes("staevmos")));
+});

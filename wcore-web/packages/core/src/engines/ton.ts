@@ -1,4 +1,5 @@
 import { getChain } from "../chains/index.js";
+import { linkAbortSignal } from "../abort.js";
 import type { ChainConfig } from "../types.js";
 import {
   CoinGeckoPriceSource,
@@ -69,6 +70,8 @@ export async function getTonWalletAssets(
     cache?: CacheStore;
     intraScanCache?: IntraScanCache;
     forceRefresh?: boolean;
+    /** Cancels the scan's outbound work; the caller's timeout stopped here before. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<TonWalletAssets> {
   const key = normalizeChainKey(chainKey);
@@ -89,7 +92,7 @@ export async function getTonWalletAssets(
   if (opts.cache && emptyCacheKey) {
     const cachedEmpty = await opts.cache.get<{ chain: string; chainName: string; nativeSymbol: string; nativeLogo?: string }>(emptyCacheKey);
     if (cachedEmpty) {
-      const alive = await quickTonLivenessCheck(rawFetch, address);
+      const alive = await quickTonLivenessCheck(rawFetch, address, opts.signal);
       if (!alive) {
         return {
           chain: cachedEmpty.chain,
@@ -110,7 +113,7 @@ export async function getTonWalletAssets(
   const discoveryStart = Date.now();
   let account: TonAccount | null = null;
   try {
-    account = await fetchTonAccount(rawFetch, address, errors);
+    account = await fetchTonAccount(rawFetch, address, errors, opts.signal);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     errors.push(`tonapi account: ${msg}`);
@@ -126,7 +129,7 @@ export async function getTonWalletAssets(
   let nativeBalance = nativeNano;
   if (nativeBalance === 0n && account == null) {
     try {
-      const raw = await fetchToncenterBalance(rawFetch, address);
+      const raw = await fetchToncenterBalance(rawFetch, address, opts.signal);
       if (raw) nativeBalance = BigInt(raw);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -214,10 +217,11 @@ export async function getTonWalletAssets(
   };
 }
 
-async function fetchTonAccount(rawFetch: typeof fetch, address: string, errors: string[]): Promise<TonAccount | null> {
+async function fetchTonAccount(rawFetch: typeof fetch, address: string, errors: string[], signal?: AbortSignal): Promise<TonAccount | null> {
   const url = `${TONAPI_BASE}/accounts/${encodeURIComponent(address)}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 5000);
+  const unlink = linkAbortSignal(signal, ctrl);
   try {
     const res = await rawFetch(url, { headers: { accept: "application/json" }, signal: ctrl.signal });
     if (!res.ok) {
@@ -227,13 +231,15 @@ async function fetchTonAccount(rawFetch: typeof fetch, address: string, errors: 
     return await res.json() as TonAccount;
   } finally {
     clearTimeout(timer);
+    unlink();
   }
 }
 
-async function fetchToncenterBalance(rawFetch: typeof fetch, address: string): Promise<string | null> {
+async function fetchToncenterBalance(rawFetch: typeof fetch, address: string, signal?: AbortSignal): Promise<string | null> {
   const url = `${TONCENTER_BASE}/getAddressBalance?address=${encodeURIComponent(address)}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 4000);
+  const unlink = linkAbortSignal(signal, ctrl);
   try {
     const res = await rawFetch(url, { signal: ctrl.signal });
     if (!res.ok) return null;
@@ -242,6 +248,7 @@ async function fetchToncenterBalance(rawFetch: typeof fetch, address: string): P
     return data.result;
   } finally {
     clearTimeout(timer);
+    unlink();
   }
 }
 
@@ -310,10 +317,11 @@ async function priceTonToken(
   };
 }
 
-async function quickTonLivenessCheck(rawFetch: typeof fetch, address: string): Promise<boolean> {
+async function quickTonLivenessCheck(rawFetch: typeof fetch, address: string, signal?: AbortSignal): Promise<boolean> {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 2000);
+    const unlink = linkAbortSignal(signal, ctrl);
     try {
       const res = await rawFetch(`${TONAPI_BASE}/accounts/${encodeURIComponent(address)}`, {
         headers: { accept: "application/json" },
@@ -326,6 +334,7 @@ async function quickTonLivenessCheck(rawFetch: typeof fetch, address: string): P
       return bal > 0n || jn > 0;
     } finally {
       clearTimeout(timer);
+      unlink();
     }
   } catch {
     return true; // network error: assume alive (safe)

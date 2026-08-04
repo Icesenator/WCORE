@@ -126,6 +126,8 @@ export async function getEvmWalletAssets(
     strictTokens?: boolean;
     intraScanCache?: IntraScanCache;
     forceRefresh?: boolean;
+    /** Cancels the scan's outbound work; the caller's timeout stopped here before. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<EvmWalletAssets> {
   const normalizedAddress = normalizeEvmAddress(address);
@@ -149,6 +151,8 @@ export async function getEvmWalletAssets(
     minRpcs: Number(chain.RPC?.CONSENSUS_MIN_RPCS ?? 2),
     maxRpcs: Number(chain.RPC?.CONSENSUS_MAX_RPCS ?? 3),
     timeoutMs: rpcTimeout,
+    // The caller's timeout now reaches the RPC layer instead of stopping at this scan.
+    signal: opts.signal,
   });
   const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
 
@@ -158,7 +162,7 @@ export async function getEvmWalletAssets(
       try {
         const results = await Promise.any(
           effectiveEndpoints.map(async (endpoint) => {
-            const results = await rpc.batch(endpoint, ethCalls, { timeoutMs: 5000 });
+            const results = await rpc.batch(endpoint, ethCalls, { timeoutMs: 5000, signal: opts.signal });
             const mapped = results.map((r) => (r && "result" in r && typeof r.result === "string") ? r.result : null);
             rpcHealth.recordSuccess(key, endpoint);
             return mapped;

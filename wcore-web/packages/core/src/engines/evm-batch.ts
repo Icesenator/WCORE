@@ -105,6 +105,8 @@ export async function getEvmWalletsAssets(
     minRpcs: Number(chain.RPC?.CONSENSUS_MIN_RPCS ?? 2),
     maxRpcs: Number(chain.RPC?.CONSENSUS_MAX_RPCS ?? 3),
     timeoutMs: rpcTimeout,
+    // The batch timeout now reaches the RPC layer instead of stopping at this scan.
+    signal: opts.signal,
   });
   const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
 

@@ -10,7 +10,9 @@ import {
   getBalanceCacheKey,
   readBalanceCache,
   BALANCE_CACHE_TTL_MS,
+  runWithTimeout,
 } from "./scan-utils.js";
+import { listenerCount } from "node:events";
 import type { WalletAssets } from "@wcore/core";
 import type { ChainScan } from "@wcore/shared";
 
@@ -203,5 +205,56 @@ describe("readBalanceCache", () => {
     await cache.set("bal_cache:base:0x123", entry, 1);
     const result = await readBalanceCache(cache as any, "BASE", "0x123");
     assert.equal(result, null);
+  });
+});
+
+describe("runWithTimeout parent signal", () => {
+  it("aborts the running work when the parent job is cancelled", async () => {
+    const parent = new AbortController();
+    let seen: AbortSignal | undefined;
+    // The deadline is deliberately far away: if the parent link were missing, the
+    // timeout would abort the signal anyway and a plain assertion would pass for the
+    // wrong reason. Only a prompt rejection proves the cancellation propagated.
+    const started = Date.now();
+    const handle = runWithTimeout<string>((signal) => {
+      seen = signal;
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    }, 60_000, parent.signal);
+
+    parent.abort();
+    await assert.rejects(handle.promise);
+    // A TTL guard used to only relabel the job while this work kept running.
+    assert.equal(seen?.aborted, true, "the parent cancellation must reach the running work");
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 1000, `cancellation must be prompt, took ${elapsed}ms`);
+  });
+
+  it("starts already cancelled when the job is gone before the chain begins", async () => {
+    const parent = new AbortController();
+    parent.abort();
+    let seen: AbortSignal | undefined;
+    const handle = runWithTimeout<string>((signal) => {
+      seen = signal;
+      return Promise.resolve("done");
+    }, 60_000, parent.signal);
+
+    await handle.promise.catch(() => undefined);
+    assert.equal(seen?.aborted, true, "a chain queued behind a cancelled job must not start fresh");
+  });
+
+  it("detaches from the parent signal once the work settles", async () => {
+    const parent = new AbortController();
+    // One job signal is shared by every chain it covers; leaving listeners attached
+    // piles them up on a single signal.
+    for (let i = 0; i < 50; i++) {
+      const handle = runWithTimeout<string>(() => Promise.resolve("ok"), 60_000, parent.signal);
+      await handle.promise;
+    }
+    // AbortSignal is an EventTarget, which node:events supports at runtime but the
+    // ambient typing here only describes EventEmitter.
+    const attached = listenerCount(parent.signal as unknown as Parameters<typeof listenerCount>[0], "abort");
+    assert.equal(attached, 0, "every linked listener must be removed once its chain settles");
   });
 });

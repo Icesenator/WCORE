@@ -70,6 +70,8 @@ export interface ApiConfig {
     jobTtlRunningMs: number;
     jobTtlDoneMs: number;
     jobTtlNoProgressMs: number;
+    maxAsyncJobs: number;
+    maxAsyncJobsPerPrincipal: number;
   };
   portfolioEnrichment: {
     zerion: ZerionEnrichmentConfig;
@@ -245,6 +247,12 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       jobTtlRunningMs: readNumber(env, "JOB_TTL_RUNNING_MS", 30 * 60 * 1000, { min: 1 }),
       jobTtlDoneMs: readNumber(env, "JOB_TTL_DONE_MS", 30 * 60 * 1000, { min: 1 }),
       jobTtlNoProgressMs: 10 * 60 * 1000,
+    // Each job pins the scan results of every chain it covers, so the store has to be
+    // bounded. A wide scan in the browser runs SCAN_CONCURRENCY / CHAIN_BATCH_SIZE jobs
+    // at once (50/5 = 10 today), so the per-caller allowance keeps room for several
+    // tabs before refusing anything legitimate.
+    maxAsyncJobs: readNumber(env, "SCAN_MAX_ASYNC_JOBS", 200, { min: 1 }),
+    maxAsyncJobsPerPrincipal: readNumber(env, "SCAN_MAX_ASYNC_JOBS_PER_PRINCIPAL", 32, { min: 1 }),
     },
     portfolioEnrichment: {
       zerion: {

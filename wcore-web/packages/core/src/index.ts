@@ -1,6 +1,7 @@
 export const CORE_VERSION = "0.3.3";
 
 export * from "./types.js";
+export * from "./abort.js";
 export * from "./chains/index.js";
 export * from "./rpc/index.js";
 export * from "./pricing/index.js";

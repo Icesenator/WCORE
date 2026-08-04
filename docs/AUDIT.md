@@ -155,7 +155,7 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Le relais accepte encore `RELAY_TOKEN` en query string sur les endpoints legacy (`railway-relay/server.js:1367` et suivants), ce qui peut fuiter dans les logs/proxies.
 - Le relais n'a pas de rate limit global; `POST /api/cex/accounts/:id/sync` tombe dans le catch-all API a 120/min.
 - `ADMIN_TOKEN` n'est pas configure sur le service API Railway. Les routes admin restent fermees en 401, mais les operations admin legitimes sont indisponibles.
-- `CEX_SECRET` est bien configure en production. Le risque de fallback sur `JWT_SECRET` subsiste dans le code (`plugins/cex.ts:104`) pour tout autre environnement.
+- RESOLU 2026-08-04 - `CEX_SECRET` est bien configure en production, mais le code retombait sur `JWT_SECRET` puis sur une constante publique. Les deux secrets tournent independamment: une rotation du JWT aurait rendu silencieusement indechiffrable chaque identifiant d'echange stocke. La production refuse desormais, ce qui desactive la seule fonction CEX au lieu de chiffrer avec une cle non voulue; les replis sont conserves hors production pour ne pas rendre illisibles les identifiants deja stockes en dev ou staging.
 - Le Web sert HSTS et `nosniff`, mais pas de Content-Security-Policy; API et relais en servent une.
 - Le message brut d'erreur CEX peut etre retourne et persiste (`plugins/cex.ts:560-562`).
 
@@ -164,22 +164,23 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Un scan BASE public valide retourne 200 en 7,1 s avec 16 tokens prices, mais `degraded=true`: `base.drpc.org` repond 408 et `base-rpc.publicnode.com` 403 depuis Railway. Les deux endpoints suivants (`mainnet.base.org`, `1rpc.io/base`) repondent, de meme que `base.gateway.tenderly.co`.
 - L'ordre actuel dans `wcore-gsheet/src/BASE.gs:18-21` place donc deux endpoints defaillants avant les endpoints sains.
 - 128/464 endpoints ont echoue au sweep initial. Ce nombre inclut rate limits et timeouts sensibles a la concurrence; il mesure la fragilite du pool, pas 128 pannes permanentes.
-- Les logs API ne joignent pas le `chainKey` aux messages repetes `all RPC endpoints failed`, ce qui rend le diagnostic production inutilement couteux.
+- RESOLU 2026-08-04 - Les logs API ne joignaient ni le `chainKey` ni la methode aux messages repetes `all RPC endpoints failed`: les logs de production se remplissaient de lignes identiques sans moyen de savoir quelle chaine tombait.
 
 ### Performance et cout
 
-- Le circuit breaker de scan peut compter deux fois un meme echec (`plugins/scan.ts:158-180,196-202`), ouvrant deux fois plus vite que son seuil nominal.
+- RESOLU 2026-08-04 - Le circuit breaker de scan comptait deux fois un meme echec, ouvrant deux fois plus vite que son seuil nominal. La route synchrone prelevait un echec dans son `catch`, puis le meme resultat placeholder repassait dans la boucle d'agregation. La decision vit maintenant dans un helper unique partage par les trois handlers, ce qui rend le double prelevement impossible plutot que corrige. Un scan qui signale des erreurs mais renvoie des donnees exploitables n'est deliberement compte ni en echec ni en succes.
+- RESOLU 2026-08-04 - Delegations, unbondings et rewards Cosmos sont trois lectures REST independantes attendues en serie: une chaine dont l'endpoint est lent payait cette latence trois fois, le failover autorisant a lui seul 10 s par appel. Elles partent ensemble et partagent un helper de repli sur cache.
+- RESOLU 2026-08-04 - Les caches non-EVM faisaient `A x C` lectures Redis. La route batch utilise desormais le meme `mget` unique que le chemin EVM.
+- RESOLU 2026-08-04 - `getEurUsdRate()` etait appele sans le cache partage dans les routes scan, CEX et chains: ses quatre appels HTTP repartaient apres chaque redemarrage et n'etaient jamais partages entre instances.
+- RESOLU 2026-08-04 (hors audit) - Les denominations IBC etaient resolues a chaque scan alors qu'un hash est le condense de sa trace et ne change jamais. Cout: un appel REST par jeton, et surtout une dependance du portefeuille entier a la disponibilite immediate de l'endpoint. Mises en cache 30 jours.
 - Discovery EVM batch non bornee: jusqu'a `10 x wallets` appels logs simultanes (`engines/evm-batch.ts:141-261`, `tokens/log-discovery.ts:72-99`).
-- Les caches non-EVM font `A x C` lectures Redis au lieu d'un `mget` (`plugins/scan.ts:425-442`).
 - Les metadonnees de contrats sont resolues sequentiellement (`tokens/discovery.ts:99-108`).
-- Delegations, unbondings et rewards Cosmos independants sont attendus en serie (`engines/cosmos.ts:172-227`).
-- `getEurUsdRate()` n'utilise pas le cache partage dans le plugin scan (`plugins/scan.ts:36-39`).
 - Les prechargements DefiLlama et GeckoTerminal independants sont sequentiels dans les scans EVM.
 - TON ignore `opts.sources` et GeckoTerminal conserve certains markers uniquement en memoire process.
 
 ### Comportement fonctionnel
 
-- Echec de `/api/gm/has-deployed`: `useOnChainGm.ts:98-100` retourne `false`, ce qui peut afficher un chemin Deploy au lieu d'un etat inconnu.
+- RESOLU 2026-08-04 - Un echec de `/api/gm/has-deployed` retournait `false`, donc un bouton Deploy etait propose a quelqu'un possedant deja un contrat. La fonction retourne l'etat inconnu (`null`) que ses deux appelants affichaient deja comme un chargement.
 - La page GM lance encore un fan-out de prix natifs pour toutes les factories; 86 entrees ont ete comptees.
 - Le cache wallet positif expire purement au TTL (`04B_CACHE_WALLET.gs:779-786`) malgre la politique documentaire de preservation.
 - `dist/package.json` reste en `4.15.50`, `WCORE_VERSION` en `4.16.40` et le module Web Scan en `4.16.41`.

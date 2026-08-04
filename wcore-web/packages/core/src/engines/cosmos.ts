@@ -235,7 +235,7 @@ export async function getCosmosWalletAssets(
       const denom = bal.denom;
       if (!denom) continue;
       const symbol = denomSymbols[denom] ?? denom;
-      const decimals = await resolveCosmosTokenDecimals(fetchFn, restUrl, cosmosChain, denom, errors);
+      const decimals = await resolveCosmosTokenDecimals(fetchFn, restUrl, cosmosChain, denom, errors, cache, key);
       if (decimals == null) continue;
       const balance = rawAmountToNumber(bal.amount, decimals);
       pricedTokens[idx] = await priceCosmosToken(cosmosChain, denom, symbol, decimals, balance, fxRate, sources, priceCache, errors, opts.intraScanCache);
@@ -461,6 +461,9 @@ async function priceCosmosToken(
   };
 }
 
+/** An IBC hash maps to one denomination for good; only a chain rename would alter it. */
+const IBC_DENOM_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 /**
  * Reads one staking list, falling back to its cached copy when the REST call fails.
  *
@@ -496,6 +499,8 @@ async function resolveCosmosTokenDecimals(
   chain: ChainConfig,
   denom: string,
   errors: string[],
+  cache?: import("../cache/index.js").CacheStore,
+  chainKey?: string,
 ): Promise<number | null> {
   const denomDecimals = (chain.DENOM_DECIMALS ?? {}) as Record<string, number>;
   if (denomDecimals[denom] != null) return denomDecimals[denom];
@@ -510,7 +515,7 @@ async function resolveCosmosTokenDecimals(
   }
 
   const hash = denom.slice(4);
-  const resolved = await resolveIbcBaseDenom(fetchFn, restUrl, hash);
+  const resolved = await resolveIbcBaseDenom(fetchFn, restUrl, hash, cache, chainKey);
   if (!resolved.baseDenom) {
     errors.push(`${denom.slice(0, 12)}: decimals_unknown (${resolved.reason})`);
     return null;
@@ -552,7 +557,18 @@ async function resolveIbcBaseDenom(
   fetchFn: typeof fetch,
   restUrl: string,
   hash: string,
+  cache?: import("../cache/index.js").CacheStore,
+  chainKey?: string,
 ): Promise<{ baseDenom: string | null; reason: string }> {
+  // An IBC hash is the digest of its trace, so the denomination it maps to never
+  // changes. Re-resolving it on every scan cost one REST call per token and made the
+  // whole wallet depend on that endpoint answering right then.
+  const cacheKey = cache && chainKey ? `ibcdenom:${chainKey.toLowerCase()}:${hash}` : undefined;
+  if (cacheKey && cache) {
+    const cached = await cache.get<string>(cacheKey).catch(() => undefined);
+    if (cached) return { baseDenom: cached, reason: "" };
+  }
+
   const routes: Array<{ path: string; pick: (json: unknown) => string | undefined }> = [
     {
       path: `ibc/apps/transfer/v1/denoms/${encodeURIComponent(hash)}`,
@@ -570,7 +586,10 @@ async function resolveIbcBaseDenom(
       const res = await fetchFn(`${restUrl}/${route.path}`, { headers: { accept: "application/json" } });
       if (!res.ok) { reason = `denom lookup HTTP ${res.status}`; continue; }
       const base = route.pick(await res.json());
-      if (base) return { baseDenom: base, reason: "" };
+      if (base) {
+        if (cacheKey && cache) cache.set(cacheKey, base, IBC_DENOM_CACHE_TTL_MS).catch(() => {});
+        return { baseDenom: base, reason: "" };
+      }
       reason = "no base denom";
     } catch (error) {
       reason = error instanceof Error ? error.message : String(error);

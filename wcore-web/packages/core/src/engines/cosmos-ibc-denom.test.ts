@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getCosmosWalletAssets } from "./cosmos.js";
+import { MemoryCacheStore } from "../cache/index.js";
 
 const ADDRESS = "cosmos1nvfsmt48nemfullrkkxa6gze05c4xeypfslj7t";
 const IBC_DENOM = "ibc/0025F8A87464A471E66B234C4F93AEC5B4DA3D42D7986451A059273426290DD5";
@@ -115,4 +116,29 @@ test("an atto-scaled derivative is not read as a micro denomination", async () =
   const token = assets.tokens.find((t) => t.denom === IBC_DENOM);
   assert.equal(token, undefined, "an unproven scale must never be assumed");
   assert.ok(assets.errors.some((e) => e.includes("staevmos")));
+});
+test("a resolved IBC denomination is not looked up again on the next scan", async () => {
+  const cache = new MemoryCacheStore();
+  let lookups = 0;
+  const routes = {
+    newRoute: () => { lookups++; return json({ denom: { base: "untrn" } }); },
+  };
+
+  const first = await (async () => {
+    const { fetchImpl } = makeFetch(routes);
+    return getCosmosWalletAssets(ADDRESS, "COSMOS_HUB", { fetchImpl, fxRate: 1, cache });
+  })();
+  assert.ok(first.tokens.find((t) => t.denom === IBC_DENOM), "precondition: resolved once");
+  assert.equal(lookups, 1);
+  await new Promise((r) => setTimeout(r, 300)); // the cache write is fire-and-forget
+
+  const { fetchImpl } = makeFetch(routes);
+  const second = await getCosmosWalletAssets(ADDRESS, "COSMOS_HUB", { fetchImpl, fxRate: 1, cache });
+
+  // A hash is the digest of its trace, so re-resolving it made every scan depend on that
+  // endpoint answering right then, for a mapping that cannot change.
+  assert.equal(lookups, 1, "the second scan must reuse the cached denomination");
+  const token = second.tokens.find((t) => t.denom === IBC_DENOM);
+  assert.ok(token, "the token must still be reported from cache");
+  assert.equal(token.decimals, 6);
 });

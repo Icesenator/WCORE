@@ -522,21 +522,58 @@ async function resolveCosmosTokenDecimals(
   }
 
   const hash = denom.slice(4);
-  try {
-    const res = await fetchFn(`${restUrl}/ibc/apps/transfer/v1/denom_traces/${encodeURIComponent(hash)}`, { headers: { accept: "application/json" } });
-    if (!res.ok) {
-      errors.push(`${denom.slice(0, 12)}: decimals_unknown (denom trace HTTP ${res.status})`);
-      return null;
-    }
-    const json = await res.json() as { denom_trace?: { base_denom?: string } };
-    const baseDenom = json.denom_trace?.base_denom;
-    if (baseDenom && denomDecimals[baseDenom] != null) return denomDecimals[baseDenom];
-    errors.push(`${denom.slice(0, 12)}: decimals_unknown (${baseDenom || "no base denom"})`);
-    return null;
-  } catch (error) {
-    errors.push(`${denom.slice(0, 12)}: decimals_unknown (${error instanceof Error ? error.message : String(error)})`);
+  const resolved = await resolveIbcBaseDenom(fetchFn, restUrl, hash);
+  if (!resolved.baseDenom) {
+    errors.push(`${denom.slice(0, 12)}: decimals_unknown (${resolved.reason})`);
     return null;
   }
+
+  const baseDenom = resolved.baseDenom;
+  if (denomDecimals[baseDenom] != null) return denomDecimals[baseDenom];
+  // Same micro-denom convention applied to direct denoms above: a simple u-prefixed
+  // denom is 6. Anything else stays unknown rather than being mis-valued.
+  if (/^u[a-z]+$/.test(baseDenom)) return 6;
+  errors.push(`${denom.slice(0, 12)}: decimals_unknown (${baseDenom})`);
+  return null;
+}
+
+/**
+ * Resolves an IBC hash to its base denom.
+ *
+ * IBC-Go v10 retired `denom_traces` in favour of `denoms`, and the chains we scan run
+ * both generations: Cosmos Hub answers 501 on the old route while Injective and Terra
+ * answer 501 on the new one. Querying only one of them left every IBC token on half the
+ * chains unpriced, so both are tried.
+ */
+async function resolveIbcBaseDenom(
+  fetchFn: typeof fetch,
+  restUrl: string,
+  hash: string,
+): Promise<{ baseDenom: string | null; reason: string }> {
+  const routes: Array<{ path: string; pick: (json: unknown) => string | undefined }> = [
+    {
+      path: `ibc/apps/transfer/v1/denoms/${encodeURIComponent(hash)}`,
+      pick: (json) => (json as { denom?: { base?: string } })?.denom?.base,
+    },
+    {
+      path: `ibc/apps/transfer/v1/denom_traces/${encodeURIComponent(hash)}`,
+      pick: (json) => (json as { denom_trace?: { base_denom?: string } })?.denom_trace?.base_denom,
+    },
+  ];
+
+  let reason = "no base denom";
+  for (const route of routes) {
+    try {
+      const res = await fetchFn(`${restUrl}/${route.path}`, { headers: { accept: "application/json" } });
+      if (!res.ok) { reason = `denom lookup HTTP ${res.status}`; continue; }
+      const base = route.pick(await res.json());
+      if (base) return { baseDenom: base, reason: "" };
+      reason = "no base denom";
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+  }
+  return { baseDenom: null, reason };
 }
 
 /** Quick liveness check: single REST call to verify wallet is still empty. */

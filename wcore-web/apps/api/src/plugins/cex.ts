@@ -322,10 +322,10 @@ export function convertUsdPriceToEur(priceUsd: number, fxRate: number): number |
   return Number.isFinite(priceEur) && priceEur > 0 ? priceEur : null;
 }
 
-async function priceSymbolEur(symbol: string): Promise<{ priceEur: number | null; source: string | null }> {
+async function priceSymbolEur(symbol: string, fxCache?: CacheStore): Promise<{ priceEur: number | null; source: string | null }> {
   const s = symbol.toUpperCase();
   if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") return { priceEur: 1, source: "fiat-eur" };
-  const eurUsd = await getEurUsdRate();
+  const eurUsd = await getEurUsdRate({ cache: fxCache });
   if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) return { priceEur: convertUsdPriceToEur(1, eurUsd), source: "stable-usd" };
   const llamaId = CEX_PRICE_IDS[s];
   if (!llamaId) return { priceEur: null, source: null };
@@ -415,8 +415,8 @@ export async function priceCexRowsForTest(rows: RawCexRow[], deps: PriceCexRowsD
   }));
 }
 
-async function pricedRows(rows: RawCexRow[], stockCache?: StockPriceCache): Promise<Array<RawCexRow & { priceEur: number | null; valueEur: number | null; priceSource: string | null }>> {
-  return priceCexRowsForTest(rows, { priceStockSymbolEur: (s) => priceStockSymbolEur(s, stockCache), priceSymbolEur });
+async function pricedRows(rows: RawCexRow[], stockCache?: StockPriceCache, fxCache?: CacheStore): Promise<Array<RawCexRow & { priceEur: number | null; valueEur: number | null; priceSource: string | null }>> {
+  return priceCexRowsForTest(rows, { priceStockSymbolEur: (s) => priceStockSymbolEur(s, stockCache), priceSymbolEur: (s) => priceSymbolEur(s, fxCache) });
 }
 
 /**
@@ -496,7 +496,7 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
     await Promise.all(Array.from({ length: Math.min(5, symbols.length) }, async () => {
       while (cursor < symbols.length) {
         const symbol = symbols[cursor++]!;
-        prices[symbol] = await priceSymbolEur(symbol);
+        prices[symbol] = await priceSymbolEur(symbol, deps.sharedCache);
       }
     }));
     return { prices };
@@ -571,7 +571,7 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
         : account.provider === "kraken"
         ? await fetchKrakenRows(decryptJson<KrakenCredentials>(account.encryptedCredentials))
         : await fetchBitpandaRows(decryptJson<BitpandaCredentials>(account.encryptedCredentials));
-      const holdings = await pricedRows(rows, stockPriceCache);
+      const holdings = await pricedRows(rows, stockPriceCache, deps.sharedCache);
       const writes: Prisma.PrismaPromise<unknown>[] = [
         prisma.cexHolding.deleteMany({ where: { accountId: account.id } }),
       ];

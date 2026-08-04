@@ -7,7 +7,7 @@ import { metrics } from "@wcore/core";
 import { AnyAddress } from "@wcore/shared";
 import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
-import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout } from "./scan-utils.js";
+import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout, chainCircuitOutcome, applyChainCircuitOutcome } from "./scan-utils.js";
 import { scanJobs, startJobCleanup, admitScanJob, jobPrincipal } from "./scan-job.js";
 import { consumeScanBudget, scanRequestCost } from "../server-helpers.js";
 import { apiConfig } from "../config.js";
@@ -34,10 +34,12 @@ function hasUnfinalizedDeFiAssets(chain: string, assets: WalletAssets): boolean 
   });
 }
 
-async function fetchFxRate(): Promise<number | { code: 503; body: { error: string; message: string } }> {
+async function fetchFxRate(cache?: CacheStore): Promise<number | { code: 503; body: { error: string; message: string } }> {
   try {
     const { getEurUsdRate } = await import("@wcore/core");
-    return await getEurUsdRate();
+    // Without the shared store the cascade only memoises in process memory, so its four
+    // HTTP calls ran again after every restart and were never shared across instances.
+    return await getEurUsdRate({ cache });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[scan] FX rate unavailable:", msg);
@@ -119,7 +121,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const requestedChains = chainValidation.chains;
     const customTokens = await resolveCustomTokens(req.user?.id, body.customTokens);
 
-    const fxResult = await fetchFxRate();
+    const fxResult = await fetchFxRate(sharedCache);
     if (typeof fxResult !== "number") { reply.code(fxResult.code); return fxResult.body; }
     const fxRate = fxResult;
 
@@ -198,11 +200,11 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             }).catch(() => {});
           }
           metrics.recordChainTimeout(chain);
-          getCircuitBreaker(chain).onFailure();
+          // The breaker is charged once, below, where every result is accounted for.
+          // Charging it here too made a timeout count twice.
           return { chain, chainName: chain, native: { symbol: "NATIVE", balance: 0, priceEur: null, valueEur: null }, tokens: [], errors: [timeoutMsg], totalValueEur: 0, scanMs: 0 } as WalletAssets;
         }
         metrics.recordOtherError(chain, msg);
-        getCircuitBreaker(chain).onFailure();
         return { chain, chainName: chain, native: { symbol: "NATIVE", balance: 0, priceEur: null, valueEur: null }, tokens: [], errors: [msg], totalValueEur: 0, scanMs: 0 } as WalletAssets;
       }
     })));
@@ -220,11 +222,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     rawChains.push(...cachedChains, ...finalizedRawResults);
 
     for (const c of rawChains) {
-      const breaker = getCircuitBreaker(c.chain);
-      const hasError = (c.errors ?? []).length > 0;
-      const hasValue = (c.totalValueEur ?? 0) > 0 || (c.tokens?.length ?? 0) > 0;
-      if (hasError && !hasValue) breaker.onFailure();
-      else if (!hasError) breaker.onSuccess();
+      applyChainCircuitOutcome(getCircuitBreaker(c.chain), c);
     }
 
     const chains: ChainScan[] = rawChains.map((chain) => buildChainScan(chain.chain, chain, fxRate));
@@ -309,7 +307,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const requestedChains = chainValidation.chains;
     const customTokens = await resolveCustomTokens(req.user?.id, body.customTokens);
 
-    const fxResult = await fetchFxRate();
+    const fxResult = await fetchFxRate(sharedCache);
     if (typeof fxResult !== "number") { reply.code(fxResult.code); return fxResult.body; }
     const fxRate = fxResult;
 
@@ -451,24 +449,36 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     if (nonEvmChains.length > 0) {
       const nonEvmScanPool = pLimit(NON_EVM_SCAN_CONCURRENCY);
       const NON_EVM_MAX_ATTEMPTS = apiConfig.scan.nonEvmMaxAttempts;
+
+      // One mget round-trip for every (address, chain) pair, like the EVM path above.
+      // Reading them one by one cost addresses x chains round-trips to Redis before a
+      // single RPC call had been made.
+      const servedFromCache = new Set<string>();
+      if (!forceRefresh) {
+        const pairs: Array<{ chain: string; addr: string }> = [];
+        for (const addr of addresses) for (const chain of nonEvmChains) pairs.push({ chain, addr });
+        let cachedEntries: ((WalletAssets & { ts: number }) | undefined)[] = [];
+        try {
+          cachedEntries = await sharedCache.mget<WalletAssets & { ts: number }>(
+            pairs.map(({ chain, addr }) => getScanResultCacheKey(addr, chain)),
+          );
+        } catch { cachedEntries = []; }
+        pairs.forEach(({ chain, addr }, i) => {
+          const cached = cachedEntries[i];
+          if (!cached || Date.now() - cached.ts >= SCAN_RESULT_CACHE_TTL_MS) return;
+          const { ts: _ts, ...result } = cached;
+          const assets = result as WalletAssets;
+          // A cached result carrying no value is skipped and rescanned.
+          if (!hasCachedValue(assets)) return;
+          walletChainResults.get(addr)?.set(chain, assets);
+          servedFromCache.add(`${addr}:${chain}`);
+        });
+      }
+
       await Promise.all(addresses.flatMap(addr =>
         nonEvmChains.map((chain) => nonEvmScanPool(async () => {
-          // Check scan result cache before hitting RPCs (unless forceRefresh)
-          if (!forceRefresh) {
-            const scanCacheKey = getScanResultCacheKey(addr, chain);
-            try {
-              const cached = await sharedCache.get<WalletAssets & { ts: number }>(scanCacheKey);
-              if (cached && Date.now() - cached.ts < SCAN_RESULT_CACHE_TTL_MS) {
-                const { ts: _ts, ...result } = cached;
-                const assets = result as WalletAssets;
-                if (hasCachedValue(assets)) {
-                  walletChainResults.get(addr)?.set(chain, assets);
-                  return; // skip RPC ��� serve cached result with value
-                }
-                // Cached result has no value ��� skip and re-scan
-              }
-            } catch { /* cache read failure is non-fatal */ }
-          }
+          if (servedFromCache.has(`${addr}:${chain}`)) return;
+
 
           // Scan with retry-on-degradation. SVM/Cosmos RPCs throttle and have
           // no consensus, so a single flaky call yields a false 0. Retry up to
@@ -591,7 +601,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const logBlockRange = typeof body.deepScan === "boolean" && body.deepScan ? 200_000 : 5_000;
     const customTokens = await resolveCustomTokens(req.user?.id, body.customTokens);
 
-    const fxResult = await fetchFxRate();
+    const fxResult = await fetchFxRate(sharedCache);
     if (typeof fxResult !== "number") { reply.code(fxResult.code); return fxResult.body; }
     const fxRate = fxResult;
 
@@ -646,14 +656,9 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
           }
 
-          const breaker = getCircuitBreaker(chain);
-          const hasError = scanErrors.length > 0;
-          const totalValueEur = assets.totalValueEur ?? 0;
-          const hasValue = totalValueEur > 0 || tokens.length > 0;
-          if (hasError && !hasValue) {
-            breaker.onFailure();
-            console.log(`[scan] ${chain}: failed (errors: ${scanErrors.slice(0, 2).join('; ')})`);
-          } else if (!hasError) breaker.onSuccess();
+          const outcome = chainCircuitOutcome({ errors: scanErrors, totalValueEur: assets.totalValueEur, tokens });
+          applyChainCircuitOutcome(getCircuitBreaker(chain), { errors: scanErrors, totalValueEur: assets.totalValueEur, tokens });
+          if (outcome === "failure") console.log(`[scan] ${chain}: failed (errors: ${scanErrors.slice(0, 2).join('; ')})`);
         } catch (e) {
           if (entry) entry.status = "error";
           const msg = e instanceof Error ? e.message : String(e);

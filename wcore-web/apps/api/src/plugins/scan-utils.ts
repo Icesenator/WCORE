@@ -9,6 +9,39 @@ export interface TimeoutHandle<T> {
 }
 
 /**
+ * What a finished chain scan means for that chain's circuit breaker.
+ *
+ * This lived inline in each handler, and the synchronous one both charged a failure in
+ * its catch and charged it again when the placeholder result reached the aggregation
+ * loop. Every timeout therefore counted twice and the breaker opened at half its
+ * configured threshold. Keeping the decision in one place makes that impossible.
+ *
+ * A scan that reports errors yet still returned usable data is deliberately neither:
+ * counting it as a failure would punish a partially degraded chain that is still
+ * serving, and counting it as a success would hide a real problem.
+ */
+export function chainCircuitOutcome(assets: {
+  errors?: unknown[] | null;
+  totalValueEur?: number | null;
+  tokens?: unknown[] | null;
+}): "success" | "failure" | "degraded" {
+  const hasError = (assets.errors ?? []).length > 0;
+  const hasValue = (assets.totalValueEur ?? 0) > 0 || (assets.tokens ?? []).length > 0;
+  if (hasError) return hasValue ? "degraded" : "failure";
+  return "success";
+}
+
+/** Applies {@link chainCircuitOutcome} to a breaker. */
+export function applyChainCircuitOutcome(
+  breaker: { onFailure: () => void; onSuccess: () => void },
+  assets: Parameters<typeof chainCircuitOutcome>[0],
+): void {
+  const outcome = chainCircuitOutcome(assets);
+  if (outcome === "failure") breaker.onFailure();
+  else if (outcome === "success") breaker.onSuccess();
+}
+
+/**
  * Race a factory against a deadline. The factory receives an AbortController's
  * signal: when the deadline fires, the signal is aborted BEFORE the wrapper
  * rejects, so the underlying promise (e.g. an engine scan calling RPC) can

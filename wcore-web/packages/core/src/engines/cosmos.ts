@@ -178,58 +178,17 @@ export async function getCosmosWalletAssets(
 
   let stakedRawAmount = 0n;
   if (chain.CHAIN?.INCLUDE_STAKED_NATIVE) {
-    // Fetch delegations, with fallback to cached data on REST failure.
-    const delCacheKey = cache ? `del:${key.toLowerCase()}:${address}` : undefined;
-    const delResult = await fetchCosmosDelegations(fetchFn, restUrl, address, errors);
-    let delegations = delResult.items;
-    const delFailed = delResult.failed;
-    if (cache && delCacheKey) {
-      if (!delFailed) {
-        cache.set(delCacheKey, delegations, 86400_000).catch(() => {});
-      } else {
-        const cachedDel = await cache.get<StakingDelegation[]>(delCacheKey);
-        if (cachedDel && cachedDel.length > 0) {
-          delegations = cachedDel;
-          errors.push("[DEGRADED] delegations: using cached fallback");
-        }
-      }
-    }
+    // Delegations, unbonding and rewards are three independent REST reads. They were
+    // awaited one after another, so a chain whose endpoint is slow paid that latency
+    // three times over; the failover alone allows 10 s per call.
+    const [delegations, unbonding, rewards] = await Promise.all([
+      readStakingWithFallback("delegations", cache ? `del:${key.toLowerCase()}:${address}` : undefined, () => fetchCosmosDelegations(fetchFn, restUrl, address, errors), cache, errors),
+      readStakingWithFallback("unbonding", cache ? `unb:${key.toLowerCase()}:${address}` : undefined, () => fetchCosmosUnbonding(fetchFn, restUrl, address, errors), cache, errors),
+      readStakingWithFallback("rewards", cache ? `rew:${key.toLowerCase()}:${address}` : undefined, () => fetchCosmosRewards(fetchFn, restUrl, address, errors), cache, errors),
+    ]);
+
     stakedRawAmount = delegations.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
-
-    // Fetch unbonding, with fallback to cached data on REST failure.
-    const unbCacheKey = cache ? `unb:${key.toLowerCase()}:${address}` : undefined;
-    const unbResult = await fetchCosmosUnbonding(fetchFn, restUrl, address, errors);
-    let unbonding = unbResult.items;
-    const unbFailed = unbResult.failed;
-    if (cache && unbCacheKey) {
-      if (!unbFailed) {
-        cache.set(unbCacheKey, unbonding, 86400_000).catch(() => {});
-      } else {
-        const cachedUnb = await cache.get<StakingDelegation[]>(unbCacheKey);
-        if (cachedUnb && cachedUnb.length > 0) {
-          unbonding = cachedUnb;
-          errors.push("[DEGRADED] unbonding: using cached fallback");
-        }
-      }
-    }
     stakedRawAmount += unbonding.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
-
-    // Fetch rewards, with fallback to cached data on REST failure.
-    const rewCacheKey = cache ? `rew:${key.toLowerCase()}:${address}` : undefined;
-    const rewResult = await fetchCosmosRewards(fetchFn, restUrl, address, errors);
-    let rewards = rewResult.items;
-    const rewFailed = rewResult.failed;
-    if (cache && rewCacheKey) {
-      if (!rewFailed) {
-        cache.set(rewCacheKey, rewards, 86400_000).catch(() => {});
-      } else {
-        const cachedRew = await cache.get<StakingDelegation[]>(rewCacheKey);
-        if (cachedRew && cachedRew.length > 0) {
-          rewards = cachedRew;
-          errors.push("[DEGRADED] rewards: using cached fallback");
-        }
-      }
-    }
     stakedRawAmount += rewards.filter((d) => !d.denom || d.denom === nativeDenom).reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
   }
 
@@ -500,6 +459,35 @@ async function priceCosmosToken(
     priceEur: priced.priceEur == null ? null : roundMoney(priced.priceEur),
     valueEur: priced.priceEur == null ? null : roundMoney(balance * priced.priceEur),
   };
+}
+
+/**
+ * Reads one staking list, falling back to its cached copy when the REST call fails.
+ *
+ * A genuinely empty list is never replaced by the cache: only a failed read is, which
+ * keeps a transient endpoint outage from erasing a delegation that is still there.
+ */
+async function readStakingWithFallback(
+  label: string,
+  cacheKey: string | undefined,
+  read: () => Promise<{ items: StakingDelegation[]; failed: boolean }>,
+  cache: import("../cache/index.js").CacheStore | undefined,
+  errors: string[],
+): Promise<StakingDelegation[]> {
+  const result = await read();
+  if (!cache || !cacheKey) return result.items;
+
+  if (!result.failed) {
+    cache.set(cacheKey, result.items, 86400_000).catch(() => {});
+    return result.items;
+  }
+
+  const cached = await cache.get<StakingDelegation[]>(cacheKey);
+  if (cached && cached.length > 0) {
+    errors.push(`[DEGRADED] ${label}: using cached fallback`);
+    return cached;
+  }
+  return result.items;
 }
 
 async function resolveCosmosTokenDecimals(

@@ -4,7 +4,10 @@
   "description": "WCORE Google Sheets + Apps Script runtime — multi-chain wallet tracking, CEX connectors, pricing cascade",
   "main": "index.js",
   "scripts": {
-    "test": "npm run validate:static && npm run test:watchdog-quota && npm run test:listing-recap-headers && npm run test:web-scan-adapter && npm run test:packed-wallet-cache && npm run test:base-engine-stats && npm run test:wallet-cache-preserve-prices && npm run test:wallet-cache-expand-prices && npm run test:auto-heal-new-ledgers && npm run test:action-rebalancing-refresh && npm run test:cex-refresh-load && npm run test:cex-bulk-canonical && npm run test:top-marketcap-currency && npm run test:crypto-portfolio-v2 && npm run test:portfolio-fetch-retry",
+    "test": "npm run validate:static && npm run test:cosmos-refresh-contract && npm run test:cex-queue-integrity && npm run test:svm-balance-consensus && npm run test:watchdog-quota && npm run test:listing-recap-headers && npm run test:web-scan-adapter && npm run test:packed-wallet-cache && npm run test:base-engine-stats && npm run test:wallet-cache-preserve-prices && npm run test:wallet-cache-expand-prices && npm run test:auto-heal-new-ledgers && npm run test:action-rebalancing-refresh && npm run test:cex-refresh-load && npm run test:cex-bulk-canonical && npm run test:top-marketcap-currency && npm run test:crypto-portfolio-v2 && npm run test:portfolio-fetch-retry",
+    "test:cosmos-refresh-contract": "node tests/cosmos-refresh-contract.test.js",
+    "test:cex-queue-integrity": "node tests/cex-queue-integrity.test.js",
+    "test:svm-balance-consensus": "node tests/svm-balance-consensus.test.js",
     "test:auto-heal-new-ledgers": "node tests/auto-heal-new-ledgers.test.js",
     "test:action-rebalancing-refresh": "node tests/action-rebalancing-direct-refresh.test.js",
     "test:cex-refresh-load": "node tests/cex-refresh-load-guard.test.js",

@@ -1,4 +1,4 @@
-﻿import type { FastifyInstance } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
 import pLimit from "p-limit";
 import type { PrismaClient } from "@wcore/db";
@@ -8,7 +8,7 @@ import { AnyAddress } from "@wcore/shared";
 import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
 import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout } from "./scan-utils.js";
-import { scanJobs, startJobCleanup } from "./scan-job.js";
+import { scanJobs, startJobCleanup, admitScanJob, jobPrincipal } from "./scan-job.js";
 import { consumeScanBudget, scanRequestCost } from "../server-helpers.js";
 import { apiConfig } from "../config.js";
 import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
@@ -161,7 +161,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             cachedChains.push(assets);
             return;
           }
-          // Cached result has no value (empty or errored) ÔÇö skip and re-scan
+          // Cached result has no value (empty or errored) ��� skip and re-scan
         }
         uncachedChains.push(chain);
       });
@@ -285,7 +285,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const body = bodyParsed.data;
 
     // Validate every address up-front: a bad address must be a 400, not an
-    // unhandled throw (previously a raw Error inside .map() ÔåÆ 500).
+    // unhandled throw (previously a raw Error inside .map() ��� 500).
     const addresses: string[] = [];
     for (const a of body.addresses as string[]) {
       const parsed = AnyAddress.safeParse(a);
@@ -327,7 +327,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const intraScanPriceCache = new Map<string, Promise<any>>();
 
     // Group chains by VM type for batching. Previously used require() which
-    // throws "require is not defined" under ESM ÔåÆ evmChains stayed empty and
+    // throws "require is not defined" under ESM ��� evmChains stayed empty and
     // every chain fell through to the non-EVM individual-scan path (no
     // Multicall3 batching, BASE timing out on multi-wallet scans).
     const evmChains = activeChains.filter(c => getChain(c)?.vm === "EVM");
@@ -345,7 +345,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const cachedEvmByAddr = new Map<string, Map<string, WalletAssets>>();
     const uncachedEvmPairs: Array<{ chain: string; uncachedAddrs: string[] }> = [];
     if (!forceRefresh) {
-      // Single mget round-trip for all (chain, address) pairs instead of N├ùM gets.
+      // Single mget round-trip for all (chain, address) pairs instead of N+�M gets.
       const pairs: Array<{ chain: string; addr: string }> = [];
       for (const chain of evmChains) for (const addr of addresses) pairs.push({ chain, addr });
       let cachedEntries: ((WalletAssets & { ts: number }) | undefined)[] = [];
@@ -365,7 +365,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             cachedEvmByAddr.get(addr)!.set(chain, assets);
             return;
           }
-          // Cached result has no value ÔÇö skip and re-scan
+          // Cached result has no value ��� skip and re-scan
         }
         if (!uncachedByChain.has(chain)) uncachedByChain.set(chain, []);
         uncachedByChain.get(chain)!.push(addr);
@@ -387,7 +387,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       }
     }
 
-    // EVM batch scan with per-chain timeout ÔÇö only for uncached pairs
+    // EVM batch scan with per-chain timeout ��� only for uncached pairs
     const evmScanPool = pLimit(SCAN_CONCURRENCY);
     const evmResults = await Promise.all(uncachedEvmPairs.map(({ chain, uncachedAddrs }) => evmScanPool(async () => {
       const timeoutMsg = `chain_timeout: ${chain} exceeded ${BATCH_CHAIN_TIMEOUT_MS}ms`;
@@ -463,9 +463,9 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
                 const assets = result as WalletAssets;
                 if (hasCachedValue(assets)) {
                   walletChainResults.get(addr)?.set(chain, assets);
-                  return; // skip RPC ÔÇö serve cached result with value
+                  return; // skip RPC ��� serve cached result with value
                 }
-                // Cached result has no value ÔÇö skip and re-scan
+                // Cached result has no value ��� skip and re-scan
               }
             } catch { /* cache read failure is non-fatal */ }
           }
@@ -576,6 +576,15 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       return { error: "circuit_open", message: `All ${openCircuits.length} requested chain(s) have open circuit breakers.` };
     }
 
+    const principal = jobPrincipal({ userId: req.user?.id, ip: req.ip });
+    const admission = admitScanJob(principal);
+    if (!admission.ok) {
+      reply.code(429);
+      return admission.reason === "global"
+        ? { error: "server_busy", message: "Too many scans in progress. Retry shortly." }
+        : { error: "too_many_jobs", message: `Max ${admission.limit} concurrent scans. Wait for one to finish.` };
+    }
+
     const jobId = randomBytes(16).toString("hex");
     const forceRefresh = typeof body.forceRefresh === "boolean" ? body.forceRefresh : false;
     const strictTokens = typeof body.strictTokens === "boolean" ? body.strictTokens : false;
@@ -586,7 +595,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     if (typeof fxResult !== "number") { reply.code(fxResult.code); return fxResult.body; }
     const fxRate = fxResult;
 
-    scanJobs.set(jobId, { jobId, address: parsedAddress.data, userId: req.user?.id, ip: req.ip, status: "running", chains: [...openCircuits.map(c => ({ chainKey: c, chainName: c, status: "error" as const, result: { chainKey: c, chainName: c, vm: "EVM" as const, native: null, tokens: [], errors: [{ stage: "init" as const, message: `circuit_open: Circuit breaker open for ${c}.` }], degraded: true, fxRate, scanMs: 0, totals: { valueEur: 0, tokenCount: 0, pricedCount: 0 }, cachedAt: null, scriptVersion: "" } })), ...activeChains.map(c => ({ chainKey: c, chainName: c, status: "pending" as const }))], totalEur: 0, tokenCount: 0, errors: [], createdAt: Date.now() });
+    scanJobs.set(jobId, { jobId, address: parsedAddress.data, userId: req.user?.id, ip: req.ip, status: "running", chains: [...openCircuits.map(c => ({ chainKey: c, chainName: c, status: "error" as const, result: { chainKey: c, chainName: c, vm: "EVM" as const, native: null, tokens: [], errors: [{ stage: "init" as const, message: `circuit_open: Circuit breaker open for ${c}.` }], degraded: true, fxRate, scanMs: 0, totals: { valueEur: 0, tokenCount: 0, pricedCount: 0 }, cachedAt: null, scriptVersion: "" } })), ...activeChains.map(c => ({ chainKey: c, chainName: c, status: "pending" as const }))], totalEur: 0, tokenCount: 0, errors: [], createdAt: Date.now(), controller: new AbortController() });
 
     const { getWalletAssets, RedisPricingCache, detectScam, getChain } = await import("@wcore/core");
     const pricingCache = new RedisPricingCache(sharedCache);
@@ -610,7 +619,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
             const p = getWalletAssets(parsedAddress.data, chain, { cache: engineCache, sharedPriceCache: pricingCache, logBlockRange, customTokens, strictTokens, intraScanCache: asyncIntraScanCache, forceRefresh, fxRate, signal });
             chainPromise = p;
             return p;
-          }, CHAIN_TIMEOUT_MS);
+          }, CHAIN_TIMEOUT_MS, job.controller.signal);
           const assets = await finalizeDeFiAssets(chain, parsedAddress.data, await handle.promise);
           const chainScan = buildChainScan(chain, assets, fxRate);
           const cleanValue = calcCleanChainValue(chainScan, detectScam);
@@ -686,7 +695,9 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
         console.log(`[scan] Job ${jobId}: ${completed} done, ${errored} error, ${currentJob.chains.length} total`);
         currentJob.status = completed > 0 ? "done" : "error";
       }
-    })().catch(err => { const currentJob = scanJobs.get(jobId); if (currentJob) { currentJob.status = "error"; currentJob.errors.push(String(err)); } });
+      // Every chain has settled: release the signal so nothing stays linked to it.
+      job.controller.abort();
+    })().catch(err => { const currentJob = scanJobs.get(jobId); if (currentJob) { currentJob.status = "error"; currentJob.errors.push(String(err)); currentJob.controller.abort(); } });
 
     return { jobId, chains: requestedChains.length };
   });

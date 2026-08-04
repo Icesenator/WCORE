@@ -1,5 +1,6 @@
 ﻿// Shared scan utilities extracted from scan.ts for reuse across endpoints.
 import type { CacheStore, WalletAssets } from "@wcore/core";
+import { linkAbortSignal } from "@wcore/core";
 import { cacheKey, type ChainScan } from "@wcore/shared";
 
 export interface TimeoutHandle<T> {
@@ -15,10 +16,15 @@ export interface TimeoutHandle<T> {
  *
  * Use `cancel()` to abort early without waiting for the deadline (e.g. when
  * the caller has already given up for another reason).
+ *
+ * `parentSignal` lets a whole job cancel every chain it started. Without it a job
+ * killed by a TTL guard only changed its own status: the chains it had launched kept
+ * calling RPCs to completion for a result nobody would ever read.
  */
-export function runWithTimeout<T>(factory: (signal: AbortSignal) => Promise<T>, ms: number): TimeoutHandle<T> {
+export function runWithTimeout<T>(factory: (signal: AbortSignal) => Promise<T>, ms: number, parentSignal?: AbortSignal): TimeoutHandle<T> {
   const controller = new AbortController();
   const timeoutError = new Error(`chain_timeout: exceeded ${ms}ms`);
+  const unlinkParent = linkAbortSignal(parentSignal, controller);
 
   let resolveOuter!: (value: T) => void;
   let rejectOuter!: (err: unknown) => void;
@@ -32,6 +38,7 @@ export function runWithTimeout<T>(factory: (signal: AbortSignal) => Promise<T>, 
     if (settled) return;
     settled = true;
     if (timer) clearTimeout(timer);
+    unlinkParent();
     if (action === "resolve") resolveOuter(value as T);
     else rejectOuter(value);
   };

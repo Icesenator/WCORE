@@ -91,13 +91,16 @@ export function useOnChainGm(config: GmConfig) {
 
     try {
       const depRes = await apiFetch(`${API_URL}/api/gm/has-deployed?chain=${chain}`);
-      if (depRes.ok) {
-          const depData = (await depRes.json()) as { hasDeployed?: boolean };
-          if (depData.hasDeployed) { lsSetContractDeployed(chain, "1"); return true; }
-      }
+      // Only a successful answer is evidence. Reporting "not deployed" when the request
+      // failed offered a Deploy button to someone who already has a contract; null is
+      // the unknown state both callers already render as still loading.
+      if (!depRes.ok) return null;
+      const depData = (await depRes.json()) as { hasDeployed?: boolean };
+      if (depData.hasDeployed) { lsSetContractDeployed(chain, "1"); return true; }
       return false;
-    } catch {
-      return false;
+    } catch (e) {
+      console.error("checkHasDeployed failed:", e);
+      return null;
     }
   }, [config.chainKey]);
 

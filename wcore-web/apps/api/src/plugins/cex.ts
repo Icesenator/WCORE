@@ -101,9 +101,26 @@ const CEX_PRICE_IDS: Record<string, string> = {
   BGB: "coingecko:bitget-token",
 };
 
+/**
+ * Picks the secret that exchange credentials are encrypted with.
+ *
+ * In production this must never fall back. Deriving the key from JWT_SECRET couples two
+ * secrets that rotate independently: rotating the JWT would silently make every stored
+ * credential undecryptable. Falling back to the fixed development string would be worse
+ * still, since it is public. Refusing here disables only the exchange feature instead of
+ * encrypting with a key nobody intended.
+ */
+export function resolveCexEncryptionSecret(env: NodeJS.ProcessEnv = process.env): string {
+  const secret = env.CEX_SECRET;
+  if (secret) return secret;
+  if (env.NODE_ENV === "production") {
+    throw new Error("CEX_SECRET is required to read or write exchange credentials");
+  }
+  return env.JWT_SECRET || "wcore-dev-cex-secret";
+}
+
 function encryptionKey(): Buffer {
-  const secret = process.env.CEX_SECRET || process.env.JWT_SECRET || "wcore-dev-cex-secret";
-  return createHash("sha256").update(secret).digest();
+  return createHash("sha256").update(resolveCexEncryptionSecret()).digest();
 }
 
 function encryptJson(value: unknown): EncryptedPayload {

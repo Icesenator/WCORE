@@ -40,7 +40,7 @@ export function getChainRpcs(chainKey: string): string[] | undefined {
   return endpoints.length ? endpoints : undefined;
 }
 
-async function rpcFetch(rpcs: string[], body: unknown): Promise<{ result?: unknown; error?: unknown }> {
+async function rpcFetch(rpcs: string[], body: unknown, chainKey?: string): Promise<{ result?: unknown; error?: unknown }> {
   let lastError: string | undefined;
   for (const rpc of rpcs) {
     try {
@@ -57,7 +57,10 @@ async function rpcFetch(rpcs: string[], body: unknown): Promise<{ result?: unkno
       lastError = (e as Error).message || String(e);
     }
   }
-  console.warn("rpcFetch: all RPC endpoints failed", { rpcCount: rpcs.length, error: lastError });
+  // Without the chain and the method this line is unactionable: production logs fill
+  // with identical failures and give no way to tell which chain is actually down.
+  const method = (body as { method?: string } | null)?.method;
+  console.warn("rpcFetch: all RPC endpoints failed", { chain: chainKey ?? "unknown", method: method ?? "unknown", rpcCount: rpcs.length, error: lastError });
   return {};
 }
 
@@ -65,8 +68,8 @@ async function readGmContractBalances(chainKey: string, contractAddress: string)
   const rpcs = getChainRpcs(chainKey);
   if (!rpcs?.length) return { creatorBalance: "0", platformBalance: "0" };
   const [creatorData, platformData] = await Promise.all([
-    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0xaf55ec73" }, "latest"] }),
-    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0x62a5dbbc" }, "latest"] }),
+    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0xaf55ec73" }, "latest"] }, chainKey),
+    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0x62a5dbbc" }, "latest"] }, chainKey),
   ]);
   return {
     creatorBalance: typeof creatorData.result === "string" ? BigInt(creatorData.result).toString() : "0",
@@ -114,7 +117,7 @@ async function readGmContractBalancesBatch(
   const data = await rpcFetch(rpcs, {
     jsonrpc: "2.0", id: 1, method: "eth_call",
     params: [{ to: getMulticall3Address(chainKey), data: callData }, "latest"],
-  });
+  }, chainKey);
 
   if (typeof data.result !== "string" || data.result === "0x") {
     // Multicall3 not deployed or revert: fall back to per-contract reads.

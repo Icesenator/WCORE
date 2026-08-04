@@ -41,9 +41,9 @@ var _COSMOS_HUB = ChainFactory.createCosmosChain("COSMOS_HUB", {
 });
 
 // Main functions
-function GET_WALLET_ASSETS_COSMOS_HUB(address, forceFull){return _COSMOS_HUB.getWalletAssets(address, forceFull);}
+function GET_WALLET_ASSETS_COSMOS_HUB(a,r,t,f,g){return _COSMOS_HUB.getWalletAssets(a,r,t,f,g);}
 function CACHED_WALLET_ASSETS_COSMOS_HUB(address){return _COSMOS_HUB.getCachedWalletAssets(address);}
-function COSMOS_HUB_REFRESH_STATUS(address, forceFull){return _COSMOS_HUB.getRefreshStatus(address, forceFull);}
+function COSMOS_HUB_REFRESH_STATUS(a,r,t,f,g){return _COSMOS_HUB.getRefreshStatus(a,r,t,f,g);}
 function COSMOS_HUB_STATS(address, trigger){return _COSMOS_HUB.getStats(address, trigger);}
 
 // Diagnostic stubs (use centralized CosmosDiagStubs)

@@ -530,10 +530,25 @@ async function resolveCosmosTokenDecimals(
 
   const baseDenom = resolved.baseDenom;
   if (denomDecimals[baseDenom] != null) return denomDecimals[baseDenom];
-  // Same micro-denom convention applied to direct denoms above: a simple u-prefixed
-  // denom is 6. Anything else stays unknown rather than being mis-valued.
-  if (/^u[a-z]+$/.test(baseDenom)) return 6;
+  const convention = microDenomDecimals(baseDenom);
+  if (convention != null) return convention;
   errors.push(`${denom.slice(0, 12)}: decimals_unknown (${baseDenom})`);
+  return null;
+}
+
+/**
+ * Decimals implied by the Cosmos denomination naming convention, or null when the name
+ * carries no reliable scale.
+ *
+ * Only the micro prefix is trusted. A liquid-staking derivative embeds the denomination
+ * it wraps and shares its scale, so stuatom is uatom is 6 - but staevmos wraps aevmos,
+ * which is 18. Reading every st denomination as 6 would therefore be twelve orders of
+ * magnitude off on the Evmos family, so anything that does not reduce to a simple
+ * u-prefixed denomination is left unknown rather than guessed.
+ */
+function microDenomDecimals(denom: string): number | null {
+  if (/^u[a-z]+$/.test(denom)) return 6;
+  if (/^stu[a-z]+$/.test(denom)) return 6;
   return null;
 }
 

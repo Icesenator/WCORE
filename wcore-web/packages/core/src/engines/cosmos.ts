@@ -1,4 +1,5 @@
 import { getChain } from "../chains/index.js";
+import { linkAbortSignal } from "../abort.js";
 import type { ChainConfig } from "../types.js";
 import {
   CoinGeckoPriceSource,
@@ -61,6 +62,8 @@ export async function getCosmosWalletAssets(
     deepScan?: boolean;
     intraScanCache?: IntraScanCache;
     forceRefresh?: boolean;
+    /** Cancels the scan's outbound work; the caller's timeout stopped here before. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<CosmosWalletAssets> {
   const key = normalizeChainKey(chainKey);
@@ -99,6 +102,9 @@ export async function getCosmosWalletAssets(
       for (let i = 0; i < candidates.length; i++) {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 10000);
+        // The caller's timeout reaches the REST failover too: without this, a scan that
+        // had already given up still walked its whole endpoint list.
+        const unlink = linkAbortSignal(opts.signal, ctrl);
         try {
           const res = await rawFetch(candidates[i]!, { ...init, signal: ctrl.signal });
           // On a server error from a non-last endpoint, try the next one.
@@ -106,8 +112,9 @@ export async function getCosmosWalletAssets(
           return res;
         } catch (e) {
           lastErr = e;
+          if (opts.signal?.aborted) throw e; // stop the failover, the caller is gone
           if (i < candidates.length - 1) continue;
-        } finally { clearTimeout(t); }
+        } finally { clearTimeout(t); unlink(); }
       }
       throw lastErr ?? new Error("all REST endpoints failed");
     };

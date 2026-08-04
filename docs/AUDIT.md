@@ -79,19 +79,23 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Limite: les blocages RPC peuvent dependre de l'IP. Les endpoints defaillants sont retrogrades et non supprimes, sauf mauvaise chaine (cf. P1-10).
 - Reste a faire: decider du sort des trois chaines non scannables, et confirmer les nouveaux endpoints depuis Railway et Apps Script.
 
-### P1-3 - Les timeouts liberent les slots sans annuler les scans
+### P1-3 - Les timeouts liberent les slots sans annuler les scans - RESOLU 2026-08-04
 
 - Preuve: `wcore-web/apps/api/src/plugins/scan.ts:152-176,368-398,453-465,578-647` cree un `AbortSignal`, mais les moteurs appeles via `packages/core/src/engines/dispatch.ts:42-58` ne propagent pas l'annulation de bout en bout.
 - Impact: apres timeout, les appels RPC/pricing continuent, le slot `p-limit` est reutilise et la concurrence reelle depasse les bornes configurees.
-- Preuve runtime: les 300 dernieres lignes API sont presque entierement composees de `rpcFetch: all RPC endpoints failed`, avec des pools de 1 a 5 RPC.
-- Action: propager `AbortSignal` dans RPC, REST, discovery et pricing; ne liberer le slot qu'apres annulation effective.
+- Correction: le signal traverse desormais `dispatcher.ts` puis `client.ts` jusqu'au `fetch`, sur EVM scan/batch, SVM, Cosmos et TON. Helper partage `packages/core/src/abort.ts` (`linkAbortSignal`). Le client detache son ecouteur quand l'appel se termine: un signal de scan est partage par des centaines d'appels.
+- Verification: 8 tests (`packages/core/src/abort.test.ts`), chacun valide par mutation du code de production. Deux passaient d'abord pour de mauvaises raisons - `AbortSignal` n'expose pas `listenerCount` (assertion silencieusement sautee, corrigee via `node:events`), et un rejet obtenu par le timeout de 60 s et non par l'annulation (corrige par une borne de promptitude).
+- Verification production: scan 6 chaines, 372 tokens, aucune erreur d'annulation; `SOMNIA` et `REYA` restent `degraded=false`.
 
-### P1-4 - Jobs async non bornes et non persistants
+### P1-4 - Jobs async non bornes et non persistants - PARTIELLEMENT RESOLU 2026-08-04
 
 - Preuve: `wcore-web/apps/api/src/plugins/scan-job.ts:23` utilise un `Map` process-local sans limite globale ou par utilisateur/IP.
 - Les gardes TTL marquent les jobs en erreur mais n'arretent pas les moteurs deja lances.
 - Impact: croissance memoire, perte au restart, incoherence multi-replique et amplification RPC.
-- Action: queue/store Redis avec TTL, limites globales et par principal, claim atomique et annulation reelle.
+- Correction bornage: `admitScanJob()` plafonne les scans simultanes par appelant (`SCAN_MAX_ASYNC_JOBS_PER_PRINCIPAL`, defaut 32) et la taille du store (`SCAN_MAX_ASYNC_JOBS`, defaut 200). Les jobs termines les plus anciens sont evinces avant tout refus, sinon une rafale de scans finis bloquerait les suivants pendant leur fenetre de polling. Le defaut par appelant laisse de la marge au frontend, qui lance `SCAN_CONCURRENCY / CHAIN_BATCH_SIZE` = 10 jobs simultanes.
+- Correction annulation: chaque job porte un `AbortController` que les gardes TTL declenchent via `failJob()`, et `runWithTimeout()` s'y raccroche. Un job tue arrete reellement les chaines qu'il avait lancees, ce que P1-3 rend enfin possible.
+- Verification: 8 tests (`apps/api/src/plugins/scan-job.test.ts`) + 3 sur le signal parent, tous valides par mutation. En production, plafond abaisse temporairement a 3: 4 requetes sur 15 simultanees repondent `429 too_many_jobs`, puis retour au defaut verifie (20/20 en succes).
+- Reste: persistance Redis et claim atomique. Non traite volontairement - mesure sur la production, le service tourne en replique unique (6 creations/sondages async consecutifs, 0 `job_not_found`), donc l'incoherence multi-replique n'est pas un defaut vivant. La perte au restart reste connue et absorbee par le frontend. A reprendre avant tout passage a plusieurs repliques.
 
 ### P1-5 - Historique Prisma non reconstructible - RESOLU 2026-08-03
 

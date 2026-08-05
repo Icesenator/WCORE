@@ -2,7 +2,7 @@
 
 ## Production deploys — Railway (wcore.xyz / api-production-b5bf.up.railway.app)
 
-The Railway project has **two services** (`web` and `api`). Since `@wcore/core` depends on `@wcore/chains` from `wcore-gsheet/dist`, deploys use the repo root context `C:\Users\strau\WCORE` and the root `railway.json`. `wcore-web/scripts/deploy.ps1` swaps `dockerfilePath` according to `-Service`, runs `railway up <root> --path-as-root --service <name> --ci`, restores the JSON in a `finally` block, and propagates Railway's exit code.
+The Railway project has **three services** (`web`, `api` and `cex-relay`). Since `@wcore/core` depends on `@wcore/chains` from `wcore-gsheet/dist`, deploys use the repo root context `C:\Users\strau\WCORE` and the root `railway.json`. `wcore-web/scripts/deploy.ps1` swaps `dockerfilePath` according to `-Service`, runs `railway up <root> --path-as-root --service <name> --ci`, restores the JSON in a `finally` block, and propagates Railway's exit code.
 
 ```powershell
 # From WCORE
@@ -407,7 +407,11 @@ docker cp wcore-redis-prod:/data/dump.rdb redis-backup-$(date +%Y%m%d).rdb
 | `WEB_PORT` | No | 3000 | Web listen port |
 | `NEXT_PUBLIC_API_URL` | **Yes** | — | API URL for browser |
 | `NEXT_PUBLIC_WC_PROJECT_ID` | No | — | WalletConnect ID |
-| `RATE_LIMIT_SCAN` | No | 60 | Scan rate limit |
+| `RATE_LIMIT_SCAN` | No | 2000 | Scan requests per minute. Not the meaningful bound: `RATE_LIMIT_SCAN_CHAIN_CHECKS` caps the work a caller can trigger, which is what a scan actually costs. |
+| `RATE_LIMIT_SCAN_CHAIN_CHECKS` | No | 5000 (1000 anonymous) | Chain-checks per minute. A request is charged for the chains and wallets it covers. |
+| `SCAN_MAX_ASYNC_JOBS` / `..._PER_PRINCIPAL` | No | 200 / 32 | Bounds on the async scan store. Each job pins the results of every chain it covers. |
+| `ADMIN_TOKEN` | No | unset | Required for the admin routes. While unset they answer 401 and admin operations are unavailable. |
+| `CEX_SECRET` | **Yes in production** | - | Encrypts stored exchange credentials. Production refuses to read or write them without it, rather than falling back to another secret. |
 | `RATE_LIMIT_AUTH` | No | 30 | Auth rate limit |
 | `TRUST_PROXY` | No | loopback | `true`, `false`, or CIDR — see Reverse proxy section |
 | `LOG_LEVEL` | No | info | pino level (`debug` / `info` / `warn` / `error`) |

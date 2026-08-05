@@ -179,15 +179,16 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - RESOLU 2026-08-04 (hors audit) - Les denominations IBC etaient resolues a chaque scan alors qu'un hash est le condense de sa trace et ne change jamais. Cout: un appel REST par jeton, et surtout une dependance du portefeuille entier a la disponibilite immediate de l'endpoint. Mises en cache 30 jours.
 - RESOLU 2026-08-05 - Discovery EVM batch non bornee: chaque wallet emet jusqu'a 5 appels logs par topic de transfert, et tous les wallets partaient ensemble. Un batch de 20 adresses mettait donc 200 `eth_getLogs` simultanes sur un seul pool d'endpoints, ce a quoi les RPC gratuits repondent par des limitations plutot que par des donnees. Les wallets avancent desormais par petits groupes, la rafale reste bornee quelle que soit la taille du batch.
 - RESOLU 2026-08-05 - Les metadonnees de contrats etaient resolues une par une: un wallet touchant cinquante contrats payait cinquante allers-retours RPC successifs avant la premiere lecture de solde. Les contrats sont dedupliques d'abord puis resolus par groupes bornes; les reserver des la deduplication evite aussi d'interroger deux fois un contrat repete dans les logs.
-- Les prechargements DefiLlama et GeckoTerminal independants sont sequentiels dans les scans EVM.
-- TON ignore `opts.sources` et GeckoTerminal conserve certains markers uniquement en memoire process.
+- RESOLU 2026-08-05 - Les prechargements DefiLlama et GeckoTerminal sont deux recherches independantes d'un seul appel chacune, attendues l'une apres l'autre: chaque scan EVM payait les deux latences a la suite. Elles partent ensemble et leurs resultats sont appliques dans l'ordre d'origine, donc GeckoTerminal garde la priorite sur DefiLlama pour un contrat que les deux valorisent. Chacune conserve son propre `catch`: l'echec d'un lot ne degrade que sa source.
+- RESOLU 2026-08-05 - TON declarait `opts.sources` dans ses options sans jamais le lire: un appelant qui injectait un jeu de sources recevait silencieusement les sources internes, contrairement a tous les autres moteurs. Meme forme de defaut qu'une garde jamais appelee.
+- GeckoTerminal conserve certains markers uniquement en memoire process.
 
 ### Comportement fonctionnel
 
 - RESOLU 2026-08-04 - Un echec de `/api/gm/has-deployed` retournait `false`, donc un bouton Deploy etait propose a quelqu'un possedant deja un contrat. La fonction retourne l'etat inconnu (`null`) que ses deux appelants affichaient deja comme un chargement.
 - La page GM lance encore un fan-out de prix natifs pour toutes les factories; 86 entrees ont ete comptees.
 - Le cache wallet positif expire purement au TTL (`04B_CACHE_WALLET.gs:779-786`) malgre la politique documentaire de preservation.
-- `dist/package.json` reste en `4.15.50`, `WCORE_VERSION` en `4.16.40` et le module Web Scan en `4.16.41`.
+- RESOLU 2026-08-05 - `dist/package.json` restait en `4.15.50` alors que les configs qu'il embarque etaient passees a `4.16.47`. Ce n'est pas que cosmetique: `@wcore/chains` est consomme par une dependance `file:` que pnpm materialise en copie figee dans son store, donc une version immobile ne donne aux consommateurs aucun signal de changement de config. L'extracteur l'ecrit desormais depuis `WCORE_VERSION`, et un test de garde echoue si les deux divergent a nouveau. Les versions de modules (`GSHEET_WEB_SCAN_VERSION`, etc.) restent independantes par conception du ModuleRegistry.
 
 ## Findings P3 et dette documentaire
 

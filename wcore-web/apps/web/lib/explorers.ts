@@ -79,6 +79,22 @@ const EXPLORERS: Record<string, string> = {
   reya: "https://explorer.reya.network",
   swellchain: "https://explorer.swellnetwork.io",
   swan: "https://mainnet-explorer.swanchain.io",
+  // These seven carry a GM factory but had no explorer entry, so getExplorerUrl
+  // returned null and their contracts were shown without a link. Each URL was
+  // checked against a real address before being added.
+  intuition: "https://explorer.intuition.systems",
+  plume: "https://explorer.plume.org",
+  superposition: "https://explorer.superposition.so",
+  megaeth: "https://mega.etherscan.io",
+  doma: "https://explorer.doma.xyz",
+  b2: "https://explorer.bsquared.network",
+  katana: "https://katanascan.com",
+  pulsechain: "https://ipfs.scan.pulsechain.com",
+  // The explorer each chain config advertises is dead for these two: kaiascope.com
+  // answers 404 and explorer.kcc.io no longer resolves. These replacements were
+  // checked against a real address.
+  kaia: "https://kaiascan.io",
+  kcc: "https://scan.kcc.io",
   vana: "https://vanascan.io",
   story: "https://www.storyscan.io",
 };

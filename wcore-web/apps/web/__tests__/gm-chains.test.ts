@@ -2,6 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { getGmChains, getSoonChains } from "../app/gm/gm-chains";
 import { getActiveFactoryChains } from "@wcore/shared";
+import { getExplorerUrl } from "../lib/explorers";
 
 describe("GM page chain lists", () => {
   test("does not show active factory chains as coming soon", () => {
@@ -20,4 +21,13 @@ describe("GM page chain lists", () => {
     }
     assert.deepEqual(missing, [], `GM_FACTORIES chains missing from GM_CHAIN_NAMES (silently filtered from /gm): ${missing.join(", ")}`);
   });
+});
+
+test("every GM factory chain resolves an explorer link", () => {
+  // Seven of them had no entry, so getExplorerUrl returned null and a user who had
+  // just deployed a contract was shown its address with nowhere to check it.
+  const missing = getActiveFactoryChains().filter(
+    (chain) => getExplorerUrl(chain, "0x0000000000000000000000000000000000000001") === null,
+  );
+  assert.deepEqual(missing, [], `GM chains without an explorer entry: ${missing.join(", ")}`);
 });

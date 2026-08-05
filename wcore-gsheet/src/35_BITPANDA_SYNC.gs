@@ -644,6 +644,12 @@ function _bpParseBalance_(value) {
 // cumuler les soldes sur une seule ligne (sinon le VLOOKUP tombe sur la base=0).
 var BITPANDA_SYMBOL_ALIASES = {
   "USDC": "USDT",
+  // v4.16.46: EURCV (EUR CoinVertible) is a euro stablecoin like EURC, and the
+  // portfolio already tracks an EURC position for this sheet. Left under its own
+  // ticker the balance never matched that line: Verif showed X and the amount fed
+  // nothing. Consolidating euro stables onto EURC mirrors USDC -> USDT above and the
+  // EUR family handled for Bitfinex.
+  "EURCV": "EURC",
   "AMD-US": "AMD", "WMT-US": "WMT", "JPM-US": "JPM", "LLYC-US": "LLY",
   "MRKUS": "MRK",
   "TSFA": "TSM", "BROA": "AVGO", "BRK": "BRKB", "SMSN": "SSU",

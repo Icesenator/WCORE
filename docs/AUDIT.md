@@ -158,7 +158,7 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - RESOLU 2026-08-03 - Les comparaisons `x-gsheet-token` etaient non constantes dans `plugins/cex.ts` et `plugins/gsheet.ts`; elles passent desormais par `safeEq`, comme `admin-auth.ts` et le relais.
 - RESOLU 2026-08-03 - Le relais acceptait `RELAY_TOKEN` en query string, ce qui fuit dans les logs et les proxies. L'en-tete `x-relay-token` est prefere et la query devient opt-in **par endpoint** (`readRelayToken(req, allowQueryToken)`), fidele a l'existant: 10 endpoints legacy la gardent, 2 non. Les 5 appelants Apps Script sont passes a l'en-tete.
 - RESOLU 2026-08-03 - Le relais n'avait aucun rate limit global: `relayRateLimit()` plafonne desormais par IP (600/min, `trust proxy` = 1, `/health` exempte).
-- `ADMIN_TOKEN` n'est pas configure sur le service API Railway. Les routes admin restent fermees en 401, mais les operations admin legitimes sont indisponibles.
+- RESOLU 2026-08-05 - `ADMIN_TOKEN` n'etait pas configure sur le service API: les routes admin repondaient 401 et aucune operation admin n'etait possible. Un jeton aleatoire de 48 caracteres a ete pose dans Railway (jamais affiche). Verifie en production: 401 sans jeton, 200 avec.
 - RESOLU 2026-08-04 - `CEX_SECRET` est bien configure en production, mais le code retombait sur `JWT_SECRET` puis sur une constante publique. Les deux secrets tournent independamment: une rotation du JWT aurait rendu silencieusement indechiffrable chaque identifiant d'echange stocke. La production refuse desormais, ce qui desactive la seule fonction CEX au lieu de chiffrer avec une cle non voulue; les replis sont conserves hors production pour ne pas rendre illisibles les identifiants deja stockes en dev ou staging.
 - RESOLU 2026-08-03 - Le Web ne servait pas de Content-Security-Policy. Verifie en production: `frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'` plus `Cross-Origin-Opener-Policy: same-origin-allow-popups`. `script-src`, `connect-src` et `img-src` sont volontairement omis: les poser sans inventaire complet casserait les wallets injectes et les CDN de logos.
 - RESOLU 2026-08-03 - Le message brut d'erreur CEX pouvait etre retourne et persiste. Il passe par `describeCexSyncFailure`, qui le classe; le detail brut ne subsiste que dans le log serveur.
@@ -192,15 +192,15 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 
 ## Findings P3 et dette documentaire
 
-- `wcore-web/AGENTS.md` affiche encore 183 chaines et Apps Script `v4.15.36`; le runtime API expose 182 et le code racine vaut 4.16.40.
-- Le footer public affiche `183 tracked chains`, alors que `/api/chains` retourne 182.
+- RESOLU 2026-08-05 - La documentation figeait 183 chaines et une version Apps Script trois correctifs en retard. Ces phrases pointent desormais vers les sources de verite (`dist/chains` et `WCORE_VERSION`) au lieu de recopier des valeurs qui perimen au commit suivant.
+- RESOLU 2026-08-05 - Le site public annoncait 183 chaines alors que le registre et `/api/chains` en livrent 182, et le test de garde epinglait le meme litteral: la derive etait verrouillee au lieu d'etre detectee. Le test lit maintenant le compte depuis le registre et refuse toute page qui en annonce un autre. Verifie en production: 182 partout.
 - `wcore-gsheet/AGENTS.md` et les docs CEX decrivent encore `CEX_HOURLY_REFRESH` toutes les 4 h, mais `35_BITPANDA_SYNC.gs:916-937` le supprime et installe des triggers individuels horaires plus une rotation relais.
-- `.env.production.template` et `DEPLOY.md` indiquent `RATE_LIMIT_SCAN=60`; le defaut code vaut 2 000.
+- RESOLU 2026-08-05 - `.env.production.template` et `DEPLOY.md` annoncaient `RATE_LIMIT_SCAN=60` alors que la variable n'est pas definie en production, qui tourne donc au defaut de 2 000. Abaisser la limite a ete ecarte: un scan profond emet legitimement de nombreuses requetes de job, et la borne utile est desormais le budget en chain-checks, qui facture une requete a hauteur du travail declenche.
 - Les templates omettent notamment `CEX_SECRET`, `RELAY_TOKEN`, `NON_EVM_SCAN_CONCURRENCY`, `RATE_LIMIT_CATCH_ALL` et plusieurs TTL/jobs.
-- `DEPLOY.md` ne decrit que deux services Railway alors que le script en gere trois, dont `cex-relay`.
-- Sept factories GM (`intuition`, `plume`, `superposition`, `megaeth`, `doma`, `b2`, `katana`) n'ont pas d'entree dans `apps/web/lib/explorers.ts`.
+- RESOLU 2026-08-05 - `DEPLOY.md` decrit desormais les trois services Railway, `cex-relay` compris.
+- RESOLU 2026-08-05 - Ce n'etait pas documentaire: `getExplorerUrl` renvoyait `null`, donc un utilisateur venant de deployer un contrat voyait son adresse sans lien pour la verifier. Un test de garde exigeant qu'une chaine a factory resolve un lien en a trouve **dix** et non sept: `kaia`, `pulsechain` et `kcc` manquaient aussi. Deux d'entre elles annoncent un explorateur mort dans leur config (`kaiascope.com` repond 404, `explorer.kcc.io` ne resout plus), remplaces par `kaiascan.io` et `scan.kcc.io`. Chaque URL a ete verifiee contre une adresse reelle.
 - `wcore-web/AGENTS.md` presente encore Coinbase/OKX comme a implementer alors que les sept CEX sont actifs.
-- Trois dependances runtime API semblent mortes: `@cosmjs/amino`, `@cosmjs/proto-signing`, `fastify-type-provider-zod`.
+- RESOLU 2026-08-05 - Les trois dependances n'ont aucun import dans le monorepo et sont retirees. `@cosmjs/crypto` et `@cosmjs/encoding` sont conservees: `auth.ts` derive les adresses Cosmos avec elles.
 - Le demarrage API local sans `NODE_ENV` ni `JWT_SECRET` est incoherent avec `.env.example`.
 - 19 fichiers `.gs` depassent 1 000 lignes; `27_ACTIVITY_REFRESH.gs` atteint environ 3 151 lignes.
 

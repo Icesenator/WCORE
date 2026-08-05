@@ -1,7 +1,7 @@
 # CEX Sync - Architecture commune
 
 Document transverse aux connecteurs CEX de WCORE : Bitpanda, Binance,
-Bitfinex, Bybit, Coinbase, OKX. Pour les details specifiques a chaque exchange, voir
+Bitfinex, Bybit, Coinbase, OKX et Kraken. Pour les details specifiques a chaque exchange, voir
 `docs/bitpanda-sync.md`, `docs/binance-sync.md`, `docs/bitfinex-sync.md`,
 `docs/bybit-eu-sync.md`.
 
@@ -15,13 +15,14 @@ Bitfinex, Bybit, Coinbase, OKX. Pour les details specifiques a chaque exchange, 
 | `CEX - Bybit` | `src/38_BYBIT_SYNC.gs` | Relais Railway `cex-relay` (api.bybit.eu geo-bloque GAS) | Railway |
 | `CEX - Coinbase` | `src/39_COINBASE_SYNC.gs` | Relais Railway `cex-relay` (signature CDP ES256 cote Node) | Railway |
 | `CEX - OKX` | `src/40_OKX_SYNC.gs` | Relais Railway `cex-relay` (my.okx.com, signature HMAC + passphrase cote Node) | Railway |
+| `CEX - Kraken` | `src/41_KRAKEN_SYNC.gs` | Direct (signature HMAC-SHA512) | `UserProperties` + `DocumentProperties` |
 
-Refresh automatique: `CEX_HOURLY_REFRESH()` (trigger `everyHours(4)` depuis
-v4.15.114, garanti par WCORE_AUTO_HEAL) met a jour les 6 CEX. Cadence 4h =
-dernier palier GAS sous le seuil stale watchdog `WD_STALE_I1_HOURS=5h`
-(`everyHours` n'accepte que 1/2/4/6/8/12). Les anciens triggers horaires
-individuels (`UPDATE_*_SPOT`) sont supprimes par l'auto-heal au profit de ce
-trigger central.
+Refresh automatique depuis v4.15.120: `WCORE_AUTO_HEAL` installe des triggers
+horaires par connecteur (`UPDATE_BITPANDA_SPOT`, `UPDATE_BITPANDA_STOCKS_FIAT`,
+`UPDATE_BITFINEX_SPOT`, `UPDATE_KRAKEN_SPOT`) et une rotation du relais toutes
+les 15 minutes. Une execution traite un seul des quatre connecteurs relais,
+soit une cadence effective d'environ une heure par connecteur. L'ancien trigger
+central `CEX_HOURLY_REFRESH` est supprime.
 Renommage v4.15.98: tous les onglets CEX sont prefixes `CEX - ` (au lieu de
 `* Crypto` / `Bitpanda Spot *`).
 

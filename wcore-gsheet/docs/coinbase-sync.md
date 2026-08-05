@@ -51,7 +51,7 @@ sur le relais Bybit puis Binance déjà configuré (un seul `RELAY_TOKEN` partag
 - Manuel : `CEX - Coinbase!A1` (checkbox) -> `B1=QUEUED: ...` -> queue one-shot
   `CEX_MANUAL_REFRESH_WORKER` -> `UPDATE_COINBASE_SPOT()` (v4.15.107+).
 - Groupe : `Portefeuille Crypto V2!U2` inclut Coinbase.
-- Auto : `CEX_HOURLY_REFRESH()` (trigger `everyHours(4)` depuis v4.15.114, auto-heal).
+- Auto : rotation `UPDATE_CEX_RELAY_ROTATION()` toutes les 15 minutes, un connecteur par execution, soit environ un refresh Coinbase par heure.
 
 ## Diagnostic
 

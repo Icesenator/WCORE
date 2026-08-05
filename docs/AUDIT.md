@@ -1,46 +1,39 @@
 # WCORE - Audit transversal
 
-> Date de verification: 2026-08-03
-> Revision auditee: `beb465ffbc542d6acef4e1cabe08c8f434334d19` (`master`, identique a `origin/master`)
+> Date de verification: 2026-08-05
+> Revision de base: `646b62dbf74c23279c6ff6c08f03f3166b227f34` (`master`, identique a `origin/master`), avec les corrections decrites ci-dessous encore non commitees.
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections du Sprint 0 ont ete appliquees, verifiees par la CI, puis deployees le meme jour. API `e18f126f` puis rebuild avec le correctif Somnia, Web `2ffd50b7`, toutes deux en `SUCCESS`. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees et verifiees localement. Apps Script 4.16.49 et l'API `f445f409-2939-41ad-a39e-6818b5718a49` sont deployes; le deploiement Web local `10eb4ef4-3f77-466c-b941-1903d2d3db15` a echoue apres le timeout d'upload Railway et la tentative `c69e32ce-48cd-407f-bcb5-b3cbbec63268` reste en `INITIALIZING`. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
 WCORE compile, passe ses suites locales et sert correctement ses trois services. La CI GitHub est verte, les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
 
-L'etat n'est toutefois pas sain sur quatre invariants critiques:
-
-1. Le registre de chaines contient de nouveau un `CHAIN_ID` Somnia faux dans la source canonique et le package deploye (`50311` au lieu de `5031`).
-2. La production expose 171 chaines actives alors que plusieurs sont inutilisables depuis l'environnement audite; les logs API montrent une forte repetition de `all RPC endpoints failed`.
-3. Les timeouts de scan ne stoppent pas le travail sous-jacent et les jobs async restent en memoire sans borne globale.
-4. L'historique Prisma reste non reconstructible sur une base vide.
-
-La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capacite de reprise apres sinistre restent inferieures a ce que suggerent les checks de surface.
+Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement contenus: Somnia utilise le bon chainId, les trois chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et le store async est borne, et l'historique Prisma est reconstructible. La persistance Redis et le claim atomique des jobs restent requis avant tout passage de l'API a plusieurs repliques. `POLYNOMIAL` reste limitee par des HTTP 429 depuis Railway.
 
 ## Etat mesure
 
-| Axe | Resultat du 2026-08-03 |
+| Axe | Resultat au 2026-08-05 |
 |---|---|
-| Git | worktree propre avant audit; `HEAD == origin/master == beb465f` |
-| GitHub Actions | `CI` et `Chains` verts sur `beb465f` |
-| Railway | API, Web, relais, Postgres et Redis `Online`; derniers deploys `SUCCESS` |
-| Production | Web/API/relais en HTTP 200 avec HSTS; API et relais avec CSP; Web sans header CSP |
-| Chaines API | 182 configurations, 171 actives, 11 desactivees |
-| RPC uniques actifs | 13: B3, CAMP, CITREA, FOGO, HORIZEN_EON, INJECTIVE, MITOSIS, NEXUS, OPENLEDGER, ROBINHOOD_CHAIN, STABLE, SYNDICATE_COMMONS, VANA |
+| Git | `HEAD == origin/master == 646b62d`; corrections finales presentes dans le worktree non commite |
+| GitHub Actions | derniers workflows `CI` et `Chains` controles verts; corrections finales encore locales |
+| Railway | API `f445f409` et relais `Online`; upload Web local expire, tentative `c69e32ce` encore `INITIALIZING`, version precedente toujours servie |
+| Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
+| Chaines API | 182 configurations; `DUCKCHAIN`, `STARGAZE` et `SYNDICATE_COMMONS` desactivees en plus des exclusions existantes |
+| RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
 | Sweep RPC initial | 464 endpoints testes; 336 reponses valides, 128 echecs avec timeout 5 s/concurrence 24 |
 | Reprise ciblee | 34 endpoints sur 18 chaines, timeout 10 s/concurrence 4; 16 valides, 18 en echec |
-| Apps Script | 15 triggers visibles; executions recentes chargees `Terminee`, mais un trigger requis est desactive |
-| Apps Script runtime | sorties Web Scan en `4.16.41`; `WCORE_VERSION` racine en `4.16.40`; package genere en `4.15.50` |
+| Apps Script | worker CEX recree; executions de nettoyage puis d'auto-heal force chargees `Terminee` |
+| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.49`; projet distant pousse et auto-heal force avec succes |
 | Lint | passe, 0 erreur affichee |
 | TypeScript | typecheck des 5 projets passe |
 | Build | packages, API et Next.js 16.2.12 passent |
-| Tests Core | 291/291 |
+| Tests Core | 321/321 |
 | Tests Shared | 21/21 |
-| Tests Web | 169/169 |
+| Tests Web | 171/171 |
 | Tests relais | 37/37 |
-| Tests GSheet | passent; 3 142 fonctions globales validees; ports Phase 3: 181 |
+| Tests GSheet | passent; 3 144 fonctions globales validees; ports Phase 3: 181 |
 | Dependances Web | `pnpm audit --prod --audit-level=high`: aucune vulnerabilite connue |
 | Tests API integration | non executes localement: aucun `.env.test` ni DB/Redis de test dedies |
 | Environnement local | Node 24.18.1; CI et images ciblent Node 22 |
@@ -71,13 +64,13 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Impact: un endpoint d'un autre reseau dans un pool mainnet peut servir des soldes du mauvais reseau, et la regle produit interdit les testnets.
 - Correction: endpoint supprime, pas retrograde. Contrairement a un blocage lie a l'IP, une mauvaise chaine n'est jamais un repli acceptable.
 
-### P1-2 - Couverture active superieure a la couverture reellement scannable - PARTIELLEMENT RESOLU 2026-08-03
+### P1-2 - Couverture active superieure a la couverture reellement scannable - RESOLU 2026-08-05
 
 - Production expose 171 chaines actives. La reprise ciblee confirmait six chaines sans endpoint utilisable depuis cette machine: `DUCKCHAIN`, `NOBLE`, `POLYNOMIAL`, `STARGAZE`, `STRIDE`, `SYNDICATE_COMMONS`.
 - **Corrige**: `POLYNOMIAL` (deux miroirs thirdweb verifies sur le chainId 8008 ajoutes devant les deux endpoints morts), `NOBLE` (publicnode repond 404 sur *toutes* les routes de module; failover `REST_URLS` ajoute) et `STRIDE` (publicnode repond 403 `unsupported platform`; meme traitement). Les endpoints ajoutes ont ete verifies sur les routes `bank` et `staking` reellement utilisees par le moteur, pas seulement sur le dernier bloc.
-- **Non corrige, faute de candidat valide**: `DUCKCHAIN` (cinq candidats testes, tous morts; ledger `WEB_SCAN_PRESERVED` et fige depuis le 2026-07-31), `SYNDICATE_COMMONS` (endpoint officiel en 502) et `STARGAZE` (aucune alternative joignable depuis cette machine). Elles restent actives pour preserver le cache, conformement a la convention du depot.
+- **Decision finale**: `DUCKCHAIN` (ses deux RPC publies sont morts), `SYNDICATE_COMMONS` (aucun endpoint public de remplacement) et `STARGAZE` (statut `killed` dans Cosmos Chain Registry) portent desormais `FLAGS.DISABLE_CHAIN: true`. La factory GM DuckChain a aussi ete retiree du registre actif.
 - Limite: les blocages RPC peuvent dependre de l'IP. Les endpoints defaillants sont retrogrades et non supprimes, sauf mauvaise chaine (cf. P1-10).
-- Reste a faire: decider du sort des trois chaines non scannables, et confirmer les nouveaux endpoints depuis Railway et Apps Script.
+- Verification: `@wcore/chains` regenere en 4.16.49; l'API de production sert toujours 182 configurations et respecte les nouveaux drapeaux. `POLYNOMIAL` reste active mais degradee par des HTTP 429 depuis Railway.
 
 ### P1-3 - Les timeouts liberent les slots sans annuler les scans - RESOLU 2026-08-04
 
@@ -89,8 +82,8 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 
 ### P1-4 - Jobs async non bornes et non persistants - PARTIELLEMENT RESOLU 2026-08-04
 
-- Preuve: `wcore-web/apps/api/src/plugins/scan-job.ts:23` utilise un `Map` process-local sans limite globale ou par utilisateur/IP.
-- Les gardes TTL marquent les jobs en erreur mais n'arretent pas les moteurs deja lances.
+- Preuve initiale: `wcore-web/apps/api/src/plugins/scan-job.ts:23` utilisait un `Map` process-local sans limite globale ou par utilisateur/IP.
+- Avant correction, les gardes TTL marquaient les jobs en erreur mais n'arretaient pas les moteurs deja lances.
 - Impact: croissance memoire, perte au restart, incoherence multi-replique et amplification RPC.
 - Correction bornage: `admitScanJob()` plafonne les scans simultanes par appelant (`SCAN_MAX_ASYNC_JOBS_PER_PRINCIPAL`, defaut 32) et la taille du store (`SCAN_MAX_ASYNC_JOBS`, defaut 200). Les jobs termines les plus anciens sont evinces avant tout refus, sinon une rafale de scans finis bloquerait les suivants pendant leur fenetre de polling. Le defaut par appelant laisse de la marge au frontend, qui lance `SCAN_CONCURRENCY / CHAIN_BATCH_SIZE` = 10 jobs simultanes.
 - Correction annulation: chaque job porte un `AbortController` que les gardes TTL declenchent via `failJob()`, et `runWithTimeout()` s'y raccroche. Un job tue arrete reellement les chaines qu'il avait lancees, ce que P1-3 rend enfin possible.
@@ -141,7 +134,7 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Cause reelle: ni la cadence ni un echec de creation. La creation en `_wcoreAutoHealEnsureTriggers_:118` n'est pas protegee par un `try/catch` et `WCORE_AUTO_HEAL_FORCE()` se terminait sans erreur, donc elle reussissait. Le probleme est que **`ScriptApp` n'expose aucun etat active/desactive**: `_wcoreAutoHealCountHandlers_` comptait le trigger comme sain alors que Google l'avait desactive, et l'auto-heal ne le reparait jamais. Seule la suppression + recreation inconditionnelle du nettoyage cible le reveille.
 - Correction durable (v4.16.47): `_wcoreAutoHealCexQueueStaleness_` surveille l'**effet observable** plutot que le compte, comme le fait deja `_wcoreAutoHealJ1Staleness_` - une queue dont le job le plus ancien cesse d'etre consomme (seuil 10 min) declenche la suppression + recreation. L'echec de creation de `16B_AUTO_HEAL.gs:715` est desormais remonte au lieu d'etre avale: ce `catch` muet cachait la seule information qui aurait explique un worker jamais revenu.
 - Faux positif ecarte: `PORTFOLIO_RECOVERY_REFRESH` n'est pas defaillant. Il est cree en one-shot (`16_REFRESH.gs:2081`, `.timeBased().after(delay)`) a la demande; un one-shot deja declenche s'affiche `Desactive`, c'est son etat normal de fin de vie.
-- Action: essayer `WCORE_CEX_TRIGGER_CLEANUP_FORCE()`, qui cible specifiquement les triggers CEX; si la desactivation revient, remonter l'erreur de creation au lieu de l'avaler et revoir la cadence d'une minute.
+- Verification finale 2026-08-05: Apps Script 4.16.49 pousse, puis `WCORE_AUTO_HEAL_FORCE()` execute avec succes. La surveillance de staleness et la recreation ciblee constituent desormais le mecanisme de reprise.
 
 ### P1-9 - Limite de scan authentifie trop permissive - RESOLU 2026-08-03/04
 
@@ -181,27 +174,27 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - RESOLU 2026-08-05 - Les metadonnees de contrats etaient resolues une par une: un wallet touchant cinquante contrats payait cinquante allers-retours RPC successifs avant la premiere lecture de solde. Les contrats sont dedupliques d'abord puis resolus par groupes bornes; les reserver des la deduplication evite aussi d'interroger deux fois un contrat repete dans les logs.
 - RESOLU 2026-08-05 - Les prechargements DefiLlama et GeckoTerminal sont deux recherches independantes d'un seul appel chacune, attendues l'une apres l'autre: chaque scan EVM payait les deux latences a la suite. Elles partent ensemble et leurs resultats sont appliques dans l'ordre d'origine, donc GeckoTerminal garde la priorite sur DefiLlama pour un contrat que les deux valorisent. Chacune conserve son propre `catch`: l'echec d'un lot ne degrade que sa source.
 - RESOLU 2026-08-05 - TON declarait `opts.sources` dans ses options sans jamais le lire: un appelant qui injectait un jeu de sources recevait silencieusement les sources internes, contrairement a tous les autres moteurs. Meme forme de defaut qu'une garde jamais appelee.
-- GeckoTerminal conserve certains markers uniquement en memoire process.
+- RESOLU 2026-08-05 - Les reconstructions TON GeckoTerminal/OnchainV3 utilisent `opts.sharedPriceCache`; l'enrichissement Chainbase staking utilise `RedisPricingCache` lorsqu'un cache est fourni. Les markers de pricing concernes sont donc partages entre processus/instances via le cache configure.
 
 ### Comportement fonctionnel
 
 - RESOLU 2026-08-04 - Un echec de `/api/gm/has-deployed` retournait `false`, donc un bouton Deploy etait propose a quelqu'un possedant deja un contrat. La fonction retourne l'etat inconnu (`null`) que ses deux appelants affichaient deja comme un chargement.
-- La page GM lance encore un fan-out de prix natifs pour toutes les factories; 86 entrees ont ete comptees.
-- Le cache wallet positif expire purement au TTL (`04B_CACHE_WALLET.gs:779-786`) malgre la politique documentaire de preservation.
+- RESOLU 2026-08-05 - La page GM ne precharge plus le prix natif des factories. Le prix n'est demande qu'au moment de l'action utilisateur; `gm-price-fanout.test.ts` interdit le retour du fan-out.
+- RESOLU 2026-08-05 - Le cache wallet conserve et relit les entrees positives au-dela du TTL lorsque le pruning les preserve. Les formats compact et historique sont testes; les entrees zero continuent d'expirer.
 - RESOLU 2026-08-05 - `dist/package.json` restait en `4.15.50` alors que les configs qu'il embarque etaient passees a `4.16.47`. Ce n'est pas que cosmetique: `@wcore/chains` est consomme par une dependance `file:` que pnpm materialise en copie figee dans son store, donc une version immobile ne donne aux consommateurs aucun signal de changement de config. L'extracteur l'ecrit desormais depuis `WCORE_VERSION`, et un test de garde echoue si les deux divergent a nouveau. Les versions de modules (`GSHEET_WEB_SCAN_VERSION`, etc.) restent independantes par conception du ModuleRegistry.
 
 ## Findings P3 et dette documentaire
 
 - RESOLU 2026-08-05 - La documentation figeait 183 chaines et une version Apps Script trois correctifs en retard. Ces phrases pointent desormais vers les sources de verite (`dist/chains` et `WCORE_VERSION`) au lieu de recopier des valeurs qui perimen au commit suivant.
 - RESOLU 2026-08-05 - Le site public annoncait 183 chaines alors que le registre et `/api/chains` en livrent 182, et le test de garde epinglait le meme litteral: la derive etait verrouillee au lieu d'etre detectee. Le test lit maintenant le compte depuis le registre et refuse toute page qui en annonce un autre. Verifie en production: 182 partout.
-- `wcore-gsheet/AGENTS.md` et les docs CEX decrivent encore `CEX_HOURLY_REFRESH` toutes les 4 h, mais `35_BITPANDA_SYNC.gs:916-937` le supprime et installe des triggers individuels horaires plus une rotation relais.
+- RESOLU 2026-08-05 - La documentation CEX decrit les triggers Bitpanda/Bitfinex/Kraken horaires et `UPDATE_CEX_RELAY_ROTATION()` toutes les 15 minutes. L'ancien `CEX_HOURLY_REFRESH` central est documente comme supprime.
 - RESOLU 2026-08-05 - `.env.production.template` et `DEPLOY.md` annoncaient `RATE_LIMIT_SCAN=60` alors que la variable n'est pas definie en production, qui tourne donc au defaut de 2 000. Abaisser la limite a ete ecarte: un scan profond emet legitimement de nombreuses requetes de job, et la borne utile est desormais le budget en chain-checks, qui facture une requete a hauteur du travail declenche.
-- Les templates omettent notamment `CEX_SECRET`, `RELAY_TOKEN`, `NON_EVM_SCAN_CONCURRENCY`, `RATE_LIMIT_CATCH_ALL` et plusieurs TTL/jobs.
+- RESOLU 2026-08-05 - `.env.production.template` couvre les limites de scan/GM, concurrences, caches, timeouts et TTL de jobs. Les secrets restent declares sans valeur.
 - RESOLU 2026-08-05 - `DEPLOY.md` decrit desormais les trois services Railway, `cex-relay` compris.
 - RESOLU 2026-08-05 - Ce n'etait pas documentaire: `getExplorerUrl` renvoyait `null`, donc un utilisateur venant de deployer un contrat voyait son adresse sans lien pour la verifier. Un test de garde exigeant qu'une chaine a factory resolve un lien en a trouve **dix** et non sept: `kaia`, `pulsechain` et `kcc` manquaient aussi. Deux d'entre elles annoncent un explorateur mort dans leur config (`kaiascope.com` repond 404, `explorer.kcc.io` ne resout plus), remplaces par `kaiascan.io` et `scan.kcc.io`. Chaque URL a ete verifiee contre une adresse reelle.
-- `wcore-web/AGENTS.md` presente encore Coinbase/OKX comme a implementer alors que les sept CEX sont actifs.
+- RESOLU 2026-08-05 - `wcore-web/AGENTS.md` et `ROADMAP.md` presentent Coinbase et OKX comme actifs; le document transversal couvre les sept CEX.
 - RESOLU 2026-08-05 - Les trois dependances n'ont aucun import dans le monorepo et sont retirees. `@cosmjs/crypto` et `@cosmjs/encoding` sont conservees: `auth.ts` derive les adresses Cosmos avec elles.
-- Le demarrage API local sans `NODE_ENV` ni `JWT_SECRET` est incoherent avec `.env.example`.
+- RESOLU 2026-08-05 - `pnpm dev` lance `src/dev.ts`, qui applique `NODE_ENV=development` seulement lorsqu'il est absent; le comportement local rejoint `.env.example` sans ecraser un environnement explicite.
 - 19 fichiers `.gs` depassent 1 000 lignes; `27_ACTIVITY_REFRESH.gs` atteint environ 3 151 lignes.
 
 ## Constats precedents resolus
@@ -244,29 +237,29 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 2. FAIT: Polynomial, Noble et Stride repares; BASE reordonne; endpoint testnet de Reya supprime.
 3. FAIT: migrations Prisma reconstructibles + job CI sur base vierge.
 4. FAIT: garde-fou planifie `Chain IDs` contre la derive de chainId.
-5. FAIT: API et Web deployes et verifies depuis la production.
-6. FAIT: Apps Script pousse (250 fichiers) et verifie par relecture du projet distant: `WCORE_VERSION` 4.16.43, Somnia `5031` + `MAX_LOG_RANGE`, adaptateur Web Scan 4.16.43.
+5. PARTIEL: API deployee et verifiee; upload Web local expire et nouvelle tentative encore `INITIALIZING`, la version precedente reste servie.
+6. FAIT: Apps Script pousse et auto-heal force; `WCORE_VERSION` et package genere en 4.16.49.
 7. FAIT: P1-11 corrige et deploye. Somnia et Reya reviennent `degraded=false` sans aucune erreur.
-8. RESTE: `CEX_MANUAL_REFRESH_WORKER` toujours desactive malgre un auto-heal force reussi, cf. P1-7.
-9. RESTE: trancher le sort de `DUCKCHAIN`, `SYNDICATE_COMMONS` et `STARGAZE`, et trouver un endpoint Polynomial non limite depuis Railway.
+8. FAIT: `CEX_MANUAL_REFRESH_WORKER` recree, surveillance de staleness ajoutee et auto-heal final execute.
+9. FAIT: `DUCKCHAIN`, `SYNDICATE_COMMONS` et `STARGAZE` desactivees. RESTE: trouver un endpoint Polynomial non limite depuis Railway.
 
 ### Sprint 1 - resilience et securite
 
-1. Propager l'annulation des scans et borner/persister les jobs async.
-2. Brancher une protection DNS rebinding reelle.
-3. Reduire et ponderer le rate limit scan; limiter les syncs CEX et le relais.
-4. Retirer les tokens des query strings et utiliser des comparaisons constantes.
+1. FAIT: annulation propagee et jobs async bornes. RESTE avant multi-replique: persistance Redis et claim atomique.
+2. FAIT: protection DNS rebinding branchee sur les fetches GM.
+3. FAIT: budget scan pondere, plafonds de jobs et rate limit relais.
+4. FAIT: en-tetes privilegies et comparaisons constantes; query legacy limitee aux endpoints explicitement compatibles.
 
 ### Sprint 2 - coherence
 
-1. Corriger contrats Cosmos/SVM/queue CEX et les tests associes.
-2. Aligner versions, compte de chaines, triggers CEX et templates d'environnement.
-3. Ajouter une validation automatisee des chainIds et un health check RPC planifie depuis Railway.
-4. Reduire les fan-outs et serialisations reseau identifies.
+1. FAIT: contrats Cosmos/SVM/queue CEX corriges et testes.
+2. FAIT: versions, compte de chaines, triggers CEX et template d'environnement alignes.
+3. FAIT pour les chainIds; RESTE: health check RPC planifie depuis Railway.
+4. FAIT pour les fan-outs identifies; poursuivre la surveillance du cout RPC en production.
 
 ## Limites
 
 - Les tests API integration n'ont pas ete executes localement faute de DB/Redis de test dedies; ils ne doivent jamais viser la production.
 - Le sweep RPC a ete lance depuis une seule machine. Des restrictions geographiques, IP ou rate limits peuvent produire des resultats differents depuis Google Apps Script et Railway.
 - Les taux d'erreur Apps Script sont ceux affiches par Google sur la fenetre de son interface; les executions recentes visibles etaient terminees, sans detail historique complet exporte.
-- Aucun scan exhaustif de wallets, aucune mutation du classeur et aucun deploiement n'ont ete effectues pendant l'audit.
+- Aucun scan exhaustif de wallets ni mutation destructive du classeur n'a ete effectue. Les deploiements et executions Apps Script mentionnes ont ete limites aux correctifs et controles decrits.

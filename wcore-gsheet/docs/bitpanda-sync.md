@@ -81,13 +81,13 @@ plus tard (voir `docs/cex-sync.md`).
 
 ## Triggers
 
-Le flux courant est centralise :
+Le flux courant est distribue par connecteur :
 
-- `CEX_HOURLY_REFRESH()` : trigger `everyHours(4)` (v4.15.114) qui met a jour les 6 CEX.
+- `UPDATE_BITPANDA_SPOT()` et `UPDATE_BITPANDA_STOCKS_FIAT()` : triggers horaires.
 - Refresh manuels : queue one-shot `CEX_MANUAL_REFRESH_WORKER` (`BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`).
-- `WCORE_AUTO_HEAL` installe ces triggers et supprime les anciens triggers horaires individuels + watchdogs 1 min.
+- `WCORE_AUTO_HEAL` installe ces triggers et supprime l'ancien `CEX_HOURLY_REFRESH` central.
 
-Ne pas reinstaller de triggers horaires individuels pour `UPDATE_*_SPOT()`.
+Ne pas reinstaller `CEX_HOURLY_REFRESH` ni les watchdogs legacy.
 
 ## Statut
 

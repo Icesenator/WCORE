@@ -312,7 +312,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ### ÔÅ│ Backlog CEX
 
-- **Nouveaux providers ├á ajouter** : **Coinbase + OKX (prochaine session, voir section d├®di├®e en haut)**. Bitfinex livr├® en v0.2.44, Bybit en v0.2.45, stocks Bitpanda fiabilis├®s en v0.2.46.
+- **Providers livres** : Coinbase et OKX sont actifs avec Binance, Bitpanda, Bitfinex, Bybit et Kraken. Le web gere sept CEX multi-utilisateur.
 - **├Ç pr├®voir par provider** : stockage credentials chiffr├®s par user, normalisation sans fusion arbitraire de symboles, endpoint sync server-side, source prix provider-first, fallback pricing fiable, rendu comme wallet CEX sans d├®clencher de scan on-chain.
 - **├Ç durcir** : suivi des failures sync par provider, message UI clair quand un provider ne donne pas de prix pour certains actifs, et tests de non-r├®gression pour stocks Bitpanda.
 

@@ -91,11 +91,11 @@ Les soldes des codes consolides sont cumules sur la ligne cible (`USDT` / `EURC`
 
 ## Triggers
 
-Le flux courant est centralise :
+Le flux courant est propre au connecteur :
 
-- `CEX_HOURLY_REFRESH()` met a jour Bitfinex avec les autres CEX toutes les 4h (`everyHours(4)`, v4.15.114).
+- `UPDATE_BITFINEX_SPOT()` est installe comme trigger horaire par `WCORE_AUTO_HEAL`.
 - Les refresh manuels passent par la queue one-shot (voir `docs/cex-sync.md`). `BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`.
-- `WCORE_AUTO_HEAL` supprime les anciens triggers `UPDATE_BITFINEX_SPOT` / `BITFINEX_REFRESH_WATCHDOG` s'ils existent encore.
+- `WCORE_AUTO_HEAL` supprime `BITFINEX_REFRESH_WATCHDOG` et recree le trigger horaire avec une autorisation fraiche.
 
 `INSTALL_BITFINEX_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
 

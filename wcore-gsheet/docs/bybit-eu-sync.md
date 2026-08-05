@@ -101,7 +101,7 @@ SET_BYBIT_RELAY("https://cex-relay-production.up.railway.app", "<relay-token>")
 SETUP_BYBIT_SHEET()
 ```
 
-Les triggers actifs sont installes par `WCORE_AUTO_HEAL` : `CEX_HOURLY_REFRESH()` (`everyHours(4)` depuis v4.15.114) pour l'auto; les demandes manuelles passent par la queue one-shot `CEX_MANUAL_REFRESH_WORKER` (`BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`). `INSTALL_BYBIT_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
+Les triggers actifs sont installes par `WCORE_AUTO_HEAL` : `UPDATE_CEX_RELAY_ROTATION()` tourne toutes les 15 minutes et traite un connecteur relais par execution, soit environ un refresh Bybit par heure. Les demandes manuelles passent par la queue one-shot `CEX_MANUAL_REFRESH_WORKER` (`BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`). `INSTALL_BYBIT_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
 
 Diagnostics :
 

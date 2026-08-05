@@ -1,7 +1,9 @@
 /************************************************************
  * 04B_CACHE_WALLET.gs - Packed Wallet Cache System
  * 
- * Version: v4.15.18
+ * Version: v4.15.19
+ *
+ * v4.15.19 - Keep aged positive entries readable when TTL pruning preserves them.
  *
  * v4.15.18 - Preserve logical cache version (cv) through packed deflate/inflate.
  *   Without this, packed web-scan writes were reloaded as format version 5,
@@ -366,6 +368,22 @@ CacheManager._inflateWalletPayload_ = function(compact) {
 // PRUNE PACKED WALLET CACHE (v4.8.0)
 // ============================================================
 
+CacheManager._packedEntryHasPositiveBalance_ = function(e) {
+ if (!e || typeof e !== "object") return false;
+ var payload = e.v || e;
+ if (!e.v && typeof e.s === "string" && CacheManager._looksJson_(e.s)) {
+ try { payload = JSON.parse(e.s); } catch (eParse) {}
+ }
+ var assets = payload.a || payload.assets || [];
+ if (!Array.isArray(assets)) return false;
+ for (var ai = 0; ai < assets.length; ai++) {
+ var asset = assets[ai];
+ if (Array.isArray(asset) && asset.length >= 2 && parseFloat(asset[1]) > 0) return true;
+ if (asset && typeof asset === "object" && parseFloat(asset.balance) > 0) return true;
+ }
+ return false;
+};
+
 /**
  * Prune packed wallet cache - protects entries without timestamp
  * v4.8.1: Use configurable limit instead of hardcoded 450KB
@@ -400,27 +418,9 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  var removedTtl = 0;
  var protectedBalanceTtl = 0;
  Obj.forEach(packed.m, function(h, ent) {
- function hasBalanceData(e) {
- if (!e || typeof e !== "object") return false;
- var payload = e.v || e;
- var assets = payload.a || payload.assets || [];
- if (!Array.isArray(assets)) return false;
- for (var ai = 0; ai < assets.length; ai++) {
- var asset = assets[ai];
- if (Array.isArray(asset) && asset.length >= 2) {
- var bal = parseFloat(asset[1]);
- if (bal > 0) return true;
- }
- if (asset && typeof asset === "object" && asset.balance) {
- var bal2 = parseFloat(asset.balance);
- if (bal2 > 0) return true;
- }
- }
- return false;
- }
  function isExpired(e) {
  if (!e || typeof e !== "object") return false;
- if (hasBalanceData(e)) {
+ if (CacheManager._packedEntryHasPositiveBalance_(e)) {
  protectedBalanceTtl++;
  return false;
  }
@@ -466,26 +466,7 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  var arr = [];
  Obj.forEach(packed.m, function(h, ent) {
  function classifyEntry(e) {
- if (!e || typeof e !== "object") return { hasBalance: false };
- // Check deflated payload for assets with balance > 0
- var payload = e.v || e;
- var assets = payload.a || payload.assets || [];
- if (Array.isArray(assets)) {
- for (var ai = 0; ai < assets.length; ai++) {
- var asset = assets[ai];
- // Deflated format: [contract, balance, symbol?, name?, decimals?]
- if (Array.isArray(asset) && asset.length >= 2) {
- var bal = parseFloat(asset[1]);
- if (bal > 0) return { hasBalance: true };
- }
- // Legacy format: { contract, balance }
- if (asset && typeof asset === "object" && asset.balance) {
- var bal2 = parseFloat(asset.balance);
- if (bal2 > 0) return { hasBalance: true };
- }
- }
- }
- return { hasBalance: false };
+ return { hasBalance: CacheManager._packedEntryHasPositiveBalance_(e) };
  }
  
  if (Array.isArray(ent)) {
@@ -783,7 +764,7 @@ CacheManager._packedGet_ = function(key) {
  if (typeof e === "string") return e;
  if (typeof e !== "object") return null;
  var ts = e.ts || e.t || 0;
- if (ts > 0 && ts < cutoff) return null;
+ if (ts > 0 && ts < cutoff && !CacheManager._packedEntryHasPositiveBalance_(e)) return null;
  if (e.j && e.v) {
  var inflated = CacheManager._inflateWalletPayload_(e.v);
  return JSON.stringify(inflated);

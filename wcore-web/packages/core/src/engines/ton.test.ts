@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { getTonWalletAssets } from "./ton.js";
+import { MemoryPricingCache } from "../pricing/index.js";
 
 interface FetchCall {
   url: string;
@@ -97,4 +98,40 @@ describe("getTonWalletAssets", () => {
     assert.equal(result.native.balance, 0);
     assert.ok(result.errors.length > 0);
   });
+});
+
+it("honours an injected pricing source set", async () => {
+  // opts.sources was declared but never read, so a caller injecting sources silently
+  // got the built-in ones instead - the same dead-option shape as an unused guard.
+  let used = false;
+  const sources = {
+    defillama: {
+      getNativePriceUsd: async () => { used = true; return 3; },
+      getTokenPriceUsd: async () => null,
+    },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+
+  const fetchImpl = (async (url: string) => {
+    if (String(url).includes("tonapi.io")) {
+      return { ok: true, status: 200, json: async () => ({ balance: "2000000000", jettons: [] }) } as unknown as Response;
+    }
+    return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  const assets = await getTonWalletAssets("UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TON", {
+    fetchImpl,
+    fxRate: 1,
+    sources: sources as never,
+    // A fresh cache: the module-level one is shared across tests in this file and would
+    // answer from a previous test before any source is consulted.
+    sharedPriceCache: new MemoryPricingCache(),
+  });
+
+  assert.equal(used, true, "the injected source must be the one consulted");
+  assert.equal(assets.native.priceEur, 3, "and its price must reach the result");
 });

@@ -93,7 +93,6 @@ const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "plume", name: "Plume" },
   { key: "polynomial", name: "Polynomial" },
   { key: "superposition", name: "Superposition" },
-  { key: "syndicate_commons", name: "Syndicate Commons" },
   { key: "somnia", name: "Somnia" },
   { key: "monad", name: "Monad" },
   { key: "megaeth", name: "MegaETH" },

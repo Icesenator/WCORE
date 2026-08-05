@@ -157,8 +157,11 @@ export async function getTonWalletAssets(
   }
 
   // 3) Price native.
+  // opts.sources was declared in the options but never read: an injected source set was
+  // silently ignored here, unlike in every other engine.
+  const sources = opts.sources ?? defaultSources;
   const nativeStart = Date.now();
-  const native = await priceTonNative(tonChain, nativeBalance, fxRate, defaultSources, priceCache, errors, opts.intraScanCache);
+  const native = await priceTonNative(tonChain, nativeBalance, fxRate, sources, priceCache, errors, opts.intraScanCache);
   const nativeMs = Date.now() - nativeStart;
 
   // 4) Price jettons in parallel (bounded).
@@ -177,7 +180,7 @@ export async function getTonWalletAssets(
       const balance = rawAmountToNumber(j.balance, decimals);
       const logoUrl = j.jetton?.image;
       const contract = String(j.jetton?.address ?? "");
-      pricedTokens[idx] = await priceTonToken(tonChain, contract, symbol, name, logoUrl, balance, decimals, fxRate, defaultSources, priceCache, errors, opts.intraScanCache);
+      pricedTokens[idx] = await priceTonToken(tonChain, contract, symbol, name, logoUrl, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache);
       if (opts.cache) {
         opts.cache.set(`token:${key.toLowerCase()}:${contract}:${address}`, { balance: j.balance, decimals, symbol, name }, 3600_000).catch(() => {});
       }

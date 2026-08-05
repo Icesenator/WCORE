@@ -577,56 +577,44 @@ export async function getEvmWalletAssets(
   // so a cache hit on llama-batch short-circuits the entire cascade for that token.
   const livePrefetchedPriceContracts = new Set<string>();
   const skipBulkLlama = chain.CHAIN?.SKIP_LLAMA_BATCH === true || chain.key === "GNOSIS";
-  if (!skipBulkLlama && withBalances.length > 0 && typeof sources.defillama.batchTokenPrices === "function") {
-    const llamaSlug = String(chain.CHAIN?.LLAMA_CHAIN_SLUG ?? chain.CHAIN?.DEX_SLUG ?? "");
-    if (llamaSlug) {
-      const contracts = withBalances.map((item) => item.known.contract);
-      try {
-        const batchPrices = await sources.defillama.batchTokenPrices(llamaSlug, contracts);
-        if (batchPrices.size > 0) {
-          const nowMs = Date.now();
-          for (const [contract, priceUsd] of batchPrices) {
-            const priceEur = roundPrice(priceUsd * fxRate);
-            if (priceEur > 0) {
-              const cacheKey = priceCacheKey(chain, String(contract));
-              priceCache.setPrice(cacheKey, { priceEur, ts: nowMs, source: "llama-batch" });
-              livePrefetchedPriceContracts.add(String(contract).toLowerCase());
-            }
-          }
-        }
-      } catch {
-        // degrade to per-token cascade on batch failure
-      }
-    }
-  }
-
-  // Bulk pre-fetch GT prices for all tokens on this chain (1 HTTP instead of N)
   // Skip Gnosis — RealT tokens need the dedicated realtoken.community API
   const skipBulkGt = chain.key === "GNOSIS";
-  if (!skipBulkGt && withBalances.length > 0 && typeof sources.geckoterminal.batchTokenPrices === "function") {
-    const gtNetwork = String(chain.CHAIN?.GT_NETWORK ?? chain.CHAIN?.DEX_SLUG ?? chain.key);
-    const contracts = withBalances.map((item) => item.known.contract);
-    try {
-      const batchPrices = await sources.geckoterminal.batchTokenPrices(gtNetwork, contracts);
-      if (batchPrices instanceof Map && batchPrices.size > 0) {
-        const nowMs = Date.now();
-        for (const [contract, priceUsd] of batchPrices) {
-          const priceEur = roundPrice(priceUsd * fxRate);
-          if (priceEur > 0) {
-            const cacheKey = priceCacheKey(chain, String(contract));
-            priceCache.setPrice(cacheKey, {
-              priceEur,
-              ts: nowMs,
-              source: "gt-batch",
-            });
-            livePrefetchedPriceContracts.add(String(contract).toLowerCase());
-          }
-        }
+  const bulkContracts = withBalances.map((item) => item.known.contract);
+
+  // These are two independent single-HTTP prefetches that were awaited one after the
+  // other, so every scan paid both latencies in a row. They are issued together and
+  // their results applied in the original order: GeckoTerminal still overwrites
+  // DefiLlama for a contract both of them price.
+  const llamaSlug = String(chain.CHAIN?.LLAMA_CHAIN_SLUG ?? chain.CHAIN?.DEX_SLUG ?? "");
+  const gtNetwork = String(chain.CHAIN?.GT_NETWORK ?? chain.CHAIN?.DEX_SLUG ?? chain.key);
+  const wantLlama = !skipBulkLlama && bulkContracts.length > 0 && typeof sources.defillama.batchTokenPrices === "function" && !!llamaSlug;
+  const wantGt = !skipBulkGt && bulkContracts.length > 0 && typeof sources.geckoterminal.batchTokenPrices === "function";
+
+  const [llamaBatch, gtBatch] = await Promise.all([
+    wantLlama
+      // Each keeps its own catch: one batch failing must still degrade only its own
+      // source to the per-token cascade, never the other's.
+      ? sources.defillama.batchTokenPrices!(llamaSlug, bulkContracts).catch(() => null)
+      : Promise.resolve(null),
+    wantGt
+      ? sources.geckoterminal.batchTokenPrices!(gtNetwork, bulkContracts).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const applyBulkPrices = (batch: Map<string, number> | null | undefined, source: string) => {
+    if (!(batch instanceof Map) || batch.size === 0) return;
+    const nowMs = Date.now();
+    for (const [contract, priceUsd] of batch) {
+      const priceEur = roundPrice(priceUsd * fxRate);
+      if (priceEur > 0) {
+        priceCache.setPrice(priceCacheKey(chain, String(contract)), { priceEur, ts: nowMs, source });
+        livePrefetchedPriceContracts.add(String(contract).toLowerCase());
       }
-    } catch {
-      // degrade to per-token GT on batch failure
     }
-  }
+  };
+
+  applyBulkPrices(llamaBatch, "llama-batch");
+  applyBulkPrices(gtBatch, "gt-batch");
 
   const PRICE_CONCURRENCY = 10;
   for (let i = 0; i < withBalances.length; i += PRICE_CONCURRENCY) {

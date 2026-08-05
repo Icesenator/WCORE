@@ -128,7 +128,7 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - La convention micro-denom s'applique aussi au denom de base resolu, y compris aux derives de liquid staking qui heritent de l'echelle de ce qu'ils enveloppent (`stuatom` = `uatom` = 6). `staevmos` enveloppe `aevmos` en 18: lire tout `st` comme 6 serait faux de douze ordres de grandeur, donc seuls les cas reductibles a un micro-denom sont resolus.
 - Production apres deploiement: **0 jeton resolu et 12 `decimals_unknown (fetch failed)` avant, 10 jetons resolus apres**. Restent `staevmos` et `stinj`, dont l'echelle est signalee plutot que devinee.
 
-### P1-7 - Trigger manuel CEX requis mais desactive, et l'auto-heal ne le recupere pas
+### P1-7 - Trigger manuel CEX requis mais desactive, et l'auto-heal ne le recupere pas - RESOLU 2026-08-05
 
 - Apps Script affiche `CEX_MANUAL_REFRESH_WORKER` comme `Desactive`.
 - Le code le declare requis dans `wcore-gsheet/src/16B_AUTO_HEAL.gs:217` et l'installe toutes les minutes (`:118`, `:715`). La queue est drainee par `wcore-gsheet/src/35_BITPANDA_SYNC.gs:415`.
@@ -137,6 +137,10 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - Verifie le 2026-08-03 apres le `clasp push`: le gel de triggers documente apres chaque push ne s'est **pas** produit, 13 des 15 triggers ont tourne normalement dans les minutes suivantes. `WCORE_AUTO_HEAL_FORCE()` a bien ete executee depuis l'editeur (18:11:07, 5,95 s, `Terminee`), et `CEX_MANUAL_REFRESH_WORKER` est **reste desactive**.
 - Le remede documente est donc insuffisant pour ce trigger. `_wcoreAutoHealEnsureTriggers_` le declare requis et le recree en `force`, mais la creation est enveloppee dans un `try/catch` muet (`16B_AUTO_HEAL.gs:715`), donc un echec de recreation est invisible. Un trigger `everyMinutes(1)` est aussi le plus expose a une desactivation par Google.
 - Signal corrobore: `WCORE_AUTO_HEAL_TIMER` affiche 33,55% d'erreurs et `QUOTA_RECOVERY_SWEEP` 40%. `PORTFOLIO_RECOVERY_REFRESH` est desactive de la meme facon.
+- Diagnostic 2026-08-05, `WCORE_CEX_TRIGGER_CLEANUP_FORCE()` execute via Playwright dans l'editeur (11 s, `Terminee`, sans dialogue d'autorisation): le trigger est **recree et actif**, et il tourne depuis toutes les minutes (`09:19:56`, `09:20:56`, `09:21:56`, `09:22:56`, `09:24:27`, puis `09:35:27` apres un `clasp push`, 4 a 7 s par execution). La queue manuelle est de nouveau drainee.
+- Cause reelle: ni la cadence ni un echec de creation. La creation en `_wcoreAutoHealEnsureTriggers_:118` n'est pas protegee par un `try/catch` et `WCORE_AUTO_HEAL_FORCE()` se terminait sans erreur, donc elle reussissait. Le probleme est que **`ScriptApp` n'expose aucun etat active/desactive**: `_wcoreAutoHealCountHandlers_` comptait le trigger comme sain alors que Google l'avait desactive, et l'auto-heal ne le reparait jamais. Seule la suppression + recreation inconditionnelle du nettoyage cible le reveille.
+- Correction durable (v4.16.47): `_wcoreAutoHealCexQueueStaleness_` surveille l'**effet observable** plutot que le compte, comme le fait deja `_wcoreAutoHealJ1Staleness_` - une queue dont le job le plus ancien cesse d'etre consomme (seuil 10 min) declenche la suppression + recreation. L'echec de creation de `16B_AUTO_HEAL.gs:715` est desormais remonte au lieu d'etre avale: ce `catch` muet cachait la seule information qui aurait explique un worker jamais revenu.
+- Faux positif ecarte: `PORTFOLIO_RECOVERY_REFRESH` n'est pas defaillant. Il est cree en one-shot (`16_REFRESH.gs:2081`, `.timeBased().after(delay)`) a la demande; un one-shot deja declenche s'affiche `Desactive`, c'est son etat normal de fin de vie.
 - Action: essayer `WCORE_CEX_TRIGGER_CLEANUP_FORCE()`, qui cible specifiquement les triggers CEX; si la desactivation revient, remonter l'erreur de creation au lieu de l'avaler et revoir la cadence d'une minute.
 
 ### P1-9 - Limite de scan authentifie trop permissive - RESOLU 2026-08-03/04

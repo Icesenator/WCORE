@@ -55,11 +55,11 @@ Ne pas remettre de checkbox legacy `AC2` ni dans `Action Rebalancing` ni dans `P
 
 ## Triggers
 
-Le flux courant est centralise :
+Le flux courant passe par la rotation du relais :
 
-- `CEX_HOURLY_REFRESH()` met a jour Binance avec les autres CEX toutes les 4h (`everyHours(4)`, v4.15.114).
+- `UPDATE_CEX_RELAY_ROTATION()` tourne toutes les 15 minutes et traite un connecteur relais par execution, soit environ un refresh Binance par heure.
 - Les refresh manuels passent par la queue one-shot (voir `docs/cex-sync.md`). `BITPANDA_REFRESH_WATCHDOG()` est `LEGACY_DISABLED`.
-- `WCORE_AUTO_HEAL` supprime les anciens triggers `UPDATE_BINANCE_SPOT` / `BINANCE_REFRESH_WATCHDOG` s'ils existent encore.
+- `WCORE_AUTO_HEAL` supprime les triggers directs `UPDATE_BINANCE_SPOT` / `BINANCE_REFRESH_WATCHDOG` s'ils existent encore.
 
 `INSTALL_BINANCE_SYNC_TRIGGER()` est legacy et ne doit pas etre utilise pour le setup courant.
 

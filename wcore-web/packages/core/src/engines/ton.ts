@@ -159,7 +159,13 @@ export async function getTonWalletAssets(
   // 3) Price native.
   // opts.sources was declared in the options but never read: an injected source set was
   // silently ignored here, unlike in every other engine.
-  const sources = opts.sources ?? defaultSources;
+  const sources = opts.sources ?? (opts.sharedPriceCache
+    ? {
+        ...defaultSources,
+        geckoterminal: new GeckoTerminalPriceSource(priceCache),
+        onchainV3: new OnchainV3PriceSource(priceCache),
+      }
+    : defaultSources);
   const nativeStart = Date.now();
   const native = await priceTonNative(tonChain, nativeBalance, fxRate, sources, priceCache, errors, opts.intraScanCache);
   const nativeMs = Date.now() - nativeStart;

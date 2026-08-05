@@ -34,7 +34,6 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   robinhood_chain: { address: "0x4d90e914871921f0443bda53f70def868d9f2960", chainId: 4663 },
   appchain: { address: "0xda65daf33f4492352171161e5a07631c5cc47e4f", chainId: 466 },
   camp: { address: "0x2d2eb5d89eae3f8687676da0462753481e3a7785", chainId: 484 },
-  duckchain: { address: "0xb22fb1dbbaf87990b738502bb5f3eed5c19a43e4", chainId: 5545 },
   cyber: { address: "0x0e6a5974de12170d3829b9b859610ed684eafd47", chainId: 7560 },
   zircuit: { address: "0xecdfe2eea30176a7817337d9a12106ba0df9a4a2", chainId: 48900 },
   openledger: { address: "0x21ebea3a638b810fd8649f34d39ce2439bcdd5f6", chainId: 1612 },

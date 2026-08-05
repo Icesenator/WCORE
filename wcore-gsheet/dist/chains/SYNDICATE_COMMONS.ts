@@ -7,7 +7,10 @@ export const SYNDICATE_COMMONS: ChainConfig = {
   key: "SYNDICATE_COMMONS",
   vm: "EVM",
   ...({
-  CACHE_VERSION: 63,
+  CACHE_VERSION: 64,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   TIMEOUTS: {
     MAX_EXECUTION_MS: 25000,
     HTTP_MS: 8000,

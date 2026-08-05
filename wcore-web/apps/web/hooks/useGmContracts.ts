@@ -10,6 +10,9 @@ import { useSafeSwitchChain } from "./useSafeSwitchChain";
 import { switchChainAny, sendTransactionAny, type RawProvider } from "@/lib/onchain-tx";
 
 const MIN_WITHDRAW_WEI = 1_000_000_000_000n;
+const LEGACY_GM_CHAIN_IDS: Record<string, number> = {
+  duckchain: 5545,
+};
 let cachedContracts: GmContractWithBalance[] = [];
 let cachedKey = "";
 // Each listener is bound to a specific cacheKey (the wallet address it cares
@@ -52,7 +55,8 @@ export function hasWithdrawableBalance(value: string): boolean {
 }
 
 export function getGmContractChainId(chainKey: string): number | undefined {
-  return getFactory(chainKey)?.chainId;
+  const normalized = chainKey.trim().toLowerCase();
+  return getFactory(normalized)?.chainId ?? LEGACY_GM_CHAIN_IDS[normalized];
 }
 
 function contractPriority(contract: GmContractWithBalance): number {
@@ -148,8 +152,9 @@ export function useGmContracts(address: string | undefined | null) {
     const chainId = getGmContractChainId(contract.chainKey);
     setWithdrawingId(contract.id);
     try {
+      if (!chainId) throw new Error(`Unsupported GM contract chain: ${contract.chainKey}`);
       const senders = buildSenders();
-      if (chainId) await switchChainAny(senders, chainId);
+      await switchChainAny(senders, chainId);
       const data = encodeFunctionData({ abi: gmOnChainAbi, functionName: "withdrawCreator" });
       await sendTransactionAny(senders, { to: contract.contractAddress, value: 0n, data });
       await refreshContracts();
@@ -162,8 +167,9 @@ export function useGmContracts(address: string | undefined | null) {
     const chainId = getGmContractChainId(contract.chainKey);
     setWithdrawingId(contract.id);
     try {
+      if (!chainId) throw new Error(`Unsupported GM contract chain: ${contract.chainKey}`);
       const senders = buildSenders();
-      if (chainId) await switchChainAny(senders, chainId);
+      await switchChainAny(senders, chainId);
       const data = encodeFunctionData({ abi: gmOnChainAbi, functionName: "withdrawPlatform" });
       await sendTransactionAny(senders, { to: contract.contractAddress, value: 0n, data });
       await refreshContracts();

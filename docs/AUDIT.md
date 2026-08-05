@@ -155,18 +155,18 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 
 ### Securite et exploitation
 
-- Les comparaisons `x-gsheet-token` sont non constantes dans `plugins/cex.ts:427` et `plugins/gsheet.ts:865`, contrairement a `admin-auth.ts` et au relais.
-- Le relais accepte encore `RELAY_TOKEN` en query string sur les endpoints legacy (`railway-relay/server.js:1367` et suivants), ce qui peut fuiter dans les logs/proxies.
-- Le relais n'a pas de rate limit global; `POST /api/cex/accounts/:id/sync` tombe dans le catch-all API a 120/min.
+- RESOLU 2026-08-03 - Les comparaisons `x-gsheet-token` etaient non constantes dans `plugins/cex.ts` et `plugins/gsheet.ts`; elles passent desormais par `safeEq`, comme `admin-auth.ts` et le relais.
+- RESOLU 2026-08-03 - Le relais acceptait `RELAY_TOKEN` en query string, ce qui fuit dans les logs et les proxies. L'en-tete `x-relay-token` est prefere et la query devient opt-in **par endpoint** (`readRelayToken(req, allowQueryToken)`), fidele a l'existant: 10 endpoints legacy la gardent, 2 non. Les 5 appelants Apps Script sont passes a l'en-tete.
+- RESOLU 2026-08-03 - Le relais n'avait aucun rate limit global: `relayRateLimit()` plafonne desormais par IP (600/min, `trust proxy` = 1, `/health` exempte).
 - `ADMIN_TOKEN` n'est pas configure sur le service API Railway. Les routes admin restent fermees en 401, mais les operations admin legitimes sont indisponibles.
 - RESOLU 2026-08-04 - `CEX_SECRET` est bien configure en production, mais le code retombait sur `JWT_SECRET` puis sur une constante publique. Les deux secrets tournent independamment: une rotation du JWT aurait rendu silencieusement indechiffrable chaque identifiant d'echange stocke. La production refuse desormais, ce qui desactive la seule fonction CEX au lieu de chiffrer avec une cle non voulue; les replis sont conserves hors production pour ne pas rendre illisibles les identifiants deja stockes en dev ou staging.
-- Le Web sert HSTS et `nosniff`, mais pas de Content-Security-Policy; API et relais en servent une.
-- Le message brut d'erreur CEX peut etre retourne et persiste (`plugins/cex.ts:560-562`).
+- RESOLU 2026-08-03 - Le Web ne servait pas de Content-Security-Policy. Verifie en production: `frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'` plus `Cross-Origin-Opener-Policy: same-origin-allow-popups`. `script-src`, `connect-src` et `img-src` sont volontairement omis: les poser sans inventaire complet casserait les wallets injectes et les CDN de logos.
+- RESOLU 2026-08-03 - Le message brut d'erreur CEX pouvait etre retourne et persiste. Il passe par `describeCexSyncFailure`, qui le classe; le detail brut ne subsiste que dans le log serveur.
 
 ### Production et RPC
 
-- Un scan BASE public valide retourne 200 en 7,1 s avec 16 tokens prices, mais `degraded=true`: `base.drpc.org` repond 408 et `base-rpc.publicnode.com` 403 depuis Railway. Les deux endpoints suivants (`mainnet.base.org`, `1rpc.io/base`) repondent, de meme que `base.gateway.tenderly.co`.
-- L'ordre actuel dans `wcore-gsheet/src/BASE.gs:18-21` place donc deux endpoints defaillants avant les endpoints sains.
+- RESOLU 2026-08-03 - Un scan BASE valide revenait `degraded=true` parce que `base.drpc.org` repond 408 et `base-rpc.publicnode.com` 403 depuis Railway.
+- RESOLU 2026-08-03 - L'ordre plachait ces deux endpoints defaillants avant les sains. Ils sont **retrogrades** en fin de liste et non supprimes: un blocage lie a l'IP peut ne pas s'appliquer depuis Apps Script, qui partage la meme config.
 - 128/464 endpoints ont echoue au sweep initial. Ce nombre inclut rate limits et timeouts sensibles a la concurrence; il mesure la fragilite du pool, pas 128 pannes permanentes.
 - RESOLU 2026-08-04 - Les logs API ne joignaient ni le `chainKey` ni la methode aux messages repetes `all RPC endpoints failed`: les logs de production se remplissaient de lignes identiques sans moyen de savoir quelle chaine tombait.
 

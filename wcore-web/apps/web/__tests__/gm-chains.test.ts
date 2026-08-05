@@ -13,6 +13,11 @@ describe("GM page chain lists", () => {
     assert.ok(!soonKeys.includes("moonbeam"));
   });
 
+  test("does not advertise disabled chains as coming soon", () => {
+    const soonKeys = getSoonChains().map((chain) => chain.key);
+    assert.ok(!soonKeys.includes("syndicate_commons"));
+  });
+
   test("every GM_FACTORIES entry has a display label so it appears in /gm", () => {
     const labelled = new Set(getGmChains().map((chain) => chain.key));
     const missing: string[] = [];

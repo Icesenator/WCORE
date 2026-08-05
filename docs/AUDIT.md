@@ -177,8 +177,8 @@ La plateforme est donc operationnelle, mais sa fiabilite multi-chain et sa capac
 - RESOLU 2026-08-04 - Les caches non-EVM faisaient `A x C` lectures Redis. La route batch utilise desormais le meme `mget` unique que le chemin EVM.
 - RESOLU 2026-08-04 - `getEurUsdRate()` etait appele sans le cache partage dans les routes scan, CEX et chains: ses quatre appels HTTP repartaient apres chaque redemarrage et n'etaient jamais partages entre instances.
 - RESOLU 2026-08-04 (hors audit) - Les denominations IBC etaient resolues a chaque scan alors qu'un hash est le condense de sa trace et ne change jamais. Cout: un appel REST par jeton, et surtout une dependance du portefeuille entier a la disponibilite immediate de l'endpoint. Mises en cache 30 jours.
-- Discovery EVM batch non bornee: jusqu'a `10 x wallets` appels logs simultanes (`engines/evm-batch.ts:141-261`, `tokens/log-discovery.ts:72-99`).
-- Les metadonnees de contrats sont resolues sequentiellement (`tokens/discovery.ts:99-108`).
+- RESOLU 2026-08-05 - Discovery EVM batch non bornee: chaque wallet emet jusqu'a 5 appels logs par topic de transfert, et tous les wallets partaient ensemble. Un batch de 20 adresses mettait donc 200 `eth_getLogs` simultanes sur un seul pool d'endpoints, ce a quoi les RPC gratuits repondent par des limitations plutot que par des donnees. Les wallets avancent desormais par petits groupes, la rafale reste bornee quelle que soit la taille du batch.
+- RESOLU 2026-08-05 - Les metadonnees de contrats etaient resolues une par une: un wallet touchant cinquante contrats payait cinquante allers-retours RPC successifs avant la premiere lecture de solde. Les contrats sont dedupliques d'abord puis resolus par groupes bornes; les reserver des la deduplication evite aussi d'interroger deux fois un contrat repete dans les logs.
 - Les prechargements DefiLlama et GeckoTerminal independants sont sequentiels dans les scans EVM.
 - TON ignore `opts.sources` et GeckoTerminal conserve certains markers uniquement en memoire process.
 

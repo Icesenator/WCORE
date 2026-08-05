@@ -434,6 +434,16 @@ function _wcoreAutoHealBootstrapState_(out, force) {
     _wcoreAutoHealRow_(out, "J1 staleness", "WARN", eStale.message);
   }
 
+  // v4.16.47: same blind spot for the CEX manual worker. Google can disable a
+  // present trigger, and ScriptApp exposes no enabled/disabled state, so counting
+  // handlers cannot see it: the worker stayed dead and every queued manual refresh
+  // sat unhandled. Detect the missing effect instead - a queue that stops draining.
+  try {
+    _wcoreAutoHealCexQueueStaleness_(out, force === true);
+  } catch (eCexStale) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "WARN", eCexStale.message);
+  }
+
 }
 
 /**
@@ -487,6 +497,66 @@ function _wcoreAutoHealNewLedgers_(out, force) {
  * If stale sheets >= threshold count, force SYNC_J1_ALL_SHEETS and revive the
  * dedicated trigger. Sheet I/O only (no HTTP).
  */
+/**
+ * Revives CEX_MANUAL_REFRESH_WORKER when the manual queue stops draining.
+ *
+ * A trigger can be present yet disabled by Google, and `ScriptApp.getProjectTriggers()`
+ * exposes no enabled flag, so `_wcoreAutoHealCountHandlers_` reports it as healthy while
+ * nothing runs. Only `WCORE_CEX_TRIGGER_CLEANUP_FORCE`, run by hand, brought it back.
+ * The observable symptom is a queue whose oldest job stops being consumed, which is what
+ * this checks: the worker fires every minute and drains within a three minute budget, so
+ * a job older than the threshold means nobody is draining it.
+ */
+var _WCORE_CEX_QUEUE_STALE_MS = 10 * 60 * 1000;
+
+function _wcoreAutoHealCexQueueStaleness_(out, force) {
+  var props = PropertiesService.getScriptProperties();
+  var queue = [];
+  try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
+  if (Object.prototype.toString.call(queue) !== "[object Array]" || !queue.length) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "OK", "queue empty");
+    return;
+  }
+
+  var now = Date.now();
+  var oldest = now;
+  for (var i = 0; i < queue.length; i++) {
+    var ts = queue[i] && Number(queue[i].ts);
+    if (isFinite(ts) && ts > 0 && ts < oldest) oldest = ts;
+  }
+  // Deliberately symptom-driven only: under force the ensure pass already deletes and
+  // recreates this trigger, so reacting to force here would fight it.
+  void force;
+  var ageMs = now - oldest;
+  if (ageMs < _WCORE_CEX_QUEUE_STALE_MS) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "OK", "pending=" + queue.length + " oldestMin=" + Math.round(ageMs / 60000));
+    return;
+  }
+
+  // Delete + recreate: that is what wakes a trigger Google has stopped firing.
+  var removed = 0;
+  try {
+    var trigs = ScriptApp.getProjectTriggers();
+    for (var t = 0; t < trigs.length; t++) {
+      var fn = ""; try { fn = trigs[t].getHandlerFunction(); } catch (eFn) {}
+      if (fn === "CEX_MANUAL_REFRESH_WORKER") { ScriptApp.deleteTrigger(trigs[t]); removed++; }
+    }
+  } catch (eDel) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "WARN", "delete failed: " + eDel.message);
+    return;
+  }
+
+  try {
+    ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create();
+  } catch (eCreate) {
+    // Never swallow this: an unreported creation failure is exactly why the worker
+    // stayed dead for so long without anything showing it.
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "FAIL", "recreate failed: " + eCreate.message);
+    return;
+  }
+  _wcoreAutoHealRow_(out, "CEX queue staleness", "REPAIRED", "pending=" + queue.length + " oldestMin=" + Math.round(ageMs / 60000) + " removed=" + removed);
+}
+
 function _wcoreAutoHealJ1Staleness_(out, force) {
   var STALE_GAP_MS = 30 * 60 * 1000;   // 30 min gap = suspicious
   var STALE_COUNT_THRESHOLD = 10;      // this many stale sheets => repair
@@ -712,7 +782,16 @@ function WCORE_CEX_TRIGGER_CLEANUP_FORCE() {
     installed.push("CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH_1H");
   }
   // v4.15.118: 1-min safety net to drain the manual CEX queue reliably.
-  try { ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create(); installed.push("CEX_MANUAL_REFRESH_WORKER_1MIN"); } catch (eNet) {}
+  // v4.16.47: report a creation failure instead of swallowing it. This catch hid the
+  // one thing that would have explained a worker that never came back.
+  try {
+    ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create();
+    installed.push("CEX_MANUAL_REFRESH_WORKER_1MIN");
+  } catch (eNet) {
+    var netMsg = "CEX_MANUAL_REFRESH_WORKER_1MIN FAILED: " + (eNet && eNet.message ? eNet.message : eNet);
+    installed.push(netMsg);
+    console.log("[CEX_TRIGGER_CLEANUP] " + netMsg);
+  }
   return "Removed CEX/manual triggers: " + (removed.length ? removed.join(", ") : "none") + ". Installed: " + installed.join(", ") + ".";
 }
 

@@ -21,7 +21,7 @@ Ces outils sont configurés globalement dans `~/.codex/config.toml` + `~/.codex/
 ## Projet
 
 Système de suivi de portefeuilles crypto multi-chaînes sur Google Sheets + Apps Script.
-- **183 configurations de chaînes** (EVM, SVM/Solana, Cosmos SDK, TON) — toutes extractibles vers `@wcore/chains`
+- **Configurations de chaines** (EVM, SVM/Solana, Cosmos SDK, TON) — toutes extractibles vers `@wcore/chains`
 - **120 combinaisons wallet-chaîne**
 - Version actuelle : consulter `ROADMAP.md` et les registres de version du code; ne pas déduire l'état d'un ancien numéro figé dans cette documentation.
 - Langue du développeur : **français** — répondre en français
@@ -90,7 +90,7 @@ node scripts/connect-google.js
 
 ```
 wcore-gsheet/
-├── src/               ← Fichiers .gs (source de vérité, 183 chaînes)
+├── src/               ← Fichiers .gs (source de verite)
 ├── dist/              ← Package @wcore/chains (généré par extract-chains.mjs)
 ├── pulls/             ← Tirages depuis Apps Script (clasp pull)
 ├── .backups/          ← Sauvegardes automatiques
@@ -191,7 +191,7 @@ Les configs de chaînes suivent un cycle unifié :
 
 ```bash
 npm run validate:static      # Vérifie les fonctions globales GAS (2904+)
-npm run build:chains         # Extrait src/*.gs → dist/chains/*.ts (183 chaînes)
+npm run build:chains         # Extrait src/*.gs → dist/chains/*.ts (voir dist/chains)
 npm run test:phase3-chains   # Vérifie tous les ports Phase 3
 npm run port:web-chains      # Génère les .gs manquants depuis les configs web
 ```

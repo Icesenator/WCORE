@@ -5,7 +5,7 @@ Next.js 16 frontend + Fastify API + Prisma/PostgreSQL runtime for WCORE.
 Current product status and active action items live in [ROADMAP.md](./ROADMAP.md). Test counts are CI-derived and should not be hardcoded here. Architecture, gotchas, and dev procedures live in [AGENTS.md](./AGENTS.md). Unified repository overview: see [../README.md](../README.md).
 
 ## Quick Links
-- `/` — Wallet scanner (multi-wallet, 183 tracked configs, EVM/SVM/Cosmos/TON; active count is dynamic)
+- `/` — Wallet scanner (multi-wallet, tracked configs, EVM/SVM/Cosmos/TON; active count is dynamic)
 - `/pricing` — Token pricing dashboard
 - `/profile` — User profile, GM contracts, streaks
 - `/admin` — Ops dashboard (health, circuits, metrics, events)

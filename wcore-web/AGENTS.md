@@ -21,9 +21,9 @@ Ces outils sont configur├®s globalement dans `~/.codex/config.toml` + `~/.cod
 ## Projet
 
 Syst├¿me de suivi de portefeuilles crypto multi-cha├«nes sur Google Sheets + Apps Script.
-- **183 configurations suivies** (EVM, SVM/Solana, Cosmos SDK, TON); le nombre actif est dynamique et toutes sont extractibles depuis `wcore-gsheet`
+- **Couverture** : EVM, SVM/Solana, Cosmos SDK, TON. Ne pas figer le compte ici : il derive et devient faux. La source est `wcore-gsheet/dist/chains` (registre extrait) et `/api/chains` (runtime, avec le drapeau `disabled`).
 - **120 combinaisons wallet-cha├«ne**
-- Version actuelle : voir `ROADMAP.md` et `CHANGELOG.md` (web) / **v4.15.36** (Apps Script)
+- Version actuelle : voir `ROADMAP.md` et `CHANGELOG.md` (web). Pour Apps Script, lire `WCORE_VERSION` dans `wcore-gsheet/src/01_INIT.gs` : toute valeur recopiee ici devient fausse au commit suivant.
 - Langue du d├®veloppeur : **fran├ºais** ÔÇö r├®pondre en fran├ºais
 - Spreadsheet ID : `1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4`
 - **GitHub** : `https://github.com/Icesenator/WCORE`

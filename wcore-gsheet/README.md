@@ -2,7 +2,7 @@
 
 Google Sheets + Apps Script runtime for WCORE.
 
-- **183 generated chain configs** across EVM, SVM/Solana, Cosmos SDK, and TON (`npm run build:chains` is the source for the current count).
+- **Generated chain configs** across EVM, SVM/Solana, Cosmos SDK, and TON. The count lives in `dist/chains`, not in this sentence (`npm run build:chains` is the source for the current count).
 - Canonical chain source for the web runtime via generated `dist/` package `@wcore/chains`.
 - Apps Script wallet tracking, pricing, cache, CEX sync, watchdog, and diagnostics.
 - Reference documentation: [AGENTS.md](./AGENTS.md).

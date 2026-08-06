@@ -1740,12 +1740,13 @@ var EvmEngine = {
       }
     } catch (e) {}
 
+    var _cacheStatusTs = _evmCacheStatusDatetime_(cacheBefore, beforeTs);
     if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
-      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
+      if (_cacheStatusTs) return BaseEngine.wrapCacheOnlyMarker(_cacheStatusTs, _httpBefore);
       return "[NO_CACHE] " + Format.now();
     }
     if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
-      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + Format.datetime(beforeTs), _httpBefore);
+      if (_cacheStatusTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + _cacheStatusTs, _httpBefore);
       return "[NO_CACHE] " + Format.now();
     }
 
@@ -2127,6 +2128,41 @@ var EvmEngine = {
  }
  }
 };
+
+// ============================================================
+// HORODATAGE DES STATUTS CACHE-ONLY
+// ============================================================
+
+/**
+ * Rend la date du cache pour un statut I1, quelle que soit la forme stockee.
+ *
+ * cache.updatedAt est produit par CacheManager._fromEpochSec_, qui renvoie une
+ * CHAINE rendue dans le fuseau du script, pas un epoch. Or Format.datetime
+ * exige un nombre (Num.isValid teste typeof === "number") et retourne "N/A"
+ * sinon. Les appelants testaient la valeur en truthy — une chaine passe — puis
+ * la formataient : le statut devenait "[CACHE_ONLY] N/A" ou
+ * "[CACHE_ONLY] [FRESH] N/A" alors que la date existe dans le cache.
+ *
+ * Consequence observee le 2026-08-06 sur "Ledger - Degen" : I1 sans horodatage
+ * exploitable, donc illisible pour l'utilisateur et non parsable par le
+ * watchdog (_wd_extractTimestamp_ / _wd_shouldSyncJ1_ exigent une date).
+ *
+ * _webScanCacheTimestamp_ resout les deux formes (epoch et chaine). Charge en
+ * 41_, donc apres ce fichier : la reference est resolue a l'execution.
+ */
+function _evmCacheStatusDatetime_(cacheBefore, beforeTs) {
+  if (typeof Num !== "undefined" && Num.isValid(beforeTs) && beforeTs > 0) {
+    return Format.datetime(beforeTs);
+  }
+  if (typeof _webScanCacheTimestamp_ === "function") {
+    var ms = _webScanCacheTimestamp_(cacheBefore);
+    if (isFinite(ms) && ms > 0) return Format.datetime(ms);
+  }
+  // Dernier recours : la chaine deja rendue par _fromEpochSec_ vaut mieux qu'un
+  // "N/A" qui efface une information pourtant disponible.
+  if (typeof beforeTs === "string" && beforeTs) return beforeTs;
+  return "";
+}
 
 // ============================================================
 // ALIASES (backward compatibility)

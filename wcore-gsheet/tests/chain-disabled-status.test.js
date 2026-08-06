@@ -76,11 +76,15 @@ function makeStatusContext(cacheTimestampMs) {
   return context;
 }
 
-test('une chaine desactivee renvoie un statut terminal horodate sur le cache', () => {
+test('une chaine desactivee renvoie un statut terminal date de la tentative', () => {
   const ctx = makeStatusContext(1234567890000);
   const out = ctx.BaseEngine.chainDisabledStatus('wallet', { FLAGS: { DISABLE_CHAIN: true } });
   assert.ok(out.indexOf('[CHAIN_DISABLED]') === 0, `statut inattendu: "${out}"`);
-  assert.ok(/DATE\(1234567890000\)/.test(out), 'la date du cache doit etre conservee');
+  // I1/J1 datent le passage du systeme. Reprendre la date du cache ferait
+  // reculer J1, or J1 est le latch qui declenche le recalcul de A1: un latch
+  // fige empeche la ligne ERROR d'etre reactualisee.
+  assert.ok(/NOW/.test(out), `la date de tentative est attendue, pas celle du cache: "${out}"`);
+  assert.ok(!/DATE\(1234567890000\)/.test(out), "l'age de la donnee appartient a la ligne ERROR");
 });
 
 test('une chaine active ne renvoie aucun statut, le scan normal continue', () => {

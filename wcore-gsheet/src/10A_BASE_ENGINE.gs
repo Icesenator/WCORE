@@ -534,23 +534,23 @@ BaseEngine.cexBusyStatus = function(walletKey, config) {
  * 13:45:55 puis 15:36:00, boucle entretenue par [WEB_SCAN_PRESERVED] qui force
  * needsPulse sans condition.
  *
- * On renvoie un statut terminal horodate sur la donnee conservee : le watchdog
- * le traite comme definitif (aucun re-pulse) et l'utilisateur lit la cause
- * exacte, au lieu d'un "DONNEES FIGEES" qui suggere une panne a reparer.
+ * On renvoie un statut terminal : le watchdog le traite comme definitif (aucun
+ * re-pulse) et l'utilisateur lit la cause exacte, au lieu d'un "DONNEES FIGEES"
+ * qui suggere une panne a reparer.
+ *
+ * L'horodatage est celui de la TENTATIVE, pas celui de la donnee conservee.
+ * I1/J1 datent le passage du systeme; l'age reel de la donnee appartient a la
+ * ligne ERROR ("CHAINE DESACTIVEE - donnee conservee du ..."). Y mettre la date
+ * du cache ferait reculer J1, or J1 est le latch qui declenche le recalcul de
+ * A1 : un latch fige empeche justement la ligne ERROR d'etre reactualisee.
+ * Contrairement a [CACHE_ONLY], aucun mecanisme n'a besoin ici de lire l'age de
+ * la donnee dans I1 : la regle de re-pulse v4.16.46 ne s'applique pas a un etat
+ * terminal.
  */
 BaseEngine.chainDisabledStatus = function(walletKey, config) {
   try {
     if (!config || !config.FLAGS || config.FLAGS.DISABLE_CHAIN !== true) return "";
-    var ts = "";
-    try {
-      CacheManager.init();
-      var cache = WalletCache.load(walletKey, null, config);
-      if (typeof _webScanCacheTimestamp_ === "function") {
-        var ms = _webScanCacheTimestamp_(cache);
-        if (isFinite(ms) && ms > 0) ts = Format.datetime(ms);
-      }
-    } catch (eCache) {}
-    return "[CHAIN_DISABLED] " + (ts || Format.now());
+    return "[CHAIN_DISABLED] " + Format.now();
   } catch (e) {
     return "";
   }

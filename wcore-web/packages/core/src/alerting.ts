@@ -1,5 +1,5 @@
 export interface AlertEvent {
-  type: "circuit_opened" | "circuit_closed" | "circuit_half_open" | "health_degraded" | "redis_down" | "db_down";
+  type: "circuit_opened" | "circuit_closed" | "circuit_half_open" | "health_degraded" | "redis_down" | "db_down" | "chain_unreachable";
   severity: "critical" | "warning" | "info";
   service: string;
   ts: string;

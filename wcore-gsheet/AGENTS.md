@@ -615,8 +615,8 @@ Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette a
 
 ### Après chaque déploiement
 1. ~~Exécuter `BUILD_RPC_LOOKUP()` depuis l'éditeur GAS~~ **OPTIONNEL v4.15.42** — l'auto-heal le fait automatiquement
-2. Exécuter `WCORE_AUTO_HEAL("force", true)` pour réinstaller les triggers et rebouter le RPC lookup
-3. Vérifier `WCORE_AUTO_HEAL_STATUS()` : tous les triggers à 1
+2. ~~Exécuter `WCORE_AUTO_HEAL("force", true)` systématiquement~~ **NON REQUIS par défaut** — un push ne gèle les triggers que si l'**autorisation OAuth change** (nouveau scope ou nouveau service avancé dans `appsscript.json`). Sans changement de scope, les triggers gardent l'autorisation déjà accordée et continuent de tourner. Mesure du 2026-08-06 : après un push à 08:43, `Recap Portfolio` montrait PULSE `09:05:57` / STATUS `09:06:12` / LAST SCAN `09:06:12`, et les triggers CEX horaires tournaient (Kraken `08:52:41`), sans aucun auto-heal. `safe-push.ps1` compare désormais les scopes local/distant et n'exige la réautorisation que dans ce cas.
+3. Vérifier l'effet observable dans `Recap Portfolio` : les colonnes `PULSE (B1)`, `STATUS (I1)` et `LAST SCAN (J1)` doivent continuer d'avancer. Si elles se figent, lancer `WCORE_AUTO_HEAL_FORCE()` depuis l'éditeur (seul contexte capable d'accepter le dialogue d'autorisation Google) puis vérifier `WCORE_AUTO_HEAL_STATUS()` : tous les triggers à 1.
 
 ### En cas de saturation quota
 1. NE PAS attendre une "heure de reset" : le quota est une fenêtre glissante ~24h, la récupération est progressive (~24h après le burst)

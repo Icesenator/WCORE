@@ -149,6 +149,16 @@ foreach ($gsFile in $gsFiles) {
 Write-Host "  Fichiers remplaces: $replaced" -ForegroundColor Gray
 Write-Host "  Fichiers ajoutes: $added" -ForegroundColor Gray
 
+# Le manifest de src/ est source de verite au meme titre que les .gs. Sans cette
+# copie, clasp repousse le manifest ramene du distant: un scope ajoute dans
+# src/appsscript.json ne serait jamais applique, alors que l'etape 7 reclamerait
+# une reautorisation pour ce scope absent du projet deploye.
+$localManifest = Join-Path $SrcDir "appsscript.json"
+if (Test-Path $localManifest) {
+    Copy-Item $localManifest -Destination (Join-Path $TempDir "appsscript.json") -Force
+    Write-Host "  Manifest: src/appsscript.json pousse" -ForegroundColor Gray
+}
+
 # S'assurer qu'il y a un appsscript.json
 $appsscriptPath = Join-Path $TempDir "appsscript.json"
 if (-not (Test-Path $appsscriptPath)) {

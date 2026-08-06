@@ -1642,9 +1642,21 @@ var EvmEngine = {
  // On reutilise _webScanCacheTimestamp_ plutot que WalletCache.getLastUpdateStr :
  // cette derniere renvoie "" sur ce chemin (aucun de ses quatre champs n'est
  // renseigne), alors que la premiere resout correctement le meme cache.
+ // Le seuil doit rester superieur a la cadence de rafraichissement, sinon une
+ // feuille parfaitement saine est signalee pendant qu'elle attend son tour.
+ // WATCHDOG_FROM_RECAP ne repulse une feuille valide qu'au-dela de
+ // WD_STALE_I1_HOURS (5 h) : le seuil fixe de 2 h transformait donc toute
+ // attente normale en fausse alerte, entre 2 h et 5 h, pour chaque feuille.
+ // On derive le seuil de cette constante pour que les deux ne puissent plus
+ // diverger, avec 2 h de marge pour absorber la file @customfunction et le
+ // batch du watchdog. Reference resolue a l'execution : 16_REFRESH est charge
+ // apres ce fichier (ordre alphabetique), donc la constante n'existe pas
+ // encore au chargement.
  try {
+ var _wdStaleHours = (typeof WD_STALE_I1_HOURS !== "undefined" && isFinite(WD_STALE_I1_HOURS)) ? WD_STALE_I1_HOURS : 5;
+ var _staleAlertMs = (_wdStaleHours + 2) * 3600000;
  var _staleMs = (typeof _webScanCacheTimestamp_ === "function") ? _webScanCacheTimestamp_(cache) : 0;
- if (isFinite(_staleMs) && _staleMs > 0 && (Date.now() - _staleMs) >= 7200000) {
+ if (isFinite(_staleMs) && _staleMs > 0 && (Date.now() - _staleMs) >= _staleAlertMs) {
  out.push(OutputBuilder.infoRow(chainName, "ERROR",
  "DONNEES FIGEES - dernier scan reussi le " +
  Utilities.formatDate(new Date(_staleMs), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss")));

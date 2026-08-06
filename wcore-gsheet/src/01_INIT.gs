@@ -39,7 +39,7 @@ var INIT_VERSION = "4.15.63";
 var WCORE_VERSION = {
   MAJOR: 4,
   MINOR: 16,
-  PATCH: 52,
+  PATCH: 53,
 
   toString: function() {
     return 'v' + this.MAJOR + '.' + this.MINOR + '.' + this.PATCH;

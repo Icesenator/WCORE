@@ -48,11 +48,43 @@ test("l'auto-heal installe le rafraichissement des RPC dynamiques", () => {
 
 test('la cadence reste hebdomadaire, comme le suppose le TTL de 30 jours', () => {
   const block = creationBlock();
-  const m = block.match(/newTrigger\("UPDATE_DYNAMIC_RPCS"\)\s*\.timeBased\(\)\s*\.every(\w+)\((\d+)\)/);
-  assert.ok(m, 'cadence introuvable pour UPDATE_DYNAMIC_RPCS');
-  assert.equal(m[1], 'Weeks', `cadence inattendue: every${m[1]}(${m[2]})`);
-  const weeks = Number(m[2]);
-  assert.ok(weeks >= 1 && weeks <= 3, `un cycle de ${weeks} semaines ne tient pas dans le TTL de 30 jours`);
+  const m = block.match(/newTrigger\("UPDATE_DYNAMIC_RPCS"\)[\s\S]{0,200}?\.onWeekDay\(/);
+  assert.ok(m, 'cadence hebdomadaire introuvable pour UPDATE_DYNAMIC_RPCS');
+});
+
+test('le trigger hebdomadaire precise son jour, sinon GAS le refuse', () => {
+  // Incident 2026-08-06: everyWeeks(1) sans onWeekDay() leve
+  // "You tried to create a weekly trigger, but did not specify which day in
+  // the week." L'exception interrompait _wcoreAutoHealCreateManagedTriggers_,
+  // donc les triggers declares APRES n'etaient pas recrees apres suppression.
+  const block = creationBlock();
+  const decl = block.match(/newTrigger\("UPDATE_DYNAMIC_RPCS"\)[\s\S]{0,240}?\.create\(\)/);
+  assert.ok(decl, 'declaration du trigger introuvable');
+  assert.ok(
+    /\.onWeekDay\(ScriptApp\.WeekDay\.\w+\)/.test(decl[0]),
+    'un trigger hebdomadaire sans onWeekDay() est rejete par GAS',
+  );
+  assert.ok(
+    !/\.everyWeeks\(/.test(decl[0]),
+    'everyWeeks() combine a onWeekDay() est ambigu: onWeekDay() suffit',
+  );
+});
+
+test("l'echec de ce trigger n'empeche pas la creation des suivants", () => {
+  const block = creationBlock();
+  const decl = block.match(/if \(typeof UPDATE_DYNAMIC_RPCS === "function"\) \{[\s\S]*?\n  \}/);
+  assert.ok(decl, 'bloc de creation introuvable');
+  assert.ok(/try \{/.test(decl[0]), 'la creation doit etre isolee par un try/catch');
+  assert.ok(
+    /stats\.dynamicRpcTriggerError/.test(decl[0]),
+    "l'erreur doit etre remontee dans stats, jamais avalee en silence",
+  );
+  // Les triggers critiques doivent rester declares apres, donc proteges.
+  const after = block.slice(block.indexOf('UPDATE_DYNAMIC_RPCS'));
+  assert.ok(
+    /newTrigger\("CEX_MANUAL_REFRESH_WORKER"\)/.test(after),
+    'ce test perd son sens si plus aucun trigger ne suit',
+  );
 });
 
 test("le trigger est declare geré, sinon l'auto-heal le supprimerait", () => {

@@ -1,7 +1,9 @@
 /**
- * POLYNOMIAL.gs - Polynomial (v4.16.42)
+ * POLYNOMIAL.gs - Polynomial (v4.16.58)
  * ChainFactory pattern with explicit function declarations
  *
+ * v4.16.58 - Disabled: L2BEAT archived the chain on 2026-04-15 and no public
+ *            endpoint serves the chain without failing or rate-limiting.
  * v4.16.42 - Both configured endpoints are dead (rpc.polynomial.fi does not resolve,
  *            rpc-proxy.polynomial.fi returns HTTP 404), so the chain could not be
  *            scanned at all. The two thirdweb mirrors were verified to answer
@@ -10,6 +12,7 @@
 
 var _POLYNOMIAL = ChainFactory.createEvmChain("POLYNOMIAL", {
  CACHE_VERSION: 63,
+ FLAGS: { DISABLE_CHAIN: true },
  RPC: { ENDPOINTS: ["https://polynomial.rpc.thirdweb.com", "https://8008.rpc.thirdweb.com", "https://rpc.polynomial.fi", "https://rpc-proxy.polynomial.fi"] },
  CHAIN: {
  NAME: "Polynomial",

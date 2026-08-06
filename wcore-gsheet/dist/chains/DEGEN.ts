@@ -11,8 +11,6 @@ export const DEGEN: ChainConfig = {
   RPC: {
     ENDPOINTS: [
       "https://rpc.degen.tips",
-      "https://degen.drpc.org",
-      "https://666666666.rpc.thirdweb.com",
     ],
   },
   CHAIN: {

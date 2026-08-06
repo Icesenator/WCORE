@@ -10,10 +10,20 @@
 
 var _DEGEN = ChainFactory.createEvmChain("DEGEN", {
  CACHE_VERSION: 63,
+ // Endpoints retires le 2026-08-06 apres mesure depuis DEUX IP distinctes
+ // (poste local et API Railway), sur eth_chainId, eth_blockNumber et
+ // eth_getBalance — pas seulement sur eth_chainId :
+ //   - degen.drpc.org           : HTTP 404 partout, la route n'existe plus.
+ //   - 666666666.rpc.thirdweb.com : sert le bon chainId (0x27bc86aa) mais
+ //     repond -32603 "not able to process your request" en local et HTTP 429
+ //     depuis Railway. Inutilisable sur les deux IP, donc pas un blocage
+ //     dependant de l'IP: il ne peut servir de repli a personne.
+ // rpc.degen.tips est conserve bien qu'il renvoie 429 en permanence: c'est le
+ // seul endpoint que le registre officiel declare (chainid.network, chaine
+ // "incubating"), il repond donc toujours et peut se debloquer. La chaine
+ // reste active, son cache est preserve par _webScanShouldPreserveExistingCache_.
  RPC: { ENDPOINTS: [
-   "https://rpc.degen.tips",
-   "https://degen.drpc.org",
-   "https://666666666.rpc.thirdweb.com"
+   "https://rpc.degen.tips"
  ]},
  CHAIN: {
    NAME: "Degen",

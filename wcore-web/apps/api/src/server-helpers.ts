@@ -267,7 +267,7 @@ export function registerPostAuthRateLimit(app: FastifyInstance, deps: PostAuthRa
  *
  * Une chaine morte ne declenche rien aujourd'hui: le scan echoue, le cache est
  * preserve, et personne ne le voit. "Ledger - Degen" est reste ainsi du
- * 2026-08-04 au 2026-08-06 — trois RPC hors service — jusqu'a ce qu'un humain
+ * 2026-08-04 au 2026-08-06 ï¿½ trois RPC hors service ï¿½ jusqu'a ce qu'un humain
  * remarque une cellule figee.
  *
  * Critere volontairement strict, pour que l'alerte garde sa valeur de signal:
@@ -286,16 +286,26 @@ export interface ChainScanMetrics {
 
 export function findUnreachableChains(
   byChain: Record<string, ChainScanMetrics>,
+  openCircuitChains: string[] = [],
   minScans = 3,
 ): string[] {
-  const out: string[] = [];
+  const out = new Set<string>();
   for (const [chain, m] of Object.entries(byChain ?? {})) {
     if (!m || m.scans < minScans) continue;
     if (m.tokensFound > 0) continue;
     if (m.rpcErrors < m.scans) continue;
-    out.push(chain);
+    out.add(chain.toUpperCase());
   }
-  return out.sort();
+  // Un circuit ouvert est le signal le plus fort et le plus fiable: il s'ouvre
+  // apres des echecs repetes, puis court-circuite les appels suivants. Ces
+  // scans-la deviennent instantanes et ne produisent plus d'erreur RPC, si bien
+  // que le critere ci-dessus cesse justement de voir la chaine au moment ou
+  // elle est le plus surement morte. Mesure du 2026-08-06 sur DEGEN: scans a
+  // 1064 ms puis 200 ms et 194 ms, plus aucune erreur comptee.
+  for (const chain of openCircuitChains ?? []) {
+    if (chain) out.add(String(chain).toUpperCase());
+  }
+  return [...out].sort();
 }
 /**
  * Classe une erreur de scan dans UNE seule categorie.
@@ -309,7 +319,7 @@ export function findUnreachableChains(
  * Le test `includes("RPC")` etait par ailleurs sensible a la casse: un echec
  * d'endpoint comme "https://rpc.degen.tips: HTTP 429" ne contient pas "RPC" en
  * majuscules et etait donc compte en "other". Les erreurs d'endpoint, qui sont
- * les plus frequentes, echappaient ainsi entierement au compteur RPC — et donc
+ * les plus frequentes, echappaient ainsi entierement au compteur RPC ï¿½ et donc
  * aux tableaux de bord censes les surveiller.
  */
 export type ScanErrorKind = "balCache" | "timeout" | "pricing" | "rpc" | "other";

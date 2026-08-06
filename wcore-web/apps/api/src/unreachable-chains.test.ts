@@ -37,7 +37,23 @@ describe("detection des chaines injoignables", () => {
   test("attend un nombre minimal de scans avant de conclure", () => {
     // Au demarrage, deux scans rates ne prouvent rien.
     assert.deepEqual(findUnreachableChains({ NEW: m(2, 0, 4) }), []);
-    assert.deepEqual(findUnreachableChains({ NEW: m(2, 0, 4) }, 2), ["NEW"]);
+    assert.deepEqual(findUnreachableChains({ NEW: m(2, 0, 4) }, [], 2), ["NEW"]);
+  });
+
+  test("un circuit ouvert suffit, meme sans erreur comptee", () => {
+    // Une fois le circuit ouvert, les appels sont court-circuites: les scans
+    // deviennent instantanes et ne produisent plus d'erreur RPC. Le critere
+    // base sur les compteurs cesse donc de voir la chaine au moment precis ou
+    // elle est le plus surement morte (mesure DEGEN: 1064 ms puis 200 ms).
+    assert.deepEqual(findUnreachableChains({ DEGEN: m(9, 0, 0) }, ["degen"]), ["DEGEN"]);
+  });
+
+  test("un circuit ouvert et des compteurs parlants ne comptent qu'une fois", () => {
+    assert.deepEqual(findUnreachableChains({ DEGEN: m(5, 0, 10) }, ["DEGEN"]), ["DEGEN"]);
+  });
+
+  test("les chaines sont rendues en majuscules, quelle que soit la casse du circuit", () => {
+    assert.deepEqual(findUnreachableChains({}, ["degen", "Aves_Network"]), ["AVES_NETWORK", "DEGEN"]);
   });
 
   test("des erreurs RPC moins nombreuses que les scans ne suffisent pas", () => {

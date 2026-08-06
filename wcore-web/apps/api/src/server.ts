@@ -192,11 +192,26 @@ async function snapshotMetrics() {
     // voit. "Ledger - Degen" est reste ainsi deux jours. On le signale une fois
     // par chaine, sinon l'alerte se repeterait toutes les 5 min et perdrait sa
     // valeur de signal.
-    for (const chain of findUnreachableChains(snap.scans.byChain)) {
+    const openCircuitChains = Object.entries(circuits)
+      .filter(([, c]) => (c as { state: string }).state === "OPEN")
+      .map(([chain]) => chain);
+    for (const chain of findUnreachableChains(snap.scans.byChain, openCircuitChains)) {
       if (unreachableChainsAlerted.has(chain)) continue;
       unreachableChainsAlerted.add(chain);
-      const m = snap.scans.byChain[chain];
-      console.warn(`[chain_unreachable] ${chain}: ${m?.rpcErrors ?? 0} RPC errors over ${m?.scans ?? 0} scans, 0 token found`);
+      const m = snap.scans.byChain[chain] ?? snap.scans.byChain[chain.toLowerCase()];
+      const detail = `${m?.rpcErrors ?? 0} RPC errors over ${m?.scans ?? 0} scans, ${m?.tokensFound ?? 0} token found`;
+      console.warn(`[chain_unreachable] ${chain}: ${detail}`);
+      // recordOpsEvent est le seul canal reellement consultable aujourd'hui:
+      // sendAlert est un no-op tant qu'ALERT_WEBHOOK_URL n'est pas configure
+      // (verifie le 2026-08-06 — la variable est absente en production, donc
+      // meme les alertes "circuit_opened" en severite critical ne partent
+      // nulle part). L'evenement persiste est lisible via /api/admin/health.
+      recordOpsEvent("chain_unreachable", "warning", `All RPC endpoints failing for ${chain}`, {
+        chain,
+        scans: m?.scans ?? 0,
+        rpcErrors: m?.rpcErrors ?? 0,
+        circuitOpen: openCircuitChains.some((c) => c.toUpperCase() === chain),
+      });
       sendAlert({
         type: "chain_unreachable",
         severity: "warning",

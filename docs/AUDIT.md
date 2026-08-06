@@ -1,31 +1,31 @@
 # WCORE - Audit transversal
 
 > Date de verification: 2026-08-06
-> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `8cd7fc5` et sont consignes dans "Findings du 2026-08-06".
+> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `bc6c5ae` et sont consignes dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.57, l'API `9a40ebd0-a375-4cf2-b126-f8d966dbde6d` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.58, l'API `8b977e75-d7eb-4e0f-92a4-a1dc39cc9691` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
-WCORE compile, passe ses suites locales et sert correctement ses trois services. La CI GitHub est verte, les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
+WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Le workflow `Chains` de `bc6c5ae` est vert; le dernier workflow CI API a ete annule pendant la panne majeure GitHub Actions, sans etape en echec. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
 
-Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement contenus: Somnia utilise le bon chainId, les trois chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et le store async est borne, et l'historique Prisma est reconstructible. La persistance Redis et le claim atomique des jobs restent requis avant tout passage de l'API a plusieurs repliques. `POLYNOMIAL` reste limitee par des HTTP 429 depuis Railway.
+Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement contenus: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et le store async est borne, et l'historique Prisma est reconstructible. La persistance Redis et le claim atomique des jobs restent requis avant tout passage de l'API a plusieurs repliques.
 
 ## Etat mesure
 
 | Axe | Resultat au 2026-08-06 |
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
-| GitHub Actions | corrections finales poussees sur `master`; validations locales completes |
-| Railway | API `9a40ebd0`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
+| GitHub Actions | `Chains` vert sur `bc6c5ae`; CI API annulee par la panne Actions, 4 jobs annules et aucune etape en echec |
+| Railway | API `8b977e75`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
-| Chaines API | 182 configurations; `DUCKCHAIN`, `STARGAZE` et `SYNDICATE_COMMONS` desactivees en plus des exclusions existantes |
+| Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
 | Sweep RPC initial | 464 endpoints testes; 336 reponses valides, 128 echecs avec timeout 5 s/concurrence 24 |
 | Reprise ciblee | 34 endpoints sur 18 chaines, timeout 10 s/concurrence 4; 16 valides, 18 en echec |
 | Apps Script | worker CEX recree; executions de nettoyage puis d'auto-heal force chargees `Terminee` |
-| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.57`; projet distant pousse et triggers verifies |
+| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.58`; projet distant pousse sans changement de scopes OAuth |
 | Lint | passe, 0 erreur affichee |
 | TypeScript | typecheck des 5 projets passe |
 | Build | packages, API et Next.js 16.2.12 passent |
@@ -55,7 +55,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 - Impact: la chaine reste scannable mais est marquee `degraded`, la decouverte est limitee au dernier bloc, et le drapeau perd sa valeur de signal puisqu'il ne distingue plus une panne d'une simple course entre endpoints.
 - Correction 2026-08-03: la hauteur retenue est la mediane basse des endpoints qui ont repondu, ce qui absorbe un noeud en retard et un noeud en avance sans jamais depasser la tete du plus lent. Une erreur n'est signalee que si tous echouent.
 - Corollaire trouve dans la foulee: le curseur incremental reecrivait `fromBlock` sans respecter `MAX_LOG_RANGE`, donc des qu'il devenait plus ancien que la fenetre autorisee il l'**elargissait** et le RPC rejetait tout l'appel. Invisible jusqu'ici puisque l'echec de consensus empechait d'atteindre `eth_getLogs`. Toute chaine plafonnee etait exposee.
-- Production apres deploiement: `SOMNIA` et `REYA` reviennent `degraded=false` avec zero erreur. `POLYNOMIAL` reste degradee mais pour une raison desormais exacte, ses deux miroirs repondent HTTP 429 depuis Railway.
+- Production apres deploiement: `SOMNIA` et `REYA` reviennent `degraded=false` avec zero erreur. `POLYNOMIAL` est ensuite desactivee le 2026-08-06 apres confirmation de son archivage et de l'absence de tout RPC public utilisable.
 
 ### P1-10 - Endpoint testnet dans le pool mainnet de Reya - RESOLU 2026-08-03
 
@@ -70,7 +70,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 - **Corrige**: `POLYNOMIAL` (deux miroirs thirdweb verifies sur le chainId 8008 ajoutes devant les deux endpoints morts), `NOBLE` (publicnode repond 404 sur *toutes* les routes de module; failover `REST_URLS` ajoute) et `STRIDE` (publicnode repond 403 `unsupported platform`; meme traitement). Les endpoints ajoutes ont ete verifies sur les routes `bank` et `staking` reellement utilisees par le moteur, pas seulement sur le dernier bloc.
 - **Decision finale**: `DUCKCHAIN` (ses deux RPC publies sont morts), `SYNDICATE_COMMONS` (aucun endpoint public de remplacement) et `STARGAZE` (statut `killed` dans Cosmos Chain Registry) portent desormais `FLAGS.DISABLE_CHAIN: true`. La factory GM DuckChain a aussi ete retiree du registre actif.
 - Limite: les blocages RPC peuvent dependre de l'IP. Les endpoints defaillants sont retrogrades et non supprimes, sauf mauvaise chaine (cf. P1-10).
-- Verification: `@wcore/chains` regenere en 4.16.49; l'API de production sert toujours 182 configurations et respecte les nouveaux drapeaux. `POLYNOMIAL` reste active mais degradee par des HTTP 429 depuis Railway.
+- Verification finale: `@wcore/chains` regenere en 4.16.58; l'API de production sert 182 configurations, dont 167 actives et 15 desactivees. `POLYNOMIAL.disabled=true` est verifie en production.
 
 ### P1-3 - Les timeouts liberent les slots sans annuler les scans - RESOLU 2026-08-04
 
@@ -220,6 +220,17 @@ distinctes. Les deux autres ont ete retires apres mesure sur `eth_chainId`,
 utiles. Effet verifie en production: 6 erreurs de scan ramenees a 3. La chaine reste
 active et son cache protege; seul un endpoint utilisable la debloquera.
 
+`POLYNOMIAL` n'est plus un reste ouvert. La documentation officielle et le
+registre Superchain ne publient que `rpc.polynomial.fi`; Chainlist ajoute
+`lb.routeme.sh/rpc/evm/8008`. Les deux endpoints officiels, les deux miroirs
+Thirdweb, RouteMe et neuf passerelles publiques candidates ont ete sondes sur
+`eth_chainId`, `eth_blockNumber`, `eth_getBalance` et `eth_call`: aucun ne sert
+la chaine sans 404, 429, DNS failure ou authentification. L2BEAT la marque par
+ailleurs archivee et non maintenue depuis le 2026-04-15, et le classeur ne
+contient aucun onglet Polynomial. `FLAGS.DISABLE_CHAIN=true` est donc applique
+en 4.16.58 plutot que de continuer a depenser des appels sur une chaine sans
+position suivie ni infrastructure publique exploitable.
+
 ### Findings API du 2026-08-06 - observabilite RPC
 
 - RESOLU - Le cache des endpoints dynamiques API expirait apres 6 h alors que `warmDynamicRpcEndpoints()` n'etait appele qu'au demarrage. Un processus vivant plus de 6 h revenait donc silencieusement aux seuls endpoints statiques. Le warm est maintenant rejoue toutes les 5 h, avant le TTL, et son echec reste non bloquant.
@@ -285,10 +296,10 @@ active et son cache protege; seul un endpoint utilisable la debloquera.
 3. FAIT: migrations Prisma reconstructibles + job CI sur base vierge.
 4. FAIT: garde-fou planifie `Chain IDs` contre la derive de chainId.
 5. FAIT: API et Web deployes et verifies depuis la production. `/gm` n'affiche plus DuckChain ni Syndicate Commons.
-6. FAIT: Apps Script pousse et auto-heal force; `WCORE_VERSION` et package genere en 4.16.49.
+6. FAIT: Apps Script pousse; `WCORE_VERSION` et package genere en 4.16.58.
 7. FAIT: P1-11 corrige et deploye. Somnia et Reya reviennent `degraded=false` sans aucune erreur.
 8. FAIT: `CEX_MANUAL_REFRESH_WORKER` recree, surveillance de staleness ajoutee et auto-heal final execute.
-9. FAIT: `DUCKCHAIN`, `SYNDICATE_COMMONS` et `STARGAZE` desactivees. RESTE: trouver un endpoint Polynomial non limite depuis Railway.
+9. FAIT: `DUCKCHAIN`, `SYNDICATE_COMMONS`, `STARGAZE` et `POLYNOMIAL` desactivees apres verification de leurs registres et endpoints publics.
 
 ### Sprint 1 - resilience et securite
 

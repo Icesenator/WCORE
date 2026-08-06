@@ -9,7 +9,7 @@ import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
 import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout, chainCircuitOutcome, applyChainCircuitOutcome } from "./scan-utils.js";
 import { scanJobs, startJobCleanup, admitScanJob, jobPrincipal } from "./scan-job.js";
-import { classifyScanError, consumeScanBudget, scanRequestCost } from "../server-helpers.js";
+import { classifyScanError, consumeScanBudget, isUnreachableScan, scanRequestCost } from "../server-helpers.js";
 import { apiConfig } from "../config.js";
 import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
 
@@ -257,7 +257,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       const rpcErrs = kinds.filter((k) => k === "rpc").length;
       const priceErrs = kinds.filter((k) => k === "pricing").length;
       const otherErrs = kinds.filter((k) => k === "other").length;
-      metrics.recordScan(c.chainKey, c.scanMs || 0, c.totals.tokenCount, c.totals.pricedCount, rpcErrs, priceErrs, otherErrs);
+      metrics.recordScan(c.chainKey, c.scanMs || 0, c.totals.tokenCount, c.totals.pricedCount, rpcErrs, priceErrs, otherErrs, isUnreachableScan(c.errors.map((e) => e.message)));
       c.errors.forEach((e, i) => {
         switch (kinds[i]) {
           case "balCache": return;

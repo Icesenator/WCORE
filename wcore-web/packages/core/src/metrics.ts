@@ -3,6 +3,7 @@ type ChainMetrics = {
   totalMs: number;
   tokensFound: number;
   pricedTokens: number;
+  unreachableScans: number;
   rpcErrors: number;
   pricingErrors: number;
   otherErrors: number;
@@ -30,7 +31,7 @@ export type MetricsSnapshot = {
   startTime: string;
 };
 
-class MetricsStore {
+export class MetricsStore {
   private startTime: number;
   scanCount = 0;
   chainMetrics = new Map<string, ChainMetrics>();
@@ -53,23 +54,19 @@ class MetricsStore {
     this.startTime = Date.now();
   }
 
-  recordScan(chainKey: string, ms: number, tokens: number, priced: number, rpcErrs: number, priceErrs: number, otherErrs: number) {
+  recordScan(chainKey: string, ms: number, tokens: number, priced: number, rpcErrs: number, priceErrs: number, otherErrs: number, unreachable = false) {
     this.scanCount++;
-    const c = this.chainMetrics.get(chainKey) || { scans: 0, totalMs: 0, tokensFound: 0, pricedTokens: 0, rpcErrors: 0, pricingErrors: 0, otherErrors: 0 };
+    const c = this.chainMetrics.get(chainKey) || { scans: 0, totalMs: 0, tokensFound: 0, pricedTokens: 0, unreachableScans: 0, rpcErrors: 0, pricingErrors: 0, otherErrors: 0 };
     c.scans++;
     c.totalMs += ms;
     c.tokensFound += tokens;
     c.pricedTokens += priced;
+    if (unreachable) c.unreachableScans++;
     c.rpcErrors += rpcErrs;
     c.pricingErrors += priceErrs;
     c.otherErrors += otherErrs;
     this.chainMetrics.set(chainKey, c);
 
-    if (chainKey) {
-      this.rpcErrors[chainKey] = (this.rpcErrors[chainKey] || 0) + rpcErrs;
-      this.pricingErrors[chainKey] = (this.pricingErrors[chainKey] || 0) + priceErrs;
-      this.otherErrors[chainKey] = (this.otherErrors[chainKey] || 0) + otherErrs;
-    }
   }
 
   recordCacheHit(type: "redis" | "session") {

@@ -1,10 +1,10 @@
 # WCORE - Audit transversal
 
-> Date de verification: 2026-08-05
-> Revision de base: `646b62dbf74c23279c6ff6c08f03f3166b227f34` (`master`, identique a `origin/master`), avec les corrections decrites ci-dessous encore non commitees.
+> Date de verification: 2026-08-06
+> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; ce document de cloture est publie dans le commit suivant.
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees et verifiees localement. Apps Script 4.16.49 et l'API `f445f409-2939-41ad-a39e-6818b5718a49` sont deployes; le deploiement Web local `10eb4ef4-3f77-466c-b941-1903d2d3db15` a echoue apres le timeout d'upload Railway et la tentative `c69e32ce-48cd-407f-bcb5-b3cbbec63268` reste en `INITIALIZING`. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.49, l'API `f445f409-2939-41ad-a39e-6818b5718a49` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
@@ -14,11 +14,11 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 
 ## Etat mesure
 
-| Axe | Resultat au 2026-08-05 |
+| Axe | Resultat au 2026-08-06 |
 |---|---|
-| Git | `HEAD == origin/master == 646b62d`; corrections finales presentes dans le worktree non commite |
-| GitHub Actions | derniers workflows `CI` et `Chains` controles verts; corrections finales encore locales |
-| Railway | API `f445f409` et relais `Online`; upload Web local expire, tentative `c69e32ce` encore `INITIALIZING`, version precedente toujours servie |
+| Git | `master` et `origin/master` synchronises; worktree propre apres publication |
+| GitHub Actions | corrections finales poussees sur `master`; validations locales completes |
+| Railway | API `f445f409`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; `DUCKCHAIN`, `STARGAZE` et `SYNDICATE_COMMONS` desactivees en plus des exclusions existantes |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
@@ -31,7 +31,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 | Build | packages, API et Next.js 16.2.12 passent |
 | Tests Core | 321/321 |
 | Tests Shared | 21/21 |
-| Tests Web | 171/171 |
+| Tests Web | 173/173 |
 | Tests relais | 37/37 |
 | Tests GSheet | passent; 3 144 fonctions globales validees; ports Phase 3: 181 |
 | Dependances Web | `pnpm audit --prod --audit-level=high`: aucune vulnerabilite connue |
@@ -237,7 +237,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 2. FAIT: Polynomial, Noble et Stride repares; BASE reordonne; endpoint testnet de Reya supprime.
 3. FAIT: migrations Prisma reconstructibles + job CI sur base vierge.
 4. FAIT: garde-fou planifie `Chain IDs` contre la derive de chainId.
-5. PARTIEL: API deployee et verifiee; upload Web local expire et nouvelle tentative encore `INITIALIZING`, la version precedente reste servie.
+5. FAIT: API et Web deployes et verifies depuis la production. `/gm` n'affiche plus DuckChain ni Syndicate Commons.
 6. FAIT: Apps Script pousse et auto-heal force; `WCORE_VERSION` et package genere en 4.16.49.
 7. FAIT: P1-11 corrige et deploye. Somnia et Reya reviennent `degraded=false` sans aucune erreur.
 8. FAIT: `CEX_MANUAL_REFRESH_WORKER` recree, surveillance de staleness ajoutee et auto-heal final execute.

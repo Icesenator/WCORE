@@ -734,7 +734,7 @@ function _wd_isLastUpdateFormat_(s) {
 function _wd_extractTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   // Match usable prefixes followed by timestamp.
-  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
+  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|CHAIN_DISABLED|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
   if (match && match[1]) {
     vI1 = match[1].trim();
   }
@@ -1523,6 +1523,13 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
   // normal 10 min cooldown so the wallet rescans once the CEX window is over.
   if (vI1.indexOf("[BUSY:CEX]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
+  }
+
+  // Etat terminal: la chaine est explicitement desactivee (FLAGS.DISABLE_CHAIN).
+  // Re-pulser ne peut rien produire — ses RPC sont morts — et chaque pulse coute
+  // un appel HTTP. Seule une reactivation de la chaine doit relancer les scans.
+  if (vI1.indexOf("[CHAIN_DISABLED]") === 0) {
+    return { needsPulse: false, reason: "ok", blockedReason: null, useBlockedCooldown: false };
   }
 
   if (vI1.indexOf("[WEB_SCAN_PRESERVED]") === 0) {

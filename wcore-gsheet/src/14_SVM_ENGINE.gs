@@ -894,6 +894,8 @@ var SvmEngine = {
     // v4.15.122: Load cache BEFORE web scan so the I1 guard (J1 >= B1) can
     // prevent unnecessary rescans (web scan was returning early, bypassing the guard).
     var _httpBefore = BaseEngine.httpSnapshot();
+    var svmChainDisabled = BaseEngine.chainDisabledStatus ? BaseEngine.chainDisabledStatus(_svmWalletKey(addr), config) : "";
+    if (svmChainDisabled) return svmChainDisabled;
     try {
       CacheManager.init();
       var svmCacheBefore = WalletCache.load(_svmWalletKey(addr), null, config);

@@ -1656,9 +1656,12 @@ var EvmEngine = {
  var _wdStaleHours = (typeof WD_STALE_I1_HOURS !== "undefined" && isFinite(WD_STALE_I1_HOURS)) ? WD_STALE_I1_HOURS : 5;
  var _staleAlertMs = (_wdStaleHours + 2) * 3600000;
  var _staleMs = (typeof _webScanCacheTimestamp_ === "function") ? _webScanCacheTimestamp_(cache) : 0;
- if (isFinite(_staleMs) && _staleMs > 0 && (Date.now() - _staleMs) >= _staleAlertMs) {
+ var _chainOff = !!(config && config.FLAGS && config.FLAGS.DISABLE_CHAIN === true);
+ if (isFinite(_staleMs) && _staleMs > 0 && (_chainOff || (Date.now() - _staleMs) >= _staleAlertMs)) {
+ // Une chaine desactivee n'est pas une panne a reparer: son age est attendu et
+ // definitif. "DONNEES FIGEES" enverrait chercher un incident inexistant.
  out.push(OutputBuilder.infoRow(chainName, "ERROR",
- "DONNEES FIGEES - dernier scan reussi le " +
+ (_chainOff ? "CHAINE DESACTIVEE - donnee conservee du " : "DONNEES FIGEES - dernier scan reussi le ") +
  Utilities.formatDate(new Date(_staleMs), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss")));
  }
  } catch (eStale) {}
@@ -1723,6 +1726,8 @@ var EvmEngine = {
     var addrLower = Addr.normalize(address);
     var cexBusyStatus = BaseEngine.cexBusyStatus ? BaseEngine.cexBusyStatus(addrLower, config) : "";
     if (cexBusyStatus) return cexBusyStatus;
+    var chainDisabled = BaseEngine.chainDisabledStatus ? BaseEngine.chainDisabledStatus(addrLower, config) : "";
+    if (chainDisabled) return chainDisabled;
     // v4.13.3: Centralized quota pre-check via BaseEngine
     // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
      var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;

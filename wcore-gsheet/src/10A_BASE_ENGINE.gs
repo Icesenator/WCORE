@@ -523,6 +523,39 @@ BaseEngine.cexBusyStatus = function(walletKey, config) {
   }
 };
 
+/**
+ * Statut terminal des chaines explicitement desactivees.
+ *
+ * FLAGS.DISABLE_CHAIN etait declare dans 14 configs sans aucun lecteur cote
+ * Apps Script : le drapeau n'agissait que sur le web (/api/chains). Les onglets
+ * Ledger de ces chaines continuaient donc d'etre pulses et de declencher un
+ * appel HTTP a chaque cycle, alors que leurs RPC sont morts et qu'aucun scan ne
+ * peut aboutir. Mesure du 2026-08-06 sur "Ledger - DuckChain" : re-pulse a
+ * 13:45:55 puis 15:36:00, boucle entretenue par [WEB_SCAN_PRESERVED] qui force
+ * needsPulse sans condition.
+ *
+ * On renvoie un statut terminal horodate sur la donnee conservee : le watchdog
+ * le traite comme definitif (aucun re-pulse) et l'utilisateur lit la cause
+ * exacte, au lieu d'un "DONNEES FIGEES" qui suggere une panne a reparer.
+ */
+BaseEngine.chainDisabledStatus = function(walletKey, config) {
+  try {
+    if (!config || !config.FLAGS || config.FLAGS.DISABLE_CHAIN !== true) return "";
+    var ts = "";
+    try {
+      CacheManager.init();
+      var cache = WalletCache.load(walletKey, null, config);
+      if (typeof _webScanCacheTimestamp_ === "function") {
+        var ms = _webScanCacheTimestamp_(cache);
+        if (isFinite(ms) && ms > 0) ts = Format.datetime(ms);
+      }
+    } catch (eCache) {}
+    return "[CHAIN_DISABLED] " + (ts || Format.now());
+  } catch (e) {
+    return "";
+  }
+};
+
 // ============================================================
 // CACHE-ONLY MARKER (v4.15.19)
 // ============================================================

@@ -205,8 +205,8 @@ async function snapshotMetrics() {
       // sendAlert est un no-op tant qu'ALERT_WEBHOOK_URL n'est pas configure
       // (verifie le 2026-08-06 — la variable est absente en production, donc
       // meme les alertes "circuit_opened" en severite critical ne partent
-      // nulle part). L'evenement persiste est lisible via /api/admin/health.
-      recordOpsEvent("chain_unreachable", "warning", `All RPC endpoints failing for ${chain}`, {
+      // nulle part). L'evenement persiste est lisible via /api/admin/events.
+      await recordOpsEvent("chain_unreachable", "warning", `All RPC endpoints failing for ${chain}`, {
         chain,
         scans: m?.scans ?? 0,
         rpcErrors: m?.rpcErrors ?? 0,

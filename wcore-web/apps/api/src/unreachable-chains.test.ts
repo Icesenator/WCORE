@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { findUnreachableChains } from "./server-helpers.js";
+import { findUnreachableChains, isUnreachableScan } from "./server-helpers.js";
 
 // Une chaine dont tous les RPC sont morts n'ouvre aucun circuit et ne fait rien
 // echouer: le scan est degrade, le cache preserve, personne ne le voit.
@@ -13,10 +13,28 @@ function m(scans: number, tokensFound: number, rpcErrors: number) {
   return { scans, tokensFound, rpcErrors };
 }
 
+function observed(scans: number, tokensFound: number, rpcErrors: number, unreachableScans: number) {
+  return { scans, tokensFound, rpcErrors, unreachableScans };
+}
+
 describe("detection des chaines injoignables", () => {
   test("signale une chaine dont chaque scan echoue sans trouver de token", () => {
     const out = findUnreachableChains({ DEGEN: m(5, 0, 12) });
     assert.deepEqual(out, ["DEGEN"]);
+  });
+
+  test("signale une chaine morte meme si ses tokens sont preserves en cache", () => {
+    assert.deepEqual(findUnreachableChains({ DEGEN: observed(6, 6, 18, 6) }), ["DEGEN"]);
+  });
+
+  test("ne signale pas une chaine qui a recommence a repondre", () => {
+    assert.deepEqual(findUnreachableChains({ DEGEN: observed(7, 7, 18, 6) }), []);
+  });
+
+  test("reconnait seulement les marqueurs explicites d'epuisement des RPC", () => {
+    assert.equal(isUnreachableScan(["blockNumber unavailable on every endpoint; token log discovery limited"]), true);
+    assert.equal(isUnreachableScan(["all RPC endpoints failed"]), true);
+    assert.equal(isUnreachableScan(["https://rpc.example: HTTP 429"]), false);
   });
 
   test("ne signale pas une chaine saine", () => {

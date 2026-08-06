@@ -282,6 +282,16 @@ export interface ChainScanMetrics {
   scans: number;
   tokensFound: number;
   rpcErrors: number;
+  unreachableScans?: number;
+}
+
+export function isUnreachableScan(messages: string[]): boolean {
+  return messages.some((message) => {
+    const text = String(message ?? "").toLowerCase();
+    return text.includes("unavailable on every endpoint")
+      || text.includes("all rpc endpoints failed")
+      || text.includes("failed on all rpc");
+  });
 }
 
 export function findUnreachableChains(
@@ -292,8 +302,15 @@ export function findUnreachableChains(
   const out = new Set<string>();
   for (const [chain, m] of Object.entries(byChain ?? {})) {
     if (!m || m.scans < minScans) continue;
-    if (m.tokensFound > 0) continue;
-    if (m.rpcErrors < m.scans) continue;
+    // Les donnees en cache peuvent contenir des tokens alors que plus aucun RPC
+    // ne repond. On se fonde donc sur le marqueur strict observe par scan, pas
+    // sur le contenu preserve. Le fallback garde la compatibilite des snapshots
+    // produits avant l'ajout de ce compteur.
+    if (m.unreachableScans !== undefined) {
+      if (m.unreachableScans < minScans || m.unreachableScans !== m.scans) continue;
+    } else {
+      if (m.tokensFound > 0 || m.rpcErrors < m.scans) continue;
+    }
     out.add(chain.toUpperCase());
   }
   // Un circuit ouvert est le signal le plus fort et le plus fiable: il s'ouvre

@@ -20,6 +20,7 @@ const refresh = fs.readFileSync(path.join(srcDir, '16_REFRESH.gs'), 'utf8');
 const evm = fs.readFileSync(path.join(srcDir, '11_EVM_ENGINE.gs'), 'utf8');
 const svm = fs.readFileSync(path.join(srcDir, '14_SVM_ENGINE.gs'), 'utf8');
 const cosmos = fs.readFileSync(path.join(srcDir, '15_COSMOS_ENGINE.gs'), 'utf8');
+const polynomial = fs.readFileSync(path.join(srcDir, 'POLYNOMIAL.gs'), 'utf8');
 
 const failures = [];
 function test(name, fn) {
@@ -157,6 +158,13 @@ test('une chaine desactivee est signalee comme telle, pas comme une panne', () =
   assert.ok(
     /_chainOff \|\| \(Date\.now\(\) - _staleMs\) >= _staleAlertMs/.test(evm),
     "l'age attendu d'une chaine desactivee ne doit pas dependre du seuil de fraicheur",
+  );
+});
+
+test('Polynomial reste desactivee tant que la chaine archivee est sans RPC public', () => {
+  assert.ok(
+    /FLAGS:\s*\{\s*DISABLE_CHAIN:\s*true\s*\}/.test(polynomial),
+    'reactiver Polynomial exige un RPC mainnet valide et une preuve que la chaine est maintenue',
   );
 });
 

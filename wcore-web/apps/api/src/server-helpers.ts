@@ -297,3 +297,39 @@ export function findUnreachableChains(
   }
   return out.sort();
 }
+/**
+ * Classe une erreur de scan dans UNE seule categorie.
+ *
+ * La classification vivait en double dans scan.ts, avec des regles differentes
+ * entre le comptage et l'enregistrement: `chain_timeout` etait reconnu a
+ * l'enregistrement mais pas au comptage, et une erreur contenant a la fois
+ * "price" et "fetch" etait comptee dans deux categories, rendant
+ * `otherErrs = total - rpc - price - balCache` negatif.
+ *
+ * Le test `includes("RPC")` etait par ailleurs sensible a la casse: un echec
+ * d'endpoint comme "https://rpc.degen.tips: HTTP 429" ne contient pas "RPC" en
+ * majuscules et etait donc compte en "other". Les erreurs d'endpoint, qui sont
+ * les plus frequentes, echappaient ainsi entierement au compteur RPC — et donc
+ * aux tableaux de bord censes les surveiller.
+ */
+export type ScanErrorKind = "balCache" | "timeout" | "pricing" | "rpc" | "other";
+
+export function classifyScanError(message: string): ScanErrorKind {
+  const raw = String(message ?? "");
+  const text = raw.toLowerCase();
+  if (text.includes("bal_cache")) return "balCache";
+  if (text.includes("chain_timeout")) return "timeout";
+  // Le pricing passe avant le RPC: "price: NO_PRICE" est un defaut de
+  // valorisation, meme quand le message mentionne un appel reseau.
+  if (text.includes("no_price") || text.includes("absurd_price") || text.includes("price")) return "pricing";
+  if (
+    text.includes("rpc")
+    || text.includes("consensus")
+    || text.includes("fetch")
+    || text.includes("endpoint")
+    || text.includes("http://")
+    || text.includes("https://")
+    || /\bhttp\s+\d{3}\b/.test(text)
+  ) return "rpc";
+  return "other";
+}

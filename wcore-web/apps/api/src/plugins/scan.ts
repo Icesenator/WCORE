@@ -9,7 +9,7 @@ import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
 import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout, chainCircuitOutcome, applyChainCircuitOutcome } from "./scan-utils.js";
 import { scanJobs, startJobCleanup, admitScanJob, jobPrincipal } from "./scan-job.js";
-import { consumeScanBudget, scanRequestCost } from "../server-helpers.js";
+import { classifyScanError, consumeScanBudget, scanRequestCost } from "../server-helpers.js";
 import { apiConfig } from "../config.js";
 import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
 
@@ -250,18 +250,23 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const scanMetrics = { totalMs: chains.reduce((sum, c) => sum + c.scanMs, 0), chainsScanned: chains.length, chainsWithErrors: chains.filter((c) => c.errors.length > 0).length, totalTokens: chains.reduce((sum, c) => sum + c.totals.tokenCount, 0), pricedTokens: chains.reduce((sum, c) => sum + c.totals.pricedCount, 0), cacheStats: totalCacheStats, cacheHitRate };
 
     for (const c of chains) {
-      const rpcErrs = c.errors.filter((e) => e.message.includes("RPC") || e.message.includes("consensus") || e.message.includes("fetch")).length;
-      const priceErrs = c.errors.filter((e) => e.message.includes("price") || e.message.includes("NO_PRICE")).length;
-      const balCacheErrs = c.errors.filter((e) => e.message.includes("BAL_CACHE")).length;
-      const otherErrs = c.errors.length - rpcErrs - priceErrs - balCacheErrs;
+      // Une seule classification, partagee par le comptage et l'enregistrement.
+      // Les deux divergeaient, et les categories se chevauchaient au point de
+      // rendre le compteur "other" negatif (cf. classifyScanError).
+      const kinds = c.errors.map((e) => classifyScanError(e.message));
+      const rpcErrs = kinds.filter((k) => k === "rpc").length;
+      const priceErrs = kinds.filter((k) => k === "pricing").length;
+      const otherErrs = kinds.filter((k) => k === "other").length;
       metrics.recordScan(c.chainKey, c.scanMs || 0, c.totals.tokenCount, c.totals.pricedCount, rpcErrs, priceErrs, otherErrs);
-      for (const e of c.errors) {
-        if (e.message.includes("BAL_CACHE")) continue;
-        if (e.message.includes("RPC") || e.message.includes("consensus") || e.message.includes("fetch")) metrics.recordRpcError(c.chainKey, e.message);
-        else if (e.message.includes("price") || e.message.includes("NO_PRICE")) metrics.recordPricingError(c.chainKey, e.message);
-        else if (e.message.includes("chain_timeout")) metrics.recordChainTimeout(c.chainKey);
-        else metrics.recordOtherError(c.chainKey, e.message);
-      }
+      c.errors.forEach((e, i) => {
+        switch (kinds[i]) {
+          case "balCache": return;
+          case "rpc": return metrics.recordRpcError(c.chainKey, e.message);
+          case "pricing": return metrics.recordPricingError(c.chainKey, e.message);
+          case "timeout": return metrics.recordChainTimeout(c.chainKey);
+          default: return metrics.recordOtherError(c.chainKey, e.message);
+        }
+      });
     }
 
     const result: ScanResult = { address: parsedAddress.data, requestedChains, chains, totals: { valueEur: cleanTotalEur, tokenCount: chains.reduce((sum, c) => sum + c.totals.tokenCount, 0), pricedCount: chains.reduce((sum, c) => sum + c.totals.pricedCount, 0), chainsWithErrors: chains.filter((c) => c.errors.length > 0).length }, generatedAt: new Date().toISOString(), metrics: scanMetrics };

@@ -92,6 +92,34 @@ try {
 }
 Pop-Location
 
+# Un push ne gele les triggers que si l'autorisation OAuth change (nouveau
+# scope ou nouveau service avance). Sinon les triggers gardent l'autorisation
+# deja accordee et continuent de tourner: mesure du 2026-08-06, watchdog, scan
+# web et triggers CEX toujours actifs 23 min apres un push, sans auto-heal.
+# On compare donc le manifest local au manifest distant ramene par le pull et
+# on n'exige une reautorisation que si l'un des deux a bouge.
+function Get-ManifestAuthSignature($manifestPath) {
+    if (-not (Test-Path $manifestPath)) { return $null }
+    try { $m = Get-Content $manifestPath -Raw | ConvertFrom-Json } catch { return $null }
+    $scopes = @()
+    if ($m.oauthScopes) { $scopes = @($m.oauthScopes) | Sort-Object }
+    $services = @()
+    if ($m.dependencies -and $m.dependencies.enabledAdvancedServices) {
+        $services = @($m.dependencies.enabledAdvancedServices | ForEach-Object { "$($_.serviceId):$($_.version)" }) | Sort-Object
+    }
+    return (($scopes -join "|") + " ## " + ($services -join "|"))
+}
+
+$localAuth = Get-ManifestAuthSignature (Join-Path $SrcDir "appsscript.json")
+$remoteAuth = Get-ManifestAuthSignature (Join-Path $TempDir "appsscript.json")
+if ($null -eq $localAuth -or $null -eq $remoteAuth) {
+    $authState = "unknown"
+} elseif ($localAuth -eq $remoteAuth) {
+    $authState = "unchanged"
+} else {
+    $authState = "changed"
+}
+
 # ============================================================================
 # ETAPE 3: Merger - garder fichiers distants + ajouter/remplacer par src/
 # ============================================================================
@@ -248,30 +276,39 @@ Write-Host "[7/7] Verification des triggers..." -ForegroundColor Yellow
 
 $scriptId = $originalClasp.scriptId
 $editorUrl = "https://script.google.com/home/projects/$scriptId/edit"
-$spreadsheetUrl = "https://docs.google.com/spreadsheets/d/1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4"
 
-Write-Host ""
-Write-Host "  ========================================" -ForegroundColor Yellow
-Write-Host "  APRES CHAQUE PUSH: les triggers gèlent" -ForegroundColor Red
-Write-Host "  (OAuth périmé sur l'ancienne version)" -ForegroundColor Red
-Write-Host "  ========================================" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "  1. Ouvre l'editeur Apps Script:" -ForegroundColor Cyan
-Write-Host "     $editorUrl" -ForegroundColor White
-Write-Host ""
-Write-Host "  2. Dans le menu deroulant en haut, selectionne:" -ForegroundColor Cyan
-Write-Host "     WCORE_AUTO_HEAL_FORCE" -ForegroundColor White
-Write-Host ""
-Write-Host "  3. Clique sur 'Executer' (bouton Run)" -ForegroundColor Cyan
-Write-Host "  ========================================" -ForegroundColor Yellow
-Write-Host ""
-
-# Tentative d'ouvrir automatiquement l'editeur
-try {
-    Start-Process $editorUrl
-    Write-Host "  [OK] Editeur Apps Script ouvert" -ForegroundColor Green
-} catch {
-    Write-Host "  [INFO] Copie l'URL ci-dessus pour ouvrir l'editeur" -ForegroundColor Gray
+if ($authState -eq "changed") {
+    Write-Host ""
+    Write-Host "  ========================================" -ForegroundColor Yellow
+    Write-Host "  SCOPES OAUTH MODIFIES: reautorisation requise" -ForegroundColor Red
+    Write-Host "  Les triggers existants tournent sous l'ancienne" -ForegroundColor Red
+    Write-Host "  autorisation et vont echouer en silence." -ForegroundColor Red
+    Write-Host "  ========================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  1. Ouvre l'editeur Apps Script:" -ForegroundColor Cyan
+    Write-Host "     $editorUrl" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  2. Selectionne WCORE_AUTO_HEAL_FORCE puis clique 'Executer'" -ForegroundColor Cyan
+    Write-Host "     (accepte le dialogue d'autorisation Google)" -ForegroundColor Gray
+    Write-Host "  ========================================" -ForegroundColor Yellow
+    Write-Host ""
+    try {
+        Start-Process $editorUrl
+        Write-Host "  [OK] Editeur Apps Script ouvert" -ForegroundColor Green
+    } catch {
+        Write-Host "  [INFO] Copie l'URL ci-dessus pour ouvrir l'editeur" -ForegroundColor Gray
+    }
+} elseif ($authState -eq "unchanged") {
+    Write-Host "  [OK] Scopes OAuth et services avances inchanges" -ForegroundColor Green
+    Write-Host "  Les triggers gardent leur autorisation: aucun auto-heal requis." -ForegroundColor Gray
+    Write-Host "  Controle: dans 'Recap Portfolio', les colonnes PULSE (B1), STATUS (I1)" -ForegroundColor Gray
+    Write-Host "  et LAST SCAN (J1) doivent continuer d'avancer. Si elles se figent," -ForegroundColor Gray
+    Write-Host "  lance WCORE_AUTO_HEAL_FORCE depuis l'editeur." -ForegroundColor Gray
+} else {
+    Write-Host "  [WARN] Manifest illisible: comparaison des scopes impossible" -ForegroundColor Yellow
+    Write-Host "  Verifie 'Recap Portfolio' et lance WCORE_AUTO_HEAL_FORCE si les" -ForegroundColor Gray
+    Write-Host "  horodatages cessent d'avancer:" -ForegroundColor Gray
+    Write-Host "     $editorUrl" -ForegroundColor White
 }
 
 # ============================================================================

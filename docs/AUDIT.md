@@ -1,10 +1,10 @@
 # WCORE - Audit transversal
 
 > Date de verification: 2026-08-06
-> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; ce document de cloture est publie dans le commit suivant. Une seconde vague de correctifs, declenchee par une erreur signalee en production, est consignee dans "Findings du 2026-08-06".
+> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `8cd7fc5` et sont consignes dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.49, l'API `f445f409-2939-41ad-a39e-6818b5718a49` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.57, l'API `9a40ebd0-a375-4cf2-b126-f8d966dbde6d` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
@@ -18,22 +18,22 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
 | GitHub Actions | corrections finales poussees sur `master`; validations locales completes |
-| Railway | API `f445f409`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
+| Railway | API `9a40ebd0`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; `DUCKCHAIN`, `STARGAZE` et `SYNDICATE_COMMONS` desactivees en plus des exclusions existantes |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
 | Sweep RPC initial | 464 endpoints testes; 336 reponses valides, 128 echecs avec timeout 5 s/concurrence 24 |
 | Reprise ciblee | 34 endpoints sur 18 chaines, timeout 10 s/concurrence 4; 16 valides, 18 en echec |
 | Apps Script | worker CEX recree; executions de nettoyage puis d'auto-heal force chargees `Terminee` |
-| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.49`; projet distant pousse et auto-heal force avec succes |
+| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.57`; projet distant pousse et triggers verifies |
 | Lint | passe, 0 erreur affichee |
 | TypeScript | typecheck des 5 projets passe |
 | Build | packages, API et Next.js 16.2.12 passent |
-| Tests Core | 321/321 |
+| Tests Core | 322/322 |
 | Tests Shared | 21/21 |
 | Tests Web | 173/173 |
 | Tests relais | 37/37 |
-| Tests GSheet | passent; 3 144 fonctions globales validees; ports Phase 3: 181 |
+| Tests GSheet | passent; 3 145 fonctions globales validees; ports Phase 3: 181 |
 | Dependances Web | `pnpm audit --prod --audit-level=high`: aucune vulnerabilite connue |
 | Tests API integration | non executes localement: aucun `.env.test` ni DB/Redis de test dedies |
 | Environnement local | Node 24.18.1; CI et images ciblent Node 22 |
@@ -220,6 +220,15 @@ distinctes. Les deux autres ont ete retires apres mesure sur `eth_chainId`,
 utiles. Effet verifie en production: 6 erreurs de scan ramenees a 3. La chaine reste
 active et son cache protege; seul un endpoint utilisable la debloquera.
 
+### Findings API du 2026-08-06 - observabilite RPC
+
+- RESOLU - Le cache des endpoints dynamiques API expirait apres 6 h alors que `warmDynamicRpcEndpoints()` n'etait appele qu'au demarrage. Un processus vivant plus de 6 h revenait donc silencieusement aux seuls endpoints statiques. Le warm est maintenant rejoue toutes les 5 h, avant le TTL, et son echec reste non bloquant.
+- RESOLU - La classification d'erreurs utilisait notamment `includes("RPC")`, sensible a la casse. `https://rpc.degen.tips: HTTP 429` et `blockNumber unavailable on every endpoint` etaient classes `other`; une erreur mentionnant a la fois un prix et un fetch pouvait aussi alimenter deux categories. `classifyScanError()` impose maintenant une categorie exclusive. La premiere verification production a rendu DEGEN `rpc=36, pricing=0, other=0`.
+- RESOLU - Ce premier total de 36 etait lui-meme double: `recordScan()` ajoutait les erreurs aux totaux, puis `recordRpcError()` ajoutait les memes une seconde fois pour conserver leurs echantillons. Les responsabilites sont separees. Verification production apres redemarrage: trois scans avec trois erreurs chacun donnent exactement `rpc=9`.
+- RESOLU - Le premier detecteur `chain_unreachable` exigeait `tokensFound=0`. Or WCORE preserve justement le cache en panne et `buildChainScan()` compte toujours le natif: DEGEN remontait un token conserve, donc l'alerte ne pouvait jamais se lever. Chaque scan compte desormais separement le marqueur strict `unavailable on every endpoint` / `all RPC endpoints failed`, independamment du cache. Les circuits `OPEN` restent un signal suffisant.
+- Verification bout en bout: trois scans forces DEGEN ont remonte le meme echec total, puis le snapshot suivant a persiste un unique `opsEvent` `chain_unreachable` (`scans=3`, `rpcErrors=9`, `circuitOpen=false`) le 2026-08-06 a 17:03:32 UTC. L'evenement est consultable sur `/api/admin/events`; l'ancien commentaire `/api/admin/health` pointait une route inexistante et a ete corrige.
+- LIMITE - `ALERT_WEBHOOK_URL` n'est pas configure sur l'API Railway. `sendAlert()` est donc volontairement un no-op et aucune notification ne quitte encore Railway. Le log et l'`opsEvent` persistant constituent les canaux disponibles jusqu'a fourniture d'une URL de webhook.
+
 ## Findings P3 et dette documentaire
 
 - RESOLU 2026-08-05 - La documentation figeait 183 chaines et une version Apps Script trois correctifs en retard. Ces phrases pointent desormais vers les sources de verite (`dist/chains` et `WCORE_VERSION`) au lieu de recopier des valeurs qui perimen au commit suivant.
@@ -265,6 +274,7 @@ active et son cache protege; seul un endpoint utilisable la debloquera.
 | Parite FX GSheet/Web | `ok=true`, drift ~0,010% |
 | Auth bearer production | variable explicitement configuree a `false` |
 | Secrets CEX/JWT/relais/GSheet | variables presentes; valeurs non lues dans le rapport |
+| Alerte RPC morte | `chain_unreachable` persiste pour DEGEN apres 3 scans; 9 erreurs, aucun double comptage |
 
 ## Priorites recommandees
 
@@ -291,7 +301,7 @@ active et son cache protege; seul un endpoint utilisable la debloquera.
 
 1. FAIT: contrats Cosmos/SVM/queue CEX corriges et testes.
 2. FAIT: versions, compte de chaines, triggers CEX et template d'environnement alignes.
-3. FAIT pour les chainIds; RESTE: health check RPC planifie depuis Railway.
+3. FAIT pour les chainIds et le signal de chaine injoignable depuis Railway; RESTE: configurer un webhook externe si une notification hors plateforme est souhaitee.
 4. FAIT pour les fan-outs identifies; poursuivre la surveillance du cout RPC en production.
 
 ## Limites

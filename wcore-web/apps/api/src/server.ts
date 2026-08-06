@@ -5,7 +5,11 @@ import cookie from "@fastify/cookie";
 import compress from "@fastify/compress";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@wcore/db";
-import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert } from "@wcore/core";
+import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, warmDynamicRpcEndpoints } from "@wcore/core";
+import { GM_FACTORIES } from "@wcore/shared";
+
+// Le cache d'endpoints dynamiques vit 6 h; on le renouvelle avant expiration.
+const RPC_WARM_INTERVAL_MS = 5 * 60 * 60 * 1000;
 
 import { authPlugin } from "./auth.js";
 import { gamificationPlugin, seedGmContracts } from "./gamification/index.js";
@@ -491,6 +495,20 @@ if (!apiConfig.runtime.isTest && isMainModule) {
     await app.listen({ port: PORT, host: HOST });
     loadChainlist().catch((e) => { console.error("loadChainlist error:", (e).message || String(e)); });
     setInterval(() => snapshotMetrics().catch((e) => { console.error("snapshotMetrics interval error:", (e).message || String(e)); }), 300_000).unref();
+    // Le cache d'endpoints dynamiques expire au bout de 6 h (DYNAMIC_TTL_MS,
+    // rpc/endpoints.ts), mais warmDynamicRpcEndpoints n'etait appele qu'une
+    // fois, au chargement du module gamification. Un process Railway vit
+    // plusieurs jours: passe la 6e heure, getRpcEndpoints ne renvoyait donc
+    // plus que les endpoints statiques, sans que rien ne le signale — les
+    // endpoints decouverts par chainlist etaient perdus jusqu'au redeploiement.
+    // On renouvelle avant expiration.
+    setInterval(() => {
+      try {
+        warmDynamicRpcEndpoints(Object.keys(GM_FACTORIES));
+      } catch (e) {
+        console.error("warmDynamicRpcEndpoints interval error:", (e as Error).message || String(e));
+      }
+    }, RPC_WARM_INTERVAL_MS).unref();
   } catch (err) {
     app.log.error(err);
     process.exit(1);

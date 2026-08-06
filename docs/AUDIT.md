@@ -1,7 +1,7 @@
 # WCORE - Audit transversal
 
 > Date de verification: 2026-08-06
-> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; ce document de cloture est publie dans le commit suivant.
+> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; ce document de cloture est publie dans le commit suivant. Une seconde vague de correctifs, declenchee par une erreur signalee en production, est consignee dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
 > Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.49, l'API `f445f409-2939-41ad-a39e-6818b5718a49` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
@@ -182,6 +182,43 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 - RESOLU 2026-08-05 - La page GM ne precharge plus le prix natif des factories. Le prix n'est demande qu'au moment de l'action utilisateur; `gm-price-fanout.test.ts` interdit le retour du fan-out.
 - RESOLU 2026-08-05 - Le cache wallet conserve et relit les entrees positives au-dela du TTL lorsque le pruning les preserve. Les formats compact et historique sont testes; les entrees zero continuent d'expirer.
 - RESOLU 2026-08-05 - `dist/package.json` restait en `4.15.50` alors que les configs qu'il embarque etaient passees a `4.16.47`. Ce n'est pas que cosmetique: `@wcore/chains` est consomme par une dependance `file:` que pnpm materialise en copie figee dans son store, donc une version immobile ne donne aux consommateurs aucun signal de changement de config. L'extracteur l'ecrit desormais depuis `WCORE_VERSION`, et un test de garde echoue si les deux divergent a nouveau. Les versions de modules (`GSHEET_WEB_SCAN_VERSION`, etc.) restent independantes par conception du ModuleRegistry.
+
+## Findings du 2026-08-06 - mecanismes definis mais jamais declenches
+
+Cinq defauts trouves en tirant un seul fil, celui d'une cellule `B1` en erreur. Ils
+partagent tous la meme signature, deja rencontree avec `assertNoDnsRebind` (P1-6):
+**du code correct que personne n'appelle**. Rien n'echoue, aucune alerte ne se leve,
+le systeme sert simplement une information fausse ou figee, en silence.
+
+- RESOLU 2026-08-06 - `Portefeuille Action` parsait le JSON **apres** sa boucle de retry, la ou `Portefeuille Crypto` le parsait dedans. Une reponse HTTP 200 vide ou tronquee n'etait donc jamais reessayee et remontait telle quelle en `B1` (`ERROR: Unexpected end of JSON input`). Les deux chemins sont symetriques et testes sur corps vide, JSON tronque et statut HTTP authentique.
+- RESOLU 2026-08-06 - L'alerte "DONNEES FIGEES" se declenchait a 2 h alors que `WATCHDOG_FROM_RECAP` ne repulse une feuille saine qu'au-dela de `WD_STALE_I1_HOURS` (5 h). Toute feuille valide etait donc signalee entre 2 h et 5 h, **par construction et non par accident**. Le seuil est desormais derive de cette constante, avec marge, pour que les deux ne puissent plus diverger.
+- RESOLU 2026-08-06 - `cache.updatedAt` est rendu par `_fromEpochSec_` sous forme de **chaine**, mais `Format.datetime` exige un nombre (`Num.isValid` teste `typeof`). Les appelants testaient la valeur en truthy — une chaine passe — puis la formataient: le statut devenait `[CACHE_ONLY] [FRESH] N/A`. Un statut sans horodatage n'est pas qu'illisible, il est **non parsable par le watchdog**, qui extrait une date de `I1` pour planifier. Observe sur `Ledger - Degen`.
+- RESOLU 2026-08-06 - `FLAGS.DISABLE_CHAIN` etait declare dans 14 configs **sans aucun lecteur cote Apps Script**: le drapeau n'agissait que sur `/api/chains`. Les onglets Ledger de ces chaines restaient pulses, et chaque pulse declenche un appel HTTP alors qu'aucun scan ne peut aboutir. Mesure sur `Ledger - DuckChain`: re-pulse a 13:45:55 puis 15:36:00, boucle entretenue par `[WEB_SCAN_PRESERVED]` qui force `needsPulse` sans condition. Statut terminal `[CHAIN_DISABLED]` ajoute, lu par les trois moteurs et respecte par le watchdog.
+- RESOLU 2026-08-06 - Le store de RPC dynamiques annonce "TTL: 30 days (auto-expires if trigger stops running)" et suppose un trigger hebdomadaire **qui n'avait jamais ete installe**. `DYNAMIC_RPC_STATUS` renvoyait `EMPTY`: WCORE tournait depuis au moins un mois sur les seuls endpoints codes en dur, sans jamais decouvrir les nouveaux ni ecarter les morts. Premiere execution apres correction: **284 endpoints sur 106 chaines, dont 15 ecartes** parce qu'ils ne repondaient plus.
+
+Repartition des horodatages clarifiee au passage: `I1`/`J1` datent la **tentative**
+(J1 est le latch qui declenche le recalcul de `A1`; un latch figé empeche la ligne
+`ERROR` d'etre reactualisee), tandis que l'age reel de la donnee appartient a la
+ligne `ERROR`. Seul `[CACHE_ONLY]` conserve la date de la **donnee**, car la regle
+de re-pulse v4.16.46 compare `B1` a cette date pour detecter un cache servi en boucle.
+
+Incident introduit puis corrige le meme jour: `everyWeeks(1)` sans `onWeekDay()` est
+rejete par GAS. L'exception interrompait `_wcoreAutoHealCreateManagedTriggers_`, donc
+les triggers declares **apres** n'etaient pas recrees apres leur suppression
+(`CEX_MANUAL_REFRESH_WORKER`, `LEDGER_ON_CHANGE`, `MASTER_ON_EDIT`). Detecte
+immediatement en production, corrige, six declencheurs verifies presents. La creation
+de ce trigger est desormais isolee par un `try/catch` qui remonte l'erreur dans
+`stats`: un rafraichissement mensuel ne doit pas pouvoir bloquer des triggers
+critiques. Un test statique ne pouvait pas voir ce defaut — il lisait du texte, pas
+une execution.
+
+Reste ouvert: `DEGEN` n'a plus qu'un endpoint au registre officiel
+(`chainid.network`, chaine `incubating`), en HTTP 429 permanent depuis deux IP
+distinctes. Les deux autres ont ete retires apres mesure sur `eth_chainId`,
+`eth_blockNumber` et `eth_getBalance` — `degen.drpc.org` en 404 partout,
+`666666666.rpc.thirdweb.com` servant le bon chainId mais refusant les methodes
+utiles. Effet verifie en production: 6 erreurs de scan ramenees a 3. La chaine reste
+active et son cache protege; seul un endpoint utilisable la debloquera.
 
 ## Findings P3 et dette documentaire
 

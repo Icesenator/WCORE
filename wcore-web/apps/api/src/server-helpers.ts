@@ -261,3 +261,39 @@ export function registerPostAuthRateLimit(app: FastifyInstance, deps: PostAuthRa
     await applyPostAuthRateLimit(req, reply, deps);
   });
 }
+
+/**
+ * Chaines dont plus aucun endpoint RPC ne repond.
+ *
+ * Une chaine morte ne declenche rien aujourd'hui: le scan echoue, le cache est
+ * preserve, et personne ne le voit. "Ledger - Degen" est reste ainsi du
+ * 2026-08-04 au 2026-08-06 — trois RPC hors service — jusqu'a ce qu'un humain
+ * remarque une cellule figee.
+ *
+ * Critere volontairement strict, pour que l'alerte garde sa valeur de signal:
+ *  - au moins `minScans` scans observes, sinon un demarrage suffirait a alerter;
+ *  - au moins une erreur RPC par scan, donc un echec systematique et non un
+ *    endpoint lent de temps en temps;
+ *  - aucun token trouve, ce qui distingue une chaine injoignable d'une chaine
+ *    saine dont le wallet est simplement vide (celle-ci ne produit aucune
+ *    erreur RPC).
+ */
+export interface ChainScanMetrics {
+  scans: number;
+  tokensFound: number;
+  rpcErrors: number;
+}
+
+export function findUnreachableChains(
+  byChain: Record<string, ChainScanMetrics>,
+  minScans = 3,
+): string[] {
+  const out: string[] = [];
+  for (const [chain, m] of Object.entries(byChain ?? {})) {
+    if (!m || m.scans < minScans) continue;
+    if (m.tokensFound > 0) continue;
+    if (m.rpcErrors < m.scans) continue;
+    out.push(chain);
+  }
+  return out.sort();
+}

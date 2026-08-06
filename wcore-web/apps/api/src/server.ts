@@ -26,7 +26,7 @@ import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
 import { RealTPriceSource } from "@wcore/core";
-import { buildChainScan, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
+import { buildChainScan, findUnreachableChains, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
 import { apiConfig } from "./config.js";
 
@@ -168,6 +168,11 @@ async function recordOpsEvent(type: string, severity: string, message: string, d
   } catch (e) { console.error("recordOpsEvent DB error:", (e).message || String(e)); }
 }
 
+// Memoire des chaines deja signalees: l'alerte doit se lever une fois, pas
+// toutes les 5 minutes. Repartie a zero au redemarrage, ce qui est voulu — une
+// chaine toujours morte sera re-signalee apres un deploiement.
+const unreachableChainsAlerted = new Set<string>();
+
 async function snapshotMetrics() {
   try {
     const snap = metrics.snapshot();
@@ -182,6 +187,24 @@ async function snapshotMetrics() {
     const rpcErrors = Object.values(snap.errors.byChain).reduce((s, c) => s + c.rpc, 0);
     const pricingErrors = Object.values(snap.errors.byChain).reduce((s, c) => s + c.pricing, 0);
     const status = !dbOk ? "down" : openCircuits > 0 ? "degraded" : "ok";
+    // Une chaine dont tous les RPC sont morts n'ouvre aucun circuit et ne fait
+    // rien echouer: le scan est degrade, le cache preserve, et personne ne le
+    // voit. "Ledger - Degen" est reste ainsi deux jours. On le signale une fois
+    // par chaine, sinon l'alerte se repeterait toutes les 5 min et perdrait sa
+    // valeur de signal.
+    for (const chain of findUnreachableChains(snap.scans.byChain)) {
+      if (unreachableChainsAlerted.has(chain)) continue;
+      unreachableChainsAlerted.add(chain);
+      const m = snap.scans.byChain[chain];
+      console.warn(`[chain_unreachable] ${chain}: ${m?.rpcErrors ?? 0} RPC errors over ${m?.scans ?? 0} scans, 0 token found`);
+      sendAlert({
+        type: "chain_unreachable",
+        severity: "warning",
+        service: "wcore-api",
+        ts: new Date().toISOString(),
+        data: { chain, scans: m?.scans ?? 0, rpcErrors: m?.rpcErrors ?? 0 },
+      }).catch(() => { /* alerting is best-effort, never blocks the snapshot */ });
+    }
     await prisma.systemMetricSnapshot.create({ data: { status, dbOk, redisOk, openCircuits, rpcErrors, pricingErrors, scanCount: snap.scans.total, gm24h, gm7d, gm30d } });
     await prisma.systemMetricSnapshot.deleteMany({ where: { createdAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } } });
     await prisma.opsEvent.deleteMany({ where: { createdAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } } });

@@ -120,9 +120,23 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   // Cout reel tres faible: UPDATE_DYNAMIC_RPCS s'auto-skip tant que les
   // donnees ont moins de 25 jours, et ne teste qu'un tiers des chaines par
   // cycle (~80 appels), soit environ un cycle utile par mois.
+  // GAS refuse everyWeeks() sans onWeekDay(): "You tried to create a weekly
+  // trigger, but did not specify which day in the week." Le try/catch est
+  // volontaire et borne a CE trigger: la creation des triggers suivants
+  // (CEX_MANUAL_REFRESH_WORKER, LEDGER_ON_CHANGE, MASTER_ON_EDIT) ne doit pas
+  // etre annulee par l'echec d'un rafraichissement mensuel. L'erreur est
+  // remontee dans stats, jamais avalee en silence.
   if (typeof UPDATE_DYNAMIC_RPCS === "function") {
-    ScriptApp.newTrigger("UPDATE_DYNAMIC_RPCS").timeBased().everyWeeks(1).create();
-    stats.timeTriggers++;
+    try {
+      ScriptApp.newTrigger("UPDATE_DYNAMIC_RPCS")
+        .timeBased()
+        .onWeekDay(ScriptApp.WeekDay.MONDAY)
+        .atHour(4)
+        .create();
+      stats.timeTriggers++;
+    } catch (eDynRpc) {
+      stats.dynamicRpcTriggerError = String(eDynRpc && eDynRpc.message ? eDynRpc.message : eDynRpc);
+    }
   }
   // v4.15.118: 1-min safety net that drains the CEX_MANUAL_JOB_QUEUE.
   // GAS one-shot triggers (after(1s)) have ~1 min granularity and silently

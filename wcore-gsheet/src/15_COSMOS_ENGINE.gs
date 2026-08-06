@@ -624,6 +624,8 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
   // UrlFetch attempts when Sheets re-evaluates I1 without a new pulse.
   var _httpBefore = BaseEngine.httpSnapshot();
   var cosmosCacheBefore = null;
+  var cosmosChainDisabled = BaseEngine.chainDisabledStatus ? BaseEngine.chainDisabledStatus(address, cfg) : "";
+  if (cosmosChainDisabled) return cosmosChainDisabled;
   try {
     CacheManager.init();
     cosmosCacheBefore = WalletCache.load(address, null, cfg);

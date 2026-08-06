@@ -553,12 +553,12 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
     var ss = _wcoreGetSpreadsheet_();
     var recap = ss.getSheetByName(RECAP_SHEET_NAME);
     if (!recap) {
-      return [["ERROR", "Recap Chain sheet not found"]];
+      return [["ERROR", "Recap Portfolio sheet not found"]];
     }
     
     var lastRow = recap.getLastRow();
     if (lastRow < 2) {
-      return [["INFO", "No data in Recap Chain"]];
+      return [["INFO", "No data in Recap Portfolio"]];
     }
     
     // Find Rotation.cycle column

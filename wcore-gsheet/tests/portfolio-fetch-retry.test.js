@@ -83,6 +83,43 @@ test('stock snapshot fetch does not retry a genuine HTTP error status', () => {
   assert.equal(calls, 1, 'a 401 is authoritative and must not be retried');
 });
 
+test('stock snapshot fetch retries an HTTP 200 response with an empty JSON body', () => {
+  let calls = 0;
+  const ctx = makeContext(stockSource, () => {
+    calls++;
+    if (calls < 3) return { getResponseCode: () => 200, getContentText: () => '' };
+    return okResponse(stockSnapshot);
+  });
+  const snapshot = ctx._stockPortfolioFetchSnapshot_();
+  assert.equal(calls, 3, 'must retry an incomplete HTTP 200 response before succeeding');
+  assert.equal(snapshot.ok, true, 'snapshot must be returned after a complete JSON response');
+});
+
+test('stock snapshot fetch retries an HTTP 200 response with truncated JSON', () => {
+  let calls = 0;
+  const ctx = makeContext(stockSource, () => {
+    calls++;
+    if (calls < 3) return { getResponseCode: () => 200, getContentText: () => '{"ok":true,"rows":[' };
+    return okResponse(stockSnapshot);
+  });
+  const snapshot = ctx._stockPortfolioFetchSnapshot_();
+  assert.equal(calls, 3, 'must retry truncated JSON before succeeding');
+  assert.equal(snapshot.ok, true, 'snapshot must be returned after a complete JSON response');
+});
+
+test('stock snapshot fetch reports incomplete JSON after three attempts', () => {
+  let calls = 0;
+  const ctx = makeContext(stockSource, () => {
+    calls++;
+    return { getResponseCode: () => 200, getContentText: () => '{"ok":true,"rows":[' };
+  });
+  assert.throws(
+    () => ctx._stockPortfolioFetchSnapshot_(),
+    /WCORE stock portfolio incomplete JSON response: bodyLength=/,
+  );
+  assert.equal(calls, 3, 'must stop after the configured retry limit');
+});
+
 // --- Crypto portfolio ---
 
 test('crypto snapshot fetch retries a transient "Address unavailable" network throw', () => {

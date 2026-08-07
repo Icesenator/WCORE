@@ -12,6 +12,8 @@ WCORE compile, passe ses suites locales et sert correctement ses trois services.
 
 Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et les jobs async sont persistants avec claim atomique, et l'historique Prisma est reconstructible.
 
+Statut final: aucun finding P1, P2 ou P3 actionnable ne reste ouvert. Les seuls residus sont une option de webhook sans destination fournie, une dette de taille Apps Script explicitement acceptee et des limites de mesure documentees.
+
 ## Etat mesure
 
 | Axe | Resultat au 2026-08-07 |
@@ -240,7 +242,7 @@ position suivie ni infrastructure publique exploitable.
 - RESOLU - Ce premier total de 36 etait lui-meme double: `recordScan()` ajoutait les erreurs aux totaux, puis `recordRpcError()` ajoutait les memes une seconde fois pour conserver leurs echantillons. Les responsabilites sont separees. Verification production apres redemarrage: trois scans avec trois erreurs chacun donnent exactement `rpc=9`.
 - RESOLU - Le premier detecteur `chain_unreachable` exigeait `tokensFound=0`. Or WCORE preserve justement le cache en panne et `buildChainScan()` compte toujours le natif: DEGEN remontait un token conserve, donc l'alerte ne pouvait jamais se lever. Chaque scan compte desormais separement le marqueur strict `unavailable on every endpoint` / `all RPC endpoints failed`, independamment du cache. Les circuits `OPEN` restent un signal suffisant.
 - Verification bout en bout: trois scans forces DEGEN ont remonte le meme echec total, puis le snapshot suivant a persiste un unique `opsEvent` `chain_unreachable` (`scans=3`, `rpcErrors=9`, `circuitOpen=false`) le 2026-08-06 a 17:03:32 UTC. L'evenement est consultable sur `/api/admin/events`; l'ancien commentaire `/api/admin/health` pointait une route inexistante et a ete corrige.
-- LIMITE - `ALERT_WEBHOOK_URL` n'est pas configure sur l'API Railway. `sendAlert()` est donc volontairement un no-op et aucune notification ne quitte encore Railway. Le log et l'`opsEvent` persistant constituent les canaux disponibles jusqu'a fourniture d'une URL de webhook.
+- OPTIONNEL NON CONFIGURE - `ALERT_WEBHOOK_URL` n'est pas configure sur l'API Railway. `sendAlert()` est donc volontairement un no-op et aucune notification ne quitte encore Railway. Le log et l'`opsEvent` persistant sont les canaux retenus; une notification externe ne pourra etre ajoutee que si une URL de destination est fournie. Ce point ne bloque aucun constat de l'audit.
 
 ## Findings P3 et dette documentaire
 
@@ -254,7 +256,7 @@ position suivie ni infrastructure publique exploitable.
 - RESOLU 2026-08-05 - `wcore-web/AGENTS.md` et `ROADMAP.md` presentent Coinbase et OKX comme actifs; le document transversal couvre les sept CEX.
 - RESOLU 2026-08-05 - Les trois dependances n'ont aucun import dans le monorepo et sont retirees. `@cosmjs/crypto` et `@cosmjs/encoding` sont conservees: `auth.ts` derive les adresses Cosmos avec elles.
 - RESOLU 2026-08-05 - `pnpm dev` lance `src/dev.ts`, qui applique `NODE_ENV=development` seulement lorsqu'il est absent; le comportement local rejoint `.env.example` sans ecraser un environnement explicite.
-- 19 fichiers `.gs` depassent 1 000 lignes; `27_ACTIVITY_REFRESH.gs` atteint environ 3 151 lignes.
+- DETTE ACCEPTEE - 19 fichiers `.gs` depassent 1 000 lignes; `27_ACTIVITY_REFRESH.gs` atteint environ 3 151 lignes. Aucun defaut fonctionnel n'en decoule dans cet audit et un decoupage transversal risquerait l'ordre de chargement Apps Script; il n'est donc pas engage sans besoin produit concret.
 
 ## Constats precedents resolus
 
@@ -267,7 +269,7 @@ position suivie ni infrastructure publique exploitable.
 - G6 retry A2/J1 infini: budget 3 retries/24 h ajoute.
 - A4 scripts npm GSheet absents: les references cassees ne sont plus dans `package.json`.
 - Mojibake des trois gros documents Web: les motifs historiques ne sont plus presents dans les fichiers controles.
-- Derive `src/ -> dist/` silencieuse: workflow `Chains` ajoute et vert. Ce workflow ne valide toutefois pas les chainIds contre les RPC vivants.
+- Derive `src/ -> dist/` silencieuse: workflow `Chains` ajoute et vert. Le workflow planifie `Chain IDs` complete cette preuve contre les RPC vivants; son execution manuelle `#1` est verte.
 
 ## Controles production
 
@@ -314,7 +316,7 @@ position suivie ni infrastructure publique exploitable.
 
 1. FAIT: contrats Cosmos/SVM/queue CEX corriges et testes.
 2. FAIT: versions, compte de chaines, triggers CEX et template d'environnement alignes.
-3. FAIT pour les chainIds et le signal de chaine injoignable depuis Railway; RESTE: configurer un webhook externe si une notification hors plateforme est souhaitee.
+3. FAIT pour les chainIds et le signal de chaine injoignable depuis Railway. Le webhook externe reste une option non bloquante, sans destination fournie.
 4. FAIT pour les fan-outs identifies; poursuivre la surveillance du cout RPC en production.
 
 ## Limites

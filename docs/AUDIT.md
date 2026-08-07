@@ -1,44 +1,99 @@
 # WCORE - Audit transversal
 
-> Date de verification: 2026-08-07
-> Revision fonctionnelle auditee: `10b102a492bb0034683f8aa526846ef66937f940`; les correctifs de la seconde vague sont consignes dans "Findings du 2026-08-06".
+> Date de verification: 2026-08-07 (contre-audit)
+> Revision fonctionnelle auditee: `3ce1261`; le contre-audit est parti de `ca5d548` sans traiter les mentions `RESOLU` comme preuve.
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
-> Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.60, l'API `a3f90de3-fd6a-40ed-8099-e7f4214604e7` et le Web `0aa91b3b-bb3c-421e-8630-2883496ed778` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
+> Methode: quatre revues independantes et paralleles (API/securite/persistance, Web, chaines/Apps Script, CI/exploitation), relecture du code courant plutot que des statuts declares, puis correction, tests, deploiement et controle en production. Aucun secret n'a ete affiche ou copie.
+> Suivi: Apps Script 4.16.61, l'API `0a1686cc` et le Web `914a9c9b` sont deployes et verifies depuis la production.
 
 ## Resume executif
 
-WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #25`, `Chain IDs #1` et CI jusqu'a `#521` sont verts, y compris la reconstruction PostgreSQL, la suite API complete sur PostgreSQL/Redis isoles, les tests reels de claim concurrent, reprise et fencing de la file durable, les E2E et le controle direct des chainIds par les RPC publics. Les actions GitHub utilisent leur runtime Node 24 sans annotation de deprecation. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
+Le contre-audit invalide la conclusion precedente. La phrase "aucun finding actionnable ne reste ouvert" etait fausse: dix-neuf defauts concrets ont ete confirmes en relisant le code, dont plusieurs perdaient des donnees utilisateur ou affaiblissaient une garde de securite qu'un test verrouillait pourtant comme correcte.
 
-Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et les jobs async sont persistants avec claim atomique, et l'historique Prisma est reconstructible.
+Trois constats meritent d'etre nommes, parce qu'ils partagent la meme signature: **une protection existait, un test la declarait bonne, et elle ne protegeait rien.** `safeFetch` validait la premiere URL puis suivait les redirections sans les revalider, et son garde DNS echouait ouvert - deux tests exigeaient explicitement ce comportement. Le budget de scan pondere lisait puis ecrivait sans atomicite, et ses tests actaient un depassement de 5 000 a 7 200. Le rafraichissement Web remplacait un portefeuille valide par des zeros des qu'un lot echouait, ce que le commentaire du fichier promettait pourtant d'eviter.
 
-Statut final: aucun finding P1, P2 ou P3 actionnable ne reste ouvert. Les seuls residus sont une option de webhook sans destination fournie, une dette de taille Apps Script explicitement acceptee et des limites de mesure documentees.
+Aucun P0 n'a ete confirme. Les dix-neuf constats corriges sont listes ci-dessous avec leur preuve; les constats confirmes mais non corriges sont listes separement, avec leur severite, plutot que passes sous silence.
 
 ## Etat mesure
 
 | Axe | Resultat au 2026-08-07 |
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
-| GitHub Actions | `Chains #25`, `Chain IDs #1` et CI `#521` verts; 5 jobs CI sur 5 dont API integration, PostgreSQL, Redis et E2E; zero annotation |
-| Railway | API `a3f90de3`, Web `0aa91b3b` et relais `Online`; derniers deploys cibles `SUCCESS` |
+| GitHub Actions | CI verte sur `103a9c0` (5 jobs), `Relay` verte sur `efd1cc9`, `Chains` verte; zero annotation de runtime deprecie |
+| Railway | API `0a1686cc`, Web `914a9c9b` et relais `Online`; tous `SUCCESS`/`RUNNING` |
+| Readiness API | `/ready` retourne 200: PostgreSQL et Redis joignables |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
 | Sweep RPC initial | 464 endpoints testes; 336 reponses valides, 128 echecs avec timeout 5 s/concurrence 24 |
 | Reprise ciblee | 34 endpoints sur 18 chaines, timeout 10 s/concurrence 4; 16 valides, 18 en echec |
 | Apps Script | worker CEX recree; executions de nettoyage puis d'auto-heal force chargees `Terminee` |
-| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.60`; projet distant pousse sans changement de scopes OAuth |
+| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.61`; 250 fichiers pousses, scopes OAuth inchanges |
 | Lint | passe, 0 erreur affichee |
 | TypeScript | typecheck des 5 projets passe |
 | Build | packages, API et Next.js 16.2.12 passent |
-| Tests Core | 322/322 |
-| Tests Shared | 21/21 |
-| Tests Web | 173/173 |
-| Tests relais | 37/37 |
-| Tests GSheet | passent; 3 145 fonctions globales validees; ports Phase 3: 181 |
+| Tests Core | 329/329 |
+| Tests Shared | 21/21, desormais executes par la CI |
+| Tests Web | 182/182 |
+| Tests relais | 40/40, desormais executes par la CI sur Node 22 |
+| Tests GSheet | 36/36; le script en executait 24 sur 35 avant correction; 3 145 fonctions globales validees; ports Phase 3: 181 |
 | Dependances Web | `pnpm audit --prod --audit-level=high`: aucune vulnerabilite connue |
-| Tests API integration | 513 tests executes dans CI `#519` sur PostgreSQL 16 et Redis 7 isoles: 512 passes, 0 echec, 1 skip intentionnel |
+| Tests API integration | 528 tests sur PostgreSQL 16 et Redis 7 isoles: 0 echec |
 | Environnement local | Node 24.18.1; CI et images ciblent Node 22 |
+
+## Findings du 2026-08-07 - contre-audit
+
+Les constats ci-dessous ont ete trouves en relisant le code courant, sans reutiliser
+les statuts declares. Chacun a ete corrige, teste et deploye.
+
+### Securite
+
+- RESOLU - `safeFetch` ne validait que la premiere URL. Une reponse `302 Location: http://169.254.169.254/...` d'un RPC compromis etait suivie sans aucun controle, ce qui redonnait exactement l'acces aux metadonnees cloud que le garde P1-6 pretendait fermer. Les redirections sont desormais suivies manuellement, bornees a cinq, chaque destination est revalidee, les boucles sont refusees et la semantique de methode 301/302/303/307/308 est conservee.
+- RESOLU - Le meme garde echouait **ouvert** quand la resolution DNS levait une erreur, et `safe-http.test.ts` exigeait ce comportement. Un nom controle pouvait donc repondre `SERVFAIL` au controle puis une adresse privee a la connexion. La resolution echoue desormais fermee sur erreur comme sur resultat vide, et le test qui verrouillait le defaut a ete inverse.
+- RESOLU - `consumeScanBudget` faisait `get` puis `set`: des requetes paralleles lisaient toutes le meme compteur et etaient toutes admises. Le test actait qu'un budget de 5 000 pouvait atteindre 7 200. Une primitive atomique ponderee (script Lua Redis, equivalent memoire) refuse desormais `courant + cout > limite`, pose le TTL a la premiere consommation et echoue fermee si elle est indisponible.
+- RESOLU - `GET /api/scan/async/:jobId` retournait le bucket `null` et echappait donc a **tous** les rate limits, y compris le catch-all, tout en faisant une requete PostgreSQL par appel. Un bucket `scan_poll` dedie et large borne desormais le polling sans consommer le budget d'admission.
+
+### Perte de donnees utilisateur
+
+- RESOLU - Apres epuisement des tentatives, le rafraichissement Web fabriquait une chaine a zero et **remplacait** le resultat valide precedent: un portefeuille affiche a 10 000 EUR tombait a 0 pendant une coupure reseau. Les actifs anterieurs sont desormais conserves et marques degrades.
+- RESOLU - L'orchestrateur envoyait toutes les adresses d'une VM dans une seule requete alors que le serveur en accepte 20. Au-dela de 20 wallets, **chaque** lot repondait `400` et le defaut precedent transformait ensuite tout le portefeuille en zeros. Les requetes sont decoupees a 20 adresses.
+- RESOLU - Une adresse locale invalide contaminait le lot entier: le serveur validait tout avant de scanner, donc un `my wallet` saisi a cote de wallets valides faisait echouer les wallets valides. Les adresses invalides sont exclues avant l'appel.
+- RESOLU - Les moteurs SVM et Cosmos ecrasaient un cache positif des qu'un endpoint repondait vide avec succes, et un test Cosmos exigeait ce zero destructeur. Une reponse vide non corroboree preserve desormais le cache en mode degrade.
+- RESOLU - Les jettons TON n'etaient **jamais** lus: le moteur les cherchait dans `GET /v2/accounts/{address}`, ou TonAPI ne les renvoie pas. Seul le solde natif remontait, et le test simulait une forme de reponse inexistante. Les deux endpoints sont interroges separement, avec preservation du cache jetton en cas d'echec partiel.
+
+### Integrite des chaines
+
+- RESOLU - Les endpoints EVM statiques n'etaient jamais confrontes a leur reseau reel au runtime: seuls les endpoints dynamiques etaient valides. Une chaine mono-RPC servant un autre reseau produisait des soldes plausibles et faux. Un preflight `eth_chainId` mis en cache exclut desormais les endpoints hors reseau avant toute lecture de solde.
+- RESOLU - `getWalletAssets` ignorait `FLAGS.DISABLE_CHAIN`: les 15 chaines desactivees restaient scannables par tout consommateur direct de `@wcore/core`. Le garde est applique au dispatch.
+- RESOLU - TON etait publie sous le symbole `GRAM`/`Gram`. Verifie en production apres deploiement: le grand livre affiche `TON` avec solde et valorisation preserves.
+
+### Exploitation
+
+- RESOLU - Une panne Redis etait rapportee **saine**: le statut ne regardait que PostgreSQL et les circuits. Redis entre dans le calcul, les transitions `db_down`/`redis_down` et leurs retablissements emettent un evenement unique, et `/ready` expose la disponibilite reelle des dependances.
+- RESOLU - La sauvegarde JSON planifiee omettait `ScanJob`, `CexAccount`, `CexHolding` et `Ticket`, nommait un modele inexistant, ignorait silencieusement les modeles en echec et affichait malgre tout "Backup complete". Elle couvre desormais les 19 modeles du schema, echoue en bloc a la moindre absence et ecrit de facon atomique.
+- RESOLU - `setup-backup-task.ps1` pointait un chemin absolu d'une autre machine et inscrivait l'URL de base directement dans l'action planifiee. Chemin resolu relativement, credentials charges au runtime.
+- RESOLU - `safe-push.ps1` n'inspectait pas le code de sortie de `clasp pull` avant un `clasp push --force`, alors que le README garantit qu'aucun fichier distant n'est supprime. Un pull incomplet pouvait donc effacer des fichiers presents uniquement cote Apps Script. Le script abandonne desormais sur tout pull non nul.
+
+### Couverture de tests
+
+- RESOLU - `npm test` de `wcore-gsheet` executait 24 fichiers sur 35. Parmi les 11 ignores, **deux echouaient reellement**, dont un garde de formule qui laissait une ligne `Exclude` produire un marqueur d'achat. Tous les fichiers sont executes et le defaut de formule est corrige.
+- RESOLU - La CI n'executait pas les tests `@wcore/shared` (factories, config de chaines, cles de cache) et aucun workflow ne couvrait le relais: un push direct sur le relais ne declenchait rien. Les deux sont desormais executes.
+- RESOLU - La suite du relais echouait sur **Node 22**, la version qui l'execute en production, alors qu'elle passait sur le Node 24 local. Deux causes: la decouverte implicite melangeait execution parente et enfants, et un test n'attendait qu'une echeance `AbortSignal.timeout`, dont la minuterie est volontairement non referencee. Fichiers explicites et boucle maintenue ouverte pendant l'assertion.
+- RESOLU - La configuration `gitleaks` personnalisee n'etait jamais chargee: l'action tournait depuis la racine sans `GITLEAKS_CONFIG`, donc les regles OAuth, Blockscout, Postgres et Redis ne s'appliquaient pas.
+
+### Constats confirmes et non corriges
+
+Ils sont reels et documentes ici plutot que refermes sans traitement.
+
+- P2 - Un GM on-chain ancien peut recevoir les points du jour: le score et `lastGmDate` utilisent l'heure de la requete alors que `createdAt` utilise bien l'horodatage de l'evenement. Un utilisateur peut soumettre une transaction ancienne par jour et marquer des points.
+- P2 - Deux GM concurrents sur des chaines differentes peuvent tous deux accorder le bonus quotidien general: la transaction protege le rejeu par `(chainKey, txHash)` mais ne serialise pas l'etat de streak utilisateur. Le chemin off-chain applique deja la garde conditionnelle qui manque ici.
+- P2 - La synchronisation CEX n'est ni serialisee ni fencee: deux syncs concurrents peuvent supprimer avant de recreer, et un sync lance avec d'anciens identifiants peut ecraser le resultat des nouveaux.
+- P2 - `CEX_SECRET` ne peut pas etre rotate: l'enveloppe chiffree ne porte aucune version de cle, donc une rotation rendrait tous les identifiants d'echange indechiffrables d'un coup.
+- P2 - Si Redis est injoignable au demarrage, l'API bascule en cache memoire et l'usage unique du refresh token devient process-local: le meme token vole pourrait etre echange sur deux repliques.
+- P3 - Les jetons de flux SSE vivent dans une `Map` de processus: un token cree sur une replique est refuse par une autre.
+- P3 - L'unicite des overrides scam ne couvre pas les entrees sans contrat, donc des doublons symbole-seul concurrents restent possibles.
+- P3 - Les overlays de connexion et d'accueil ne sont pas des dialogues accessibles (pas de `role="dialog"`, pas de piege de focus, pas de fermeture clavier).
+- P3 - Le compteur "Wallets" du resume ignore les comptes CEX, alors que leur valeur entre dans le total.
 
 ## Findings P1
 
@@ -100,7 +155,7 @@ Statut final: aucun finding P1, P2 ou P3 actionnable ne reste ouvert. Les seuls 
 - `wcore-web/packages/db/prisma/schema.prisma:193,280` mappe `scam_overrides` et `tickets`, qu'aucune des 16 `CREATE TABLE` des migrations ne creait.
 - Correction: `20260518102000_create_scam_overrides_and_tickets` cree les deux tables avant la migration qui les altere, puis `20260803090000_align_scam_override_unique` installe l'unicite composite du schema. Aucune migration deja appliquee n'a ete modifiee, ce qui aurait invalide sa somme de controle en production.
 - Chaque bloc est garde par `to_regclass(...) IS NULL`, donc strictement no-op sur la base de production creee historiquement par `db push` puis baselinee.
-- Verification: nouveau job CI `migrations` qui rejoue tout l'historique sur un PostgreSQL vierge puis exige `prisma migrate diff --exit-code` sans derive. Non verifiable localement, Docker n'etant pas disponible sur cette machine.
+- Verification: nouveau job CI `migrations` qui rejoue tout l'historique sur un PostgreSQL vierge. Correction 2026-08-07: le controle n'utilise pas `--exit-code`; il est volontairement unidirectionnel et filtre `DROP INDEX`/`DROP COLUMN`. Il echoue donc si l'historique ne cree pas ce que le schema exige, mais tolere l'inverse - colonnes Stripe residuelles et index unique partiel inexprimable en Prisma, tous deux assumes.
 
 ### P1-6 - Protection DNS rebinding inactive - RESOLU 2026-08-03
 
@@ -319,9 +374,22 @@ position suivie ni infrastructure publique exploitable.
 3. FAIT pour les chainIds et le signal de chaine injoignable depuis Railway. Le webhook externe reste une option non bloquante, sans destination fournie.
 4. FAIT pour les fan-outs identifies; poursuivre la surveillance du cout RPC en production.
 
+### Sprint 3 - suites du contre-audit du 7 aout
+
+1. FAIT: redirections `safeFetch` validees, garde DNS ferme, budget de scan atomique, polling borne.
+2. FAIT: portefeuilles preserves sur echec de rafraichissement, lots bornes a 20 adresses, adresses invalides isolees, caches SVM/Cosmos non destructifs, jettons TON lus.
+3. FAIT: identite de chaine verifiee au runtime, chaines desactivees refusees au dispatch, TON publie sous son vrai symbole.
+4. FAIT: Redis dans la sante et les alertes, `/ready`, sauvegardes exhaustives et fail-closed, `safe-push` refusant un pull incomplet.
+5. FAIT: tests GSheet tous executes, tests Shared et relais couverts par la CI, relais vert sur Node 22, `gitleaks` reellement configure.
+6. A FAIRE: fenetre de scoring GM sur evenements anciens et serialisation du bonus quotidien inter-chaines.
+7. A FAIRE: bail de synchronisation CEX et versionnage de `CEX_SECRET` pour permettre une rotation.
+8. A FAIRE: refuser l'emission de refresh tokens quand le magasin partage est indisponible; deplacer les jetons SSE hors du processus.
+
 ## Limites
 
 - La suite API integration DB/Redis complete n'est pas executee localement faute de services de test dedies. Elle tourne desormais a chaque CI sur PostgreSQL 16 et Redis 7 ephemeres et ne depend d'aucun secret ni service de production.
 - Le sweep RPC a ete lance depuis une seule machine. Des restrictions geographiques, IP ou rate limits peuvent produire des resultats differents depuis Google Apps Script et Railway.
 - Les taux d'erreur Apps Script sont ceux affiches par Google sur la fenetre de son interface; les executions recentes visibles etaient terminees, sans detail historique complet exporte.
 - Aucun scan exhaustif de wallets ni mutation destructive du classeur n'a ete effectue. Les deploiements et executions Apps Script mentionnes ont ete limites aux correctifs et controles decrits.
+- Lecon du contre-audit: un statut `RESOLU` n'est pas une preuve. Trois defauts de securite ou d'integrite survivaient derriere des tests verts qui exigeaient explicitement le comportement fautif. Un test qui encode le defaut est pire qu'une absence de test, parce qu'il eteint le signal.
+- Lecon d'environnement: la suite du relais passait sur le Node 24 local et echouait sur le Node 22 de production. Une suite doit tourner sur la version qui execute reellement le service, sinon elle mesure autre chose.

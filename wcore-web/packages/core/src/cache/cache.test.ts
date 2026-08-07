@@ -125,6 +125,19 @@ test("MemoryCacheStore add: expired key can be re-claimed", async () => {
   assert.equal(await cache.add("k", "1", 60_000), true);
 });
 
+test("MemoryCacheStore consume is atomic and never exceeds the weighted limit", async () => {
+  const cache = new MemoryCacheStore();
+  const results = await Promise.all(Array.from({ length: 100 }, () => cache.consume("budget", 75, 1000, 60)));
+  assert.equal(results.filter(Boolean).length, 13);
+  assert.equal(await cache.get("budget"), 975);
+});
+
+test("MemoryCacheStore consume rejects an oversized first request", async () => {
+  const cache = new MemoryCacheStore();
+  assert.equal(await cache.consume("budget", 1001, 1000, 60), false);
+  assert.equal(await cache.get("budget"), undefined);
+});
+
 test("MemoryCacheStore pipeline writes all ops and returns count", async () => {
   const cache = new MemoryCacheStore();
   const count = await cache.pipeline([

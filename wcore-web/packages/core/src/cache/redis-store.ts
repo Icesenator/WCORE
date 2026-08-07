@@ -51,6 +51,7 @@ export async function createCacheStore(options: RedisCacheOptions = {}): Promise
       mget(keys: string[]): Promise<(string | null)[]>;
       incr(key: string): Promise<number>;
       expire(key: string, seconds: number): Promise<number>;
+      eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
       pipeline(): {
         set(key: string, value: string, ...args: (string | number)[]): void;
         exec(): Promise<[Error | null, unknown][] | null>;
@@ -138,6 +139,37 @@ export async function createCacheStore(options: RedisCacheOptions = {}): Promise
         const count = await client.incr(key);
         await client.expire(key, ttlSec).catch(() => { /* best-effort */ });
         return count;
+      },
+      async consume(key: string, cost: number, limit: number, ttlSec: number): Promise<boolean> {
+        if (!Number.isSafeInteger(cost) || cost <= 0 || !Number.isSafeInteger(limit) || limit < 0 || ttlSec <= 0) return false;
+        try {
+          const result = await client.eval(
+            `local raw = redis.call("GET", KEYS[1])
+local current = 0
+if raw then
+  current = tonumber(raw)
+  if not current then return 0 end
+end
+local cost = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+if current + cost > limit then return 0 end
+if raw then
+  redis.call("INCRBY", KEYS[1], cost)
+else
+  redis.call("SET", KEYS[1], cost, "EX", ARGV[3])
+end
+return 1`,
+            1,
+            key,
+            cost,
+            limit,
+            ttlSec,
+          );
+          return result === 1;
+        } catch (err) {
+          reportError("consume", err);
+          return false;
+        }
       },
       async pipeline(ops: Array<{ key: string; value: unknown; ttlMs?: number }>): Promise<number> {
         if (ops.length === 0) return 0;

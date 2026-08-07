@@ -83,9 +83,16 @@ jobs:
           cache-dependency-path: wcore-web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wcore/db db:generate
 
       - name: Apply every migration to an empty database
         run: pnpm --filter @wcore/db exec prisma migrate deploy
+
+      - name: Exercise durable scan queue against PostgreSQL
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-only-scan-queue-secret-at-least-32-characters
+        run: pnpm --filter @wcore/api exec tsx --test src/plugins/scan-job.postgres.test.ts
 
       # The assertion is deliberately one-directional. Anything the schema needs but the
       # rebuilt database lacks is a bug: the application would break on a fresh database.

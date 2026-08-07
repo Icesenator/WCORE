@@ -76,6 +76,34 @@ model WalletScan {
   @@map("wallet_scans")
 }
 
+model ScanJob {
+  id             String    @id
+  ownerPrincipal String
+  userId         String?
+  ip             String?
+  address        String
+  status         String    @default("queued")
+  request        Json
+  progress       Json
+  result         Json?
+  attempts       Int       @default(0)
+  availableAt    DateTime  @default(now())
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  progressAt     DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  expiresAt      DateTime
+
+  @@index([status, availableAt, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([ownerPrincipal, status])
+  @@index([expiresAt])
+  @@map("scan_jobs")
+}
+
 model CexAccount {
   id                   String   @id @default(cuid())
   userId               String

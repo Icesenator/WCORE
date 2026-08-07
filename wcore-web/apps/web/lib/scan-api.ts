@@ -104,7 +104,7 @@ export async function fetchScan(
           return { chains: pollData.chains ?? [], totals: { valueEur: pollData.totalEur ?? 0, tokenCount: pollData.tokenCount ?? 0 } };
         }
       }
-      return { chains: [], totals: { valueEur: 0, tokenCount: 0 }, error: "timeout", message: "Async scan timed out after 6 minutes" };
+      return { chains: [], totals: { valueEur: 0, tokenCount: 0 }, error: "timeout", message: "Async scan timed out after 15 minutes" };
     } catch (e) {
       return { chains: [], totals: { valueEur: 0, tokenCount: 0 }, error: "network", message: String(e) };
     }

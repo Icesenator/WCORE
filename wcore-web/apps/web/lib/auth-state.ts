@@ -34,17 +34,10 @@ export function resolveRehydratedAuth(
 }
 
 /**
- * Whether a `wcore-auth-expired` event (or any transient session-expiry signal)
- * is allowed to demote the current auth step.
- *
- * A stale `/api/auth/me` issued at page load can resolve with 401 right after a
- * fresh login completes — the resulting refresh→401 chain fires `wcore-auth-expired`
- * a few milliseconds *after* we set "authenticated". If that demotes the session,
- * the user is bounced back to "Sign In" and must click twice.
- *
- * In-flight login steps and an already-authenticated session must be protected.
+ * Ignore only expiry events issued by requests from an older auth generation.
+ * A definitive access+refresh 401 in the current generation must transition
+ * the session out even when the UI is currently authenticated.
  */
-export function shouldHandleAuthExpired(currentStep: AuthStep): boolean {
-  const protectedSteps: AuthStep[] = ["authenticated", "connecting", "signing", "verifying"];
-  return !protectedSteps.includes(currentStep);
+export function shouldHandleAuthExpired(eventGeneration: number, currentGeneration: number): boolean {
+  return eventGeneration === currentGeneration;
 }

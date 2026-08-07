@@ -68,7 +68,8 @@ export function useGmOptional(): GmContextValue | undefined {
 }
 
 export function GmProvider({ children }: { children: ReactNode }) {
-  const { address: walletAddress } = useWallet();
+  const { address: walletAddress, authStep } = useWallet();
+  const authenticatedAddress = authStep === "authenticated" ? walletAddress : null;
 
   // Contract data — single shared fetch replaces N independent useGmContracts calls
   const {
@@ -79,7 +80,7 @@ export function GmProvider({ children }: { children: ReactNode }) {
     refreshContracts,
     withdrawCreator,
     withdrawPlatform,
-  } = useGmContracts(walletAddress);
+  } = useGmContracts(authenticatedAddress);
 
   // Global GM status
   const [offChainDoneToday, setOffChainDoneToday] = useState(false);

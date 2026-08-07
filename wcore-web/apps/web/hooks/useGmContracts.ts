@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { encodeFunctionData } from "viem";
 import { useSendTransaction, useAccount } from "wagmi";
 import { getFactory } from "@wcore/shared";
 import { gmOnChainAbi } from "@/lib/gm-abi";
 import { apiFetch } from "@/lib/api";
 import { useSafeSwitchChain } from "./useSafeSwitchChain";
-import { switchChainAny, sendTransactionAny, type RawProvider } from "@/lib/onchain-tx";
+import { switchChainAny, sendTransactionAny } from "@/lib/onchain-tx";
+import { useWallet } from "@/components/ConnectButton";
 
 const MIN_WITHDRAW_WEI = 1_000_000_000_000n;
 const LEGACY_GM_CHAIN_IDS: Record<string, number> = {
@@ -76,36 +77,35 @@ export function useGmContracts(address: string | undefined | null) {
   const [contracts, setContracts] = useState<GmContractWithBalance[]>(cachedKey === cacheKey ? cachedContracts : []);
   const [loading, setLoading] = useState(false);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
+  const activeKeyRef = useRef(cacheKey);
   const { sendTransactionAsync } = useSendTransaction();
   const safeSwitchChain = useSafeSwitchChain();
   const { isConnected } = useAccount();
+  const { rawProvider } = useWallet();
 
-  // Route through wagmi when a connector is connected, fall back to the raw
-  // injected provider otherwise. The wallet picker connects via the raw
+  // Keep the selected EIP-6963 provider authoritative; otherwise use wagmi.
+  // The wallet picker connects via the raw
   // EIP-6963 path (no wagmi connector), so wagmi's sendTransaction would throw
   // "connector not connected" for withdrawals. See lib/onchain-tx.ts.
   const buildSenders = useCallback(() => {
-    const rawProvider = (typeof window !== "undefined"
-      ? (window as unknown as { ethereum?: RawProvider }).ethereum
-      : undefined);
     return {
       wagmiConnected: isConnected,
       wagmiSend: (p: { to: string; value: bigint; data: string }) =>
         sendTransactionAsync({ to: p.to as `0x${string}`, value: p.value, data: p.data as `0x${string}` }),
       wagmiSwitch: (chainId: number) => safeSwitchChain(chainId),
-      rawProvider,
+      rawProvider: rawProvider ?? undefined,
       from: cacheKey || null,
     };
-  }, [isConnected, sendTransactionAsync, safeSwitchChain, cacheKey]);
+  }, [isConnected, sendTransactionAsync, safeSwitchChain, rawProvider, cacheKey]);
 
-  const refreshContracts = useCallback(async () => {
+  const refreshContracts = useCallback(async (signal?: AbortSignal) => {
     if (!address) {
       return [];
     }
 
     setLoading(true);
     try {
-      const res = await apiFetch("/api/gm/my-contracts");
+      const res = await apiFetch("/api/gm/my-contracts", { signal });
       if (!res.ok) {
         return [];
       }
@@ -116,24 +116,30 @@ export function useGmContracts(address: string | undefined | null) {
         creatorBalance: contract.creatorBalance || "0",
         platformBalance: contract.platformBalance || "0",
       }));
-      publishContracts(cacheKey, withBalances);
+      if (!signal?.aborted && activeKeyRef.current === cacheKey) publishContracts(cacheKey, withBalances);
       return withBalances;
     } finally {
-      setLoading(false);
+      if (activeKeyRef.current === cacheKey) setLoading(false);
     }
   }, [address, cacheKey]);
 
   useEffect(() => {
+    activeKeyRef.current = cacheKey;
     const listener = (publishedKey: string, nextContracts: GmContractWithBalance[]) => {
       if (publishedKey === cacheKey) setContracts(nextContracts);
     };
     contractListeners.add(listener);
-    if (cachedKey === cacheKey) setContracts(cachedContracts);
+    setContracts(cachedKey === cacheKey ? cachedContracts : []);
+    setWithdrawingId(null);
     return () => { contractListeners.delete(listener); };
   }, [cacheKey]);
 
   useEffect(() => {
-    void refreshContracts();
+    const controller = new AbortController();
+    void refreshContracts(controller.signal).catch((error) => {
+      if (!controller.signal.aborted) console.error("Failed to load GM contracts:", error);
+    });
+    return () => controller.abort();
   }, [refreshContracts]);
 
   const contractsByChain = useMemo(() => {

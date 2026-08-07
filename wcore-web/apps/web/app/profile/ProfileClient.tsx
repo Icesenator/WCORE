@@ -72,7 +72,8 @@ export function ProfileClient({ defaultTab = "points" }: { defaultTab?: string }
   const { address, authStep } = useWallet();
   const isAuthenticated = authStep === "authenticated";
   const { t, formatValue } = usePreferences();
-  const { contracts: gmContracts, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(address);
+  const sessionAddress = isAuthenticated ? address : null;
+  const { contracts: gmContracts, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(sessionAddress);
 
   const [newCtContract, setNewCtContract] = useState("");
   const [newCtLabel, setNewCtLabel] = useState("");
@@ -96,20 +97,35 @@ export function ProfileClient({ defaultTab = "points" }: { defaultTab?: string }
   const [streakAtRisk, setStreakAtRisk] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+    setProfile(null);
+    setBreakdown(null);
+    setPlanInfo(null);
+    setWallets([]);
+    setCustomTokens([]);
+    setLeaderboard([]);
+    setReferralCode(null);
+    setReferralEarnings(0);
+    setStreakAtRisk(false);
+    setLoading(isAuthenticated);
     (async () => {
       if (!isAuthenticated) { setLoading(false); return; }
       try {
-        const [profRes, lbRes, wRes, meRes, planRes] = await Promise.all([
-          apiFetch(`/api/profile/${address}`),
-          fetch(`${API_URL}/api/leaderboard`),
-          apiFetch("/api/wallets"),
-          apiFetch("/api/auth/me"),
-          apiFetch("/api/me/plan"),
+        const [profRes, lbRes, wRes, meRes, planRes, tokensRes] = await Promise.all([
+          apiFetch(`/api/profile/${address}`, { signal: controller.signal }),
+          fetch(`${API_URL}/api/leaderboard`, { signal: controller.signal }),
+          apiFetch("/api/wallets", { signal: controller.signal }),
+          apiFetch("/api/auth/me", { signal: controller.signal }),
+          apiFetch("/api/me/plan", { signal: controller.signal }),
+          apiFetch("/api/custom-tokens", { signal: controller.signal }),
         ]);
+        if (controller.signal.aborted) return;
         const profData = await profRes.json() as ProfileData & { error?: string };
         const lbData = await lbRes.json() as { leaderboard: Array<{ address: string; score: number; gmStreak: number }> };
         const walletData = await wRes.json() as { wallets?: WalletRecord[] };
         const meData = await meRes.json() as { breakdown?: PointsBreakdownData; referralCode?: string; referralEarnings?: number; gmStreak?: number; gmOffChainToday?: boolean; gmOnChainToday?: boolean };
+        const tokenData = await tokensRes.json() as { tokens?: CustomTokenRecord[] };
+        if (controller.signal.aborted) return;
         if (!profData.error) setProfile(profData);
         if (meData.breakdown) setBreakdown(meData.breakdown);
         if (meData.referralCode) setReferralCode(meData.referralCode);
@@ -119,18 +135,17 @@ export function ProfileClient({ defaultTab = "points" }: { defaultTab?: string }
         }
         setLeaderboard(lbData.leaderboard ?? []);
         if (walletData.wallets?.length) setWallets(walletData.wallets);
+        if (tokenData.tokens) setCustomTokens(tokenData.tokens);
         try {
           const planData = await planRes.json() as PlanInfoData;
           if (planData.plan) setPlanInfo(planData);
         } catch { /* plan optional */ }
-        // Custom tokens
-        apiFetch("/api/custom-tokens")
-          .then(r => r.json())
-          .then((d: { tokens?: CustomTokenRecord[] }) => { if (d.tokens) setCustomTokens(d.tokens); })
-          .catch((_e) => { console.error("Failed to load custom tokens:", _e); });
-      } catch (_e) { console.error("Failed to load profile:", _e); /* load error */ }
-      setLoading(false);
+      } catch (_e) {
+        if (!controller.signal.aborted) console.error("Failed to load profile:", _e);
+      }
+      if (!controller.signal.aborted) setLoading(false);
     })();
+    return () => controller.abort();
   }, [address, isAuthenticated]);
 
   const loadCexWallets = useCallback(async () => {

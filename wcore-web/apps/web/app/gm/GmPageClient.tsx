@@ -22,10 +22,13 @@ export function GmPageClient() {
   const { address, authStep } = useWallet();
   const isAuthenticated = authStep === "authenticated";
   const [chainStatuses, setChainStatuses] = useState<Record<string, { deployed: boolean | null; gmDone: boolean }>>({});
-  const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(address);
+  const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(isAuthenticated ? address : null);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setChainStatuses({});
+      return;
+    }
     apiFetch("/api/gm/status")
       .then(r => r.ok ? r.json() : null)
       .then((data: ApiGmStatus | null) => {

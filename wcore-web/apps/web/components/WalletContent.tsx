@@ -449,8 +449,10 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
             ) : null}
             <div className="space-y-3 ml-2 border-l-2 border-border/50 pl-3">
               {(() => {
-                const activeChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur > 0);
-                const zeroChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur <= 0);
+                // A negative chain total is a real DeFi debt that lowers the portfolio.
+                // Collapsing it with the empty chains hid the very position explaining the total.
+                const activeChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur !== 0);
+                const zeroChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur === 0);
                 const isExpanded = expandedWallets.has(wallet.address);
                 const chains = isExpanded ? wallet.chains : activeChains;
                 return (

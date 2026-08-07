@@ -12,6 +12,15 @@ export function getApiUrl(): string {
 type RefreshResult = "ok" | "expired" | "transient";
 
 let _refreshPromise: Promise<RefreshResult> | null = null;
+let _authGeneration = 0;
+
+export function advanceAuthGeneration(): number {
+  return ++_authGeneration;
+}
+
+export function getAuthGeneration(): number {
+  return _authGeneration;
+}
 
 async function doRefresh(): Promise<RefreshResult> {
   try {
@@ -42,6 +51,7 @@ async function ensureAuth(): Promise<RefreshResult> {
 }
 
 export async function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+  const requestAuthGeneration = _authGeneration;
   const apiUrl = getApiUrl();
   const fullUrl = url.startsWith("http") ? url : `${apiUrl}${url}`;
   const hasBody = opts.body !== undefined && opts.body !== null;
@@ -62,7 +72,9 @@ export async function apiFetch(url: string, opts: RequestInit = {}): Promise<Res
     // an authenticated session: the access cookie may still be valid and a later
     // request — or a page refresh — will succeed without any wallet action.
     if (refresh === "expired") {
-      window.dispatchEvent(new Event("wcore-auth-expired"));
+      window.dispatchEvent(new CustomEvent("wcore-auth-expired", {
+        detail: { authGeneration: requestAuthGeneration },
+      }));
       return res;
     }
 

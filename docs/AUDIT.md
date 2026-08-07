@@ -1,14 +1,14 @@
 # WCORE - Audit transversal
 
 > Date de verification: 2026-08-07
-> Revision fonctionnelle auditee: `96e81b5ec5826ab536764b322e93c6abb276e21b`; les correctifs de la seconde vague sont consignes dans "Findings du 2026-08-06".
+> Revision fonctionnelle auditee: `307627990c22e7b9907bd28223bd3517bf90f695`; les correctifs de la seconde vague sont consignes dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
 > Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.60, l'API `a3f90de3-fd6a-40ed-8099-e7f4214604e7` et le Web `0aa91b3b-bb3c-421e-8630-2883496ed778` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
-WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #24`, CI `#516` et CI `#517` sont verts, y compris la reconstruction PostgreSQL, les tests reels de claim concurrent, reprise et fencing de la file durable, et les E2E. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
+WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #24` et CI jusqu'a `#519` sont verts, y compris la reconstruction PostgreSQL, la suite API complete sur PostgreSQL/Redis isoles, les tests reels de claim concurrent, reprise et fencing de la file durable, et les E2E. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
 
 Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et les jobs async sont persistants avec claim atomique, et l'historique Prisma est reconstructible.
 
@@ -17,7 +17,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise 
 | Axe | Resultat au 2026-08-07 |
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
-| GitHub Actions | `Chains #24`, CI `#516` et CI `#517` verts; 4 jobs CI sur 4 dont PostgreSQL et E2E |
+| GitHub Actions | `Chains #24` et CI `#519` verts; 5 jobs CI sur 5 dont API integration, PostgreSQL, Redis et E2E |
 | Railway | API `a3f90de3`, Web `0aa91b3b` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |
@@ -35,7 +35,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise 
 | Tests relais | 37/37 |
 | Tests GSheet | passent; 3 145 fonctions globales validees; ports Phase 3: 181 |
 | Dependances Web | `pnpm audit --prod --audit-level=high`: aucune vulnerabilite connue |
-| Tests API integration | routes async 33/33 localement; file durable executee sur PostgreSQL 16 dans le job CI `migrations`; suite DB/Redis complete non executee localement |
+| Tests API integration | 513 tests executes dans CI `#519` sur PostgreSQL 16 et Redis 7 isoles: 512 passes, 0 echec, 1 skip intentionnel |
 | Environnement local | Node 24.18.1; CI et images ciblent Node 22 |
 
 ## Findings P1
@@ -319,7 +319,7 @@ position suivie ni infrastructure publique exploitable.
 
 ## Limites
 
-- La suite API integration DB/Redis complete n'a pas ete executee localement faute de DB/Redis de test dedies; elle ne doit jamais viser la production. La file durable dispose toutefois d'un test PostgreSQL 16 dedie dans la CI.
+- La suite API integration DB/Redis complete n'est pas executee localement faute de services de test dedies. Elle tourne desormais a chaque CI sur PostgreSQL 16 et Redis 7 ephemeres et ne depend d'aucun secret ni service de production.
 - Le sweep RPC a ete lance depuis une seule machine. Des restrictions geographiques, IP ou rate limits peuvent produire des resultats differents depuis Google Apps Script et Railway.
 - Les taux d'erreur Apps Script sont ceux affiches par Google sur la fenetre de son interface; les executions recentes visibles etaient terminees, sans detail historique complet exporte.
 - Aucun scan exhaustif de wallets ni mutation destructive du classeur n'a ete effectue. Les deploiements et executions Apps Script mentionnes ont ete limites aux correctifs et controles decrits.

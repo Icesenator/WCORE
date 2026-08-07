@@ -15,7 +15,7 @@ import { authPlugin } from "./auth.js";
 import { gamificationPlugin, seedGmContracts } from "./gamification/index.js";
 import { supportPlugin } from "./support.js";
 import { scanPlugin } from "./plugins/scan.js";
-import { adminPlugin } from "./plugins/admin.js";
+import { adminPlugin, DependencyTransitionTracker, dependencyHealthStatus } from "./plugins/admin.js";
 import { walletPlugin } from "./plugins/wallet.js";
 import { cexPlugin } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
@@ -168,6 +168,22 @@ async function recordOpsEvent(type: string, severity: string, message: string, d
   } catch (e) { console.error("recordOpsEvent DB error:", (e).message || String(e)); }
 }
 
+async function checkRedis(): Promise<boolean> {
+  if (!redisConfig) return true;
+  if (!isAtomicCacheStore(sharedCache) || sharedCache.backend !== "redis") return false;
+  const key = `health:ping:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+  const ok = await sharedCache.add(key, { ts: Date.now() }, 5000).catch(() => false);
+  if (ok) sharedCache.delete(key).catch(() => {});
+  return ok;
+}
+
+const dependencyTransitions = new DependencyTransitionTracker({
+  recordOpsEvent,
+  // The webhook accepts recovery event names; the shared AlertEvent union has
+  // not yet been widened beyond the original down-only dependency events.
+  sendAlert: (alert) => sendAlert(alert as Parameters<typeof sendAlert>[0]),
+});
+
 // Memoire des chaines deja signalees: l'alerte doit se lever une fois, pas
 // toutes les 5 minutes. Repartie a zero au redemarrage, ce qui est voulu — une
 // chaine toujours morte sera re-signalee apres un deploiement.
@@ -178,7 +194,7 @@ async function snapshotMetrics() {
     const snap = metrics.snapshot();
     const now = Date.now();
     const dbOk = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
-    const redisOk = await sharedCache.set("health:ping", { ts: now }, 5000).then(() => true).catch(() => false);
+    const redisOk = await checkRedis();
     const circuits = Object.fromEntries(Array.from(circuitBreakers.entries()).map(([k, v]) => [k, v.getStatus()]));
     const openCircuits = Object.values(circuits).filter((c: { state: string }) => c.state === "OPEN").length;
     const gm24h = await prisma.onchainGm.count({ where: { createdAt: { gte: new Date(now - 24 * 60 * 60 * 1000) } } }).catch(() => 0);
@@ -186,7 +202,8 @@ async function snapshotMetrics() {
     const gm30d = await prisma.onchainGm.count({ where: { createdAt: { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) } } }).catch(() => 0);
     const rpcErrors = Object.values(snap.errors.byChain).reduce((s, c) => s + c.rpc, 0);
     const pricingErrors = Object.values(snap.errors.byChain).reduce((s, c) => s + c.pricing, 0);
-    const status = !dbOk ? "down" : openCircuits > 0 ? "degraded" : "ok";
+    const status = dependencyHealthStatus(dbOk, redisOk, openCircuits);
+    await dependencyTransitions.observe({ db: dbOk, redis: redisOk }, new Date(now));
     // Une chaine dont tous les RPC sont morts n'ouvre aucun circuit et ne fait
     // rien echouer: le scan est degrade, le cache preserve, et personne ne le
     // voit. "Ledger - Degen" est reste ainsi deux jours. On le signale une fois
@@ -314,6 +331,17 @@ app.get("/health", async () => ({
   // Use admin /api/metrics/errors for detailed circuit info.
 }));
 
+app.get("/ready", async (_req, reply) => {
+  const dbOk = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
+  const redisOk = await checkRedis();
+  const ready = dbOk && redisOk;
+  return reply.code(ready ? 200 : 503).send({
+    status: ready ? "ready" : "not_ready",
+    service: "wcore-api",
+    checks: { db: dbOk, redis: redisOk },
+  });
+});
+
 app.get("/api/me/plan", async (req, reply) => {
   if (!req.user) return reply.code(401).send({ error: "not_authenticated" });
   const plan = await getUserPlan(req.user.id);
@@ -352,7 +380,7 @@ async function resolveCustomTokens(userId: string | undefined, requestTokens: un
 // --- Feature Plugins ---
 
 await scanPlugin(app, { prisma, sharedCache, getCircuitBreaker, validateChains, resolveCustomTokens, buildChainScan, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN });
-await adminPlugin(app, { prisma, sharedCache, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION });
+await adminPlugin(app, { prisma, checkRedis, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION });
 await walletPlugin(app, { prisma, validateCustomToken });
 await cexPlugin(app, { prisma, sharedCache });
 await chainsPlugin(app, { circuitBreakers, cache: sharedCache });
@@ -532,6 +560,7 @@ if (!apiConfig.runtime.isTest && isMainModule) {
     realTSource.getTokenPriceUsd({ key: "realt-dummy", chain: { key: "GNOSIS", vm: "EVM" } as any, contract: "0x0000000000000000000000000000000000000000", symbol: "" }).catch(() => { /* registry load failed, will retry on first RealT scan */ });
     await app.listen({ port: PORT, host: HOST });
     loadChainlist().catch((e) => { console.error("loadChainlist error:", (e).message || String(e)); });
+    snapshotMetrics().catch((e) => { console.error("initial snapshotMetrics error:", (e).message || String(e)); });
     setInterval(() => snapshotMetrics().catch((e) => { console.error("snapshotMetrics interval error:", (e).message || String(e)); }), 300_000).unref();
     // Le cache d'endpoints dynamiques expire au bout de 6 h (DYNAMIC_TTL_MS,
     // rpc/endpoints.ts), mais warmDynamicRpcEndpoints n'etait appele qu'une

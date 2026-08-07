@@ -2,21 +2,33 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { getTonWalletAssets } from "./ton.js";
 import { MemoryPricingCache } from "../pricing/index.js";
+import { MemoryCacheStore } from "../cache/index.js";
 
 interface FetchCall {
   url: string;
   init?: RequestInit;
 }
 
-function makeFetch(account: unknown, options?: { failTonapi?: boolean; failToncenter?: boolean }) {
+function makeFetch(
+  account: unknown,
+  jettons: unknown = { balances: [] },
+  options?: { failAccount?: boolean; failJettons?: boolean; failToncenter?: boolean },
+) {
   const calls: FetchCall[] = [];
   const impl: typeof fetch = async (url, init) => {
     const u = String(url);
+    const pathname = new URL(u).pathname;
     calls.push({ url: u, init });
-    if (u.includes("tonapi.io") && !options?.failTonapi) {
+    if (pathname.endsWith("/jettons") && !options?.failJettons) {
+      return new Response(JSON.stringify(jettons), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (pathname.endsWith("/jettons") && options?.failJettons) {
+      return new Response("upstream", { status: 503 });
+    }
+    if (u.includes("tonapi.io") && !options?.failAccount) {
       return new Response(JSON.stringify(account), { status: 200, headers: { "content-type": "application/json" } });
     }
-    if (u.includes("tonapi.io") && options?.failTonapi) {
+    if (u.includes("tonapi.io") && options?.failAccount) {
       return new Response("upstream", { status: 503 });
     }
     if (u.includes("toncenter.com") && !options?.failToncenter) {
@@ -31,46 +43,46 @@ function makeFetch(account: unknown, options?: { failTonapi?: boolean; failTonce
 }
 
 describe("getTonWalletAssets", () => {
-  it("returns zero balance for a fresh empty TON address", async () => {
-    const account = { balance: "0", jettons: { balances: [] } };
-    const { fetch: f } = makeFetch(account);
+  it("uses the separate TonAPI account and jetton response shapes", async () => {
+    const { fetch: fetchImpl, calls } = makeFetch({ balance: "0" });
     const result = await getTonWalletAssets("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TON", {
-      fetchImpl: f as unknown as typeof fetch,
+      fetchImpl,
       fxRate: 0.92,
     });
+
     assert.equal(result.chain, "ton");
-    assert.equal(result.native.symbol, "GRAM");
+    assert.equal(result.native.symbol, "TON");
     assert.equal(result.native.balance, 0);
     assert.equal(result.tokens.length, 0);
     assert.equal(result.totalValueEur, 0);
+    assert.deepEqual(
+      calls.filter((call) => call.url.includes("tonapi.io")).map((call) => new URL(call.url).pathname),
+      [
+        "/v2/accounts/EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "/v2/accounts/EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/jettons",
+      ],
+    );
   });
 
   it("converts nano TON to human balance with 9 decimals", async () => {
-    // 1.5 TON = 1500000000 nano
-    const account = { balance: "1500000000", jettons: { balances: [] } };
-    const { fetch: f } = makeFetch(account);
+    const { fetch: fetchImpl } = makeFetch({ balance: "1500000000" });
     const result = await getTonWalletAssets("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TON", {
-      fetchImpl: f as unknown as typeof fetch,
+      fetchImpl,
       fxRate: 0.92,
     });
     assert.equal(result.native.balance, 1.5);
   });
 
-  it("includes priced jettons with positive balance", async () => {
-    const account = {
-      balance: "1000000000",
-      jettons: {
-        balances: [
-          {
-            balance: "5000000000",
-            jetton: { address: "EQabc", decimals: 9, symbol: "USD₮", name: "Tether USD" },
-          },
-        ],
-      },
+  it("reads positive jettons from the real balances response", async () => {
+    const jettons = {
+      balances: [{
+        balance: "5000000000",
+        jetton: { address: "EQabc", decimals: 9, symbol: "USD₮", name: "Tether USD" },
+      }],
     };
-    const { fetch: f } = makeFetch(account);
+    const { fetch: fetchImpl } = makeFetch({ balance: "1000000000" }, jettons);
     const result = await getTonWalletAssets("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TON", {
-      fetchImpl: f as unknown as typeof fetch,
+      fetchImpl,
       fxRate: 0.92,
     });
     assert.equal(result.tokens.length, 1);
@@ -78,31 +90,52 @@ describe("getTonWalletAssets", () => {
     assert.equal(result.tokens[0]?.balance, 5);
   });
 
-  it("falls back to Toncenter when TonAPI fails", async () => {
-    const { fetch: f } = makeFetch(null, { failTonapi: true });
+  it("falls back to Toncenter when the account request fails", async () => {
+    const { fetch: fetchImpl } = makeFetch(null, { balances: [] }, { failAccount: true });
     const result = await getTonWalletAssets("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TON", {
-      fetchImpl: f as unknown as typeof fetch,
+      fetchImpl,
       fxRate: 0.92,
     });
-    // Toncenter returned "1000000000" nano = 1 TON
     assert.equal(result.native.balance, 1);
-    assert.ok(result.errors.some((e) => e.includes("tonapi")));
+    assert.ok(result.errors.some((error) => error.includes("tonapi account")));
   });
 
-  it("returns degraded empty when both TonAPI and Toncenter fail", async () => {
-    const { fetch: f } = makeFetch(null, { failTonapi: true, failToncenter: true });
+  it("returns degraded empty when both account sources and jettons fail", async () => {
+    const { fetch: fetchImpl } = makeFetch(null, { balances: [] }, {
+      failAccount: true,
+      failJettons: true,
+      failToncenter: true,
+    });
     const result = await getTonWalletAssets("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TON", {
-      fetchImpl: f as unknown as typeof fetch,
+      fetchImpl,
       fxRate: 0.92,
     });
     assert.equal(result.native.balance, 0);
-    assert.ok(result.errors.length > 0);
+    assert.ok(result.errors.some((error) => error.includes("[DEGRADED] tonapi jettons")));
+  });
+
+  it("preserves cached jettons when the separate jetton request fails", async () => {
+    const address = "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const cache = new MemoryCacheStore();
+    const jettons = {
+      balances: [{
+        balance: "5000000000",
+        jetton: { address: "EQabc", decimals: 9, symbol: "USD₮", name: "Tether USD" },
+      }],
+    };
+    const first = makeFetch({ balance: "1000000000" }, jettons);
+    await getTonWalletAssets(address, "TON", { fetchImpl: first.fetch, fxRate: 0.92, cache });
+
+    const degraded = makeFetch({ balance: "2000000000" }, { balances: [] }, { failJettons: true });
+    const result = await getTonWalletAssets(address, "TON", { fetchImpl: degraded.fetch, fxRate: 0.92, cache });
+
+    assert.equal(result.native.balance, 2, "native account data remains live");
+    assert.equal(result.tokens[0]?.symbol, "USD₮", "cached jetton remains visible");
+    assert.ok(result.errors.some((error) => error.includes("[DEGRADED] tonapi jettons") && error.includes("cached fallback")));
   });
 });
 
 it("honours an injected pricing source set", async () => {
-  // opts.sources was declared but never read, so a caller injecting sources silently
-  // got the built-in ones instead - the same dead-option shape as an unused guard.
   let used = false;
   const sources = {
     defillama: {
@@ -115,10 +148,12 @@ it("honours an injected pricing source set", async () => {
     jupiter: { getTokenPriceUsd: async () => null },
     onchainV3: { getTokenPriceUsd: async () => null },
   };
-
   const fetchImpl = (async (url: string) => {
+    if (String(url).endsWith("/jettons")) {
+      return { ok: true, status: 200, json: async () => ({ balances: [] }) } as unknown as Response;
+    }
     if (String(url).includes("tonapi.io")) {
-      return { ok: true, status: 200, json: async () => ({ balance: "2000000000", jettons: [] }) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ balance: "2000000000" }) } as unknown as Response;
     }
     return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
   }) as unknown as typeof fetch;
@@ -127,8 +162,6 @@ it("honours an injected pricing source set", async () => {
     fetchImpl,
     fxRate: 1,
     sources: sources as never,
-    // A fresh cache: the module-level one is shared across tests in this file and would
-    // answer from a previous test before any source is consulted.
     sharedPriceCache: new MemoryPricingCache(),
   });
 

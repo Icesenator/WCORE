@@ -56,7 +56,10 @@ interface TonJetton {
 
 interface TonAccount {
   balance: string;
-  jettons?: { balances: TonJetton[] };
+}
+
+interface TonJettonBalances {
+  balances: TonJetton[];
 }
 
 export async function getTonWalletAssets(
@@ -109,18 +112,31 @@ export async function getTonWalletAssets(
     }
   }
 
-  // 1) Read native balance + jettons in one TonAPI call.
+  // 1) TonAPI exposes account data and jetton balances on separate endpoints.
   const discoveryStart = Date.now();
   let account: TonAccount | null = null;
   try {
-    account = await fetchTonAccount(rawFetch, address, errors, opts.signal);
+    account = await fetchTonAccount(rawFetch, address, opts.signal);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     errors.push(`tonapi account: ${msg}`);
   }
 
+  const jettonCacheKey = `jettons:${key.toLowerCase()}:${address}`;
+  let jettonBalances: TonJetton[] = [];
+  try {
+    const response = await fetchTonJettons(rawFetch, address, opts.signal);
+    jettonBalances = response.balances;
+    opts.cache?.set(jettonCacheKey, response, 3600_000).catch(() => {});
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const cached = await opts.cache?.get<TonJettonBalances>(jettonCacheKey);
+    if (cached?.balances) jettonBalances = cached.balances;
+    errors.push(`[DEGRADED] tonapi jettons: ${msg}${cached ? "; using cached fallback" : ""}`);
+  }
+
   const nativeNano = account?.balance ? BigInt(account.balance) : 0n;
-  const jettons = (account?.jettons?.balances ?? []).filter((b) => {
+  const jettons = jettonBalances.filter((b) => {
     try { return BigInt(b.balance) > 0n; } catch { return false; }
   });
   const discoveryMs = Date.now() - discoveryStart;
@@ -226,18 +242,30 @@ export async function getTonWalletAssets(
   };
 }
 
-async function fetchTonAccount(rawFetch: typeof fetch, address: string, errors: string[], signal?: AbortSignal): Promise<TonAccount | null> {
+async function fetchTonAccount(rawFetch: typeof fetch, address: string, signal?: AbortSignal): Promise<TonAccount> {
   const url = `${TONAPI_BASE}/accounts/${encodeURIComponent(address)}`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 5000);
   const unlink = linkAbortSignal(signal, ctrl);
   try {
     const res = await rawFetch(url, { headers: { accept: "application/json" }, signal: ctrl.signal });
-    if (!res.ok) {
-      errors.push(`tonapi HTTP ${res.status}`);
-      return null;
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json() as TonAccount;
+  } finally {
+    clearTimeout(timer);
+    unlink();
+  }
+}
+
+async function fetchTonJettons(rawFetch: typeof fetch, address: string, signal?: AbortSignal): Promise<TonJettonBalances> {
+  const url = `${TONAPI_BASE}/accounts/${encodeURIComponent(address)}/jettons`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 5000);
+  const unlink = linkAbortSignal(signal, ctrl);
+  try {
+    const res = await rawFetch(url, { headers: { accept: "application/json" }, signal: ctrl.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json() as TonJettonBalances;
   } finally {
     clearTimeout(timer);
     unlink();
@@ -276,7 +304,7 @@ async function priceTonNative(
     key: `native@${chain.key.toLowerCase()}`,
     contract: "native",
     symbol: String(chain.CHAIN?.NATIVE_SYMBOL ?? "TON"),
-    name: String(chain.CHAIN?.NATIVE_NAME ?? "Gram"),
+    name: String(chain.CHAIN?.NATIVE_NAME ?? "Toncoin"),
     chain,
     isNative: true,
   };
@@ -332,14 +360,16 @@ async function quickTonLivenessCheck(rawFetch: typeof fetch, address: string, si
     const timer = setTimeout(() => ctrl.abort(), 2000);
     const unlink = linkAbortSignal(signal, ctrl);
     try {
-      const res = await rawFetch(`${TONAPI_BASE}/accounts/${encodeURIComponent(address)}`, {
-        headers: { accept: "application/json" },
-        signal: ctrl.signal,
-      });
-      if (!res.ok) return true; // API errored: assume alive (safe)
-      const data = await res.json() as { balance?: string; jettons?: { balances?: TonJetton[] } };
+      const base = `${TONAPI_BASE}/accounts/${encodeURIComponent(address)}`;
+      const [accountRes, jettonsRes] = await Promise.all([
+        rawFetch(base, { headers: { accept: "application/json" }, signal: ctrl.signal }),
+        rawFetch(`${base}/jettons`, { headers: { accept: "application/json" }, signal: ctrl.signal }),
+      ]);
+      if (!accountRes.ok || !jettonsRes.ok) return true; // API errored: assume alive (safe)
+      const data = await accountRes.json() as { balance?: string };
+      const jettons = await jettonsRes.json() as { balances?: TonJetton[] };
       const bal = data.balance ? BigInt(data.balance) : 0n;
-      const jn = data.jettons?.balances?.length ?? 0;
+      const jn = jettons.balances?.length ?? 0;
       return bal > 0n || jn > 0;
     } finally {
       clearTimeout(timer);

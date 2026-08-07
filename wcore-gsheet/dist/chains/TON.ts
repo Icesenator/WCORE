@@ -33,8 +33,8 @@ export const TON: ChainConfig = {
     VM: "TON",
     NAME: "TON",
     DISPLAY_NAME: "Space - TON",
-    NATIVE_SYMBOL: "GRAM",
-    NATIVE_NAME: "Gram",
+    NATIVE_SYMBOL: "TON",
+    NATIVE_NAME: "Toncoin",
     NATIVE_DECIMALS: 9,
     NATIVE_LLAMA_ID: "coingecko:the-open-network",
     NATIVE_GECKO_ID: "the-open-network",
@@ -44,7 +44,6 @@ export const TON: ChainConfig = {
     TONCENTER_BALANCE: "https://toncenter.com/api/v2/getAddressBalance",
   },
   LLAMA_ID_MAP: {
-    GRAM: "coingecko:the-open-network",
     TON: "coingecko:the-open-network",
     USDT: "coingecko:tether",
     "USD₮": "coingecko:tether",

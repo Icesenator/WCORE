@@ -21,6 +21,11 @@ export interface CacheStore {
    */
   incr?(key: string, ttlSec: number): Promise<number>;
   /**
+   * Atomically consume weighted capacity without exceeding `limit`. The first
+   * successful consume sets the key expiry; later consumes preserve it.
+   */
+  consume?(key: string, cost: number, limit: number, ttlSec: number): Promise<boolean>;
+  /**
    * Buffer multiple set operations and flush them in a single round-trip.
    * Reduces Redis latency for batch cache writes (e.g. 50k token prices).
    * In-memory implementation flushes immediately. Redis uses pipeline().

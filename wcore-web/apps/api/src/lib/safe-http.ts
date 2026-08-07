@@ -109,9 +109,9 @@ export async function assertResolvesPublic(url: URL, resolveAddresses: ResolveAd
   try {
     addresses = await resolveAddresses(host);
   } catch {
-    // The name does not resolve for us, so the fetch cannot reach anything either.
-    return;
+    throw new UnsafeUrlError("dns_lookup_failed", url.toString());
   }
+  if (addresses.length === 0) throw new UnsafeUrlError("dns_no_addresses", url.toString());
   for (const { address } of addresses) {
     if (isPrivateAddress(address)) {
       throw new UnsafeUrlError(`dns_rebind_${address}`, url.toString());
@@ -130,9 +130,48 @@ export async function safeFetch(
   init?: RequestInit,
   opts?: { resolveAddresses?: ResolveAddresses; fetchImpl?: typeof fetch },
 ): Promise<Response> {
-  const url = assertPublicHttp(rawUrl);
-  await assertResolvesPublic(url, opts?.resolveAddresses);
-  return (opts?.fetchImpl ?? fetch)(url, init);
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+  let url = assertPublicHttp(rawUrl);
+  let requestInit = init;
+  const visited = new Set([redirectKey(url)]);
+
+  for (let redirects = 0; ; redirects++) {
+    await assertResolvesPublic(url, opts?.resolveAddresses);
+    const response = await fetchImpl(url, { ...requestInit, redirect: "manual" });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+
+    const location = response.headers.get("location");
+    if (!location) return response;
+    if (redirects >= 5) throw new UnsafeUrlError("too_many_redirects", url.toString());
+
+    let target: URL;
+    try { target = assertPublicHttp(new URL(location, url).toString()); }
+    catch (cause) {
+      if (cause instanceof UnsafeUrlError) throw cause;
+      throw new UnsafeUrlError("invalid_redirect", location);
+    }
+    const key = redirectKey(target);
+    if (visited.has(key)) throw new UnsafeUrlError("redirect_loop", target.toString());
+    visited.add(key);
+
+    const method = (requestInit?.method ?? "GET").toUpperCase();
+    if (response.status === 303 && method !== "GET" && method !== "HEAD"
+      || (response.status === 301 || response.status === 302) && method === "POST") {
+      const headers = new Headers(requestInit?.headers);
+      headers.delete("content-encoding");
+      headers.delete("content-language");
+      headers.delete("content-location");
+      headers.delete("content-type");
+      requestInit = { ...requestInit, method: "GET", body: null, headers };
+    }
+    url = target;
+  }
+}
+
+function redirectKey(url: URL): string {
+  const key = new URL(url);
+  key.hash = "";
+  return key.toString();
 }
 
 export function isPublicHttp(rawUrl: string): boolean {

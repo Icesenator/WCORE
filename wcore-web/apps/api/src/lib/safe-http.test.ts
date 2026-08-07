@@ -79,10 +79,15 @@ test("assertResolvesPublic accepts a fully public name and skips literals", asyn
   await assertResolvesPublic(new URL("http://1.1.1.1/"), async () => { throw new Error("resolver must not run"); });
 });
 
-test("assertResolvesPublic stays permissive when the name does not resolve", async () => {
-  // Nothing can be reached, so failing closed here would only break real endpoints
-  // during a DNS outage without adding protection.
-  await assertResolvesPublic(new URL("http://rpc.example.com/"), async () => { throw new Error("ENOTFOUND"); });
+test("assertResolvesPublic fails closed on resolver errors and empty results", async () => {
+  await assert.rejects(
+    assertResolvesPublic(new URL("http://rpc.example.com/"), async () => { throw new Error("ENOTFOUND"); }),
+    (e: unknown) => e instanceof UnsafeUrlError && /dns_lookup_failed/.test(e.message),
+  );
+  await assert.rejects(
+    assertResolvesPublic(new URL("http://rpc.example.com/"), resolvesTo()),
+    (e: unknown) => e instanceof UnsafeUrlError && /dns_no_addresses/.test(e.message),
+  );
 });
 
 test("safeFetch blocks the request before it is issued", async () => {
@@ -106,4 +111,84 @@ test("safeFetch passes a legitimate endpoint through untouched", async () => {
   });
   assert.equal(res.status, 200);
   assert.equal(seen, "https://mainnet.base.org/");
+});
+
+test("safeFetch rejects a redirect to a private address before following it", async () => {
+  const seen: string[] = [];
+  const fetchImpl = (async (input: URL) => {
+    seen.push(String(input));
+    return new Response(null, { status: 302, headers: { location: "http://metadata.example/latest" } });
+  }) as unknown as typeof fetch;
+
+  await assert.rejects(
+    safeFetch("https://public.example/start", undefined, {
+      resolveAddresses: async (host) => resolvesTo(host === "metadata.example" ? "169.254.169.254" : "8.8.8.8")(),
+      fetchImpl,
+    }),
+    UnsafeUrlError,
+  );
+  assert.deepEqual(seen, ["https://public.example/start"]);
+});
+
+test("safeFetch follows and validates a public redirect", async () => {
+  const seen: Array<{ url: string; redirect: RequestInit["redirect"] }> = [];
+  const fetchImpl = (async (input: URL, requestInit?: RequestInit) => {
+    seen.push({ url: String(input), redirect: requestInit?.redirect });
+    if (seen.length === 1) {
+      return new Response(null, { status: 302, headers: { location: "https://target.example/rpc" } });
+    }
+    return new Response("ok");
+  }) as unknown as typeof fetch;
+
+  const response = await safeFetch("https://source.example/start", undefined, {
+    resolveAddresses: resolvesTo("8.8.8.8"),
+    fetchImpl,
+  });
+  assert.equal(await response.text(), "ok");
+  assert.deepEqual(seen, [
+    { url: "https://source.example/start", redirect: "manual" },
+    { url: "https://target.example/rpc", redirect: "manual" },
+  ]);
+});
+
+test("safeFetch rejects redirect loops and excess redirects", async () => {
+  const loopFetch = (async (input: URL) => new Response(null, {
+    status: 302,
+    headers: { location: String(input).endsWith("/a") ? "/b" : "/a" },
+  })) as unknown as typeof fetch;
+  await assert.rejects(
+    safeFetch("https://public.example/a", undefined, { resolveAddresses: resolvesTo("8.8.8.8"), fetchImpl: loopFetch }),
+    (e: unknown) => e instanceof UnsafeUrlError && /redirect_loop/.test(e.message),
+  );
+
+  let calls = 0;
+  const endlessFetch = (async () => new Response(null, {
+    status: 302,
+    headers: { location: `/hop-${++calls}` },
+  })) as unknown as typeof fetch;
+  await assert.rejects(
+    safeFetch("https://public.example/start", undefined, {
+      resolveAddresses: resolvesTo("8.8.8.8"),
+      fetchImpl: endlessFetch,
+    }),
+    (e: unknown) => e instanceof UnsafeUrlError && /too_many_redirects/.test(e.message),
+  );
+  assert.equal(calls, 6);
+});
+
+test("safeFetch applies fetch redirect method semantics", async () => {
+  for (const [status, expectedMethod] of [[301, "GET"], [302, "GET"], [303, "GET"], [307, "POST"], [308, "POST"]] as const) {
+    const methods: string[] = [];
+    const fetchImpl = (async (_input: URL, requestInit?: RequestInit) => {
+      methods.push(requestInit?.method ?? "GET");
+      return methods.length === 1
+        ? new Response(null, { status, headers: { location: "/target" } })
+        : new Response("ok");
+    }) as unknown as typeof fetch;
+    await safeFetch("https://public.example/start", { method: "POST", body: "payload" }, {
+      resolveAddresses: resolvesTo("8.8.8.8"),
+      fetchImpl,
+    });
+    assert.deepEqual(methods, ["POST", expectedMethod], `status ${status}`);
+  }
 });

@@ -34,7 +34,9 @@ export function validateCustomToken(c: unknown): c is string {
   return false;
 }
 
-export type ApiRateLimitBucket = "scan" | "auth" | "leaderboard" | "gm_read" | "gm" | "catch_all" | null;
+export type ApiRateLimitBucket = "scan" | "scan_poll" | "auth" | "leaderboard" | "gm_read" | "gm" | "catch_all" | null;
+
+export const SCAN_POLL_RATE_LIMIT = 600;
 
 export function requiresCsrfOriginCheck(method: string, path: string): boolean {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) return false;
@@ -48,7 +50,7 @@ export function requiresCsrfOriginCheck(method: string, path: string): boolean {
 
 export function getApiRateLimitBucket(method: string, path: string): ApiRateLimitBucket {
   const cleanPath = path.split("?")[0] ?? "";
-  if (cleanPath.startsWith("/api/scan/async/") && method.toUpperCase() === "GET") return null;
+  if (cleanPath.startsWith("/api/scan/async/") && method.toUpperCase() === "GET") return "scan_poll";
   if (cleanPath.startsWith("/api/scan")) return "scan";
   if (cleanPath.startsWith("/api/auth") || cleanPath === "/api/wallets/nonce") return "auth";
   if (cleanPath.startsWith("/api/leaderboard")) return "leaderboard";
@@ -217,11 +219,12 @@ export async function consumeScanBudget(
   cost: number,
   limit: number,
 ): Promise<boolean> {
-  const entry = await sharedCache.get<{ count: number }>(key);
-  const used = entry?.count ?? 0;
-  if (used >= limit) return false;
-  await sharedCache.set(key, { count: used + cost }, 60_000);
-  return true;
+  if (typeof sharedCache.consume !== "function") return false;
+  try {
+    return await sharedCache.consume(key, cost, limit, 60);
+  } catch {
+    return false;
+  }
 }
 
 export async function applyPostAuthRateLimit(
@@ -236,7 +239,8 @@ export async function applyPostAuthRateLimit(
   const isNoncePath = path === "/api/auth/nonce" || path === "/api/wallets/nonce";
   const nonceAddr = isNoncePath ? deps.nonceTargetAddress(req) : null;
   const isAnonymous = !req.user;
-  const limit = bucket === "scan" ? (isAnonymous ? deps.rateLimits.scanAnon : deps.rateLimits.scan)
+  const limit = bucket === "scan_poll" ? SCAN_POLL_RATE_LIMIT
+    : bucket === "scan" ? (isAnonymous ? deps.rateLimits.scanAnon : deps.rateLimits.scan)
     : bucket === "leaderboard" ? deps.rateLimits.leaderboard
       : bucket === "catch_all" ? deps.rateLimits.catchAll
         : bucket === "gm_read" ? (isAnonymous ? deps.rateLimits.gmReadAnon : deps.rateLimits.gmRead)
@@ -245,7 +249,7 @@ export async function applyPostAuthRateLimit(
   const suffix = nonceAddr ? `${id}|${nonceAddr}` : id;
   const key = `rate_limit:${bucket}:${suffix}`;
   if (!await incrRateLimit(deps.sharedCache, key, limit)) {
-    deps.metrics.recordRateLimit(bucket === "gm_read" ? "gm" : bucket);
+    deps.metrics.recordRateLimit(bucket === "gm_read" ? "gm" : bucket === "scan_poll" ? "scan" : bucket);
     const message = bucket === "scan" ? "Too many scans. Wait 1 minute." : "Too many requests.";
     return reply.code(429).send({ error: "rate_limited", message });
   }

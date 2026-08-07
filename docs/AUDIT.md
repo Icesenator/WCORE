@@ -1,14 +1,14 @@
 # WCORE - Audit transversal
 
 > Date de verification: 2026-08-06
-> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `d4fd798` et sont consignes dans "Findings du 2026-08-06".
+> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `5cc9957` et sont consignes dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.58, l'API `420f5ad6-ca8a-41f5-a798-12ac14615016` et le Web `9ae4375a-55c3-4270-9fa4-4056495515a1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.60, l'API `0c411d99-92dd-4d33-8bf3-3bb0bf46133a` et le Web `0aa91b3b-bb3c-421e-8630-2883496ed778` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
-WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Le workflow `Chains` de `bc6c5ae` et le workflow CI `#514` de `d4fd798` sont verts, y compris la reconstruction PostgreSQL, le test reel de la file durable et les E2E. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
+WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #24` et CI `#516` de `5cc9957` sont verts, y compris la reconstruction PostgreSQL, le test reel de la file durable et les E2E. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
 
 Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et les jobs async sont persistants avec claim atomique, et l'historique Prisma est reconstructible.
 
@@ -17,15 +17,15 @@ Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise 
 | Axe | Resultat au 2026-08-06 |
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
-| GitHub Actions | `Chains` vert sur `bc6c5ae`; CI `#514` verte sur `d4fd798`, 4 jobs sur 4 dont PostgreSQL et E2E |
-| Railway | API `420f5ad6`, Web `9ae4375a` et relais `Online`; derniers deploys cibles `SUCCESS` |
+| GitHub Actions | `Chains #24` et CI `#516` verts sur `5cc9957`, 4 jobs CI sur 4 dont PostgreSQL et E2E |
+| Railway | API `0c411d99`, Web `0aa91b3b` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
 | Sweep RPC initial | 464 endpoints testes; 336 reponses valides, 128 echecs avec timeout 5 s/concurrence 24 |
 | Reprise ciblee | 34 endpoints sur 18 chaines, timeout 10 s/concurrence 4; 16 valides, 18 en echec |
 | Apps Script | worker CEX recree; executions de nettoyage puis d'auto-heal force chargees `Terminee` |
-| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.58`; projet distant pousse sans changement de scopes OAuth |
+| Apps Script runtime | `WCORE_VERSION` et package genere en `4.16.60`; projet distant pousse sans changement de scopes OAuth |
 | Lint | passe, 0 erreur affichee |
 | TypeScript | typecheck des 5 projets passe |
 | Build | packages, API et Next.js 16.2.12 passent |
@@ -214,13 +214,12 @@ de ce trigger est desormais isolee par un `try/catch` qui remonte l'erreur dans
 critiques. Un test statique ne pouvait pas voir ce defaut — il lisait du texte, pas
 une execution.
 
-Reste ouvert: `DEGEN` n'a plus qu'un endpoint au registre officiel
-(`chainid.network`, chaine `incubating`), en HTTP 429 permanent depuis deux IP
-distinctes. Les deux autres ont ete retires apres mesure sur `eth_chainId`,
-`eth_blockNumber` et `eth_getBalance` — `degen.drpc.org` en 404 partout,
-`666666666.rpc.thirdweb.com` servant le bon chainId mais refusant les methodes
-utiles. Effet verifie en production: 6 erreurs de scan ramenees a 3. La chaine reste
-active et son cache protege; seul un endpoint utilisable la debloquera.
+`DEGEN` n'est plus un reste ouvert. Alchemy publie desormais
+`degen-mainnet.g.alchemy.com/public` sans cle; `eth_chainId`, `eth_blockNumber`,
+`eth_getBalance` et un `eth_call` reel ont ete valides. Le premier scan Railway
+a revele une limite `eth_getLogs` distincte: 100 blocs inclus passent, 101 sont
+rejetes, donc `MAX_LOG_RANGE=99` est applique. Verification production apres
+deploiement: scan force complet en 1,05 s, `degraded=false`, zero erreur.
 
 `POLYNOMIAL` n'est plus un reste ouvert. La documentation officielle et le
 registre Superchain ne publient que `rpc.polynomial.fi`; Chainlist ajoute
@@ -287,7 +286,7 @@ position suivie ni infrastructure publique exploitable.
 | Parite FX GSheet/Web | `ok=true`, drift ~0,010% |
 | Auth bearer production | variable explicitement configuree a `false` |
 | Secrets CEX/JWT/relais/GSheet | variables presentes; valeurs non lues dans le rapport |
-| Alerte RPC morte | `chain_unreachable` persiste pour DEGEN apres 3 scans; 9 erreurs, aucun double comptage |
+| Alerte RPC morte | evenement historique `chain_unreachable` persiste; DEGEN est revenu sain apres ajout du gateway Alchemy et du plafond logs mesure |
 
 ## Priorites recommandees
 

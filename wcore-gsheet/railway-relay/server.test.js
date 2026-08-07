@@ -302,21 +302,30 @@ test("collectStockFxQuotes bounds workers and aborts each fetch at its timeout",
   let active = 0;
   let maxActive = 0;
   const signals = [];
-  await collectStockFxQuotes(["KRW", "JPY", "CHF", "CAD"], {
-    concurrency: 2,
-    timeoutMs: 10,
-    fetchQuote: (_candidate, options) => {
-      active++;
-      maxActive = Math.max(maxActive, active);
-      signals.push(options.signal);
-      return new Promise((_resolve, reject) => {
-        options.signal.addEventListener("abort", () => {
-          active--;
-          reject(options.signal.reason);
-        }, { once: true });
-      });
-    },
-  });
+  // The production deadline is AbortSignal.timeout, whose timer is deliberately
+  // unref'd: a live server is held open by its listening socket. Here every worker
+  // waits only on that deadline, so without a ref'd timer the loop would drain and
+  // Node would cancel the test before the aborts it is asserting ever fire.
+  const keepEventLoopAlive = setInterval(() => {}, 5);
+  try {
+    await collectStockFxQuotes(["KRW", "JPY", "CHF", "CAD"], {
+      concurrency: 2,
+      timeoutMs: 10,
+      fetchQuote: (_candidate, options) => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        signals.push(options.signal);
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => {
+            active--;
+            reject(options.signal.reason);
+          }, { once: true });
+        });
+      },
+    });
+  } finally {
+    clearInterval(keepEventLoopAlive);
+  }
 
   assert.equal(maxActive, 2);
   assert.equal(signals.length, 4);

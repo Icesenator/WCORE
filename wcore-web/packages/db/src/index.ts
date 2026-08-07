@@ -7,4 +7,5 @@ export type {
   Badge,
   UserBadge,
   CustomToken,
+  ScanJob,
 } from "@prisma/client";

@@ -14,6 +14,7 @@ import type { CircuitBreaker, WalletAssets } from "@wcore/core";
 import type { PrismaClient } from "@wcore/db";
 import { scanPlugin, type ScanPluginDeps } from "../src/plugins/scan.js";
 import { buildChainScan } from "../src/server-helpers.js";
+import { ownsScanJob, serializePollResult, type EnqueueScanJobInput, type ScanJobHandler, type ScanJobPollResult, type ScanJobQueue } from "../src/plugins/scan-job.js";
 
 const FAKE_CHAIN = "X_TEST_FAKE";
 const ADDR_A = "0x1111111111111111111111111111111111111111";
@@ -47,6 +48,41 @@ const prismaStub = {
 
 const sharedCache = new MemoryCacheStore();
 
+class MemoryScanJobQueue implements ScanJobQueue {
+  private handler?: ScanJobHandler;
+  private jobs = new Map<string, EnqueueScanJobInput & { status: "queued" | "running" | "done" | "error"; result?: ScanJobPollResult }>();
+
+  start(handler: ScanJobHandler): void { this.handler = handler; }
+  async stop(): Promise<void> { this.jobs.clear(); }
+
+  async enqueue(input: EnqueueScanJobInput) {
+    const row = { ...input, status: "queued" as const };
+    this.jobs.set(input.jobId, row);
+    queueMicrotask(async () => {
+      const current = this.jobs.get(input.jobId);
+      if (!current || !this.handler) return;
+      current.status = "running";
+      const outcome = await this.handler({
+        job: { id: input.jobId, address: input.address, userId: input.userId ?? null, ip: input.ip ?? null, request: input.request, progress: input.progress, attempts: 1, leaseToken: `test:${input.jobId}` },
+        signal: new AbortController().signal,
+        publish: async (next) => { current.progress = structuredClone(next); return true; },
+      });
+      current.status = outcome.status;
+      current.progress = outcome.progress;
+      current.result = serializePollResult(input.jobId, input.address, outcome.status, outcome.progress);
+    });
+    return { ok: true as const, jobId: input.jobId };
+  }
+
+  async getOwned(jobId: string, userId: string | undefined, ip: string) {
+    const row = this.jobs.get(jobId);
+    if (!row || !ownsScanJob(row, userId, ip)) return null;
+    return row.result ?? serializePollResult(row.jobId, row.address, row.status, row.progress);
+  }
+}
+
+const scanJobQueue = new MemoryScanJobQueue();
+
 function makeDeps(): ScanPluginDeps {
   return {
     prisma: prismaStub,
@@ -72,6 +108,7 @@ function makeDeps(): ScanPluginDeps {
     getScanLimit: async () => 120,
     MAX_CHAINS_PER_SCAN: 120,
     ANONYMOUS_MAX_CHAINS_PER_SCAN: 20,
+    scanJobQueue,
   };
 }
 

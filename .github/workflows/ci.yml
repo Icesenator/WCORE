@@ -12,6 +12,9 @@ on:
       - 'docs/**'
       - '**/*.md'
 
+permissions:
+  contents: read
+
 defaults:
   run:
     working-directory: wcore-web
@@ -36,6 +39,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm --filter @wcore/core test
+      - run: pnpm --filter @wcore/shared test
       - run: pnpm --filter @wcore/web test
       - run: pnpm build
 
@@ -182,6 +186,7 @@ jobs:
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: ${{ github.workspace }}/wcore-web/.gitleaks.toml
 
   e2e:
     runs-on: ubuntu-latest

@@ -1,17 +1,22 @@
 # WCORE Database Backup Wrapper
-# Reads BACKUP_DATABASE_URL from $env or a local, gitignored .env.backup file
+# Reads the database URL from $env or a local, gitignored .env.backup file
 # Usage:
 #   1) Either preset:  $env:BACKUP_DATABASE_URL = "postgresql://..."; pwsh scripts/backup-db.ps1
-#   2) Or create scripts/.env.backup with line:  BACKUP_DATABASE_URL=postgresql://...
+#   2) Or create scripts/.env.backup with BACKUP_DATABASE_URL=... or DATABASE_URL=...
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectDir = Split-Path -Parent $scriptDir
 
 if (-not $env:BACKUP_DATABASE_URL) {
+    if ($env:DATABASE_URL) {
+        $env:BACKUP_DATABASE_URL = $env:DATABASE_URL
+    }
     $envFile = Join-Path $scriptDir ".env.backup"
-    if (Test-Path $envFile) {
+    if (-not $env:BACKUP_DATABASE_URL -and (Test-Path $envFile)) {
         Get-Content $envFile | ForEach-Object {
             if ($_ -match '^\s*BACKUP_DATABASE_URL\s*=\s*(.+?)\s*$') {
+                $env:BACKUP_DATABASE_URL = $matches[1].Trim('"').Trim("'")
+            } elseif (-not $env:BACKUP_DATABASE_URL -and $_ -match '^\s*DATABASE_URL\s*=\s*(.+?)\s*$') {
                 $env:BACKUP_DATABASE_URL = $matches[1].Trim('"').Trim("'")
             }
         }
@@ -19,7 +24,7 @@ if (-not $env:BACKUP_DATABASE_URL) {
 }
 
 if (-not $env:BACKUP_DATABASE_URL) {
-    Write-Error "BACKUP_DATABASE_URL not set. Either export it or create scripts/.env.backup"
+    Write-Error "Database URL not set. Export BACKUP_DATABASE_URL/DATABASE_URL or create scripts/.env.backup"
     exit 2
 }
 

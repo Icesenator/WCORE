@@ -85,10 +85,19 @@ $tempClaspPull = @{
 
 Push-Location $TempDir
 try {
-    $null = & clasp pull 2>&1
+    $pullOutput = & clasp pull 2>&1
+    $pullExitCode = $LASTEXITCODE
+    if ($pullExitCode -ne 0) {
+        throw "clasp pull a echoue avec le code $pullExitCode`n$($pullOutput -join [Environment]::NewLine)"
+    }
+    $pullSucceeded = $true
     Write-Host "  [OK] Pull reussi" -ForegroundColor Green
 } catch {
-    Write-Host "  [WARN] Pull echoue, on continue quand meme" -ForegroundColor Yellow
+    Pop-Location
+    Write-Host "  [ERREUR] Pull distant echoue; push annule" -ForegroundColor Red
+    Write-Host $_ -ForegroundColor Red
+    if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
+    exit 1
 }
 Pop-Location
 
@@ -200,6 +209,11 @@ if ($syntaxWarnings -eq 0) {
 # ============================================================================
 Write-Host ""
 Write-Host "[5/6] Push vers Google Apps Script..." -ForegroundColor Yellow
+
+if (-not $pullSucceeded) {
+    Write-Host "  [ERREUR] Push --force refuse sans pull distant reussi" -ForegroundColor Red
+    exit 1
+}
 
 # S'assurer qu'il y a un manifest dans temp pour le push
 $tempAppsscript = Join-Path $TempDir "appsscript.json"

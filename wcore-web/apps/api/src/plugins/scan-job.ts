@@ -244,6 +244,7 @@ export class PostgresScanJobQueue implements ScanJobQueue {
   private pollTimer?: NodeJS.Timeout;
   private cleanupTimer?: NodeJS.Timeout;
   private pollRun?: Promise<void>;
+  private cleanupRun?: Promise<void>;
   private active = 0;
   private polling = false;
   private readonly attempts = new Map<string, { jobId: string; controller: AbortController }>();
@@ -344,10 +345,18 @@ export class PostgresScanJobQueue implements ScanJobQueue {
         if (this.pollRun === current) this.pollRun = undefined;
       });
     };
-    void this.cleanup();
+    const runCleanup = () => {
+      if (this.stopped || this.cleanupRun) return;
+      const current = this.cleanup();
+      this.cleanupRun = current;
+      void current.finally(() => {
+        if (this.cleanupRun === current) this.cleanupRun = undefined;
+      });
+    };
+    runCleanup();
     runPoll();
     this.pollTimer = setInterval(runPoll, POLL_MS);
-    this.cleanupTimer = setInterval(() => { void this.cleanup(); }, CLEANUP_MS);
+    this.cleanupTimer = setInterval(runCleanup, CLEANUP_MS);
     this.pollTimer.unref();
     this.cleanupTimer.unref();
   }
@@ -366,6 +375,7 @@ export class PostgresScanJobQueue implements ScanJobQueue {
       for (const [, attempt] of activeAttempts) attempt.controller.abort();
       const draining = [
         ...(this.pollRun ? [this.pollRun] : []),
+        ...(this.cleanupRun ? [this.cleanupRun] : []),
         ...activeAttempts.flatMap(([leaseToken]) => {
           const run = this.runs.get(leaseToken);
           return run ? [run] : [];

@@ -258,7 +258,10 @@ export class PostgresScanJobQueue implements ScanJobQueue {
     const hardExpiry = new Date(now.getTime() + apiConfig.scan.jobTtlRunningMs);
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRawUnsafe("SELECT pg_advisory_xact_lock($1)", ADMISSION_LOCK_KEY);
+      await tx.$queryRawUnsafe<Array<{ locked: boolean }>>(
+        "SELECT true AS locked FROM pg_advisory_xact_lock($1)",
+        ADMISSION_LOCK_KEY,
+      );
       await tx.scanJob.deleteMany({ where: { status: { in: ["done", "error"] }, expiresAt: { lte: now } } });
 
       const total = await tx.scanJob.count();

@@ -167,3 +167,34 @@ test("stop aborts, releases the exact claimed token, drains, and permits restart
   queue.start(async ({ job }) => ({ status: "error", progress: job.progress }));
   await queue.stop();
 });
+
+test("stop drains an in-flight cleanup before resolving", async () => {
+  let cleanupStartedResolve!: () => void;
+  let releaseCleanup!: () => void;
+  const cleanupStarted = new Promise<void>((resolve) => { cleanupStartedResolve = resolve; });
+  const cleanupBlocked = new Promise<void>((resolve) => { releaseCleanup = resolve; });
+  const prisma = {
+    $queryRawUnsafe: async () => [],
+    scanJob: {
+      deleteMany: async () => {
+        cleanupStartedResolve();
+        await cleanupBlocked;
+        return { count: 0 };
+      },
+      findMany: async () => [],
+    },
+  };
+
+  const queue = new PostgresScanJobQueue(prisma as never);
+  queue.start(async ({ job }) => ({ status: "error", progress: job.progress }));
+  await cleanupStarted;
+
+  let stopped = false;
+  const stopping = queue.stop().then(() => { stopped = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(stopped, false);
+
+  releaseCleanup();
+  await stopping;
+  assert.equal(stopped, true);
+});

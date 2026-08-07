@@ -1,5 +1,5 @@
 /**
- * DEGEN.gs - Degen Chain (v4.16.59 public Alchemy RPC)
+ * DEGEN.gs - Degen Chain (v4.16.60 public Alchemy RPC)
  * ChainFactory pattern with explicit function declarations
  * 
  * Degen Chain is a Layer 3 built on Arbitrum Orbit with Base for settlement.
@@ -21,7 +21,7 @@ var _DEGEN = ChainFactory.createEvmChain("DEGEN", {
  // Alchemy publie depuis le 2026-08-07 un gateway sans cle. Il a ete valide
  // sur eth_chainId, eth_blockNumber, eth_getBalance et eth_call. L'endpoint
  // historique reste en repli au cas ou son quota partage serait retabli.
- RPC: { ENDPOINTS: [
+ RPC: { MAX_LOG_RANGE: 99, ENDPOINTS: [
    "https://degen-mainnet.g.alchemy.com/public",
    "https://rpc.degen.tips"
  ]},

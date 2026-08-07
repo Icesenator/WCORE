@@ -1,7 +1,8 @@
 /**
- * TON.gs - TON / The Open Network (v4.15.83)
+ * TON.gs - TON / The Open Network (v4.16.61)
  * Native TON + jettons via TonAPI, quota-safe standalone engine.
  * v4.15.83: Distinguish same-second live refreshes by numeric cache timestamp.
+ * v4.16.61: Native asset is reported as TON/Toncoin, not the GRAM/Gram placeholder.
  */
 
 var TON_VERSION = "4.15.83";

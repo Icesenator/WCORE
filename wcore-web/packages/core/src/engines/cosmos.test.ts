@@ -297,7 +297,7 @@ test("getCosmosWalletAssets bank balances use cached fallback when REST fails", 
   assert.equal(result2.native.balance, 5);
 });
 
-test("getCosmosWalletAssets native balance writes zero cache when REST returns empty (genuine zero)", async () => {
+test("getCosmosWalletAssets preserves positive cache when one REST endpoint returns empty", async () => {
   const sources: PricingSourceSet = {
     defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => 5 },
     dexscreener: { getTokenPriceUsd: async () => null },
@@ -335,6 +335,7 @@ test("getCosmosWalletAssets native balance writes zero cache when REST returns e
   const fetch2 = async (_url: string) => {
     if (_url.includes("/cosmos/bank/v1beta1/balances/")) {
       balanceCallCount++;
+      if (!_url.startsWith("https://cosmos-rest.publicnode.com")) throw new Error("alternate unavailable");
       return { ok: true, json: async () => ({ balances: [] }) } as Response;
     }
     if (_url.includes("/cosmos/staking/v1beta1/delegations/")) {
@@ -344,14 +345,11 @@ test("getCosmosWalletAssets native balance writes zero cache when REST returns e
   };
   const result2 = await getCosmosWalletAssets(OWNER, "cosmos_hub", { fetchImpl: fetch2 as never, sources, fxRate: 1, cache });
   assert.ok(balanceCallCount > 0, "second scan should call REST (not short-circuited)");
-  // REST returned empty successfully → genuine zero, not a failure → balance is 0
-  // (previously this used cached fallback, but that was a bug: a successful REST
-  //  response of [] means the wallet genuinely has 0 native, not a failure)
-  assert.equal(result2.native.balance, 0, "genuine zero should not use stale cached fallback");
-  // Native cache should now contain 0 (genuine zero cached)
+  assert.equal(result2.native.balance, 5, "uncorroborated empty response should preserve cached assets");
+  assert.ok(result2.errors.some((error) => error.includes("empty live response uncorroborated")));
   const cachedAfter = await cache.get<{ balance: string }>(`native:cosmos_hub:${OWNER}`);
-  assert.ok(cachedAfter, "native cache should be written with genuine zero");
-  assert.equal(cachedAfter!.balance, "0");
+  assert.ok(cachedAfter, "positive native cache should remain available");
+  assert.equal(cachedAfter!.balance, "5000000");
 });
 
 test("getCosmosWalletAssets delegations use cached fallback when REST fails", async () => {

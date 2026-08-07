@@ -1,6 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { getPrimaryRpcEndpoint, getRpcEndpoints } from "./endpoints.js";
+import { getPrimaryRpcEndpoint, getRpcEndpoints, getVerifiedEvmRpcEndpoints } from "./endpoints.js";
+import { RpcDispatcher } from "./dispatcher.js";
 
 describe("centralized RPC endpoints", () => {
   test("reads static RPC endpoints from chain configs", () => {
@@ -16,5 +17,41 @@ describe("centralized RPC endpoints", () => {
 
   test("returns empty array for unknown chains", () => {
     assert.deepEqual(getRpcEndpoints("not_a_chain", { includeDynamic: false }), []);
+  });
+
+  test("excludes wrong-network static endpoints and caches identity preflights", async () => {
+    const configured = getRpcEndpoints("ETHEREUM", { includeDynamic: false, useHealth: false });
+    const validEndpoint = configured.at(-1)!;
+    const calls = new Map<string, number>();
+    const rpc = {
+      async chainId(endpoint: string) {
+        calls.set(endpoint, (calls.get(endpoint) ?? 0) + 1);
+        return endpoint === validEndpoint ? 1 : 8453;
+      },
+    };
+
+    const first = await getVerifiedEvmRpcEndpoints("ETHEREUM", {
+      includeDynamic: false,
+      useHealth: false,
+      limit: 1,
+      rpc: rpc as never,
+    });
+    const second = await getVerifiedEvmRpcEndpoints("ETHEREUM", {
+      includeDynamic: false,
+      useHealth: false,
+      limit: 1,
+      rpc: rpc as never,
+    });
+
+    assert.deepEqual(first, [validEndpoint]);
+    assert.deepEqual(second, [validEndpoint]);
+    assert.equal([...calls.values()].reduce((sum, count) => sum + count, 0), configured.length);
+
+    const dispatched: string[] = [];
+    await new RpcDispatcher(undefined, { minRpcs: 1, maxRpcs: 1 }).run(first, async (endpoint) => {
+      dispatched.push(endpoint);
+      return "0x0";
+    });
+    assert.deepEqual(dispatched, [validEndpoint]);
   });
 });

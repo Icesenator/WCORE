@@ -160,15 +160,24 @@ export async function getCosmosWalletAssets(
 
   // Cache bank balances for fallback on future REST failures.
   const balCacheKey = cache ? `bal:${key.toLowerCase()}:${address}` : undefined;
+  let emptyBankResponseCorroborated: boolean | undefined;
   if (cache && balCacheKey) {
-    if (!balFailed) {
+    const cachedBal = await cache.get<BankBalance[]>(balCacheKey);
+    const cachedPositive = cachedBal?.some((balance) => rawAmountToBigInt(balance.amount) > 0n) === true;
+    const livePositive = balances.some((balance) => rawAmountToBigInt(balance.amount) > 0n);
+    if (!balFailed && (!cachedPositive || livePositive)) {
       cache.set(balCacheKey, balances, 86400_000).catch(() => {});
-    } else {
-      const cachedBal = await cache.get<BankBalance[]>(balCacheKey);
-      if (cachedBal && cachedBal.length > 0) {
-        balances = cachedBal;
-        errors.push("[DEGRADED] bank balances: using cached fallback (REST failed)");
+    } else if (!balFailed && cachedPositive) {
+      emptyBankResponseCorroborated = await corroborateCosmosEmptyBalances(rawFetch, restUrls.slice(1), address, opts.signal);
+      if (emptyBankResponseCorroborated) {
+        cache.set(balCacheKey, balances, 86400_000).catch(() => {});
+      } else {
+        balances = cachedBal!;
+        errors.push("[DEGRADED] bank balances: preserving positive cache (empty live response uncorroborated)");
       }
+    } else if (cachedPositive) {
+      balances = cachedBal!;
+      errors.push("[DEGRADED] bank balances: using cached fallback (REST failed)");
     }
   }
 
@@ -203,17 +212,23 @@ export async function getCosmosWalletAssets(
   // never when it returned a genuine zero.
   const nativeCacheKey = cache ? `native:${key.toLowerCase()}:${address}` : undefined;
   if (cache && nativeCacheKey) {
-    if (nativeBalance > 0 || !balFailed) {
+    const cachedNative = await cache.get<{ balance: string }>(nativeCacheKey);
+    const cachedBalance = cachedNative ? rawAmountToNumber(cachedNative.balance, nativeDecimals) : 0;
+    if (nativeBalance > 0) {
       cache.set(nativeCacheKey, { balance: nativeRawAmount }, 86400_000).catch(() => {});
-    } else {
-      const cachedNative = await cache.get<{ balance: string }>(nativeCacheKey);
-      if (cachedNative) {
-        const cachedBalance = rawAmountToNumber(cachedNative.balance, nativeDecimals);
-        if (cachedBalance > 0) {
-          nativeBalance = cachedBalance;
-          errors.push("[DEGRADED] native balance: using cached fallback");
-        }
+    } else if (cachedBalance > 0 && balFailed) {
+      nativeBalance = cachedBalance;
+      errors.push("[DEGRADED] native balance: using cached fallback");
+    } else if (cachedBalance > 0) {
+      emptyBankResponseCorroborated ??= await corroborateCosmosEmptyBalances(rawFetch, restUrls.slice(1), address, opts.signal);
+      if (emptyBankResponseCorroborated) {
+        cache.set(nativeCacheKey, { balance: nativeRawAmount }, 86400_000).catch(() => {});
+      } else {
+        nativeBalance = cachedBalance;
+        errors.push("[DEGRADED] native balance: preserving positive cache (empty live response uncorroborated)");
       }
+    } else {
+      cache.set(nativeCacheKey, { balance: nativeRawAmount }, 86400_000).catch(() => {});
     }
   }
 
@@ -303,6 +318,33 @@ async function fetchCosmosBalances(
   } catch (error) {
     errors.push(`balances fetch: ${error instanceof Error ? error.message : String(error)}`);
     return { items: [], failed: true };
+  }
+}
+
+async function corroborateCosmosEmptyBalances(
+  fetchImpl: typeof fetch,
+  alternateRestUrls: string[],
+  address: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const restUrl = alternateRestUrls[0];
+  if (!restUrl) return false;
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 3000);
+  const unlink = linkAbortSignal(signal, ctrl);
+  try {
+    const res = await fetchImpl(`${restUrl}/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}`, {
+      headers: { accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return false;
+    const json = await res.json() as { balances?: BankBalance[] };
+    return Array.isArray(json.balances) && !json.balances.some((balance) => rawAmountToBigInt(balance.amount) > 0n);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+    unlink();
   }
 }
 
@@ -480,12 +522,17 @@ async function readStakingWithFallback(
   const result = await read();
   if (!cache || !cacheKey) return result.items;
 
+  const cached = await cache.get<StakingDelegation[]>(cacheKey);
+
   if (!result.failed) {
+    if (result.items.length === 0 && cached?.some((item) => rawAmountToBigInt(item.amount) > 0n)) {
+      errors.push(`[DEGRADED] ${label}: preserving positive cache (empty live response uncorroborated)`);
+      return cached;
+    }
     cache.set(cacheKey, result.items, 86400_000).catch(() => {});
     return result.items;
   }
 
-  const cached = await cache.get<StakingDelegation[]>(cacheKey);
   if (cached && cached.length > 0) {
     errors.push(`[DEGRADED] ${label}: using cached fallback`);
     return cached;

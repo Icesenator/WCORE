@@ -47,6 +47,17 @@ test("Somnia keeps the chainId its RPC endpoints actually serve", () => {
   assert.equal(chain.CHAIN?.CHAIN_ID, 5031);
 });
 
+test("Degen prefers the measured public Alchemy gateway", () => {
+  const chain = getChain("DEGEN");
+
+  assert.ok(chain, "DEGEN chain should be registered");
+  assert.equal(chain.CHAIN?.CHAIN_ID, 666666666);
+  assert.deepEqual(chain.RPC?.ENDPOINTS, [
+    "https://degen-mainnet.g.alchemy.com/public",
+    "https://rpc.degen.tips",
+  ]);
+});
+
 test("all active GM chains have native pricing oracle ids", () => {
   const missing = Object.keys(GM_FACTORIES)
     .sort()

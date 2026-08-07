@@ -425,7 +425,7 @@ const degen: Chain = {
   id: 666666666,
   name: "Degen",
   nativeCurrency: { name: "Degen", symbol: "DEGEN", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.degen.tips", "https://degen.drpc.org", "https://666666666.rpc.thirdweb.com"] }, public: { http: ["https://rpc.degen.tips", "https://degen.drpc.org", "https://666666666.rpc.thirdweb.com"] } },
+  rpcUrls: { default: { http: ["https://degen-mainnet.g.alchemy.com/public", "https://rpc.degen.tips"] }, public: { http: ["https://degen-mainnet.g.alchemy.com/public", "https://rpc.degen.tips"] } },
   blockExplorers: { default: { name: "Degen Explorer", url: "https://explorer.degen.tips" } },
 };
 

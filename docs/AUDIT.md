@@ -1,24 +1,24 @@
 # WCORE - Audit transversal
 
 > Date de verification: 2026-08-06
-> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `bc6c5ae` et sont consignes dans "Findings du 2026-08-06".
+> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `d4fd798` et sont consignes dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.58, l'API `8b977e75-d7eb-4e0f-92a4-a1dc39cc9691` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.58, l'API `420f5ad6-ca8a-41f5-a798-12ac14615016` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
-WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Le workflow `Chains` de `bc6c5ae` est vert; le dernier workflow CI API a ete annule pendant la panne majeure GitHub Actions, sans etape en echec. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
+WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Le workflow `Chains` de `bc6c5ae` et le workflow CI `#514` de `d4fd798` sont verts, y compris la reconstruction PostgreSQL, le test reel de la file durable et les E2E. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
 
-Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement contenus: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et le store async est borne, et l'historique Prisma est reconstructible. La persistance Redis et le claim atomique des jobs restent requis avant tout passage de l'API a plusieurs repliques.
+Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et les jobs async sont persistants avec claim atomique, et l'historique Prisma est reconstructible.
 
 ## Etat mesure
 
 | Axe | Resultat au 2026-08-06 |
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
-| GitHub Actions | `Chains` vert sur `bc6c5ae`; CI API annulee par la panne Actions, 4 jobs annules et aucune etape en echec |
-| Railway | API `8b977e75`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
+| GitHub Actions | `Chains` vert sur `bc6c5ae`; CI `#514` verte sur `d4fd798`, 4 jobs sur 4 dont PostgreSQL et E2E |
+| Railway | API `420f5ad6`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
@@ -35,7 +35,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 | Tests relais | 37/37 |
 | Tests GSheet | passent; 3 145 fonctions globales validees; ports Phase 3: 181 |
 | Dependances Web | `pnpm audit --prod --audit-level=high`: aucune vulnerabilite connue |
-| Tests API integration | non executes localement: aucun `.env.test` ni DB/Redis de test dedies |
+| Tests API integration | routes async 33/33 localement; file durable executee sur PostgreSQL 16 dans le job CI `migrations`; suite DB/Redis complete non executee localement |
 | Environnement local | Node 24.18.1; CI et images ciblent Node 22 |
 
 ## Findings P1
@@ -80,15 +80,17 @@ Les quatre invariants critiques releves le 3 aout sont corriges ou explicitement
 - Verification: 8 tests (`packages/core/src/abort.test.ts`), chacun valide par mutation du code de production. Deux passaient d'abord pour de mauvaises raisons - `AbortSignal` n'expose pas `listenerCount` (assertion silencieusement sautee, corrigee via `node:events`), et un rejet obtenu par le timeout de 60 s et non par l'annulation (corrige par une borne de promptitude).
 - Verification production: scan 6 chaines, 372 tokens, aucune erreur d'annulation; `SOMNIA` et `REYA` restent `degraded=false`.
 
-### P1-4 - Jobs async non bornes et non persistants - PARTIELLEMENT RESOLU 2026-08-04
+### P1-4 - Jobs async non bornes et non persistants - RESOLU 2026-08-07
 
 - Preuve initiale: `wcore-web/apps/api/src/plugins/scan-job.ts:23` utilisait un `Map` process-local sans limite globale ou par utilisateur/IP.
 - Avant correction, les gardes TTL marquaient les jobs en erreur mais n'arretaient pas les moteurs deja lances.
 - Impact: croissance memoire, perte au restart, incoherence multi-replique et amplification RPC.
-- Correction bornage: `admitScanJob()` plafonne les scans simultanes par appelant (`SCAN_MAX_ASYNC_JOBS_PER_PRINCIPAL`, defaut 32) et la taille du store (`SCAN_MAX_ASYNC_JOBS`, defaut 200). Les jobs termines les plus anciens sont evinces avant tout refus, sinon une rafale de scans finis bloquerait les suivants pendant leur fenetre de polling. Le defaut par appelant laisse de la marge au frontend, qui lance `SCAN_CONCURRENCY / CHAIN_BATCH_SIZE` = 10 jobs simultanes.
-- Correction annulation: chaque job porte un `AbortController` que les gardes TTL declenchent via `failJob()`, et `runWithTimeout()` s'y raccroche. Un job tue arrete reellement les chaines qu'il avait lancees, ce que P1-3 rend enfin possible.
-- Verification: 8 tests (`apps/api/src/plugins/scan-job.test.ts`) + 3 sur le signal parent, tous valides par mutation. En production, plafond abaisse temporairement a 3: 4 requetes sur 15 simultanees repondent `429 too_many_jobs`, puis retour au defaut verifie (20/20 en succes).
-- Reste: persistance Redis et claim atomique. Non traite volontairement - mesure sur la production, le service tourne en replique unique (6 creations/sondages async consecutifs, 0 `job_not_found`), donc l'incoherence multi-replique n'est pas un defaut vivant. La perte au restart reste connue et absorbee par le frontend. A reprendre avant tout passage a plusieurs repliques.
+- Correction durable: le `Map` process-local est remplace par `scan_jobs` dans PostgreSQL. La migration est additive; requete, progression, resultats, ownership user/IP, expirations et tentatives sont persistants.
+- Claim et reprise: `FOR UPDATE SKIP LOCKED`, lease de 45 s, heartbeat de 15 s et token unique par tentative. Heartbeat, publication, finalisation et release sont fences par `(id,status,leaseOwner)`; une tentative obsolete ne peut ni ecraser ni liberer une tentative reprise apres crash.
+- Admission: verrou advisory transactionnel avant les comptes globaux et par principal. Les plafonds `SCAN_MAX_ASYNC_JOBS` et `SCAN_MAX_ASYNC_JOBS_PER_PRINCIPAL` restent atomiques entre repliques; les jobs termines expirent sans bloquer les nouvelles admissions.
+- Arret: abort des handlers, drain global borne a 5 s, puis release uniquement des tentatives effectivement terminees. Un handler non cooperatif conserve sa lease jusqu'a expiration au lieu de chevaucher immediatement une reprise.
+- Verification: 10 tests unitaires de queue, 23 tests de routes scan dans la relance ciblee (33/33 au total), typechecks/lint/builds verts et revue independante sans constat eleve ou moyen. Le job CI `migrations` reconstruit PostgreSQL 16, execute le claim, le heartbeat, la publication, la finalisation et la release reels, puis exige l'absence de drift schema/migrations.
+- Production: migration `20260806120000_add_scan_jobs` appliquee par le deploiement API `420f5ad6`; aucun log d'erreur. Un `POST /api/scan/async` reel a cree `427ca141c0a942e95f6203a35dc17e33`, ensuite finalise et relu avec `progress=1/1` depuis le nouvel API.
 
 ### P1-5 - Historique Prisma non reconstructible - RESOLU 2026-08-03
 
@@ -303,7 +305,7 @@ position suivie ni infrastructure publique exploitable.
 
 ### Sprint 1 - resilience et securite
 
-1. FAIT: annulation propagee et jobs async bornes. RESTE avant multi-replique: persistance Redis et claim atomique.
+1. FAIT: annulation propagee, jobs async bornes et file PostgreSQL durable avec claim atomique, leases et fencing.
 2. FAIT: protection DNS rebinding branchee sur les fetches GM.
 3. FAIT: budget scan pondere, plafonds de jobs et rate limit relais.
 4. FAIT: en-tetes privilegies et comparaisons constantes; query legacy limitee aux endpoints explicitement compatibles.
@@ -317,7 +319,7 @@ position suivie ni infrastructure publique exploitable.
 
 ## Limites
 
-- Les tests API integration n'ont pas ete executes localement faute de DB/Redis de test dedies; ils ne doivent jamais viser la production.
+- La suite API integration DB/Redis complete n'a pas ete executee localement faute de DB/Redis de test dedies; elle ne doit jamais viser la production. La file durable dispose toutefois d'un test PostgreSQL 16 dedie dans la CI.
 - Le sweep RPC a ete lance depuis une seule machine. Des restrictions geographiques, IP ou rate limits peuvent produire des resultats differents depuis Google Apps Script et Railway.
 - Les taux d'erreur Apps Script sont ceux affiches par Google sur la fenetre de son interface; les executions recentes visibles etaient terminees, sans detail historique complet exporte.
 - Aucun scan exhaustif de wallets ni mutation destructive du classeur n'a ete effectue. Les deploiements et executions Apps Script mentionnes ont ete limites aux correctifs et controles decrits.

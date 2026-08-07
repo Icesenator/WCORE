@@ -8,7 +8,7 @@
 
 ## Resume executif
 
-WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #25` et CI jusqu'a `#521` sont verts, y compris la reconstruction PostgreSQL, la suite API complete sur PostgreSQL/Redis isoles, les tests reels de claim concurrent, reprise et fencing de la file durable, et les E2E. Les actions GitHub utilisent leur runtime Node 24 sans annotation de deprecation. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
+WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #25`, `Chain IDs #1` et CI jusqu'a `#521` sont verts, y compris la reconstruction PostgreSQL, la suite API complete sur PostgreSQL/Redis isoles, les tests reels de claim concurrent, reprise et fencing de la file durable, les E2E et le controle direct des chainIds par les RPC publics. Les actions GitHub utilisent leur runtime Node 24 sans annotation de deprecation. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
 
 Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et les jobs async sont persistants avec claim atomique, et l'historique Prisma est reconstructible.
 
@@ -17,7 +17,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise 
 | Axe | Resultat au 2026-08-07 |
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
-| GitHub Actions | `Chains #25` et CI `#521` verts; 5 jobs CI sur 5 dont API integration, PostgreSQL, Redis et E2E; zero annotation |
+| GitHub Actions | `Chains #25`, `Chain IDs #1` et CI `#521` verts; 5 jobs CI sur 5 dont API integration, PostgreSQL, Redis et E2E; zero annotation |
 | Railway | API `a3f90de3`, Web `0aa91b3b` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |

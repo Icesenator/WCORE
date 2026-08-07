@@ -1,24 +1,24 @@
 # WCORE - Audit transversal
 
-> Date de verification: 2026-08-06
-> Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `5cc9957` et sont consignes dans "Findings du 2026-08-06".
+> Date de verification: 2026-08-07
+> Revision fonctionnelle auditee: `96e81b5ec5826ab536764b322e93c6abb276e21b`; les correctifs de la seconde vague sont consignes dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.60, l'API `0c411d99-92dd-4d33-8bf3-3bb0bf46133a` et le Web `0aa91b3b-bb3c-421e-8630-2883496ed778` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.60, l'API `a3f90de3-fd6a-40ed-8099-e7f4214604e7` et le Web `0aa91b3b-bb3c-421e-8630-2883496ed778` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
-WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #24` et CI `#516` de `5cc9957` sont verts, y compris la reconstruction PostgreSQL, le test reel de la file durable et les E2E. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
+WCORE compile, passe ses suites locales et sert correctement ses trois services. Les validations locales sont vertes. Les workflows `Chains #24`, CI `#516` et CI `#517` sont verts, y compris la reconstruction PostgreSQL, les tests reels de claim concurrent, reprise et fencing de la file durable, et les E2E. Les dependances ne remontent aucune vulnerabilite connue, CORS/CSRF et les routes sensibles testees echouent ferme. Aucun P0 n'a ete confirme.
 
 Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise le bon chainId, les chaines sans endpoint viable sont desactivees, l'annulation traverse les moteurs et les jobs async sont persistants avec claim atomique, et l'historique Prisma est reconstructible.
 
 ## Etat mesure
 
-| Axe | Resultat au 2026-08-06 |
+| Axe | Resultat au 2026-08-07 |
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
-| GitHub Actions | `Chains #24` et CI `#516` verts sur `5cc9957`, 4 jobs CI sur 4 dont PostgreSQL et E2E |
-| Railway | API `0c411d99`, Web `0aa91b3b` et relais `Online`; derniers deploys cibles `SUCCESS` |
+| GitHub Actions | `Chains #24`, CI `#516` et CI `#517` verts; 4 jobs CI sur 4 dont PostgreSQL et E2E |
+| Railway | API `a3f90de3`, Web `0aa91b3b` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |
@@ -89,8 +89,9 @@ Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise 
 - Claim et reprise: `FOR UPDATE SKIP LOCKED`, lease de 45 s, heartbeat de 15 s et token unique par tentative. Heartbeat, publication, finalisation et release sont fences par `(id,status,leaseOwner)`; une tentative obsolete ne peut ni ecraser ni liberer une tentative reprise apres crash.
 - Admission: verrou advisory transactionnel avant les comptes globaux et par principal. Les plafonds `SCAN_MAX_ASYNC_JOBS` et `SCAN_MAX_ASYNC_JOBS_PER_PRINCIPAL` restent atomiques entre repliques; les jobs termines expirent sans bloquer les nouvelles admissions.
 - Arret: abort des handlers, drain global borne a 5 s, puis release uniquement des tentatives effectivement terminees. Un handler non cooperatif conserve sa lease jusqu'a expiration au lieu de chevaucher immediatement une reprise.
-- Verification: 10 tests unitaires de queue, 23 tests de routes scan dans la relance ciblee (33/33 au total), typechecks/lint/builds verts et revue independante sans constat eleve ou moyen. Le job CI `migrations` reconstruit PostgreSQL 16, execute le claim, le heartbeat, la publication, la finalisation et la release reels, puis exige l'absence de drift schema/migrations.
-- Production: migration `20260806120000_add_scan_jobs` appliquee par le deploiement API `420f5ad6`; aucun log d'erreur. Un `POST /api/scan/async` reel a cree `427ca141c0a942e95f6203a35dc17e33`, ensuite finalise et relu avec `progress=1/1` depuis le nouvel API.
+- Verification: 11 tests unitaires de queue et 23 tests de routes scan dans la relance ciblee (34/34 au total), typechecks/lint/builds verts et revue independante sans constat eleve ou moyen. Le job CI `migrations` reconstruit PostgreSQL 16, execute le claim, le heartbeat, la publication, la finalisation et la release reels, puis exige l'absence de drift schema/migrations.
+- Durcissement final `96e81b5`: le cleanup periodique ne peut plus se chevaucher et `stop()` attend aussi le cleanup en cours dans son drain borne. CI `#517` prouve sur PostgreSQL 16 qu'une lease expiree est reprise avec un nouveau token, que l'ancien token ne peut plus heartbeat/publier/release/finaliser, et qu'une ligne verrouillee est reellement contournee par `FOR UPDATE SKIP LOCKED`.
+- Production: migration `20260806120000_add_scan_jobs` appliquee par le deploiement API `420f5ad6`; aucun log d'erreur. Le durcissement final est deploye par `a3f90de3`. Un smoke test apres deploiement a cree le job `6659e431c4ec74c367122c53688b82b8`, ensuite finalise et relu depuis PostgreSQL avec `status=done`, `progress=1/1`, `degraded=false` et zero erreur.
 
 ### P1-5 - Historique Prisma non reconstructible - RESOLU 2026-08-03
 

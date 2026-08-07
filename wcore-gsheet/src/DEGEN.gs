@@ -1,5 +1,5 @@
 /**
- * DEGEN.gs - Degen Chain (v4.12.7)
+ * DEGEN.gs - Degen Chain (v4.16.59 public Alchemy RPC)
  * ChainFactory pattern with explicit function declarations
  * 
  * Degen Chain is a Layer 3 built on Arbitrum Orbit with Base for settlement.
@@ -18,11 +18,11 @@ var _DEGEN = ChainFactory.createEvmChain("DEGEN", {
  //     repond -32603 "not able to process your request" en local et HTTP 429
  //     depuis Railway. Inutilisable sur les deux IP, donc pas un blocage
  //     dependant de l'IP: il ne peut servir de repli a personne.
- // rpc.degen.tips est conserve bien qu'il renvoie 429 en permanence: c'est le
- // seul endpoint que le registre officiel declare (chainid.network, chaine
- // "incubating"), il repond donc toujours et peut se debloquer. La chaine
- // reste active, son cache est preserve par _webScanShouldPreserveExistingCache_.
+ // Alchemy publie depuis le 2026-08-07 un gateway sans cle. Il a ete valide
+ // sur eth_chainId, eth_blockNumber, eth_getBalance et eth_call. L'endpoint
+ // historique reste en repli au cas ou son quota partage serait retabli.
  RPC: { ENDPOINTS: [
+   "https://degen-mainnet.g.alchemy.com/public",
    "https://rpc.degen.tips"
  ]},
  CHAIN: {

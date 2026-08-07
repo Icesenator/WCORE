@@ -6,7 +6,7 @@ function makeDeps(overrides: Partial<GmHelpersDeps> = {}): GmHelpersDeps {
   const calls: Array<{ method: string; params: unknown }> = [];
   return {
     prisma: {} as never,
-    getChainRpcs: overrides.getChainRpcs ?? (() => ["https://rpc.test"]),
+    getChainRpcs: overrides.getChainRpcs ?? (() => ["https://203.0.113.10"]),
     rpcFetch: (async (rpcs: string[], body: { method: string; params?: unknown }) => {
       calls.push({ method: body.method, params: body.params });
       // Default: blockNumber returns 5_000_000, eth_getLogs returns []

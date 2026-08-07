@@ -31,8 +31,10 @@ async function registerRoutes(app: FastifyInstance) {
   await registerGmOnchainRoutes(app, {} as never, {
     prisma: {} as never,
     startOfUtcDay: (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())),
-    getChainRpc: () => "https://rpc.test",
-    getChainRpcs: () => ["https://rpc.test"],
+    // TEST-NET-3 literal (RFC 5737): safeFetch skips DNS for IP literals, so the
+    // public-address guard is still exercised without depending on name resolution.
+    getChainRpc: () => "https://203.0.113.10",
+    getChainRpcs: () => ["https://203.0.113.10"],
     checkStreakBadges: async () => {},
     addReferralBonus: async () => {},
     isAdminAuthorized: () => false,

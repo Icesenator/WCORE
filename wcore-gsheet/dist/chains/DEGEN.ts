@@ -9,6 +9,7 @@ export const DEGEN: ChainConfig = {
   ...({
   CACHE_VERSION: 63,
   RPC: {
+    MAX_LOG_RANGE: 99,
     ENDPOINTS: [
       "https://degen-mainnet.g.alchemy.com/public",
       "https://rpc.degen.tips",

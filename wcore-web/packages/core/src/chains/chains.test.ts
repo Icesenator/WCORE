@@ -52,6 +52,7 @@ test("Degen prefers the measured public Alchemy gateway", () => {
 
   assert.ok(chain, "DEGEN chain should be registered");
   assert.equal(chain.CHAIN?.CHAIN_ID, 666666666);
+  assert.equal(chain.RPC?.MAX_LOG_RANGE, 99);
   assert.deepEqual(chain.RPC?.ENDPOINTS, [
     "https://degen-mainnet.g.alchemy.com/public",
     "https://rpc.degen.tips",

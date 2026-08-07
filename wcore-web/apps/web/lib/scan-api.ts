@@ -3,6 +3,76 @@ import { getApiUrl, apiFetch } from "@/lib/api";
 import type { ScanVm } from "@/lib/chain-filter";
 
 const API_URL = getApiUrl();
+export const MAX_BATCH_ADDRESSES = 20;
+
+type BatchWallet = { address: string; chains: ChainScan[]; totals: { valueEur: number; tokenCount: number } };
+type BatchScanResponse = { wallets?: BatchWallet[]; error?: string };
+
+function abortError(): DOMException {
+  return new DOMException("The operation was aborted", "AbortError");
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function requestSignal(signal?: AbortSignal): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) controller.abort();
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+    },
+  };
+}
+
+async function fetchBatchChunk(body: Record<string, unknown>, signal?: AbortSignal): Promise<BatchScanResponse> {
+  const MAX_ATTEMPTS = 3;
+  let lastError = "request_failed";
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw abortError();
+    const request = requestSignal(signal);
+    try {
+      const res = await apiFetch(`${API_URL}/api/scan/batch`, { method: "POST", body: JSON.stringify(body), signal: request.signal });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        lastError = d.error || `HTTP ${res.status}`;
+        if (res.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
+          await abortableDelay(2000 * (attempt + 1), signal);
+          continue;
+        }
+        return { error: lastError };
+      }
+      return await res.json();
+    } catch (e) {
+      if (signal?.aborted) throw abortError();
+      lastError = e instanceof Error ? e.message : String(e);
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await abortableDelay(2000 * (attempt + 1), signal);
+        continue;
+      }
+    } finally {
+      request.dispose();
+    }
+  }
+  return { error: lastError };
+}
 
 export async function fetchBatchScan(
   addresses: string[],
@@ -10,40 +80,26 @@ export async function fetchBatchScan(
   ds: boolean,
   ct: string[] = [],
   forceRefresh = false,
-): Promise<{ wallets?: Array<{ address: string; chains: ChainScan[]; totals: { valueEur: number; tokenCount: number } }>; error?: string }> {
-  const body: Record<string, unknown> = { addresses, chains: chs, deepScan: ds };
-  if (ct.length) body.customTokens = ct;
-  if (forceRefresh) body.forceRefresh = true;
+  signal?: AbortSignal,
+): Promise<BatchScanResponse> {
+  const wallets: BatchWallet[] = [];
+  let error: string | undefined;
 
-  // Retry on transient errors: "Failed to fetch" (network drop, e.g. API
-  // mid-redeploy on Railway), aborts/timeouts, and 5xx server errors. A single
-  // dropped connection must not zero out a wallet.
-  const MAX_ATTEMPTS = 3;
-  let lastError = "request_failed";
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      const res = await apiFetch(`${API_URL}/api/scan/batch`, { method: "POST", body: JSON.stringify(body), signal: AbortSignal.timeout(180_000) });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        lastError = d.error || `HTTP ${res.status}`;
-        // Retry 5xx (server restarting / transient); return 4xx immediately.
-        if (res.status >= 500 && attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-          continue;
-        }
-        return { error: lastError };
-      }
-      return await res.json();
-    } catch (e) {
-      lastError = e instanceof Error ? e.message : String(e);
-      // "Failed to fetch", "The operation was aborted", timeouts → retry.
-      if (attempt < MAX_ATTEMPTS - 1) {
-        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-        continue;
-      }
-    }
+  for (let i = 0; i < addresses.length; i += MAX_BATCH_ADDRESSES) {
+    const body: Record<string, unknown> = {
+      addresses: addresses.slice(i, i + MAX_BATCH_ADDRESSES),
+      chains: chs,
+      deepScan: ds,
+    };
+    if (ct.length) body.customTokens = ct;
+    if (forceRefresh) body.forceRefresh = true;
+
+    const result = await fetchBatchChunk(body, signal);
+    if (result.wallets) wallets.push(...result.wallets);
+    if (result.error && !error) error = result.error;
   }
-  return { error: lastError };
+
+  return { wallets, ...(error ? { error } : {}) };
 }
 
 export function makeErrorChainScan(chainKey: string, vm: ScanVm, message: string): ChainScan {

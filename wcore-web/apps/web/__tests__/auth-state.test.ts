@@ -22,22 +22,11 @@ describe("resolveRehydratedAuth", () => {
 });
 
 describe("shouldHandleAuthExpired", () => {
-  // Regression guard for the "double Sign In" bug: a stale /api/auth/me from
-  // page load fires wcore-auth-expired right after login completes. It must NOT
-  // demote an authenticated session or an in-flight login.
-  test("ignores expiry while a login is in flight", () => {
-    assert.equal(shouldHandleAuthExpired("connecting"), false);
-    assert.equal(shouldHandleAuthExpired("signing"), false);
-    assert.equal(shouldHandleAuthExpired("verifying"), false);
+  test("ignores expiry from a stale auth generation", () => {
+    assert.equal(shouldHandleAuthExpired(1, 2), false);
   });
 
-  test("ignores expiry once authenticated", () => {
-    assert.equal(shouldHandleAuthExpired("authenticated"), false);
-  });
-
-  test("handles expiry from idle/ready/expired states", () => {
-    assert.equal(shouldHandleAuthExpired("idle"), true);
-    assert.equal(shouldHandleAuthExpired("ready"), true);
-    assert.equal(shouldHandleAuthExpired("expired"), true);
+  test("handles definitive expiry for the current authenticated generation", () => {
+    assert.equal(shouldHandleAuthExpired(2, 2), true);
   });
 });

@@ -71,10 +71,13 @@ export function GmWithdrawButton({
       }).catch(() => {});
   }, [contract, contract?.contractAddress, contract?.chainKey, backendBalance, balanceKind]);
 
-  const refreshBalanceViaMetaMask = useCallback(async () => {
+  // Returns the balance actually read on-chain, so the caller can decide whether a
+  // withdrawal is worth submitting. Returning nothing made every refresh look successful.
+  const refreshBalanceViaMetaMask = useCallback(async (): Promise<string | null> => {
     const ethereum = window.ethereum;
-    if (!ethereum || !contract) return;
+    if (!ethereum || !contract) return null;
     setRefreshing(true);
+    let refreshed: string | null = null;
     try {
       const factory = getFactory(contract.chainKey);
       if (factory) {
@@ -84,12 +87,14 @@ export function GmWithdrawButton({
         const result = await ethereum.request({ method: "eth_call", params: [{ to: contract.contractAddress, data: selector }, "latest"] }) as string;
         if (result && result !== "0x" && parseInt(result, 16) > 0) {
           const bal = BigInt(result).toString();
+          refreshed = bal;
           setDirectBalance(bal);
           lsSetBalance(contract.chainKey, contract.contractAddress, balanceKind, bal);
         }
       }
     } catch (e) { setError((e as Error).message || "Failed to refresh"); }
     setRefreshing(false);
+    return refreshed;
   }, [contract, balanceKind]);
 
   if (!contract || !balance) return null;
@@ -113,7 +118,10 @@ export function GmWithdrawButton({
         onClick={async () => {
           setError("");
           if (isBalanceUnavailable) {
-            await refreshBalanceViaMetaMask();
+            // Submitting a withdrawal against a confirmed zero balance only burns gas
+            // on a revert. Refresh first and stop unless funds actually showed up.
+            const refreshed = await refreshBalanceViaMetaMask();
+            if (!refreshed || !hasWithdrawableBalance(refreshed)) return;
           }
           void onWithdraw(contract!).catch((e) => setError((e as Error).message));
         }}

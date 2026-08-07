@@ -1,6 +1,7 @@
 import { getChain } from "../chains/index.js";
 import { getRpcUrls, loadChainlist } from "../chainlist.js";
 import { rpcHealth } from "./rpc-health.js";
+import { EvmRpc } from "./client.js";
 
 export interface RpcEndpointOptions {
   includeDynamic?: boolean;
@@ -11,6 +12,10 @@ export interface RpcEndpointOptions {
 const DYNAMIC_TTL_MS = 6 * 60 * 60 * 1000;
 const dynamicRpcCache = new Map<string, { endpoints: string[]; ts: number }>();
 const refreshInflight = new Map<string, Promise<string[]>>();
+const IDENTITY_OK_TTL_MS = 10 * 60 * 1000;
+const IDENTITY_FAILURE_TTL_MS = 60 * 1000;
+const identityCache = new Map<string, { matches: boolean; ts: number }>();
+const identityInflight = new Map<string, Promise<boolean>>();
 
 function normalizeChainKey(chainKey: string): string {
   return chainKey.trim().toUpperCase();
@@ -76,6 +81,54 @@ export function getRpcEndpoints(chainKey: string, options: RpcEndpointOptions = 
   const merged = dedupe([...staticEndpoints, ...dynamicFresh]);
   const healthy = options.useHealth === false ? merged : rpcHealth.getHealthyEndpoints(key, merged);
   return typeof options.limit === "number" ? healthy.slice(0, options.limit) : healthy;
+}
+
+export async function getVerifiedEvmRpcEndpoints(
+  chainKey: string,
+  options: RpcEndpointOptions & { rpc?: EvmRpc; signal?: AbortSignal } = {},
+): Promise<string[]> {
+  const key = normalizeChainKey(chainKey);
+  const chain = getChain(key);
+  if (!chain || chain.vm !== "EVM") return [];
+  const expectedChainId = getChainId(key);
+  if (!expectedChainId) return [];
+
+  const { limit, ...endpointOptions } = options;
+  const endpoints = getRpcEndpoints(key, endpointOptions);
+  const staticEndpoints = new Set(getStaticRpcEndpoints(key));
+  const rpc = options.rpc ?? new EvmRpc();
+  const matches = await Promise.all(endpoints.map(async (endpoint) => (
+    !staticEndpoints.has(endpoint) || await endpointMatchesChain(rpc, endpoint, expectedChainId, options.signal)
+  )));
+  const verified = endpoints.filter((_, index) => matches[index]);
+  return typeof limit === "number" ? verified.slice(0, limit) : verified;
+}
+
+async function endpointMatchesChain(
+  rpc: EvmRpc,
+  endpoint: string,
+  expectedChainId: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const cacheKey = `${expectedChainId}:${endpoint}`;
+  const cached = identityCache.get(cacheKey);
+  if (cached) {
+    const ttl = cached.matches ? IDENTITY_OK_TTL_MS : IDENTITY_FAILURE_TTL_MS;
+    if (Date.now() - cached.ts < ttl) return cached.matches;
+  }
+
+  const existing = identityInflight.get(cacheKey);
+  if (existing) return existing;
+  const check = rpc.chainId(endpoint, { timeoutMs: 3500, signal })
+    .then((actual) => actual === expectedChainId)
+    .catch(() => false)
+    .then((matches) => {
+      identityCache.set(cacheKey, { matches, ts: Date.now() });
+      return matches;
+    })
+    .finally(() => identityInflight.delete(cacheKey));
+  identityInflight.set(cacheKey, check);
+  return check;
 }
 
 export function getPrimaryRpcEndpoint(chainKey: string): string | undefined {

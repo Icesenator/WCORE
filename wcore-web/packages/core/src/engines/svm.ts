@@ -186,14 +186,25 @@ export async function getSvmWalletAssets(
   // SVM reads all balances in one shot via getTokenAccountsByOwner — no per-token RPC.
   const taCacheKey = cache ? `ta:${key.toLowerCase()}:${address}` : undefined;
   if (cache && taCacheKey) {
-    if (!taFailed) {
+    const cachedTa = await cache.get<SvmTokenAccount[]>(taCacheKey);
+    const cachedPositive = cachedTa?.some((account) => rawAmountToBigInt(account.amount) > 0n) === true;
+    const livePositive = tokenAccounts.some((account) => rawAmountToBigInt(account.amount) > 0n);
+    if (!taFailed && (!cachedPositive || livePositive)) {
       cache.set(taCacheKey, tokenAccounts, 86400_000).catch(() => {});
-    } else {
-      const cachedTa = await cache.get<SvmTokenAccount[]>(taCacheKey);
-      if (cachedTa && cachedTa.length > 0) {
+    } else if (!taFailed && cachedPositive) {
+      const remaining = endpoints.filter((endpoint) => endpoint !== taResult.endpoint);
+      const corroborationErrors: string[] = [];
+      const corroboration = await readSvmTokenAccounts(rpc, remaining, address, corroborationErrors, opts.signal);
+      const corroboratedEmpty = !corroboration.failed && !corroboration.items.some((account) => rawAmountToBigInt(account.amount) > 0n);
+      if (corroboratedEmpty) {
+        cache.set(taCacheKey, tokenAccounts, 86400_000).catch(() => {});
+      } else {
         tokenAccounts = cachedTa;
-        errors.push("[DEGRADED] token accounts: using cached fallback (RPC failed)");
+        errors.push("[DEGRADED] token accounts: preserving positive cache (empty live response uncorroborated)");
       }
+    } else if (cachedPositive) {
+      tokenAccounts = cachedTa!;
+      errors.push("[DEGRADED] token accounts: using cached fallback (RPC failed)");
     }
   }
 
@@ -355,7 +366,7 @@ async function readSvmTokenAccounts(
   owner: string,
   errors: string[],
   signal?: AbortSignal,
-): Promise<{ items: SvmTokenAccount[]; failed: boolean }> {
+): Promise<{ items: SvmTokenAccount[]; failed: boolean; endpoint?: string }> {
   for (const endpoint of endpoints) {
     // Stop walking the endpoint list once the caller has given up.
     if (signal?.aborted) return { items: [], failed: true };
@@ -370,7 +381,7 @@ async function readSvmTokenAccounts(
       errors.push(`token accounts: TOKEN-2022 skipped on ${endpoint.slice(0, 40)} (RPC failed)`);
     }
 
-    return { items: [...res.items, ...items2022], failed: false };
+    return { items: [...res.items, ...items2022], failed: false, endpoint };
   }
   errors.push("token accounts: no data from any RPC endpoint");
   return { items: [], failed: true };

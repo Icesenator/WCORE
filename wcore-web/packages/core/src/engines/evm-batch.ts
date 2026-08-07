@@ -1,6 +1,6 @@
 ﻿import { getChain } from "../chains/index.js";
 import { EvmRpc, RpcDispatcher, multicall, type MulticallCall, type MulticallResult } from "../rpc/index.js";
-import { getRpcEndpoints } from "../rpc/endpoints.js";
+import { getRpcEndpoints, getVerifiedEvmRpcEndpoints } from "../rpc/endpoints.js";
 import {
   decodeUint256,
   decodeUint256FirstWord,
@@ -93,13 +93,16 @@ export async function getEvmWalletsAssets(
   const chain = getChain(key);
   if (!chain || chain.vm !== "EVM") throw new Error(`unsupported EVM chain: ${chainKey}`);
 
-  const endpoints = getRpcEndpoints(key);
-  const priceCache = opts.sharedPriceCache ?? sharedPriceCache;
-  if (!endpoints.length) throw new Error(`no RPC endpoints for ${key}`);
-
-  const effectiveEndpoints = endpoints;
   const isDeepScan = opts.logBlockRange != null && opts.logBlockRange > 50_000;
   const rpcTimeout = isDeepScan ? 5000 : Number(chain.TIMEOUTS?.HTTP_MS ?? 2500);
+  const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
+  const endpoints = opts.dispatcher
+    ? getRpcEndpoints(key)
+    : await getVerifiedEvmRpcEndpoints(key, { rpc, signal: opts.signal });
+  const priceCache = opts.sharedPriceCache ?? sharedPriceCache;
+  if (!endpoints.length) throw new Error(`no chain-verified RPC endpoints for ${key}`);
+
+  const effectiveEndpoints = endpoints;
 
   const dispatcher = opts.dispatcher ?? new RpcDispatcher(undefined, {
     minRpcs: Number(chain.RPC?.CONSENSUS_MIN_RPCS ?? 2),
@@ -108,7 +111,6 @@ export async function getEvmWalletsAssets(
     // The batch timeout now reaches the RPC layer instead of stopping at this scan.
     signal: opts.signal,
   });
-  const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
 
   const normalizedAddresses = addresses.map(a => normalizeEvmAddress(a)).filter(Boolean) as string[];
   if (!normalizedAddresses.length) throw new Error("no valid EVM addresses");

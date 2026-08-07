@@ -4,7 +4,7 @@
   "description": "WCORE Google Sheets + Apps Script runtime — multi-chain wallet tracking, CEX connectors, pricing cascade",
   "main": "index.js",
   "scripts": {
-    "test": "npm run validate:static && npm run test:chains-package-version && npm run test:cex-worker-revival && npm run test:bitpanda-eurcv && npm run test:cosmos-refresh-contract && npm run test:cex-queue-integrity && npm run test:svm-balance-consensus && npm run test:watchdog-quota && npm run test:listing-recap-headers && npm run test:web-scan-adapter && npm run test:packed-wallet-cache && npm run test:base-engine-stats && npm run test:wallet-cache-preserve-prices && npm run test:wallet-cache-expand-prices && npm run test:auto-heal-new-ledgers && npm run test:action-rebalancing-refresh && npm run test:cex-refresh-load && npm run test:cex-bulk-canonical && npm run test:top-marketcap-currency && npm run test:crypto-portfolio-v2 && npm run test:portfolio-fetch-retry && npm run test:stale-alert-threshold && npm run test:cache-status-timestamp && npm run test:chain-disabled-status && npm run test:dynamic-rpc-trigger",
+    "test": "npm run validate:static && node --test \"tests/*.test.js\"",
     "test:chains-package-version": "node tests/chains-package-version.test.js",
     "test:cex-worker-revival": "node tests/cex-worker-revival.test.js",
     "test:bitpanda-eurcv": "node tests/bitpanda-eurcv-merge.test.js",

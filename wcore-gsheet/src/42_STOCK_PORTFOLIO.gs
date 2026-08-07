@@ -404,7 +404,7 @@ function _stockPortfolioFetchSnapshot_() {
       muteHttpExceptions: true,
       headers: { "x-gsheet-token": token, accept: "application/json" }
     });
-    if (!fetchResult) throw new Error("BLOCKED:QUOTA");
+    if (!fetchResult) throw new Error("BLOCKED:QUOTA - WCORE stock portfolio HTTP blocked or empty response");
     if (typeof fetchResult.getResponseCode !== "function") {
       throw new Error("WCORE stock portfolio HTTP blocked or empty response");
     }
@@ -587,7 +587,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   if (sheetRow === STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
     row[17] = "=ARRAYFORMULA(IF(P3:P=\"\";\"\";IF(P3:P=MAX(P3:P);\"V\";IF(P3:P=MIN(P3:P);\"X\";\"\"))))";
   }
-  row[18] = "=IF(R" + sheetRow + "=\"V\";\"X\";IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\")))";
+  row[18] = "=IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\"))";
 }
 
 // Action Rebalancing!F3 equivalent for the EUR cash row: Bitpanda EUR/BCPEUR cash across the

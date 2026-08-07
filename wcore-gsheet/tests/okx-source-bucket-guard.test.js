@@ -1,31 +1,47 @@
+const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'src/40_OKX_SYNC.gs'), 'utf8');
+const properties = {
+  OKX_RELAY_URL: 'https://relay.example.test',
+  OKX_RELAY_TOKEN: 'test-relay-token-long-enough',
+};
+const context = {
+  console,
+  PropertiesService: {
+    getUserProperties: () => ({ getProperty: (key) => properties[key] || null }),
+    getDocumentProperties: () => ({ getProperty: () => null }),
+  },
+  UrlFetchApp: {
+    fetch: () => ({
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({
+        ok: true,
+        spot: [
+          ['BTC', '1', 'trading', '60000', '60000'],
+          ['BTC', '2', 'funding', '120000', '60000'],
+          ['BTC', '0.5', 'trading', '31000', '62000'],
+        ],
+      }),
+    }),
+  },
+};
+vm.createContext(context);
+vm.runInContext(source, context);
 
-function extractFunction(sourceText, name) {
-  const start = sourceText.indexOf(`function ${name}(`);
-  if (start < 0) throw new Error(`Missing function ${name}`);
-  const brace = sourceText.indexOf('{', start);
-  let depth = 0;
-  for (let i = brace; i < sourceText.length; i++) {
-    if (sourceText[i] === '{') depth++;
-    if (sourceText[i] === '}') depth--;
-    if (depth === 0) return sourceText.slice(start, i + 1);
-  }
-  throw new Error(`Unclosed function ${name}`);
-}
+const buckets = context._okxFetchBucketsViaRelay_();
+assert.deepStrictEqual(Array.from(buckets.spot, (row) => Array.from(row)), [
+  ['BTC', 1.5, 'trading', 91000, 91000 / 1.5],
+  ['BTC', 2, 'funding', 120000, 60000],
+], 'relay rows must retain and merge by their real source bucket');
 
-const fetchBody = extractFunction(source, '_okxFetchBucketsViaRelay_');
-const buildBody = extractFunction(source, '_okxBuildValues_');
-
-if (!/out\.push\s*\(\s*\[\s*sym\s*,\s*amt\s*,\s*src\s*(?:,|\])/.test(fetchBody)) {
-  throw new Error('_okxFetchBucketsViaRelay_ must preserve relay source as [symbol, amount, source, ...]');
-}
-
-if (!/list\[i\]\[2\]/.test(buildBody) || /"spot"\s*,\s*stamp/.test(buildBody)) {
-  throw new Error('_okxBuildValues_ must use row[2] as source instead of forcing "spot"');
-}
+const values = context._okxBuildValues_(buckets, '2026-08-07 12:00:00');
+assert.deepStrictEqual(Array.from(values, (row) => Array.from(row)), [
+  ['BTC', 1.5, 'trading', '2026-08-07 12:00:00', 91000, 91000 / 1.5],
+  ['BTC', 2, 'funding', '2026-08-07 12:00:00', 120000, 60000],
+], 'sheet rows must carry source and relay valuation metadata without forcing spot');
 
 console.log('OKX source bucket guard OK');

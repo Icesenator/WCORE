@@ -5,27 +5,12 @@
 $ErrorActionPreference = "Stop"
 
 $taskName = "WCORE_DB_Backup"
-$scriptPath = "C:\Users\strau\wcore-web\scripts\backup-db.ps1"
+$scriptPath = Join-Path $PSScriptRoot "backup-db.ps1"
 
-# BACKUP_DATABASE_URL must be set before running this script.
-# Either: $env:BACKUP_DATABASE_URL = "postgresql://..."
-# Or create scripts/.env.backup with: BACKUP_DATABASE_URL=postgresql://...
-if (-not $env:BACKUP_DATABASE_URL) {
-    $envFile = Join-Path $PSScriptRoot ".env.backup"
-    if (Test-Path $envFile) {
-        Get-Content $envFile | ForEach-Object {
-            if ($_ -match '^\s*BACKUP_DATABASE_URL\s*=\s*(.+?)\s*$') {
-                $env:BACKUP_DATABASE_URL = $matches[1].Trim('"').Trim("'")
-            }
-        }
-    }
+if (-not (Test-Path -LiteralPath $scriptPath)) {
+    Write-Error "Backup script not found: $scriptPath"
+    exit 1
 }
-if (-not $env:BACKUP_DATABASE_URL) {
-    Write-Error "BACKUP_DATABASE_URL not set. Export it or create scripts/.env.backup with BACKUP_DATABASE_URL=..."
-    exit 2
-}
-
-# Pass BACKUP_DATABASE_URL to the scheduled task so it runs headlessly
 
 # Remove existing task if present
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -34,7 +19,10 @@ if ($existing) {
     Write-Host "Removed existing task: $taskName"
 }
 
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-Command `"`$env:BACKUP_DATABASE_URL='$env:BACKUP_DATABASE_URL'; & '$scriptPath'`" -NoProfile -NonInteractive"
+# backup-db.ps1 loads the gitignored scripts/.env.backup at task runtime. The
+# database URL is never persisted in the scheduled task action or task XML.
+$actionCommand = "& '$scriptPath'; exit `$LASTEXITCODE"
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"$actionCommand`""
 $trigger = New-ScheduledTaskTrigger -Daily -At 03:00
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew

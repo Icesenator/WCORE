@@ -14,7 +14,7 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
 ## Endpoints
 
 - `GET /health` -> `{ ok: true }` (pas d'auth).
-- `GET /binance?token=RELAY_TOKEN` -> soldes Binance Spot + Earn:
+- `GET /binance` -> soldes Binance Spot + Earn:
   ```json
   {
     "ok": true,
@@ -24,7 +24,7 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
     "earn-locked": [["ETH", 1.0]]
   }
   ```
-- `GET /bybit?token=RELAY_TOKEN` -> soldes Bybit EU (UNIFIED + FUND fusionnes,
+- `GET /bybit` -> soldes Bybit EU (UNIFIED + FUND fusionnes,
   stablecoins normalises) :
   ```json
   {
@@ -33,7 +33,7 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
     "spot": [["USDT", 0.09], ["EURC", 12.69], ["BTC", 0.0002]]
   }
   ```
-- `GET /coinbase?token=RELAY_TOKEN` -> soldes Coinbase Advanced Trade/CDP
+- `GET /coinbase` -> soldes Coinbase Advanced Trade/CDP
   (accounts brokerage, stablecoins normalises) :
   ```json
   {
@@ -42,7 +42,7 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
     "spot": [["BTC", 0.01], ["EURC", 12.34]]
   }
   ```
-- `GET /okx?token=RELAY_TOKEN` -> soldes OKX trading + funding (stablecoins
+- `GET /okx` -> soldes OKX trading + funding (stablecoins
   normalises) :
   ```json
   {
@@ -57,6 +57,19 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
 - `POST /coinbase/account` -> flux multi-user (WCORE web), signature CDP ES256 avec la cle utilisateur.
 - `POST /okx/account` -> flux multi-user (WCORE web), signature HMAC OKX avec les secrets utilisateur.
 - `POST /stock/prices` -> pricing actions/ETFs Bitpanda pour WCORE web, avec conversion FX vers EUR.
+
+Envoyer le jeton dans un header afin qu'il ne fuite pas dans les URLs ou les logs :
+
+```powershell
+$headers = @{ "x-relay-token" = $env:RELAY_TOKEN }
+Invoke-RestMethod "$env:CEX_RELAY_URL/binance" -Headers $headers
+
+$headers = @{ Authorization = "Bearer $env:RELAY_TOKEN" }
+Invoke-RestMethod "$env:CEX_RELAY_URL/stock/prices" -Method Post -Headers $headers `
+  -ContentType "application/json" -Body '{"symbols":["AAPL"]}'
+```
+
+Les query strings `?token=...` restent temporairement compatibles sur les endpoints legacy, mais sont depreciees.
 
 ## Variables Railway
 
@@ -78,14 +91,14 @@ Domaine actif : `https://cex-relay-production.up.railway.app`.
 ## Deploiement (CLI)
 
 ```powershell
-# Depuis wcore-gsheet/railway-relay
+# Depuis la racine du depot
 railway link
-railway up --service cex-relay --ci
+./wcore-web/scripts/deploy.ps1 -Service cex-relay
 railway variables
 railway domain
 ```
 
-Ne pas deployer ce service depuis la racine du monorepo : la source canonique du relais est ce dossier.
+Le script epingle le Dockerfile du relais tout en conservant la racine du monorepo comme contexte Railway.
 
 ## Securite
 

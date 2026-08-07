@@ -127,7 +127,7 @@ test("rebuildChainStreakFromOnchain is idempotent for case-different OnchainGm r
   try {
     const prisma = buildPrismaMock(state);
     const result = await rebuildChainStreakFromOnchain(
-      { prisma: prisma as never, getChainRpcs: () => ["https://rpc.test"], GM_EVENT_SIG, rpcJson: async () => null },
+      { prisma: prisma as never, getChainRpcs: () => ["https://203.0.113.10"], GM_EVENT_SIG, rpcJson: async () => null },
       "u1", USER, CHAIN,
     );
     assert.equal(result.insertedOnchainGms, 0, "no insert for an already-known txHash");
@@ -153,7 +153,7 @@ test("rebuildChainStreakFromOnchain inserts truly new txHashes", async () => {
   try {
     const prisma = buildPrismaMock(state);
     const result = await rebuildChainStreakFromOnchain(
-      { prisma: prisma as never, getChainRpcs: () => ["https://rpc.test"], GM_EVENT_SIG, rpcJson: async () => null },
+      { prisma: prisma as never, getChainRpcs: () => ["https://203.0.113.10"], GM_EVENT_SIG, rpcJson: async () => null },
       "u1", USER, CHAIN,
     );
     assert.equal(result.insertedOnchainGms, 1, "should insert the truly new txHash");

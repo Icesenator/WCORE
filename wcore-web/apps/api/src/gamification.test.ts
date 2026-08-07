@@ -236,7 +236,7 @@ describe("GM API regressions", () => {
     await rebuildChainStreakFromOnchain(
       {
         prisma,
-        getChainRpcs: () => ["https://example.invalid"],
+        getChainRpcs: () => ["https://203.0.113.10"],
         GM_EVENT_SIG,
         rpcJson: async <T,>() => ({ result: "0x1" } as T),
       },
@@ -267,7 +267,7 @@ describe("GM API regressions", () => {
     const result = await rebuildChainStreakFromOnchain(
       {
         prisma,
-        getChainRpcs: () => ["https://example.invalid"],
+        getChainRpcs: () => ["https://203.0.113.10"],
         GM_EVENT_SIG,
         rpcJson: async <T,>() => ({ result: "0x1" } as T),
       },

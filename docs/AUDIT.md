@@ -4,7 +4,7 @@
 > Revision fonctionnelle auditee: `76fc4c82c159f242858c9be6ed63c6963203e666`; les correctifs de la seconde vague vont jusqu'a `d4fd798` et sont consignes dans "Findings du 2026-08-06".
 > Perimetre: depot racine, Web, API, relais CEX, package `@wcore/chains`, Apps Script, CI, Railway, dependances, documentation et controles RPC non destructifs.
 > Methode: inspection statique parallele, reconciliation de l'audit du 2026-07-16, tests/builds locaux, controles HTTP publics, inspection Railway, lecture du classeur, inspection des triggers/executions Apps Script et sondage direct des endpoints configures. Aucun secret n'a ete affiche ou copie.
-> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.58, l'API `420f5ad6-ca8a-41f5-a798-12ac14615016` et le Web `53b384d1-532d-4976-868d-4d47e7e44ca1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
+> Suivi: les corrections fonctionnelles ont ete appliquees, verifiees, commitees et poussees. Apps Script 4.16.58, l'API `420f5ad6-ca8a-41f5-a798-12ac14615016` et le Web `9ae4375a-55c3-4270-9fa4-4056495515a1` sont deployes. Les constats corriges sont marques RESOLU ci-dessous.
 
 ## Resume executif
 
@@ -18,7 +18,7 @@ Les quatre invariants critiques releves le 3 aout sont corriges: Somnia utilise 
 |---|---|
 | Git | `master` et `origin/master` synchronises; worktree propre apres publication |
 | GitHub Actions | `Chains` vert sur `bc6c5ae`; CI `#514` verte sur `d4fd798`, 4 jobs sur 4 dont PostgreSQL et E2E |
-| Railway | API `420f5ad6`, Web `53b384d1` et relais `Online`; derniers deploys cibles `SUCCESS` |
+| Railway | API `420f5ad6`, Web `9ae4375a` et relais `Online`; derniers deploys cibles `SUCCESS` |
 | Production | Web/API/relais en HTTP 200 avec HSTS et CSP |
 | Chaines API | 182 configurations; 167 actives et 15 desactivees, dont `POLYNOMIAL` archivee |
 | RPC uniques actifs lors du sweep initial | 13, dont `SYNDICATE_COMMONS`, desactivee depuis |

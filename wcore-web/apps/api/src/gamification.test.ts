@@ -1,6 +1,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import jwt from "jsonwebtoken";
+import { getRpcEndpoints } from "@wcore/core";
 import { TEST_JWT_SECRET as JWT_SECRET } from "./test-secret.js";
 import { app, prisma } from "./server.js";
 import {
@@ -47,8 +48,8 @@ describe("gamification helpers", () => {
   });
 
   test("getChainRpc returns configured RPCs and never falls back unknown chains to Base", () => {
-    assert.equal(getChainRpc("base"), "https://base.drpc.org");
-    assert.equal(getChainRpc("Arbitrum_One"), "https://arb1.arbitrum.io/rpc");
+    assert.ok(getRpcEndpoints("BASE").includes(getChainRpc("base") ?? ""));
+    assert.ok(getRpcEndpoints("ARBITRUM_ONE").includes(getChainRpc("Arbitrum_One") ?? ""));
     assert.equal(getChainRpc("unknown_chain"), undefined);
   });
 

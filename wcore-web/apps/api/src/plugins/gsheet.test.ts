@@ -531,6 +531,7 @@ describe("gsheetPlugin", () => {
       token: "secret",
       cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,

@@ -278,22 +278,6 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
         />
       ) : null}
 
-      {Object.keys(scanOrch.circuitBreakers).filter(k => scanOrch.circuitBreakers[k]?.state === "OPEN").length > 0 ? (
-        <div className="rounded-lg border border-yellow-900/30 bg-yellow-950/10 p-3 text-xs">
-          <span className="font-semibold text-yellow-300">Circuit breakers active</span>
-          <span className="text-yellow-200/70 ml-2">
-            {Object.entries(scanOrch.circuitBreakers)
-              .filter(([, v]) => v.state === "OPEN")
-              .map(([k, v]) => {
-                // eslint-disable-next-line react-hooks/purity
-                const openedAgo = v.openedAt ? Math.round((Date.now() - v.openedAt) / 1000) : 0;
-                return `${k.replace(/_/g, " ")} (${v.failureCount} failures${openedAgo > 0 ? `, opened ${openedAgo}s ago` : ""})`;
-              })
-              .join(", ")}
-          </span>
-        </div>
-      ) : null}
-
       <div className="space-y-4 sm:space-y-6">
         <PortfolioSummaryCard
           totalEur={totalEur}

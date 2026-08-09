@@ -61,7 +61,7 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 
 ### Frontend
 
-- [ ] Supprimer le polling public de `/api/circuit`, devenu admin-only.
+- [x] **RESOLVED 2026-08-09.** Le hook public ne reference plus `/api/circuit`, qui repondait necessairement 401 sans token admin. Le bandeau utile derive deja `circuitOpenChains` des erreurs de scan; l'etat et le second bandeau alimentes uniquement par l'appel impossible sont supprimes. Garde architecturale validee par mutation; tests Web 184/184.
 - [ ] Nettoyer les overrides scam locaux quand le serveur renvoie une liste vide.
 - [ ] Ajouter labels aux formulaires CEX et semantique/focus au modal wallet.
 - [ ] Ajouter roles tab, `aria-selected`, `aria-sort` et actions clavier dans les tables.

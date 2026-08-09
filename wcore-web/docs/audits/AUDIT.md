@@ -44,11 +44,11 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 
 ### API et securite
 
-- [x] **RESOLVED 2026-08-04.** `resolveCexEncryptionSecret` leve une erreur en production quand `CEX_SECRET` manque (`apps/api/src/plugins/cex.ts:117`); le repli sur `JWT_SECRET` ne subsiste qu'hors production (`:119`), pour ne pas rendre illisibles les identifiants deja stockes en dev. Preuve: `apps/api/src/plugins/cex-secret.test.ts`.
+- [x] **RESOLVED 2026-08-04, centralise 2026-08-09.** `resolveCexEncryptionSecret` dans `apps/api/src/config.ts` leve une erreur en production quand `CEX_SECRET` manque ou est blanc; le repli sur `JWT_SECRET` ne subsiste qu'hors production, pour ne pas rendre illisibles les identifiants deja stockes en dev. Preuve: `apps/api/src/plugins/cex-secret.test.ts`, garde blanche validee par mutation.
 - [x] Mettre `ws` a jour en `>=8.21.0`: override et lockfile en `8.21.1`, audit sans HIGH/CRITICAL.
 - [x] **RESOLVED 2026-08-07, verrouille 2026-08-09.** `/ready` sonde PostgreSQL et Redis et repond 503 des que l'un manque. La garde existait sans aucun test: un `grep "/ready"` sur les fichiers de test ne renvoyait rien. Les deux routes sont extraites dans `apps/api/src/plugins/health.ts` et couvertes par `health.test.ts`, qui verrouille aussi le fait que `/health` reste une sonde de liveness — elle ne sonde aucune dependance et n'expose pas l'etat des disjoncteurs (SEC-10). Gardes validees par mutation.
 - [ ] Reduire le TTL access token ou ajouter une revocation user/session-level.
-- [ ] Integrer toutes les variables CEX/GSheet dans `config.ts` et les templates env.
+- [x] **RESOLVED 2026-08-09.** URL et token du relais, secret de chiffrement CEX, token GSheet et bornes de travail GSheet sont resolus dans `apps/api/src/config.ts`; aucune lecture `CEX_*`, `GSHEET_*`, `RELAY_TOKEN` ou `*_RELAY_URL` ne subsiste dans le code de production hors de ce fichier. Les 14 variables concernees figurent dans `.env.example` et `.env.production.template`. La centralisation a revele et ferme quatre divergences de repli URL, un appel relais avec token vide, un secret CEX blanc accepte comme cle AES et l'impossibilite de configurer `GSHEET_SCAN_PRICE_REPAIR_LIMIT=0`. Preuves: 203/203 tests cibles, gardes principales validees par mutation.
 - [ ] Comparer l'origine CSRF complete, pas seulement le hostname.
 
 ### Core et cache

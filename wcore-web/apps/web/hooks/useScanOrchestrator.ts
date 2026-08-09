@@ -2,7 +2,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { ChainScan } from "@wcore/shared";
 import { AnyAddress, detectChainType } from "@wcore/shared";
-import { getApiUrl } from "@/lib/api";
 import { boundedApiFetch } from "@/lib/cex-api";
 import { fetchBatchScan, makeErrorChainScan } from "@/lib/scan-api";
 import { matchCompatibleChains, type ChainScanMeta, type ScanVm } from "@/lib/chain-filter";
@@ -10,7 +9,6 @@ import { getScanProgressDisplay } from "@/components/scan-progress";
 import { mergeChainResults, orderScanJobsForExecution } from "@/components/scan-results";
 import { runWithConcurrency } from "@/lib/concurrency";
 
-const API_URL = getApiUrl();
 const GLOBAL_CHAIN_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.NEXT_PUBLIC_SCAN_CONCURRENCY) || 50));
 // PERF-8: batch multiple chains of the same VM into a single /api/scan/batch
 // request instead of one request per chain. Keeps progressive UI (results land
@@ -153,7 +151,6 @@ export function useScanOrchestrator({
   const scanRunIdRef = useRef(0);
   const scanAbortControllerRef = useRef<AbortController | null>(null);
   const retryAbortControllerRef = useRef<AbortController | null>(null);
-  const [circuitBreakers, setCircuitBreakers] = useState<Record<string, { state: string; failureCount: number; openedAt: number | null }>>({});
   const [activeScanChains, setActiveScanChains] = useState<Map<string, Set<string>>>(new Map());
 
   const scanChains = useMemo(() => {
@@ -394,20 +391,6 @@ export function useScanOrchestrator({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chains.join(","), deepScan, scanTrigger]);
 
-  useEffect(() => {
-    // Debounce circuit breaker fetch to avoid 110+ redundant HTTP calls during scan.
-    // Fetch at most once every 10s or when scan completes.
-    const timer = setTimeout(() => {
-      fetch(`${API_URL}/api/circuit`)
-        .then(r => r.json())
-        .then((d: { circuits?: Record<string, { state: string; failureCount: number; openedAt: number | null }> }) => {
-          if (d.circuits) setCircuitBreakers(d.circuits);
-        })
-        .catch(() => {});
-    }, 10_000);
-    return () => clearTimeout(timer);
-  }, [results]);
-
   const resultAddresses = new Set((results ?? []).map(r => r.address.toLowerCase()));
   /* eslint-disable react-hooks/refs */
   const displayResults = (results ?? []).concat(
@@ -537,7 +520,6 @@ export function useScanOrchestrator({
     lastScanCompleteTime,
     triggerForceRefresh,
     refreshWallet,
-    circuitBreakers,
     activeScanChains,
     scanChains,
     displayResults,

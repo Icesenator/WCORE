@@ -1,9 +1,17 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import type { ChainScan } from "@wcore/shared";
 import { buildScanOrchestratorJobs, mergeChainRefreshResult } from "../hooks/useScanOrchestrator";
 
 const EVM = "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
+
+test("the public scan hook never calls the admin-only circuit endpoint", () => {
+  const source = readFileSync(new URL("../hooks/useScanOrchestrator.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /\/api\/circuit/);
+  assert.match(source, /message\?\.includes\("circuit_open"\)/,
+    "public circuit banners must derive from scan result errors");
+});
 
 describe("useScanOrchestrator planning", () => {
   test("filters chains by wallet VM and batches compatible chains", () => {

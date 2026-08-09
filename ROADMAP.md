@@ -83,7 +83,7 @@
 
 - [x] Eviter qu'un echec GM soit interprete comme contrat absent. L'etat inconnu (`null`) remplace `false` sur panne depuis le 2026-08-04.
 - [x] Supprimer les fan-outs GM frontend et normaliser les `chainKey`. Prix charge a l'action, statuts regroupes et cles canoniques verifies par les tests GM le 2026-08-05.
-- [ ] Ne plus poller `/api/circuit` admin-only depuis l'UI publique.
+- [x] Ne plus poller `/api/circuit` admin-only depuis l'UI publique. Appel 401 et bandeau duplique supprimes le 2026-08-09; l'UI derive `circuitOpenChains` des erreurs de scan.
 - [x] Centraliser les variables CEX/GSheet. URL et token relais, secret CEX, token et bornes GSheet vivent dans `apps/api/src/config.ts`; 14/14 variables documentees dans les deux templates le 2026-08-09.
 - [ ] Ajouter un test schema sur les 182 configurations.
 - [~] Tests comportementaux CEX ajoutes le 2026-07-17 (pannes, stale, concurrence, session, timeout complet); hooks GM encore a couvrir.

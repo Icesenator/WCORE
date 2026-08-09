@@ -62,9 +62,10 @@ function _isLedgerLike_(name) {
   n.indexOf("warpcast") >= 0 ||
   n.indexOf("binance") >= 0 ||
   n.indexOf("smart") >= 0 ||
-   n.indexOf("safepal") >= 0 ||
-   n.indexOf("space") >= 0 ||
-   n.indexOf("startale") >= 0 ||
+    n.indexOf("safepal") >= 0 ||
+    n.indexOf("space") >= 0 ||
+    n.indexOf("grass") >= 0 ||
+    n.indexOf("startale") >= 0 ||
    // v4.15.85: include CEX sync tabs (display-only in Recap, B1 self-managed).
    n.indexOf("bitpanda") >= 0 ||
    n.indexOf("bitfinex") >= 0 ||

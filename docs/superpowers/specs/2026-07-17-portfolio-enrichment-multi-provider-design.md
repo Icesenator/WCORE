@@ -1,3 +1,9 @@
+---
+type: spec
+status: active
+project: wcore
+date: 2026-07-17
+---
 # Portfolio Enrichment Multi-Provider Design
 
 **Date:** 2026-07-17

@@ -1,7 +1,23 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
- * v4.16.33 - Bound automatic Web attempts and trip a shared transient failure breaker.
+ * v4.16.40 - Preserve useful assets but emit a retryable WEB_SCAN_ERROR when a
+ *   preserved legacy cache has no usable timestamp, never WEB_SCAN_PRESERVED N/A.
+ * v4.16.39 - Keep useful partial payloads degraded and expose cache-load failures
+ *   as unsafe WEB_SCAN_ERROR statuses without writing incoming data.
+ * v4.16.39 - Expose degraded balance-unavailable/Web/disabled-chain payloads as
+ *   WEB_SCAN_ERROR when no useful cache exists, while retaining diagnostic cache.
+ * v4.16.37 - Removed global admission lease bottleneck.  Per-wallet leases now
+ *   the sole gate (reduced to 30s, released after HTTP response).  Multiple
+ *   wallets scan concurrently — 100% of B1 pulses result in live scans instead
+ *   of the previous ~20% LOCK_BUSY waste.  No retry loop needed.
+ * v4.16.36 - Admission LOCK_BUSY retry (3x800ms) to reduce wasted B1 pulses from
+ *   concurrent I1 evaluations.  Quota breaker auto-probe via testOnce() on first
+ *   I1-path detection.  Web breaker fail-open on CacheService errors (was blocking
+ *   all wallets on transient cache unavailability).
+ * v4.16.35 - Replaced global ScriptLock with a dedicated ScriptProperties admission
+ *   lease (WCORE_WEBSCAN_ADMISSION_LEASE, 5s TTL) so concurrent wallet scans don't
+ *   contend.  Falls back to the old ScriptLock path on infrastructure errors.
  * v4.16.32 - Preserve case-sensitive wallet identities and report admission errors safely.
  * v4.16.31 - Suppress duplicate automatic Web scans with a short hashed lease.
  * v4.16.30 - _webScanMustUse_: stronger gate. When GSHEET_WEB_SCAN_REQUIRE is set,
@@ -42,10 +58,10 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.33";
+var GSHEET_WEB_SCAN_VERSION = "4.16.40";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
-var GSHEET_WEB_SCAN_LEASE_SEC = 120;
+var GSHEET_WEB_SCAN_LEASE_SEC = 30;
 var GSHEET_WEB_SCAN_LOCK_WAIT_MS = 250;
 var GSHEET_WEB_BREAKER_THRESHOLD = 3;
 var GSHEET_WEB_BREAKER_WINDOW_MS = 5 * 60 * 1000;
@@ -418,10 +434,10 @@ function _webScanShouldPreserveExistingCache_(payload, cache, config) {
   var nativeAsset = cache.assets[0];
   if (nativeAsset && String(nativeAsset.contract || "") === "native" && _webScanNum_(nativeAsset.balance, 0) > 0) hasUsefulCache = true;
   for (var ca = 1; ca < cache.assets.length; ca++) {
-    if (_webScanNum_(cache.assets[ca].balance, 0) > 0) { hasUsefulCache = true; break; }
+    if (_webScanNum_(cache.assets[ca].balance, 0) !== 0) { hasUsefulCache = true; break; }
   }
   if (!hasUsefulCache) return false;
-  if (!nativeDisabled && nativeAsset && String(nativeAsset.contract || "") === "native" && _webScanNum_(nativeAsset.balance, 0) === 0) return true;
+  if (!nativeDisabled && _webScanNum_(payload.native && payload.native.balance, 0) === 0) return true;
   var errors = Array.isArray(payload.errors) ? payload.errors : [];
   if (errors.length) {
     var onlyNonDestructiveGaps = true;
@@ -447,6 +463,17 @@ function _webScanShouldPreserveExistingCache_(payload, cache, config) {
   return _webScanNum_(native.balance, 0) === 0;
 }
 
+function _webScanHasDiagnosticError_(payload) {
+  var errors = payload && Array.isArray(payload.errors) ? payload.errors : [];
+  for (var i = 0; i < errors.length; i++) {
+    var errorText = String(errors[i] || "").toLowerCase();
+    if (errorText.indexOf("balance unavailable") >= 0
+      || errorText.indexOf("[web_scan_error]") >= 0
+      || errorText.indexOf("chain_disabled") >= 0) return true;
+  }
+  return false;
+}
+
 function _webScanAssetKey_(asset) {
   return String(asset && asset.contract || "").trim().toLowerCase();
 }
@@ -461,6 +488,18 @@ function _webScanHasUsefulAssets_(cache) {
   if (assets.length > 1) return true;
   var native = assets[0] || {};
   return String(native.contract || "") === "native" && (_webScanNum_(native.balance, 0) > 0 || _webScanNum_(native.value_eur, 0) > 0);
+}
+
+function _webScanCacheTimestamp_(cache) {
+  if (!cache || typeof cache !== "object") return 0;
+  var raw = cache.updatedAt || cache.u || cache.last_run_update_ms || 0;
+  var ts = Number(raw);
+  if (!isFinite(ts) || ts <= 0) {
+    try { ts = new Date(raw).getTime(); } catch (e) { ts = 0; }
+  }
+  if (!isFinite(ts) || ts <= 0) return 0;
+  if (ts < 20000000000) ts *= 1000;
+  return ts;
 }
 
 function _webScanMergeAsset_(oldAsset, newAsset) {
@@ -589,9 +628,16 @@ function _webScanRequestPayload_(address, tokensRange, forceFull, config) {
   };
 }
 
+var _webScanQuotaTestDone = false;
 function _webScanQuotaTripped_() {
   try {
-    if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) return true;
+    if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) {
+      if (!_webScanQuotaTestDone && typeof QuotaCircuitBreaker.testOnce === "function") {
+        _webScanQuotaTestDone = true;
+        try { QuotaCircuitBreaker.testOnce(false); } catch (eTest) {}
+      }
+      if (typeof QuotaCircuitBreaker.isTripped === "function" && QuotaCircuitBreaker.isTripped()) return true;
+    }
   } catch (e) {}
   return false;
 }
@@ -648,7 +694,7 @@ function _webScanBreakerStatus_() {
       failures: state.failures.length
     };
   } catch (e) {
-    return { open: true, openUntil: 0, failures: 0, unavailable: true };
+    return { open: false, openUntil: 0, failures: 0, unavailable: true };
   }
 }
 
@@ -694,6 +740,14 @@ function _webScanWalletHash_(address) {
   return hex;
 }
 
+function _webScanReleaseLease_(leaseKey) {
+  if (!leaseKey) return;
+  try {
+    var cache = CacheService.getScriptCache();
+    if (cache) cache.remove(leaseKey);
+  } catch (e) {}
+}
+
 function _webScanDeferredResult_(address, cacheKey, config, reason) {
   var cached = null;
   try { cached = WalletCache.load(String(cacheKey || address || '').trim(), null, config); } catch (eLoad) {}
@@ -736,14 +790,37 @@ function _webScanAcquireAdmission_(address, chainKey, forceFull) {
   }
 }
 
+// v4.16.37: Removed global admission lease — per-wallet CacheService leases (120s)
+// already prevent double-scanning.  Multiple wallets can now scan concurrently,
+// eliminating the LOCK_BUSY bottleneck that caused 80% of B1 pulses to be wasted.
+function _webScanAcquireAdmissionV2_(address, chainKey, forceFull) {
+  if (_webScanForce_(forceFull)) return { allowed: true, bypassed: true };
+  try {
+    var cache = CacheService.getScriptCache();
+    if (!cache) return { allowed: false, reason: "CACHE_UNAVAILABLE" };
+    var breaker = _webScanReadBreakerState_(cache);
+    if (breaker.openUntil > Date.now()) return { allowed: false, reason: "WEB_BREAKER_OPEN" };
+    var key = CK_get("webScanLease", { chainKey: chainKey, walletHash: _webScanWalletHash_(address) });
+    if (cache.get(key)) return { allowed: false, reason: "LEASE_HELD" };
+    cache.put(key, "1", GSHEET_WEB_SCAN_LEASE_SEC);
+    return { allowed: true, leaseKey: key };
+  } catch (e) {
+    return { allowed: false, reason: "ADMISSION_ERROR" };
+  }
+}
+
 function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
   try {
     if (!_webScanEnabled_()) return null;
     var chainKey = _webScanChainKey_(config);
     if (!chainKey || !_webScanAllowed_(chainKey)) return null;
     if (_webScanQuotaTripped_()) return _webScanBlockedQuotaResult_(chainKey);
-    var admission = _webScanAcquireAdmission_(address, chainKey, forceFull);
+    var admission = _webScanAcquireAdmissionV2_(address, chainKey, forceFull);
+    if (admission.reason === "ADMISSION_ERROR") {
+      admission = _webScanAcquireAdmission_(address, chainKey, forceFull);
+    }
     if (!admission.allowed) return _webScanDeferredResult_(address, cacheKey, config, admission.reason);
+    var leaseKey = admission.leaseKey || null;
     var baseUrl = _webScanProp_("WCORE_WEB_API_URL").replace(/\/$/, "");
     var token = _webScanProp_("GSHEET_API_TOKEN");
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
@@ -793,6 +870,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
         return { ok: false, status: 'NETWORK_ERROR', error: String(fetchErr && (fetchErr.message || fetchErr) || fetchErr), transient: true };
       }
     }
+    _webScanReleaseLease_(leaseKey);
     var payload = JSON.parse(resp.getContentText() || "{}");
     var cache = _webScanConvertToWalletCache_(payload, config, tokensRange);
     if (!cache || !cache.assets || !cache.assets.length) {
@@ -803,40 +881,69 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     _webScanSetLastError_('', chainKey);
     _webScanLogScanErrors_(payload, chainKey);
     _webScanUpdateBreaker_('success');
-    if (_webScanShouldPreserveExistingCache_(payload, cache, config)) {
+    if (payload.degraded === true) {
       var existingCache = null;
-      try { existingCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config); } catch (loadErr) { existingCache = null; }
-      var mergedCache = _webScanMergeWithExistingCache_(existingCache, cache);
-      if (mergedCache) {
-        CacheManager.init();
-        WalletCache.save(String(cacheKey || address || "").trim(), mergedCache, config);
+      try {
+        existingCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config);
+      } catch (loadErr) {
+        _webScanSetLastError_("CACHE_LOAD_FAILED " + chainKey, chainKey);
         return {
           ok: true,
           deferred: false,
-          status: "[WEB_SCAN_DEGRADED] " + Format.datetime(mergedCache.updatedAt),
-          cache: mergedCache,
+          status: "[WEB_SCAN_ERROR] " + Format.now(),
+          cache: null,
           degraded: true,
-          merged: true
+          error: "CACHE_LOAD_FAILED"
         };
       }
-      _webScanSetLastError_("PRESERVED_DEGRADED_NATIVE_ZERO " + chainKey, chainKey);
-      return {
-        ok: true,
-        deferred: false,
-        status: "[WEB_SCAN_PRESERVED] " + Format.datetime(cache.updatedAt),
-        cache: cache,
-        degraded: true
-      };
+      if (_webScanShouldPreserveExistingCache_(payload, existingCache, config)) {
+        var mergedCache = _webScanMergeWithExistingCache_(existingCache, cache);
+        if (mergedCache) {
+          CacheManager.init();
+          WalletCache.save(String(cacheKey || address || "").trim(), mergedCache, config);
+          return {
+            ok: true,
+            deferred: false,
+            status: "[WEB_SCAN_DEGRADED] " + Format.datetime(mergedCache.updatedAt),
+            cache: mergedCache,
+            degraded: true,
+            merged: true
+          };
+        }
+        _webScanSetLastError_("PRESERVED_DEGRADED_NATIVE_ZERO " + chainKey, chainKey);
+        var preservedAt = _webScanCacheTimestamp_(existingCache);
+        if (!preservedAt) {
+          _webScanSetLastError_("PRESERVED_CACHE_TIMESTAMP_MISSING " + chainKey, chainKey);
+          return {
+            ok: true,
+            deferred: false,
+            status: "[WEB_SCAN_ERROR] " + Format.now(),
+            cache: existingCache,
+            degraded: true,
+            error: "PRESERVED_CACHE_TIMESTAMP_MISSING"
+          };
+        }
+        return {
+          ok: true,
+          deferred: false,
+          status: "[WEB_SCAN_PRESERVED] " + Format.datetime(preservedAt),
+          cache: existingCache,
+          degraded: true
+        };
+      }
     }
     CacheManager.init();
     WalletCache.save(String(cacheKey || address || "").trim(), cache, config);
     return {
       ok: true,
       deferred: false,
-      status: (payload.degraded ? "[WEB_SCAN_DEGRADED] " : "WEB_SCAN_OK ") + Format.datetime(cache.updatedAt),
+      status: (payload.degraded
+        ? (_webScanHasDiagnosticError_(payload) && !_webScanHasUsefulAssets_(cache) ? "[WEB_SCAN_ERROR] " : "[WEB_SCAN_DEGRADED] ")
+        : "WEB_SCAN_OK ") + Format.datetime(cache.updatedAt),
       cache: cache
     };
   } catch (e) {
+    _webScanReleaseLease_(leaseKey);
     var chainKeyCatch = (typeof chainKey === "string" && chainKey) ? chainKey : ((config && _webScanChainKey_ && _webScanChainKey_(config)) || "");
     var caughtQuotaResult = _webScanHandleQuotaError_(e, chainKeyCatch);
     if (caughtQuotaResult) return caughtQuotaResult;

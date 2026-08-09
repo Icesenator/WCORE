@@ -1,7 +1,9 @@
 /************************************************************
  * 10A_BASE_ENGINE.gs - Unified Base Engine for EVM/SVM/Cosmos
  *
- * Version: v4.15.73
+ * Version: v4.15.74
+ *
+ * v4.15.74: Emit deterministic [CACHE_ONLY] markers for cache-served status.
  *
  * v4.15.73: Treat stale B1 timestamps as sheet recalculations, not refresh
  *   authorization. REFRESH_STATUS only scans for fresh B1 pulses.
@@ -98,7 +100,7 @@
 // ============================================================
 // AUTO-REGISTRATION (v4.13.3)
 // ============================================================
-var BASE_ENGINE_VERSION = "4.15.73";
+var BASE_ENGINE_VERSION = "4.15.74";
 
 if (typeof ModuleRegistry !== 'undefined') {
   ModuleRegistry.register("BASE_ENGINE", BASE_ENGINE_VERSION, {
@@ -161,10 +163,10 @@ BaseEngine.shouldSkipRefreshForSameTrigger = function(walletKey, config, cache, 
 // without a fresh B1 pulse, compare J1 (last scan = cache.updatedAt) with
 // B1 (pulse timestamp). If J1 >= B1, the cache is already up-to-date and
 // no rescan is needed.
-var I1_GUARD_MS = 120 * 1000; // 2 min — only used as a hard floor to avoid
+var I1_GUARD_MS = 180 * 1000; // 3 min — only used as a hard floor to avoid
                                 // scan spam on initial deployment.
-var B1_TRIGGER_FRESH_MS = 30 * 60 * 1000; // B1 pulses should be consumed promptly;
-                                          // older timestamps are recalculations.
+var B1_TRIGGER_FRESH_MS = 35 * 60 * 1000; // B1 pulses should be consumed promptly;
+                                          // 5 min buffer over WD_PULSE_MIN (30 min) to avoid race condition.
 
 BaseEngine.isFreshRefreshTrigger = function(triggerRefresh) {
   try {
@@ -526,20 +528,18 @@ BaseEngine.cexBusyStatus = function(walletKey, config) {
 // ============================================================
 
 /**
- * Wraps a success timestamp with [CACHE_ONLY] if no HTTP calls were made
- * during the scan (httpBefore === HttpCallCounter.getToday()).
+ * Wraps a timestamp returned by an explicit cache-only branch with [CACHE_ONLY].
+ * The current global HTTP counter is concurrency-unsafe and cannot identify
+ * whether this execution made an HTTP call.
  *
  * Usage in getRefreshStatus:
  *   var _httpBefore = BaseEngine.httpSnapshot();
  *   // ... scan ...
  *   return BaseEngine.wrapCacheOnlyMarker(ts, _httpBefore);
  *
- * Fail-open: if HttpCallCounter unavailable or delta < 0 (day rollover),
- * returns ts unchanged.
- *
  * @param {string} ts - Timestamp string to return
- * @param {number} httpBefore - Snapshot taken before scan
- * @returns {string} "[CACHE_ONLY] ts" or "ts"
+ * @param {number} httpBefore - Retained snapshot argument for existing callers
+ * @returns {string} "[CACHE_ONLY] ts"
  */
 BaseEngine.httpSnapshot = function() {
   try {
@@ -549,14 +549,12 @@ BaseEngine.httpSnapshot = function() {
 };
 
 BaseEngine.wrapCacheOnlyMarker = function(ts, httpBefore) {
+  var value = "";
   try {
-    if (httpBefore < 0) return ts; // HttpCallCounter indispo
-    if (typeof HttpCallCounter === 'undefined') return ts;
-    var delta = HttpCallCounter.getToday() - httpBefore;
-    if (delta === 0) return "[CACHE_ONLY] " + ts;
-    // delta < 0 = rollover jour ou reset manuel → fail-open
+    value = String(ts == null ? "" : ts);
   } catch (e) {}
-  return ts;
+  if (value.indexOf("[CACHE_ONLY]") === 0) return value;
+  return value ? ("[CACHE_ONLY] " + value) : "[CACHE_ONLY]";
 };
 
 // ============================================================

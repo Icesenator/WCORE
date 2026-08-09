@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: wcore
+date: 2026-07-17
+---
 # Market Cap Pages Design
 
 **Status:** Approved on 2026-07-17.

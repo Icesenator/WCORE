@@ -31,9 +31,10 @@ var WALLET_REGISTRY = {
   "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5": "Layer3",
   "AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4": "Ledger",
   "GWLCYszJB8H5Pe3nYw6uoFTApoAqP9P7uzgTmbFm4Nqk": "Seeker",
-  "0x9eb34b670f79491329f71080717edf071ff5353f": "UniSwap",
-  "0x18bbec24e4ff9c43d538121528c08a88cacd4e4c": "Warpcast"
-  // Ajoutez vos wallets ici...
+   "0x9eb34b670f79491329f71080717edf071ff5353f": "UniSwap",
+   "0x18bbec24e4ff9c43d538121528c08a88cacd4e4c": "Warpcast",
+   "Bj56sLm3gMa4WNXuFAEdGJZtzoz85zejXGUXGyjAthh5": "Grass"
+   // Ajoutez vos wallets ici...
 };
 
 // ============================================================

@@ -10,6 +10,9 @@ const savingsSource = fs.readFileSync(path.join(root, 'src/26B_HTTP_SAVINGS.gs')
 const webSource = fs.readFileSync(path.join(root, 'src/41_GSHEET_WEB_SCAN.gs'), 'utf8');
 const refreshSource = fs.readFileSync(path.join(root, 'src/16_REFRESH.gs'), 'utf8');
 
+assert.match(quotaSource, /var\s+QUOTA_CIRCUIT_BREAKER_VERSION\s*=\s*["']4\.16\.34["']\s*;/,
+  'QUOTA_CIRCUIT_BREAKER_VERSION must match the 4.16.34 source header');
+
 function extractIife(source, name) {
   const marker = `var ${name} =`;
   const start = source.indexOf(marker);
@@ -89,6 +92,7 @@ assert.equal(extractFunction(trickyFunction, 'compact'), 'function compact (x){c
 
 const counterCode = extractIife(quotaSource, 'HttpCounter');
 const budgetCode = extractIife(quotaSource, 'BudgetHTTP');
+const httpModeCode = extractIife(quotaSource, 'WcoreHttpMode');
 const legacyCode = extractIife(savingsSource, 'HttpCallCounter');
 const resetHttpCounterCode = extractFunction(quotaSource, 'RESET_HTTP_COUNTER');
 const telemetryTransportCode = extractFunction(quotaSource, '_httpTelemetryTransport_');
@@ -103,9 +107,10 @@ const watchdogConstantsCode = [
 ].join('\n');
 const webBreakerConstantsCode = extractVar(webSource, 'GSHEET_WEB_BREAKER_THRESHOLD');
 
-function makeShared() {
+function makeShared(options = {}) {
   const values = new Map();
   const writes = { set: 0, delete: 0 };
+  const reads = { locked: 0, unlocked: 0 };
   const failGetOnce = new Set();
   const failSetOnce = new Set();
   const failDeleteOnce = new Set();
@@ -126,7 +131,11 @@ function makeShared() {
   };
   const props = {
     getProperty(key) {
-      assert.equal(lock.held, true, `getProperty(${key}) must run under UserLock`);
+      if (lock.held) reads.locked++;
+      else {
+        assert.equal(options.allowUnlockedReads, true, `getProperty(${key}) must run under UserLock`);
+        reads.unlocked++;
+      }
       if (failGetOnce.delete(key)) throw new Error(`injected get failure: ${key}`);
       return values.has(key) ? values.get(key) : null;
     },
@@ -143,7 +152,7 @@ function makeShared() {
       values.delete(key);
     },
   };
-  return { values, writes, lock, props, failGetOnce, failSetOnce, failDeleteOnce };
+  return { values, writes, reads, lock, props, failGetOnce, failSetOnce, failDeleteOnce };
 }
 
 function installDiagnosticDependencies(runtime, cache) {
@@ -182,6 +191,7 @@ function loadCounter(shared) {
   vm.createContext(context);
   vm.runInContext(counterCode, context);
   vm.runInContext(budgetCode, context);
+  vm.runInContext(httpModeCode, context);
   return context;
 }
 
@@ -214,19 +224,78 @@ function loadCounter(shared) {
 }
 
 {
+  const shared = makeShared({ allowUnlockedReads: true });
+  const bucket = String(Math.floor(Date.now() / (60 * 60 * 1000)));
+  shared.values.set('WCORE_HTTP_BUCKETS_v1', JSON.stringify({ [bucket]: 37 }));
+  shared.lock.available = false;
+  const runtime = loadCounter(shared);
+
+  assert.equal(runtime.HttpCounter.count(), 37, 'a cold runtime reads the persisted non-saturated snapshot when UserLock is unavailable');
+  assert.equal(runtime.HttpCounter.isDegraded(), true, 'a cold unlocked snapshot is explicitly marked degraded');
+  assert.equal(shared.reads.unlocked, 1, 'the cold fallback performs the intended read-only snapshot read outside UserLock');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'a cold non-saturated snapshot does not deny on-chain HTTP');
+  assert.notEqual(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'a cold non-saturated snapshot does not force CACHE_ONLY');
+  assert.deepEqual(shared.writes, { set: 0, delete: 0 }, 'the unlocked cold fallback remains read-only');
+}
+
+{
+  const shared = makeShared({ allowUnlockedReads: true });
+  const bucket = String(Math.floor(Date.now() / (60 * 60 * 1000)));
+  shared.values.set('WCORE_HTTP_BUCKETS_v1', JSON.stringify({ [bucket]: 20000 }));
+  shared.lock.available = false;
+  const runtime = loadCounter(shared);
+
+  assert.equal(runtime.HttpCounter.count(), 20000, 'a cold runtime preserves a real saturated persisted snapshot');
+  assert.equal(runtime.HttpCounter.isDegraded(), true, 'a cold saturated unlocked snapshot is explicitly marked degraded');
+  assert.equal(shared.reads.unlocked, 1, 'the saturated cold fallback reads the persisted snapshot outside UserLock');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), false, 'a cold real saturated snapshot still denies on-chain HTTP');
+  assert.equal(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'a cold real saturated snapshot still forces CACHE_ONLY');
+  assert.deepEqual(shared.writes, { set: 0, delete: 0 }, 'the saturated cold fallback remains read-only');
+}
+
+{
   const shared = makeShared();
   const runtime = loadCounter(shared);
-  const ceiling = runtime.BudgetHTTP.limit();
+  const bucket = String(Math.floor(Date.now() / (60 * 60 * 1000)));
+  shared.values.set('WCORE_HTTP_BUCKETS_v1', JSON.stringify({ [bucket]: 37 }));
+
+  assert.equal(runtime.HttpCounter.count(), 37, 'a valid rolling count seeds the conservative fallback');
 
   shared.lock.available = false;
-  assert.equal(runtime.HttpCounter.count(), ceiling, 'lock contention fails closed at the configured count ceiling');
-  assert.equal(runtime.BudgetHTTP.allow('balance'), false, 'budget denies HTTP while telemetry lock is unavailable');
+  assert.equal(runtime.HttpCounter.count(), 37, 'lock contention reuses the last valid count instead of fabricating the quota ceiling');
+  assert.equal(runtime.HttpCounter.isDegraded(), true, 'lock contention explicitly marks telemetry degraded');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'telemetry lock contention does not deny on-chain HTTP');
+  assert.notEqual(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'telemetry lock contention does not force CACHE_ONLY');
 
   shared.lock.available = true;
   shared.failGetOnce.add('WCORE_HTTP_BUCKETS_v1');
-  assert.equal(runtime.HttpCounter.count(), ceiling, 'property failure fails closed at the configured count ceiling');
+  assert.equal(runtime.HttpCounter.count(), 37, 'property failure reuses the last valid count instead of fabricating the quota ceiling');
+  assert.equal(runtime.HttpCounter.isDegraded(), true, 'property failure explicitly marks telemetry degraded');
   shared.failGetOnce.add('WCORE_HTTP_BUCKETS_v1');
-  assert.equal(runtime.BudgetHTTP.allow('balance'), false, 'budget denies HTTP when the persisted count cannot be read');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'a temporary property read failure does not deny on-chain HTTP');
+  assert.notEqual(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'a temporary property read failure does not force CACHE_ONLY');
+}
+
+{
+  const shared = makeShared();
+  const runtime = loadCounter(shared);
+  const bucket = String(Math.floor(Date.now() / (60 * 60 * 1000)));
+  shared.values.set('WCORE_HTTP_BUCKETS_v1', JSON.stringify({ [bucket]: 20000 }));
+
+  assert.equal(runtime.HttpCounter.count(), 20000, 'a real saturated measurement remains visible');
+  assert.equal(runtime.HttpCounter.isDegraded(), false, 'a real saturated measurement is not marked degraded');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), false, 'a real saturated measurement still denies on-chain HTTP');
+  assert.equal(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'a real saturated measurement still forces CACHE_ONLY');
+}
+
+{
+  const runtime = loadCounter(makeShared());
+  runtime.HttpCounter.count = () => { throw new Error('telemetry unavailable'); };
+
+  assert.equal(runtime.BudgetHTTP.used(), 0, 'BudgetHTTP never converts a telemetry exception into a saturated measurement');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'a telemetry API exception does not deny on-chain HTTP');
+  assert.notEqual(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'a telemetry API exception does not force CACHE_ONLY');
+  assert.equal(runtime.BudgetHTTP.status().telemetryDegraded, true, 'BudgetHTTP explicitly reports a telemetry API exception');
 }
 
 {
@@ -250,7 +319,7 @@ function loadCounter(shared) {
   shared.lock.available = false;
   assert.deepEqual(JSON.parse(JSON.stringify(first.HttpCounter.snapshot())), {
     available: false,
-    total: 20000,
+    total: 2,
     categories: {},
     hosts: {},
     dropped: 2,
@@ -283,7 +352,7 @@ for (const key of ['WCORE_HTTP_BUCKETS_v1', 'WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTT
     assert.deepEqual(JSON.parse(JSON.stringify(runtime.HttpCounter.snapshot())), {
       available: false,
       corrupt: true,
-      total: 20000,
+      total: 0,
       categories: {},
       hosts: {},
       dropped: 0,
@@ -299,7 +368,7 @@ for (const key of ['WCORE_HTTP_BUCKETS_v1', 'WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTT
   shared.failGetOnce.add('WCORE_HTTP_HOSTS_v1');
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.HttpCounter.snapshot())), {
     available: false,
-    total: 20000,
+    total: 0,
     categories: {},
     hosts: {},
     dropped: 0,
@@ -417,7 +486,7 @@ for (const key of ['WCORE_HTTP_BUCKETS_v1', 'WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTT
     ['Google breaker status', 'OK'],
     ['Web breaker status', 'OPEN'],
     ['Watchdog cadence minutes', 10],
-    ['Watchdog pulse cap', 5],
+      ['Watchdog pulse cap', 10],
     ['Healthy freshness hours', 5],
     ['Web error backoff', '30m,2h,6h,24h'],
     ['Scope', 'WCORE project only'],
@@ -430,7 +499,7 @@ for (const key of ['WCORE_HTTP_BUCKETS_v1', 'WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTT
   shared.lock.available = false;
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.GET_QUOTA_PROTECTION_STATUS('refresh-snapshot'))).slice(-1), [[
     'Warning telemetry snapshot',
-    'UNAVAILABLE - displayed 20000 is a fail-closed ceiling, not an observed authoritative value',
+    'UNAVAILABLE - displayed count is a non-authoritative safe fallback',
   ]]);
   shared.lock.available = true;
 
@@ -438,7 +507,7 @@ for (const key of ['WCORE_HTTP_BUCKETS_v1', 'WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTT
   shared.values.set('WCORE_HTTP_HOSTS_v1', '{malformed');
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.GET_QUOTA_PROTECTION_STATUS('refresh-corrupt'))).slice(-1), [[
     'Warning telemetry snapshot',
-    'CORRUPT - displayed 20000 is a fail-closed ceiling, not an observed authoritative value',
+    'CORRUPT - displayed count is a non-authoritative safe fallback',
   ]]);
   assert.equal(shared.values.get('WCORE_HTTP_HOSTS_v1'), '{malformed', 'diagnostic must not repair corrupt telemetry');
   shared.values.set('WCORE_HTTP_HOSTS_v1', savedHosts);

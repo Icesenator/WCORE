@@ -1,3 +1,4 @@
+// v4.16.34 - Relay rotation scheduling; individual installer and watchdog disabled.
 // v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers présents mais mal autorisés" v4.15.61).
 // v4.15.95 - Use shared CEX manual-refresh helpers.
 // v4.15.94 - Manual refresh writes visible B1 REQUEST flag for trigger-context safe handoff.
@@ -24,7 +25,7 @@
 // Installation triggers:
 //   INSTALL_BYBIT_SYNC_TRIGGER()
 
-var BYBIT_SYNC_VERSION = "4.15.95";
+var BYBIT_SYNC_VERSION = "4.16.34";
 
 var BYBIT_SYNC_CONFIG = {
   BASE_URL: "https://api.bybit.eu",
@@ -422,7 +423,7 @@ function _bybitSetRefreshFlag_() {
 }
 
 function BYBIT_REFRESH_WATCHDOG() {
-  return "LEGACY_DISABLED: central BITPANDA_REFRESH_WATCHDOG handles CEX requests";
+  return "LEGACY_DISABLED: manual requests use CEX_MANUAL_REFRESH_WORKER";
 }
 
 function BYBIT_TRIGGER_STATUS() {
@@ -442,7 +443,5 @@ function INSTALL_BYBIT_SYNC_TRIGGER() {
     var fn = trs[i].getHandlerFunction();
     if (fn === "UPDATE_BYBIT_SPOT" || fn === "BYBIT_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
-  ScriptApp.newTrigger("UPDATE_BYBIT_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("BYBIT_REFRESH_WATCHDOG").timeBased().everyMinutes(1).create();
-  return "Triggers installed: UPDATE_BYBIT_SPOT (1h) + BYBIT_REFRESH_WATCHDOG (1min)";
+  return "LEGACY_DISABLED: UPDATE_BYBIT_SPOT is scheduled by UPDATE_CEX_RELAY_ROTATION";
 }

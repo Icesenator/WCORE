@@ -244,35 +244,24 @@ if (Test-Path $strayJson) {
 # ETAPE 7: Post-push - verifier et reparer les triggers
 # ============================================================================
 Write-Host ""
-Write-Host "[7/7] Verification des triggers..." -ForegroundColor Yellow
+Write-Host "[7/7] Autorisation des triggers..." -ForegroundColor Yellow
 
 $scriptId = $originalClasp.scriptId
 $editorUrl = "https://script.google.com/home/projects/$scriptId/edit"
-$spreadsheetUrl = "https://docs.google.com/spreadsheets/d/1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4"
-
 Write-Host ""
 Write-Host "  ========================================" -ForegroundColor Yellow
-Write-Host "  APRES CHAQUE PUSH: les triggers gèlent" -ForegroundColor Red
-Write-Host "  (OAuth périmé sur l'ancienne version)" -ForegroundColor Red
+Write-Host "  AUCUN NAVIGATEUR OUVERT AUTOMATIQUEMENT" -ForegroundColor Green
 Write-Host "  ========================================" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "  1. Ouvre l'editeur Apps Script:" -ForegroundColor Cyan
+Write-Host "  Si une reautorisation est necessaire, ouvre:" -ForegroundColor Cyan
 Write-Host "     $editorUrl" -ForegroundColor White
 Write-Host ""
-Write-Host "  2. Dans le menu deroulant en haut, selectionne:" -ForegroundColor Cyan
+Write-Host "  Puis selectionne et execute:" -ForegroundColor Cyan
 Write-Host "     WCORE_AUTO_HEAL_FORCE" -ForegroundColor White
 Write-Host ""
-Write-Host "  3. Clique sur 'Executer' (bouton Run)" -ForegroundColor Cyan
+Write-Host "  Les scopes OAuth requis sont declares dans src/appsscript.json." -ForegroundColor Gray
 Write-Host "  ========================================" -ForegroundColor Yellow
 Write-Host ""
-
-# Tentative d'ouvrir automatiquement l'editeur
-try {
-    Start-Process $editorUrl
-    Write-Host "  [OK] Editeur Apps Script ouvert" -ForegroundColor Green
-} catch {
-    Write-Host "  [INFO] Copie l'URL ci-dessus pour ouvrir l'editeur" -ForegroundColor Gray
-}
 
 # ============================================================================
 # Resume

@@ -16,6 +16,10 @@
     "push": "npm --prefix wcore-gsheet run validate:static && powershell -File wcore-gsheet/safe-push.ps1",
     "pull": "powershell -File wcore-gsheet/pull-all.ps1",
     "sync:chains": "npm --prefix wcore-gsheet run build:chains && node wcore-web/packages/core/src/chains/build-index.mjs",
+    "graphify:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.ps1 sync",
+    "graphify:watch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.ps1 watch",
+    "graphify:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.ps1 status",
+    "test:graphify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.test.ps1",
     "bootstrap": "pnpm --dir wcore-web install"
   },
   "keywords": [],

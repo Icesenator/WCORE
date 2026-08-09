@@ -1,3 +1,9 @@
+---
+type: spec
+status: archived
+project: wcore
+date: 2026-07-10
+---
 # CEX Pricing Accuracy and Resilience Design
 
 > Date: 2026-07-10  

@@ -1,3 +1,4 @@
+// v4.16.34 - Keep dedicated hourly sync; disable legacy watchdog installation.
 // v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers présents mais mal autorisés" v4.15.61).
 // v4.15.89 - Use shared CEX manual-refresh helpers.
 // v4.15.88 - Store Bitfinex credentials in DocumentProperties so time triggers can read them.
@@ -23,7 +24,7 @@
 // NOTE: contrairement a Binance (HTTP 451 sur IP datacenter Google), Bitfinex
 // ne bloque PAS l'IP Apps Script. On appelle l'API directement, sans relais.
 
-var BITFINEX_SYNC_VERSION = "4.15.89";
+var BITFINEX_SYNC_VERSION = "4.16.34";
 
 var BITFINEX_SYNC_CONFIG = {
   BASE_URL: "https://api.bitfinex.com",
@@ -402,7 +403,7 @@ function _bfxSetRefreshFlag_() {
 }
 
 function BITFINEX_REFRESH_WATCHDOG() {
-  return "LEGACY_DISABLED: central BITPANDA_REFRESH_WATCHDOG handles CEX requests";
+  return "LEGACY_DISABLED: manual requests use CEX_MANUAL_REFRESH_WORKER";
 }
 
 function BITFINEX_TRIGGER_STATUS() {
@@ -423,6 +424,5 @@ function INSTALL_BITFINEX_SYNC_TRIGGER() {
     if (fn === "UPDATE_BITFINEX_SPOT" || fn === "BITFINEX_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
   ScriptApp.newTrigger("UPDATE_BITFINEX_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("BITFINEX_REFRESH_WATCHDOG").timeBased().everyMinutes(1).create();
-  return "Triggers installed: UPDATE_BITFINEX_SPOT (1h) + BITFINEX_REFRESH_WATCHDOG (1min)";
+  return "Trigger installed: UPDATE_BITFINEX_SPOT (1h)";
 }

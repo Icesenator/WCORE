@@ -1,3 +1,9 @@
+---
+type: spec
+status: planned
+project: gsheet
+date: 2026-06-26
+---
 # Spec: Web-Backed GSheet Cache
 
 **Date**: 2026-06-26

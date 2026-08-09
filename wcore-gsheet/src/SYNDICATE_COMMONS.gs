@@ -5,13 +5,11 @@
  * v4.12.10: DIAG_SYNDICATE_COMMONS_RPC_TEST now uses generic DIAG_CHAIN_RPC_TEST
  * 
  * v4.12.1 RPC OPTIMIZATION:
- * - Added thirdweb endpoint as backup
- * - Maximum failure tolerance (very limited RPC options)
+ * - Official Syndicate Commons endpoint only
  * - Extended timeouts with retry logic
- * - Health score will be lower due to single primary RPC
  * 
  * NOTE: Syndicate Commons is an app-chain with limited RPC providers.
- * This configuration maximizes tolerance for RPC failures.
+ * RPC failure is surfaced explicitly so cached balances can be preserved.
  * 
  * v4.9.1 FIX: 
  * - FIXED: CoinGecko ID corrected from "syndicate" to "syndicate-3"
@@ -29,17 +27,10 @@ var _SYNDICATE_COMMONS = ChainFactory.createEvmChain("SYNDICATE_COMMONS", {
  FAST_FAIL_MS: 7000 // Longer fast-fail for reliability
  },
  
- // RPC list v4.12.1 - limited options for app-chain
+ // RPC list v4.12.1 - official endpoint for app-chain
  RPC: { 
  ENDPOINTS: [
- // Tier 1: Official RPC (primary)
- "https://commons.rpc.syndicate.io",
- 
- // Tier 2: Thirdweb (chain ID based)
- "https://510003.rpc.thirdweb.com",
- 
- // Tier 3: Backup official (if available)
- "https://rpc.commons.syndicate.io"
+ "https://commons.rpc.syndicate.io"
  ],
  
  // Maximum tolerance - very limited RPC providers

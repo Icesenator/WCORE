@@ -1,3 +1,4 @@
+// v4.16.34 - Canonical CEX rotation, legacy watchdog cleanup, and dedicated Bitpanda triggers.
 // v4.15.146 - Clear full CEX managed A:G area before INFO_TOTAL rewrite so stale totals don't remain when row count grows.
 // v4.15.145 - Wrap _bpFetch_ with shared _cexRelayFetchWithRetry_ so direct Bitpanda calls survive transient UrlFetch null responses (same protection as relay connectors + Bitfinex).
 
@@ -5,7 +6,7 @@
 // v4.15.124 - INFO_TOTAL A column sentinel "." instead of "" (prevent VLOOKUP("") fallback #VALUE! in Action Rebalancing).
 // v4.15.123 - CEX INFO_TOTAL: batch-read scan window (1 API call vs ~100), orphan-row cleanup, atomic A:G write (label+value never diverge).
 // v4.15.105 - Action Rebalancing!Z1 runs direct refresh immediately, with watchdog fallback on BUSY/error.
-// v4.15.103 - Self-heal: re-install dead BITPANDA_REFRESH_WATCHDOG/CEX_HOURLY_REFRESH on user CEX edit (per "triggers présents mais mal autorisés" gotcha, v4.15.61).
+// v4.15.103 - Historical trigger authorization repair; superseded by canonical v4.16.34 cleanup.
 // v4.15.93 - External refresh checkboxes must not write REQUEST into business B1 cells.
 // v4.15.92 - On BUSY, prefer fresh row timestamp over keeping REQUEST in B1.
 // v4.15.91 - Do not let a concurrent BUSY overwrite a successful B1 timestamp.
@@ -13,7 +14,7 @@
 // v4.15.89 - Add shared CEX manual-refresh helpers used by all CEX connectors.
 // v4.15.88 - CEX watchdog writes visible B1 error/busy diagnostics when a manual refresh fails.
 // v4.15.87 - Manual CEX refresh uses visible B1 REQUEST flag (Properties are unreliable across trigger contexts).
-// v4.15.86 - CEX central watchdog handles Binance/Bitfinex/Bybit flags; UserProperties fallback when ScriptProperties is full.
+// v4.15.86 - Historical manual flag polling; superseded by the one-shot queue worker.
 // v4.15.85 - B1 = date pure "yyyy-MM-dd HH:mm:ss" (harmonie Recap Portfolio).
 // v4.15.84 - Bitpanda API sync replacement for SyncWith imports
 //
@@ -29,7 +30,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.15.146";
+var BITPANDA_SYNC_VERSION = "4.16.34";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -125,33 +126,63 @@ function _bpFmtStamp_() {
   return Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
 }
 
-// v4.15.109: Per-connector logical lock. The global LockService.getScriptLock()
-// is shared by the 1-min watchdog, MASTER_ON_EDIT, wallet cache, pricing and
-// auto-heal. Under trigger load it stays held, so every UPDATE_*_SPOT hit
-// waitLock timeout and returned BUSY silently (Binance/Bitfinex/Bybit frozen for
-// hours). A named ScriptProperties lease isolates each CEX connector.
-var _CEX_LOCK_TTL_MS = 90 * 1000;
+// Covers the 6-minute GAS execution limit plus cleanup/scheduling margin.
+// ScriptLock is held only around the short lease read/write.
+var _CEX_LOCK_TTL_MS = 10 * 60 * 1000;
+var _CEX_LOCK_TRY_MS = 1000;
+var _CEX_LOCK_OWNERS = {};
 
 function CEX_ACQUIRE_LOCK(name) {
   var key = "CEX_LOCK_" + name;
-  var props = PropertiesService.getScriptProperties();
-  var now = Date.now();
+  var scriptLock = null;
+  var locked = false;
   try {
+    scriptLock = LockService.getScriptLock();
+    locked = scriptLock.tryLock(_CEX_LOCK_TRY_MS);
+    if (!locked) return false;
+    var props = PropertiesService.getScriptProperties();
+    var now = Date.now();
     var raw = props.getProperty(key);
     if (raw) {
-      var heldUntil = parseInt(raw, 10);
+      var heldUntil = 0;
+      try { heldUntil = parseInt(JSON.parse(raw).until, 10); } catch (eParse) { heldUntil = parseInt(raw, 10); }
       if (isFinite(heldUntil) && heldUntil > now) return false;
     }
-    props.setProperty(key, String(now + _CEX_LOCK_TTL_MS));
+    var owner = Utilities.getUuid();
+    props.setProperty(key, JSON.stringify({ owner: owner, until: now + _CEX_LOCK_TTL_MS }));
+    _CEX_LOCK_OWNERS[name] = owner;
     return true;
   } catch (e) {
-    // ScriptProperties unavailable/full: fail open so the update still runs.
-    return true;
+    return false;
+  } finally {
+    if (locked && scriptLock) {
+      try { scriptLock.releaseLock(); } catch (eRelease) {}
+    }
   }
 }
 
 function CEX_RELEASE_LOCK(name) {
-  try { PropertiesService.getScriptProperties().deleteProperty("CEX_LOCK_" + name); } catch (e) {}
+  var owner = _CEX_LOCK_OWNERS[name];
+  if (!owner) return;
+  var scriptLock = null;
+  var locked = false;
+  try {
+    scriptLock = LockService.getScriptLock();
+    locked = scriptLock.tryLock(_CEX_LOCK_TRY_MS);
+    if (!locked) return;
+    var props = PropertiesService.getScriptProperties();
+    var key = "CEX_LOCK_" + name;
+    var raw = props.getProperty(key);
+    var lease = null;
+    try { lease = raw ? JSON.parse(raw) : null; } catch (eParse) {}
+    if (lease && lease.owner === owner) props.deleteProperty(key);
+  } catch (e) {
+  } finally {
+    delete _CEX_LOCK_OWNERS[name];
+    if (locked && scriptLock) {
+      try { scriptLock.releaseLock(); } catch (eRelease) {}
+    }
+  }
 }
 
 function _bpSetSheetRequestFlag_(sheet) {
@@ -274,7 +305,7 @@ function CEX_QUEUE_MANUAL_JOB(kind, sheetName, refreshFlagProp, statusSheetName,
   return _cexEnqueueManualJobs_([{ kind: kind, sheetName: sheetName, refreshFlagProp: refreshFlagProp, statusSheetName: statusSheetName, statusCell: statusCell }]);
 }
 
-// v4.15.114: batch enqueue. Multi-job clicks (AC2 = 6 CEX, Z1 = 2 jobs) used to
+// Batch enqueue: T2 submits one job and U2 submits seven jobs. Older handlers used to
 // call CEX_QUEUE_MANUAL_JOB N times; each call re-ran getProjectTriggers() +
 // deleteTrigger + newTrigger (2-5s each in GAS) -> MASTER_ON_EDIT at 50-75s.
 // One queue write + one status write per cell + ONE worker trigger ensure.
@@ -365,10 +396,8 @@ function _cexWorkerAcquireLease_() {
   }
 }
 
-// v4.15.117: hard cap on a single lease. The auto CEX_HOURLY_REFRESH (4h) holds
-// the lease too if it shares the same ScriptProperty -> worker would block for
-// 5 min. Keep the lease short so the worker can resume once the auto trigger
-// finishes; long per-connector locks (CEX_ACQUIRE_LOCK 90s) live separately.
+// Hard cap on a single manual-worker lease. Keep it short so a dropped worker
+// cannot block queued jobs; per-connector locks live separately.
 var _CEX_WORKER_LEASE_TTL_MS = 2 * 60 * 1000;
 
 function _cexWorkerReleaseLease_() {
@@ -408,8 +437,7 @@ function CEX_MANUAL_REFRESH_WORKER() {
       lastResult = _cexRunManualJob_(job);
       results.push(lastResult);
       try { props.setProperty("CEX_WORKER_LEASE", String(Date.now() + _CEX_WORKER_LEASE_TTL_MS)); } catch (eLease) {}
-      // v4.15.118: transient failure (per-connector lock BUSY because the auto
-      // CEX_HOURLY_REFRESH holds it, Spreadsheets timeout...): the job was
+      // Transient failure (per-connector lock BUSY, Spreadsheets timeout...): the job was
       // requeued at the TAIL — keep draining the OTHER jobs instead of stalling
       // the whole queue for 60s. Short pause to let the collision pass.
       if (String(lastResult).indexOf("=RETRY") >= 0) {
@@ -884,24 +912,29 @@ function _bpGetManagedSheetRefreshPlan_(sheetName) {
 
 // v4.15.103 PERMANENT FIX: self-heal list + helpers.
 // Per AGENTS.md "triggers présents mais mal autorisés" (v4.15.61).
-// Any CEX A1 click re-installs the central fallback + hourly CEX triggers with fresh user auth.
+// Admin repair re-installs canonical CEX triggers with fresh user auth.
 var _BP_CEX_TRIGGERS_TO_HEAL = [
   { name: "UPDATE_BITPANDA_SPOT", unit: "hours", value: 1 },
   { name: "UPDATE_BITPANDA_STOCKS_FIAT", unit: "hours", value: 1 },
-  { name: "UPDATE_BINANCE_SPOT", unit: "hours", value: 1 },
+  { name: "UPDATE_CEX_RELAY_ROTATION", unit: "minutes", value: 15 },
   { name: "UPDATE_BITFINEX_SPOT", unit: "hours", value: 1 },
-  { name: "UPDATE_BYBIT_SPOT", unit: "hours", value: 1 },
-  { name: "UPDATE_COINBASE_SPOT", unit: "hours", value: 1 },
-  { name: "UPDATE_OKX_SPOT", unit: "hours", value: 1 },
   { name: "UPDATE_KRAKEN_SPOT", unit: "hours", value: 1 },
   { name: "CEX_MANUAL_REFRESH_WORKER", unit: "minutes", value: 1 }
 ];
 var _BP_CEX_LEGACY_TRIGGERS_TO_DELETE = [
   "CEX_HOURLY_REFRESH",
+  "UPDATE_CEX_RELAY_ALL",
+  "UPDATE_BINANCE_SPOT",
+  "UPDATE_BYBIT_SPOT",
+  "UPDATE_COINBASE_SPOT",
+  "UPDATE_OKX_SPOT",
   "BITPANDA_REFRESH_WATCHDOG",
   "BINANCE_REFRESH_WATCHDOG",
   "BITFINEX_REFRESH_WATCHDOG",
-  "BYBIT_REFRESH_WATCHDOG"
+  "BYBIT_REFRESH_WATCHDOG",
+  "COINBASE_REFRESH_WATCHDOG",
+  "OKX_REFRESH_WATCHDOG",
+  "KRAKEN_REFRESH_WATCHDOG"
 ];
 
 function _bpEnsureCexTriggers_() {
@@ -952,10 +985,9 @@ function BP_REINSTALL_CEX_TRIGGERS() {
   return "Done. See Executions log for which triggers were reinstalled.";
 }
 
-// Trigger INSTALLABLE (peut faire des UrlFetch): traite les flags poses par les
-// checkboxes et lance uniquement les refresh necessaires.
+// LEGACY_DISABLED: manual requests are handled by MASTER_ON_EDIT and the queue.
 function BITPANDA_REFRESH_WATCHDOG() {
-  return "LEGACY_DISABLED: manual CEX refreshes are handled by MASTER_ON_EDIT; hourly refresh uses CEX_HOURLY_REFRESH";
+  return "LEGACY_DISABLED: manual CEX refreshes are handled by MASTER_ON_EDIT and CEX_MANUAL_REFRESH_WORKER";
 }
 
 function INSTALL_BITPANDA_REFRESH_WATCHDOG() {
@@ -963,21 +995,16 @@ function INSTALL_BITPANDA_REFRESH_WATCHDOG() {
   for (var i = 0; i < trs.length; i++) {
     if (trs[i].getHandlerFunction() === "BITPANDA_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
-  return "LEGACY_DISABLED: BITPANDA_REFRESH_WATCHDOG is no longer installed; use CEX_HOURLY_REFRESH";
+  return "LEGACY_DISABLED: BITPANDA_REFRESH_WATCHDOG is no longer installed";
 }
 
-// v4.15.98: Refresh horaire centralise de TOUS les onglets CEX.
-// Remplace les triggers horaires individuels (UPDATE_*_SPOT) par un seul
-// trigger garanti par WCORE_AUTO_HEAL. Chaque update est protege individuellement
-// pour qu'un CEX en erreur ne bloque pas les autres.
+// LEGACY_DISABLED_FOR_SCHEDULING: retained as a manual diagnostic helper only.
+// Automatic relay refresh uses UPDATE_CEX_RELAY_ROTATION; non-relay CEXs keep
+// their dedicated hourly triggers.
 function CEX_HOURLY_REFRESH() {
   try { PropertiesService.getScriptProperties().setProperty("CEX_HOURLY_REFRESH_LAST_START_MS", String(Date.now())); } catch (eStartProp) {}
   var results = [];
-  // v4.15.108: each UPDATE_*_SPOT grabs the shared script lock. The 1-min
-  // BITPANDA_REFRESH_WATCHDOG can hold it, so a plain call returns "BUSY" and
-  // leaves that CEX tab frozen (observed: Binance/Bitfinex/Bybit stale for hours
-  // while Coinbase/OKX refreshed). Retry a few times on BUSY so the hourly job
-  // never silently skips a connector.
+  // Legacy manual helper retries BUSY results so its diagnostic summary remains useful.
   function run(label, fn) {
     if (typeof fn !== "function") { results.push(label + "=SKIPPED_MISSING"); return; }
     var out = "";
@@ -1029,21 +1056,7 @@ function DIAG_CEX_LAST_RUN() {
 }
 
 function INSTALL_CEX_HOURLY_REFRESH() {
-  var trs = ScriptApp.getProjectTriggers();
-  var handlers = ["CEX_HOURLY_REFRESH", "UPDATE_BITPANDA_SPOT", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT"];
-  var wanted = {};
-  for (var h = 0; h < handlers.length; h++) wanted[handlers[h]] = true;
-  for (var i = 0; i < trs.length; i++) {
-    if (wanted[trs[i].getHandlerFunction()]) ScriptApp.deleteTrigger(trs[i]);
-  }
-  ScriptApp.newTrigger("UPDATE_BITPANDA_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("UPDATE_BINANCE_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("UPDATE_BITFINEX_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("UPDATE_BYBIT_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("UPDATE_COINBASE_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("UPDATE_OKX_SPOT").timeBased().everyHours(1).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
-  return "Triggers installed: per-connector CEX refresh every 1 hour";
+  return "LEGACY_DISABLED: WCORE_AUTO_HEAL manages UPDATE_CEX_RELAY_ROTATION";
 }
 
 // Pose/garantit les checkboxes de refresh hors onglets Bitpanda (Z1 et AC2).
@@ -1168,15 +1181,16 @@ function BITPANDA_TRIGGER_STATUS() {
   return "hourly=" + hourly + " refreshWatchdog=" + watchdog;
 }
 
-// Installe les DEUX triggers: sync horaire + watchdog de refresh manuel (coche).
+// Installe les deux triggers horaires Bitpanda dedies; aucun watchdog legacy.
 function INSTALL_BITPANDA_SYNC_TRIGGER() {
   var trs = ScriptApp.getProjectTriggers();
   for (var i = 0; i < trs.length; i++) {
     var fn = trs[i].getHandlerFunction();
-    if (fn === "UPDATE_BITPANDA_SPOT" || fn === "BITPANDA_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
+    if (fn === "UPDATE_BITPANDA_SPOT" || fn === "UPDATE_BITPANDA_STOCKS_FIAT" || fn === "BITPANDA_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
   ScriptApp.newTrigger("UPDATE_BITPANDA_SPOT").timeBased().everyHours(1).create();
-  return "LEGACY_DISABLED: use CEX_HOURLY_REFRESH for hourly CEX refresh";
+  ScriptApp.newTrigger("UPDATE_BITPANDA_STOCKS_FIAT").timeBased().everyHours(1).create();
+  return "Triggers installed: UPDATE_BITPANDA_SPOT (1h) + UPDATE_BITPANDA_STOCKS_FIAT (1h)";
 }
 
 // ============================================================

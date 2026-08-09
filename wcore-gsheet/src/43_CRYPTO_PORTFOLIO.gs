@@ -540,8 +540,10 @@ function _cryptoPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[14] = "=G" + sheetRow + "/$H$1*100";
   row[15] = "=G" + sheetRow + "-F" + sheetRow + "*C" + sheetRow;
   row[16] = "=IFERROR(P" + sheetRow + "/C" + sheetRow + ";0)";
-  row[17] = "=IF(P" + sheetRow + "=MAXIFS($P$3:P;$S$3:S;\"X\");\"V\";IF(P" + sheetRow + "=MINIFS($P$3:P;$S$3:S;\"X\");\"X\";\"\"))";
-  row[18] = "=IF(OR(H" + sheetRow + "<>0;T" + sheetRow + "=\"X\");\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\"))";
+  if (sheetRow === CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
+    row[17] = "=ARRAYFORMULA(IF(P3:P=\"\";\"\";IF(P3:P=MAX(P3:P);\"V\";IF(P3:P=MIN(P3:P);\"X\";\"\"))))";
+  }
+  row[18] = "=IF(R" + sheetRow + "=\"V\";\"X\";IF(OR(H" + sheetRow + "<>0;T" + sheetRow + "=\"X\");\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\")))";
   row[19] = "=IF(B" + sheetRow + "=5002;IF(COUNTIFS($A$3:A" + sheetRow + ";A" + sheetRow + ";$B$3:B" + sheetRow + ";5002)>1;\"X\";\"\");IF(COUNTIF($A$3:A" + sheetRow + ";A" + sheetRow + ")>1;\"X\";\"\"))";
 }
 

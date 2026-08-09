@@ -60,7 +60,7 @@ export async function getRecentLogRange(
   }
 
   const effectiveWindow = maxLogRange ? Math.min(logBlockWindow, maxLogRange) : logBlockWindow;
-  const fromBlock = Math.max(0, toBlock - effectiveWindow);
+  const fromBlock = Math.max(0, toBlock - Math.max(0, effectiveWindow - 1));
   return {
     fromBlock: `0x${fromBlock.toString(16)}`,
     toBlock: `0x${toBlock.toString(16)}`,

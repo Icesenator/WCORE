@@ -192,11 +192,11 @@ function successfulResponse() {
   const ctx = runtime(shared, { allowUnlockedCacheRead: true });
   ctx.CacheService.getScriptCache = () => { throw new Error('cache unavailable'); };
   assert.deepEqual(JSON.parse(JSON.stringify(ctx._webScanBreakerStatus_())), {
-    open: true,
+    open: false,
     openUntil: 0,
     failures: 0,
     unavailable: true,
-  }, 'cache read failure must report fail-closed automatic admission');
+  }, 'cache read failure must report fail-open automatic admission');
 }
 
 {

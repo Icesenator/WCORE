@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-05-18
+---
 # Mobile UI Audit Implementation Plan
 
 > **Historical/completed plan.** Kept for implementation history only; verify current UI behavior before acting on any task here.

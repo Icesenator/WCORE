@@ -1,3 +1,9 @@
+---
+type: plan
+status: archived
+project: wcore
+date: 2026-07-02
+---
 # Kraken CEX Implementation Plan
 
 > **Status 2026-07-13:** Completed/historical. Kraken is present in the runtime and current CEX batch wiring targets `Portefeuille Crypto V2!U2`. Keep this file as implementation provenance, not as active backlog.

@@ -1,3 +1,9 @@
+---
+type: spec
+status: archived
+project: gsheet
+date: 2026-06-13
+---
 # Connecteur Binance (Spot + Earn) — Design
 
 > **Historical/completed design.** Binance sync is documented in live CEX docs; keep this file for implementation history only.

@@ -1,3 +1,9 @@
+---
+type: spec
+status: archived
+project: wcore
+date: 2026-07-03
+---
 # Robinhood Chain Design
 
 ## Goal

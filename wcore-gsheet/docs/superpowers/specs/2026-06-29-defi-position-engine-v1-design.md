@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: gsheet
+date: 2026-06-29
+---
 # DeFi Position Engine v1 Design
 
 Date: 2026-06-29

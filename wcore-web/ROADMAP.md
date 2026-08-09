@@ -11,14 +11,14 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Setup / pr├®sentation** : `README.md`.
 - **D├®ploiement / op├®rations** : `DEPLOY.md`.
 - **R├¿gles agent / gotchas** : `AGENTS.md`.
-- **Audit courant** : `docs/AUDIT.md` (vérifié le 2026-07-10; les anciens rapports datés vivent dans l'historique Git).
-- **FX cascade** : `docs/fx-cascade.md` (4 sources + m├®diane, cross-runtime drift detector).
+- **Audit courant** : `docs/audits/AUDIT.md` (vérifié le 2026-07-10; les anciens rapports datés vivent dans l'historique Git).
+- **FX cascade** : `docs/reference/fx-cascade.md` (4 sources + m├®diane, cross-runtime drift detector).
 - **Archives historiques** : `docs/archive/`. Ces fichiers ne sont plus source d'├®tat courant ; consulter d'abord cette roadmap avant de reprendre une action ancienne.
 
 ## Audit courant - 2026-07-10
 
-- Audit Web vérifié : `docs/AUDIT.md`.
-- Audit transversal Web + GSheet : `../docs/AUDIT.md`.
+- Audit Web vérifié : `docs/audits/AUDIT.md`.
+- Audit transversal Web + GSheet : `../docs/audits/AUDIT.md`.
 - Priorités immédiates : conversion USD/EUR CEX, endpoint pricing CEX, migrations Prisma, CI racine, SSRF/jobs async, fiabilité GM/CEX frontend.
 - Baseline : core 284/284, shared 17/17, Web 129 tests passants et 6 tests non hermétiques faute d'API locale; typecheck vert; lint rouge à 19 erreurs.
 - Convention de couverture : **183 configurations suivies**; le nombre actif/scannable vient de `/api/chains`.
@@ -68,7 +68,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Pricing CEX provider-first** : `priceCexRowsForTest` donne priorité au ticker fournisseur (`quoteEur`) sur DefiLlama. BCPEUR (cash Bitpanda titres) reclassé fiat. Stocks pricés en premier via relay Yahoo, jamais en crypto (homonymes CVX, MC, ACN, WMT...). Tests normalizers : 24/24.
 - **Relay stocks fixes** : TM → `7203.T` (action Tokyo, pas ADR US 10×), SSU/SMSN ×25 (receipt Samsung, pas ÷25), ROG → `ROG.SW` (Roche, pas Rogers Corp). Stock candidates ne fallbackent plus vers le symbole brut si un mapping explicite existe.
 - **DeFi position badge web** : `TokenTable.tsx` affiche un badge bleu `DeFi` sur les tokens staked/locked/flex. Détection regex-based : noms avec `[Flex]`/`[Lock]`, `Staked *`, `staking`, `liquid staking`, `receipt`, symboles `sXxx`+staking, `C-*`+staking/airdrop.
-- **sKAITO DeFi registry** : ajouté dans `defi/registry.ts` (`[Flex]`, pricing mirror KAITO). Documentation complète du moteur DeFi : `docs/defi-position-engine.md` (architecture, 3 mécanismes de détection, checklist ajout).
+- **sKAITO DeFi registry** : ajouté dans `defi/registry.ts` (`[Flex]`, pricing mirror KAITO). Documentation complète du moteur DeFi : `docs/reference/defi-position-engine.md` (architecture, 3 mécanismes de détection, checklist ajout).
 - **Parity script** : `scripts/parity-gsheet-vs-web.cjs` compare les totaux Recap Portfolio GSheet vs DB Web.
 - **X posts** : Kraken 7e CEX (`wcore-post-kraken.png`, badges MiCA bleus sur les chips licenciés, pill `MiCA LICENSED` hero Kraken). Convention tag unique (nouveau CEX uniquement).
 - **AGENTS.md** : entrée Kraken post + MiCA badges ajoutée à la section gotchas X posts.
@@ -90,7 +90,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **GSheet — Chart auto-resize** : `updateEmbeddedObjectPosition` redimensionne le graphique `visibleRows × 21` après chaque refresh et onEdit. `_WCORE_ORIG_FETCH` contourne le guard quota.
 - **Railway — Fresh pricing** : `?fresh=true` accepté sur les endpoints portfolio → bypass cache Redis → fetch CMC live. TTL cache réduit 6h → 1h. `EMERGENCY_RESET_QUOTA()` corrigé (faux positif breaker, 23/20000).
 - **Pages Market Cap — livrées** : routes publiques stables `/cmc/crypto` et `/cmc/stocks`, libellés Market Cap Crypto/Stock, logos source exacts quand disponibles, pays pour les actions, résumés responsive, recherche, pagination de 100 lignes et statut de snapshot stale. Déploiement et contrôle live attestés le 2026-07-17 ; cycle X associé terminé.
-- **Backlog — Bridge** : intégration d'un bridge cross-chain (read-only ou interactif) permettant de visualiser et/ou exécuter des transferts d'actifs entre les 183+ chaînes suivies. Priorité : affichage des routes disponibles et des frais, avant exécution.
+- **Backlog — Bridge** : intégration d'un bridge cross-chain (read-only ou interactif) permettant de visualiser et/ou exécuter des transferts d'actifs entre les 183+ chaînes suivies. Priorité : affichage des routes disponibles et des frais, avant exécution. Retour d'expérience Citrea conservé dans `docs/reference/bridge-citrea-findings-2026-07-22.md` (actif final vs actif transféré, cBTC natif, refuel et risque de gas insuffisant).
 
 ### Session 2026-07-01 - GSheet Web scan hardening + Base Zora pricing fallback
 
@@ -116,7 +116,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Observabilite admin-only** : `/api/stats` et `/api/circuit` exigent maintenant l'admin auth via `isAdminAuthorized(req)`. Tests `apps/api/test/admin-plugins.test.ts` couvrent les 401 sans token.
 - **Scan orchestrator couvert** : `buildScanOrchestratorJobs()` isole la logique pure du hook et les tests `apps/web/__tests__/use-scan-orchestrator.test.ts` couvrent le filtrage VM, les chaines disabled et le batching.
 - **GM on-chain anti-replay renforce** : test same-chain/casse mixte sur `/api/gm/onchain`; la reponse duplicate utilise maintenant `error: "duplicate_tx"` et la DB ne double-insere pas le `txHash`.
-- **Docs onboarding** : `CONTRIBUTING.md` et `TESTING.md` ajoutes et lies depuis `README.md` ; `docs/TROUBLESHOOTING.md` existait deja.
+- **Docs onboarding** : `CONTRIBUTING.md` et `TESTING.md` ajoutes et lies depuis `README.md` ; `docs/guides/TROUBLESHOOTING.md` existait deja.
 - **Swellchain sunset** : aucune suppression avant la deadline officielle du 23 juin 2026 ; Task 5 stoppee volontairement au gate date.
 
 ### Ô£à Phase 1 : Fondations cross-runtime ÔÇö FX cascade + cache-key registry + drift detector
@@ -206,7 +206,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 - **Web** : `packages/core/src/fx.ts` (refactored), `apps/api/src/plugins/gsheet.ts` (telemetry + parity), `apps/api/src/plugins/chains.ts` (self-telemetry), `apps/api/src/server-helpers.ts` (CSRF wildcard), `scripts/test-fx-parity.cjs`, `apps/api/src/plugins/scan-utils.ts`, `packages/shared/src/cache-key-registry.ts`, `apps/api/Dockerfile.railway`, `apps/web/Dockerfile.railway`, `scripts/deploy.ps1`.
 - **Gsheet** : `src/04C_CACHE_GLOBAL.gs` v4.15.50, callers durcis (`10_OUTPUT.gs`, `15_COSMOS_ENGINE.gs`, `FOGO.gs`, `26_OPTIMIZATIONS.gs`), `scripts/fx-cascade-spec.cjs` + `.test.cjs`, `scripts/gsheet-fx-telemetry.cjs`.
-- **Doc** : `docs/fx-cascade.md` (focalis├®), entr├®es `CHANGELOG.md` et `ROADMAP.md` (ce fichier).
+- **Doc** : `docs/reference/fx-cascade.md` (focalis├®), entr├®es `CHANGELOG.md` et `ROADMAP.md` (ce fichier).
 
 ---
 
@@ -342,7 +342,7 @@ KCC est la 8e cha├«ne GM. Factory + GmOnChain deploy├®s en mainnet avec un
 
 ### Ô£à Audit 2026-06-05 ÔÇö P0/P1 ferm├®s
 
-Tous les P0 et P1 list├®s dans l'audit 2026-06-05 sont r├®solus. Les P2/P3 restent en backlog (consolid├®s dans `docs/AUDIT.md`).
+Tous les P0 et P1 list├®s dans l'audit 2026-06-05 sont r├®solus. Les P2/P3 restent en backlog (consolid├®s dans `docs/audits/AUDIT.md`).
 
 | Priorit├® | Sujet | Commit | Tests |
 |----------|-------|--------|-------|
@@ -395,7 +395,7 @@ Tous les P0 et P1 list├®s dans l'audit 2026-06-05 sont r├®solus. Les P2/P3
 - Message public : `WCORE is back on wcore.xyz`, avec mise en avant WalletConnect, SIWE propre, UX scan, 180+ chains et read-only scans.
 
 ### Ô£à R├®conciliation `wcore-gsheet` ÔåÆ `wcore-web`
-- Note cr├®├®e : `docs/wcore-gsheet-to-web-reconciliation-2026-06-03.md`.
+- Note cr├®├®e : `docs/reference/wcore-gsheet-to-web-reconciliation-2026-06-03.md`.
 - D├®cision : pas de merge automatique des `.gs` vers le web. Les changements r├®cents Apps Script sont class├®s en `Sheets-only`, `portable`, `d├®j├á couvert`, ou `├á v├®rifier`.
 - Audit code web (2026-06-03) : RPC resilience d├®j├á couverte (`RpcHealthTracker`, `RpcHealth`, dispatcher, per-chain timeout, `loadChainlist()` + `warmDynamicRpcEndpoints` boot, `warnSingleRpcChains` startup). OutputSnapshot equivalent d├®j├á en place (`scan:result:*` + `shouldCacheAssets` + `hasCachedValue` + `forceRefresh`).
 - Conclusion : **aucun port code ├á pousser** depuis `wcore-gsheet` pour ces deux sujets. Le pattern Apps Script est d├®j├á repr├®sent├® plus modernement c├┤t├® web (Redis versionn├®, conditions d'├®criture strictes, forceRefresh override).
@@ -406,7 +406,7 @@ Tous les P0 et P1 list├®s dans l'audit 2026-06-05 sont r├®solus. Les P2/P3
 - 8 cha├«nes d├®sactiv├®es via `FLAGS.DISABLE_CHAIN=true` : `CROSS_MAINNET`, `ETHO_PROTOCOL`, `HAVEN1`, `MOCA_CHAIN`, `POLYNOMIAL`, `RIVALZ`, `STACK`, `SURFLAYER`.
 - Nouveau module `packages/core/src/rpc/chain-health.ts` (`classifyChainHealth`, `isChainDisabled`).
 - `validateChains` filtre les cha├«nes d├®sactiv├®es (sauf `WALLET_INCLUDE_DISABLED=1` debug).
-- Note d├®taill├®e : `docs/rpc-harmonization-2026-06-03.md` ÔÇö matrice de d├®fense en 11 couches + patterns `wcore-web` ÔåÆ `wcore-gsheet` portables.
+- Note d├®taill├®e : `docs/reference/rpc-harmonization-2026-06-03.md` ÔÇö matrice de d├®fense en 11 couches + patterns `wcore-web` ÔåÆ `wcore-gsheet` portables.
 - 195/195 tests core OK. API build OK.
 
 ### V├®rifications
@@ -460,7 +460,7 @@ Deuxi├¿me lot de huit cha├«nes GM factory en une semaine, portant le total
 
 ### Ô£à Sprint audit P0/P1 (2026-06-11)
 
-D├®tail : `docs/AUDIT.md` + CHANGELOG. R├®sum├® : Bearer prod deny-by-default, 23 tests routes scan async/batch (+2 bugs r├®els corrig├®s), lint 0/0, RealT TTL 7j, `mget` cache scan, `walletScan.create` fire-and-forget, suite API 207/207.
+D├®tail : `docs/audits/AUDIT.md` + CHANGELOG. R├®sum├® : Bearer prod deny-by-default, 23 tests routes scan async/batch (+2 bugs r├®els corrig├®s), lint 0/0, RealT TTL 7j, `mget` cache scan, `walletScan.create` fire-and-forget, suite API 207/207.
 
 ---
 
@@ -489,7 +489,7 @@ Huit cha├«nes GM factory activ├®es dans la m├¬me semaine, portant le to
 
 ### Ô£à Audit 2026-06-07/11 ÔÇö scorecard A-
 
-Audit transversal (5 agents en parall├¿le sur structure/code/s├®curit├®/perf/doc) : **score global 8.6/10**. **Re-v├®rifi├® et consolid├® le 2026-06-11** dans `docs/AUDIT.md`. Sprint 1 appliqu├® : Bearer prod deny-by-default, tests routes scan async/batch, lint 0/0, RealT TTL 7 j, `@fastify/rate-limit` retir├®, cache scan `mget`, historique scan fire-and-forget.
+Audit transversal (5 agents en parall├¿le sur structure/code/s├®curit├®/perf/doc) : **score global 8.6/10**. **Re-v├®rifi├® et consolid├® le 2026-06-11** dans `docs/audits/AUDIT.md`. Sprint 1 appliqu├® : Bearer prod deny-by-default, tests routes scan async/batch, lint 0/0, RealT TTL 7 j, `@fastify/rate-limit` retir├®, cache scan `mget`, historique scan fire-and-forget.
 
 | P0 | Sujet | Action minimale |
 |---|-------|-----------------|
@@ -509,7 +509,7 @@ Audit transversal (5 agents en parall├¿le sur structure/code/s├®curit├®
 
 ### ÔÅ│ Audit 2026-06-07 ÔÇö backlog P2/P3 (16 + 11 items)
 
-Voir `docs/AUDIT.md` section ┬º3 (P2/P3). Points saillants :
+Voir `docs/audits/AUDIT.md` section ┬º3 (P2/P3). Points saillants :
 
 - **P2-1** : Resolu partiellement 2026-06-21 - `/api/stats` et `/api/circuit` admin-only ; restent `/api/metrics/errors(/detail)` et `/api/admin/scam-overrides` a traiter separement.
 - **P2-3** : 18 fichiers acc├¿dent `process.env` directement ÔåÆ centraliser dans `src/config.ts` avec zod validation
@@ -518,7 +518,7 @@ Voir `docs/AUDIT.md` section ┬º3 (P2/P3). Points saillants :
 - **P2-10** : `AGENTS.md` = 2 docs en 1 (Apps Script legacy + Web moderne) ÔåÆ split en `docs/apps-script.md` + `docs/wcore-web-guide.md`
 - **P2-12** : Ô£à scripts contracts rendus portables (`__dirname`/`path.join`), plus cleanup du g├®n├®rateur X v15 historique.
 - **P2-13** : API Docker image ~500 MB unpruned ÔåÆ `pnpm deploy --prod` (~200 MB)
-- **P2-14** : Resolu 2026-06-21 - `CONTRIBUTING.md` et `TESTING.md` ajoutes ; `docs/TROUBLESHOOTING.md` existe deja.
+- **P2-14** : Resolu 2026-06-21 - `CONTRIBUTING.md` et `TESTING.md` ajoutes ; `docs/guides/TROUBLESHOOTING.md` existe deja.
 - **P2-15** : Pas de `.nvmrc` (Node 20 CI / 22 Docker / >=20.10 engines ÔÇö 3-voies mismatch)
 - **P2-16** : Ô£à R├®solu (2026-06-13) ÔÇö `scripts/check-backup-freshness.ps1` v├®rifie que le backup le plus r├®cent (`backups/wcore-backup-*.json|.sql`) a moins de 48h. Si p├®rim├®/absent : ├®crit `backups/LAST_ERROR.txt` (cause + fix) + toast Windows + exit 1. Self-clear du marqueur quand sain. T├óche planifi├®e s├®par├®e `WCORE_DB_Backup_Check` (quotidienne 11:00, apr├¿s le backup de 03:00) via `scripts/setup-backup-check-task.ps1`. Test├® : sain ÔåÆ exit 0 + marqueur supprim├®, p├®rim├® ÔåÆ exit 1 + `LAST_ERROR.txt`, `LastTaskResult: 0`.
 
@@ -1269,7 +1269,7 @@ Scope audit├® en lecture seule : s├®curit├®/API/auth, core scan EVM/SVM
 - [ ] **Aligner pnpm version** : README demande pnpm 10+, CI/Docker utilisent pnpm 9. Action : README pnpm 9+ ou migration CI/Docker.
 - [ ] **Pr├®flight chainId pour deploy GM script** : `scripts/deploy-gm-contract.mjs` accepte RPC custom sans `eth_chainId` preflight. Action : v├®rifier chainId + timeout avant toute tx.
 - [ ] **Clarifier `ADMIN_TOKEN` dans DEPLOY** : doc le marque non requis alors que les routes admin deviennent inutilisables sans lui. Action : ÔÇ£required for admin/opsÔÇØ.
-- [x] **Consolider les audits anciens en un fichier unique** (2026-06-11) : 12 rapports `docs/audit-*.md` (2026-05-21 ÔåÆ 2026-06-07) + `archive/AUDIT.md` consolid├®s dans `docs/AUDIT.md` (score 8.8/10). Les anciens rapports restent dans l'historique git. Plus de nouveau fichier dat├® : mettre ├á jour `docs/AUDIT.md`.
+- [x] **Consolider les audits anciens en un fichier unique** (2026-06-11) : 12 rapports `docs/audit-*.md` (2026-05-21 ÔåÆ 2026-06-07) + `archive/AUDIT.md` consolid├®s dans `docs/audits/AUDIT.md` (score 8.8/10). Les anciens rapports restent dans l'historique git. Plus de nouveau fichier dat├® : mettre ├á jour `docs/audits/AUDIT.md`.
 
 #### Validations recommand├®es apr├¿s corrections
 

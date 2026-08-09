@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: web
+date: 2026-06-20
+---
 # API Environment Config Centralization Design
 
 ## Goal

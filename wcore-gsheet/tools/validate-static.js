@@ -25,6 +25,24 @@ function listGsFiles() {
 
 const errors = [];
 
+const safePush = read("safe-push.ps1");
+if (/Start-Process\s+\$editorUrl/.test(safePush)) {
+  fail(errors, "safe-push.ps1 must not open Apps Script in the default browser");
+}
+
+const appsscriptManifest = JSON.parse(read("src/appsscript.json"));
+const manifestScopes = new Set(appsscriptManifest.oauthScopes || []);
+for (const scope of [
+  "https://www.googleapis.com/auth/script.projects",
+  "https://www.googleapis.com/auth/script.scriptapp",
+  "https://www.googleapis.com/auth/script.external_request",
+  "https://www.googleapis.com/auth/script.storage",
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/userinfo.email",
+]) {
+  if (!manifestScopes.has(scope)) fail(errors, `Missing required Apps Script OAuth scope: ${scope}`);
+}
+
 // Global Apps Script functions all share one namespace. Duplicate declarations
 // are almost always accidental because the last loaded file silently wins.
 const globals = new Map();
@@ -435,8 +453,14 @@ if (autoHeal && !autoHeal.includes("PHASE_C_ENABLED")) {
 if (autoHeal && (!autoHeal.includes("PRUNE_ACTIVITY_NONCE_MAP_STALE") || !autoHeal.includes("DISCOVER_AND_REGISTER_WALLETS"))) {
   fail(errors, "WCORE_AUTO_HEAL must prune stale activity state and bootstrap nonce tracking automatically");
 }
-if (!refresh.includes("WCORE_AUTO_HEAL(\"WATCHDOG_FROM_RECAP\"")) {
-  fail(errors, "WATCHDOG_FROM_RECAP must invoke WCORE_AUTO_HEAL automatically");
+if (refresh.includes("WCORE_AUTO_HEAL(\"WATCHDOG_FROM_RECAP\"")) {
+  fail(errors, "WATCHDOG_FROM_RECAP must not invoke WCORE_AUTO_HEAL inline");
+}
+if (!refresh.includes("_wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY")) {
+  fail(errors, "WATCHDOG_FROM_RECAP must use its dedicated owner lease");
+}
+if (!autoHeal || !autoHeal.includes("_wcoreAcquireLease_(WCORE_AUTO_HEAL_LEASE_KEY")) {
+  fail(errors, "WCORE_AUTO_HEAL must use its dedicated owner lease");
 }
 if (!refresh.includes("WCORE_AUTO_HEAL(\"QUOTA_RECOVERY_SWEEP\"")) {
   fail(errors, "QUOTA_RECOVERY_SWEEP must invoke WCORE_AUTO_HEAL automatically");

@@ -4,8 +4,8 @@
 
 ## Sources de verite
 
-- Audit transversal: `docs/AUDIT.md`.
-- Web/API: `wcore-web/ROADMAP.md` et `wcore-web/docs/AUDIT.md`.
+- Audit transversal: `docs/audits/AUDIT.md`.
+- Web/API: `wcore-web/ROADMAP.md` et `wcore-web/docs/audits/AUDIT.md`.
 - GSheet: `wcore-gsheet/ROADMAP.md`.
 - Releases Web: `wcore-web/CHANGELOG.md`.
 - Releases GSheet: `wcore-gsheet/CHANGELOG.md`.
@@ -138,6 +138,10 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 - [ ] Archiver `wcore-gsheet/AUDIT.md` (snapshot historique mai 2026, ne pilote plus le backlog).
 - [ ] Reduire `wcore-gsheet/AGENTS.md` (891 lignes) aux contraintes critiques et gotchas.
 
+- [x] Decision d'architecture Graphify : un graphe local AST-only issu du staging unique prefixe Web + GSheet, sans cle fournisseur ni LLM, dans `K:\ProjetIA\WCORE\graphify-out\graph.json`.
+- [ ] Finaliser le wrapper `graphify:sync`, le fallback horaire Windows et le watch OpenCode projet, sans utiliser le watch natif comme proprietaire de la synchronisation.
+- [ ] Stabiliser les requetes deterministes et l'export Obsidian Markdown avec manifeste, sans conserver `graph.canvas`; verifier aussi le rapport et le manifeste produits.
+- [ ] Valider une synchronisation reelle reussie, l'exactitude et la fraicheur des requetes, puis la passerelle memoire Obsidian avant de marquer l'integration terminee.
 ## Nouveaux risques (audit 2026-07-16)
 
 - **A6 - DeFi Position Engine V1 - RESOLU 2026-07-17**: finalisation partagee GSheet et Web batch deployee; le flag `DEFI` fait autorite pour l'agregation API et le rendu TokenTable, tandis que l'allowlist de contrats proteges garde les lignes Optimism officielles propres dans l'agregation frontend wallet. Les totaux signes et le smoke Optimism `10,43 EUR` confirment le comportement cible sans revendiquer une couverture LP/vault/protocoles generale.

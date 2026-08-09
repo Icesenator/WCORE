@@ -38,8 +38,8 @@ var INIT_VERSION = "4.15.63";
 
 var WCORE_VERSION = {
   MAJOR: 4,
-  MINOR: 15,
-  PATCH: 99,
+  MINOR: 16,
+  PATCH: 40,
 
   toString: function() {
     return 'v' + this.MAJOR + '.' + this.MINOR + '.' + this.PATCH;

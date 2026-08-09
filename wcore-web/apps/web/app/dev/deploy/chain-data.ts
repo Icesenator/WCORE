@@ -536,7 +536,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x7c833",
     chainName: "Syndicate Commons",
     nativeCurrency: { name: "Syndicate", symbol: "SYND", decimals: 18 },
-    rpcUrls: ["https://commons.rpc.syndicate.io", "https://510003.rpc.thirdweb.com", "https://rpc.commons.syndicate.io"],
+    rpcUrls: ["https://commons.rpc.syndicate.io"],
   },
   SOMNIA: {
     chainId: "0x13a7",

@@ -575,8 +575,10 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[14] = "=G" + sheetRow + "/$H$1*100";
   row[15] = "=G" + sheetRow + "-F" + sheetRow + "*C" + sheetRow;
   row[16] = "=IFERROR(P" + sheetRow + "/C" + sheetRow + ";0)";
-  row[17] = "=IF(P" + sheetRow + "=MAXIFS($P$3:P;$S$3:S;\"X\");\"V\";IF(P" + sheetRow + "=MINIFS($P$3:P;$S$3:S;\"X\");\"X\";\"\"))";
-  row[18] = "=IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\"))";
+  if (sheetRow === STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
+    row[17] = "=ARRAYFORMULA(IF(P3:P=\"\";\"\";IF(P3:P=MAX(P3:P);\"V\";IF(P3:P=MIN(P3:P);\"X\";\"\"))))";
+  }
+  row[18] = "=IF(R" + sheetRow + "=\"V\";\"X\";IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\")))";
 }
 
 // Action Rebalancing!F3 equivalent for the EUR cash row: Bitpanda EUR/BCPEUR cash across the

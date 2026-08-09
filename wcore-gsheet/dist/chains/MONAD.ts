@@ -15,6 +15,7 @@ export const MONAD: ChainConfig = {
       "https://rpc3.monad.xyz",
       "https://rpc-mainnet.monadinfra.com",
     ],
+    MAX_LOG_RANGE: 1000,
   },
   CHAIN: {
     NAME: "Monad",

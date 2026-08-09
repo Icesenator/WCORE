@@ -1,3 +1,9 @@
+---
+type: plan
+status: review
+project: wcore
+date: 2026-07-10
+---
 # Canonical Stock Pricing Harmonization Implementation Plan
 
 > **Status 2026-07-13:** Implemented/in verification. Related stock API, relay, and GSheet changes are present in the current worktree. Keep this file as execution provenance; verify code/tests before using unchecked boxes as active work.
@@ -40,7 +46,7 @@
 - `wcore-gsheet/src/34_TOP_MARKETCAP.gs`: replace CSV/formula generation with authenticated snapshot consumption and row-1 static layout.
 - `wcore-gsheet/src/35_BITPANDA_SYNC.gs`: consume WCORE stock prices without local aliases or double ratios.
 - `wcore-gsheet/package.json`: replace the obsolete currency-formula test with snapshot/layout guards.
-- `wcore-gsheet/docs/top-marketcap-google-finance.md`, `wcore-gsheet/AGENTS.md`, root audits/roadmaps: document the canonical flow and fresh verification evidence.
+- `wcore-gsheet/docs/reference/top-marketcap-google-finance.md`, `wcore-gsheet/AGENTS.md`, root audits/roadmaps: document the canonical flow and fresh verification evidence.
 
 ---
 
@@ -481,11 +487,11 @@ Expected: all pass.
 ### Task 8: Shadow Comparison and Documentation
 
 **Files:**
-- Modify: `wcore-gsheet/docs/top-marketcap-google-finance.md`
+- Modify: `wcore-gsheet/docs/reference/top-marketcap-google-finance.md`
 - Modify: `wcore-gsheet/AGENTS.md`
-- Modify: `docs/AUDIT.md`
+- Modify: `docs/audits/AUDIT.md`
 - Modify: `ROADMAP.md`
-- Modify: `wcore-web/docs/AUDIT.md`
+- Modify: `wcore-web/docs/audits/AUDIT.md`
 - Modify: `docs/superpowers/specs/2026-07-10-stock-pricing-harmonization-design.md` only if implementation exposes a proven contract correction
 
 - [ ] **Step 1: Add a non-writing comparison diagnostic**
@@ -522,7 +528,7 @@ From repository root:
 
 ```powershell
 rtk git diff --check
-rtk git diff -- wcore-web/apps/api/src/stocks wcore-web/apps/api/src/plugins/stocks.ts wcore-web/apps/api/src/plugins/cex.ts wcore-web/apps/api/src/cex/stock-relay.ts wcore-gsheet/railway-relay/server.js wcore-gsheet/src/34_TOP_MARKETCAP.gs wcore-gsheet/src/35_BITPANDA_SYNC.gs wcore-gsheet/tests docs/AUDIT.md ROADMAP.md
+rtk git diff -- wcore-web/apps/api/src/stocks wcore-web/apps/api/src/plugins/stocks.ts wcore-web/apps/api/src/plugins/cex.ts wcore-web/apps/api/src/cex/stock-relay.ts wcore-gsheet/railway-relay/server.js wcore-gsheet/src/34_TOP_MARKETCAP.gs wcore-gsheet/src/35_BITPANDA_SYNC.gs wcore-gsheet/tests docs/audits/AUDIT.md ROADMAP.md
 ```
 
 Expected: tests/typechecks/lint/static validation pass; diff has no whitespace errors; no unrelated files are reverted or modified.

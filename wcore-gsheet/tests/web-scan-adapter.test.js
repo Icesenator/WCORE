@@ -12,9 +12,31 @@ const outputSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10_OUTPU
 const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EVM_ENGINE.gs'), 'utf8');
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
+const tonSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'TON.gs'), 'utf8');
+const tonRefreshStatusSource = extractFunction(tonSource, 'TON_REFRESH_STATUS');
+
+assert.match(baseEngineSource, /\* Version: v4\.15\.74/,
+  'BaseEngine header version must describe the deterministic cache-only marker release');
+assert.match(baseEngineSource, /var BASE_ENGINE_VERSION = "4\.15\.74";/,
+  'BASE_ENGINE_VERSION must match the header version');
+assert.doesNotMatch(tonRefreshStatusSource, /return\s+ts\s*;/,
+  'TON_REFRESH_STATUS must never return a raw I1 timestamp');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
+}
+
+function extractFunction(sourceText, name) {
+  const start = sourceText.indexOf(`function ${name}(`);
+  assert.notStrictEqual(start, -1, `${name} not found`);
+  const bodyStart = sourceText.indexOf('{', start);
+  let depth = 0;
+  for (let i = bodyStart; i < sourceText.length; i++) {
+    if (sourceText[i] === '{') depth++;
+    if (sourceText[i] === '}') depth--;
+    if (depth === 0) return sourceText.slice(start, i + 1);
+  }
+  throw new Error(`${name} body not closed`);
 }
 
 function makeRefreshContext() {
@@ -485,6 +507,21 @@ const samplePayload = JSON.stringify({
 }
 
 {
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, samplePayload);
+  let loadCalls = 0;
+  ctx.WalletCache.load = () => { loadCalls++; return null; };
+  const res = ctx._webScanWallet_('SolanaRawAddress111111111111111111111111111', [], false, { CHAIN: { KEY: 'SOLANA', NAME: 'Solana', NATIVE_SYMBOL: 'SOL' } }, 'svm_cache_key');
+  assert.equal(res.ok, true);
+  assert.equal(loadCalls, 0, 'non-degraded successful web scan must not load wallet cache');
+  assert.equal(ctx.__saved.length, 1, 'non-degraded successful web scan must still save exactly once');
+}
+
+{
   const ctx = makeContext({});
   const payload = ctx._webScanRequestPayload_(
     'SolanaRawAddress111111111111111111111111111',
@@ -522,8 +559,8 @@ const samplePayload = JSON.stringify({
   }, degradedWithAssetsPayload);
   const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
   assert.equal(res.ok, true);
-  assert.match(res.status, /WEB_SCAN_PRESERVED/, 'any degraded web scan with errors must preserve existing cache');
-  assert.equal(ctx.__saved.length, 0, 'degraded web scan with errors must not overwrite a valid wallet cache');
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'degraded web scan with errors must save when there is no existing cache to preserve');
+  assert.equal(ctx.__saved.length, 1, 'degraded web scan with errors must initialize an absent wallet cache');
 }
 
 {
@@ -784,6 +821,35 @@ const samplePayload = JSON.stringify({
 }
 
 {
+  const degradedFirstBscScanPayload = JSON.stringify({
+    ok: true,
+    chain: 'BSC',
+    chainName: 'BNB Chain',
+    vm: 'EVM',
+    timestamp: '2026-07-21T10:00:00.000Z',
+    native: { symbol: 'BNB', balance: 0, priceEur: 498.7, valueEur: 0 },
+    tokens: [
+      { symbol: 'USDT', name: 'Tether USD', contract: '0x55d398326f99059ff775485246999027b3197955', balance: 0.0214917276, decimals: 18, priceEur: 0.8777621565, valueEur: 0.01886462517 },
+    ],
+    totalValueEur: 0.01886462517,
+    errors: ['balances fetch: RPC_TIMEOUT', 'native balance: no consensus'],
+    degraded: true,
+    fxRate: 0.8778,
+    scanMs: 6096,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, degradedFirstBscScanPayload);
+  const res = ctx._webScanWallet_('0x17d518736ee9341dcdc0a2498e013d33cfcdd080', [], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/, 'useful degraded first scan must be accepted when there is no existing cache to preserve');
+  assert.equal(ctx.__saved.length, 1, 'useful degraded first scan must save exactly once');
+}
+
+{
   const degradedNativeZeroPayload = JSON.stringify({
     ok: true,
     chain: 'MANTLE',
@@ -814,6 +880,210 @@ const samplePayload = JSON.stringify({
   // Note: overwrite safety for wallets WITH a useful existing cache lives in
   // WalletCache.save -> _mergeAssetsPreservingCached (04C_CACHE_GLOBAL.gs):
   // old native > 0 + new native == 0 unconfirmed -> native preserved (_stale).
+}
+
+for (const diagnosticError of [
+  '[DEGRADED] SYND balance unavailable: no_reliable_vote',
+  '[WEB_SCAN_ERROR] upstream scan failed chain=SYNDICATE_COMMONS',
+  'chain_disabled',
+]) {
+  const degradedDiagnosticPayload = JSON.stringify({
+    ok: true,
+    chain: 'SYNDICATE_COMMONS',
+    chainName: 'Syndicate Commons',
+    vm: 'EVM',
+    native: { symbol: 'SYND', balance: 0, priceEur: null, valueEur: null },
+    tokens: [],
+    errors: [diagnosticError],
+    degraded: true,
+    fxRate: 0.87,
+    scanMs: 3000,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, degradedDiagnosticPayload);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'SYNDICATE_COMMONS', NAME: 'Syndicate Commons', NATIVE_SYMBOL: 'SYND' } }, 'syndicate_cache_key');
+  assert.equal(res.ok, true);
+  assert.equal(res.status, '[WEB_SCAN_ERROR] 2026-06-26 19:00:00', `${diagnosticError} must expose an explicit I1 error status`);
+  assert.equal(ctx.__saved.length, 1, `${diagnosticError} must still save its diagnostic cache`);
+  assert.deepEqual(Array.from(ctx.__saved[0].cache.scanStats.errors), [diagnosticError], 'saved diagnostic cache must retain the API error metadata');
+}
+
+{
+  const mixedPartialPayload = JSON.stringify({
+    ok: true,
+    chain: 'SYNDICATE_COMMONS',
+    chainName: 'Syndicate Commons',
+    vm: 'EVM',
+    native: { symbol: 'SYND', balance: 0, priceEur: null, valueEur: null },
+    tokens: [
+      { symbol: 'USDC', name: 'USD Coin', contract: '0x0000000000000000000000000000000000000002', balance: 5, decimals: 6, priceEur: 0.87, valueEur: 4.35 },
+    ],
+    errors: ['[DEGRADED] SYND balance unavailable: no_reliable_vote'],
+    degraded: true,
+    fxRate: 0.87,
+    scanMs: 3000,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, mixedPartialPayload);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'SYNDICATE_COMMONS', NAME: 'Syndicate Commons', NATIVE_SYMBOL: 'SYND' } }, 'syndicate_cache_key');
+  assert.equal(res.status, '[WEB_SCAN_DEGRADED] 2026-06-26 19:00:00', 'an isolated balance error must not hide useful incoming assets behind WEB_SCAN_ERROR');
+  assert.equal(ctx.__saved.length, 1, 'mixed partial scan must save its useful assets');
+  assert.equal(ctx.__saved[0].cache.assets[1].balance, 5);
+}
+
+{
+  const degradedDiagnosticPayload = JSON.stringify({
+    ok: true,
+    chain: 'SYNDICATE_COMMONS',
+    chainName: 'Syndicate Commons',
+    vm: 'EVM',
+    native: { symbol: 'SYND', balance: 0, priceEur: null, valueEur: null },
+    tokens: [],
+    errors: ['[DEGRADED] SYND balance unavailable: no_reliable_vote'],
+    degraded: true,
+    fxRate: 0.87,
+    scanMs: 3000,
+  });
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [
+      { contract: 'native', symbol: 'SYND', name: 'Syndicate', balance: 2, decimals: 18, price_eur: 1, value_eur: 2 },
+    ],
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, degradedDiagnosticPayload);
+  const res = ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'SYNDICATE_COMMONS', NAME: 'Syndicate Commons', NATIVE_SYMBOL: 'SYND' } }, 'syndicate_cache_key');
+  assert.match(res.status, /WEB_SCAN_PRESERVED/, 'a useful cache must remain authoritative for a source-none failure');
+  assert.strictEqual(res.cache, oldCache);
+  assert.equal(ctx.__saved.length, 0, 'a source-none diagnostic must not overwrite a useful cache');
+}
+
+{
+  const degradedDiagnosticPayload = JSON.stringify({
+    ok: true,
+    chain: 'GEB',
+    chainName: 'GEB',
+    vm: 'EVM',
+    native: { symbol: 'BTC', balance: 0, priceEur: null, valueEur: null },
+    tokens: [],
+    errors: ['native balance unavailable: no_votes'],
+    degraded: true,
+    fxRate: 0.87,
+    scanMs: 3000,
+  });
+  const oldCacheWithoutTimestamp = {
+    assets: [
+      { contract: 'native', symbol: 'BTC', name: 'Bitcoin', balance: 0.00001, decimals: 18, price_eur: 58000, value_eur: 0.58 },
+    ],
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCacheWithoutTimestamp,
+  }, degradedDiagnosticPayload);
+  const res = ctx._webScanWallet_('0xd5b0dbd75056a30411be789775e40664ec858e51', [], false, { CHAIN: { KEY: 'GEB', NAME: 'GEB', NATIVE_SYMBOL: 'BTC' } }, 'geb_cache_key');
+  assert.equal(res.status, '[WEB_SCAN_ERROR] 2026-06-26 19:00:00', 'a preserved cache without a timestamp must be retried instead of exposing WEB_SCAN_PRESERVED N/A');
+  assert.strictEqual(res.cache, oldCacheWithoutTimestamp, 'timestamp failure must still preserve the useful assets');
+  assert.equal(res.error, 'PRESERVED_CACHE_TIMESTAMP_MISSING');
+  assert.equal(ctx.__saved.length, 0, 'timestamp failure must not overwrite the preserved cache');
+}
+
+{
+  const degradedPayload = JSON.stringify({
+    ok: true,
+    chain: 'BSC',
+    chainName: 'BNB Chain',
+    vm: 'EVM',
+    native: { symbol: 'BNB', balance: 0, priceEur: 498.7, valueEur: 0 },
+    tokens: [
+      { symbol: 'USDT', name: 'Tether USD', contract: '0x55d398326f99059ff775485246999027b3197955', balance: 1, decimals: 18, priceEur: 0.87, valueEur: 0.87 },
+    ],
+    errors: ['balances fetch: RPC_TIMEOUT'],
+    degraded: true,
+    fxRate: 0.87,
+    scanMs: 3000,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+  }, degradedPayload);
+  ctx.WalletCache.load = () => { throw new Error('wallet cache unavailable'); };
+  const res = ctx._webScanWallet_('0x17d518736ee9341dcdc0a2498e013d33cfcdd080', [], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.equal(res.ok, true, 'cache load failure must return a visible result');
+  assert.equal(res.status, '[WEB_SCAN_ERROR] 2026-06-26 19:00:00', 'cache load failure status must remain a parseable marker plus timestamp');
+  assert.equal(res.error, 'CACHE_LOAD_FAILED', 'cache load failure must be explicit');
+  assert.equal(res.degraded, true);
+  assert.equal(res.cache, null, 'cache load failure must not expose unsafe incoming data');
+  assert.equal(ctx.__saved.length, 0, 'cache load failure must not overwrite potentially valid existing data');
+  const refreshCtx = makeRefreshContext();
+  assert.equal(refreshCtx._wd_isUnsafeLatchSource_(res.status), true, 'watchdog must recognize cache load failure status as unsafe');
+  assert.equal(refreshCtx._wd_extractTimestamp_(res.status), '2026-06-26 19:00:00', 'watchdog must parse the cache load failure timestamp');
+  assert.deepEqual(
+    refreshCtx._wd_needsRefresh_('', res.status, new Date(2026, 5, 26, 19, 5, 0).getTime(), 5 * 3600000),
+    { needsPulse: true, reason: 'error', blockedReason: null, useBlockedCooldown: false },
+    'cache load failure must remain eligible for watchdog retry'
+  );
+}
+
+{
+  const degradedPayload = JSON.stringify({
+    ok: true,
+    chain: 'OPTIMISM',
+    chainName: 'Optimism',
+    vm: 'EVM',
+    native: { symbol: 'ETH', balance: 0, priceEur: 1400, valueEur: 0 },
+    tokens: [],
+    errors: ['balances fetch: RPC_TIMEOUT'],
+    degraded: true,
+    fxRate: 0.87,
+    scanMs: 3000,
+  });
+  const debtContract = '0xe36a30d249f7761327fd973001a32010b521b6fd';
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [
+      { contract: 'native', symbol: 'ETH', name: 'Ether', balance: 0, decimals: 18, price_eur: 1400, value_eur: 0 },
+      { contract: debtContract, symbol: 'Comp WETH Borrow', name: 'Compound V3 cWETHv3 Borrowed', balance: -0.006, decimals: 18, price_eur: 1400, value_eur: -8.4 },
+    ],
+    priceMap: { [debtContract]: 1400 },
+    priceTsMap: { [debtContract]: 111 },
+    balanceTsMap: { [debtContract]: 111 },
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, degradedPayload);
+  const res = ctx._webScanWallet_('0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7', [], false, { CHAIN: { KEY: 'OPTIMISM', NAME: 'Optimism', NATIVE_SYMBOL: 'ETH' } }, 'optimism_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_PRESERVED/, 'debt-only existing cache must be preserved on a destructive degraded scan');
+  assert.equal(ctx.__saved.length, 0, 'debt-only existing cache must not be overwritten when there is nothing useful to merge');
+  assert.strictEqual(res.cache, oldCache, 'preserved result must return the existing cache rather than incoming zero data');
+  assert.equal(res.cache.assets[1].balance, -0.006, 'preserved result must retain the negative debt balance');
 }
 
 {
@@ -917,6 +1187,67 @@ const samplePayload = JSON.stringify({
 {
   const saved = [];
   const ctx = makeBaseEngineContext(saved);
+  ctx.HttpCallCounter = { getToday: () => 101 };
+  assert.equal(
+    ctx.BaseEngine.wrapCacheOnlyMarker('2026-07-19 08:00:00', 100),
+    '[CACHE_ONLY] 2026-07-19 08:00:00',
+    'a concurrent global HTTP increment must not remove the marker from a local cache-only branch'
+  );
+  assert.equal(
+    ctx.BaseEngine.wrapCacheOnlyMarker('[CACHE_ONLY] 2026-07-19 08:00:00', 100),
+    '[CACHE_ONLY] 2026-07-19 08:00:00',
+    'cache-only markers must be idempotent'
+  );
+  delete ctx.HttpCallCounter;
+  assert.equal(
+    ctx.BaseEngine.wrapCacheOnlyMarker('2026-07-19 08:00:00', -1),
+    '[CACHE_ONLY] 2026-07-19 08:00:00',
+    'cache-only output must not depend on global counter availability'
+  );
+  assert.equal(
+    ctx.BaseEngine.wrapCacheOnlyMarker({ toString: () => { throw new Error('no string'); } }, 100),
+    '[CACHE_ONLY]',
+    'cache-only wrapping must fail safely to a string marker'
+  );
+}
+
+{
+  const saved = [];
+  const ctx = makeBaseEngineContext(saved);
+  const cache = { updatedAt: Date.parse('2026-07-19T06:00:00.100Z'), assets: [] };
+  let currentCache = cache;
+  ctx.TON_CONFIG = { CHAIN: { DISPLAY_NAME: 'Space - TON' } };
+  ctx.Format = { now: () => '2026-07-19 08:10:00', datetime: () => '2026-07-19 08:00:00' };
+  ctx.WalletCache.load = () => currentCache;
+  ctx.WalletCache.getLastUpdateStr = () => '2026-07-19 08:00:00';
+  ctx.BaseEngine.shouldSkipNoTriggerRecentScan = () => true;
+  ctx.BaseEngine.httpSnapshot = () => 0;
+  ctx._tonRefresh_ = () => { throw new Error('recent cache branch must not refresh'); };
+  vm.runInContext([
+    extractFunction(tonSource, '_tonNow_'),
+    extractFunction(tonSource, '_tonNormalizeAddress_'),
+    extractFunction(tonSource, '_tonCacheOnlyStatus_'),
+    extractFunction(tonSource, 'TON_REFRESH_STATUS')
+  ].join('\n'), ctx);
+  const status = ctx.TON_REFRESH_STATUS('EQ-test', '', '', false, '');
+  assert.equal(status, '[CACHE_ONLY] 2026-07-19 08:00:00', 'TON recent-cache status is deterministic and cache-only');
+  assert.doesNotMatch(status, /^\[FRESH\]|^\d{4}-/, 'TON must not expose a raw fresh marker or timestamp when serving cache');
+
+  ctx.BaseEngine.shouldSkipNoTriggerRecentScan = () => false;
+  ctx._tonRefresh_ = () => [['cached output']];
+  const fallbackStatus = ctx.TON_REFRESH_STATUS('EQ-test', '', '', false, 'trigger');
+  assert.equal(fallbackStatus, '[CACHE_ONLY] 2026-07-19 08:00:00', 'TON unchanged-cache fallback status is deterministic and cache-only');
+
+  const refreshedCache = { updatedAt: Date.parse('2026-07-19T06:00:00.900Z'), assets: [] };
+  ctx._tonRefresh_ = () => { currentCache = refreshedCache; return [['fresh output']]; };
+  const refreshedStatus = ctx.TON_REFRESH_STATUS('EQ-test', '', '', false, 'new-trigger');
+  assert.equal(refreshedStatus, 'TON_SCAN_OK 2026-07-19 08:00:00', 'TON millisecond-advanced refresh returns an explicit parseable success status');
+  assert.doesNotMatch(refreshedStatus, /^\[CACHE_ONLY\]/, 'TON refresh within the same displayed second is not mislabeled cache-only');
+}
+
+{
+  const saved = [];
+  const ctx = makeBaseEngineContext(saved);
   const cache = { updatedAt: new Date('2026-07-08T17:00:00Z').getTime(), assets: [] };
   const trigger = '2026-07-08 19:20:00';
   const remembered = ctx.BaseEngine.rememberRefreshTriggerAttempt('wallet-cache-key', { CHAIN: { KEY: 'ARBITRUM_ONE' } }, cache, trigger);
@@ -999,6 +1330,164 @@ for (const file of ['11_EVM_ENGINE.gs', '14_SVM_ENGINE.gs', '15_COSMOS_ENGINE.gs
     s.includes('_webScanRequiredFor_(') && s.includes('_webScanErrorStatus_('),
     `${file} refresh path must stop before native fallback when Web scan is required`
   );
+}
+
+{
+  function makeLeaseContext(props, fetchBody) {
+    const saved = [];
+    const admissionCache = new Map();
+    const fetchFn = typeof fetchBody === 'function'
+      ? fetchBody
+      : () => ({ getResponseCode: () => fetchBody ? 200 : 500, getContentText: () => fetchBody || '{"ok":false}' });
+    const sp = {};
+    for (const k of Object.keys(props || {})) sp[k] = String(props[k] || '');
+    const context = {
+      console,
+      Date,
+      JSON,
+      Math,
+      String,
+      Number,
+      Boolean,
+      Array,
+      Object,
+      RegExp,
+      encodeURIComponent,
+      isFinite,
+      PropertiesService: {
+        getScriptProperties: () => ({
+          getProperty: (key) => Object.prototype.hasOwnProperty.call(sp, key) ? sp[key] : null,
+          setProperty: (key, value) => { sp[key] = String(value); },
+          deleteProperty: (key) => { delete sp[key]; },
+        }),
+      },
+      Utilities: {
+        DigestAlgorithm: { SHA_256: 'SHA_256' },
+        computeDigest: (_algorithm, value) => Array.from(crypto.createHash('sha256').update(String(value)).digest(), (byte) => byte > 127 ? byte - 256 : byte),
+        formatDate: () => '2026-06-26 19:00:00',
+        sleep: () => {},
+        getUuid: () => 'uuid-' + Math.random().toString(36).slice(2, 10),
+      },
+      CacheService: {
+        getScriptCache: () => ({
+          get: (key) => admissionCache.get(key) || null,
+          put: (key, value) => admissionCache.set(key, String(value)),
+        }),
+      },
+      LockService: {
+        getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }),
+      },
+      Session: { getScriptTimeZone: () => 'Europe/Paris' },
+      CacheManager: { init: () => {} },
+      WalletCache: {
+        save: (address, cache, config) => saved.push({ address, cache, config }),
+        load: (_address, _timer, config) => config ? (props && props.__walletCache || null) : null,
+        getLastUpdateStr: (cache) => cache && cache.updatedAt ? '2026-06-26 19:00:00' : '',
+        getLastRunUpdateStr: (cache) => cache && cache.last_run_update_ms ? '2026-06-26 19:00:00' : '',
+      },
+      UrlFetchApp: { fetch: fetchFn },
+      Logger: { log: () => {} },
+      Format: {
+        now: () => '2026-06-26 19:00:00',
+        datetime: () => '2026-06-26 19:00:00',
+      },
+      BaseEngine: { isSystemBlocked: () => false },
+      QuotaCircuitBreaker: props && props.__quotaCircuitBreaker,
+      __saved: saved,
+      __sp: sp,
+    };
+    vm.createContext(context);
+    vm.runInContext(keysSource, context);
+    vm.runInContext(source, context);
+    return context;
+  }
+
+  // Test: V2 allows different wallets to hold concurrent per-wallet leases
+  {
+    const ctx = makeLeaseContext({
+      GSHEET_WEB_SCAN_ENABLED: 'true',
+      WCORE_WEB_API_URL: 'https://api.example.test',
+      GSHEET_API_TOKEN: 'secret',
+      GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    });
+    assert.equal(typeof ctx._webScanAcquireAdmissionV2_, 'function', 'V2 admission must be defined');
+    const first = ctx._webScanAcquireAdmissionV2_('0x1111111111111111111111111111111111111111', 'BASE', false);
+    const second = ctx._webScanAcquireAdmissionV2_('0x2222222222222222222222222222222222222222', 'BASE', false);
+    assert.equal(first.allowed, true, 'first wallet admission must be allowed');
+    assert.equal(second.allowed, true, 'another wallet must be admitted while the first wallet lease is held');
+    assert.notEqual(first.leaseKey, second.leaseKey, 'different wallets must use independent leases');
+    assert.equal(ctx.CacheService.getScriptCache().get(first.leaseKey), '1', 'first wallet lease must remain held');
+    assert.equal(ctx.CacheService.getScriptCache().get(second.leaseKey), '1', 'second wallet lease must be acquired concurrently');
+  }
+
+  // Test: V2 respects breaker open
+  {
+    const ctx = makeLeaseContext({
+      GSHEET_WEB_SCAN_ENABLED: 'true',
+      WCORE_WEB_API_URL: 'https://api.example.test',
+      GSHEET_API_TOKEN: 'secret',
+      GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    });
+    // Manually open the breaker
+    const breakerKey = ctx.CK_get('webApiFailureState');
+    ctx.CacheService.getScriptCache().put(breakerKey, JSON.stringify({ openUntil: Date.now() + 3600000, failures: [Date.now(), Date.now(), Date.now()] }), 3600);
+    const result = ctx._webScanAcquireAdmissionV2_('0x0000000000000000000000000000000000000001', 'BASE', false);
+    assert.equal(result.allowed, false, 'V2 must deny when breaker is open');
+    assert.equal(result.reason, 'WEB_BREAKER_OPEN', 'V2 must return WEB_BREAKER_OPEN reason');
+  }
+
+  // Test: V2 respects per-wallet lease (same wallet, 2nd call denied)
+  {
+    const ctx = makeLeaseContext({
+      GSHEET_WEB_SCAN_ENABLED: 'true',
+      WCORE_WEB_API_URL: 'https://api.example.test',
+      GSHEET_API_TOKEN: 'secret',
+      GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    });
+    const addr = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const r1 = ctx._webScanAcquireAdmissionV2_(addr, 'BASE', false);
+    assert.equal(r1.allowed, true, 'first V2 admission must be allowed');
+    // Second call for same wallet without releasing per-wallet lease
+    const r2 = ctx._webScanAcquireAdmissionV2_(addr, 'BASE', false);
+    assert.equal(r2.allowed, false, 'second V2 admission for same wallet must be denied');
+    assert.equal(r2.reason, 'LEASE_HELD', 'second V2 admission must return LEASE_HELD');
+  }
+
+  // Regression: a legacy global admission lease must not block another wallet
+  {
+    const ctx = makeLeaseContext({
+      GSHEET_WEB_SCAN_ENABLED: 'true',
+      WCORE_WEB_API_URL: 'https://api.example.test',
+      GSHEET_API_TOKEN: 'secret',
+      GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    });
+    const globalLease = JSON.stringify({ owner: 'other-wallet', until: Date.now() + 30000 });
+    ctx.__sp.WCORE_WEBSCAN_ADMISSION_LEASE = globalLease;
+    const result = ctx._webScanAcquireAdmissionV2_('0x0000000000000000000000000000000000000001', 'BASE', false);
+    assert.equal(result.allowed, true, 'legacy global admission lease must not block another wallet');
+    assert.equal(result.reason || '', '', 'legacy global admission lease must not produce LOCK_BUSY');
+    assert.equal(ctx.__sp.WCORE_WEBSCAN_ADMISSION_LEASE, globalLease, 'V2 must not read or mutate the legacy global lease entry');
+  }
+
+  // Test: V2 forceFull bypass
+  {
+    const ctx = makeLeaseContext({
+      GSHEET_WEB_SCAN_ENABLED: 'true',
+      WCORE_WEB_API_URL: 'https://api.example.test',
+      GSHEET_API_TOKEN: 'secret',
+      GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    });
+    const address = '0x0000000000000000000000000000000000000001';
+    const leaseKey = ctx.CK_get('webScanLease', { chainKey: 'BASE', walletHash: ctx._webScanWalletHash_(address) });
+    ctx.CacheService.getScriptCache().put(leaseKey, '1', 120);
+    const breakerKey = ctx.CK_get('webApiFailureState');
+    ctx.CacheService.getScriptCache().put(breakerKey, JSON.stringify({ openUntil: Date.now() + 3600000, failures: [Date.now(), Date.now(), Date.now()] }), 3600);
+    const result = ctx._webScanAcquireAdmissionV2_(address, 'BASE', true);
+    assert.equal(result.allowed, true, 'V2 must bypass all checks on forceFull');
+    assert.equal(result.bypassed, true, 'V2 must mark as bypassed on forceFull');
+  }
+
+  console.log('web scan admission V2 OK');
 }
 
 console.log('web scan engine integration OK');

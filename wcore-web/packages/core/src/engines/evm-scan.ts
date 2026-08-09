@@ -26,6 +26,7 @@ import {
   type PricingSourceSet,
 } from "../pricing/index.js";
 import type { OnchainV3Rpc } from "../pricing/sources/onchain-v3.js";
+import { roundUnitPrice } from "../pricing/rounding.js";
 import type { CacheStore } from "../cache/index.js";
 import { DISCOVERY_CACHE_TTL_MS } from "../cache/index.js";
 import type { BalanceDecision, BalanceSource } from "../balances/index.js";
@@ -152,6 +153,10 @@ export async function getEvmWalletAssets(
   };
 
   const cache = opts.cache;
+  const balanceCacheKey = `bal_cache:${key.toLowerCase()}:${normalizedAddress}`;
+  if (cache && opts.forceRefresh) {
+    await cache.delete(balanceCacheKey);
+  }
   const sources = opts.sources ?? {
     ...defaultSources,
     geckoterminal: new GeckoTerminalPriceSource(priceCache),
@@ -392,9 +397,8 @@ export async function getEvmWalletAssets(
   // The cache TTL (1h) acts as the "no activity" window — if the user had activity,
   // the next scan after TTL expiry will do a full scan.
   const BALANCE_CACHE_TTL_MS = 3600_000;
-  const balanceCacheKey = `bal_cache:${key.toLowerCase()}:${normalizedAddress}`;
   const hasNoNewTokens = discoveredTokens.length === 0 && !hasCustomTokens;
-  if (cache && hasNoNewTokens) {
+  if (cache && hasNoNewTokens && !opts.forceRefresh) {
     try {
       const cachedBal = await cache.get<{
         nativeBalance: string;
@@ -558,7 +562,7 @@ export async function getEvmWalletAssets(
         if (batchPrices.size > 0) {
           const nowMs = Date.now();
           for (const [contract, priceUsd] of batchPrices) {
-            const priceEur = roundPrice(priceUsd * fxRate);
+            const priceEur = roundUnitPrice(priceUsd * fxRate);
             if (priceEur > 0) {
               const cacheKey = priceCacheKey(chain, String(contract));
               priceCache.setPrice(cacheKey, { priceEur, ts: nowMs, source: "llama-batch" });
@@ -583,7 +587,7 @@ export async function getEvmWalletAssets(
       if (batchPrices instanceof Map && batchPrices.size > 0) {
         const nowMs = Date.now();
         for (const [contract, priceUsd] of batchPrices) {
-          const priceEur = roundPrice(priceUsd * fxRate);
+          const priceEur = roundUnitPrice(priceUsd * fxRate);
           if (priceEur > 0) {
             const cacheKey = priceCacheKey(chain, String(contract));
             priceCache.setPrice(cacheKey, {
@@ -631,7 +635,8 @@ export async function getEvmWalletAssets(
   }
 
   // Fire-and-forget: cache balances for no-TX shortcut on next scan
-  if (cache && !hasCustomTokens) {
+  const hasUnavailableBalance = errors.some((error) => error.includes("balance unavailable"));
+  if (cache && !hasCustomTokens && !hasUnavailableBalance) {
     cache.set(balanceCacheKey, {
       nativeBalance: String(nativeRaw),
       nativePriceEur: native.priceEur,
@@ -652,8 +657,4 @@ export async function getEvmWalletAssets(
     phases: { nativeMs, discoveryMs, balancesMs, pricingMs },
     cacheStats: { hits: 0, misses: 0, stale: 0, skipped: 0 },
   };
-}
-
-function roundPrice(value: number): number {
-  return Math.round(value * 1_000_000_000_000) / 1_000_000_000_000;
 }

@@ -47,7 +47,7 @@
 - **CEX pricing provider-first** : `quoteEur` (ticker) prioritized over DefiLlama. BCPEUR reclassified fiat. Stocks priced before crypto (no homonym mispricing). ZUSD fiat mapping fixed.
 - **Relay stock fixes** : TM→`7203.T`, SSU/SMSN ×25 multiplier, ROG→`ROG.SW`, explicit candidates don't fallback to raw symbol.
 - **DeFi badge web** : `DeFi` badge in TokenTable based on name/symbol regex (staked, flex, lock, staking, C-* pattern).
-- **sKAITO DeFi registry** : `[Flex]` suffix + mirror KAITO pricing. DeFi engine documented (`docs/defi-position-engine.md`).
+- **sKAITO DeFi registry** : `[Flex]` suffix + mirror KAITO pricing. DeFi engine documented (`docs/reference/defi-position-engine.md`).
 - **Parity script** : `scripts/parity-gsheet-vs-web.cjs` compares GSheet totals vs Web DB.
 - **X post** : Kraken 7e CEX with MiCA badges (blue `MiCA` on Bitpanda/Bybit/Coinbase/OKX chips, `MiCA LICENSED` pill on hero Kraken). Convention: tag only the new CEX.
 
@@ -206,7 +206,7 @@
 - **Version stamp gsheet** : `FxRate._CURRENT_VERSION = "4.15.50"` stamp├® dans memory + L1 CacheService. Bumper la version force un fresh fetch apr├¿s deploy (├®vite d'attendre 1h de TTL). Bump obligatoire ├á chaque changement de cascade.
 - **Callers gsheet durcis** : `10_OUTPUT.gs`, `15_COSMOS_ENGINE.gs`, `FOGO.gs` (2 occurrences), `26_OPTIMIZATIONS.gs` wrappent maintenant `FxRate.getUsdToEur()` en try/catch + traitent l'├®chec comme `null` (au lieu d'un fallback hardcod├® `0.86`/`0.92`).
 - **Tests** : 26 unit tests (web `fx.test.ts`) + 9 cross-runtime spec tests (`wcore-gsheet/scripts/fx-cascade-spec.test.cjs`) + 1 live test (`wcore-web/scripts/test-fx-parity.cjs`, drift 0.39% < 2% apr├¿s deploy). 208/208 core + 237/237 API + 9/9 cross-runtime spec.
-- **Doc focalis├®e** : `wcore-web/docs/fx-cascade.md` (convention, sources, consensus, cache, telemetry, tests, dette).
+- **Doc focalis├®e** : `wcore-web/docs/reference/fx-cascade.md` (convention, sources, consensus, cache, telemetry, tests, dette).
 - **Dette restante** : les scan results cach├®s en Redis `scan:result:*` peuvent encore utiliser l'ancien FX jusqu'├á expiration du TTL. Sympt├┤me : sur la m├¬me cha├«ne, ETH et WBTC peuvent montrer des prix calcul├®s avec des FX diff├®rents s'ils ont ├®t├® scann├®s ├á des moments diff├®rents. Fix : `forceRefresh=true` sur les cha├«nes concern├®es.
 - **Deploy** : web API v0.2.47 d├®ploy├® sur Railway, gsheet v4.15.50 push├® via clasp.
 
@@ -275,7 +275,7 @@
 - **Bugs trouv├®s par les tests** : `/api/scan/async` propage maintenant `forceRefresh` aux engines ; `/api/scan/batch` retourne `400 invalid_address` au lieu d'un 500 sur adresse invalide.
 - **Lint revenu vert** : correction TDZ `sendLogin` dans `ConnectButton`, nettoyage imports/vars inutiles, globals Node pour scripts contracts, chemins contracts portables via `__dirname`/`path.join`. `pnpm lint` est ├á 0 erreur / 0 warning.
 - **Perf/cache** : cache scan lu via `mget`, `walletScan.create` rendu fire-and-forget, RealT registry Redis cap├® par TTL safety 7 jours.
-- **Hygi├¿ne deps/docs** : d├®pendance morte `@fastify/rate-limit` retir├®e, `docs/AUDIT.md` et `ROADMAP.md` align├®s sur l'├®tat corrig├®.
+- **Hygi├¿ne deps/docs** : d├®pendance morte `@fastify/rate-limit` retir├®e, `docs/audits/AUDIT.md` et `ROADMAP.md` align├®s sur l'├®tat corrig├®.
 
 ## 2026-06-07 ÔÇö 8 GM factory chains live + audit transversal + cycle X (commits `5f739c3`, `7471a19`, `f69834b`, `d546305`, `76907c6`, `f27e1a7`, `24a57e5`, `0b8f4aa`, `e621bc4`, `4dbeb03`, `945f8f0`, `24a0085`, `fcb6ea8`)
 
@@ -309,7 +309,7 @@
 
 ### Audit transversal
 
-- **`docs/audit-2026-06-07-complet.md`** cr├®├®. Score global 8.6/10. 5 agents en parall├¿le (structure/code/s├®curit├®/perf/doc). 3 P0 + 7 P1 + 16 P2 + 11 P3 identifi├®s. P0 critiques : `AUTH_ALLOW_BEARER=true` d├®faut prod, `/api/gm/status-onchain` amplification RPC, `scan.ts` 612 LOC sans tests de route. Quick wins identifi├®s : retirer `@fastify/rate-limit` (mort), fire-and-forget `walletScan.create`, mget scan cache, memoize `AllTokensTable`/`TokenTable`, fix TDZ ConnectButton, cr├®er `.nvmrc`, split contracts/* paths hardcod├®s, cr├®er `docs/TROUBLESHOOTING.md`.
+- **`docs/audit-2026-06-07-complet.md`** cr├®├®. Score global 8.6/10. 5 agents en parall├¿le (structure/code/s├®curit├®/perf/doc). 3 P0 + 7 P1 + 16 P2 + 11 P3 identifi├®s. P0 critiques : `AUTH_ALLOW_BEARER=true` d├®faut prod, `/api/gm/status-onchain` amplification RPC, `scan.ts` 612 LOC sans tests de route. Quick wins identifi├®s : retirer `@fastify/rate-limit` (mort), fire-and-forget `walletScan.create`, mget scan cache, memoize `AllTokensTable`/`TokenTable`, fix TDZ ConnectButton, cr├®er `.nvmrc`, split contracts/* paths hardcod├®s, cr├®er `docs/guides/TROUBLESHOOTING.md`.
 
 ### V├®rifications
 
@@ -501,8 +501,8 @@
 - **GM `/gm`** : `deployed:null` signifie d├®sormais statut inconnu et d├®clenche un check cibl├®. Un status global vide ne force plus `Deploy GM Contract` sur toutes les cha├«nes.
 - **GM Header** : apr├¿s un GM on-chain, le Header reste d├®sactiv├® localement pendant que le backend fire-and-forget persiste la tx. Le GM on-chain d├®sactive aussi le bouton Off-chain (`Done today`).
 - **Comms X** : post `WCORE is back on wcore.xyz` publi├® (`2062228120476725406`) avec visuel `wcore-post-site-back.svg/.png`.
-- **Docs** : ajout d'une note de r├®conciliation `wcore-gsheet` ÔåÆ `wcore-web` (`docs/wcore-gsheet-to-web-reconciliation-2026-06-03.md`). Les changements Apps Script r├®cents ne doivent pas ├¬tre merg├®s automatiquement ; ils sont class├®s par portabilit├®.
-- **Harmonisation RPC** : audit live de 170 cha├«nes via `scripts/audit-rpcs.mjs` (8 dead, 19 single, 54 half-dead). Nouveau module `chain-health.ts` (classification). 8 cha├«nes d├®sactiv├®es via `FLAGS.DISABLE_CHAIN=true` pour ne plus consommer du quota scan. Note `docs/rpc-harmonization-2026-06-03.md` matrice 11 couches.
+- **Docs** : ajout d'une note de r├®conciliation `wcore-gsheet` ÔåÆ `wcore-web` (`docs/reference/wcore-gsheet-to-web-reconciliation-2026-06-03.md`). Les changements Apps Script r├®cents ne doivent pas ├¬tre merg├®s automatiquement ; ils sont class├®s par portabilit├®.
+- **Harmonisation RPC** : audit live de 170 cha├«nes via `scripts/audit-rpcs.mjs` (8 dead, 19 single, 54 half-dead). Nouveau module `chain-health.ts` (classification). 8 cha├«nes d├®sactiv├®es via `FLAGS.DISABLE_CHAIN=true` pour ne plus consommer du quota scan. Note `docs/reference/rpc-harmonization-2026-06-03.md` matrice 11 couches.
 - **Validation** : typecheck core/API OK, build API OK, 200/200 tests core OK (5 nouveaux tests TON).
 
 ## 2026-06-03 ÔÇö wcore.xyz restaur├® + Connect Wallet/GM hardening
@@ -513,8 +513,8 @@
 - **GM `/gm`** : `deployed:null` signifie d├®sormais statut inconnu et d├®clenche un check cibl├®. Un status global vide ne force plus `Deploy GM Contract` sur toutes les cha├«nes.
 - **GM Header** : apr├¿s un GM on-chain, le Header reste d├®sactiv├® localement pendant que le backend fire-and-forget persiste la tx. Le GM on-chain d├®sactive aussi le bouton Off-chain (`Done today`).
 - **Comms X** : post `WCORE is back on wcore.xyz` publi├® (`2062228120476725406`) avec visuel `wcore-post-site-back.svg/.png`.
-- **Docs** : ajout d'une note de r├®conciliation `wcore-gsheet` ÔåÆ `wcore-web` (`docs/wcore-gsheet-to-web-reconciliation-2026-06-03.md`). Les changements Apps Script r├®cents ne doivent pas ├¬tre merg├®s automatiquement ; ils sont class├®s par portabilit├®.
-- **Harmonisation RPC** : audit live de 170 cha├«nes via `scripts/audit-rpcs.mjs` (8 dead, 19 single, 54 half-dead). Nouveau module `chain-health.ts` (classification). 8 cha├«nes d├®sactiv├®es via `FLAGS.DISABLE_CHAIN=true` pour ne plus consommer du quota scan. Note `docs/rpc-harmonization-2026-06-03.md` matrice 11 couches.
+- **Docs** : ajout d'une note de r├®conciliation `wcore-gsheet` ÔåÆ `wcore-web` (`docs/reference/wcore-gsheet-to-web-reconciliation-2026-06-03.md`). Les changements Apps Script r├®cents ne doivent pas ├¬tre merg├®s automatiquement ; ils sont class├®s par portabilit├®.
+- **Harmonisation RPC** : audit live de 170 cha├«nes via `scripts/audit-rpcs.mjs` (8 dead, 19 single, 54 half-dead). Nouveau module `chain-health.ts` (classification). 8 cha├«nes d├®sactiv├®es via `FLAGS.DISABLE_CHAIN=true` pour ne plus consommer du quota scan. Note `docs/reference/rpc-harmonization-2026-06-03.md` matrice 11 couches.
 - **Validation** : typecheck core/API OK, build API OK, 195/195 tests core OK.
 
 ## 2026-05-30 ÔÇö Corrections audit (batch 2 : Core-2 + FE-3)

@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: web
+date: 2026-05-19
+---
 # Token Logo Resolution Design
 
 > **Historical/completed design.** Kept for implementation history only; verify current icon behavior in code and `AGENTS.md` gotchas.

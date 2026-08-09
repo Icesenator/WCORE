@@ -1,3 +1,9 @@
+---
+type: spec
+status: archived
+project: gsheet
+date: 2026-05-30
+---
 # RPC Resilience — Design (2026-05-30)
 
 > **Historical/completed design.** Kept for implementation history only; verify current RPC behavior in `AGENTS.md` and source before acting on it.

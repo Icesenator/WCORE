@@ -20,14 +20,22 @@ import {
 import type { WalletAssetsCommon, WalletAssetProvenance, ScanPhases } from "./types.js";
 import type { WalletAssetPrice } from "./evm.js";
 import type { CacheStore } from "../cache/index.js";
+import { roundUnitPrice } from "../pricing/rounding.js";
 
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
-let _svmTokenMap: Map<string, { symbol: string; name: string; decimals: number; logoUrl?: string }> | null = null;
-const _svmMetaCache = new Map<string, { symbol: string; name: string; decimals: number; logoUrl?: string }>();
+type SvmTokenMetadata = {
+  symbol: string;
+  name: string;
+  decimals: number;
+  logoUrl?: string;
+  isStable?: boolean;
+  peg?: string;
+};
 
-type SvmTokenMetadata = { symbol: string; name: string; decimals: number; logoUrl?: string };
+let _svmTokenMap: Map<string, SvmTokenMetadata> | null = null;
+const _svmMetaCache = new Map<string, SvmTokenMetadata>();
 
 async function loadSvmTokenMetadata(): Promise<Map<string, SvmTokenMetadata>> {
   if (_svmTokenMap) return _svmTokenMap;
@@ -48,13 +56,15 @@ function getKnownSvmTokenMetadata(chain: ChainConfig): Map<string, SvmTokenMetad
   const result = new Map<string, SvmTokenMetadata>();
   for (const [mint, raw] of entries) {
     if (!raw || typeof raw !== "object") continue;
-    const meta = raw as { symbol?: unknown; name?: unknown; decimals?: unknown; logoUrl?: unknown };
+    const meta = raw as { symbol?: unknown; name?: unknown; decimals?: unknown; logoUrl?: unknown; isStable?: unknown; peg?: unknown };
     if (typeof meta.symbol !== "string" || typeof meta.name !== "string" || typeof meta.decimals !== "number") continue;
     result.set(mint, {
       symbol: meta.symbol,
       name: meta.name,
       decimals: meta.decimals,
       logoUrl: typeof meta.logoUrl === "string" ? meta.logoUrl : undefined,
+      isStable: typeof meta.isStable === "boolean" ? meta.isStable : undefined,
+      peg: typeof meta.peg === "string" ? meta.peg : undefined,
     });
   }
   return result;
@@ -232,7 +242,7 @@ export async function getSvmWalletAssets(
       if (!meta && symbol !== ta.mint.slice(0, 8)) {
         _svmMetaCache.set(ta.mint, { symbol, name, decimals });
       }
-      pricedTokens[idx] = await priceSvmToken(svmChain, ta.mint, symbol, name, logoUrl, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache);
+      pricedTokens[idx] = await priceSvmToken(svmChain, ta.mint, symbol, name, logoUrl, meta, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache);
 
       if (cache && rawAmountToBigInt(ta.amount) > 0n) {
         const tokenCacheKey = `token:${key.toLowerCase()}:${ta.mint}:${address}`;
@@ -447,7 +457,7 @@ async function priceSvmNative(
   return {
     symbol: token.symbol ?? "SOL",
     balance: numericBalance,
-    priceEur: priced.priceEur == null ? null : roundMoney(priced.priceEur),
+    priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),
     valueEur,
   };
 }
@@ -458,6 +468,7 @@ async function priceSvmToken(
   symbol: string,
   name: string,
   logoUrl: string | undefined,
+  metadata: SvmTokenMetadata | undefined,
   balance: number,
   decimals: number,
   fxRate: number,
@@ -472,6 +483,8 @@ async function priceSvmToken(
     symbol,
     name,
     chain,
+    isStable: metadata?.isStable,
+    peg: metadata?.peg,
   };
   const priced = await priceTokenCascade({ token, fxRate, cache, sources, allowCoinGeckoTokenFallback: true, intraScanCache });
   if (priced.reason) errors.push(`${symbol} price: ${priced.reason}`);
@@ -481,7 +494,7 @@ async function priceSvmToken(
     name,
     decimals,
     balance,
-    priceEur: priced.priceEur == null ? null : roundMoney(priced.priceEur),
+    priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),
     valueEur: priced.priceEur == null ? null : roundMoney(balance * priced.priceEur),
     logoUrl,
   };

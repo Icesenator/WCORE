@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-06-13
+---
 # CEX Integrations Implementation Plan
 
 > **Historical/completed plan.** CEX integrations have moved into live docs and roadmap; keep this file for implementation history only.

@@ -1,3 +1,9 @@
+---
+type: spec
+status: archived
+project: gsheet
+date: 2026-06-25
+---
 # Spec: GSheet Web Scan Proxy (Increment 1)
 
 **Date**: 2026-06-25

@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-06-15
+---
 # Bybit CEX Integration Implementation Plan
 
 > **Historical/completed plan.** Bybit CEX is already documented in live CEX docs and roadmap; keep this file for implementation history only.

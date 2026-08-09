@@ -69,7 +69,7 @@ function _forceRegisterAllModules() {
 
     // Additional modules
     "QUOTA_CIRCUIT_BREAKER": { ver: "4.13.5", check: function() { return typeof QuotaCircuitBreaker !== 'undefined'; } },
-    "REFRESH": { ver: "4.5.21", check: function() { return typeof REFRESH_VERSION !== 'undefined'; } },
+    "REFRESH": { ver: "4.16.47", check: function() { return typeof REFRESH_VERSION !== 'undefined'; } },
     "CHAIN_FACTORY": { ver: "4.15.14", check: function() { return typeof ChainFactory !== 'undefined'; } }
   };
   

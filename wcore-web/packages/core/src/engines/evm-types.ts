@@ -67,7 +67,11 @@ export function cacheEntry(decision: BalanceDecision): BalanceCacheEntry {
 }
 
 export function pushBalanceDecisionError(errors: string[], symbol: string, decision: BalanceDecision): void {
-  if (!decision.degraded || decision.source === "none") return;
+  if (!decision.degraded) return;
+  if (decision.source === "none") {
+    errors.push(`[DEGRADED] ${symbol} balance unavailable: ${decision.reason}`);
+    return;
+  }
   errors.push(`[DEGRADED] ${symbol} balance: ${decision.reason}, using ${decision.source} fallback`);
 }
 

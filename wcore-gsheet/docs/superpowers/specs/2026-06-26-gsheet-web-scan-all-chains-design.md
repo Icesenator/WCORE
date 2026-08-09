@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: gsheet
+date: 2026-06-26
+---
 # GSheet Web Scan Delegation - All Chains
 
 ## Context

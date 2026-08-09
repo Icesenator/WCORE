@@ -1,9 +1,10 @@
+// v4.16.40 - Align legacy WATCHDOG_FROM_RECAP repair with the canonical 10-minute cadence
 // v4.15.100 - RPC_LOOKUP: no ScriptProperties persistence (memory-only, rebuilt from ChainFactory, saves ~28KB quota)
 // v4.15.7 - stale cache diagnostics keep partial while price/meta gaps remain
 // v4.15.6 - prune stale ActivityTracker entries for retired Ledger sheets
 // v4.15.4 - cooldown 10min B1 pulse pour éviter doublon avec WATCHDOG_FROM_RECAP
 /************************************************************
- * 27_ACTIVITY_REFRESH.gs - Activity-Based Refresh System (v4.15.7)
+ * 27_ACTIVITY_REFRESH.gs - Activity-Based Refresh System (v4.16.40)
  *
  * v4.15.7 - FIX: stale cache diagnostics do not report DONE while
  * price_missing/meta_missing gaps remain
@@ -62,7 +63,7 @@
  * - WATCHDOG scans all wallet-chain sheets for #ERROR! in A2 or J2
  * - If found, increments J1 by 1 second to trigger recalculation
  * - Sheets identified by " - " in name (e.g. "Ledger - Linea")
- * - Runs every WATCHDOG cycle (5 min) until error resolves
+ * - Runs every WATCHDOG cycle until error resolves
  *
  * v4.13.6 - BATCH NONCE FETCHING (HTTP Quota Saver)
  * - NEW: fetchEvmNonceBatch() groups wallets by RPC endpoint
@@ -98,7 +99,7 @@
  * 
  ************************************************************/
 
-var ACTIVITY_REFRESH_VERSION = "4.15.100";
+var ACTIVITY_REFRESH_VERSION = "4.16.40";
 
 function _activityCanFetch_(reason) {
   try {
@@ -2007,7 +2008,7 @@ function ACTIVITY_REFRESH_STATUS() {
     
     if (watchdogFound !== null) {
       out.push(["WATCHDOG", watchdogFound ? "INSTALLED" : "NOT FOUND", 
-                watchdogFound ? "Running every 5 min" : "", 
+                watchdogFound ? "Running every 10 min" : "", 
                 watchdogFound ? "" : "Run INSTALL_ACTIVITY_WATCHDOG()"]);
     }
     
@@ -2239,7 +2240,7 @@ function _activityWatchdogPhaseCSignals_() {
 }
 
 /**
- * Watchdog - checks nonces every 5 minutes via time-based trigger
+ * Legacy nonce watchdog (disabled; WATCHDOG_FROM_RECAP owns scheduling)
  *
  * v4.13.6: BATCH MODE - groups wallets by RPC, 1 HTTP call per RPC
  * v4.12.22 FIX: Uses _RpcLookup instead of eval()
@@ -2248,7 +2249,7 @@ function _activityWatchdogPhaseCSignals_() {
 function ACTIVITY_WATCHDOG() {
   // v4.16.30: DISABLED — was consuming ~5760 UrlFetch calls/day
   // (120+ wallets × eth_getTransactionCount via fetchAll, every 30 min).
-  // WATCHDOG_FROM_RECAP (every 5 min, I1 > 5h stale detection) handles
+  // WATCHDOG_FROM_RECAP (every 10 min, I1 > 5h stale detection) handles
   // refresh scheduling. Activity-based refresh is unnecessary.
   return { skipped: "disabled_v4.16.30", reason: "WATCHDOG_FROM_RECAP handles refresh scheduling" };
   try { HttpCallCounter.setTrigger('ACTIVITY_WATCHDOG'); } catch(e){}
@@ -2737,8 +2738,8 @@ function _ensureLegacyWatchdogInstalled_() {
     if (triggers[i].getHandlerFunction() === "WATCHDOG_FROM_RECAP") return;
   }
 
-  ScriptApp.newTrigger("WATCHDOG_FROM_RECAP").timeBased().everyMinutes(5).create();
-  Logger.log("[HEAL] Reinstalled WATCHDOG_FROM_RECAP (every 5 min — GAS n'accepte que 1/5/10/15/30)");
+  ScriptApp.newTrigger("WATCHDOG_FROM_RECAP").timeBased().everyMinutes(10).create();
+  Logger.log("[HEAL] Reinstalled WATCHDOG_FROM_RECAP (every 10 min)");
 }
 
 function INSTALL_ACTIVITY_WATCHDOG() {

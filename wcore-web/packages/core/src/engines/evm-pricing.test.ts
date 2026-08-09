@@ -1,9 +1,56 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MemoryPricingCache, type PricingSourceSet, type PricingToken } from "../pricing/index.js";
+import { roundUnitPrice } from "../pricing/rounding.js";
 import type { ChainConfig } from "../types.js";
 import type { DiscoveredToken } from "../tokens/index.js";
-import { priceToken } from "./evm-pricing.js";
+import { priceNative, priceToken } from "./evm-pricing.js";
+
+test("roundUnitPrice rounds beyond 12 decimal places", () => {
+  assert.equal(roundUnitPrice(0.1234567890126), 0.123456789013);
+});
+
+test("roundUnitPrice preserves a finite value when scaling would overflow", () => {
+  const result = roundUnitPrice(Number.MAX_VALUE);
+
+  assert.equal(result, Number.MAX_VALUE);
+  assert.equal(Number.isFinite(result), true);
+});
+
+test("priceNative preserves a sub-cent CAMP unit price", async () => {
+  const sources: PricingSourceSet = {
+    defillama: {
+      getTokenPriceUsd: async () => null,
+      getNativePriceUsd: async () => 0.000456763,
+    },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const chain = {
+    key: "CAMP",
+    CHAIN: {
+      NAME: "Camp Network",
+      NATIVE_SYMBOL: "CAMP",
+      NATIVE_NAME: "Camp",
+      NATIVE_DECIMALS: 18,
+    },
+  } as ChainConfig;
+
+  const result = await priceNative(
+    chain,
+    10_000n * 10n ** 18n,
+    1,
+    sources,
+    new MemoryPricingCache(),
+    [],
+  );
+
+  assert.equal(result.priceEur, 0.000456763);
+  assert.equal(result.valueEur, 4.57);
+});
 
 test("priceToken prices and displays a DeFi collateral by its asset contract", async () => {
   const comet = "0xe36a30d249f7761327fd973001a32010b521b6fd";

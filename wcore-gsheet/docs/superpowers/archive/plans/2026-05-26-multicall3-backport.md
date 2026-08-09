@@ -1,3 +1,9 @@
+---
+type: plan
+status: archived
+project: gsheet
+date: 2026-05-26
+---
 # Multicall3 Backport Implementation Plan
 
 > **Historical/completed plan.** Kept for implementation history only; verify current Multicall3 behavior in source before acting on it.

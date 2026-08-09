@@ -1,3 +1,9 @@
+---
+type: plan
+status: archived
+project: wcore
+date: 2026-07-10
+---
 # CEX Pricing Accuracy and Resilience Implementation Plan
 
 > **Status 2026-07-13:** Implemented/historical. Related code and tests are present in the current worktree. Keep this file for provenance; do not treat unchecked boxes below as active backlog without revalidating against code.
@@ -20,7 +26,7 @@
 - Create `wcore-web/apps/api/src/cex/pricing.test.ts`: pure conversion and route auth/bounds/batching regression tests.
 - Modify `wcore-web/apps/web/hooks/useCexHoldings.ts`: stale-preserving failure transitions.
 - Create `wcore-web/apps/web/__tests__/cex-holdings-state.test.ts`: pure CEX state transition tests.
-- Modify `docs/AUDIT.md`, `ROADMAP.md`, `wcore-web/docs/AUDIT.md`: close only findings proven fixed by this lot.
+- Modify `docs/audits/AUDIT.md`, `ROADMAP.md`, `wcore-web/docs/audits/AUDIT.md`: close only findings proven fixed by this lot.
 
 ### Task 1: Correct Internal CEX FX Conversion
 
@@ -222,9 +228,9 @@ Expected: all tests PASS without a running API.
 ### Task 4: Verify and Reconcile Documentation
 
 **Files:**
-- Modify: `docs/AUDIT.md`
+- Modify: `docs/audits/AUDIT.md`
 - Modify: `ROADMAP.md`
-- Modify: `wcore-web/docs/AUDIT.md`
+- Modify: `wcore-web/docs/audits/AUDIT.md`
 
 - [x] **Step 1: Run API and Web verification**
 
@@ -254,7 +260,7 @@ Mark the FX conversion, secured endpoint amplification and CEX stale-display fin
 - [ ] **Step 4: Review the final scoped diff**
 
 ```powershell
-rtk git diff -- apps/api/src/plugins/cex.ts apps/api/src/cex/pricing.test.ts apps/web/hooks/useCexHoldings.ts apps/web/__tests__/cex-holdings-state.test.ts ../docs/AUDIT.md ../ROADMAP.md docs/AUDIT.md
+rtk git diff -- apps/api/src/plugins/cex.ts apps/api/src/cex/pricing.test.ts apps/web/hooks/useCexHoldings.ts apps/web/__tests__/cex-holdings-state.test.ts ../docs/audits/AUDIT.md ../ROADMAP.md docs/audits/AUDIT.md
 ```
 
 Expected: only the planned CEX implementation, tests and evidence updates appear. Do not commit.

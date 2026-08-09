@@ -1,6 +1,12 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-05-20
+---
 # Scan/Cache/Redis/Errors Optimization — Implementation Plan
 
-> **Historical/completed plan.** Kept for implementation history only; current scan/cache state lives in `../../../ROADMAP.md` and `../../AUDIT.md`.
+> **Historical/completed plan.** Kept for implementation history only; current scan/cache state lives in `../../../ROADMAP.md` and `../../audits/AUDIT.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

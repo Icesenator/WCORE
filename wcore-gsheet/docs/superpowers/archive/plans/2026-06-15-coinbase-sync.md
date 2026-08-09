@@ -1,3 +1,9 @@
+---
+type: plan
+status: archived
+project: gsheet
+date: 2026-06-15
+---
 # Coinbase Sync Implementation Plan
 
 > **Historical/completed plan.** Coinbase sync is documented in live CEX docs; keep this file for implementation history only.
@@ -50,7 +56,7 @@
 ### Task 4: Docs and Verification
 
 **Files:**
-- Modify: `docs/cex-sync.md`
+- Modify: `docs/integrations/cex/cex-sync.md`
 - Validate: `scripts/validate-static.js`, `railway-relay/server.js`
 
 - [ ] Document Coinbase connector and relay variables.

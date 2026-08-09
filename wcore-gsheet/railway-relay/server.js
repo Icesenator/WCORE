@@ -987,7 +987,9 @@ const STOCK_YAHOO_SYMBOLS = {
   ASML: ["ASML.AS", "ASML"], MC: ["MC.PA"], OR: ["OR.PA"], RMS: ["RMS.PA"],
   SAN: ["SAN.MC", "SAN"], TTE: ["TTE.PA", "TTE"], IBE: ["IBE.MC"],
   NESN: ["NESN.SW"], NOVN: ["NOVN.SW"], ROG: ["RO.SW"],
-  SHEL: ["SHEL.L", "SHEL"], EUNL: ["EUNL.DE"], IS3N: ["IS3N.DE"],
+  // Shell: 1 ADR US (NYSE:SHEL) = 2 actions Londres (SHEL.L). Bitpanda suit l'action
+  // Londres. Fallback "SHEL" (US) retire : sinon un hoquet Yahoo sur SHEL.L -> prix x2.
+  SHEL: ["SHEL.L"], EUNL: ["EUNL.DE"], IS3N: ["IS3N.DE"],
   QDVE: ["QDVE.DE"], SXR8: ["SXR8.DE"], VUSA: ["VUSA.DE", "VUSA.L"],
   VWCE: ["VWCE.DE"], VWRL: ["VWRL.AS", "VWRL.L"],
 };

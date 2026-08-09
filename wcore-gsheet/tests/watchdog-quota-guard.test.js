@@ -1,8 +1,12 @@
 const assert = require('assert');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', '16_REFRESH.gs'), 'utf8');
+assert.match(source, /Version:\s*v4\.16\.47[\s\S]*var\s+REFRESH_VERSION\s*=\s*["']4\.16\.47["']/, 'watchdog version must advance to 4.16.47');
+assert.match(source, /WCORE_WATCHDOG_LEASE_TTL_MS\s*=\s*10\s*\*\s*60\s*\*\s*1000/, 'watchdog lease TTL must exceed the six-minute GAS runtime ceiling');
 
 function extractFunction(name) {
   const marker = `function ${name}(`;
@@ -28,7 +32,10 @@ const forcePartial = extractFunction('FORCE_WATCHDOG_PARTIAL_CHECK');
 const tryUnblock = extractFunction('_wd_tryUnblock_');
 const maxPulsesMatch = source.match(/var\s+WD_MAX_PULSES_PER_RUN\s*=\s*(\d+)\s*;/);
 assert(maxPulsesMatch, 'WD_MAX_PULSES_PER_RUN must be defined');
-assert.strictEqual(Number(maxPulsesMatch[1]), 5, 'WATCHDOG should allow at most 5 B1 pulses per run');
+assert.strictEqual(Number(maxPulsesMatch[1]), 10, 'WATCHDOG should allow at most 10 B1 pulses per run');
+const maxJ1Match = source.match(/var\s+SYNC_J1_MAX_SYNCS_PER_RUN\s*=\s*(\d+)\s*;/);
+assert(maxJ1Match, 'SYNC_J1_MAX_SYNCS_PER_RUN must be defined');
+assert.strictEqual(Number(maxJ1Match[1]), 20, 'J1 writes must be capped at 20 per run');
 
 function loadWatchdogHelpers(options = {}) {
   const scriptProperties = options.scriptProperties || {};
@@ -59,6 +66,8 @@ function loadWatchdogHelpers(options = {}) {
     '_wd_flushApiWrites_',
     '_wd_executeApiActions_',
     '_wd_applySpreadsheetActions_',
+    '_wd_selectFairJ1Actions_',
+    '_wd_applyJ1Actions_',
     '_wd_shouldSyncJ1_',
     '_wd_needsRefresh_',
     '_wd_isSystemBlocked_',
@@ -67,14 +76,19 @@ function loadWatchdogHelpers(options = {}) {
   const code = names.map(extractFunction).join('\n');
   let getPropertyCalls = 0;
   let setPropertyCalls = 0;
+  let j1ClaimHeld = false;
   const context = {
     WD_MAX_PULSES_PER_RUN: 5,
+    WD_CYCLE_SLOTS_PER_RUN: 4,
     WD_PULSE_MIN: 10,
     WD_PULSE_MIN_BLOCKED: 30,
     WD_WEB_ERROR_BACKOFF_MS: [30 * 60000, 2 * 3600000, 6 * 3600000, 24 * 3600000],
     WD_WEB_BACKOFF_MAX_ENTRIES: 200,
     WD_WEB_BACKOFF_RETENTION_MS: 48 * 3600000,
     P_WD_PARTIAL_LAST: 'WD_PARTIAL_LAST',
+    P_WD_J1_CURSOR: 'WD_J1_CURSOR',
+    P_SYNC_J1_CURSOR: 'SYNC_J1_CURSOR',
+    SYNC_J1_MAX_SYNCS_PER_RUN: 20,
     WCORE_SPREADSHEET_ID: 'spreadsheet-id',
     CK_get: (name) => name === 'watchdogWebBackoff' ? 'WD_WEB_BACKOFF:v1' : name,
     PropertiesService: {
@@ -93,6 +107,14 @@ function loadWatchdogHelpers(options = {}) {
         }
       })
     },
+    LockService: { getScriptLock: () => ({
+      tryLock: () => {
+        if (options.j1ClaimBusy || j1ClaimHeld) return false;
+        j1ClaimHeld = true;
+        return true;
+      },
+      releaseLock: () => { j1ClaimHeld = false; },
+    }) },
     Sheets: {
       Spreadsheets: {
         Values: {
@@ -130,36 +152,82 @@ assert.match(watchdogApi, /_wd_loadPartialPulseMap_\(\)/, 'Sheets API path must 
 assert.match(partialCheck, /_wd_loadPartialPulseMap_\(\)/, 'Spreadsheet path must validate the partial pulse map');
 assert.match(partialDiag, /_wd_loadPartialPulseMap_\(\)/, 'partial diagnostics must use the shared sanitized map');
 assert.match(source, /Apps Script has no cross-service transaction[\s\S]*quota-safe at-most-once/, 'source must document the quota-safe transaction policy');
-for (const [name, entryPoint] of [['API diagnostic', watchdogApiDiag], ['forced partial check', forcePartial]]) {
-  assert.match(entryPoint, /LockService\.getScriptLock\(\)/, `${name} must acquire ScriptLock`);
-  assert.match(entryPoint, /tryLock\(5000\)/, `${name} must use bounded lock acquisition`);
-  assert.match(entryPoint, /finally[\s\S]*releaseLock\(\)/, `${name} must release its acquired lock in finally`);
+for (const [name, entryPoint] of [['main watchdog', watchdog], ['API diagnostic', watchdogApiDiag], ['forced partial check', forcePartial]]) {
+  assert.match(entryPoint, /_wcoreAcquireLease_\(WCORE_WATCHDOG_LEASE_KEY/, `${name} must acquire the dedicated watchdog lease`);
+  assert.match(entryPoint, /finally[\s\S]*_wcoreReleaseLease_\(WCORE_WATCHDOG_LEASE_KEY/, `${name} must owner-safely release the watchdog lease in finally`);
+  assert.doesNotMatch(entryPoint, /LockService\.getScriptLock\(\)/, `${name} must not hold ScriptLock around watchdog work`);
 }
 assert.doesNotMatch(watchdogApi, /LockService|getScriptLock|tryLock/, 'internal API fallback must not acquire a nested ScriptLock');
 assert.doesNotMatch(partialCheck, /LockService|getScriptLock|tryLock/, 'internal partial collector must not acquire a nested ScriptLock');
+assert.doesNotMatch(watchdog, /WCORE_AUTO_HEAL\s*\(/, 'WATCHDOG_FROM_RECAP must not run auto-heal inline');
+assert.doesNotMatch(watchdog, /_ensureLedgerCache_\s*\(/, 'WATCHDOG_FROM_RECAP must not rebuild ledger cache inline');
+assert.doesNotMatch(watchdog, /_wd_maybeSheetCacheCleanup_\s*\(|_emergencyPurge_\s*\(/, 'WATCHDOG_FROM_RECAP must not run maintenance inline');
+
+const leaseAcquireStart = source.indexOf('function _wcoreAcquireLease_(');
+const leaseReleaseStart = source.indexOf('function _wcoreReleaseLease_(');
+assert.notEqual(leaseAcquireStart, -1, '_wcoreAcquireLease_ must implement atomic owner leases');
+assert.notEqual(leaseReleaseStart, -1, '_wcoreReleaseLease_ must implement owner-safe release');
+const leaseAcquire = extractFunction('_wcoreAcquireLease_');
+const leaseRelease = extractFunction('_wcoreReleaseLease_');
+
+function loadLeaseHelpers(initial = {}, now = 1000) {
+  const props = { ...initial };
+  const calls = { acquired: 0, released: 0, deleted: 0 };
+  const context = {
+    Date: { now: () => now },
+    JSON,
+    Number,
+    String,
+    isFinite,
+    Utilities: { getUuid: () => `owner-${calls.acquired + 1}` },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: (key) => Object.prototype.hasOwnProperty.call(props, key) ? props[key] : null,
+      setProperty: (key, value) => { props[key] = String(value); },
+      deleteProperty: (key) => { delete props[key]; calls.deleted++; },
+    }) },
+    LockService: { getScriptLock: () => ({
+      tryLock: () => { calls.acquired++; return true; },
+      releaseLock: () => { calls.released++; },
+    }) },
+  };
+  vm.createContext(context);
+  vm.runInContext(`${leaseAcquire}\n${leaseRelease}`, context);
+  context.__props = props;
+  context.__calls = calls;
+  return context;
+}
+
+{
+  const leases = loadLeaseHelpers({}, 1000);
+  const autoOwner = leases._wcoreAcquireLease_('WCORE_AUTO_HEAL_LEASE', 600000, 'slow-autoheal');
+  const watchdogOwner = leases._wcoreAcquireLease_('WCORE_WATCHDOG_LEASE', 360000, 'watchdog');
+  assert.equal(autoOwner, 'slow-autoheal');
+  assert.equal(watchdogOwner, 'watchdog', 'a slow auto-heal lease must not block the watchdog lease');
+  assert.equal(leases._wcoreReleaseLease_('WCORE_AUTO_HEAL_LEASE', 'wrong-owner'), false, 'lease release must reject a different owner');
+  assert.equal(leases._wcoreReleaseLease_('WCORE_AUTO_HEAL_LEASE', 'slow-autoheal'), true, 'lease owner must release its lease');
+  assert.equal(leases.__calls.acquired, leases.__calls.released, 'ScriptLock is released after every atomic lease mutation');
+}
+
+{
+  const stale = loadLeaseHelpers({ WCORE_WATCHDOG_LEASE: JSON.stringify({ owner: 'dead', until: 999 }) }, 1000);
+  assert.equal(stale._wcoreAcquireLease_('WCORE_WATCHDOG_LEASE', 360000, 'recovery'), 'recovery', 'expired watchdog leases must be recoverable');
+  assert.equal(JSON.parse(stale.__props.WCORE_WATCHDOG_LEASE).owner, 'recovery');
+}
 
 assert(
   !/blockedReason\s*===\s*["']QUOTA["'][\s\S]*QuotaCircuitBreaker\.reset\s*\(/.test(tryUnblock),
   '_wd_tryUnblock_(QUOTA) must not reset quota breaker before pulsing B1'
 );
 
-const vm = require('vm');
-
 function loadPublicEntryPoints(options = {}) {
   const calls = { internal: 0, release: 0, writes: 0 };
-  const lock = {
-    tryLock: () => options.lockBusy ? false : true,
-    releaseLock: () => { calls.release++; }
-  };
   const ss = { getSpreadsheetTimeZone: () => 'Europe/Paris' };
   const context = {
     Date,
-    LockService: {
-      getScriptLock: () => {
-        if (options.lockFailure) throw new Error('lock unavailable');
-        return lock;
-      }
-    },
+    WCORE_WATCHDOG_LEASE_KEY: 'WCORE_WATCHDOG_LEASE',
+    WCORE_WATCHDOG_LEASE_TTL_MS: 360000,
+    _wcoreAcquireLease_: () => options.lockBusy ? null : 'watchdog-owner',
+    _wcoreReleaseLease_: () => { calls.release++; return true; },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
     Utilities: { formatDate: () => '2026-07-18 00:00:00' },
     Logger: { log() {} },
@@ -198,7 +266,513 @@ function loadPublicEntryPoints(options = {}) {
 }
 
 const helpers = loadWatchdogHelpers();
-const t0 = Date.parse('2026-07-18T00:00:00Z');
+const t0 = helpers._wd_parseLocalDateTimeToMs_('2026-07-18 00:00:00');
+
+{
+  const invalidTimestamps = [
+    '2026-07-17 23:59:00 trailing',
+    '2026-07-17 23:59:00  ',
+    '2026-07-17  23:59:00',
+    '2026-02-30 12:00:00',
+    '2026-07-17 25:00:00',
+    '2026-07-17 23:61:00',
+    '2026-07-17 23:59:61',
+    '2026-02-30T12:00:00.000Z',
+    '2026-07-17T23:59:00.000Z trailing'
+  ];
+  for (const timestamp of invalidTimestamps) {
+    assert.equal(Number.isNaN(helpers._wd_parseLocalDateTimeToMs_(timestamp)), true, `${timestamp} is rejected instead of normalized`);
+    assert.equal(helpers._wd_isLastUpdateFormat_(timestamp), false, `${timestamp} is not a valid last-update value`);
+  }
+
+  for (const timestamp of [
+    '2024-02-29 12:34',
+    '2024-02-29 12:34:56',
+    '2026-07-19T08:00:00',
+    '2026-06-26T17:00:00Z',
+    '2026-06-26T17:00:00.000Z',
+    '2026-06-26T19:00:00+02:00'
+  ]) {
+    assert.equal(Number.isFinite(helpers._wd_parseLocalDateTimeToMs_(timestamp)), true, `${timestamp} remains supported`);
+    assert.equal(helpers._wd_isLastUpdateFormat_(timestamp), true, `${timestamp} remains a valid last-update value`);
+  }
+
+  if (process.env.TZ === 'Europe/Paris') {
+    assert.equal(Number.isNaN(helpers._wd_parseLocalDateTimeToMs_('2026-03-29 02:30:00')), true, 'Paris spring-forward gap is rejected by local roundtrip');
+    assert.equal(Number.isNaN(helpers._wd_parseLocalDateTimeToMs_('2026-03-29T02:30:00')), true, 'Paris spring-forward gap is rejected for zone-less local ISO');
+    assert.equal(helpers._wd_isLastUpdateFormat_('2026-03-29T02:30:00'), false, 'Paris gap ISO is not a valid last-update value');
+    assert.equal(Number.isFinite(helpers._wd_parseLocalDateTimeToMs_('2026-03-29 03:30:00')), true, 'generated Paris post-transition time remains valid');
+    assert.equal(Number.isFinite(helpers._wd_parseLocalDateTimeToMs_('2026-03-29T03:30:00')), true, 'post-transition local ISO remains valid');
+
+    const parisSecondOccurrence = Date.parse('2026-10-25T01:30:00Z');
+    assert.equal(helpers._wd_parseLocalDateTimeToMs_('2026-10-25 02:30:00'), parisSecondOccurrence, 'Paris fall-back local timestamp resolves to the latest matching occurrence');
+    assert.equal(helpers._wd_parseLocalDateTimeToMs_('2026-10-25T02:30:00'), parisSecondOccurrence, 'Paris fall-back zone-less ISO resolves to the latest matching occurrence');
+    assert.equal(helpers._wd_shouldPulseB1_('2026-10-25 02:30:00', parisSecondOccurrence + 9 * 60000, 10), false, 'fall-back cooldown does not pulse before ten minutes from the second occurrence');
+    assert.equal(helpers._wd_shouldPulseB1_('2026-10-25 02:30:00', parisSecondOccurrence + 10 * 60000, 10), true, 'fall-back cooldown pulses at ten minutes from the second occurrence');
+  }
+}
+
+{
+  const tonStatus = 'TON_SCAN_OK 2026-07-17 18:00:00';
+  assert.equal(helpers._wd_extractTimestamp_(tonStatus), '2026-07-17 18:00:00', 'watchdog extracts TON success timestamps');
+  assert.equal(helpers._wd_extractSuccessTimestamp_(tonStatus), '2026-07-17 18:00:00', 'legacy latch repair extracts TON success timestamps');
+  assert.equal(helpers._wd_shouldSyncJ1_(tonStatus, '2026-07-17 17:00:00'), true, 'TON success status is accepted for J1 sync');
+  assert.equal(helpers._wd_staleAgeMs_(tonStatus, t0), 6 * 3600000, 'TON success status contributes parseable stale age');
+
+  const tonProps = {
+    'WD_WEB_BACKOFF:v1': JSON.stringify({
+      'Ledger - TON Explicit': { attempts: 2, lastPulseMs: t0 - 3 * 3600000, lastErrorMs: t0 - 3 * 3600000 }
+    })
+  };
+  const tonHelpers = loadWatchdogHelpers({ scriptProperties: tonProps });
+  const tonActions = tonHelpers._wd_collectGlobalRefreshActions_([{
+    sheetName: 'Ledger - TON Explicit',
+    vA2: '1,00 €',
+    vB1: '2026-07-17 17:00:00',
+    vI1: tonStatus,
+    vJ1: '2026-07-17 17:00:00'
+  }], t0, 5 * 3600000, '2026-07-18 00:00:00', makeStats());
+  assert.ok(tonActions.some((action) => action.type === 'pulse' && action.reason === 'stale'), 'scheduler treats old TON success as ordinary stale work');
+  assert.ok(tonActions.some((action) => action.type === 'sync' && action.range === 'J1' && action.value === '2026-07-17 18:00:00'), 'SYNC_J1 receives the extracted TON timestamp');
+  assert.equal(JSON.parse(tonProps['WD_WEB_BACKOFF:v1'])['Ledger - TON Explicit'], undefined, 'healthy TON success clears Web-error backoff state');
+}
+
+function makeStats() {
+  return { b1Set: 0, b1Blocked: 0, b1Stale: 0, b1Empty: 0, b1Error: 0, toSync: 0 };
+}
+
+function cycleAge(item, nowMs) {
+  const i1Ms = helpers._wd_parseLocalDateTimeToMs_(helpers._wd_extractTimestamp_(item.vI1 || ''));
+  const b1Ms = helpers._wd_parseLocalDateTimeToMs_(item.vB1 || '');
+  const valid = [i1Ms, b1Ms].filter(Number.isFinite);
+  return valid.length ? Math.max(0, nowMs - Math.max(...valid)) : Number.MAX_SAFE_INTEGER;
+}
+
+function expectedOldestCycleNames(items, nowMs, count = 4) {
+  return items
+    .filter((item) => !helpers._wd_isCexSheet_(item.sheetName))
+    .filter((item) => !String(item.vI1 || '').startsWith('[BLOCKED:QUOTA]'))
+    .filter((item) => !String(item.vI1 || '').startsWith('[WEB_SCAN_ERROR]'))
+    .filter((item) => {
+      const refresh = helpers._wd_needsRefresh_(item.vA2 || '', item.vI1 || '', nowMs, 5 * 3600000);
+      return !refresh.needsPulse || refresh.reason === 'stale';
+    })
+    .filter((item) => helpers._wd_shouldPulseB1_(item.vB1 || '', nowMs, 10))
+    .sort((a, b) => cycleAge(b, nowMs) - cycleAge(a, nowMs) || a.sheetName.localeCompare(b.sheetName))
+    .slice(0, count)
+    .map((item) => item.sheetName);
+}
+
+function runFairnessSimulation(items, maxRuns = 31, advanceI1 = true) {
+  const firstSelectedRun = new Map();
+  const runDetails = [];
+  for (let run = 0; run < maxRuns && firstSelectedRun.size < items.length; run++) {
+    const nowMs = t0 + run * 10 * 60000;
+    const nowStr = helpers._wd_fmtDate_(new Date(nowMs));
+    const expectedCycle = expectedOldestCycleNames(items, nowMs);
+    const actions = helpers._wd_collectGlobalRefreshActions_(items, nowMs, 5 * 3600000, nowStr, makeStats());
+    const pulses = actions.filter((action) => action.type === 'pulse');
+    const selectedNames = new Set(pulses.map((action) => action.sheetName));
+    const ordinaryPulses = pulses.filter((action) => action.reason === 'cycle' || action.reason === 'stale');
+    const ordinaryNames = new Set(ordinaryPulses.map((action) => action.sheetName));
+    const cycleSelections = expectedCycle.filter((name) => ordinaryNames.has(name));
+    runDetails.push({ pulses, expectedCycle, cycleSelections });
+
+    assert.ok(pulses.length <= 5, `run ${run + 1} stays within the five-pulse cap`);
+    assert.equal(selectedNames.size, pulses.length, `run ${run + 1} contains distinct pulse targets`);
+    if (expectedCycle.length >= 4) {
+      assert.equal(cycleSelections.length, 4, `run ${run + 1} reserves four oldest cycle targets`);
+      assert.ok(ordinaryPulses.length >= 4, `run ${run + 1} returns at least four actual ordinary actions`);
+      assert.ok(pulses.length - ordinaryPulses.length <= 1, `run ${run + 1} reserves at most one distinct urgent slot`);
+    }
+
+    for (const pulse of pulses) {
+      if (!firstSelectedRun.has(pulse.sheetName)) firstSelectedRun.set(pulse.sheetName, run + 1);
+      const item = items.find((candidate) => candidate.sheetName === pulse.sheetName);
+      item.vA2 = '1,00 €';
+      item.vB1 = nowStr;
+      if (advanceI1) {
+        item.vI1 = nowStr;
+        item.vJ1 = nowStr;
+      }
+    }
+  }
+  return { firstSelectedRun, runDetails };
+}
+
+{
+  const j1Props = {};
+  const j1Helpers = loadWatchdogHelpers({ scriptProperties: j1Props });
+  const staleJ1 = Array.from({ length: 105 }, (_, i) => ({
+    sheetName: `Ledger - Watchdog J1 ${String(i).padStart(3, '0')}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-18 00:00:00',
+    vI1: '2026-07-18 01:00:00',
+    vJ1: '2026-07-17 00:00:00'
+  }));
+  const covered = new Set();
+  for (let run = 0; run < 6; run++) {
+    const actions = j1Helpers._wd_collectGlobalRefreshActions_(staleJ1, t0 + run * 600000, 5 * 3600000, '2026-07-18 02:00:00', makeStats());
+    const syncs = actions.filter((action) => action.type === 'sync');
+    assert.ok(syncs.length <= 20, `watchdog J1 run ${run + 1} writes at most 20 latches`);
+    syncs.forEach((action) => covered.add(action.sheetName));
+  }
+  assert.equal(covered.size, 105, 'watchdog J1 cursor must fairly serve all 105 stale latches');
+  assert.ok(Number(j1Props.WD_J1_CURSOR) >= 0, 'watchdog J1 fairness cursor must be persisted');
+}
+
+function loadDedicatedJ1Sync() {
+  const props = {};
+  const names = Array.from({ length: 105 }, (_, i) => `Ledger - Dedicated J1 ${String(i).padStart(3, '0')}`);
+  const selectedRuns = [];
+  let batchCalls = 0;
+  const ss = {
+    getSheetByName: (name) => name === 'Recap Portfolio' ? {
+      getLastRow: () => names.length + 1,
+      getRange: (row, col) => ({ getValues: () => {
+        if (col === 1) return names.map((name) => [name]);
+        if (col === 6) return names.map(() => ['2026-07-18 01:00:00']);
+        return names.map(() => ['2026-07-17 00:00:00']);
+      } })
+    } : { getRange: () => ({ setValue() {}, setNumberFormat() {} }) }
+  };
+  const context = {
+    Date,
+    JSON,
+    Number,
+    String,
+    Math,
+    isFinite,
+    P_SYNC_J1_CURSOR: 'SYNC_J1_CURSOR',
+    SYNC_J1_MAX_SYNCS_PER_RUN: 20,
+    WCORE_SPREADSHEET_ID: 'spreadsheet-id',
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: (key) => Object.prototype.hasOwnProperty.call(props, key) ? props[key] : null,
+      setProperty: (key, value) => { props[key] = String(value); },
+    }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
+    Sheets: { Spreadsheets: { Values: { batchUpdate: (request, spreadsheetId) => {
+      batchCalls++;
+      assert.equal(spreadsheetId, 'spreadsheet-id', 'J1 batch must target the configured spreadsheet id');
+      assert.equal(request.valueInputOption, 'RAW', 'J1 batch must preserve raw timestamp values');
+      assert.ok(request.data.length > 0 && request.data.length <= 20, 'J1 batch body must contain a bounded non-empty data set');
+      assert.ok(request.data.every((entry) => /!J1$/.test(entry.range) && Array.isArray(entry.values) && entry.values.length === 1), 'J1 batch body must contain complete per-sheet J1 values');
+      selectedRuns.push(request.data.map((entry) => entry.range));
+    } } } },
+    _wcoreGetSpreadsheet_: () => ss,
+  };
+  vm.createContext(context);
+  const code = [
+    '_wd_norm_', '_wd_fmtDate_', '_wd_extractTimestamp_', '_wd_isUnsafeLatchSource_',
+    '_wd_parseLocalDateTimeToMs_', '_wd_isLastUpdateFormat_', '_wd_isCexSheet_',
+    '_wd_quoteA1Sheet_', '_wd_addApiWrite_', '_wd_flushApiWrites_',
+    '_wd_selectFairJ1Actions_', '_wd_applyJ1Actions_', 'SYNC_J1_ALL_SHEETS'
+  ].map(extractFunction).join('\n');
+  vm.runInContext(code, context);
+  context.__props = props;
+  context.__selectedRuns = selectedRuns;
+  context.__batchCalls = () => batchCalls;
+  return context;
+}
+
+function loadJ1ClaimHelpers() {
+  const props = {};
+  let held = false;
+  let forceBusy = false;
+  let nestedSelection = null;
+  let context;
+  const calls = { writes: 0, releases: 0 };
+  context = {
+    Math,
+    Number,
+    String,
+    isFinite,
+    parseInt,
+    SYNC_J1_MAX_SYNCS_PER_RUN: 20,
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: (key) => Object.prototype.hasOwnProperty.call(props, key) ? props[key] : null,
+      setProperty: (key, value) => {
+        props[key] = String(value);
+        calls.writes++;
+        if (nestedSelection === null) {
+          nestedSelection = context._wd_selectFairJ1Actions_(makeActions(), 40, 'CURSOR', {});
+        }
+      },
+    }) },
+    LockService: { getScriptLock: () => ({
+      tryLock: () => {
+        if (forceBusy || held) return false;
+        held = true;
+        return true;
+      },
+      releaseLock: () => { held = false; calls.releases++; },
+    }) },
+  };
+  function makeActions() {
+    return Array.from({ length: 40 }, (_, i) => ({ fairnessIndex: i, sheetName: `Ledger - Claim ${i}`, type: 'sync' }));
+  }
+  vm.createContext(context);
+  vm.runInContext(extractFunction('_wd_selectFairJ1Actions_'), context);
+  context.__props = props;
+  context.__calls = calls;
+  context.__nested = () => nestedSelection;
+  context.__makeActions = makeActions;
+  context.__forceBusy = (value) => { forceBusy = value; };
+  return context;
+}
+
+{
+  const claims = loadJ1ClaimHelpers();
+  const first = claims._wd_selectFairJ1Actions_(claims.__makeActions(), 40, 'CURSOR', {});
+  assert.equal(first.length, 20, 'first J1 claimant reserves one bounded slice');
+  assert.deepEqual(claims.__nested(), [], 'an interleaved claimant performs no writes when the cursor claim lock is busy');
+  const second = claims._wd_selectFairJ1Actions_(claims.__makeActions(), 40, 'CURSOR', {});
+  assert.equal(second.length, 20, 'serialized concurrent claimant reserves the next slice');
+  assert.equal(new Set(first.concat(second).map((action) => action.sheetName)).size, 40, 'serialized J1 claims reserve disjoint slices');
+  claims.__forceBusy(true);
+  const writesBeforeBusy = claims.__calls.writes;
+  assert.deepEqual(claims._wd_selectFairJ1Actions_(claims.__makeActions(), 40, 'CURSOR', {}), [], 'failed J1 cursor claim returns no actions');
+  assert.equal(claims.__calls.writes, writesBeforeBusy, 'failed J1 cursor claim performs no cursor write');
+}
+
+{
+  const dedicated = loadDedicatedJ1Sync();
+  const covered = new Set();
+  for (let run = 0; run < 6; run++) {
+    const result = dedicated.SYNC_J1_ALL_SHEETS();
+    assert.ok(result.synced <= 20, `dedicated J1 run ${run + 1} writes at most 20 latches`);
+    dedicated.__selectedRuns[run].forEach((range) => covered.add(range));
+  }
+  assert.equal(dedicated.__batchCalls(), 6, 'dedicated J1 sync uses one batch write per run');
+  assert.equal(covered.size, 105, 'dedicated J1 cursor must fairly serve all 105 stale latches');
+  assert.ok(Number(dedicated.__props.SYNC_J1_CURSOR) >= 0, 'dedicated J1 fairness cursor must be persisted');
+}
+
+{
+  const stale105 = Array.from({ length: 105 }, (_, i) => ({
+    sheetName: `Ledger - Required Bound ${String(i).padStart(3, '0')}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-17 12:00:00',
+    vI1: '2026-07-17 18:00:00',
+    vJ1: '2026-07-17 18:00:00'
+  }));
+  const simulation = runFairnessSimulation(stale105, 27, false);
+  assert.equal(simulation.firstSelectedRun.size, 105, 'all 105 stale wallets must receive a pulse without manual intervention');
+  assert.ok(Math.max(...simulation.firstSelectedRun.values()) <= 27, '105 stale wallets must all be served within 27 watchdog runs');
+}
+
+{
+  const laneMix = Array.from({ length: 16 }, (_, i) => ({
+    sheetName: `Ledger - Lane ${String(i).padStart(2, '0')}`,
+    vA2: i < 8 ? '1,00 €' : '#ERROR!',
+    vB1: '2026-07-17 12:00:00',
+    vI1: '2026-07-17 23:50:00',
+    vJ1: ''
+  }));
+  const laneActions = helpers._wd_collectGlobalRefreshActions_(laneMix, t0, 5 * 3600000, '2026-07-18 00:00:00', makeStats());
+  const lanePulses = laneActions.filter((action) => action.type === 'pulse');
+  assert.equal(lanePulses.filter((action) => action.reason === 'cycle' || action.reason === 'stale').length, 4, 'four returned actions come from the ordinary lane');
+  assert.equal(lanePulses.filter((action) => action.reason === 'error' || action.reason === 'empty' || action.reason === 'partial').length, 1, 'only one returned action is urgent while ordinary backlog exists');
+}
+
+{
+  const synchronized = Array.from({ length: 123 }, (_, i) => ({
+    sheetName: `Ledger - Wave ${String(i).padStart(3, '0')}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-17 23:00:00',
+    vI1: '2026-07-17 23:50:00',
+    vJ1: '2026-07-17 23:50:00'
+  }));
+  const simulation = runFairnessSimulation(synchronized, 31, false);
+  assert.equal(simulation.firstSelectedRun.size, 123, 'a synchronized healthy I1 wave completes without waiting for five-hour staleness');
+  assert.ok(Math.max(...simulation.firstSelectedRun.values()) <= 31, 'the synchronized wave completes within 31 runs');
+}
+
+{
+  const ordinary = Array.from({ length: 123 }, (_, i) => ({
+    sheetName: `Ledger - Persistent Wave ${String(i).padStart(3, '0')}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-17 23:00:00',
+    vI1: '2026-07-17 23:50:00',
+    vJ1: '2026-07-17 23:50:00'
+  }));
+  const urgent = {
+    sheetName: 'Ledger - Persistent Urgent',
+    vA2: '#ERROR!',
+    vB1: '2026-07-17 23:00:00',
+    vI1: '[ERROR] persistent test failure',
+    vJ1: ''
+  };
+  const firstSelectedRun = new Map();
+  for (let run = 0; run < 31 && firstSelectedRun.size < ordinary.length; run++) {
+    const nowMs = t0 + run * 10 * 60000;
+    const nowStr = helpers._wd_fmtDate_(new Date(nowMs));
+    const actions = helpers._wd_collectGlobalRefreshActions_(ordinary.concat(urgent), nowMs, 5 * 3600000, nowStr, makeStats());
+    const pulses = actions.filter((action) => action.type === 'pulse');
+    const urgentPulses = pulses.filter((action) => action.reason === 'error' || action.reason === 'empty' || action.reason === 'partial');
+    assert.equal(urgentPulses.length, 1, `persistent urgent run ${run + 1} uses exactly one urgent slot`);
+    assert.equal(urgentPulses[0].sheetName, urgent.sheetName, `persistent urgent run ${run + 1} keeps the deliberate urgent target`);
+    urgent.vB1 = nowStr;
+    assert.equal(urgent.vI1, '[ERROR] persistent test failure', 'the simulation intentionally preserves urgent state');
+    for (const pulse of pulses.filter((action) => action.reason === 'cycle' || action.reason === 'stale')) {
+      if (!firstSelectedRun.has(pulse.sheetName)) firstSelectedRun.set(pulse.sheetName, run + 1);
+      ordinary.find((item) => item.sheetName === pulse.sheetName).vB1 = nowStr;
+    }
+  }
+  assert.equal(firstSelectedRun.size, 123, 'all 123 ordinary wallets are selected despite a persistent distinct urgent every run');
+  assert.ok(Math.max(...firstSelectedRun.values()) <= 31, 'persistent urgent pressure preserves the 31-run ordinary bound');
+}
+
+{
+  const ordinaryOnly = Array.from({ length: 6 }, (_, i) => ({
+    sheetName: `Ledger - Only Ordinary ${i}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-17 12:00:00',
+    vI1: `2026-07-17 ${String(18 + i).padStart(2, '0')}:00:00`,
+    vJ1: ''
+  }));
+  const ordinaryActions = helpers._wd_collectGlobalRefreshActions_(ordinaryOnly, t0, 5 * 3600000, '2026-07-18 00:00:00', makeStats());
+  assert.deepEqual(
+    ordinaryActions.filter((action) => action.type === 'pulse').map((action) => action.sheetName),
+    ordinaryOnly.slice(0, 5).map((item) => item.sheetName),
+    'when no distinct urgent exists, the fifth slot uses the next oldest ordinary target'
+  );
+}
+
+{
+  const emptyBacklog = Array.from({ length: 20 }, (_, i) => ({
+    sheetName: `Ledger - Empty ${String(i).padStart(2, '0')}`,
+    vA2: '',
+    vB1: '',
+    vI1: '',
+    vJ1: ''
+  }));
+  const emptyActions = helpers._wd_collectGlobalRefreshActions_(emptyBacklog, t0, 5 * 3600000, '2026-07-18 00:00:00', makeStats());
+  assert.equal(emptyActions.filter((action) => action.type === 'pulse').length, 5, 'a large empty backlog fills all five slots when no healthy cycle capacity exists');
+}
+
+{
+  const noCacheWave = Array.from({ length: 30 }, (_, i) => ({
+    sheetName: `Ledger - No Cache Wave ${String(i).padStart(2, '0')}`,
+    vA2: '',
+    vB1: '2026-07-17 12:00:00',
+    vI1: i % 2 === 0 ? '[CACHE_ONLY] [FRESH] N/A' : '[NO_CACHE] 2026-07-17 23:50:00',
+    vJ1: ''
+  }));
+  const covered = new Set();
+  for (let run = 0; run < 6; run++) {
+    const nowMs = t0 + run * 10 * 60000;
+    const nowStr = helpers._wd_fmtDate_(new Date(nowMs));
+    const expected = noCacheWave.slice()
+      .sort((a, b) => cycleAge(b, nowMs) - cycleAge(a, nowMs) || a.sheetName.localeCompare(b.sheetName))
+      .slice(0, 5)
+      .map((item) => item.sheetName);
+    const actions = helpers._wd_collectGlobalRefreshActions_(noCacheWave, nowMs, 5 * 3600000, nowStr, makeStats());
+    const pulses = actions.filter((action) => action.type === 'pulse');
+    assert.deepEqual(pulses.map((action) => action.sheetName), expected, `no-cache run ${run + 1} selects the five oldest distinct targets`);
+    assert.equal(new Set(pulses.map((action) => action.sheetName)).size, 5, `no-cache run ${run + 1} has no duplicate target`);
+    for (const pulse of pulses) {
+      covered.add(pulse.sheetName);
+      noCacheWave.find((item) => item.sheetName === pulse.sheetName).vB1 = nowStr;
+    }
+  }
+  assert.equal(covered.size, 30, 'all synchronized no-cache targets are covered within six ten-minute runs while I1 stays unchanged');
+}
+
+{
+  const healthyCycle = Array.from({ length: 4 }, (_, i) => ({
+    sheetName: `Ledger - Healthy Mixed ${i}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-17 23:40:00',
+    vI1: '2026-07-17 23:50:00',
+    vJ1: '2026-07-17 23:50:00'
+  }));
+  const oldestNoCache = Array.from({ length: 6 }, (_, i) => ({
+    sheetName: `Ledger - Old No Cache ${i}`,
+    vA2: '',
+    vB1: `2026-07-17 ${String(12 + i).padStart(2, '0')}:00:00`,
+    vI1: i % 2 === 0 ? '' : '[CACHE_ONLY] [FRESH] N/A',
+    vJ1: ''
+  }));
+  const mixedActions = helpers._wd_collectGlobalRefreshActions_(healthyCycle.concat(oldestNoCache), t0, 5 * 3600000, '2026-07-18 00:00:00', makeStats());
+  const mixedPulses = mixedActions.filter((action) => action.type === 'pulse');
+  assert.deepEqual(mixedPulses.map((action) => action.sheetName), oldestNoCache.slice(0, 5).map((item) => item.sheetName), 'oldest no-cache targets can occupy four cycle slots and one distinct urgent slot');
+  assert.equal(new Set(mixedPulses.map((action) => action.sheetName)).size, 5, 'mixed dual-lane selection remains distinct and capped at five');
+}
+
+{
+  const healthy = Array.from({ length: 5 }, (_, i) => ({
+    sheetName: `Ledger - Strict Healthy ${i}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-17 22:50:00',
+    vI1: '2026-07-17 23:00:00',
+    vJ1: '2026-07-17 23:00:00'
+  }));
+  const malformedCache = {
+    sheetName: 'Ledger - Malformed Cache Timestamp',
+    vA2: '',
+    vB1: '2026-07-17 23:40:00',
+    vI1: '[CACHE_ONLY] 2026-07-17 23:59:00 trailing',
+    vJ1: ''
+  };
+  const strictActions = helpers._wd_collectGlobalRefreshActions_(healthy.concat(malformedCache), t0, 5 * 3600000, '2026-07-18 00:00:00', makeStats());
+  const strictNames = strictActions.filter((action) => action.type === 'pulse').map((action) => action.sheetName);
+  assert.deepEqual(strictNames, healthy.slice(0, 4).map((item) => item.sheetName).concat(malformedCache.sheetName), 'malformed CACHE_ONLY payload enters the urgent lane instead of consuming the fifth ordinary slot');
+}
+
+{
+  const backoffProps = {
+    'WD_WEB_BACKOFF:v1': JSON.stringify({
+      'Ledger - Suppressed Web Cycle': { attempts: 1, lastPulseMs: t0, lastErrorMs: t0 }
+    })
+  };
+  const backoffHelpers = loadWatchdogHelpers({ scriptProperties: backoffProps });
+  const suppressedActions = backoffHelpers._wd_collectGlobalRefreshActions_([{
+    sheetName: 'Ledger - Suppressed Web Cycle',
+    vA2: '#ERROR!',
+    vB1: '2026-07-17 12:00:00',
+    vI1: '[WEB_SCAN_ERROR] 2026-07-18 00:30:00',
+    vJ1: ''
+  }, {
+    sheetName: 'Ledger - Eligible No Cache',
+    vA2: '',
+    vB1: '2026-07-17 13:00:00',
+    vI1: '[NO_CACHE] 2026-07-17 23:50:00',
+    vJ1: ''
+  }], t0 + 60 * 60000, 5 * 3600000, '2026-07-18 01:00:00', makeStats());
+  assert.equal(suppressedActions.some((action) => action.type === 'pulse' && action.sheetName === 'Ledger - Suppressed Web Cycle'), false, 'suppressed WEB_SCAN_ERROR cannot leak into the no-cache cycle lane');
+}
+
+{
+  const ordinary = Array.from({ length: 4 }, (_, i) => ({
+    sheetName: `Ledger - Ordinary ${i}`,
+    vA2: '1,00 €',
+    vB1: '2026-07-17 12:00:00',
+    vI1: `2026-07-17 2${i}:00:00`,
+    vJ1: ''
+  }));
+  const overlappingPartial = ordinary.map((item, i) => ({
+    sheetName: item.sheetName,
+    range: 'B1',
+    value: '2026-07-18 00:00:00',
+    type: 'pulse',
+    reason: 'partial',
+    priority: 250,
+    staleAgeMs: (24 - i) * 3600000
+  })).concat([{
+    sheetName: 'Ledger - Distinct Partial',
+    range: 'B1',
+    value: '2026-07-18 00:00:00',
+    type: 'pulse',
+    reason: 'partial',
+    priority: 250,
+    staleAgeMs: 19 * 3600000
+  }]);
+  const overlapActions = helpers._wd_collectGlobalRefreshActions_(ordinary, t0, 5 * 3600000, '2026-07-18 00:00:00', makeStats(), overlappingPartial);
+  const overlapPulses = overlapActions.filter((action) => action.type === 'pulse');
+  assert.equal(overlapPulses.filter((action) => action.reason === 'cycle' || action.reason === 'stale').length, 4, 'overlap replacement preserves all four initial ordinary actions');
+  assert.ok(overlapPulses.some((action) => action.sheetName === 'Ledger - Distinct Partial' && action.reason === 'partial'), 'urgent selection advances to the next distinct target');
+}
 
 {
   const delays = [30, 120, 360, 1440].map((minutes) => minutes * 60000);
@@ -215,7 +789,7 @@ const t0 = Date.parse('2026-07-18T00:00:00Z');
   assert.equal(beforeBoundary.allowed, false, 'second retry waits the full two hours');
 
   const deferred = helpers._wd_needsRefresh_('', '[WEB_SCAN_DEFERRED] N/A', t0, 5 * 3600000);
-  assert.deepEqual(deferred, { needsPulse: false, reason: 'deferred', blockedReason: null, useBlockedCooldown: false });
+  assert.deepEqual(deferred, { needsPulse: true, reason: 'empty', blockedReason: null, useBlockedCooldown: false }, 'deferred N/A must re-enter as no usable cache');
 
   const healthyState = { 'Ledger - Healthy': { attempts: 4, lastPulseMs: t0 } };
   helpers._wd_webErrorDecision_(healthyState, 'Ledger - Healthy', t0 + 1, null);
@@ -369,7 +943,7 @@ assert(
   const staleAndError = Array.from({ length: 12 }, (_, i) => ({
     sheetName: `Ledger - Candidate ${i}`,
     vA2: '1,00 €',
-    vB1: '',
+    vB1: '2026-07-18 00:00:00',
     vI1: i < 6 ? '[ERROR] scan failed' : '2026-07-17 00:00:00',
     vJ1: ''
   }));
@@ -381,7 +955,7 @@ assert(
     type: 'pulse',
     reason: 'partial',
     priority: 500,
-    staleAgeMs: 0
+    staleAgeMs: 48 * 3600000
   }));
   const budgetActions = helpers._wd_collectGlobalRefreshActions_(staleAndError, t0 + 2 * 3600000, 5 * 3600000, '2026-07-18 02:00:00', statsBudget, partialCandidates);
   const pulses = budgetActions.filter((action) => action.type === 'pulse');
@@ -433,10 +1007,13 @@ assert(
 
 {
   const deferredStats = { b1Set: 0, b1Blocked: 0, b1Stale: 0, b1Empty: 0, b1Error: 0, toSync: 0 };
-  const deferredActions = helpers._wd_collectGlobalRefreshActions_([{
-    sheetName: 'Ledger - Deferred', vA2: '', vB1: '', vI1: '[WEB_SCAN_DEFERRED] N/A', vJ1: '2026-07-17 00:00:00'
-  }], t0, 5 * 3600000, '2026-07-18 00:00:00', deferredStats);
-  assert.deepEqual(deferredActions, [], 'deferred scans neither retry B1 nor sync J1');
+  const deferredItem = { sheetName: 'Ledger - Deferred', vA2: '', vB1: '', vI1: '[WEB_SCAN_DEFERRED] N/A', vJ1: '2026-07-17 00:00:00' };
+  const deferredActions = helpers._wd_collectGlobalRefreshActions_([deferredItem], t0, 5 * 3600000, '2026-07-18 00:00:00', deferredStats);
+  assert.equal(deferredActions.filter((action) => action.type === 'pulse').length, 1, 'deferred N/A is admitted after B1 cooldown');
+  deferredItem.vB1 = '2026-07-18 00:00:00';
+  const cooldownActions = helpers._wd_collectGlobalRefreshActions_([deferredItem], t0 + 9 * 60000, 5 * 3600000, '2026-07-18 00:09:00', deferredStats);
+  assert.equal(cooldownActions.some((action) => action.type === 'pulse'), false, 'deferred N/A is not immediately repulsed before cooldown');
+  assert.equal(cooldownActions.some((action) => action.type === 'sync'), false, 'deferred N/A never overwrites the J1 latch');
 }
 
 for (const failure of ['failLoad', 'failSave']) {
@@ -534,7 +1111,8 @@ for (const failure of ['failLoad', 'failSave']) {
 
 {
   const conservativeProps = {};
-  const conservative = loadWatchdogHelpers({ scriptProperties: conservativeProps, failSetPropertyCalls: [3, 4] });
+  const rollbackSaveFailures = [];
+  const conservative = loadWatchdogHelpers({ scriptProperties: conservativeProps, failSetPropertyCalls: rollbackSaveFailures });
   const conservativeStats = { b1Set: 0, b1Blocked: 0, b1Stale: 0, b1Empty: 0, b1Error: 0, toSync: 0 };
   const conservativeActions = conservative._wd_collectGlobalRefreshActions_([{
     sheetName: 'Ledger - Conservative Web', vA2: '1,00 €', vB1: '', vI1: '[WEB_SCAN_ERROR] 2026-07-18 00:00:00', vJ1: ''
@@ -542,6 +1120,8 @@ for (const failure of ['failLoad', 'failSave']) {
     sheetName: 'Ledger - Conservative Partial', range: 'B1', value: '2026-07-18 00:30:00',
     type: 'pulse', reason: 'partial', priority: 250, staleAgeMs: 0
   }]);
+  const savesBeforeRollback = conservative.__propertyCalls().set;
+  rollbackSaveFailures.push(savesBeforeRollback + 1, savesBeforeRollback + 2);
   const rollbackFailure = conservative._wd_applySpreadsheetActions_({ getSheetByName: () => null }, conservativeActions, t0 + 30 * 60000, 5);
   assert.equal(rollbackFailure.stateErrors, 2, 'rollback failures are explicit and do not throw');
   assert.equal(JSON.parse(conservativeProps['WD_WEB_BACKOFF:v1'])['Ledger - Conservative Web'].attempts, 1, 'failed Web rollback retains conservative reservation');
@@ -615,14 +1195,8 @@ for (const failure of ['failLoad', 'failSave']) {
       vJ1: '2026-07-08 20:16:28'
     }
   ], helpers._wd_parseLocalDateTimeToMs_('2026-07-08 21:10:00'), 5 * 3600000, '2026-07-08 21:10:00', statsA2);
-  assert.deepEqual(actionsA2, [{
-    sheet: null,
-    sheetName: 'Ledger - Aurora',
-    range: 'J1',
-    value: '2026-07-08 20:16:29',
-    type: 'sync',
-    reason: 'a2_error_recalc'
-  }], 'A2 custom-function errors should bump J1 by one second without pulsing B1');
+  assert.ok(actionsA2.some((action) => action.type === 'sync' && action.range === 'J1' && action.value === '2026-07-08 20:16:29'), 'A2 custom-function errors still bump J1 by one second');
+  assert.ok(actionsA2.some((action) => action.type === 'pulse' && action.range === 'B1'), 'A2 custom-function errors also participate in bounded B1 scheduling');
 }
 
 {
@@ -636,14 +1210,80 @@ for (const failure of ['failLoad', 'failSave']) {
       vJ1: '2026-07-08 20:21:35'
     }
   ], helpers._wd_parseLocalDateTimeToMs_('2026-07-08 21:10:00'), 5 * 3600000, '2026-07-08 21:10:00', statsBlankTotal);
-  assert.deepEqual(actionsBlankTotal, [{
-    sheet: null,
-    sheetName: 'Ledger - Mezo',
-    range: 'J1',
-    value: '2026-07-08 20:21:36',
-    type: 'sync',
-    reason: 'a2_error_recalc'
-  }], 'Blank Recap total with fresh I1/J1 should bump J1 by one second, not B1');
+  assert.ok(actionsBlankTotal.some((action) => action.type === 'sync' && action.range === 'J1' && action.value === '2026-07-08 20:21:36'), 'Blank Recap totals still bump J1 by one second');
+  assert.ok(actionsBlankTotal.some((action) => action.type === 'pulse' && action.range === 'B1'), 'Blank Recap totals also participate in bounded B1 scheduling');
+}
+
+{
+  // v4.16.46: CACHE_ONLY with B1 significantly newer than I1 → stale re-pulse
+  const nowMs = helpers._wd_parseLocalDateTimeToMs_('2026-07-20 06:00:00');
+  const staleMs = 5 * 3600000;
+  // B1 pulsed at 03:01, I1 cache from yesterday 22:32 → gap ~4.5h
+  const mismatch = helpers._wd_needsRefresh_('0,00 €', '[CACHE_ONLY] 2026-07-19 22:32:03', nowMs, staleMs, '2026-07-20 03:01:23');
+  assert.equal(mismatch.needsPulse, true, '[CACHE_ONLY] with B1 > I1 by >20min must re-pulse');
+  assert.equal(mismatch.reason, 'stale');
+
+  // B1 only 10 min newer than I1 → falls through to normal staleness (not triggered by mismatch)
+  const recent = helpers._wd_needsRefresh_('0,00 €', '[CACHE_ONLY] 2026-07-20 05:50:00', nowMs, staleMs, '2026-07-20 06:00:00');
+  assert.equal(recent.needsPulse, false, '[CACHE_ONLY] with B1 10min ahead must not trigger mismatch');
+  assert.equal(recent.reason, 'ok');
+
+  // CACHE_ONLY without B1 arg → backward compat, normal staleness
+  const noB1 = helpers._wd_needsRefresh_('0,00 €', '[CACHE_ONLY] 2026-07-19 22:32:03', nowMs, staleMs);
+  assert.equal(noB1.needsPulse, true, '[CACHE_ONLY] without vB1 uses normal staleness check');
+  assert.equal(noB1.reason, 'stale');
+}
+
+{
+  // v4.16.46: cycleAgeMs uses I1 as age anchor when CACHE_ONLY I1 is older than B1
+  const nowMs = helpers._wd_parseLocalDateTimeToMs_('2026-07-20 06:48:00');
+  const staleMs = 5 * 3600000;
+  const actions = helpers._wd_collectGlobalRefreshActions_([
+    {
+      sheetName: 'Ledger - Hemi',
+      vA2: '6,89 €',
+      vB1: '2026-07-20 03:01:23',
+      vI1: '[CACHE_ONLY] 2026-07-19 22:32:03',
+      vJ1: '2026-07-19 22:32:03',
+      vC1: 'FALSE'
+    }
+  ], nowMs, staleMs, '2026-07-20 06:48:00');
+  const hemi = actions.find(a => a.sheetName === 'Ledger - Hemi');
+  assert.ok(hemi, 'Hemi must produce a candidate');
+  // I1 is from yesterday 22:32 → age should be ~8h, not ~3h47m (B1 age)
+  assert.ok(hemi.cycleAgeMs >= 7 * 3600000, 'cycleAge must reflect stale I1 (~8h), not recent B1 (~3h)');
+  assert.ok(hemi.type === 'pulse' || hemi.type === 'sync', 'Hemi must produce a refresh action');
+}
+
+{
+  // v4.16.46: _wd_extractTimestamp_ strips nested [FRESH] prefix
+  // [CACHE_ONLY] [FRESH] 2026-07-20 01:21:57 → "2026-07-20 01:21:57"
+  assert.strictEqual(
+    helpers._wd_extractTimestamp_('[CACHE_ONLY] [FRESH] 2026-07-20 01:21:57'),
+    '2026-07-20 01:21:57',
+    'extractTimestamp must strip both [CACHE_ONLY] and nested [FRESH]'
+  );
+  // Without [CACHE_ONLY] wrapper
+  assert.strictEqual(
+    helpers._wd_extractTimestamp_('[FRESH] 2026-07-20 01:21:57'),
+    '2026-07-20 01:21:57',
+    'extractTimestamp must strip [FRESH] alone'
+  );
+  // [CACHE_ONLY] [FRESH] N/A → "N/A" (not a valid timestamp → empty detection)
+  assert.strictEqual(
+    helpers._wd_extractTimestamp_('[CACHE_ONLY] [FRESH] N/A'),
+    'N/A',
+    'extractTimestamp with nested [FRESH] N/A yields N/A → empty'
+  );
+}
+
+if (!process.env.WCORE_WD_TZ_CHILD) {
+  for (const timezone of ['UTC', 'Europe/Paris']) {
+    execFileSync(process.execPath, [__filename], {
+      env: { ...process.env, TZ: timezone, WCORE_WD_TZ_CHILD: '1' },
+      stdio: 'inherit'
+    });
+  }
 }
 
 console.log('watchdog quota guard OK');

@@ -1,3 +1,9 @@
+---
+type: plan
+status: archived
+project: gsheet
+date: 2026-04-22
+---
 # HTTP Quota Optimization Implementation Plan
 
 > **Historical/completed plan.** Kept for implementation history only; current quota behavior lives in `AGENTS.md` and source.

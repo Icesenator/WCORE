@@ -36,7 +36,9 @@ const BITPANDA_YAHOO_SYMBOLS: Record<string, string[]> = {
   NESN: ["NESN.SW"],
   NOVN: ["NOVN.SW"],
   ROG: ["ROG.SW"],
-  SHEL: ["SHEL.L", "SHEL"],
+  // Shell: 1 ADR US (NYSE:SHEL) = 2 actions Londres (SHEL.L). Bitpanda suit Londres.
+  // Fallback US retire : un hoquet Yahoo sur SHEL.L renverrait un prix x2.
+  SHEL: ["SHEL.L"],
   EUNL: ["EUNL.DE"],
   IS3N: ["IS3N.DE"],
   QDVE: ["QDVE.DE"],

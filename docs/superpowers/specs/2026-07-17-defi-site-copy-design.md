@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: wcore
+date: 2026-07-17
+---
 # DeFi Site Copy Alignment Design
 
 **Date:** 2026-07-17

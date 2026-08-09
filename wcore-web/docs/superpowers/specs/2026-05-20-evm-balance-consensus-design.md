@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: web
+date: 2026-05-20
+---
 # Design - EVM Balance Consensus
 
 > **Historical/completed design.** Kept for implementation history only; verify current consensus behavior in `packages/core` before acting on it.

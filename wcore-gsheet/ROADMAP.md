@@ -13,7 +13,7 @@
 - Validation statique: 3 107 fonctions globales au dernier audit.
 - **Compteur HTTP**: `HttpCounter` (buckets glissants 24h) compte maintenant les web scans (v4.16.30), expose via `GET_HTTP_COUNT_LAST_24H()` / `GET_HTTP_BREAKDOWN_24H()`.
 - **ACTIVITY_WATCHDOG**: desactive (v4.16.30, -5760 UrlFetch/jour).
-- **Bulk CEX relay**: `UPDATE_CEX_RELAY_ALL()` (v4.16.30, -72 UrlFetch/jour).
+- **Refresh CEX relay**: un trigger `UPDATE_CEX_RELAY_ROTATION` toutes les 15 minutes avance Binance, Bybit, Coinbase, OKX, soit environ une fois par heure chacun; `UPDATE_CEX_RELAY_ALL()` reste manuel/fallback uniquement.
 
 ## Invariants
 
@@ -73,7 +73,7 @@ Pour chaque retrait: source `.gs`, package genere, consommateurs Web/API, GM, wa
 ## Documentation
 
 - [ ] Mettre `AGENTS.md` a jour puis le reduire aux contraintes et gotchas critiques.
-- [ ] Mettre `docs/cex-sync.md` a jour pour sept CEX et ajouter `docs/kraken-sync.md`.
+- [ ] Mettre `docs/integrations/cex/cex-sync.md` a jour pour sept CEX et ajouter `docs/integrations/cex/kraken-sync.md`.
 - [ ] Completer `CHANGELOG.md` pour Kraken, triggers par connecteur et `INFO_TOTAL` CEX.
 - [x] Archiver les plans/specs termines (21 fichiers deplaces vers `docs/superpowers/archive/` le 2026-07-16).
 
@@ -91,8 +91,8 @@ Attention: `test:phase3-chains` regenere actuellement des artefacts. Examiner le
 
 ## References
 
-- Audit transversal: `../docs/AUDIT.md`
+- Audit transversal: `../docs/audits/AUDIT.md`
 - Setup: `README.md`
 - Regles runtime: `AGENTS.md`
 - Historique: `CHANGELOG.md`
-- Architecture CEX: `docs/cex-sync.md`
+- Architecture CEX: `docs/integrations/cex/cex-sync.md`

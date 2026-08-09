@@ -34,6 +34,7 @@ import {
   getNativeLogo,
   liveVote,
   cacheEntry,
+  pushBalanceDecisionError,
   type EvmWalletToken,
   type EvmWalletAssets,
 } from "./evm-types.js";
@@ -110,6 +111,11 @@ export async function getEvmWalletsAssets(
 
   const normalizedAddresses = addresses.map(a => normalizeEvmAddress(a)).filter(Boolean) as string[];
   if (!normalizedAddresses.length) throw new Error("no valid EVM addresses");
+  if (opts.cache && opts.forceRefresh) {
+    await Promise.all(normalizedAddresses.map((address) =>
+      opts.cache!.delete(`bal_cache:${key.toLowerCase()}:${address}`),
+    ));
+  }
 
   const t0 = Date.now();
   const cacheStats: CacheStats = { hits: 0, misses: 0, stale: 0, skipped: 0 };
@@ -292,7 +298,7 @@ export async function getEvmWalletsAssets(
         : null;
       if (tokenSet) res.tokens = res.tokens.filter((t) => tokenSet.has(t.contract.toLowerCase()));
       const hasTokens = res.tokens.length > 0;
-    if (!hasTokens && !hasCustomTokens && opts.cache) {
+    if (!hasTokens && !hasCustomTokens && opts.cache && !opts.forceRefresh) {
       // No tokens discovered ÔÇö try balance cache shortcut
       const balCacheKey = `bal_cache:${key.toLowerCase()}:${addr}`;
       try {
@@ -493,11 +499,9 @@ export async function getEvmWalletsAssets(
             raw = ercDecision.decision.raw;
             // P1-7: Propagate [DEGRADED] balance errors into per-wallet errors,
             // matching the single-wallet path behavior.
-            if (ercDecision.decision.degraded && ercDecision.decision.source !== "none") {
-              const wErrs = walletErrors.get(addr) ?? [];
-              wErrs.push(`[DEGRADED] ${token.symbol || token.contract.slice(0, 8)} balance: ${ercDecision.decision.reason}, using ${ercDecision.decision.source} fallback`);
-              walletErrors.set(addr, wErrs);
-            }
+            const wErrs = walletErrors.get(addr) ?? [];
+            pushBalanceDecisionError(wErrs, token.symbol || token.contract.slice(0, 8), ercDecision.decision);
+            walletErrors.set(addr, wErrs);
           } catch {
             return null; // readErc20Balance threw ÔÇö skip this token
           }
@@ -547,7 +551,7 @@ export async function getEvmWalletsAssets(
           : await readNativeBalance(dispatcher, rpc, effectiveEndpoints, addr, key, opts.cache);
         return { address: addr, decision };
       } catch {
-        return { address: addr, decision: { raw: 0n, source: "none" as BalanceSource, confidence: 0, degraded: false, reason: "error", votes: [] } };
+        return { address: addr, decision: { raw: 0n, source: "none" as BalanceSource, confidence: 0, degraded: true, reason: "error", votes: [] } };
       }
     }),
   );
@@ -555,11 +559,9 @@ export async function getEvmWalletsAssets(
   // P1-7: Propagate native balance [DEGRADED] errors into per-wallet errors,
   // matching the single-wallet path behavior.
   for (const { address: addr, decision } of nativeDecisions) {
-    if (decision.degraded && decision.source !== "none") {
-      const wErrs = walletErrors.get(addr) ?? [];
-      wErrs.push(`[DEGRADED] native balance: ${decision.reason}, using ${decision.source} fallback`);
-      walletErrors.set(addr, wErrs);
-    }
+    const wErrs = walletErrors.get(addr) ?? [];
+    pushBalanceDecisionError(wErrs, "native", decision);
+    walletErrors.set(addr, wErrs);
   }
 
   // Step 6: Price all unique tokens (shared across wallets)
@@ -716,7 +718,8 @@ export async function getEvmWalletsAssets(
       }
 
     // Buffer balances for no-TX shortcut on next scan (flushed via pipeline below)
-    if (opts.cache && !hasCustomTokens) {
+    const hasUnavailableBalance = allErrs.some((error) => error.includes("balance unavailable"));
+    if (opts.cache && !hasCustomTokens && !hasUnavailableBalance) {
       const balCacheKey = `bal_cache:${key.toLowerCase()}:${addr}`;
       cacheWrites.push({ key: balCacheKey, value: {
         nativeBalance: String(nativeRaw),

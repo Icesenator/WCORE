@@ -6,9 +6,25 @@ import { discoveredTokenVariantKey, normalizeBalanceSelectorExtraArgs, normalize
 import type { RpcCallOptions } from "../rpc/index.js";
 import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
+import { pushBalanceDecisionError } from "./evm-types.js";
 
 const OWNER = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
 const CUSTOM = "0x9999999999999999999999999999999999999999";
+
+test("pushBalanceDecisionError reports unavailable balances with no reliable source", () => {
+  const errors: string[] = [];
+
+  pushBalanceDecisionError(errors, "SYND", {
+    raw: 0n,
+    source: "none",
+    confidence: 0,
+    degraded: true,
+    reason: "no_reliable_vote",
+    votes: [],
+  });
+
+  assert.deepEqual(errors, ["[DEGRADED] SYND balance unavailable: no_reliable_vote"]);
+});
 
 test("getEvmWalletAssets uses injected TokenDiscovery instead of a local allowlist", async () => {
   const discovery: TokenDiscovery = {
@@ -1694,6 +1710,92 @@ test("getEvmWalletsAssets: batch EVM respects DISABLE_NATIVE_BALANCE", async () 
   assert.equal(nativeCalls, 0, "native balance RPC must not run when disabled by chain flag");
   assert.equal(wallet.assets.native.balance, 0);
   assert.equal(wallet.assets.tokens.length, 0);
+  assert.ok(!wallet.assets.errors.some((error) => error.includes("balance unavailable")));
+});
+
+test("getEvmWalletAssets: disabled native balance is not reported as unavailable", async () => {
+  let nativeCalls = 0;
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc1.example", ok: true },
+    { endpoint: "https://rpc2.example", ok: true },
+  ]);
+  const rpc = {
+    async getBalance(): Promise<bigint> { nativeCalls++; return 1n; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+  };
+
+  const result = await getEvmWalletAssets(OWNER, "TEMPO", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(null),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+    fxRate: 1,
+  });
+
+  assert.equal(nativeCalls, 0, "native balance RPC must not run when disabled by chain flag");
+  assert.ok(!result.errors.some((error) => error.includes("balance unavailable")));
+});
+
+test("getEvmWalletsAssets: unavailable native balance is explicit when all RPCs fail", async () => {
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc1.example", ok: false, error: "connection-refused" },
+    { endpoint: "https://rpc2.example", ok: false, error: "timeout" },
+  ]);
+  const rpc = {
+    async blockNumber(): Promise<number> { throw new Error("unreachable"); },
+    async getBalance(): Promise<bigint> { throw new Error("unreachable"); },
+    async getLogs(): Promise<unknown[]> { return []; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+    async batch(): Promise<unknown[]> { return []; },
+  };
+
+  const result = await getEvmWalletsAssets([WALLET_A], "base", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(3000),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+    fxRate: 1,
+  });
+
+  assert.ok(result.wallets[0]?.assets.errors.includes("[DEGRADED] native balance unavailable: no_votes"));
+});
+
+test("getEvmWalletsAssets: unexpected native read exception is reported as unavailable", async () => {
+  let dispatcherRuns = 0;
+  const dispatcher = {
+    async run<T>(
+      _endpoints: ReadonlyArray<string>,
+      call: (endpoint: string, opts: RpcCallOptions) => Promise<T>,
+    ) {
+      dispatcherRuns++;
+      if (dispatcherRuns === 2) throw new Error("dispatcher_crashed");
+      const value = await call("https://commons.rpc.syndicate.io", {} as RpcCallOptions);
+      return { consensus: true, value, votes: 1, total: 1, attempts: [] };
+    },
+  };
+  const rpc = {
+    async blockNumber(): Promise<number> { return 20_000_000; },
+    async getBalance(): Promise<bigint> { return 0n; },
+    async getLogs(): Promise<unknown[]> { return []; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+    async batch(): Promise<unknown[]> { return []; },
+  };
+
+  const result = await getEvmWalletsAssets([WALLET_A], "SYNDICATE_COMMONS", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(1),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+    fxRate: 1,
+  });
+
+  assert.ok(result.wallets[0]?.assets.errors.includes("[DEGRADED] native balance unavailable: error"));
 });
 
 test("getEvmWalletAssets (single): bal_cache v2 ÔÇö cross-read from batch written cache", async () => {
@@ -1749,6 +1851,209 @@ test("getEvmWalletAssets (single): bal_cache v2 ÔÇö cross-read from batch wri
   assert.equal(result.tokens[0]?.balance, 1);
   // bal_cache shortcut activated (native RPC runs in parallel ÔÇö unavoidable)
   assert.ok(result.errors.some((e: string) => e.includes("[BAL_CACHE]")), "should have BAL_CACHE marker");
+});
+
+test("getEvmWalletAssets: forceRefresh bypasses the balance cache", async () => {
+  const store = new Map<string, unknown>([[
+    `bal_cache:base:${OWNER}`,
+    {
+      nativeBalance: "500000000000000000",
+      nativePriceEur: 1,
+      tokens: [],
+      block: 20_000_000,
+      ts: Date.now() - 30_000,
+    },
+  ]]);
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc1.example", ok: true },
+    { endpoint: "https://rpc2.example", ok: true },
+  ]);
+  const rpc = {
+    async getBalance(): Promise<bigint> { return 1_000_000_000_000_000_000n; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+  };
+
+  const result = await getEvmWalletAssets(OWNER, "base", {
+    cache: makeCacheStore(store),
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(1),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+    forceRefresh: true,
+    fxRate: 1,
+  });
+
+  assert.equal(result.native.balance, 1);
+  assert.ok(!result.errors.some((error) => error.includes("[BAL_CACHE]")));
+});
+
+test("getEvmWalletsAssets: forceRefresh bypasses the balance cache", async () => {
+  const store = new Map<string, unknown>([[
+    `bal_cache:base:${WALLET_A}`,
+    {
+      nativeBalance: "500000000000000000",
+      nativePriceEur: 1,
+      tokens: [],
+      block: 20_000_000,
+      ts: Date.now() - 30_000,
+    },
+  ]]);
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc1.example", ok: true },
+    { endpoint: "https://rpc2.example", ok: true },
+  ]);
+  const rpc = {
+    async blockNumber(): Promise<number> { return 20_000_000; },
+    async getBalance(): Promise<bigint> { return 1_000_000_000_000_000_000n; },
+    async getLogs(): Promise<unknown[]> { return []; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+    async batch(): Promise<unknown[]> { return []; },
+  };
+
+  const result = await getEvmWalletsAssets([WALLET_A], "base", {
+    cache: makeCacheStore(store),
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(1),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+    forceRefresh: true,
+    fxRate: 1,
+  });
+
+  assert.equal(result.wallets[0]?.assets.native.balance, 1);
+  assert.ok(!result.wallets[0]?.assets.errors.some((error) => error.includes("[BAL_CACHE]")));
+});
+
+test("getEvmWalletAssets: a failed forceRefresh invalidates the balance cache", async () => {
+  const balanceCacheKey = `bal_cache:base:${OWNER}`;
+  const store = new Map<string, unknown>([[balanceCacheKey, {
+    nativeBalance: "0",
+    nativePriceEur: 1,
+    tokens: [],
+    block: 20_000_000,
+    ts: Date.now() - 30_000,
+  }]]);
+  let balanceCacheDeleted = false;
+  let discoverySawDeletion = false;
+  const cache = makeCacheStore(store);
+  const originalDelete = cache.delete;
+  cache.delete = async (key: string): Promise<void> => {
+    if (key === balanceCacheKey) balanceCacheDeleted = true;
+    await originalDelete(key);
+  };
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc1.example", ok: false, error: "timeout" },
+    { endpoint: "https://rpc2.example", ok: false, error: "HTTP 502" },
+  ]);
+  const rpc = {
+    async getBalance(): Promise<bigint> { throw new Error("unreachable"); },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+  };
+
+  const result = await getEvmWalletAssets(OWNER, "base", {
+    cache,
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(1),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { discoverySawDeletion = balanceCacheDeleted; return []; } },
+    forceRefresh: true,
+    fxRate: 1,
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(result.errors.some((error) => error.includes("balance unavailable")));
+  assert.equal(discoverySawDeletion, true, "forceRefresh must invalidate bal_cache before discovery starts");
+  assert.equal(store.has(balanceCacheKey), false);
+});
+
+test("getEvmWalletsAssets: a failed forceRefresh invalidates the balance cache", async () => {
+  const balanceCacheKey = `bal_cache:base:${WALLET_A}`;
+  const store = new Map<string, unknown>([[balanceCacheKey, {
+    nativeBalance: "0",
+    nativePriceEur: 1,
+    tokens: [],
+    block: 20_000_000,
+    ts: Date.now() - 30_000,
+  }]]);
+  let balanceCacheDeleted = false;
+  let discoverySawDeletion = false;
+  const cache = makeCacheStore(store);
+  const originalDelete = cache.delete;
+  cache.delete = async (key: string): Promise<void> => {
+    if (key === balanceCacheKey) balanceCacheDeleted = true;
+    await originalDelete(key);
+  };
+  const dispatcher = mockDispatcherWithAttempts([
+    { endpoint: "https://rpc1.example", ok: false, error: "timeout" },
+    { endpoint: "https://rpc2.example", ok: false, error: "HTTP 502" },
+  ]);
+  const rpc = {
+    async blockNumber(): Promise<number> { throw new Error("unreachable"); },
+    async getBalance(): Promise<bigint> { throw new Error("unreachable"); },
+    async getLogs(): Promise<unknown[]> { return []; },
+    async call(): Promise<string> { return "0x"; },
+    async ethCall(): Promise<string> { return "0x"; },
+    async batch(): Promise<unknown[]> { return []; },
+  };
+
+  const result = await getEvmWalletsAssets([WALLET_A], "base", {
+    cache,
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources: makeNativeSources(1),
+    sharedPriceCache: new MemoryPricingCache(),
+    tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { discoverySawDeletion = balanceCacheDeleted; return []; } },
+    forceRefresh: true,
+    fxRate: 1,
+  });
+
+  assert.ok(result.wallets[0]?.assets.errors.some((error) => error.includes("balance unavailable")));
+  assert.equal(discoverySawDeletion, true, "forceRefresh must invalidate bal_cache before batch discovery starts");
+  assert.equal(store.has(balanceCacheKey), false);
+});
+
+test("getEvmWalletAssets: forceRefresh surfaces balance cache invalidation failures", async () => {
+  const cache = makeCacheStore(new Map<string, unknown>());
+  cache.delete = async (): Promise<void> => { throw new Error("cache delete unavailable"); };
+
+  await assert.rejects(
+    getEvmWalletAssets(OWNER, "base", {
+      cache,
+      dispatcher: mockDispatcherWithAttempts([{ endpoint: "https://rpc.example", ok: true }]) as never,
+      rpc: { async getBalance(): Promise<bigint> { return 1n; } } as never,
+      sources: makeNativeSources(1),
+      sharedPriceCache: new MemoryPricingCache(),
+      tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+      forceRefresh: true,
+      fxRate: 1,
+    }),
+    /cache delete unavailable/,
+  );
+});
+
+test("getEvmWalletsAssets: forceRefresh surfaces balance cache invalidation failures", async () => {
+  const cache = makeCacheStore(new Map<string, unknown>());
+  cache.delete = async (): Promise<void> => { throw new Error("cache delete unavailable"); };
+
+  await assert.rejects(
+    getEvmWalletsAssets([WALLET_A], "base", {
+      cache,
+      dispatcher: mockDispatcherWithAttempts([{ endpoint: "https://rpc.example", ok: true }]) as never,
+      rpc: { async blockNumber(): Promise<number> { return 20_000_000; } } as never,
+      sources: makeNativeSources(1),
+      sharedPriceCache: new MemoryPricingCache(),
+      tokenDiscovery: { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } },
+      forceRefresh: true,
+      fxRate: 1,
+    }),
+    /cache delete unavailable/,
+  );
 });
 
 test("getEvmWalletsAssets: batch path resolves a logoUrl for tokens discovered without one", async () => {

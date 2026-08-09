@@ -1,3 +1,5 @@
+// v4.16.34 - Rotate relay providers every 15 minutes; bulk stays manual-only.
+//            Manual bulk status is globally successful only when every provider succeeds.
 // v4.16.31 - Bulk write now applies per-provider symbol canonicalizers (OKSOL->SOL, Bybit aliases)
 //            + merges duplicate (symbol, source) rows — parity with the per-connector paths.
 //            v4.16.30 wrote raw relay rows, reintroducing OKSOL every 4h bulk refresh.
@@ -8,7 +10,7 @@
 // Non-relay CEXs (Bitpanda direct API, Bitfinex direct API, Kraken direct API) keep
 // their own hourly triggers — they don't use the relay.
 
-var CEX_BULK_VERSION = "4.16.31";
+var CEX_BULK_VERSION = "4.16.34";
 
 // Per-provider symbol canonicalizers. Binance/Coinbase are normalized server-side
 // by the relay; OKX (OKSOL->SOL) and Bybit (aliases) normalize GAS-side, so the
@@ -49,6 +51,44 @@ var CEX_BULK_CONFIG = {
   LOCK_NAME: "CEX_RELAY_ALL",
   LOCK_TTL_MS: 120000
 };
+
+var CEX_RELAY_ROTATION_CONFIG = {
+  PROVIDERS: ["BINANCE", "BYBIT", "COINBASE", "OKX"],
+  CURSOR_PROP: "CEX_RELAY_ROTATION_CURSOR"
+};
+
+function _cexRelayRotationClaim_() {
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    locked = lock.tryLock(5000);
+    if (!locked) return null;
+    var props = PropertiesService.getScriptProperties();
+    var index = parseInt(props.getProperty(CEX_RELAY_ROTATION_CONFIG.CURSOR_PROP) || "0", 10);
+    if (!isFinite(index) || index < 0) index = 0;
+    index = index % CEX_RELAY_ROTATION_CONFIG.PROVIDERS.length;
+    var provider = CEX_RELAY_ROTATION_CONFIG.PROVIDERS[index];
+    props.setProperty(CEX_RELAY_ROTATION_CONFIG.CURSOR_PROP, String((index + 1) % CEX_RELAY_ROTATION_CONFIG.PROVIDERS.length));
+    return provider;
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function UPDATE_CEX_RELAY_ROTATION() {
+  try { HttpCallCounter.setTrigger("UPDATE_CEX_RELAY_ROTATION"); } catch (eCounter) {}
+  var provider = _cexRelayRotationClaim_();
+  if (!provider) return "BUSY";
+
+  var updateFn = null;
+  if (provider === "BINANCE" && typeof UPDATE_BINANCE_SPOT === "function") updateFn = UPDATE_BINANCE_SPOT;
+  else if (provider === "BYBIT" && typeof UPDATE_BYBIT_SPOT === "function") updateFn = UPDATE_BYBIT_SPOT;
+  else if (provider === "COINBASE" && typeof UPDATE_COINBASE_SPOT === "function") updateFn = UPDATE_COINBASE_SPOT;
+  else if (provider === "OKX" && typeof UPDATE_OKX_SPOT === "function") updateFn = UPDATE_OKX_SPOT;
+
+  if (!updateFn) return JSON.stringify({ ok: false, provider: provider, error: "provider function missing" });
+  return updateFn();
+}
 
 function _cexBulkGetRelayUrl_() {
   var up = PropertiesService.getUserProperties();
@@ -157,49 +197,9 @@ function _cexBulkWriteOne_(ss, sheetName, buckets, config) {
 }
 
 function UPDATE_CEX_RELAY_ALL() {
-  try { HttpCallCounter.setTrigger('UPDATE_CEX_RELAY_ALL'); } catch(e){}
-  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK(CEX_BULK_CONFIG.LOCK_NAME)) return "BUSY";
-  try {
-    var data = _cexBulkFetchAll_();
-    var providers = (data && data.providers) || {};
-    var ss = null;
-    var results = {};
-    var providerToSheet = {
-      binance: "CEX - Binance",
-      bybit: "CEX - Bybit",
-      coinbase: "CEX - Coinbase",
-      okx: "CEX - OKX"
-    };
-    for (var p = 0; p < CEX_BULK_CONFIG.PROVIDERS.length; p++) {
-      var prov = CEX_BULK_CONFIG.PROVIDERS[p];
-      var bucket = providers[prov];
-      var sheetName = providerToSheet[prov];
-      if (!sheetName) continue;
-      try {
-        if (!bucket || !bucket.ok) {
-          results[prov] = { ok: false, error: (bucket && bucket.error) || "provider missing/failed" };
-          continue;
-        }
-        if (!ss) ss = SpreadsheetApp.openById("1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4");
-        var written = _cexBulkWriteOne_(ss, sheetName, bucket, prov);
-        results[prov] = { ok: true, rows: written };
-      } catch (eProv) {
-        results[prov] = { ok: false, error: String(eProv && eProv.message ? eProv.message : eProv) };
-      }
-    }
-    var status = { ok: true, ts: new Date().toISOString(), results: results };
-    try { PropertiesService.getUserProperties().setProperty("CEX_BULK_STATUS", JSON.stringify(status)); } catch (eStatus) {}
-    return JSON.stringify(status);
-  } catch (err) {
-    var statusErr = { ok: false, ts: new Date().toISOString(), error: String(err && err.message ? err.message : err) };
-    try { PropertiesService.getUserProperties().setProperty("CEX_BULK_STATUS", JSON.stringify(statusErr)); } catch (eStatusErr) {}
-    Logger.log("UPDATE_CEX_RELAY_ALL ERROR: " + err);
-    return JSON.stringify(statusErr);
-  } finally {
-    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK(CEX_BULK_CONFIG.LOCK_NAME);
-  }
+  return "LEGACY_DISABLED: use individual CEX refresh or UPDATE_CEX_RELAY_ROTATION";
 }
 
 function CEX_RELAY_ALL_STATUS() {
-  try { return PropertiesService.getUserProperties().getProperty("CEX_BULK_STATUS") || "NO_STATUS"; } catch (e) { return "NO_STATUS"; }
+  return "LEGACY_DISABLED: UPDATE_CEX_RELAY_ALL is disabled";
 }

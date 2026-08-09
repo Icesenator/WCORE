@@ -300,7 +300,7 @@ The nonce endpoint now returns a SIWE-formatted message with domain, URI, chainI
 
 ### Legacy Docker Compose Path
 
-This section is kept for historical/self-hosted reference. The active production path is Railway via `wcore-web/scripts/deploy.ps1 -Service api|web` from the repo root. Do not use this Docker Compose path as the source of truth without first applying the open audit fixes in `docs/AUDIT.md` (P2-20: `NEXT_PUBLIC_*` build args, Web Dockerfile `chown`, DB/Redis exposure review).
+This section is kept for historical/self-hosted reference. The active production path is Railway via `wcore-web/scripts/deploy.ps1 -Service api|web` from the repo root. Do not use this Docker Compose path as the source of truth without first applying the open audit fixes in `docs/audits/AUDIT.md` (P2-20: `NEXT_PUBLIC_*` build args, Web Dockerfile `chown`, DB/Redis exposure review).
 
 ### 1. Environment Setup
 

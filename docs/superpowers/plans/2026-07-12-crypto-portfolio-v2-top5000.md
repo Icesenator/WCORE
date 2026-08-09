@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: wcore
+date: 2026-07-12
+---
 # Crypto Portfolio V2 Top5000 Implementation Plan
 
 > **Status 2026-07-13:** Implemented/in verification. `Portefeuille Crypto V2` and `Portefeuille Crypto Details V2` are canonical live tabs, and the legacy tabs have been deleted. Keep this file as execution provenance; verify code/tests before using unchecked boxes as active work.

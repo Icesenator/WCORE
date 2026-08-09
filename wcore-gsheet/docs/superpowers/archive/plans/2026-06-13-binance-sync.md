@@ -1,3 +1,9 @@
+---
+type: plan
+status: archived
+project: gsheet
+date: 2026-06-13
+---
 # Connecteur Binance (Spot + Earn) Implementation Plan
 
 > **Historical/completed plan.** Binance sync is documented in live CEX docs; keep this file for implementation history only.
@@ -561,10 +567,10 @@ Declencheurs la presence de `UPDATE_BINANCE_SPOT` et `BINANCE_REFRESH_WATCHDOG`.
 - [ ] **Step 7: Mettre a jour la doc projet**
 
 Ajouter une section Binance dans `AGENTS.md` (pattern, cles, fonctions diag) et,
-si pertinent, un `docs/binance-sync.md` court.
+si pertinent, un `docs/integrations/cex/binance-sync.md` court.
 
 ```bash
-rtk git add AGENTS.md docs/binance-sync.md
+rtk git add AGENTS.md docs/integrations/cex/binance-sync.md
 rtk git commit -m "docs(binance): documentation connecteur Binance"
 ```
 

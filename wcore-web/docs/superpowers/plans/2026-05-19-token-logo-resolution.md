@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-05-19
+---
 # Token Logo Resolution Implementation Plan
 
 > **Historical/completed plan.** Kept for implementation history only; current icon behavior lives in code and `AGENTS.md` gotchas.

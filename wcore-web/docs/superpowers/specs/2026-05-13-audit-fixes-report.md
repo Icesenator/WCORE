@@ -1,6 +1,12 @@
+---
+type: spec
+status: done
+project: web
+date: 2026-05-13
+---
 # 2026-05-13 Audit Fixes Report
 
-> **Historical/completed report.** Current audit state lives in `../../AUDIT.md`; keep this report for traceability only.
+> **Historical/completed report.** Current audit state lives in `../../audits/AUDIT.md`; keep this report for traceability only.
 
 ## Scope
 

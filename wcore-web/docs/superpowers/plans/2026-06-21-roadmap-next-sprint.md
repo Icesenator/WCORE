@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-06-21
+---
 # Roadmap Next Sprint Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -554,7 +560,7 @@ git commit -m "chore(chains): sunset Swellchain coverage"
 
 **Files:**
 - Modify: `ROADMAP.md`
-- Modify: `docs/AUDIT.md`
+- Modify: `docs/audits/AUDIT.md`
 - Modify: `CHANGELOG.md` if behavior changed, not for tests/docs-only tasks
 
 - [ ] **Step 1: Update active roadmap items**
@@ -563,7 +569,7 @@ For each completed task, update only the active top section of `wcore-web/ROADMA
 
 - [ ] **Step 2: Update audit checkboxes**
 
-In `wcore-web/docs/AUDIT.md`, mark completed items with proof paths. Example:
+In `wcore-web/docs/audits/AUDIT.md`, mark completed items with proof paths. Example:
 
 ```md
 - [x] **P2-1 · Endpoints observabilité publics** — corrigé: `/api/stats` et `/api/circuit` exigent admin auth; tests `apps/api/test/admin-plugins.test.ts`.
@@ -588,7 +594,7 @@ Expected: all pass.
 - [ ] **Step 4: Commit final docs if needed**
 
 ```powershell
-git add wcore-web/ROADMAP.md wcore-web/docs/AUDIT.md wcore-web/CHANGELOG.md
+git add wcore-web/ROADMAP.md wcore-web/docs/audits/AUDIT.md wcore-web/CHANGELOG.md
 git commit -m "docs: update roadmap sprint status"
 ```
 

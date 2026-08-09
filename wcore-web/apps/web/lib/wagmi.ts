@@ -193,7 +193,7 @@ const syndicateCommons: Chain = {
   id: 510003,
   name: "Syndicate Commons",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.syndicate.io", "https://510003.rpc.thirdweb.com"] }, public: { http: ["https://rpc.syndicate.io", "https://510003.rpc.thirdweb.com"] } },
+  rpcUrls: { default: { http: ["https://commons.rpc.syndicate.io"] }, public: { http: ["https://commons.rpc.syndicate.io"] } },
   blockExplorers: { default: { name: "Syndicate Explorer", url: "https://explorer.syndicate.io" } },
 };
 

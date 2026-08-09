@@ -7,7 +7,7 @@ Google Sheets + Apps Script runtime for WCORE.
 - Apps Script wallet tracking, pricing, cache, CEX sync, watchdog, and diagnostics.
 - Reference documentation: [AGENTS.md](./AGENTS.md).
 - Current runtime status and backlog: [ROADMAP.md](./ROADMAP.md).
-- Current cross-runtime audit: [../docs/AUDIT.md](../docs/AUDIT.md).
+- Current cross-runtime audit: [../docs/audits/AUDIT.md](../docs/audits/AUDIT.md).
 - Unified repository overview: [../README.md](../README.md).
 
 ## Structure

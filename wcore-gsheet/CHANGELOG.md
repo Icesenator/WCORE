@@ -1,5 +1,25 @@
 # GSheet Changelog
 
+## 2026-07-22 — v4.16.40 : statut de cache préservé horodaté
+
+- Un cache utile sans timestamp interne reste affiché, mais produit désormais un `WEB_SCAN_ERROR` horodaté et réessayable au lieu de rester bloqué sur `WEB_SCAN_PRESERVED N/A`.
+
+## 2026-07-21 — v4.16.39 : valorisation et erreurs de scan fiables
+
+- Les premiers scans dégradés utiles sont enregistrés lorsqu'aucun cache antérieur n'existe, supprimant les boucles `WEB_SCAN_PRESERVED` / `NO_CACHE_WAITING_REFRESH`.
+- Les métadonnées stablecoin SVM (`isStable`, `peg`) atteignent désormais le pricing, notamment pour l'USDC Fogo.
+- Les prix unitaires inférieurs à un centime conservent 12 décimales; CAMP n'est plus arrondi à un prix nul.
+- BNB Chain et Monad utilisent des plages de logs bornées et des RPC canoniques corrigés.
+- Ancient8 désactivée et les pannes RPC totales, notamment Syndicate Commons, produisent une erreur explicite au lieu d'un zéro fiable.
+- L'admission reste concurrente par wallet, sans verrou global; les tests historiques ont été alignés sur ce contrat.
+
+## 2026-07-19 — v4.16.34 : rotation CEX horaire robuste
+
+- `UPDATE_CEX_RELAY_ROTATION` utilise un seul trigger toutes les 15 minutes et appelle exactement un provider dans l'ordre Binance, Bybit, Coinbase, OKX.
+- Le curseur ScriptProperties avance sous verrou avant l'appel provider: un échec ou timeout ne bloque pas les providers suivants.
+- L'auto-heal exige exactement une rotation et supprime les anciens triggers bulk et individuels; le total canonique revient à 14 triggers permanents.
+- `UPDATE_CEX_RELAY_ALL` reste disponible comme outil manuel/fallback avec statut global `ok:false` si un provider manque ou échoue.
+
 ## 2026-07-17 — v4.16.31 : chain lifecycle (Corn/Polygon zkEVM disabled) + fix bulk CEX bypassing aliases
 
 ### Chain lifecycle — revalidation deadlines passées (CORN.gs, POLYGON_ZKEVM.gs, SWELLCHAIN.gs)
@@ -31,11 +51,10 @@
   - `03E_QUOTA_CIRCUIT_BREAKER.gs` — test httpbin du breaker
 - **Impact** : le compteur 24h est maintenant fiable. 185/202 appels = WATCHDOG_FROM_RECAP (92%).
 
-### Bulk CEX relay — 1 appel au lieu de 4 (44_CEX_BULK.gs, railway-relay/server.js, 16B_AUTO_HEAL.gs)
+### Bulk CEX relay — outil manuel/fallback (44_CEX_BULK.gs, railway-relay/server.js, 16B_AUTO_HEAL.gs)
 - **railway-relay** : nouveau `GET /all?token=...` exécute Binance+Bybit+Coinbase+OKX en parallèle serveur.
-- **GAS** : `UPDATE_CEX_RELAY_ALL()` appelle `/all` une fois et écrit les 4 sheets.
-- **Auto-heal** : installe `UPDATE_CEX_RELAY_ALL` au lieu des 4 triggers individuels. Fallback aux triggers individuels si la fonction n'existe pas.
-- **Économie** : -72 UrlFetch/jour (3 appels × 24h).
+- **GAS** : `UPDATE_CEX_RELAY_ALL()` appelle `/all` et écrit les 4 sheets uniquement lors d'un lancement manuel/fallback; un résultat provider manquant ou en erreur rend le statut global `ok:false` depuis v4.16.34.
+- **Auto-heal v4.16.34** : installe uniquement `UPDATE_CEX_RELAY_ROTATION` toutes les 15 minutes; tout ancien trigger bulk ou individuel relay est supprimé comme non canonique.
 
 ### ACTIVITY_WATCHDOG désactivé (27_ACTIVITY_REFRESH.gs, 16B_AUTO_HEAL.gs)
 - **Raison** : ~5760 UrlFetch/jour (120 wallets × `eth_getTransactionCount` × 48 runs) — 2e plus gros consommateur.

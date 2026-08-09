@@ -1,31 +1,35 @@
 # WCORE - Setup Daily Database Backup Task
-# Creates a Windows scheduled task that runs backup-db.ps1 every day at 03:00
+# Creates a Windows scheduled task that runs backup-db-scheduled.ps1 every day at 03:00
 # Must be run as Administrator for Register-ScheduledTask
 
 $ErrorActionPreference = "Stop"
 
 $taskName = "WCORE_DB_Backup"
-$scriptPath = "C:\Users\strau\wcore-web\scripts\backup-db.ps1"
+$scriptDir = $PSScriptRoot
+$projectRoot = Split-Path -Parent $scriptDir
+$scriptPath = Join-Path $scriptDir "backup-db-scheduled.ps1"
 
-# BACKUP_DATABASE_URL must be set before running this script.
-# Either: $env:BACKUP_DATABASE_URL = "postgresql://..."
-# Or create scripts/.env.backup with: BACKUP_DATABASE_URL=postgresql://...
-if (-not $env:BACKUP_DATABASE_URL) {
-    $envFile = Join-Path $PSScriptRoot ".env.backup"
+if (-not (Test-Path -LiteralPath $scriptPath)) {
+    Write-Error "Backup script not found: $scriptPath"
+    exit 2
+}
+
+# Prefer DATABASE_URL (scheduled wrapper); accept BACKUP_DATABASE_URL for compatibility
+if (-not $env:DATABASE_URL -and -not $env:BACKUP_DATABASE_URL) {
+    $envFile = Join-Path $scriptDir ".env.backup"
     if (Test-Path $envFile) {
         Get-Content $envFile | ForEach-Object {
-            if ($_ -match '^\s*BACKUP_DATABASE_URL\s*=\s*(.+?)\s*$') {
-                $env:BACKUP_DATABASE_URL = $matches[1].Trim('"').Trim("'")
+            if ($_ -match '^\s*(?:DATABASE_URL|BACKUP_DATABASE_URL)\s*=\s*(.+?)\s*$') {
+                $val = $matches[1].Trim('"').Trim("'")
+                if (-not $env:DATABASE_URL) { $env:DATABASE_URL = $val }
             }
         }
     }
 }
-if (-not $env:BACKUP_DATABASE_URL) {
-    Write-Error "BACKUP_DATABASE_URL not set. Export it or create scripts/.env.backup with BACKUP_DATABASE_URL=..."
+if (-not $env:DATABASE_URL -and -not $env:BACKUP_DATABASE_URL) {
+    Write-Error "DATABASE_URL not set. Export it or create scripts/.env.backup with DATABASE_URL=..."
     exit 2
 }
-
-# Pass BACKUP_DATABASE_URL to the scheduled task so it runs headlessly
 
 # Remove existing task if present
 $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -34,7 +38,10 @@ if ($existing) {
     Write-Host "Removed existing task: $taskName"
 }
 
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-Command `"`$env:BACKUP_DATABASE_URL='$env:BACKUP_DATABASE_URL'; & '$scriptPath'`" -NoProfile -NonInteractive"
+$action = New-ScheduledTaskAction `
+    -Execute "powershell.exe" `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`"" `
+    -WorkingDirectory $projectRoot
 $trigger = New-ScheduledTaskTrigger -Daily -At 03:00
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew
@@ -46,5 +53,6 @@ Write-Host "=== Task Created Successfully ==="
 Write-Host " Task: $taskName"
 Write-Host " Schedule: Daily at 03:00"
 Write-Host " Script: $scriptPath"
+Write-Host " WorkingDirectory: $projectRoot"
 Write-Host ""
 Write-Host "To test now: Start-ScheduledTask -TaskName '$taskName'"

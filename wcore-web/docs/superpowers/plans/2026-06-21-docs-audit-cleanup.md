@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-06-21
+---
 # Documentation Audit Cleanup Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -26,7 +32,7 @@
 **Files:**
 - Modify: `wcore-gsheet/README.md`
 - Modify: `wcore-gsheet/AUDIT.md`
-- Modify: `wcore-gsheet/docs/cex-sync.md`
+- Modify: `wcore-gsheet/docs/integrations/cex/cex-sync.md`
 - Modify: `wcore-gsheet/docs/*-sync.md`
 - Modify: `wcore-gsheet/railway-relay/README.md`
 
@@ -42,8 +48,8 @@
 - Modify: `wcore-web/DEPLOY.md`
 - Modify: `wcore-web/CHANGELOG.md`
 - Modify: `wcore-web/ROADMAP.md`
-- Modify: `wcore-web/docs/AUDIT.md`
-- Modify: `wcore-web/docs/TROUBLESHOOTING.md`
+- Modify: `wcore-web/docs/audits/AUDIT.md`
+- Modify: `wcore-web/docs/guides/TROUBLESHOOTING.md`
 - Modify: dated snapshot docs under `wcore-web/docs/`
 
 - [x] Refresh audit status and close already-fixed findings.

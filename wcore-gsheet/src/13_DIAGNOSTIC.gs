@@ -1,11 +1,12 @@
 /************************************************************
  * 13_DIAGNOSTIC.gs - Fonctions de diagnostic (Multi-chain)
  * 
- * Version: v4.15.73
+ * Version: v4.16.40
  * 
  * Integre Multi-chain - utilise les helpers existants
  * Fonctions generiques qui prennent CONFIG en parametre
  * 
+ * v4.16.40 - Report the canonical 10-minute WATCHDOG_FROM_RECAP cadence
  * v4.15.73 - Added WCORE_EMERGENCY_PURGE_NOW admin purge diagnostic
  * v4.15.31 - Added DIAG_CACHE_INTEGRITY packed wallet cache audit
  * v4.15.30 - Added QUOTA_RESET_READINESS_CHECK dashboard
@@ -20,7 +21,7 @@
  * return Diagnostic.tokenBalance(CONFIG_BASE, wallet, token);
  * }
  ************************************************************/
-var DIAGNOSTIC_VERSION = "4.15.73";
+var DIAGNOSTIC_VERSION = "4.16.40";
 
 // ============================================================
 // DIAGNOSTIC - Module principal
@@ -1545,7 +1546,7 @@ function QUOTA_RESET_READINESS_CHECK() {
   }
 
   function knownInterval_(handler) {
-    if (handler === "WATCHDOG_FROM_RECAP") return "5";
+    if (handler === "WATCHDOG_FROM_RECAP") return "10";
     if (handler === "ACTIVITY_WATCHDOG") return "10";
     if (handler === "QUOTA_RECOVERY_SWEEP") return "30";
     if (handler === "QUOTA_RECOVERY_SWEEP_FOLLOWUP") return "one-shot after(30m)";

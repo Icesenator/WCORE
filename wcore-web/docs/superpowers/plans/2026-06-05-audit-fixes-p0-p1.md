@@ -1,6 +1,12 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-06-05
+---
 # Audit 2026-06-05 — Plan de correction P0/P1
 
-> **Historical/completed plan.** Current audit state lives in `../../AUDIT.md`; keep this plan for traceability only.
+> **Historical/completed plan.** Current audit state lives in `../../audits/AUDIT.md`; keep this plan for traceability only.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -17,7 +23,7 @@
 
 **Tech Stack:** TypeScript, Fastify, pnpm, `node:test`, Prisma, Redis.
 
-**Référence audit:** `docs/AUDIT.md` (fichier unique consolidé, supersède tous les `docs/audit-*.md` datés). L'audit originel 2026-06-05 a été vérifié et consolidé le 2026-06-11.
+**Référence audit:** `docs/audits/AUDIT.md` (fichier unique consolidé, supersède tous les `docs/audit-*.md` datés). L'audit originel 2026-06-05 a été vérifié et consolidé le 2026-06-11.
 
 ---
 

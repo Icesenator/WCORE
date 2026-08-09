@@ -1,3 +1,9 @@
+---
+type: spec
+status: archived
+project: gsheet
+date: 2026-06-15
+---
 ﻿# Coinbase Sync Design
 
 > **Historical/completed design.** Coinbase sync is documented in live CEX docs; keep this file for implementation history only.
@@ -42,7 +48,7 @@ For spreadsheet consistency, Coinbase USD/stable USD balances are grouped into `
 - `src/16_REFRESH.gs`: route `COINBASE_ON_EDIT()` and skip Coinbase CEX sheet in on-chain watchdog.
 - `src/17_LISTING.gs`: include `Coinbase Crypto` in Recap display.
 - `src/35_BITPANDA_SYNC.gs`: central watchdog handles Coinbase manual requests.
-- `docs/cex-sync.md`: update architecture docs.
+- `docs/integrations/cex/cex-sync.md`: update architecture docs.
 
 ## Verification
 

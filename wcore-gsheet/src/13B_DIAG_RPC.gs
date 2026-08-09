@@ -1,8 +1,9 @@
 /************************************************************
  * 13B_DIAG_RPC.gs - RPC and external API diagnostics
  * 
- * Version: v4.12.10
+ * Version: v4.16.40
  * 
+ * v4.16.40: Align DIAG_WATCHDOG_FIX with the canonical 10-minute cadence
  * v4.12.10: Added DIAG_CHAIN_RPC_TEST() generic function
  *           Factorized from ETHEREUM, LISK, ZERO, UNICHAIN, SYNDICATE_COMMONS
  * 
@@ -754,12 +755,12 @@ function DIAG_WATCHDOG_FIX() {
  }
  out.push(["1. Suppression anciens triggers", "aÅ“âEUR¦", removed + " trigger(s) supprime(s)"]);
  
- // 2. Installer nouveau trigger (GAS n'accepte que 1/5/10/15/30 min; 5 min = compromis)
+ // 2. Installer le trigger a la cadence canonique du watchdog
  ScriptApp.newTrigger("WATCHDOG_FROM_RECAP")
  .timeBased()
- .everyMinutes(5)
+ .everyMinutes(10)
  .create();
- out.push(["2. Installation nouveau trigger", "aÅ“âEUR¦", "Trigger cree (every 5 min)"]);
+ out.push(["2. Installation nouveau trigger", "aÅ“âEUR¦", "Trigger cree (every 10 min)"]);
  
  // 3. Reset du curseur
  var props = PropertiesService.getScriptProperties();

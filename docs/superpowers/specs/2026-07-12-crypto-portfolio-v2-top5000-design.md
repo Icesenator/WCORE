@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: wcore
+date: 2026-07-12
+---
 # Portefeuille Crypto V2 Top5000 Design
 
 ## Objectif

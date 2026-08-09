@@ -1,7 +1,9 @@
 /************************************************************
  * 04A_CACHE_CORE.gs - Cache Manager Core
  * 
- * Version: v4.15.100 - Emergency purge: add ACTIVITY_RPC_LOOKUP/NONCE_MAP, stale HTTP_CATEGORY_TRACKER, ACTIVITY_NONCE_MAP
+ * Version: v4.15.101 - Emergency purge: protect active watchdog and auto-heal leases.
+ *
+ * v4.15.100 - Emergency purge: add ACTIVITY_RPC_LOOKUP/NONCE_MAP, stale HTTP_CATEGORY_TRACKER, ACTIVITY_NONCE_MAP
  * 
  * v4.15.75 - Purge global price cache before wallet data in storage emergency
  * - GLOBAL_PRICE_CACHE_V2 is reconstructible and can free ~50KB immediately.
@@ -48,7 +50,7 @@
  * DEPENDANCES: 01_INIT.gs, 02_UTILS.gs
  * CHARGE AVANT: 04B, 04C, 04D
  ************************************************************/
-var CACHE_CORE_VERSION = "4.15.100";
+var CACHE_CORE_VERSION = "4.15.101";
 
 // ============================================================
 // DEPENDENCY CHECK (v4.8.0)
@@ -461,7 +463,8 @@ CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(target
 
   var cands = [];
   function isProtectedKey_(k) {
-  return k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1";
+  return k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1" ||
+    k === "WCORE_WATCHDOG_LEASE" || k === "WCORE_AUTO_HEAL_LEASE";
   }
   function pushIf(matchFn, prio) {
   for (var j = 0; j < keys.length; j++) {

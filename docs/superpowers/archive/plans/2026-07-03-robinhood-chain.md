@@ -1,3 +1,9 @@
+---
+type: plan
+status: archived
+project: wcore
+date: 2026-07-03
+---
 # Robinhood Chain Implementation Plan
 
 > **Status 2026-07-13:** Completed/historical. Robinhood Chain is reflected in the current roadmap/audit state. Keep this file as implementation provenance, not as active backlog.

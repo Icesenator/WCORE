@@ -9,3 +9,28 @@ node_modules/
 backups/
 nul
 opencode.json
+!.opencode/opencode.json
+.obsidian/workspace*.json
+
+# Graphify local inputs and Obsidian export
+/graphify-input/
+/.generated/
+
+# Obsidian vault (seekstone/obsidian_wcore MCP) + note-folder junctions
+/_vault/
+/journal/
+/RAW/
+/Raw Reviews/
+/Wiki/
+
+# Graphify local/cache artifacts; graph.json and GRAPH_REPORT.md remain tracked
+graphify-out/cache/
+graphify-out/graph.html
+graphify-out/cost.json
+graphify-out/manifest.json
+graphify-out/.graphify_*
+graphify-out/*.tmp
+graphify-out/*.log
+graphify-out/*.pid
+graphify-out/*.lock
+graphify-out/status.json

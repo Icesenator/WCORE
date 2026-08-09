@@ -1,6 +1,6 @@
 ﻿# WCORE — Audit Technique Complet
 
-> **Historical snapshot.** This audit documents the Apps Script runtime as of 2026-05-04 (`v4.15.41` audited, `v4.15.42` corrected). It is preserved for traceability only. Do not execute its old quota-reset or recovery procedures. Current status lives in `ROADMAP.md`; current cross-runtime findings live in `../docs/AUDIT.md`.
+> **Historical snapshot.** This audit documents the Apps Script runtime as of 2026-05-04 (`v4.15.41` audited, `v4.15.42` corrected). It is preserved for traceability only. Do not execute its old quota-reset or recovery procedures. Current status lives in `ROADMAP.md`; current cross-runtime findings live in `../docs/audits/AUDIT.md`.
 
 **Date** : 2026-05-04
 **Version auditée** : v4.15.41 (code source + triggers)
@@ -440,7 +440,7 @@ A1 = CACHED_WALLET_ASSETS_*(addr; J1)  [@customfunction cache-only]
   - ForceRefreshManager.set(chain, wallet, "TX detected") pose un flag
   - _activity_pulseB1ForChain_(chain) pulse B1 sur toutes les sheets de cette chaine
 - Auto-discovery : toutes les 24h, scan Recap Chain pour enregistrer wallets manquants
-- Error retry : scanne #ERROR! en A2/J2, incremente J1 de +1s pour forcer recalc
+- Error retry : scanne `#ERROR!` en A2/J2, incremente J1 de +1s pour forcer recalc
 
 ### 8.5 MASTER_ON_EDIT (A1 checkbox -> B1 pulse)
 
@@ -458,7 +458,7 @@ A1 = CACHED_WALLET_ASSETS_*(addr; J1)  [@customfunction cache-only]
 | J1 sync non-capped (SYNC_J1_MAX_SYNCS_PER_RUN=20 decoratif) | 120 ecritures J1 = 120 recalcs | Aucune - le cap est inoperant |
 | Multiplication triggers Recovery | Double pulse meme sheet | Probe-gate reduit proba |
 | Ecriture B1 concurrente (ACTIVITY + WATCHDOG) | Double scan, gaspillage quota | Cooldown 10 min activity |
-| Boucle retry #ERROR! permanent | Churn J1 +1s toutes les 10 min | Aucune mitigation |
+| Boucle retry `#ERROR!` permanent | Churn J1 +1s toutes les 10 min | Aucune mitigation |
 | Thundering herd Recap Chain | ~9500 recalcs INDIRECT | Executer en heures creuses |
 
 ---
@@ -580,7 +580,7 @@ Chaque chaine expose ~13 fonctions DIAG_{CHAIN}_* :
 | R6 | Race condition packed cache : 20 workers concurrents, lock 5s timeout | 04B_CACHE_WALLET.gs | Lost updates, ecrasement de MAJ |
 | R7 | Consensus RPC fragile : votes*2 > total strict, avec peu de RPCs | 09_SIMPLE_ROTATION.gs | Pas de consensus sur chaines a 1-2 RPCs (ex: ZERO) |
 | R8 | Dynamic RPC couteux : ~250 HTTP calls par cycle | 33_DYNAMIC_RPC.gs | Epuisement quota rapide |
-| ~~R9~~ | ~~Boucle retry #ERROR!~~ **CORRIGE v4.15.42** | 27_ACTIVITY_REFRESH.gs | Limite a 3 retries / 24h par sheet |
+| ~~R9~~ | ~~Boucle retry `#ERROR!`~~ **CORRIGE v4.15.42** | 27_ACTIVITY_REFRESH.gs | Limite a 3 retries / 24h par sheet |
 | R10 | Thundering herd Recap Chain : ~9500 recalcs INDIRECT | 17_LISTING.gs | Saturation quota si execute en heure de pointe |
 
 ### 11.3 Risques MOYENNES
@@ -615,7 +615,7 @@ Chaque chaine expose ~13 fonctions DIAG_{CHAIN}_* :
 | ~~P1-1~~ | ~~Ajouter consensus SVM~~ **FAIT v4.15.42** | 14_SVM_ENGINE.gs | getBalanceWithConsensus() vote majoritaire multi-RPC |
 | P1-2 | Checksum integrity sur packed cache | 04B_CACHE_WALLET.gs | Detecter corruption JSON avant parse |
 | P1-3 | LockService sur GPC.save() | 04C_CACHE_GLOBAL.gs | Eliminer fenetre concurrence inter-chaines |
-| ~~P1-4~~ | ~~Limiter retry #ERROR!~~ **FAIT v4.15.42** | 27_ACTIVITY_REFRESH.gs | 3 retries / 24h par sheet |
+| ~~P1-4~~ | ~~Limiter retry `#ERROR!`~~ **FAIT v4.15.42** | 27_ACTIVITY_REFRESH.gs | 3 retries / 24h par sheet |
 | P1-5 | Split packed cache par VM (shards EVM/SVM/Cosmos) | 04B_CACHE_WALLET.gs | Repartir charge et reduire contention |
 
 ### 12.3 Priorite MOYENNE (P2)
@@ -648,7 +648,7 @@ Chaque chaine expose ~13 fonctions DIAG_{CHAIN}_* :
 | R3 | Saturation packed cache | 04B_CACHE_WALLET.gs | _PACKED_CACHE_MAX_BYTES: 495000 -> 485000 ; _WALLET_TTL_SEC: 14j -> 10j | FAIT |
 | R4 | BUILD_RPC_LOOKUP() manuel | 27_ACTIVITY_REFRESH.gs + 16B_AUTO_HEAL.gs | Utilise ChainFactory.getRegistry() au lieu de eval() ; auto-heal appelle BUILD_RPC_LOOKUP si vide | FAIT |
 | R5 | SVM native balance sans consensus | 14_SVM_ENGINE.gs | Nouvelle methode getBalanceWithConsensus() : vote majoritaire multi-RPC pour le native balance SVM | FAIT |
-| R9 | Boucle retry #ERROR! infini | 27_ACTIVITY_REFRESH.gs | Limite a 3 retries / 24h par sheet (compteur ScriptProperties) | FAIT |
+| R9 | Boucle retry `#ERROR!` infini | 27_ACTIVITY_REFRESH.gs | Limite a 3 retries / 24h par sheet (compteur ScriptProperties) | FAIT |
 | R15 | GT throttle 40/run bloque tokens GT-only | 26B_HTTP_SAVINGS.gs | Throttle augmente de 40 a 80 par run | FAIT |
 | R16 | Triggers Recovery dupliques | 16_REFRESH.gs | LockService + flags ScriptProperties pour eviter executions concurrentes et triggers dupliques | FAIT |
 

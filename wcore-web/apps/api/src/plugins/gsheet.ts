@@ -815,10 +815,20 @@ async function defaultPriceBatcher(input: GsheetPriceBatchInput, cache?: CacheSt
   return { fxRate, prices };
 }
 
-async function defaultScanRunner(input: GsheetScanInput, cache?: CacheStore): Promise<GsheetScanResult> {
+async function resolveGsheetScanChain(chainKey: string) {
   const core = await import("@wcore/core");
-  const chain = core.getChain(input.chain);
+  const chain = core.getChain(chainKey);
   if (!chain) throw new Error("chain_not_found");
+  if (chain.FLAGS?.DISABLE_CHAIN) throw new Error("chain_disabled");
+  return { core, chain };
+}
+
+async function defaultScanRunner(
+  input: GsheetScanInput,
+  cache?: CacheStore,
+  resolvedChain?: Awaited<ReturnType<typeof resolveGsheetScanChain>>,
+): Promise<GsheetScanResult> {
+  const { core, chain } = resolvedChain ?? await resolveGsheetScanChain(input.chain);
   const fxRate = await core.getEurUsdRate();
   const pricingCache = cache ? new core.RedisPricingCache(cache) : undefined;
   const assets = await core.getWalletAssets(input.address, input.chain, {
@@ -919,9 +929,11 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
     const parsed = normalizeGsheetScanRequest(req.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     try {
-      const runner = opts.scanRunner || ((input: GsheetScanInput) => defaultScanRunner(input, opts.cache));
+      const resolvedChain = await resolveGsheetScanChain(parsed.input.chain);
       const priceBatcher = opts.priceBatcher || ((input: GsheetPriceBatchInput) => defaultPriceBatcher(input, opts.cache));
-      const result = await runner(parsed.input);
+      const result = opts.scanRunner
+        ? await opts.scanRunner(parsed.input)
+        : await defaultScanRunner(parsed.input, opts.cache, resolvedChain);
       const repaired = await repairMissingGsheetScanPrices(result, parsed.input, priceBatcher);
       // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.
       await precomputeWCTStakeLockStatus(parsed.input.chain, parsed.input.address);

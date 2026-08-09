@@ -1,8 +1,31 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.16.36
+ * Version: v4.16.47
  *
+ * v4.16.46: Detect CACHE_ONLY B1/I1 mismatch — when B1 advances but
+ *   the scan keeps serving a stale [CACHE_ONLY] timestamp, re-pulse
+ *   aggressively and use I1 as the age anchor for priority sorting.
+ *
+ * v4.16.45: Atomically claim fair J1 slices and extend watchdog lease TTL.
+ *
+ * v4.16.44: Isolate watchdog/auto-heal leases, remove inline maintenance,
+ *   recover deferred scans after cooldown, and cap fair J1 writes at 20.
+ *
+ * v4.16.43: Resolve ambiguous local DST timestamps to their latest occurrence.
+ *
+ * v4.16.42: Roundtrip zone-less ISO timestamps as local wall-clock time.
+ *
+ * v4.16.41: Strictly validate local and ISO watchdog timestamps.
+ *
+ * v4.16.40: Admit no-usable-cache wallets to both cycle and urgent lanes.
+ *
+ * v4.16.39: Parse explicit TON_SCAN_OK timestamps for scheduling and J1 sync.
+ *
+ * v4.16.38: Treat B1 as an immediate scheduling reservation and fill unused
+ *   pulse capacity symmetrically without displacing the four-slot cycle lane.
+ * v4.16.37: Schedule four oldest eligible wallets plus one urgent target so
+ *   every managed on-chain wallet receives a bounded periodic B1 pulse.
  * v4.16.36: Serialize direct watchdog diagnostics/force entry points and
  *   strictly sanitize persisted partial-cycle timestamps.
  * v4.16.35: Reserve watchdog pulse state before B1 writes and rollback failed
@@ -108,17 +131,68 @@ var WD_PULSE_MIN_PARTIAL = 60;  // v4.15.133: 60 min — partial cycles are most
 // Probe size
 var WD_PROBE_SIZE_MIN = 5;
 var WD_PROBE_SIZE_MAX = 20;
-var WD_MAX_PULSES_PER_RUN = 5;
+var WD_MAX_PULSES_PER_RUN = 10;
+var WD_CYCLE_SLOTS_PER_RUN = 7;
 var WD_WEB_ERROR_BACKOFF_MS = [30 * 60000, 2 * 3600000, 6 * 3600000, 24 * 3600000];
 var WD_WEB_BACKOFF_MAX_ENTRIES = 200;
 var WD_WEB_BACKOFF_RETENTION_MS = 48 * 3600000;
+var WCORE_WATCHDOG_LEASE_KEY = "WCORE_WATCHDOG_LEASE";
+var WCORE_WATCHDOG_LEASE_TTL_MS = 10 * 60 * 1000;
 
 // Property keys
 var P_WD_CURSOR = "WD_CURSOR";
 var P_WD_RUNS = "WD_RUNS";
 var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse timestamps
+var P_WD_J1_CURSOR = "WD_J1_CURSOR";
+var P_SYNC_J1_CURSOR = "SYNC_J1_CURSOR";
 
-var REFRESH_VERSION = "4.16.36";
+var REFRESH_VERSION = "4.16.47";
+
+function _wcoreAcquireLease_(key, ttlMs, owner) {
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) return null;
+    locked = true;
+    var nowMs = Date.now();
+    var props = PropertiesService.getScriptProperties();
+    var current = null;
+    try { current = JSON.parse(props.getProperty(key) || "null"); } catch (eParse) {}
+    if (current && current.owner && isFinite(Number(current.until)) && Number(current.until) > nowMs) return null;
+    var leaseOwner = String(owner || Utilities.getUuid());
+    props.setProperty(key, JSON.stringify({ owner: leaseOwner, until: nowMs + Number(ttlMs || 0) }));
+    return leaseOwner;
+  } catch (e) {
+    return null;
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
+
+function _wcoreReleaseLease_(key, owner) {
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) return false;
+    locked = true;
+    var props = PropertiesService.getScriptProperties();
+    var current = null;
+    try { current = JSON.parse(props.getProperty(key) || "null"); } catch (eParse) {}
+    if (!current || String(current.owner || "") !== String(owner || "")) return false;
+    props.deleteProperty(key);
+    return true;
+  } catch (e) {
+    return false;
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
 
 function onEdit(e) {
   // v4.15.112: simple onEdit runs with limited auth and duplicates the
@@ -327,21 +401,17 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
 }
 
 function DIAG_RUN_WATCHDOG_SHEETS_API_FALLBACK() {
-  var lock = null;
-  var locked = false;
+  var leaseOwner = null;
   try {
-    lock = LockService.getScriptLock();
-    if (!lock.tryLock(5000)) {
+    leaseOwner = _wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY, WCORE_WATCHDOG_LEASE_TTL_MS);
+    if (!leaseOwner) {
       return { ok: false, skipped: "LOCK_BUSY", b1Set: 0, stateErrors: 0 };
     }
-    locked = true;
     return _wd_watchdogFromRecapViaSheetsApi_(Date.now());
   } catch (e) {
     return { ok: false, skipped: "LOCK_FAILURE", error: String(e && (e.message || e) || e), b1Set: 0, stateErrors: 0 };
   } finally {
-    if (locked && lock) {
-      try { lock.releaseLock(); } catch (eRelease) {}
-    }
+    if (leaseOwner) _wcoreReleaseLease_(WCORE_WATCHDOG_LEASE_KEY, leaseOwner);
   }
 }
 
@@ -548,14 +618,12 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
  * v4.5.11: Force check partial cycles now
  */
 function FORCE_WATCHDOG_PARTIAL_CHECK() {
-  var lock = null;
-  var locked = false;
+  var leaseOwner = null;
   try {
-    lock = LockService.getScriptLock();
-    if (!lock.tryLock(5000)) {
+    leaseOwner = _wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY, WCORE_WATCHDOG_LEASE_TTL_MS);
+    if (!leaseOwner) {
       return [["Stat", "Value"], ["Status", "LOCK_BUSY"], ["Pulsed", 0], ["State Errors", 0]];
     }
-    locked = true;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var nowMs = Date.now();
     var partialStats = _wd_checkPartialCycles_(ss, nowMs, WD_MAX_PULSES_PER_RUN);
@@ -584,9 +652,7 @@ function FORCE_WATCHDOG_PARTIAL_CHECK() {
   } catch (e) {
     return [["Stat", "Value"], ["Status", "LOCK_FAILURE"], ["Error", String(e && (e.message || e) || e)], ["Pulsed", 0]];
   } finally {
-    if (locked && lock) {
-      try { lock.releaseLock(); } catch (eRelease) {}
-    }
+    if (leaseOwner) _wcoreReleaseLease_(WCORE_WATCHDOG_LEASE_KEY, leaseOwner);
   }
 }
 
@@ -654,9 +720,7 @@ function _wd_fmtDate_(d) {
 }
 
 function _wd_isLastUpdateFormat_(s) {
-  s = _wd_norm_(s);
-  // Match: "2025-01-15 12:34:56" or ISO "2025-01-15T12:34:56..."
-  return /^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}(:\d{2})?/.test(s);
+  return isFinite(_wd_parseLocalDateTimeToMs_(s));
 }
 
 /**
@@ -672,9 +736,12 @@ function _wd_extractTimestamp_(vI1) {
   // Match usable prefixes followed by timestamp.
   var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
   if (match && match[1]) {
-    return match[1].trim();
+    vI1 = match[1].trim();
   }
-  match = vI1.match(/^WEB_SCAN_OK\s+(.+)$/);
+  // v4.16.46: strip [FRESH] prefix that may be nested inside [CACHE_ONLY].
+  var freshMatch = vI1.match(/^\[FRESH\]\s+(.+)$/);
+  if (freshMatch && freshMatch[1]) vI1 = freshMatch[1].trim();
+  match = vI1.match(/^(?:WEB_SCAN_OK|TON_SCAN_OK)\s+(.+)$/);
   if (match && match[1]) return match[1].trim();
   return vI1;
 }
@@ -682,6 +749,8 @@ function _wd_extractTimestamp_(vI1) {
 function _wd_extractSuccessTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   var match = vI1.match(/^\[CACHE_ONLY\]\s*(.+)$/);
+  if (match && match[1]) return match[1].trim();
+  match = vI1.match(/^(?:WEB_SCAN_OK|TON_SCAN_OK)\s+(.+)$/);
   if (match && match[1]) return match[1].trim();
   return vI1;
 }
@@ -911,6 +980,71 @@ function _wd_applySpreadsheetActions_(ss, actions, nowMs, maxPulses) {
   return result;
 }
 
+function _wd_selectFairJ1Actions_(actions, totalRows, cursorKey, stats) {
+  actions = actions || [];
+  totalRows = Math.max(0, Number(totalRows || 0));
+  var limit = Math.max(0, Number(SYNC_J1_MAX_SYNCS_PER_RUN || 20));
+  if (actions.length === 0 || totalRows === 0 || limit === 0) return [];
+  var lock = null;
+  var locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) {
+      if (stats) stats.j1ClaimBusy = true;
+      return [];
+    }
+    locked = true;
+    var props = PropertiesService.getScriptProperties();
+    var cursor = parseInt(props.getProperty(cursorKey) || "0", 10);
+    if (!isFinite(cursor) || cursor < 0 || cursor >= totalRows) cursor = 0;
+    actions.sort(function(a, b) {
+      var ad = (Number(a.fairnessIndex || 0) - cursor + totalRows) % totalRows;
+      var bd = (Number(b.fairnessIndex || 0) - cursor + totalRows) % totalRows;
+      return ad - bd;
+    });
+    var selected = actions.slice(0, limit);
+    if (stats) stats.skippedSync = Math.max(0, actions.length - selected.length);
+    var nextCursor = (Number(selected[selected.length - 1].fairnessIndex || 0) + 1) % totalRows;
+    props.setProperty(cursorKey, String(nextCursor));
+    return selected;
+  } catch (eClaim) {
+    if (stats) stats.stateErrors = Number(stats.stateErrors || 0) + 1;
+    return [];
+  } finally {
+    if (locked && lock) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
+
+function _wd_applyJ1Actions_(ss, actions) {
+  var selected = (actions || []).slice(0, SYNC_J1_MAX_SYNCS_PER_RUN);
+  var result = { synced: 0, errors: 0, batch: false };
+  if (selected.length === 0) return result;
+  if (typeof Sheets !== "undefined" && Sheets.Spreadsheets && Sheets.Spreadsheets.Values) {
+    try {
+      var writes = [];
+      for (var i = 0; i < selected.length; i++) {
+        _wd_addApiWrite_(writes, selected[i].sheetName, "J1", selected[i].value);
+      }
+      result.synced = _wd_flushApiWrites_(writes);
+      result.batch = true;
+      return result;
+    } catch (eBatch) {}
+  }
+  for (var j = 0; j < selected.length; j++) {
+    try {
+      var sheet = ss && ss.getSheetByName ? ss.getSheetByName(selected[j].sheetName) : null;
+      if (!sheet) { result.errors++; continue; }
+      var range = sheet.getRange("J1");
+      range.setValue(selected[j].value);
+      try { range.setNumberFormat("@"); } catch (eFormat) {}
+      result.synced++;
+    } catch (eWrite) { result.errors++; }
+  }
+  return result;
+}
+
 function _wd_executeApiActions_(actions, nowMs) {
   var writes = [];
   var writtenActions = [];
@@ -969,35 +1103,64 @@ function _wd_isBlocked_(vI1) {
 }
 
 function _wd_parseLocalDateTimeToMs_(s) {
-  s = _wd_norm_(s);
-  if (!s) return NaN;
+  try { s = String(s == null ? "" : s); } catch (eString) { return NaN; }
+  if (!s || s !== s.trim()) return NaN;
 
-  // Si "T", tente Date.parse (souvent ok)
-  if (s.indexOf("T") !== -1) {
-    const t = Date.parse(s);
-    if (isFinite(t)) return t;
+  function validComponents_(yyyy, mm, dd, HH, MI, SS) {
+    if (mm < 1 || mm > 12 || dd < 1 || HH < 0 || HH > 23 || MI < 0 || MI > 59 || SS < 0 || SS > 59) return false;
+    var leap = (yyyy % 4 === 0 && yyyy % 100 !== 0) || yyyy % 400 === 0;
+    var days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return dd <= days[mm - 1];
   }
 
-  // Parse manuel "YYYY-MM-DD HH:MM:SS" (ou sans SS)
-  const parts = s.replace("T", " ").split(" ");
-  if (parts.length < 2) return NaN;
+  function latestLocalOccurrence_(dt, yyyy, mm, dd, HH, MI, SS, millis) {
+    var latestMs = dt.getTime();
+    var shifts = [30 * 60000, 60 * 60000];
+    for (var shiftIndex = 0; shiftIndex < shifts.length; shiftIndex++) {
+      var candidate = new Date(dt.getTime() + shifts[shiftIndex]);
+      if (candidate.getFullYear() === yyyy && candidate.getMonth() === mm - 1 && candidate.getDate() === dd &&
+          candidate.getHours() === HH && candidate.getMinutes() === MI && candidate.getSeconds() === SS &&
+          candidate.getMilliseconds() === millis) {
+        latestMs = Math.max(latestMs, candidate.getTime());
+      }
+    }
+    return latestMs;
+  }
 
-  const d = parts[0].split("-");
-  const hm = parts[1].split(":");
-  if (d.length !== 3 || hm.length < 2) return NaN;
+  var local = s.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (local) {
+    var yyyy = Number(local[1]), mm = Number(local[2]), dd = Number(local[3]);
+    var HH = Number(local[4]), MI = Number(local[5]), SS = local[6] == null ? 0 : Number(local[6]);
+    if (!validComponents_(yyyy, mm, dd, HH, MI, SS)) return NaN;
+    var dt = new Date(yyyy, mm - 1, dd, HH, MI, SS, 0);
+    var localMs = dt.getTime();
+    if (!isFinite(localMs) || dt.getFullYear() !== yyyy || dt.getMonth() !== mm - 1 || dt.getDate() !== dd ||
+        dt.getHours() !== HH || dt.getMinutes() !== MI || dt.getSeconds() !== SS) return NaN;
+    return latestLocalOccurrence_(dt, yyyy, mm, dd, HH, MI, SS, 0);
+  }
 
-  const yyyy = parseInt(d[0], 10);
-  const mm = parseInt(d[1], 10);
-  const dd = parseInt(d[2], 10);
-  const HH = parseInt(hm[0], 10);
-  const MI = parseInt(hm[1], 10);
-  const SS = hm.length >= 3 ? parseInt(hm[2], 10) : 0;
-
-  if (![yyyy,mm,dd,HH,MI,SS].every(n => isFinite(n))) return NaN;
-
-  const dt = new Date(yyyy, mm - 1, dd, HH, MI, SS, 0);
-  const t = dt.getTime();
-  return isFinite(t) ? t : NaN;
+  var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})?$/);
+  if (!iso) return NaN;
+  var isoYear = Number(iso[1]), isoMonth = Number(iso[2]), isoDay = Number(iso[3]);
+  var isoHour = Number(iso[4]), isoMinute = Number(iso[5]), isoSecond = iso[6] == null ? 0 : Number(iso[6]);
+  if (!validComponents_(isoYear, isoMonth, isoDay, isoHour, isoMinute, isoSecond)) return NaN;
+  var zone = iso[8] || "";
+  var isoMillis = iso[7] ? Number((iso[7] + "00").substring(0, 3)) : 0;
+  if (!zone) {
+    var localIsoDate = new Date(isoYear, isoMonth - 1, isoDay, isoHour, isoMinute, isoSecond, isoMillis);
+    var localIsoMs = localIsoDate.getTime();
+    if (!isFinite(localIsoMs) || localIsoDate.getFullYear() !== isoYear || localIsoDate.getMonth() !== isoMonth - 1 ||
+        localIsoDate.getDate() !== isoDay || localIsoDate.getHours() !== isoHour || localIsoDate.getMinutes() !== isoMinute ||
+        localIsoDate.getSeconds() !== isoSecond || localIsoDate.getMilliseconds() !== isoMillis) return NaN;
+    return latestLocalOccurrence_(localIsoDate, isoYear, isoMonth, isoDay, isoHour, isoMinute, isoSecond, isoMillis);
+  }
+  if (zone && zone !== "Z") {
+    var zoneHour = Number(zone.substring(1, 3));
+    var zoneMinute = Number(zone.substring(4, 6));
+    if (zoneHour > 23 || zoneMinute > 59) return NaN;
+  }
+  var isoMs = Date.parse(s);
+  return isFinite(isoMs) ? isoMs : NaN;
 }
 
 function _wd_bumpTimestampSeconds_(timestamp, seconds) {
@@ -1075,7 +1238,8 @@ function _wd_isCexSheet_(name) {
 }
 
 function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, partialCandidates) {
-  var pulseCandidates = (partialCandidates || []).slice();
+  var urgentCandidates = (partialCandidates || []).slice();
+  var cycleCandidates = [];
   var syncActions = [];
   stats = stats || {};
   var webBackoff = {};
@@ -1134,27 +1298,51 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
       }
     }
 
-    var preActualI1 = _wd_extractTimestamp_(d.vI1 || "");
-    var preA2Norm = _wd_norm_(d.vA2 || "");
-    if ((preA2Norm === "" || preA2Norm.indexOf("#") === 0 || preA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
-        _wd_isLastUpdateFormat_(preActualI1) && _wd_shouldSyncJ1_(d.vI1 || "", "")) {
-      var preBumpedJ1 = _wd_bumpTimestampSeconds_(preActualI1, 1);
-      if (preBumpedJ1) {
-        syncActions.push({
-          sheet: d.sheet || null,
-          sheetName: d.name || d.sheetName || "",
-          range: "J1",
-          value: preBumpedJ1,
-          type: "sync",
-          reason: "a2_error_recalc"
-        });
-        stats.toSync++;
-      }
-      continue;
-    }
-
-    var refreshCheck = _wd_needsRefresh_(d.vA2 || "", d.vI1 || "", nowMs, staleMs);
+    var refreshCheck = _wd_needsRefresh_(d.vA2 || "", d.vI1 || "", nowMs, staleMs, d.vB1);
+    var extractedI1 = _wd_extractTimestamp_(i1Norm);
+    var extractedI1Ms = _wd_parseLocalDateTimeToMs_(extractedI1);
+    var noUsableCache = !i1Norm || i1Norm.indexOf("[NO_CACHE]") === 0 || i1Norm.indexOf("[WEB_SCAN_DEFERRED]") === 0 ||
+      (i1Norm.indexOf("[CACHE_ONLY]") === 0 &&
+        (!_wd_isLastUpdateFormat_(extractedI1) || !isFinite(extractedI1Ms)));
     var cooldownMin = refreshCheck.useBlockedCooldown ? WD_PULSE_MIN_BLOCKED : WD_PULSE_MIN;
+    var canPulseNormally = !suppressB1Pulses && webErrorAllowed &&
+      refreshCheck.blockedReason !== "QUOTA" &&
+      _wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin);
+    var cycleAgeMs = Number.MAX_SAFE_INTEGER;
+    var cycleI1Ms = _wd_parseLocalDateTimeToMs_(_wd_extractTimestamp_(d.vI1 || ""));
+    var cycleB1Ms = _wd_parseLocalDateTimeToMs_(d.vB1 || "");
+    var cycleLatestMs = Math.max(isFinite(cycleI1Ms) ? cycleI1Ms : 0, isFinite(cycleB1Ms) ? cycleB1Ms : 0);
+    // v4.16.46: [CACHE_ONLY] stays stale even when B1 is refreshed.
+    // Use I1 as the age anchor so the wallet doesn't look "recently serviced".
+    if (i1Norm.indexOf("[CACHE_ONLY]") === 0 && isFinite(cycleI1Ms) && isFinite(cycleB1Ms) && cycleB1Ms > cycleI1Ms) {
+      cycleLatestMs = cycleI1Ms;
+    }
+    if (cycleLatestMs > 0) cycleAgeMs = Math.max(0, nowMs - cycleLatestMs);
+
+    var pulseCandidate = null;
+    if (canPulseNormally) {
+      var pulseReason = refreshCheck.needsPulse ? refreshCheck.reason : "cycle";
+      pulseCandidate = {
+        sheet: d.sheet || null,
+        sheetName: sheetName,
+        range: "B1",
+        value: nowStr,
+        type: "pulse",
+        reason: pulseReason,
+        priority: _wd_refreshReasonPriority_(pulseReason),
+        staleAgeMs: _wd_staleAgeMs_(d.vI1 || "", nowMs),
+        cycleAgeMs: cycleAgeMs,
+        webError: isWebError,
+        pendingWebBackoffEntry: stagedWebBackoffEntry
+      };
+      if (pulseReason === "cycle" || pulseReason === "stale" || noUsableCache) {
+        cycleCandidates.push(pulseCandidate);
+      }
+      if (pulseReason === "error" || pulseReason === "empty") {
+        urgentCandidates.push(pulseCandidate);
+      }
+      webPulseCandidateAdded = isWebError && (pulseReason === "error" || pulseReason === "empty");
+    }
 
     if (refreshCheck.needsPulse) {
       if (refreshCheck.reason === "blocked") stats.b1Blocked++;
@@ -1168,20 +1356,6 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
 
       if (suppressB1Pulses) {
         stats.b1SuppressedQuota++;
-      } else if (webErrorAllowed && _wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin)) {
-        pulseCandidates.push({
-          sheet: d.sheet || null,
-          sheetName: sheetName,
-          range: "B1",
-          value: nowStr,
-          type: "pulse",
-          reason: refreshCheck.reason,
-          priority: _wd_refreshReasonPriority_(refreshCheck.reason),
-          staleAgeMs: _wd_staleAgeMs_(d.vI1 || "", nowMs),
-          webError: isWebError,
-          pendingWebBackoffEntry: stagedWebBackoffEntry
-        });
-        webPulseCandidateAdded = isWebError;
       }
     }
     if (isWebError && !webPulseCandidateAdded) {
@@ -1200,7 +1374,8 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
           range: "J1",
           value: bumpedJ1,
           type: "sync",
-          reason: "a2_error_recalc"
+          reason: "a2_error_recalc",
+          fairnessIndex: i
         });
         stats.toSync++;
       }
@@ -1212,46 +1387,78 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
         sheetName: d.name || d.sheetName || "",
         range: "J1",
         value: actualI1,
-        type: "sync"
+        type: "sync",
+        fairnessIndex: i
       });
       stats.toSync++;
     }
   }
 
-  pulseCandidates = pulseCandidates.filter(function(candidate) {
+  urgentCandidates = urgentCandidates.filter(function(candidate) {
     if (candidate.reason !== "partial") return true;
     return !webSuppressedTargets[String(candidate.sheetName || "") + "\n" + String(candidate.range || "")];
   });
 
   if (suppressB1Pulses) {
-    stats.b1SuppressedQuota += pulseCandidates.length;
-    pulseCandidates = [];
+    stats.b1SuppressedQuota += urgentCandidates.length;
+    urgentCandidates = [];
+    cycleCandidates = [];
   }
 
   if (!webBackoffAvailable) {
-    pulseCandidates = pulseCandidates.filter(function(candidate) { return !candidate.webError; });
+    urgentCandidates = urgentCandidates.filter(function(candidate) { return !candidate.webError; });
+    cycleCandidates = cycleCandidates.filter(function(candidate) { return !candidate.webError; });
   }
 
-  pulseCandidates.sort(function(a, b) {
-    if (a.priority !== b.priority) return b.priority - a.priority;
-    if (a.staleAgeMs !== b.staleAgeMs) return b.staleAgeMs - a.staleAgeMs;
+  var urgentByTarget = {};
+  urgentCandidates.forEach(function(candidate) {
+    var key = String(candidate.sheetName || "") + "\n" + String(candidate.range || "");
+    var current = urgentByTarget[key];
+    if (!current || Number(candidate.priority || 0) > Number(current.priority || 0)) urgentByTarget[key] = candidate;
+  });
+  urgentCandidates = Object.keys(urgentByTarget).map(function(key) { return urgentByTarget[key]; });
+
+  cycleCandidates.sort(function(a, b) {
+    if (a.cycleAgeMs !== b.cycleAgeMs) return b.cycleAgeMs - a.cycleAgeMs;
+    return String(a.sheetName || "").localeCompare(String(b.sheetName || ""));
+  });
+  urgentCandidates.sort(function(a, b) {
+    var aAge = isFinite(Number(a.cycleAgeMs)) ? Number(a.cycleAgeMs) : Number(a.staleAgeMs || 0);
+    var bAge = isFinite(Number(b.cycleAgeMs)) ? Number(b.cycleAgeMs) : Number(b.staleAgeMs || 0);
+    if (aAge !== bAge) return bAge - aAge;
     return String(a.sheetName || "").localeCompare(String(b.sheetName || ""));
   });
 
-  var dedupedPulses = [];
+  var selectedPulses = [];
   var seenPulseTargets = {};
-  for (var pc = 0; pc < pulseCandidates.length; pc++) {
-    var pulseKey = String(pulseCandidates[pc].sheetName || "") + "\n" + String(pulseCandidates[pc].range || "");
-    if (seenPulseTargets[pulseKey]) continue;
-    seenPulseTargets[pulseKey] = true;
-    dedupedPulses.push(pulseCandidates[pc]);
+  function takeNextDistinct_(lane, limit) {
+    for (var li = 0; li < lane.length && selectedPulses.length < limit; li++) {
+      var candidate = lane[li];
+      var key = String(candidate.sheetName || "") + "\n" + String(candidate.range || "");
+      if (seenPulseTargets[key]) continue;
+      seenPulseTargets[key] = true;
+      selectedPulses.push(candidate);
+    }
   }
-  var selectedPulses = dedupedPulses.slice(0, WD_MAX_PULSES_PER_RUN);
+
+  takeNextDistinct_(cycleCandidates, Math.min(WD_CYCLE_SLOTS_PER_RUN, WD_MAX_PULSES_PER_RUN));
+  var cycleSelected = selectedPulses.length;
+  takeNextDistinct_(urgentCandidates, Math.min(WD_MAX_PULSES_PER_RUN, selectedPulses.length + 1));
+  if (cycleSelected < WD_CYCLE_SLOTS_PER_RUN) takeNextDistinct_(urgentCandidates, WD_MAX_PULSES_PER_RUN);
+  takeNextDistinct_(cycleCandidates, WD_MAX_PULSES_PER_RUN);
+
+  var allPulseTargets = {};
+  cycleCandidates.concat(urgentCandidates).forEach(function(candidate) {
+    var key = String(candidate.sheetName || "") + "\n" + String(candidate.range || "");
+    allPulseTargets[key] = true;
+  });
+
   var reservation = _wd_reservePulseStates_(selectedPulses, webBackoff, webBackoffAvailable, nowMs);
   selectedPulses = reservation.actions;
   stats.stateErrors = Number(stats.stateErrors || 0) + reservation.errors;
   stats.b1Planned = selectedPulses.length;
-  stats.globalPulseCandidates = dedupedPulses.length;
+  stats.globalPulseCandidates = Object.keys(allPulseTargets).length;
+  syncActions = _wd_selectFairJ1Actions_(syncActions, items.length, P_WD_J1_CURSOR, stats);
   return syncActions.concat(selectedPulses);
 }
 
@@ -1262,9 +1469,9 @@ function _wd_shouldSyncJ1_(vI1, vJ1) {
   return _wd_norm_(actualI1) !== _wd_norm_(vJ1);
 }
 
-function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
+function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
   if (vI1.indexOf("[WEB_SCAN_DEFERRED]") === 0) {
-    return { needsPulse: false, reason: "deferred", blockedReason: null, useBlockedCooldown: false };
+    return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
   }
   const errA2 = vA2.startsWith("#") || vA2.toLowerCase().includes("erreur") || vA2.toLowerCase().includes("error");
   const errI1 = vI1.startsWith("#") || vI1.toLowerCase().includes("erreur") || vI1.toLowerCase().includes("error");
@@ -1320,15 +1527,24 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
   }
 
-  // v4.16.28: Cache-only markers without a real timestamp mean no usable scan
-  // was available (ex: "[CACHE_ONLY] [FRESH] N/A"). Re-pulse B1 instead of
-  // treating the row as healthy forever.
-  if (vI1.indexOf("[CACHE_ONLY]") === 0) {
-    var cacheOnlyTs = _wd_extractTimestamp_(vI1);
-    if (!_wd_isLastUpdateFormat_(cacheOnlyTs)) {
-      return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
-    }
-  }
+   // v4.16.46: Cache-only detection with B1/I1 mismatch.
+   // When B1 was pulsed but the scan kept serving a stale [CACHE_ONLY]
+   // timestamp, re-pulse aggressively so the wallet keeps being retried
+   // instead of looking "recently serviced" and starving for hours.
+   var WD_CACHE_ONLY_MISMATCH_MS = 20 * 60 * 1000; // 20 min
+   if (vI1.indexOf("[CACHE_ONLY]") === 0) {
+     var cacheOnlyTs = _wd_extractTimestamp_(vI1);
+     if (!_wd_isLastUpdateFormat_(cacheOnlyTs)) {
+       return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
+     }
+     if (vB1 !== undefined) {
+       var cacheOnlyI1Ms = _wd_parseLocalDateTimeToMs_(cacheOnlyTs);
+       var b1Ms = _wd_parseLocalDateTimeToMs_(String(vB1 || ""));
+       if (isFinite(cacheOnlyI1Ms) && isFinite(b1Ms) && b1Ms - cacheOnlyI1Ms >= WD_CACHE_ONLY_MISMATCH_MS) {
+         return { needsPulse: true, reason: "stale", blockedReason: null, useBlockedCooldown: false };
+       }
+     }
+   }
 
   const isEmpty = !vI1 || vI1 === "" || vI1.trim() === "";
 
@@ -1429,38 +1645,14 @@ function _wd_tryUnblock_(blockedReason) {
  */
 function WATCHDOG_FROM_RECAP() {
   try { HttpCallCounter.setTrigger('WATCHDOG_FROM_RECAP'); } catch(e){}
-  try { if (typeof WCORE_AUTO_HEAL === 'function') WCORE_AUTO_HEAL("WATCHDOG_FROM_RECAP", false); } catch(e){}
-
-  const lock = LockService.getScriptLock();
-  try {
-    if (!lock.tryLock(5000)) {
-      Logger.log("[WATCHDOG] Could not acquire lock");
-      return;
-    }
-  } catch (e) {
+  var leaseOwner = _wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY, WCORE_WATCHDOG_LEASE_TTL_MS);
+  if (!leaseOwner) {
+    Logger.log("[WATCHDOG] Lease busy");
+    try { HttpCallCounter.clearTrigger(); } catch(eClear){}
     return;
   }
 
   try {
-    // v4.5.3: Refresh ledger sheet cache if stale (safe in trigger context, unlike @customfunction)
-    try { if (typeof _ensureLedgerCache_ === 'function') _ensureLedgerCache_(false); } catch (e) {}
-
-    // v4.15.62: Proactive ScriptProperties purge. Triggered when usage > 85% of the
-    // 500KB quota. Avoids the 2026-06-01 freeze where _emergencyPurge_ was
-    // deadlocked (it only runs on write-failure, and writes fail at >100%).
-    try {
-      var _wdProps = PropertiesService.getScriptProperties();
-      var _wdAll = _wdProps.getProperties();
-      var _wdSize = 0;
-      for (var _wdk in _wdAll) { _wdSize += _wdk.length + String(_wdAll[_wdk] || "").length; }
-      if (_wdSize > 425 * 1024 && typeof CacheManager !== 'undefined' && CacheManager._emergencyPurge_) {
-        var _wdFreed = CacheManager._emergencyPurge_();
-        if (_wdFreed !== false) {
-          try { Logger.log("[WATCHDOG] Pre-emptive storage purge freed=" + _wdFreed); } catch (ePL) {}
-        }
-      }
-    } catch (ePre) {}
-
     // v4.15.83: Small, reliable heartbeat. WCORE_WD_LAST_DIAG can be a large
     // JSON blob and may fail to update under ScriptProperties pressure; auto-heal
     // must not rely on that bulky diagnostic as the only liveness signal.
@@ -1476,7 +1668,6 @@ function WATCHDOG_FROM_RECAP() {
         var safe = WCORE_IS_SAFE("recovery");
         if (safe && safe.safe === false) {
           Logger.log("[WATCHDOG] WCORE_IS_SAFE=false, skipping: " + (safe.reason || "UNKNOWN"));
-          lock.releaseLock();
           return;
         }
       } catch (e) {}
@@ -1513,7 +1704,6 @@ function WATCHDOG_FROM_RECAP() {
       if (!recap) throw new Error("Sheet not found: " + RECAP_SHEET_NAME);
 
       const props = PropertiesService.getScriptProperties();
-      _wd_maybeSheetCacheCleanup_(props);
       
       // v4.5.11: Check partial cycles FIRST (independent of main loop)
       var partialStats = _wd_checkPartialCycles_(ss, nowMs, WD_MAX_PULSES_PER_RUN);
@@ -1596,11 +1786,7 @@ function WATCHDOG_FROM_RECAP() {
       // Update cursor
       const newCursor = (cursor + probeSize) % stats.N;
       try { props.setProperty(P_WD_CURSOR, String(newCursor)); } catch (eCur) {
-        // v4.15.62: storage quota exceeded — try one purge and retry once
-        try { if (typeof CacheManager !== 'undefined' && CacheManager._emergencyPurge_) CacheManager._emergencyPurge_(); } catch (eEP2) {}
-        try { props.setProperty(P_WD_CURSOR, String(newCursor)); } catch (eCur2) {
-          try { Logger.log("[WATCHDOG] cursor write failed: " + eCur2); } catch (eL3) {}
-        }
+        try { Logger.log("[WATCHDOG] cursor write failed: " + eCur); } catch (eL3) {}
       }
 
       stats.ok = true;
@@ -1652,7 +1838,7 @@ function WATCHDOG_FROM_RECAP() {
     Logger.log("[WATCHDOG] " + JSON.stringify(stats));
 
   } finally {
-    lock.releaseLock();
+    _wcoreReleaseLease_(WCORE_WATCHDOG_LEASE_KEY, leaseOwner);
     try { HttpCallCounter.clearTrigger(); } catch(e){}
   }
 }
@@ -2217,7 +2403,7 @@ var SYNC_J1_MAX_SYNCS_PER_RUN = 20;
  * @returns {Object} { checked, synced, skippedSync, errors }
  */
 function SYNC_J1_ALL_SHEETS() {
-  var stats = { checked: 0, synced: 0, errors: 0 };
+  var stats = { checked: 0, synced: 0, skippedSync: 0, errors: 0 };
   // v4.15.112: keep this function as sheet I/O only. Running auto-heal here
   // makes a lightweight latch sync reinstall triggers and churn the workbook.
   try {
@@ -2233,12 +2419,14 @@ function SYNC_J1_ALL_SHEETS() {
     var valsI1 = recap.getRange(2, 6, lastRow - 1, 1).getValues();
     var valsJ1 = recap.getRange(2, 7, lastRow - 1, 1).getValues();
 
+    var actions = [];
     for (var i = 0; i < valsI1.length; i++) {
       var rawI1 = (valsI1[i] && valsI1[i][0]);
       var rawJ1 = (valsJ1[i] && valsJ1[i][0]);
       var i1 = (rawI1 instanceof Date) ? _wd_fmtDate_(rawI1) : String(rawI1 || "").trim();
       var j1 = (rawJ1 instanceof Date) ? _wd_fmtDate_(rawJ1) : String(rawJ1 || "").trim();
       var cleanI1 = _wd_extractTimestamp_(i1);
+      if (_wd_isUnsafeLatchSource_(i1)) continue;
       if (!_wd_isLastUpdateFormat_(cleanI1)) continue;
       if (cleanI1 === j1) continue;
       stats.checked++;
@@ -2247,14 +2435,13 @@ function SYNC_J1_ALL_SHEETS() {
       if (!sheetName) continue;
       // v4.15.85: never write J1 on CEX display-only tabs.
       if (_wd_isCexSheet_(sheetName)) continue;
-      try {
-        var sh = ss.getSheetByName(sheetName);
-        if (!sh) continue;
-        sh.getRange("J1").setValue(cleanI1);
-        sh.getRange("J1").setNumberFormat("@");
-        stats.synced++;
-      } catch (e) { stats.errors++; }
+      actions.push({ sheetName: sheetName, value: cleanI1, fairnessIndex: i });
     }
+    actions = _wd_selectFairJ1Actions_(actions, valsI1.length, P_SYNC_J1_CURSOR, stats);
+    var execution = _wd_applyJ1Actions_(ss, actions);
+    stats.synced = execution.synced;
+    stats.errors += execution.errors;
+    stats.batch = execution.batch;
   } catch (e) { stats.errors++; }
   return stats;
 }

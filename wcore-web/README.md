@@ -115,4 +115,4 @@ The Apps Script runtime lives in `../wcore-gsheet`. Its `src/*.gs` files are the
 See [CHANGELOG.md](./CHANGELOG.md)
 
 ## Audit
-Current Web findings live in [docs/AUDIT.md](./docs/AUDIT.md). The cross-runtime audit lives in [../docs/AUDIT.md](../docs/AUDIT.md). Historical snapshots are archived under [docs/archive/](./docs/archive/).
+Current Web findings live in [docs/audits/AUDIT.md](./docs/audits/AUDIT.md). The cross-runtime audit lives in [../docs/audits/AUDIT.md](../docs/audits/AUDIT.md). Historical snapshots are archived under [docs/archive/](./docs/archive/).

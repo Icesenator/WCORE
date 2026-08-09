@@ -1,3 +1,9 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-05-20
+---
 # EVM Balance Consensus Implementation Plan
 
 > **Historical/completed plan.** Kept for implementation history only; verify current consensus behavior in `packages/core` before acting on any task here.

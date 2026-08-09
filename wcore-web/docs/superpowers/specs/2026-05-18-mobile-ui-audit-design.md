@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: web
+date: 2026-05-18
+---
 # Mobile UI Audit — WCORE Web
 
 > **Historical/completed design.** Kept for implementation history only; verify current UI behavior before acting on it.

@@ -1,3 +1,9 @@
+---
+type: spec
+status: review
+project: wcore
+date: 2026-07-10
+---
 # Canonical Stock Pricing Harmonization Design
 
 **Date:** 2026-07-10

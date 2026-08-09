@@ -1,3 +1,9 @@
+---
+type: reference
+status: review
+project: web
+date: 2026-06-19
+---
 # WCORE — Community Manager Strategy
 
 > **Historical strategy archive.** This file is retained for marketing/X-cycle context and older operational patterns. It is not the source of current product or engineering state.

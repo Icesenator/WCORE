@@ -1,7 +1,7 @@
 /************************************************************
  * 03E_QUOTA_CIRCUIT_BREAKER.gs - Instant Quota Detection
  *
- * v4.16.33 - Lease automatic quota probes across independent executions.
+ * v4.16.34 - Do not turn telemetry read contention into synthetic quota exhaustion.
  *
  * v4.13.8 - CACHE WRITE GUARD: expose BudgetHTTP.remaining()
  *   Wallet cache writes can now refuse destructive updates when the rolling
@@ -83,7 +83,7 @@
  * - Zero-latency blocking once quota detected
  ************************************************************/
 
-var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.33";
+var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.34";
 
 // v4.12.31: Store reference to ORIGINAL UrlFetchApp.fetch BEFORE any patching
 // Needed by testOnce() to bypass the global quota patch for real testing
@@ -663,11 +663,12 @@ var HttpCounter = (function() {
   // UserLock matches the user-scoped UrlFetch quota. This is observational WCORE telemetry,
   // not authoritative cross-user accounting, and avoids watchdog ScriptLock self-deadlock.
   var LOCK_WAIT_MS = 100;
-  var COUNT_FAILURE_CEILING = 20000;
   var BUCKET_MS = 60 * 60 * 1000;  // 1h granularity
   var WINDOWS = 24;                // last 24 buckets = rolling 24h
   // Contention cannot safely persist without the lock, so the observed dropped total is a lower bound.
   var _droppedPending = 0;
+  var _lastValidCount = 0;
+  var _telemetryDegraded = false;
 
   function _loadRaw(props, key) {
     var raw = props.getProperty(key);
@@ -748,6 +749,20 @@ var HttpCounter = (function() {
     }
   }
 
+  function _fallbackCount() {
+    _telemetryDegraded = true;
+    try {
+      // ScriptProperties returns the complete stored string; this read-only snapshot
+      // cannot interfere with a concurrent writer even when UserLock is contended.
+      var props = PropertiesService.getScriptProperties();
+      var total = _sum(_purge(_snapshotLoadRaw(props, KEY), Date.now()));
+      _lastValidCount = total;
+      return total;
+    } catch (e) {
+      return _lastValidCount;
+    }
+  }
+
   function _flatten(obj) {
     var out = {};
     for (var bk in obj) {
@@ -795,6 +810,8 @@ var HttpCounter = (function() {
         _save(props, triggers, TRIGGER_KEY);
         _save(props, hosts, HOST_KEY);
         _save(props, dropped, DROPPED_KEY);
+        _lastValidCount = _sum(counts);
+        _telemetryDegraded = false;
         if (_droppedPending > 0) {
           _droppedPending = 0;
         }
@@ -805,13 +822,20 @@ var HttpCounter = (function() {
       }
     },
 
-    count: function(failureCeiling) {
-      var ceiling = (failureCeiling != null && isFinite(failureCeiling)) ? Number(failureCeiling) : COUNT_FAILURE_CEILING;
-      return _readLocked(ceiling, function(props) {
+    count: function() {
+      var measured = _readLocked(null, function(props) {
         var nowMs = Date.now();
         var obj = _purge(_loadRaw(props, KEY), nowMs);
         return _sum(obj);
       });
+      if (measured == null) return _fallbackCount();
+      _lastValidCount = measured;
+      _telemetryDegraded = false;
+      return measured;
+    },
+
+    isDegraded: function() {
+      return _telemetryDegraded;
     },
 
     byTrigger: function() {
@@ -843,7 +867,7 @@ var HttpCounter = (function() {
     snapshot: function() {
       var unavailable = {
         available: false,
-        total: COUNT_FAILURE_CEILING,
+        total: _lastValidCount,
         categories: {},
         hosts: {},
         dropped: _droppedPending
@@ -852,19 +876,26 @@ var HttpCounter = (function() {
       var acquired = false;
       try {
         lock = LockService.getUserLock();
-        if (!lock || !lock.tryLock(LOCK_WAIT_MS)) return unavailable;
+        if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+          unavailable.total = _fallbackCount();
+          return unavailable;
+        }
         acquired = true;
         var props = PropertiesService.getScriptProperties();
         var nowMs = Date.now();
+        var total = _sum(_purge(_snapshotLoadRaw(props, KEY), nowMs));
+        _lastValidCount = total;
+        _telemetryDegraded = false;
         return {
           available: true,
-          total: _sum(_purge(_snapshotLoadRaw(props, KEY), nowMs)),
+          total: total,
           categories: _flatten(_purge(_snapshotLoadRaw(props, TRIGGER_KEY), nowMs)),
           hosts: _flatten(_purge(_snapshotLoadRaw(props, HOST_KEY), nowMs)),
           dropped: _sum(_purge(_snapshotLoadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending
         };
       } catch (e) {
         if (e && e.telemetryCorrupt) unavailable.corrupt = true;
+        unavailable.total = _fallbackCount();
         return unavailable;
       } finally {
         if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
@@ -878,6 +909,8 @@ var HttpCounter = (function() {
         props.deleteProperty(HOST_KEY);
         props.deleteProperty(DROPPED_KEY);
         _droppedPending = 0;
+        _lastValidCount = 0;
+        _telemetryDegraded = false;
         return true;
       });
     },
@@ -903,12 +936,19 @@ var BudgetHTTP = BudgetHTTP || (function() {
     other: 1000
   };
   var adminMinRemaining = CATEGORY_MIN_REMAINING.admin;
+  var telemetryDegraded = false;
 
   function _count() {
     try {
-      if (typeof HttpCounter !== 'undefined' && HttpCounter.count) return HttpCounter.count(DAILY_LIMIT);
-    } catch (e) {}
-    return DAILY_LIMIT;
+      if (typeof HttpCounter !== 'undefined' && HttpCounter.count) {
+        var count = HttpCounter.count();
+        telemetryDegraded = !!(HttpCounter.isDegraded && HttpCounter.isDegraded());
+        return count;
+      }
+    } catch (e) {
+      telemetryDegraded = true;
+    }
+    return 0;
   }
 
   function categoryForReason(reason) {
@@ -959,6 +999,7 @@ var BudgetHTTP = BudgetHTTP || (function() {
         remaining: remaining,
         criticalThreshold: CRITICAL_REMAINING,
         critical: remaining < CRITICAL_REMAINING,
+        telemetryDegraded: telemetryDegraded,
         adminMinRemaining: adminMinRemaining
       };
     }
@@ -1367,8 +1408,8 @@ function GET_QUOTA_PROTECTION_STATUS(refreshToken) {
   rows.push(["Authority", "Observed counts are not the authoritative Google account quota"]);
   if (!snapshot.available) {
     rows.push(["Warning telemetry snapshot", snapshot.corrupt
-      ? "CORRUPT - displayed 20000 is a fail-closed ceiling, not an observed authoritative value"
-      : "UNAVAILABLE - displayed 20000 is a fail-closed ceiling, not an observed authoritative value"]);
+      ? "CORRUPT - displayed count is a non-authoritative safe fallback"
+      : "UNAVAILABLE - displayed count is a non-authoritative safe fallback"]);
   }
   if (googleBreaker.unavailable) {
     rows.push(["Warning Google breaker", "UNAVAILABLE - displayed TRIPPED is a fail-closed fallback, not an observed authoritative value"]);

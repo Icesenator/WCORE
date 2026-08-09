@@ -31,14 +31,6 @@ var SheetCache = {
  if (this._sheet) return this._sheet;
  var ss = SpreadsheetApp.getActiveSpreadsheet();
  var sh = ss.getSheetByName(SHEET_CACHE_NAME);
- if (!sh) {
- sh = ss.insertSheet(SHEET_CACHE_NAME);
- sh.getRange(1, 1, 1, 5).setValues([
- ["key", "updated_at", "value", "size", "ttl_sec"]
- ]);
- sh.setFrozenRows(1);
- sh.hideSheet();
- }
  this._sheet = sh;
  return sh;
  },
@@ -46,8 +38,9 @@ var SheetCache = {
  _ensureIndex: function() {
  if (this._loaded && this._index) return;
  var sh = this._getSheet();
- var last = sh.getLastRow();
  this._index = {};
+ if (!sh) { this._loaded = true; return; }
+ var last = sh.getLastRow();
  if (last <= 1) {
  this._loaded = true;
  return;
@@ -88,6 +81,7 @@ var SheetCache = {
  this._ensureIndex();
  var result = {};
  var sh = this._getSheet();
+ if (!sh) return result;
  var last = sh.getLastRow();
  if (last <= 1) return result;
 
@@ -114,6 +108,7 @@ var SheetCache = {
  setRaw: function(key, value, ttlSec) {
  this._ensureIndex();
  var sh = this._getSheet();
+ if (!sh) return;
  var row = this._index[String(key)];
  var now = this._nowIso();
  var size = (value || "").length;
@@ -133,6 +128,7 @@ var SheetCache = {
  var row = this._index[String(key)];
  if (!row) return;
  var sh = this._getSheet();
+ if (!sh) return;
  sh.deleteRow(row);
  delete this._index[String(key)];
  this._loaded = false;
@@ -150,6 +146,7 @@ var SheetCache = {
 
  clear: function() {
  var sh = this._getSheet();
+ if (!sh) { this._index = {}; this._loaded = true; return; }
  var last = sh.getLastRow();
  if (last > 1) {
  sh.deleteRows(2, last - 1);
@@ -171,6 +168,10 @@ function SHEETCACHE_CLEANUP(maxRows) {
  var out = [["action", "key", "reason"]];
  try {
  var sh = SheetCache._getSheet();
+ if (!sh) {
+ out.push(["NOOP", "", "no sheet"]);
+ return out;
+ }
  var last = sh.getLastRow();
  if (last <= 1) {
  out.push(["NOOP", "", "empty"]);

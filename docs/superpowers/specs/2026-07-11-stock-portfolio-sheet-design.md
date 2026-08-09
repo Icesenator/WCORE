@@ -1,3 +1,9 @@
+---
+type: spec
+status: done
+project: wcore
+date: 2026-07-11
+---
 # Portefeuille Action Autonomous Sheet Design
 
 **Date:** 2026-07-11

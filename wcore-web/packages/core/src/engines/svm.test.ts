@@ -88,7 +88,7 @@ test("getSvmWalletAssets returns SPL token balances", async () => {
   assert.ok(token);
 });
 
-test("getSvmWalletAssets uses chain KNOWN_TOKENS metadata for SVM mints", async () => {
+test("getSvmWalletAssets prices configured USD-stable SVM tokens at the FX rate", async () => {
   const sources: PricingSourceSet = {
     defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
     dexscreener: { getTokenPriceUsd: async () => null },
@@ -107,7 +107,7 @@ test("getSvmWalletAssets uses chain KNOWN_TOKENS metadata for SVM mints", async 
     }),
   });
 
-  const result = await getSvmWalletAssets(OWNER, "fogo", { rpc: rpc as never, sources, fxRate: 1 });
+  const result = await getSvmWalletAssets(OWNER, "fogo", { rpc: rpc as never, sources, fxRate: 0.9237 });
 
   const token = result.tokens.find((t) => t.mint === FOGO_USDC_MINT);
   assert.ok(token);
@@ -115,6 +115,8 @@ test("getSvmWalletAssets uses chain KNOWN_TOKENS metadata for SVM mints", async 
   assert.equal(token.name, "USD Coin (Wormhole)");
   assert.equal(token.decimals, 6);
   assert.equal(token.balance, 1);
+  assert.equal(token.priceEur, 0.9237);
+  assert.ok(!result.errors.includes("USDC price: NO_PRICE"));
 });
 
 test("getSvmWalletAssets native balance uses successful RPC responses even when some fail", async () => {

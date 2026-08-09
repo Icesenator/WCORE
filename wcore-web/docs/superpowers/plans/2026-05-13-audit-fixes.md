@@ -1,6 +1,12 @@
+---
+type: plan
+status: done
+project: web
+date: 2026-05-13
+---
 # Audit Fixes Implementation Plan
 
-> **Historical/completed plan.** Kept for implementation history only; current audit state lives in `../../AUDIT.md`.
+> **Historical/completed plan.** Kept for implementation history only; current audit state lives in `../../audits/AUDIT.md`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

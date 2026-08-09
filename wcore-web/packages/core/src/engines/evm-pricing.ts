@@ -17,6 +17,7 @@ import {
   type PricingToken,
 } from "../pricing/index.js";
 import type { OnchainV3Rpc } from "../pricing/sources/onchain-v3.js";
+import { roundUnitPrice } from "../pricing/rounding.js";
 import type { CacheStore } from "../cache/index.js";
 import { formatUnits, prefetchTokenLogo, resolveTokenLogoCachedOrFallback } from "../tokens/index.js";
 import type { DiscoveredToken } from "../tokens/index.js";
@@ -68,7 +69,7 @@ export async function priceNative(
   return {
     symbol: token.symbol ?? "NATIVE",
     balance: numericBalance,
-    priceEur: priced.priceEur == null ? null : roundMoney(priced.priceEur),
+    priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),
     valueEur,
     logoUrl: getNativeLogo(chain),
   };
@@ -141,15 +142,11 @@ export async function priceToken(
       return fast;
     })(),
     balance,
-    priceEur: priced.priceEur == null ? null : roundPrice(priced.priceEur),
+    priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),
     valueEur: priced.priceEur == null ? null : roundMoney(balance * priced.priceEur),
   };
 }
 
 export function priceCacheKey(chain: ChainConfig, contract: string): string {
   return `${String(chain.key).toLowerCase()}:${contract.toLowerCase()}`;
-}
-
-function roundPrice(value: number): number {
-  return Math.round(value * 1_000_000_000_000) / 1_000_000_000_000;
 }

@@ -1,3 +1,9 @@
+---
+type: spec
+status: archived
+project: gsheet
+date: 2026-05-26
+---
 # Backport Multicall3 wcore-web vers wcore-gsheet
 
 > **Historical/completed design.** Kept for implementation history only; verify current Multicall3 behavior in source before acting on it.

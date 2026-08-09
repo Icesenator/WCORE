@@ -1,6 +1,12 @@
+---
+type: spec
+status: archived
+project: gsheet
+date: 2026-06-13
+---
 # Relais Binance sur Railway — Design
 
-> **Historical/completed design.** The relay is now multi-CEX; current relay docs live in `../../railway-relay/README.md` and `../cex-sync.md`.
+> **Historical/completed design.** The relay is now multi-CEX; current relay docs live in `../../../../railway-relay/README.md` and `../../../integrations/cex/cex-sync.md`.
 
 Date: 2026-06-13
 Statut: valide (en attente revue spec)

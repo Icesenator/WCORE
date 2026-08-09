@@ -1,12 +1,13 @@
 /**
- * TON.gs - TON / The Open Network (v4.15.81)
+ * TON.gs - TON / The Open Network (v4.15.83)
  * Native TON + jettons via TonAPI, quota-safe standalone engine.
+ * v4.15.83: Distinguish same-second live refreshes by numeric cache timestamp.
  */
 
-var TON_VERSION = "4.15.81";
+var TON_VERSION = "4.15.83";
 
 var TON_CONFIG = {
-  VERSION: "TON_v4.15.81",
+  VERSION: "TON_v4.15.83",
   CACHE_VERSION: 5,
   TIMEOUTS: { MAX_EXECUTION_MS: 30000, HTTP_MS: 4000 },
   CACHE: { WALLET_CACHE_TTL_SECONDS: 86400, WALLET_TTL_MS: 86400000, PRICE_TTL_MS: 43200000 },
@@ -49,7 +50,7 @@ CHAIN_CONFIG_SCHEMA.validate({
 });
 
 var _TON = ChainFactory.createTonChain("TON", {
-  VERSION: "TON_v4.15.81",
+  VERSION: "TON_v4.15.83",
   CACHE_VERSION: 5,
   RPC: {
     ENDPOINTS: [
@@ -281,7 +282,56 @@ function _tonRefresh_(address, forceFull) {
 
 function GET_WALLET_ASSETS_TON(a,r,t,f,g){ void r; void t; void g; return _tonRefresh_(a, f); }
 function CACHED_WALLET_ASSETS_TON(a){ var timer=_tonTimer_(); var c=WalletCache.load(_tonNormalizeAddress_(a), timer, TON_CONFIG); return c ? _tonBuildOutput_(c, timer) : _tonNoCacheOutput_(timer); }
-function TON_REFRESH_STATUS(a,r,t,f,g){ void r; void t; void g; try{if(typeof _webScanWallet_==="function"){var ws=_webScanWallet_(a,[],f,TON_CONFIG,_tonNormalizeAddress_(a)); if(ws&&ws.ok&&ws.status)return ws.status;}}catch(eWebScan){} if(typeof _webScanRequiredFor_==="function"&&_webScanRequiredFor_(TON_CONFIG))return (typeof _webScanErrorStatus_==="function")?_webScanErrorStatus_(TON_CONFIG):("[WEB_SCAN_ERROR] "+_tonNow_()); if(typeof _webScanMustUse_==="function"&&_webScanMustUse_()){var _tmu=null; try{_tmu=WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG);}catch(e){} if(_tmu&&_tmu.updatedAt)return BaseEngine.wrapCacheOnlyMarker(Format.datetime(_tmu.updatedAt), BaseEngine.httpSnapshot()); return "[WEB_SCAN_ERROR] "+_tonNow_();} if(typeof _webScanQuotaTripped_==="function"&&_webScanQuotaTripped_())return "[BLOCKED:QUOTA] "+_tonNow_(); var before=null; try{before=WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG);}catch(e){} if(typeof BaseEngine!=="undefined"&&BaseEngine.shouldSkipNoTriggerRecentScan){var _tk=_tonNormalizeAddress_(a); if(BaseEngine.shouldSkipNoTriggerRecentScan(_tk,TON_CONFIG,before,f,g)){var _t=WalletCache.getLastUpdateStr(before); if(_t)return "[FRESH] "+_t;}} _tonRefresh_(a, f); var after=null; try{after=WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG);}catch(e2){} var ts=WalletCache.getLastUpdateStr(after); if(ts) return ts; return before ? (WalletCache.getLastUpdateStr(before) || ("[BLOCKED:TIMEOUT] " + _tonNow_())) : ("[NO_CACHE] " + _tonNow_()); }
+function _tonCacheOnlyStatus_(cache) {
+  var ts = "";
+  try { ts = WalletCache.getLastUpdateStr(cache) || ""; } catch (e) {}
+  var snapshot = -1;
+  try { if (BaseEngine.httpSnapshot) snapshot = BaseEngine.httpSnapshot(); } catch (eSnapshot) {}
+  return BaseEngine.wrapCacheOnlyMarker(ts, snapshot);
+}
+
+function TON_REFRESH_STATUS(a,r,t,f,g){
+  void r; void t;
+  try {
+    if (typeof _webScanWallet_ === "function") {
+      var ws = _webScanWallet_(a, [], f, TON_CONFIG, _tonNormalizeAddress_(a));
+      if (ws && ws.ok && ws.status) return ws.status;
+    }
+  } catch (eWebScan) {}
+  if (typeof _webScanRequiredFor_ === "function" && _webScanRequiredFor_(TON_CONFIG)) {
+    return (typeof _webScanErrorStatus_ === "function") ? _webScanErrorStatus_(TON_CONFIG) : ("[WEB_SCAN_ERROR] " + _tonNow_());
+  }
+  if (typeof _webScanMustUse_ === "function" && _webScanMustUse_()) {
+    var mustUseCache = null;
+    try { mustUseCache = WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG); } catch (eMustUse) {}
+    if (mustUseCache) return _tonCacheOnlyStatus_(mustUseCache);
+    return "[WEB_SCAN_ERROR] " + _tonNow_();
+  }
+  if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) return "[BLOCKED:QUOTA] " + _tonNow_();
+
+  var before = null;
+  try { before = WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG); } catch (eBefore) {}
+  var beforeUpdatedAt = Number(before && before.updatedAt);
+  if (typeof BaseEngine !== "undefined" && BaseEngine.shouldSkipNoTriggerRecentScan) {
+    var walletKey = _tonNormalizeAddress_(a);
+    if (BaseEngine.shouldSkipNoTriggerRecentScan(walletKey, TON_CONFIG, before, f, g)) {
+      return _tonCacheOnlyStatus_(before);
+    }
+  }
+
+  _tonRefresh_(a, f);
+  var after = null;
+  try { after = WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG); } catch (eAfter) {}
+  var ts = "";
+  try { ts = WalletCache.getLastUpdateStr(after) || ""; } catch (eTs) {}
+  var afterUpdatedAt = Number(after && after.updatedAt);
+  var cacheAdvanced = isFinite(afterUpdatedAt) && afterUpdatedAt > 0 &&
+    (!isFinite(beforeUpdatedAt) || beforeUpdatedAt <= 0 || afterUpdatedAt > beforeUpdatedAt);
+  if (before && (!after || !cacheAdvanced)) return _tonCacheOnlyStatus_(after || before);
+  if (ts) return "TON_SCAN_OK " + ts;
+  if (before) return _tonCacheOnlyStatus_(before);
+  return "[NO_CACHE] " + _tonNow_();
+}
 function TON_STATS(a,t){
   void t;
   var timer = _tonTimer_();

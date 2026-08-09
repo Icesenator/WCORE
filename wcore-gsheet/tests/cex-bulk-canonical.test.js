@@ -1,8 +1,9 @@
 // v4.16.31 guard: the bulk CEX relay write path (44_CEX_BULK.gs) must apply
 // per-provider symbol canonicalizers (OKSOL->SOL for OKX, Bybit aliases) and
 // merge duplicate (symbol, source) rows — parity with the per-connector paths.
-// Regression: v4.16.30 wrote raw relay rows, reintroducing OKSOL in "CEX - OKX"
-// on every 4h UPDATE_CEX_RELAY_ALL run.
+// Historical regression: v4.16.30 bulk parsing wrote raw relay rows and
+// reintroduced OKSOL in "CEX - OKX". Keep helper coverage although the public
+// bulk entry point is now disabled.
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -78,5 +79,39 @@ assert.equal(solFunding[4], 450, 'merged valueUsd must be summed');
 assert.equal(solFunding[5], 150, 'merged priceUsd must be value/amount');
 const solEarn = merged.find((r) => r[0] === 'SOL' && r[2] === 'earn');
 assert.equal(solEarn[1], 5, 'different source must NOT merge');
+
+// The old bulk entry point must not compete with provider-level rotation locks.
+let mutationCount = 0;
+const bulkContext = {
+  console,
+  Date,
+  JSON,
+  Math,
+  String,
+  Number,
+  Array,
+  Object,
+  RegExp,
+  isFinite,
+  encodeURIComponent,
+  HttpCallCounter: { setTrigger: () => { mutationCount++; } },
+  CEX_ACQUIRE_LOCK: () => { mutationCount++; return true; },
+  CEX_RELEASE_LOCK: () => { mutationCount++; },
+  SpreadsheetApp: { openById: () => { mutationCount++; return {}; } },
+  PropertiesService: {
+    getUserProperties: () => ({
+      getProperty: () => null,
+      setProperty: () => { mutationCount++; },
+    }),
+    getDocumentProperties: () => ({ getProperty: () => null }),
+  },
+  Logger: { log: () => {} },
+};
+vm.createContext(bulkContext);
+vm.runInContext(source, bulkContext);
+const bulkResult = bulkContext.UPDATE_CEX_RELAY_ALL();
+assert.match(bulkResult, /^LEGACY_DISABLED:/, 'UPDATE_CEX_RELAY_ALL must refuse the obsolete bulk path');
+assert.equal(mutationCount, 0, 'UPDATE_CEX_RELAY_ALL must be non-mutating');
+assert.match(bulkContext.CEX_RELAY_ALL_STATUS(), /^LEGACY_DISABLED:/, 'bulk status must expose that the path is disabled');
 
 console.log('cex bulk canonical OK');

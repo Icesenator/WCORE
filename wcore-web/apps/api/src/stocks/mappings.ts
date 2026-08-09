@@ -55,7 +55,7 @@ const BITPANDA_SECURITIES: Readonly<Record<string, CanonicalStockMapping>> = {
   GOOGL: stock("GOOG", ["GOOG"], ["GOOGL"], "USD"),
   FB: stock("META", ["META"], ["FB"], "USD"),
   MRKUS: stock("MRK", ["MRK"], ["MRKUS"], "USD"),
-  RDSA: stock("SHEL", ["SHEL.L", "SHEL"], ["RDSA"], "GBp"),
+  RDSA: stock("SHEL", ["SHEL.L"], ["RDSA"], "GBp", { supplyMultiplier: 2 }),
   TSFA: stock("TPE:2330", ["2330.TW"], ["TSFA"], "TWD"),
   TCTZF: stock("TCEHY", ["TCEHY", "TCTZF"], ["TCTZF"], "USD"),
   NOVO: stock("CPH:NOVO-B", ["NVO", "NOVO-B.CO"], ["NOVO", "NOVO-B"], "DKK"),
@@ -91,7 +91,10 @@ const BITPANDA_SECURITIES: Readonly<Record<string, CanonicalStockMapping>> = {
   NESN: stock("SWX:NESN", ["NESN.SW"], ["NESN"], "CHF"),
   NOVN: stock("NVS", ["NOVN.SW"], ["NOVN"], "CHF"),
   ROG: stock("SWX:RO", ["RO.SW"], ["ROG"], "CHF"),
-  SHEL: stock("SHEL", ["SHEL.L", "SHEL"], ["SHEL", "RDSA"], "GBp"),
+  // Shell: 1 ADR US (NYSE:SHEL) = 2 actions Londres (SHEL.L). Bitpanda + Yahoo suivent
+  // Londres (GBp), mais CompaniesMarketCap liste le cours ADR US -> supplyMultiplier:2
+  // divise le fallback CSV pour rester sous le garde-fou de drift 15%. Fallback Yahoo US retire.
+  SHEL: stock("SHEL", ["SHEL.L"], ["SHEL", "RDSA"], "GBp", { supplyMultiplier: 2 }),
   EUNL: stock("ETR:EUNL", ["EUNL.DE"], ["EUNL"], "EUR"),
   IS3N: stock("ETR:IS3N", ["IS3N.DE"], ["IS3N"], "EUR"),
   QDVE: stock("ETR:QDVE", ["QDVE.DE"], ["QDVE"], "EUR"),
@@ -107,6 +110,11 @@ const TOP_MARKET_CAP_OVERRIDES: Readonly<Record<string, CanonicalStockMapping>> 
   TM: BITPANDA_SECURITIES.TM!,
   GOOG: stock("GOOG", ["GOOG"], ["GOOGL"], "USD"),
   GOOGL: BITPANDA_SECURITIES.GOOGL!,
+  // Shell: CompaniesMarketCap liste "SHEL" au cours ADR US (1 ADR = 2 actions Londres).
+  // Sans override, mapTopMarketCapTicker traiterait SHEL comme un ticker US (yahoo:["SHEL"],
+  // USD). On force le mapping Londres (SHEL.L/GBp) + supplyMultiplier:2 pour aligner le
+  // fallback CSV sur Londres et rester sous le garde-fou de drift 15%.
+  SHEL: BITPANDA_SECURITIES.SHEL!,
 };
 
 const CANONICAL_ALIASES = new Map<string, string[]>();

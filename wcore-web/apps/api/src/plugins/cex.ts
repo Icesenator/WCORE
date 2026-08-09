@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "@wcore/db";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { safeEq } from "../admin-auth.js";
-import { resolveRelayBaseUrl } from "../config.js";
+import { resolveRelayBaseUrl, resolveRelayToken } from "../config.js";
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { CexAccountBodySchema, CexAccountParamsSchema } from "../schemas.js";
 import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, normalizeKrakenBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type KrakenBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
@@ -137,7 +137,7 @@ async function fetchJson(url: string, init: RequestInit): Promise<unknown> {
 }
 
 async function fetchBinanceRows(creds: BinanceCredentials): Promise<RawCexRow[]> {
-  const relayToken = process.env.RELAY_TOKEN;
+  const relayToken = resolveRelayToken(process.env);
   if (!relayToken) throw new Error("RELAY_TOKEN not configured");
   const url = `${getCexRelayUrl("binance")}/binance/account`;
   const data = await fetchJson(url, {
@@ -150,7 +150,7 @@ async function fetchBinanceRows(creds: BinanceCredentials): Promise<RawCexRow[]>
 }
 
 async function fetchBybitRows(creds: BybitCredentials): Promise<RawCexRow[]> {
-  const relayToken = process.env.RELAY_TOKEN;
+  const relayToken = resolveRelayToken(process.env);
   if (!relayToken) throw new Error("RELAY_TOKEN not configured");
   const url = `${getCexRelayUrl("bybit")}/bybit/account`;
   const data = await fetchJson(url, {
@@ -163,7 +163,7 @@ async function fetchBybitRows(creds: BybitCredentials): Promise<RawCexRow[]> {
 }
 
 async function fetchCoinbaseRows(creds: CoinbaseCredentials): Promise<RawCexRow[]> {
-  const relayToken = process.env.RELAY_TOKEN;
+  const relayToken = resolveRelayToken(process.env);
   if (!relayToken) throw new Error("RELAY_TOKEN not configured");
   const url = `${getCexRelayUrl("coinbase")}/coinbase/account`;
   const data = await fetchJson(url, {
@@ -176,7 +176,7 @@ async function fetchCoinbaseRows(creds: CoinbaseCredentials): Promise<RawCexRow[
 }
 
 async function fetchOkxRows(creds: OkxCredentials): Promise<RawCexRow[]> {
-  const relayToken = process.env.RELAY_TOKEN;
+  const relayToken = resolveRelayToken(process.env);
   if (!relayToken) throw new Error("RELAY_TOKEN not configured");
   const url = `${getCexRelayUrl("okx")}/okx/account`;
   const data = await fetchJson(url, {
@@ -360,7 +360,7 @@ async function priceStockSymbolEur(symbol: string, cache?: StockPriceCache): Pro
     } catch (e) { console.error("cex stock price cache read error:", (e as Error).message); }
   }
   const relayUrl = getStockRelayUrl();
-  const relayToken = process.env.RELAY_TOKEN;
+  const relayToken = resolveRelayToken(process.env);
   if (!relayUrl || !relayToken) return { priceEur: null, source: null };
   const prices = await fetchStockPricesViaRelay([symbol], { relayUrl, relayToken });
   const hit = prices[symbol.trim().toUpperCase()];
@@ -488,7 +488,7 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
       }));
 
       const relayUrl = getStockRelayUrl();
-      const relayToken = process.env.RELAY_TOKEN;
+      const relayToken = resolveRelayToken(process.env);
       if (missing.length > 0 && relayUrl && relayToken) {
         const fresh = await fetchStockPricesViaRelay(missing, { relayUrl, relayToken });
         await Promise.all(Object.entries(fresh).map(async ([symbol, price]) => {

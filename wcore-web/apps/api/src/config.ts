@@ -219,6 +219,18 @@ export function resolveRelayBaseUrl(env: ApiEnv, target: RelayTarget): string {
   return base.replace(/\/+$/, "");
 }
 
+/**
+ * Le token du relais etait lu a huit endroits, avec deux politiques opposees:
+ * les chemins CEX levaient une erreur de configuration explicite, tandis que
+ * `stocks/stock-service.ts` retombait sur `?? ""` et envoyait un token vide.
+ * La lecture est unique ici; chaque appelant garde sa politique, mais aucun ne
+ * peut plus confondre "absent" et "chaine vide". Une valeur uniquement faite
+ * d'espaces est traitee comme absente, ce que `!token` ne detectait pas.
+ */
+export function resolveRelayToken(env: ApiEnv): string {
+  return readNonBlank(env, "RELAY_TOKEN") ?? "";
+}
+
 export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
   const nodeEnv = env.NODE_ENV ?? "";
   const isProduction = nodeEnv === "production";

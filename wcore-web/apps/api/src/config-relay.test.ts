@@ -1,6 +1,19 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveRelayBaseUrl } from "./config.js";
+import { resolveRelayBaseUrl, resolveRelayToken } from "./config.js";
+
+describe("relay token resolution", () => {
+  test("returns the configured token", () => {
+    assert.equal(resolveRelayToken({ RELAY_TOKEN: "secret" }), "secret");
+  });
+
+  // `!token` laissait passer une valeur faite d'espaces, qui partait ensuite au
+  // relais et revenait 401.
+  test("treats an absent or blank token as unconfigured", () => {
+    assert.equal(resolveRelayToken({}), "");
+    assert.equal(resolveRelayToken({ RELAY_TOKEN: "   " }), "");
+  });
+});
 
 describe("relay base URL resolution", () => {
   test("prefers the provider-specific variable", () => {

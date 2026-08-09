@@ -31,6 +31,17 @@ export interface StockRelayDeps {
   relayToken: string;
 }
 
+/**
+ * Un relais sans URL ni token ne peut rien servir. Sans cette garde, un token
+ * vide partait en requete, le relais repondait 401, `!res.ok` rendait une carte
+ * vide, et le prix des actions disparaissait sans qu'aucun signal ne designe la
+ * configuration manquante. Une URL vide donnait une URL relative, rejetee dans
+ * le catch, avec le meme silence.
+ */
+function hasRelayCredentials(deps: StockRelayDeps): boolean {
+  return deps.relayUrl.trim() !== "" && deps.relayToken.trim() !== "";
+}
+
 function normalizeStockCurrency(value: string): string {
   const currency = value.trim();
   return currency === "GBp" ? "GBX" : currency.toUpperCase();
@@ -63,6 +74,7 @@ function normalizeStockFxCurrencies(currencies: string[]): string[] | null {
 }
 
 export async function fetchStockPricesViaRelay(symbols: string[], deps: StockRelayDeps): Promise<StockPriceMap> {
+  if (!hasRelayCredentials(deps)) return {};
   const unique = [...new Set(symbols.map((s) => String(s || "").trim().toUpperCase()).filter(Boolean))];
   if (unique.length === 0) return {};
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -90,6 +102,7 @@ export async function fetchStockPricesViaRelay(symbols: string[], deps: StockRel
 }
 
 export async function fetchStockQuotesViaRelay(symbols: string[], deps: StockRelayDeps): Promise<StockNativeQuoteMap> {
+  if (!hasRelayCredentials(deps)) return {};
   if (!Array.isArray(symbols) || symbols.length > 300) return {};
   const unique = [...new Set(symbols.map((s) => String(s || "").trim().toUpperCase()).filter(Boolean))];
   if (unique.length === 0) return {};
@@ -139,6 +152,7 @@ export async function fetchStockQuotesViaRelay(symbols: string[], deps: StockRel
 }
 
 export async function fetchStockFxQuotesViaRelay(currencies: string[], deps: StockRelayDeps): Promise<StockFxQuoteMap> {
+  if (!hasRelayCredentials(deps)) return {};
   const unique = normalizeStockFxCurrencies(currencies);
   if (!unique || unique.length === 0) return {};
   const requested = new Set(unique);

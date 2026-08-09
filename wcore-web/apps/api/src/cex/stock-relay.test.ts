@@ -291,3 +291,19 @@ test("fetchStockFxQuotesViaRelay accepts only the exact relay EUR identity", asy
   });
   assert.deepEqual(valid.EUR, { unitsPerEur: 1, currency: "EUR", yahooTicker: "EUR", source: "identity:eur" });
 });
+
+// Un token vide partait au relais, revenait 401, et `!res.ok` rendait une carte
+// vide: le prix des actions disparaissait sans qu'aucun signal ne designe la
+// configuration manquante. Une URL vide produisait une URL relative, rejetee
+// dans le catch, avec le meme silence. Le client ne doit pas tenter un appel
+// dont il sait qu'il ne peut pas aboutir.
+test("stock relay calls are skipped when the URL or token is missing", async () => {
+  let calls = 0;
+  const fetchImpl = async () => { calls += 1; return { ok: true, json: async () => ({ ok: true }) } as Response; };
+
+  assert.deepEqual(await fetchStockPricesViaRelay(["AAPL"], { fetchImpl, relayUrl: "https://relay.example", relayToken: "" }), {});
+  assert.deepEqual(await fetchStockQuotesViaRelay(["AAPL"], { fetchImpl, relayUrl: "", relayToken: "secret" }), {});
+  assert.deepEqual(await fetchStockFxQuotesViaRelay(["CHF"], { fetchImpl, relayUrl: "https://relay.example", relayToken: "   " }), {});
+
+  assert.equal(calls, 0, "no request may be issued without a relay URL and token");
+});

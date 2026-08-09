@@ -1,6 +1,6 @@
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { cacheKey } from "@wcore/shared";
-import { resolveRelayBaseUrl } from "../config.js";
+import { resolveRelayBaseUrl, resolveRelayToken } from "../config.js";
 import {
   fetchStockFxQuotesViaRelay,
   fetchStockQuotesViaRelay,
@@ -78,7 +78,7 @@ export class CanonicalStockService {
     const relay = () => ({
       fetchImpl: this.fetchImpl,
       relayUrl: stockRelayUrl(),
-      relayToken: process.env.RELAY_TOKEN ?? "",
+      relayToken: resolveRelayToken(process.env),
     });
     this.fetchQuotes = deps.fetchStockQuotes ?? ((symbols) => fetchStockQuotesViaRelay(symbols, relay()));
     this.fetchFx = deps.fetchStockFxQuotes ?? ((currencies) => fetchStockFxQuotesViaRelay(currencies, relay()));

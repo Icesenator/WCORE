@@ -16,6 +16,7 @@ opencode.json
 # Graphify local inputs and Obsidian export
 /graphify-input/
 /.generated/
+/generated/
 
 # Obsidian vault (seekstone/obsidian_wcore MCP) + note-folder junctions
 /_vault/

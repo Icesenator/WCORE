@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveCexEncryptionSecret } from "./cex.js";
+import { resolveCexEncryptionSecret } from "../config.js";
 
 test("the configured secret is used whenever it is present", () => {
   assert.equal(
@@ -22,6 +22,17 @@ test("production refuses the public development secret", () => {
   assert.throws(
     () => resolveCexEncryptionSecret({ NODE_ENV: "production" }),
     /CEX_SECRET is required/,
+  );
+});
+
+test("a blank configured secret is treated as missing", () => {
+  assert.throws(
+    () => resolveCexEncryptionSecret({ CEX_SECRET: "   ", JWT_SECRET: "jwt", NODE_ENV: "production" }),
+    /CEX_SECRET is required/,
+  );
+  assert.equal(
+    resolveCexEncryptionSecret({ CEX_SECRET: "   ", JWT_SECRET: "jwt", NODE_ENV: "development" }),
+    "jwt",
   );
 });
 

@@ -13,7 +13,7 @@ const refreshSource = fs.readFileSync(path.join(__dirname, '..', 'src', '16_REFR
 const cacheCoreSource = fs.readFileSync(path.join(__dirname, '..', 'src', '04A_CACHE_CORE.gs'), 'utf8');
 assert.match(autoHealSource, /WCORE_AUTO_HEAL_VERSION\s*=\s*["']4\.16\.36["']/, 'auto-heal version must advance to 4.16.36');
 assert.match(autoHealSource, /WCORE_AUTO_HEAL_TRIGGER_SPEC\s*=\s*["']v4\.16\.35:/, 'auto-heal trigger spec must advance with lease architecture');
-assert.match(initSource, /MINOR:\s*16,\s*\n\s*PATCH:\s*40,/, 'global WCORE version must advance to 4.16.40');
+assert.match(initSource, /MINOR:\s*16,\s*\n\s*PATCH:\s*61,/, 'global WCORE version must advance to 4.16.61');
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);

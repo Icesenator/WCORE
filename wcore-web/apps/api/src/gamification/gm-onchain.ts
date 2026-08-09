@@ -180,6 +180,25 @@ export async function registerGmOnchainRoutes(
         const user = await tx.user.findUnique({ where: { id: req.user!.id } });
         if (!user) throw new Error("user_not_found");
 
+        // Score against the day the GM actually happened on-chain (decoded from
+        // the GmCheckedIn event), not the day the API call lands. A late
+        // submission -- slow receipt indexing, a retry after UTC midnight, an old
+        // tx submitted again -- must neither harvest the current-day general or
+        // per-chain bonus nor stamp lastGmDate with "now". We credit the event
+        // at ITS day instead of rejecting it: a rejected tx would be permanently
+        // burned by the anti-replay unique (chainKey, txHash), so a legitimate
+        // late retry would lose its points for good, and the backfill path
+        // (rebuildChainStreakFromOnchain / /api/gm/backfill) already credits
+        // historical events at their own day -- this keeps the interactive route
+        // consistent with it. Future timestamps (clock skew / miner drift)
+        // clamp to today.
+        const scoringDay = (() => {
+          if (!gmEventCreatedAt) return today;
+          const eventDay = startOfUtcDay(gmEventCreatedAt);
+          return eventDay.getTime() > today.getTime() ? today : eventDay;
+        })();
+        const gmDate = gmEventCreatedAt && gmEventCreatedAt.getTime() < now.getTime() ? gmEventCreatedAt : now;
+
         let generalStreak = user.gmStreak;
         let generalLongest = user.longestStreak;
         let scoreGain = 0;
@@ -188,12 +207,12 @@ export async function registerGmOnchainRoutes(
         // --- General GM streak (once per day across all chains) ---
         if (user.lastGmDate) {
           const lastGmDay = startOfUtcDay(new Date(user.lastGmDate));
-            if (lastGmDay.getTime() >= today.getTime()) {
-              alreadyGeneralGm = true;
-            } else {
-            const yesterday = new Date(today);
-            yesterday.setDate(yesterday.getDate() - 1);
-            if (lastGmDay.getTime() >= yesterday.getTime()) {
+          if (lastGmDay.getTime() >= scoringDay.getTime()) {
+            alreadyGeneralGm = true;
+          } else {
+            const dayBefore = new Date(scoringDay);
+            dayBefore.setDate(dayBefore.getDate() - 1);
+            if (lastGmDay.getTime() >= dayBefore.getTime()) {
               generalStreak = user.gmStreak + 1;
               generalLongest = Math.max(generalStreak, user.longestStreak);
               scoreGain += 20 + (generalStreak > 1 ? generalStreak * 2 : 0);
@@ -210,16 +229,24 @@ export async function registerGmOnchainRoutes(
         }
 
         if (!alreadyGeneralGm) {
-          await tx.user.update({
-            where: { id: user.id },
-            data: { gmStreak: generalStreak, longestStreak: generalLongest, lastGmDate: now, score: { increment: scoreGain } },
+          // Atomic claim of the once-daily general bonus: the conditional
+          // updateMany only matches while lastGmDate is still before the
+          // scoring day, so two concurrent on-chain GMs on different chains
+          // cannot both award it -- the loser matches 0 rows and falls through
+          // to the per-chain-only path (which stays repeatable per chain).
+          // Mirrors the off-chain /api/gm route (gm-routes.ts).
+          const claimed = await tx.user.updateMany({
+            where: { id: user.id, OR: [{ lastGmDate: null }, { lastGmDate: { lt: scoringDay } }] },
+            data: { gmStreak: generalStreak, longestStreak: generalLongest, lastGmDate: gmDate, score: { increment: scoreGain } },
           });
-          await checkStreakBadges(tx, user.id, generalStreak);
-        } else {
-          await tx.user.update({
-            where: { id: user.id },
-            data: { score: { increment: scoreGain } },
-          });
+          if (claimed.count === 1) {
+            await checkStreakBadges(tx, user.id, generalStreak);
+          } else {
+            alreadyGeneralGm = true;
+            generalStreak = user.gmStreak;
+            generalLongest = user.longestStreak;
+            scoreGain = 0;
+          }
         }
 
         // --- Per-chain GM tracking ---

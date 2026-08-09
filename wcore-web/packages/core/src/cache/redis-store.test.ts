@@ -148,6 +148,15 @@ test("incrementWithTtl uses one script call and passes a millisecond TTL", async
   assert.equal(client.evalCalls.length, 2);
 });
 
+test("consume atomically accepts capacity without exceeding the limit", async () => {
+  const client = new FakeRedisClient();
+  client.evalResults.push(1, 0);
+  const cache = createRedisCacheStore(client);
+
+  assert.equal(await cache.consume?.("scan-budget", 3, 5, 60), true);
+  assert.equal(await cache.consume?.("scan-budget", 3, 5, 60), false);
+});
+
 test("Redis isAvailable returns false when PING fails", async () => {
   const client = new FakeRedisClient();
   client.pingError = new Error("offline");

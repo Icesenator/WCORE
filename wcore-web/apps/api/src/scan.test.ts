@@ -1,7 +1,7 @@
 // Run: node --import tsx --test apps/api/src/scan.test.ts
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { buildChainScan, getApiRateLimitBucket, getScanChainLimit, requiresCsrfOriginCheck, validateChains } from "./server-helpers.js";
+import { buildChainScan, getApiRateLimitBucket, getScanChainLimit, isAllowedCsrfOrigin, requiresCsrfOriginCheck, validateChains } from "./server-helpers.js";
 import { resolveScanChainLimit } from "./plugins/scan.js";
 
 // Rate-limit identity helper — mirrors the logic in server.ts
@@ -183,6 +183,33 @@ describe("CSRF route classification", () => {
     assert.equal(requiresCsrfOriginCheck("GET", "/api/gm/random"), false);
     assert.equal(requiresCsrfOriginCheck("POST", "/api/auth/nonce"), false);
     assert.equal(requiresCsrfOriginCheck("POST", "/api/auth/login"), false);
+  });
+});
+
+describe("CSRF origin validation", () => {
+  const allowed = ["https://wcore.xyz", "https://web-production.example:8443"];
+
+  test("accepts only the complete configured origin", () => {
+    assert.equal(isAllowedCsrfOrigin("https://wcore.xyz", undefined, allowed), true);
+    assert.equal(isAllowedCsrfOrigin("http://wcore.xyz", undefined, allowed), false, "scheme is part of the origin");
+    assert.equal(isAllowedCsrfOrigin("https://wcore.xyz:4443", undefined, allowed), false, "port is part of the origin");
+    assert.equal(isAllowedCsrfOrigin("https://web-production.example:8443", undefined, allowed), true);
+    assert.equal(isAllowedCsrfOrigin("https://web-production.example", undefined, allowed), false);
+  });
+
+  test("uses Referer only when Origin is absent", () => {
+    assert.equal(isAllowedCsrfOrigin(undefined, "https://wcore.xyz/wallet?tab=cex", allowed), true);
+    assert.equal(
+      isAllowedCsrfOrigin("https://evil.example", "https://wcore.xyz/wallet", allowed),
+      false,
+      "an allowed Referer must not override an explicit hostile Origin",
+    );
+  });
+
+  test("rejects malformed, null, and credential-bearing origins", () => {
+    assert.equal(isAllowedCsrfOrigin("null", undefined, allowed), false);
+    assert.equal(isAllowedCsrfOrigin("not-a-url", undefined, allowed), false);
+    assert.equal(isAllowedCsrfOrigin("https://user:pass@wcore.xyz", undefined, allowed), false);
   });
 });
 

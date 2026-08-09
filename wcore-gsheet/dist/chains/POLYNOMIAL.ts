@@ -8,8 +8,13 @@ export const POLYNOMIAL: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 63,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
+      "https://polynomial.rpc.thirdweb.com",
+      "https://8008.rpc.thirdweb.com",
       "https://rpc.polynomial.fi",
       "https://rpc-proxy.polynomial.fi",
     ],

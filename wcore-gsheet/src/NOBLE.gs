@@ -1,12 +1,23 @@
 /**
- * NOBLE.gs - Noble (v4.15.51)
+ * NOBLE.gs - Noble (v4.16.42)
  * Phase 3 bulk port from wcore-web chain config.
+ *
+ * v4.16.42 - noble-rest.publicnode.com returns HTTP 404 on every Cosmos module
+ *            route (blocks, bank, staking), so the single configured LCD could not
+ *            serve a scan. Added REST_URLS failover with two endpoints verified on
+ *            the bank and staking routes actually used by the engine. The dead
+ *            endpoint is kept last rather than removed.
  */
 
 var _NOBLE = ChainFactory.createCosmosChain("NOBLE", {
   CACHE_VERSION: 67,
   API: {
-    REST_URL: "https://noble-rest.publicnode.com",
+    REST_URL: "https://noble-api.polkachu.com",
+    REST_URLS: [
+      "https://noble-api.polkachu.com",
+      "https://rest.cosmos.directory/noble",
+      "https://noble-rest.publicnode.com"
+    ],
     RPC_URL: "https://noble-rpc.publicnode.com"
   },
   CHAIN: {

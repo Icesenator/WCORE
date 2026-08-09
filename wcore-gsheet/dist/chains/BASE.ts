@@ -10,10 +10,10 @@ export const BASE: ChainConfig = {
   CACHE_VERSION: 64,
   RPC: {
     ENDPOINTS: [
-      "https://base.drpc.org",
-      "https://base-rpc.publicnode.com",
       "https://mainnet.base.org",
       "https://1rpc.io/base",
+      "https://base.drpc.org",
+      "https://base-rpc.publicnode.com",
     ],
   },
   CHAIN: {

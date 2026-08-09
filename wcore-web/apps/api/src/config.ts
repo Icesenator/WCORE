@@ -52,6 +52,8 @@ export interface ApiConfig {
     anonymousMaxChainsPerScan: number;
     rateLimitScan: number;
     rateLimitScanAnon: number;
+    rateLimitScanChainChecks: number;
+    rateLimitScanChainChecksAnon: number;
     rateLimitAuth: number;
     rateLimitLeaderboard: number;
     rateLimitCatchAll: number;
@@ -68,6 +70,8 @@ export interface ApiConfig {
     jobTtlRunningMs: number;
     jobTtlDoneMs: number;
     jobTtlNoProgressMs: number;
+    maxAsyncJobs: number;
+    maxAsyncJobsPerPrincipal: number;
   };
   portfolioEnrichment: {
     zerion: ZerionEnrichmentConfig;
@@ -104,16 +108,19 @@ function readBoolean(env: ApiEnv, key: string, fallback: boolean): boolean {
   throw new Error(`${key} must be true or false`);
 }
 
-function readPositiveInteger(env: ApiEnv, key: string, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
+function readPositiveInteger(
+  env: ApiEnv,
+  key: string,
+  fallback: number,
+  max = Number.MAX_SAFE_INTEGER,
+): number {
   const raw = env[key];
   if (raw == null) return fallback;
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${key} must be a positive safe integer`);
   }
-  if (value > max) {
-    throw new Error(`${key} must be at most ${max}`);
-  }
+  if (value > max) throw new Error(`${key} must be at most ${max}`);
   return value;
 }
 
@@ -218,6 +225,12 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       anonymousMaxChainsPerScan: readNumber(env, "ANONYMOUS_MAX_CHAINS_PER_SCAN", 20, { min: 1 }),
       rateLimitScan: readNumber(env, "RATE_LIMIT_SCAN", 2000, { min: 1 }),
       rateLimitScanAnon: readNumber(env, "RATE_LIMIT_SCAN_ANON", 100, { min: 1 }),
+      // Budget in chain-checks per minute, the unit that actually drives outbound RPC
+      // and pricing work. The request-count limits above cannot bound it, since one
+      // request may span 120 chains and a batch of wallets. Sized well above a full
+      // multi-wallet refresh and far below what the request limits alone would allow.
+      rateLimitScanChainChecks: readNumber(env, "RATE_LIMIT_SCAN_CHAIN_CHECKS", 5000, { min: 1 }),
+      rateLimitScanChainChecksAnon: readNumber(env, "RATE_LIMIT_SCAN_CHAIN_CHECKS_ANON", 1000, { min: 1 }),
       rateLimitAuth: readNumber(env, "RATE_LIMIT_AUTH", 30, { min: 1 }),
       rateLimitLeaderboard: readNumber(env, "RATE_LIMIT_LEADERBOARD", 30, { min: 1 }),
       rateLimitCatchAll: readNumber(env, "RATE_LIMIT_CATCH_ALL", 120, { min: 1 }),
@@ -234,6 +247,12 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       jobTtlRunningMs: readNumber(env, "JOB_TTL_RUNNING_MS", 30 * 60 * 1000, { min: 1 }),
       jobTtlDoneMs: readNumber(env, "JOB_TTL_DONE_MS", 30 * 60 * 1000, { min: 1 }),
       jobTtlNoProgressMs: 10 * 60 * 1000,
+    // Each job pins the scan results of every chain it covers, so the store has to be
+    // bounded. A wide scan in the browser runs SCAN_CONCURRENCY / CHAIN_BATCH_SIZE jobs
+    // at once (50/5 = 10 today), so the per-caller allowance keeps room for several
+    // tabs before refusing anything legitimate.
+    maxAsyncJobs: readNumber(env, "SCAN_MAX_ASYNC_JOBS", 200, { min: 1 }),
+    maxAsyncJobsPerPrincipal: readNumber(env, "SCAN_MAX_ASYNC_JOBS_PER_PRINCIPAL", 32, { min: 1 }),
     },
     portfolioEnrichment: {
       zerion: {

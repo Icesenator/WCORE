@@ -1,0 +1,73 @@
+name: Chains
+
+# Le workflow CI principal ignore volontairement wcore-gsheet (paths-ignore) pour ne pas
+# relancer toute la chaine web a chaque synchronisation Apps Script. Consequence observee
+# le 2026-08-02 : les configs de chaines, qui pilotent le scan des 182 chaines en
+# production, n'etaient couvertes par AUCUN test automatique. Quatre correctifs deja
+# commites dans wcore-gsheet/src (RPC morts BSC et Syndicate, MAX_LOG_RANGE BSC et Monad,
+# version TON) n'avaient jamais ete extraits vers dist/, et la production tournait donc
+# sur des configs perimees sans qu'aucun signal ne le revele.
+#
+# Ce workflow est volontairement separe et ne declenche que sur les chemins concernes :
+# il reste rapide (aucune dependance a installer, les outils n'utilisent que des modules
+# natifs Node) tout en fermant cette classe de bug.
+
+on:
+  pull_request:
+    paths:
+      - 'wcore-gsheet/src/**'
+      - 'wcore-gsheet/dist/**'
+      - 'wcore-gsheet/tools/**'
+      - 'wcore-gsheet/tests/**'
+      - 'wcore-gsheet/package.json'
+      - 'wcore-web/packages/core/src/chains/**'
+      - '.github/workflows/chains.yml'
+  push:
+    branches: [master, main]
+    paths:
+      - 'wcore-gsheet/src/**'
+      - 'wcore-gsheet/dist/**'
+      - 'wcore-gsheet/tools/**'
+      - 'wcore-gsheet/tests/**'
+      - 'wcore-gsheet/package.json'
+      - 'wcore-web/packages/core/src/chains/**'
+      - '.github/workflows/chains.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: wcore-gsheet
+
+jobs:
+  chains:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Garde-fou principal : dist/ est le package @wcore/chains reellement consomme par
+      # l'API et le web (packages/core/src/chains/index.ts reexporte @wcore/chains et ne
+      # contient aucune chaine locale). Une modification de src/*.gs qui n'est pas extraite
+      # ne change donc RIEN en production, silencieusement.
+      - name: dist/ doit correspondre a src/ (npm run build:chains)
+        run: |
+          npm run build:chains
+          if ! git diff --exit-code -- dist; then
+            echo ""
+            echo "::error::dist/ n'est pas a jour par rapport a src/*.gs."
+            echo "Lancer 'npm run build:chains' dans wcore-gsheet et committer dist/ avec la modification."
+            exit 1
+          fi
+
+      # Verifie que les .gs portant le marqueur 'Phase 3 port from wcore-web chain config'
+      # restent identiques a leur copie wcore-web/packages/core/src/chains/*.ts.
+      - name: Ports Phase 3 coherents
+        run: npm run test:phase3-chains
+
+      # Inclut validate:static (fonctions globales GAS) + tous les tests de garde existants.
+      - name: Validation statique et tests de garde
+        run: npm test

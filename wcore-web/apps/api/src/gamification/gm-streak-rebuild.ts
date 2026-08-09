@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@wcore/db";
 import { canonicalChainKey } from "@wcore/shared";
+import { safeFetch } from "../lib/safe-http.js";
 
 export interface RebuildDeps {
   prisma: PrismaClient;
@@ -55,9 +56,10 @@ async function tryGetLogs(
 ): Promise<{ result?: GmLog[]; error?: { message?: string } } | null> {
   for (const rpc of rpcs) {
     try {
-      const u = new URL(rpc);
-      if (u.protocol !== "http:" && u.protocol !== "https:") continue;
-      const res = await fetch(rpc, {
+      // Only the protocol was checked here, so a chain entry resolving to a private
+      // address was reachable. safeFetch applies the full guard and throws, which the
+      // catch below turns into "try the next endpoint".
+      const res = await safeFetch(rpc, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

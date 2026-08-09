@@ -187,6 +187,11 @@ describe("CSRF route classification", () => {
 });
 
 describe("API rate-limit bucket classification", () => {
+  test("uses a dedicated bucket for async scan polling", () => {
+    assert.equal(getApiRateLimitBucket("GET", "/api/scan/async/deadbeef"), "scan_poll");
+    assert.equal(getApiRateLimitBucket("POST", "/api/scan/async"), "scan");
+  });
+
   test("applies gm_read rate limit to public GM reads", () => {
     assert.equal(getApiRateLimitBucket("GET", "/api/gm/random"), "gm_read");
     assert.equal(getApiRateLimitBucket("GET", "/api/gm/contracts"), "gm_read");

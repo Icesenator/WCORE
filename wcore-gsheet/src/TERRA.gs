@@ -36,9 +36,9 @@ var _TERRA = ChainFactory.createCosmosChain("TERRA", {
 });
 
 // Main functions
-function GET_WALLET_ASSETS_TERRA(address, forceFull){return _TERRA.getWalletAssets(address, forceFull);}
+function GET_WALLET_ASSETS_TERRA(a,r,t,f,g){return _TERRA.getWalletAssets(a,r,t,f,g);}
 function CACHED_WALLET_ASSETS_TERRA(address){return _TERRA.getCachedWalletAssets(address);}
-function TERRA_REFRESH_STATUS(address, forceFull){return _TERRA.getRefreshStatus(address, forceFull);}
+function TERRA_REFRESH_STATUS(a,r,t,f,g){return _TERRA.getRefreshStatus(a,r,t,f,g);}
 function TERRA_STATS(address, trigger){return _TERRA.getStats(address, trigger);}
 
 // Diagnostic stubs (use centralized CosmosDiagStubs)

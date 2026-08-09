@@ -4,7 +4,8 @@
  */
 
 var _DUCKCHAIN = ChainFactory.createEvmChain("DUCKCHAIN", {
- CACHE_VERSION: 63,
+ CACHE_VERSION: 64,
+ FLAGS: { DISABLE_CHAIN: true },
  RPC: { ENDPOINTS: ["https://rpc.duckchain.io", "https://rpc-hk.duckchain.io"] },
  CHAIN: {
  NAME: "DuckChain",

@@ -4,6 +4,16 @@ on:
   pull_request:
   push:
     branches: [master, main]
+    # Tous les jobs s'executent dans wcore-web (voir defaults.run ci-dessous).
+    # Les synchronisations du code Apps Script ne touchent rien de teste ici :
+    # les declencher ne produirait qu'un echec sans rapport avec la modification.
+    paths-ignore:
+      - 'wcore-gsheet/**'
+      - 'docs/**'
+      - '**/*.md'
+
+permissions:
+  contents: read
 
 defaults:
   run:
@@ -12,15 +22,12 @@ defaults:
 jobs:
   typecheck-test-build:
     runs-on: ubuntu-latest
-    env:
-      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
-      TEST_REDIS_URL: ${{ secrets.TEST_REDIS_URL }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.34.4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -32,25 +39,138 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm --filter @wcore/core test
+      - run: pnpm --filter @wcore/shared test
       - run: pnpm --filter @wcore/web test
-      # API integration tests require dedicated Railway test DB/Redis instances.
-      - name: API integration tests (gated on Railway test secrets)
-        if: ${{ env.TEST_DATABASE_URL != '' && env.TEST_REDIS_URL != '' }}
-        env:
-          ALLOW_REMOTE_TEST_DB: "1"
-        run: pnpm --filter @wcore/api test
       - run: pnpm build
+
+  api-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wcore
+          POSTGRES_PASSWORD: wcore
+          POSTGRES_DB: wcore_api_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wcore"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://wcore:wcore@localhost:5432/wcore_api_test?schema=public
+      TEST_DATABASE_URL: postgresql://wcore:wcore@localhost:5432/wcore_api_test?schema=public
+      TEST_REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-api-integration-secret-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: wcore-web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wcore/db db:generate
+      - name: Apply migrations to the isolated API test database
+        run: pnpm --filter @wcore/db exec prisma migrate deploy
+      - name: API tests against isolated PostgreSQL and Redis
+        run: pnpm --filter @wcore/api test
+
+  # The schema maps tables that no migration created, so `migrate deploy` used to fail
+  # on an empty database while production kept working (it was created with `db push`
+  # and baselined). Staging from scratch and disaster recovery were both broken without
+  # any signal. This job rebuilds the whole history on a blank PostgreSQL and then
+  # asserts the result matches the schema exactly.
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wcore
+          POSTGRES_PASSWORD: wcore
+          POSTGRES_DB: wcore_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wcore"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://wcore:wcore@localhost:5432/wcore_migrations?schema=public
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: wcore-web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @wcore/db db:generate
+
+      - name: Apply every migration to an empty database
+        run: pnpm --filter @wcore/db exec prisma migrate deploy
+
+      - name: Exercise durable scan queue against PostgreSQL
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-only-scan-queue-secret-at-least-32-characters
+        run: pnpm --filter @wcore/api exec tsx --test src/plugins/scan-job.postgres.test.ts
+
+      # The assertion is deliberately one-directional. Anything the schema needs but the
+      # rebuilt database lacks is a bug: the application would break on a fresh database.
+      # The reverse is tolerated, because the diff always reports two things that cannot
+      # be removed without a destructive production change: columns left over from removed
+      # features (Stripe), and a partial unique index on linked_wallets that the Prisma
+      # schema language cannot express and that is an intentional security control.
+      - name: Rebuilt database must contain everything the schema needs
+        run: |
+          pnpm --filter @wcore/db exec prisma migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --script > /tmp/drift.sql
+          echo "--- diff from the rebuilt database towards schema.prisma ---"
+          cat /tmp/drift.sql
+          unexpected=$(grep -vE '^\s*(--|/\*|\*|$)' /tmp/drift.sql \
+            | grep -vE '^\s*(DROP INDEX|DROP COLUMN|ALTER TABLE "[^"]+" DROP COLUMN)' || true)
+          if [ -n "$unexpected" ]; then
+            echo "$unexpected"
+            # Inlined in the annotation so the failure is readable without log access.
+            encoded=$(printf '%s' "$unexpected" | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error::the migration history does not create everything schema.prisma declares:%0A$encoded"
+            exit 1
+          fi
 
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.34.4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -63,18 +183,19 @@ jobs:
         run: pnpm audit --prod --audit-level=high
 
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: ${{ github.workspace }}/wcore-web/.gitleaks.toml
 
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.34.4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -93,7 +214,7 @@ jobs:
       - name: E2E tests (critical flows)
         run: pnpm --dir apps/web exec playwright test --config=playwright.ci.config.ts e2e/critical-flows.spec.ts
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report

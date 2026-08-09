@@ -34,7 +34,9 @@ export function validateCustomToken(c: unknown): c is string {
   return false;
 }
 
-export type ApiRateLimitBucket = "scan" | "auth" | "leaderboard" | "gm_read" | "gm" | "catch_all" | null;
+export type ApiRateLimitBucket = "scan" | "scan_poll" | "auth" | "leaderboard" | "gm_read" | "gm" | "catch_all" | null;
+
+export const SCAN_POLL_RATE_LIMIT = 600;
 
 export function requiresCsrfOriginCheck(method: string, path: string): boolean {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) return false;
@@ -48,7 +50,7 @@ export function requiresCsrfOriginCheck(method: string, path: string): boolean {
 
 export function getApiRateLimitBucket(method: string, path: string): ApiRateLimitBucket {
   const cleanPath = path.split("?")[0] ?? "";
-  if (cleanPath.startsWith("/api/scan/async/") && method.toUpperCase() === "GET") return null;
+  if (cleanPath.startsWith("/api/scan/async/") && method.toUpperCase() === "GET") return "scan_poll";
   if (cleanPath.startsWith("/api/scan")) return "scan";
   if (cleanPath.startsWith("/api/auth") || cleanPath === "/api/wallets/nonce") return "auth";
   if (cleanPath.startsWith("/api/leaderboard")) return "leaderboard";
@@ -192,6 +194,39 @@ async function incrRateLimit(
   return false;
 }
 
+/**
+ * Cost of a scan request, expressed in chain-checks rather than in requests.
+ *
+ * The request-count limit alone cannot bound this workload: one request may cover
+ * up to MAX_CHAINS_PER_SCAN chains across a batch of wallets, and each pair triggers
+ * RPC, discovery and pricing. Counting every request as 1 let a single authenticated
+ * account issue orders of magnitude more outbound work than the limit suggests.
+ */
+export function scanRequestCost(chainCount: number, walletCount = 1): number {
+  const chains = Number.isFinite(chainCount) ? Math.max(0, Math.floor(chainCount)) : 0;
+  const wallets = Number.isFinite(walletCount) ? Math.max(1, Math.floor(walletCount)) : 1;
+  return Math.max(1, chains * wallets);
+}
+
+/**
+ * Consume `cost` units from a per-minute budget. Returns false once the budget is
+ * exhausted, without consuming further, so a single oversized request cannot be
+ * rejected repeatedly while still burning the budget.
+ */
+export async function consumeScanBudget(
+  sharedCache: CacheStore,
+  key: string,
+  cost: number,
+  limit: number,
+): Promise<boolean> {
+  if (typeof sharedCache.consume !== "function") return false;
+  try {
+    return await sharedCache.consume(key, cost, limit, 60);
+  } catch {
+    return false;
+  }
+}
+
 export async function applyPostAuthRateLimit(
   req: FastifyRequest,
   reply: FastifyReply,
@@ -204,7 +239,8 @@ export async function applyPostAuthRateLimit(
   const isNoncePath = path === "/api/auth/nonce" || path === "/api/wallets/nonce";
   const nonceAddr = isNoncePath ? deps.nonceTargetAddress(req) : null;
   const isAnonymous = !req.user;
-  const limit = bucket === "scan" ? (isAnonymous ? deps.rateLimits.scanAnon : deps.rateLimits.scan)
+  const limit = bucket === "scan_poll" ? SCAN_POLL_RATE_LIMIT
+    : bucket === "scan" ? (isAnonymous ? deps.rateLimits.scanAnon : deps.rateLimits.scan)
     : bucket === "leaderboard" ? deps.rateLimits.leaderboard
       : bucket === "catch_all" ? deps.rateLimits.catchAll
         : bucket === "gm_read" ? (isAnonymous ? deps.rateLimits.gmReadAnon : deps.rateLimits.gmRead)
@@ -213,7 +249,7 @@ export async function applyPostAuthRateLimit(
   const suffix = nonceAddr ? `${id}|${nonceAddr}` : id;
   const key = `rate_limit:${bucket}:${suffix}`;
   if (!await incrRateLimit(deps.sharedCache, key, limit)) {
-    deps.metrics.recordRateLimit(bucket === "gm_read" ? "gm" : bucket);
+    deps.metrics.recordRateLimit(bucket === "gm_read" ? "gm" : bucket === "scan_poll" ? "scan" : bucket);
     const message = bucket === "scan" ? "Too many scans. Wait 1 minute." : "Too many requests.";
     return reply.code(429).send({ error: "rate_limited", message });
   }
@@ -228,4 +264,103 @@ export function registerPostAuthRateLimit(app: FastifyInstance, deps: PostAuthRa
   app.addHook("onRequest", async (req, reply) => {
     await applyPostAuthRateLimit(req, reply, deps);
   });
+}
+
+/**
+ * Chaines dont plus aucun endpoint RPC ne repond.
+ *
+ * Une chaine morte ne declenche rien aujourd'hui: le scan echoue, le cache est
+ * preserve, et personne ne le voit. "Ledger - Degen" est reste ainsi du
+ * 2026-08-04 au 2026-08-06 � trois RPC hors service � jusqu'a ce qu'un humain
+ * remarque une cellule figee.
+ *
+ * Critere volontairement strict, pour que l'alerte garde sa valeur de signal:
+ *  - au moins `minScans` scans observes, sinon un demarrage suffirait a alerter;
+ *  - au moins une erreur RPC par scan, donc un echec systematique et non un
+ *    endpoint lent de temps en temps;
+ *  - aucun token trouve, ce qui distingue une chaine injoignable d'une chaine
+ *    saine dont le wallet est simplement vide (celle-ci ne produit aucune
+ *    erreur RPC).
+ */
+export interface ChainScanMetrics {
+  scans: number;
+  tokensFound: number;
+  rpcErrors: number;
+  unreachableScans?: number;
+}
+
+export function isUnreachableScan(messages: string[]): boolean {
+  return messages.some((message) => {
+    const text = String(message ?? "").toLowerCase();
+    return text.includes("unavailable on every endpoint")
+      || text.includes("all rpc endpoints failed")
+      || text.includes("failed on all rpc");
+  });
+}
+
+export function findUnreachableChains(
+  byChain: Record<string, ChainScanMetrics>,
+  openCircuitChains: string[] = [],
+  minScans = 3,
+): string[] {
+  const out = new Set<string>();
+  for (const [chain, m] of Object.entries(byChain ?? {})) {
+    if (!m || m.scans < minScans) continue;
+    // Les donnees en cache peuvent contenir des tokens alors que plus aucun RPC
+    // ne repond. On se fonde donc sur le marqueur strict observe par scan, pas
+    // sur le contenu preserve. Le fallback garde la compatibilite des snapshots
+    // produits avant l'ajout de ce compteur.
+    if (m.unreachableScans !== undefined) {
+      if (m.unreachableScans < minScans || m.unreachableScans !== m.scans) continue;
+    } else {
+      if (m.tokensFound > 0 || m.rpcErrors < m.scans) continue;
+    }
+    out.add(chain.toUpperCase());
+  }
+  // Un circuit ouvert est le signal le plus fort et le plus fiable: il s'ouvre
+  // apres des echecs repetes, puis court-circuite les appels suivants. Ces
+  // scans-la deviennent instantanes et ne produisent plus d'erreur RPC, si bien
+  // que le critere ci-dessus cesse justement de voir la chaine au moment ou
+  // elle est le plus surement morte. Mesure du 2026-08-06 sur DEGEN: scans a
+  // 1064 ms puis 200 ms et 194 ms, plus aucune erreur comptee.
+  for (const chain of openCircuitChains ?? []) {
+    if (chain) out.add(String(chain).toUpperCase());
+  }
+  return [...out].sort();
+}
+/**
+ * Classe une erreur de scan dans UNE seule categorie.
+ *
+ * La classification vivait en double dans scan.ts, avec des regles differentes
+ * entre le comptage et l'enregistrement: `chain_timeout` etait reconnu a
+ * l'enregistrement mais pas au comptage, et une erreur contenant a la fois
+ * "price" et "fetch" etait comptee dans deux categories, rendant
+ * `otherErrs = total - rpc - price - balCache` negatif.
+ *
+ * Le test `includes("RPC")` etait par ailleurs sensible a la casse: un echec
+ * d'endpoint comme "https://rpc.degen.tips: HTTP 429" ne contient pas "RPC" en
+ * majuscules et etait donc compte en "other". Les erreurs d'endpoint, qui sont
+ * les plus frequentes, echappaient ainsi entierement au compteur RPC � et donc
+ * aux tableaux de bord censes les surveiller.
+ */
+export type ScanErrorKind = "balCache" | "timeout" | "pricing" | "rpc" | "other";
+
+export function classifyScanError(message: string): ScanErrorKind {
+  const raw = String(message ?? "");
+  const text = raw.toLowerCase();
+  if (text.includes("bal_cache")) return "balCache";
+  if (text.includes("chain_timeout")) return "timeout";
+  // Le pricing passe avant le RPC: "price: NO_PRICE" est un defaut de
+  // valorisation, meme quand le message mentionne un appel reseau.
+  if (text.includes("no_price") || text.includes("absurd_price") || text.includes("price")) return "pricing";
+  if (
+    text.includes("rpc")
+    || text.includes("consensus")
+    || text.includes("fetch")
+    || text.includes("endpoint")
+    || text.includes("http://")
+    || text.includes("https://")
+    || /\bhttp\s+\d{3}\b/.test(text)
+  ) return "rpc";
+  return "other";
 }

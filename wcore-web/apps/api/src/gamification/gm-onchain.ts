@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@wcore/db";
-import { assertPublicHttp } from "../lib/safe-http.js";
+import { safeFetch } from "../lib/safe-http.js";
 import { canonicalChainKey, getFactory } from "@wcore/shared";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
@@ -86,10 +86,9 @@ export async function registerGmOnchainRoutes(
     };
     const fetchReceipts = () => rpcs.map(async (rpc) => {
       try {
-        assertPublicHttp(rpc);
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 8000);
-        const resp = await fetch(rpc, {
+        const resp = await safeFetch(rpc, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(receiptRequest),

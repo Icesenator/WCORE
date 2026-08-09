@@ -205,7 +205,7 @@ var SvmRpcClient = {
     }
     var votes = {};
     var errors = [];
-    var bestValue = null, bestRpc = null, maxCount = 0;
+    var bestValue = null, bestRpc = null, maxCount = 0, successfulVotes = 0;
     try {
       var responses = UrlFetchApp.fetchAll(requests);
       for (var r = 0; r < responses.length; r++) {
@@ -213,6 +213,7 @@ var SvmRpcClient = {
           var json = JSON.parse(responses[r].getContentText());
           if (json && !json.error && json.result && json.result.value != null) {
             var val = String(json.result.value);
+            successfulVotes++;
             votes[val] = (votes[val] || 0) + 1;
             if (votes[val] > maxCount) { maxCount = votes[val]; bestValue = val; bestRpc = rpcUrls[r]; }
           } else {
@@ -225,8 +226,24 @@ var SvmRpcClient = {
     } catch (eFetchAll) {
       errors.push({ error: "fetchAll error: " + String(eFetchAll.message || eFetchAll).substring(0, 80) });
     }
+    // v4.16.45: require the WCORE strict majority (votes * 2 > total) over the RPCs that
+    // actually answered. This function was named "consensus" but returned the first value
+    // seen with the highest count, so three endpoints disagreeing published a 1/3 minority
+    // as if it were agreed. A stale endpoint could therefore overwrite a correct balance.
+    if (bestValue !== null && maxCount * 2 > successfulVotes) {
+      return { result: { value: Number(bestValue) }, rpc: bestRpc, attempts: rpcUrls.length, consensus: maxCount + "/" + successfulVotes, errors: errors };
+    }
     if (bestValue !== null) {
-      return { result: { value: Number(bestValue) }, rpc: bestRpc, attempts: rpcUrls.length, consensus: maxCount + "/" + rpcUrls.length, errors: errors };
+      // No majority: report failure so the caller keeps the cached balance rather than
+      // overwriting it with a minority reading. A tie is not a consensus.
+      return {
+        error: "No balance consensus",
+        noConsensus: true,
+        attempts: rpcUrls.length,
+        consensus: maxCount + "/" + successfulVotes,
+        errors: errors,
+        lastError: "no consensus: best " + maxCount + "/" + successfulVotes,
+      };
     }
     return { error: "All RPCs failed", attempts: rpcUrls.length, errors: errors, lastError: errors.length > 0 ? errors[errors.length - 1].error : "unknown" };
   },
@@ -877,6 +894,8 @@ var SvmEngine = {
     // v4.15.122: Load cache BEFORE web scan so the I1 guard (J1 >= B1) can
     // prevent unnecessary rescans (web scan was returning early, bypassing the guard).
     var _httpBefore = BaseEngine.httpSnapshot();
+    var svmChainDisabled = BaseEngine.chainDisabledStatus ? BaseEngine.chainDisabledStatus(_svmWalletKey(addr), config) : "";
+    if (svmChainDisabled) return svmChainDisabled;
     try {
       CacheManager.init();
       var svmCacheBefore = WalletCache.load(_svmWalletKey(addr), null, config);

@@ -1,5 +1,6 @@
 import { EvmAddress, SvmAddress } from "@wcore/shared";
 import { z } from "zod";
+
 import type { ZerionEnrichmentConfig } from "../../config.js";
 import { toWcoreChain } from "./chain-map.js";
 import { canonicalProtocol } from "./protocol-aliases.js";
@@ -7,7 +8,6 @@ import type {
   NormalizedPositionType,
   NormalizedProviderPosition,
   PortfolioEnrichmentProvider,
-  ProviderPortfolioSnapshot,
   ProviderRequestContext,
   ProviderWalletHint,
 } from "./types.js";
@@ -73,6 +73,7 @@ const envelopeSchema = z.object({
 }).strict();
 
 type ZerionPosition = z.infer<typeof positionSchema>;
+type ZerionEnvelope = z.infer<typeof envelopeSchema>;
 
 export type ZerionErrorKind =
   | "network"
@@ -122,9 +123,7 @@ function validContract(chain: string, value: string): string | undefined {
 function parseRetryAfter(value: string | null, now: number): number | undefined {
   if (!value) return undefined;
   const seconds = Number(value);
-  const delay = Number.isFinite(seconds) && seconds >= 0
-    ? seconds * 1000
-    : Date.parse(value) - now;
+  const delay = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : Date.parse(value) - now;
   if (!Number.isFinite(delay) || delay < 0) return undefined;
   return Math.min(Math.round(delay), MAX_RETRY_AFTER_MS);
 }
@@ -152,7 +151,6 @@ async function readBoundedBody(
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -183,8 +181,9 @@ function parseJson(body: Uint8Array): unknown {
 }
 
 function getPositionContract(position: ZerionPosition, chain: string): string | undefined {
+  const providerChain = position.relationships.chain.data.id.trim().toLowerCase();
   const implementation = position.attributes.fungible_info?.implementations.find(
-    (candidate) => candidate.chain_id.trim().toLowerCase() === position.relationships.chain.data.id.trim().toLowerCase(),
+    (candidate) => candidate.chain_id.trim().toLowerCase() === providerChain,
   );
   return implementation ? validContract(chain, implementation.address) : undefined;
 }
@@ -211,15 +210,17 @@ function getComplexType(position: ZerionPosition): NormalizedPositionType | unde
   }
 }
 
-function adaptPosition(position: ZerionPosition): {
+interface AdaptedPosition {
   hint?: ProviderWalletHint;
   normalized?: NormalizedProviderPosition;
-} {
+}
+
+function adaptPosition(position: ZerionPosition): AdaptedPosition {
   const attributes = position.attributes;
   if (!attributes.flags.displayable || attributes.flags.is_trash) return {};
-
   const chain = toWcoreChain(position.relationships.chain.data.id);
   if (!chain) return {};
+
   const quantity = finiteNumber(attributes.quantity.float);
   const value = finiteNumber(attributes.value);
   const price = attributes.price === null ? null : finiteNumber(attributes.price);
@@ -232,13 +233,14 @@ function adaptPosition(position: ZerionPosition): {
     if (!fungible?.flags.verified || !contract) return {};
     return { hint: { chain, contract } };
   }
+  if (chain === "SOLANA" || !fungible?.flags.verified) return {};
 
-  if (chain === "SOLANA") return {};
-  if (!fungible?.flags.verified) return {};
+  const providerChain = position.relationships.chain.data.id.trim().toLowerCase();
   const hasChainImplementation = fungible.implementations.some(
-    (candidate) => candidate.chain_id.trim().toLowerCase() === position.relationships.chain.data.id.trim().toLowerCase(),
+    (candidate) => candidate.chain_id.trim().toLowerCase() === providerChain,
   );
   if (hasChainImplementation && !contract) return {};
+
   const metadata = attributes.protocol_metadata;
   const dappId = position.relationships.dapp.data?.id;
   const type = getComplexType(position);
@@ -246,23 +248,15 @@ function adaptPosition(position: ZerionPosition): {
   const protocol = canonicalProtocol("zerion", dappId);
   if (!protocol) return {};
 
-  const poolAddress = metadata.pool_address === null
-    ? undefined
-    : validContract(chain, metadata.pool_address);
-  const receiptContract = metadata.receipt_contract === null
-    ? undefined
-    : validContract(chain, metadata.receipt_contract);
-  const underlyingContract = metadata.underlying_contract === null
-    ? undefined
-    : validContract(chain, metadata.underlying_contract);
+  const poolAddress = metadata.pool_address === null ? undefined : validContract(chain, metadata.pool_address);
+  const receiptContract = metadata.receipt_contract === null ? undefined : validContract(chain, metadata.receipt_contract);
+  const underlyingContract = metadata.underlying_contract === null ? undefined : validContract(chain, metadata.underlying_contract);
   if ((metadata.pool_address && !poolAddress)
     || (metadata.receipt_contract && !receiptContract)
     || (metadata.underlying_contract && !underlyingContract)) return {};
 
   const sign = attributes.position_type === "loan" ? -1 : 1;
-  const liquidity: NormalizedProviderPosition["liquidity"] = attributes.position_type === "locked"
-    ? "locked"
-    : metadata.liquidity;
+  const liquidity = attributes.position_type === "locked" ? "locked" : metadata.liquidity;
   return {
     normalized: {
       provider: "zerion",
@@ -284,16 +278,11 @@ function adaptPosition(position: ZerionPosition): {
   };
 }
 
-function adaptEnvelope(
-  parsed: z.infer<typeof envelopeSchema>,
-  context: ProviderRequestContext,
-  observedAt: string,
-): ProviderPortfolioSnapshot {
+function adaptEnvelope(parsed: ZerionEnvelope, context: ProviderRequestContext, observedAt: string) {
   const adaptedPositions = parsed.data.map(adaptPosition);
   const invalidLpGroups = new Set<string>();
   for (let index = 0; index < parsed.data.length; index++) {
-    const position = parsed.data[index]!;
-    const groupId = position.attributes.group_id;
+    const groupId = parsed.data[index]!.attributes.group_id;
     if (groupId && !adaptedPositions[index]?.normalized) invalidLpGroups.add(groupId);
   }
 
@@ -306,12 +295,13 @@ function adaptEnvelope(
     if (adapted.hint) walletHints.push(adapted.hint);
     if (adapted.normalized) positions.push(adapted.normalized);
   }
+
   if (positions.length > context.maxPositions) throw new ZerionProviderError("oversize");
   const derivedPositionValueEur = positions.reduce((sum, position) => sum + position.valueEur, 0);
   if (!Number.isFinite(derivedPositionValueEur)) throw new ZerionProviderError("malformed");
 
   return {
-    provider: "zerion",
+    provider: "zerion" as const,
     walletHints,
     positions,
     derivedPositionValueEur,
@@ -329,7 +319,6 @@ function adaptEnvelope(
 export function createZerionProvider(options: CreateZerionProviderOptions): PortfolioEnrichmentProvider {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
-
   return {
     id: "zerion",
     capabilities: {
@@ -338,9 +327,8 @@ export function createZerionProvider(options: CreateZerionProviderOptions): Port
       maxRequests: 1,
     },
     supports: isSupportedAddress,
-    async load(context): Promise<ProviderPortfolioSnapshot> {
+    async load(context) {
       if (!isSupportedAddress(context.address)) throw new ZerionProviderError("malformed-request");
-
       const abortController = new AbortController();
       let timedOut = false;
       const timer = setTimeout(() => {

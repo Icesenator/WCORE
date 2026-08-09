@@ -21,6 +21,11 @@ export interface CacheStore {
    */
   incr?(key: string, ttlSec: number): Promise<number>;
   /**
+   * Atomically consume weighted capacity without exceeding `limit`. The first
+   * successful consume sets the key expiry; later consumes preserve it.
+   */
+  consume?(key: string, cost: number, limit: number, ttlSec: number): Promise<boolean>;
+  /**
    * Buffer multiple set operations and flush them in a single round-trip.
    * Reduces Redis latency for batch cache writes (e.g. 50k token prices).
    * In-memory implementation flushes immediately. Redis uses pipeline().
@@ -29,21 +34,15 @@ export interface CacheStore {
   pipeline?(ops: Array<{ key: string; value: unknown; ttlMs?: number }>): Promise<number>;
 }
 
-export interface AtomicCacheStore extends CacheStore {
-  readonly backend: "redis";
-  isAvailable(): Promise<boolean>;
-  compareAndDelete<T>(key: string, expected: T): Promise<boolean>;
-  compareAndSet<T>(key: string, expected: T | undefined, next: T, ttlMs?: number): Promise<boolean>;
-  incrementWithTtl(key: string, ttlMs: number): Promise<number>;
+export type CacheBackend = "memory" | "redis";
+
+export interface BackendAwareCacheStore extends CacheStore {
+  readonly backend: CacheBackend;
 }
 
-export function isAtomicCacheStore(store: CacheStore): store is AtomicCacheStore {
-  const candidate = store as Partial<AtomicCacheStore>;
-  return candidate.backend === "redis"
-    && typeof candidate.isAvailable === "function"
-    && typeof candidate.compareAndDelete === "function"
-    && typeof candidate.compareAndSet === "function"
-    && typeof candidate.incrementWithTtl === "function";
+export function isAtomicCacheStore(store: CacheStore): store is BackendAwareCacheStore {
+  const backend = (store as Partial<BackendAwareCacheStore>).backend;
+  return backend === "memory" || backend === "redis";
 }
 
 export const DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — cursor + token list persist across restarts

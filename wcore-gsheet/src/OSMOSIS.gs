@@ -31,9 +31,9 @@ var _OSMOSIS = ChainFactory.createCosmosChain("OSMOSIS", {
 });
 
 // Main functions
-function GET_WALLET_ASSETS_OSMOSIS(address, forceFull){return _OSMOSIS.getWalletAssets(address, forceFull);}
+function GET_WALLET_ASSETS_OSMOSIS(a,r,t,f,g){return _OSMOSIS.getWalletAssets(a,r,t,f,g);}
 function CACHED_WALLET_ASSETS_OSMOSIS(address){return _OSMOSIS.getCachedWalletAssets(address);}
-function OSMOSIS_REFRESH_STATUS(address, forceFull){return _OSMOSIS.getRefreshStatus(address, forceFull);}
+function OSMOSIS_REFRESH_STATUS(a,r,t,f,g){return _OSMOSIS.getRefreshStatus(a,r,t,f,g);}
 function OSMOSIS_STATS(address, trigger){return _OSMOSIS.getStats(address, trigger);}
 
 // Diagnostic stubs (use centralized CosmosDiagStubs)

@@ -482,26 +482,26 @@ function DIAG_WATCHDOG() {
  }
  
  // ============================================================
- // 2. Verifier la feuille "Recap Chain"
+ // 2. Verifier la feuille "Recap Portfolio"
  // ============================================================
  try {
  var ss = SpreadsheetApp.getActiveSpreadsheet();
  var recap = ss.getSheetByName("Recap Portfolio");
  
  if (!recap) {
- out.push(["2. Feuille Recap Chain", "aÂÅ’ ABSENTE", "La feuille 'Recap Chain' n'existe pas", "Creer une feuille 'Recap Chain' avec les noms des feuilles en colonne A"]);
+ out.push(["2. Feuille Recap Portfolio", "aÂÅ’ ABSENTE", "La feuille 'Recap Portfolio' n'existe pas", "Creer une feuille 'Recap Portfolio' avec les noms des feuilles en colonne A"]);
  hasIssue = true;
  } else {
  var lastRow = recap.getLastRow();
  if (lastRow < 2) {
- out.push(["2. Feuille Recap Chain", "aÅ¡Â iÂ¸Â VIDE", "Aucune feuille listee", "Ajouter les noms des feuilles ÃƒÂ  monitorer en colonne A (ÃƒÂ  partir de A2)"]);
+ out.push(["2. Feuille Recap Portfolio", "aÅ¡Â iÂ¸Â VIDE", "Aucune feuille listee", "Ajouter les noms des feuilles ÃƒÂ  monitorer en colonne A (ÃƒÂ  partir de A2)"]);
  hasIssue = true;
  } else {
  var sheetNames = recap.getRange(2, 1, lastRow - 1, 1).getValues()
  .map(function(r) { return String(r[0] || "").trim(); })
   .filter(function(n) { return n && n !== "Recap Portfolio"; });
  
- out.push(["2. Feuille Recap Chain", "aÅ“âEUR¦ OK", sheetNames.length + " feuilles listees", ""]);
+ out.push(["2. Feuille Recap Portfolio", "aÅ“âEUR¦ OK", sheetNames.length + " feuilles listees", ""]);
  
  // Lister les 5 premieres feuilles
  var sample = sheetNames.slice(0, 5).join(", ");
@@ -510,7 +510,7 @@ function DIAG_WATCHDOG() {
  }
  }
  } catch (e) {
- out.push(["2. Feuille Recap Chain", "aÂÅ’ ERREUR", e.message, ""]);
+ out.push(["2. Feuille Recap Portfolio", "aÂÅ’ ERREUR", e.message, ""]);
  hasIssue = true;
  }
  
@@ -583,7 +583,7 @@ function DIAG_WATCHDOG() {
  var testSheet = ss.getSheetByName(firstSheetName);
  
  if (!testSheet) {
- out.push(["5. Test feuille '" + firstSheetName + "'", "aÂÅ’ INTROUVABLE", "La feuille listee n'existe pas", "Verifier le nom dans Recap Chain"]);
+ out.push(["5. Test feuille '" + firstSheetName + "'", "aÂÅ’ INTROUVABLE", "La feuille listee n'existe pas", "Verifier le nom dans Recap Portfolio"]);
  hasIssue = true;
  } else {
  var vA2 = String(testSheet.getRange("A2").getDisplayValue() || "");
@@ -723,7 +723,7 @@ function DIAG_WATCHDOG_SHEET(sheetName) {
  .map(function(r) { return String(r[0] || "").trim(); });
  
  var isListed = recapNames.indexOf(sheetName) >= 0;
- out.push(["Dans Recap Chain", isListed ? "OUI" : "NON", isListed ? "aÅ“âEUR¦" : "aÂÅ’", isListed ? "" : "Ajouter '" + sheetName + "' dans Recap Chain!A"]);
+ out.push(["Dans Recap Portfolio", isListed ? "OUI" : "NON", isListed ? "aÅ“âEUR¦" : "aÂÅ’", isListed ? "" : "Ajouter '" + sheetName + "' dans Recap Portfolio!A"]);
  }
  }
  

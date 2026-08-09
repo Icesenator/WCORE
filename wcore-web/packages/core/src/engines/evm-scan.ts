@@ -1,7 +1,7 @@
 import { getChain } from "../chains/index.js";
 import { EvmRpc, RpcDispatcher, multicall, type MulticallCall } from "../rpc/index.js";
 import { rpcHealth } from "../rpc/rpc-health.js";
-import { getRpcEndpoints } from "../rpc/endpoints.js";
+import { getRpcEndpoints, getVerifiedEvmRpcEndpoints } from "../rpc/endpoints.js";
 import {
   decodeUint256,
   discoverTokensByTransferLogs,
@@ -26,7 +26,6 @@ import {
   type PricingSourceSet,
 } from "../pricing/index.js";
 import type { OnchainV3Rpc } from "../pricing/sources/onchain-v3.js";
-import { roundUnitPrice } from "../pricing/rounding.js";
 import type { CacheStore } from "../cache/index.js";
 import { DISCOVERY_CACHE_TTL_MS } from "../cache/index.js";
 import type { BalanceDecision, BalanceSource } from "../balances/index.js";
@@ -63,6 +62,27 @@ export function normalizeBalanceSelectorExtraArgs(args: string[] | undefined): s
     return null;
   }
   return out;
+}
+
+/**
+ * Moves the log window forward to the incremental cursor, but only when that actually
+ * narrows it.
+ *
+ * `cappedFromBlock` already accounts for the chain's MAX_LOG_RANGE. Rewriting it to the
+ * cursor unconditionally, as this used to, silently WIDENS the window whenever the cursor
+ * predates the cap: on a chain that bounds eth_getLogs the RPC then rejects the whole
+ * request and discovery finds nothing. Somnia surfaced it, but every capped chain is
+ * exposed as soon as a cursor is older than its window.
+ *
+ * Returns null when the cursor brings nothing, leaving the capped window untouched.
+ */
+export function narrowToIncrementalRange(cappedFromBlock: string, cachedLastBlock: number): string | null {
+  const cappedFrom = parseInt(cappedFromBlock, 16);
+  // "latest": the head block was unavailable, so there is no numeric window to narrow.
+  if (!Number.isFinite(cappedFrom)) return null;
+  const incrementalFrom = cachedLastBlock + 1;
+  if (incrementalFrom <= cappedFrom) return null;
+  return `0x${incrementalFrom.toString(16)}`;
 }
 
 export function discoveredTokenVariantKey(token: Pick<DiscoveredToken, "contract" | "balanceSelector" | "balanceSelectorExtraArgs">): string {
@@ -106,6 +126,8 @@ export async function getEvmWalletAssets(
     strictTokens?: boolean;
     intraScanCache?: IntraScanCache;
     forceRefresh?: boolean;
+    /** Cancels the scan's outbound work; the caller's timeout stopped here before. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<EvmWalletAssets> {
   const normalizedAddress = normalizeEvmAddress(address);
@@ -115,22 +137,25 @@ export async function getEvmWalletAssets(
   const chain = getChain(key);
   if (!chain || chain.vm !== "EVM") throw new Error(`unsupported EVM chain: ${chainKey}`);
 
-  const endpoints = getRpcEndpoints(key);
-  const priceCache = opts.sharedPriceCache ?? sharedPriceCache;
-  if (!endpoints.length) throw new Error(`no RPC endpoints for ${key}`);
-
-  // Filter endpoints using shared health cache
-  const effectiveEndpoints = endpoints;
-
   const isDeepScan = opts.logBlockRange != null && opts.logBlockRange > 50_000;
   const rpcTimeout = isDeepScan ? 5000 : Number(chain.TIMEOUTS?.HTTP_MS ?? 2500);
+  const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
+  // Injected dispatchers are test/internal seams and own endpoint validation.
+  const endpoints = opts.dispatcher
+    ? getRpcEndpoints(key)
+    : await getVerifiedEvmRpcEndpoints(key, { rpc, signal: opts.signal });
+  const priceCache = opts.sharedPriceCache ?? sharedPriceCache;
+  if (!endpoints.length) throw new Error(`no chain-verified RPC endpoints for ${key}`);
+
+  const effectiveEndpoints = endpoints;
 
   const dispatcher = opts.dispatcher ?? new RpcDispatcher(undefined, {
     minRpcs: Number(chain.RPC?.CONSENSUS_MIN_RPCS ?? 2),
     maxRpcs: Number(chain.RPC?.CONSENSUS_MAX_RPCS ?? 3),
     timeoutMs: rpcTimeout,
+    // The caller's timeout now reaches the RPC layer instead of stopping at this scan.
+    signal: opts.signal,
   });
-  const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
 
   const onchainRpc: OnchainV3Rpc = {
     async batch(calls) {
@@ -138,7 +163,7 @@ export async function getEvmWalletAssets(
       try {
         const results = await Promise.any(
           effectiveEndpoints.map(async (endpoint) => {
-            const results = await rpc.batch(endpoint, ethCalls, { timeoutMs: 5000 });
+            const results = await rpc.batch(endpoint, ethCalls, { timeoutMs: 5000, signal: opts.signal });
             const mapped = results.map((r) => (r && "result" in r && typeof r.result === "string") ? r.result : null);
             rpcHealth.recordSuccess(key, endpoint);
             return mapped;
@@ -153,10 +178,6 @@ export async function getEvmWalletAssets(
   };
 
   const cache = opts.cache;
-  const balanceCacheKey = `bal_cache:${key.toLowerCase()}:${normalizedAddress}`;
-  if (cache && opts.forceRefresh) {
-    await cache.delete(balanceCacheKey);
-  }
   const sources = opts.sources ?? {
     ...defaultSources,
     geckoterminal: new GeckoTerminalPriceSource(priceCache),
@@ -274,8 +295,11 @@ export async function getEvmWalletAssets(
 
       // Narrow the log range to the unseen delta when a valid cursor exists.
       if (cachedLastBlock != null && hasCachedDiscovery && currentBlock > cachedLastBlock) {
-        logRange.fromBlock = `0x${(cachedLastBlock + 1).toString(16)}`;
-        usedIncremental = true;
+        const narrowed = narrowToIncrementalRange(logRange.fromBlock, cachedLastBlock);
+        if (narrowed) {
+          logRange.fromBlock = narrowed;
+          usedIncremental = true;
+        }
       }
 
       discoveredTokens = await discoverTokensForWallet(normalizedAddress, key, {
@@ -397,8 +421,9 @@ export async function getEvmWalletAssets(
   // The cache TTL (1h) acts as the "no activity" window — if the user had activity,
   // the next scan after TTL expiry will do a full scan.
   const BALANCE_CACHE_TTL_MS = 3600_000;
+  const balanceCacheKey = `bal_cache:${key.toLowerCase()}:${normalizedAddress}`;
   const hasNoNewTokens = discoveredTokens.length === 0 && !hasCustomTokens;
-  if (cache && hasNoNewTokens && !opts.forceRefresh) {
+  if (cache && hasNoNewTokens) {
     try {
       const cachedBal = await cache.get<{
         nativeBalance: string;
@@ -553,56 +578,44 @@ export async function getEvmWalletAssets(
   // so a cache hit on llama-batch short-circuits the entire cascade for that token.
   const livePrefetchedPriceContracts = new Set<string>();
   const skipBulkLlama = chain.CHAIN?.SKIP_LLAMA_BATCH === true || chain.key === "GNOSIS";
-  if (!skipBulkLlama && withBalances.length > 0 && typeof sources.defillama.batchTokenPrices === "function") {
-    const llamaSlug = String(chain.CHAIN?.LLAMA_CHAIN_SLUG ?? chain.CHAIN?.DEX_SLUG ?? "");
-    if (llamaSlug) {
-      const contracts = withBalances.map((item) => item.known.contract);
-      try {
-        const batchPrices = await sources.defillama.batchTokenPrices(llamaSlug, contracts);
-        if (batchPrices.size > 0) {
-          const nowMs = Date.now();
-          for (const [contract, priceUsd] of batchPrices) {
-            const priceEur = roundUnitPrice(priceUsd * fxRate);
-            if (priceEur > 0) {
-              const cacheKey = priceCacheKey(chain, String(contract));
-              priceCache.setPrice(cacheKey, { priceEur, ts: nowMs, source: "llama-batch" });
-              livePrefetchedPriceContracts.add(String(contract).toLowerCase());
-            }
-          }
-        }
-      } catch {
-        // degrade to per-token cascade on batch failure
-      }
-    }
-  }
-
-  // Bulk pre-fetch GT prices for all tokens on this chain (1 HTTP instead of N)
   // Skip Gnosis — RealT tokens need the dedicated realtoken.community API
   const skipBulkGt = chain.key === "GNOSIS";
-  if (!skipBulkGt && withBalances.length > 0 && typeof sources.geckoterminal.batchTokenPrices === "function") {
-    const gtNetwork = String(chain.CHAIN?.GT_NETWORK ?? chain.CHAIN?.DEX_SLUG ?? chain.key);
-    const contracts = withBalances.map((item) => item.known.contract);
-    try {
-      const batchPrices = await sources.geckoterminal.batchTokenPrices(gtNetwork, contracts);
-      if (batchPrices instanceof Map && batchPrices.size > 0) {
-        const nowMs = Date.now();
-        for (const [contract, priceUsd] of batchPrices) {
-          const priceEur = roundUnitPrice(priceUsd * fxRate);
-          if (priceEur > 0) {
-            const cacheKey = priceCacheKey(chain, String(contract));
-            priceCache.setPrice(cacheKey, {
-              priceEur,
-              ts: nowMs,
-              source: "gt-batch",
-            });
-            livePrefetchedPriceContracts.add(String(contract).toLowerCase());
-          }
-        }
+  const bulkContracts = withBalances.map((item) => item.known.contract);
+
+  // These are two independent single-HTTP prefetches that were awaited one after the
+  // other, so every scan paid both latencies in a row. They are issued together and
+  // their results applied in the original order: GeckoTerminal still overwrites
+  // DefiLlama for a contract both of them price.
+  const llamaSlug = String(chain.CHAIN?.LLAMA_CHAIN_SLUG ?? chain.CHAIN?.DEX_SLUG ?? "");
+  const gtNetwork = String(chain.CHAIN?.GT_NETWORK ?? chain.CHAIN?.DEX_SLUG ?? chain.key);
+  const wantLlama = !skipBulkLlama && bulkContracts.length > 0 && typeof sources.defillama.batchTokenPrices === "function" && !!llamaSlug;
+  const wantGt = !skipBulkGt && bulkContracts.length > 0 && typeof sources.geckoterminal.batchTokenPrices === "function";
+
+  const [llamaBatch, gtBatch] = await Promise.all([
+    wantLlama
+      // Each keeps its own catch: one batch failing must still degrade only its own
+      // source to the per-token cascade, never the other's.
+      ? sources.defillama.batchTokenPrices!(llamaSlug, bulkContracts).catch(() => null)
+      : Promise.resolve(null),
+    wantGt
+      ? sources.geckoterminal.batchTokenPrices!(gtNetwork, bulkContracts).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const applyBulkPrices = (batch: Map<string, number> | null | undefined, source: string) => {
+    if (!(batch instanceof Map) || batch.size === 0) return;
+    const nowMs = Date.now();
+    for (const [contract, priceUsd] of batch) {
+      const priceEur = roundPrice(priceUsd * fxRate);
+      if (priceEur > 0) {
+        priceCache.setPrice(priceCacheKey(chain, String(contract)), { priceEur, ts: nowMs, source });
+        livePrefetchedPriceContracts.add(String(contract).toLowerCase());
       }
-    } catch {
-      // degrade to per-token GT on batch failure
     }
-  }
+  };
+
+  applyBulkPrices(llamaBatch, "llama-batch");
+  applyBulkPrices(gtBatch, "gt-batch");
 
   const PRICE_CONCURRENCY = 10;
   for (let i = 0; i < withBalances.length; i += PRICE_CONCURRENCY) {
@@ -635,8 +648,7 @@ export async function getEvmWalletAssets(
   }
 
   // Fire-and-forget: cache balances for no-TX shortcut on next scan
-  const hasUnavailableBalance = errors.some((error) => error.includes("balance unavailable"));
-  if (cache && !hasCustomTokens && !hasUnavailableBalance) {
+  if (cache && !hasCustomTokens) {
     cache.set(balanceCacheKey, {
       nativeBalance: String(nativeRaw),
       nativePriceEur: native.priceEur,
@@ -657,4 +669,8 @@ export async function getEvmWalletAssets(
     phases: { nativeMs, discoveryMs, balancesMs, pricingMs },
     cacheStats: { hits: 0, misses: 0, stale: 0, skipped: 0 },
   };
+}
+
+function roundPrice(value: number): number {
+  return Math.round(value * 1_000_000_000_000) / 1_000_000_000_000;
 }

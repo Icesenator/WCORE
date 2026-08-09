@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { getApiUrl, apiFetch } from "@/lib/api";
+import { useWallet } from "@/components/ConnectButton";
+import { readLinkedWallets } from "@/lib/linked-wallet-storage";
 
 const API_URL = getApiUrl();
 
@@ -11,9 +13,14 @@ export function useWalletLabels({ initialLabels }: {
     // Start from URL params only (localStorage will be merged after API fetch)
     return { ...initialLabels };
   });
+  const { address, authStep } = useWallet();
+  const owner = authStep === "authenticated" ? address : null;
 
   useEffect(() => {
-    apiFetch(`${API_URL}/api/wallets`)
+    const controller = new AbortController();
+    setLabels({ ...initialLabels });
+    if (!owner) return () => controller.abort();
+    apiFetch(`${API_URL}/api/wallets`, { signal: controller.signal })
       .then((r) => r.json())
       .then((d: { wallets?: Array<{ address: string; label: string | null }> }) => {
         const map: Record<string, string> = { ...initialLabels };
@@ -25,9 +32,8 @@ export function useWalletLabels({ initialLabels }: {
         }
         // 2. Merge local-only wallets from localStorage
         try {
-          const raw = localStorage.getItem("wcore_linked");
-          if (raw) {
-            const parsed = JSON.parse(raw) as Array<{ address: string; label: string }>;
+          const parsed = readLinkedWallets(localStorage, owner);
+          if (parsed.length) {
             for (const w of parsed) {
               const key = w.address.toLowerCase();
               if (!map[key]) {
@@ -37,14 +43,13 @@ export function useWalletLabels({ initialLabels }: {
             }
           }
         } catch { /* ignore */ }
-        setLabels(map);
+        if (!controller.signal.aborted) setLabels(map);
       }).catch(() => {
         // On error, fallback to localStorage
         const map: Record<string, string> = { ...initialLabels };
         try {
-          const raw = localStorage.getItem("wcore_linked");
-          if (raw) {
-            const parsed = JSON.parse(raw) as Array<{ address: string; label: string }>;
+          const parsed = readLinkedWallets(localStorage, owner);
+          if (parsed.length) {
             for (const w of parsed) {
               const key = w.address.toLowerCase();
               const cleanLabel = w.label === "🔗 Connected" || w.label === "Connected" ? w.address.slice(0, 10) : w.label;
@@ -52,10 +57,12 @@ export function useWalletLabels({ initialLabels }: {
             }
           }
         } catch { /* ignore */ }
-        setLabels(map);
+        if (!controller.signal.aborted) setLabels(map);
       });
+    return () => controller.abort();
+  // initialLabels comes from route props; identity changes are the isolation boundary.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [owner]);
 
   return { labels };
 }

@@ -9,7 +9,12 @@ export const NOBLE: ChainConfig = {
   ...({
   CACHE_VERSION: 67,
   API: {
-    REST_URL: "https://noble-rest.publicnode.com",
+    REST_URL: "https://noble-api.polkachu.com",
+    REST_URLS: [
+      "https://noble-api.polkachu.com",
+      "https://rest.cosmos.directory/noble",
+      "https://noble-rest.publicnode.com",
+    ],
     RPC_URL: "https://noble-rpc.publicnode.com",
   },
   CHAIN: {

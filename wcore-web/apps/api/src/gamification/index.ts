@@ -9,7 +9,7 @@ import { registerGmContractsRoutes } from "./gm-contracts.js";
 import { registerLeaderboardRoutes } from "./leaderboard.js";
 import { registerCreatorRoutes } from "./creator.js";
 import { registerNotificationRoutes } from "./notifications.js";
-import { assertAllPublicHttp, assertPublicHttp } from "../lib/safe-http.js";
+import { assertAllPublicHttp, safeFetch } from "../lib/safe-http.js";
 
 const PLATFORM_OWNER = {
   EVM: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
@@ -40,11 +40,11 @@ export function getChainRpcs(chainKey: string): string[] | undefined {
   return endpoints.length ? endpoints : undefined;
 }
 
-async function rpcFetch(rpcs: string[], body: unknown): Promise<{ result?: unknown; error?: unknown }> {
+async function rpcFetch(rpcs: string[], body: unknown, chainKey?: string): Promise<{ result?: unknown; error?: unknown }> {
+  let lastError: string | undefined;
   for (const rpc of rpcs) {
     try {
-      assertPublicHttp(rpc);
-      const res = await fetch(rpc, {
+      const res = await safeFetch(rpc, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(8000),
@@ -52,8 +52,15 @@ async function rpcFetch(rpcs: string[], body: unknown): Promise<{ result?: unkno
       if (!res.ok) continue;
       const data = await res.json() as { result?: unknown; error?: unknown };
       if (!data.error) return data;
-    } catch (e) { console.error("rpcFetch RPC error:", (e as Error).message || String(e)); /* try next RPC */ }
+      lastError = "rpc_response_error";
+    } catch (e) {
+      lastError = (e as Error).message || String(e);
+    }
   }
+  // Without the chain and the method this line is unactionable: production logs fill
+  // with identical failures and give no way to tell which chain is actually down.
+  const method = (body as { method?: string } | null)?.method;
+  console.warn("rpcFetch: all RPC endpoints failed", { chain: chainKey ?? "unknown", method: method ?? "unknown", rpcCount: rpcs.length, error: lastError });
   return {};
 }
 
@@ -61,8 +68,8 @@ async function readGmContractBalances(chainKey: string, contractAddress: string)
   const rpcs = getChainRpcs(chainKey);
   if (!rpcs?.length) return { creatorBalance: "0", platformBalance: "0" };
   const [creatorData, platformData] = await Promise.all([
-    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0xaf55ec73" }, "latest"] }),
-    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0x62a5dbbc" }, "latest"] }),
+    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0xaf55ec73" }, "latest"] }, chainKey),
+    rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: contractAddress, data: "0x62a5dbbc" }, "latest"] }, chainKey),
   ]);
   return {
     creatorBalance: typeof creatorData.result === "string" ? BigInt(creatorData.result).toString() : "0",
@@ -110,7 +117,7 @@ async function readGmContractBalancesBatch(
   const data = await rpcFetch(rpcs, {
     jsonrpc: "2.0", id: 1, method: "eth_call",
     params: [{ to: getMulticall3Address(chainKey), data: callData }, "latest"],
-  });
+  }, chainKey);
 
   if (typeof data.result !== "string" || data.result === "0x") {
     // Multicall3 not deployed or revert: fall back to per-contract reads.

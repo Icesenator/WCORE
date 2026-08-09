@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@wcore/db";
-import type { CacheStore, CircuitBreaker } from "@wcore/core";
+import type { CircuitBreaker } from "@wcore/core";
 import {
   MetricsHistoryQuerySchema,
   ScamOverrideBodySchema,
@@ -9,15 +9,51 @@ import {
 
 export interface AdminPluginDeps {
   prisma: PrismaClient;
-  sharedCache: CacheStore;
+  checkRedis: () => Promise<boolean>;
   circuitBreakers: Map<string, CircuitBreaker>;
   isAdminAuthorized: (req: { headers: Record<string, string | string[] | undefined> }) => boolean;
   recordOpsEvent: (type: string, severity: string, message: string, data?: Record<string, unknown>) => Promise<void>;
   CORE_VERSION: string;
 }
 
+export function dependencyHealthStatus(dbOk: boolean, redisOk: boolean, openCircuits: number): "ok" | "degraded" | "down" {
+  if (!dbOk) return "down";
+  if (!redisOk || openCircuits > 0) return "degraded";
+  return "ok";
+}
+
+type DependencyName = "db" | "redis";
+type AlertSeverity = "info" | "warning" | "critical";
+
+export class DependencyTransitionTracker {
+  private readonly states = new Map<DependencyName, boolean>();
+
+  constructor(private readonly deps: {
+    recordOpsEvent: AdminPluginDeps["recordOpsEvent"];
+    sendAlert: (alert: { type: string; severity: AlertSeverity; service: string; ts: string; data: Record<string, unknown> }) => Promise<unknown>;
+  }) {}
+
+  async observe(checks: { db: boolean; redis: boolean }, now = new Date()): Promise<void> {
+    for (const dependency of ["db", "redis"] as const) {
+      const ok = checks[dependency];
+      const previous = this.states.get(dependency);
+      this.states.set(dependency, ok);
+      if (previous === ok || (previous === undefined && ok)) continue;
+
+      const type = `${dependency}_${ok ? "recovered" : "down"}`;
+      const severity: AlertSeverity = ok ? "info" : dependency === "db" ? "critical" : "warning";
+      const message = `${dependency.toUpperCase()} dependency ${ok ? "recovered" : "unavailable"}`;
+      const data = { dependency, ok };
+      await Promise.allSettled([
+        this.deps.recordOpsEvent(type, severity, message, data),
+        this.deps.sendAlert({ type, severity, service: "wcore-api", ts: now.toISOString(), data }),
+      ]);
+    }
+  }
+}
+
 export async function adminPlugin(app: FastifyInstance, deps: AdminPluginDeps) {
-  const { prisma, sharedCache, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION } = deps;
+  const { prisma, checkRedis, circuitBreakers, isAdminAuthorized, CORE_VERSION } = deps;
 
   // --- Detailed Health ---
 
@@ -25,10 +61,10 @@ export async function adminPlugin(app: FastifyInstance, deps: AdminPluginDeps) {
     if (!isAdminAuthorized(req)) return reply.code(401).send({ error: "unauthorized" });
     const now = Date.now();
     const dbOk = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
-    const redisOk = await sharedCache.set("health:ping", { ts: now }, 5000).then(() => true).catch(() => false);
+    const redisOk = await checkRedis();
     const circuits = Object.fromEntries(Array.from(circuitBreakers.entries()).map(([k, v]) => [k, v.getStatus()]));
     const openCircuits = Object.values(circuits).filter((c: { state: string }) => c.state === "OPEN").length;
-    const { metrics, sendAlert, isAlertingConfigured } = await import("@wcore/core");
+    const { metrics, isAlertingConfigured } = await import("@wcore/core");
     const snap = metrics.snapshot();
 
     let recentScanRows: Array<{ address: string; chains: string[]; totalEur: number; createdAt: Date }> = [];
@@ -55,14 +91,7 @@ export async function adminPlugin(app: FastifyInstance, deps: AdminPluginDeps) {
       .sort((a, b) => b.avgMs - a.avgMs)
       .slice(0, 5);
 
-    const status = !dbOk ? "down" : openCircuits > 0 ? "degraded" : "ok";
-
-    if (status !== "ok") {
-      const alertType = !dbOk ? "db_down" : !redisOk ? "redis_down" : "health_degraded";
-      const severity = status === "down" ? "critical" : "warning" as const;
-      sendAlert({ type: alertType, severity, service: "wcore-api", ts: new Date(now).toISOString(), data: { dbOk, redisOk, openCircuits, status } }).catch(() => {});
-      recordOpsEvent(alertType, severity, `Health ${status} (db:${dbOk} redis:${redisOk} circuits:${openCircuits})`, { dbOk, redisOk, openCircuits });
-    }
+    const status = dependencyHealthStatus(dbOk, redisOk, openCircuits);
 
     return {
       status, service: "wcore-api", version: CORE_VERSION,

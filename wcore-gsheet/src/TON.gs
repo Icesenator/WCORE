@@ -1,7 +1,8 @@
 /**
- * TON.gs - TON / The Open Network (v4.15.83)
+ * TON.gs - TON / The Open Network (v4.16.61)
  * Native TON + jettons via TonAPI, quota-safe standalone engine.
  * v4.15.83: Distinguish same-second live refreshes by numeric cache timestamp.
+ * v4.16.61: Native asset is reported as TON/Toncoin, not the GRAM/Gram placeholder.
  */
 
 var TON_VERSION = "4.15.83";
@@ -16,8 +17,8 @@ var TON_CONFIG = {
     VM: "TON",
     NAME: "TON",
     DISPLAY_NAME: "Space - TON",
-    NATIVE_SYMBOL: "GRAM",
-    NATIVE_NAME: "Gram",
+    NATIVE_SYMBOL: "TON",
+    NATIVE_NAME: "Toncoin",
     NATIVE_DECIMALS: 9,
     NATIVE_LLAMA_ID: "coingecko:the-open-network",
     NATIVE_GECKO_ID: "the-open-network"
@@ -27,7 +28,6 @@ var TON_CONFIG = {
     TONCENTER_BALANCE: "https://toncenter.com/api/v2/getAddressBalance"
   },
   LLAMA_ID_MAP: {
-    "GRAM": "coingecko:the-open-network",
     "TON": "coingecko:the-open-network",
     "USDT": "coingecko:tether",
     "USD₮": "coingecko:tether"
@@ -66,8 +66,8 @@ var _TON = ChainFactory.createTonChain("TON", {
     VM: "TON",
     NAME: "TON",
     DISPLAY_NAME: "Space - TON",
-    NATIVE_SYMBOL: "GRAM",
-    NATIVE_NAME: "Gram",
+    NATIVE_SYMBOL: "TON",
+    NATIVE_NAME: "Toncoin",
     NATIVE_DECIMALS: 9,
     NATIVE_LLAMA_ID: "coingecko:the-open-network",
     NATIVE_GECKO_ID: "the-open-network"
@@ -77,7 +77,6 @@ var _TON = ChainFactory.createTonChain("TON", {
     TONCENTER_BALANCE: "https://toncenter.com/api/v2/getAddressBalance"
   },
   LLAMA_ID_MAP: {
-    "GRAM": "coingecko:the-open-network",
     "TON": "coingecko:the-open-network",
     "USDT": "coingecko:tether",
     "USD₮": "coingecko:tether"
@@ -154,8 +153,8 @@ function _tonLoadLive_(address, timer) {
   var assets = [];
   assets.push({
     contract: "native",
-    symbol: "GRAM",
-    name: "Gram",
+    symbol: "TON",
+    name: "Toncoin",
     decimals: 9,
     balance: _tonBalanceFromNano_(nativeNano, 9),
     isNative: true
@@ -210,7 +209,7 @@ function _tonBuildOutput_(cache, timer) {
 function _tonNoCacheOutput_(timer) {
   var chainName = _tonDisplayName_();
   var out = [OutputBuilder.headerRow()];
-  out.push(OutputBuilder.assetRow(chainName, { contract: "native", symbol: "GRAM", name: "Gram", balance: 0 }, ""));
+  out.push(OutputBuilder.assetRow(chainName, { contract: "native", symbol: "TON", name: "Toncoin", balance: 0 }, ""));
   out.push(OutputBuilder.infoRow(chainName, "INFO", "NO_CACHE_WAITING_REFRESH"));
   out.push(OutputBuilder.infoRow(chainName, "INFO_ROT", "rot=FALLBACK; profile=CACHE; reason=NO_CACHE_WAITING_REFRESH"));
   out.push(OutputBuilder.infoRow(chainName, "INFO_FX", "USD->EUR=N/A"));

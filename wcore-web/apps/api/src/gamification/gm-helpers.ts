@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@wcore/db";
 import { canonicalChainKey, getFactory } from "@wcore/shared";
-import { assertPublicHttp } from "../lib/safe-http.js";
+import { safeFetch } from "../lib/safe-http.js";
 
 export interface GmHelpersDeps {
   prisma: PrismaClient;
@@ -33,10 +33,11 @@ export function createGmHelpers(deps: GmHelpersDeps) {
   // Generic RPC JSON fetch with failover across multiple endpoints.
   // Used by status-onchain where single-RPC reliance is brittle.
   async function rpcJson<T>(rpcs: string[], body: unknown): Promise<T | null> {
-    const safeRpcs = rpcs.filter((r) => { try { assertPublicHttp(r); return true; } catch { return false; } });
-    for (const r of safeRpcs) {
+    for (const r of rpcs) {
       try {
-        const res = await fetch(r, {
+        // safeFetch rejects an unsafe URL by throwing, which the catch below turns
+        // into "try the next endpoint" — same outcome as the old pre-filter.
+        const res = await safeFetch(r, {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(8000),

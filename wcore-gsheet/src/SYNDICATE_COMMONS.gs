@@ -17,7 +17,8 @@
  */
 
 var _SYNDICATE_COMMONS = ChainFactory.createEvmChain("SYNDICATE_COMMONS", {
- CACHE_VERSION: 63,
+ CACHE_VERSION: 64,
+ FLAGS: { DISABLE_CHAIN: true },
  
  // Extended timeouts for single-RPC chain
  TIMEOUTS: {

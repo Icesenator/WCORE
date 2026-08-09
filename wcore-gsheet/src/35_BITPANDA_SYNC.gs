@@ -301,6 +301,42 @@ function _cexManualJobKindFromLabel_(label) {
   return key || "UNKNOWN";
 }
 
+// v4.16.45: every mutation of CEX_MANUAL_JOB_QUEUE goes through here.
+//
+// Two defects lived in the previous inline read-modify-writes:
+//   1. No mutual exclusion. An A1 tick on a CEX sheet and the AC2 batch, or an enqueue
+//      landing while the worker shifts a job, read the same snapshot; the later write
+//      silently dropped the other's jobs.
+//   2. The value was capped with JSON.stringify(queue).substring(0, 8000), which cuts
+//      the string mid-structure. The next JSON.parse then threw and every reader falls
+//      back to an empty array, so overflowing did not drop the newest job - it wiped the
+//      WHOLE queue. Oldest entries are now evicted until the payload fits, and what gets
+//      written is always valid JSON.
+var _CEX_QUEUE_MAX_CHARS = 8000;
+
+function _cexQueueMutate_(mutator) {
+  var props = PropertiesService.getScriptProperties();
+  var lock = null, locked = false;
+  try { lock = LockService.getScriptLock(); locked = lock.tryLock(_CEX_LOCK_TRY_MS); } catch (eLock) { locked = false; }
+  try {
+    var queue = [];
+    try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
+    if (Object.prototype.toString.call(queue) !== "[object Array]") queue = [];
+
+    var outcome = mutator(queue);
+
+    var serialized = JSON.stringify(queue);
+    while (serialized.length > _CEX_QUEUE_MAX_CHARS && queue.length > 1) {
+      queue.shift();
+      serialized = JSON.stringify(queue);
+    }
+    props.setProperty("CEX_MANUAL_JOB_QUEUE", serialized);
+    return outcome;
+  } finally {
+    if (locked && lock) { try { lock.releaseLock(); } catch (eRelease) {} }
+  }
+}
+
 function CEX_QUEUE_MANUAL_JOB(kind, sheetName, refreshFlagProp, statusSheetName, statusCell) {
   return _cexEnqueueManualJobs_([{ kind: kind, sheetName: sheetName, refreshFlagProp: refreshFlagProp, statusSheetName: statusSheetName, statusCell: statusCell }]);
 }
@@ -312,16 +348,13 @@ function CEX_QUEUE_MANUAL_JOB(kind, sheetName, refreshFlagProp, statusSheetName,
 function _cexEnqueueManualJobs_(jobs) {
   if (!jobs || !jobs.length) return "NO_JOBS";
   var props = PropertiesService.getScriptProperties();
-  var raw = "";
-  try { raw = props.getProperty("CEX_MANUAL_JOB_QUEUE") || ""; } catch (eRaw) {}
-  var queue = [];
-  try { queue = raw ? JSON.parse(raw) : []; } catch (eParse) { queue = []; }
   var now = Date.now();
-  for (var i = 0; i < jobs.length; i++) {
-    var j = jobs[i] || {};
-    queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
-  }
-  props.setProperty("CEX_MANUAL_JOB_QUEUE", JSON.stringify(queue).substring(0, 8000));
+  _cexQueueMutate_(function(queue) {
+    for (var i = 0; i < jobs.length; i++) {
+      var j = jobs[i] || {};
+      queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
+    }
+  });
   props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(now + 10 * 60 * 1000));
   _cexWriteManualQueuedStatusBatch_(jobs);
   _cexEnsureManualWorkerTrigger_();
@@ -426,11 +459,11 @@ function CEX_MANUAL_REFRESH_WORKER() {
   var t0 = Date.now();
   try {
     while ((Date.now() - t0) < _CEX_WORKER_BUDGET_MS) {
-      var queue = [];
-      try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
-      if (!queue.length) { remaining = 0; break; }
-      var job = queue.shift();
-      props.setProperty("CEX_MANUAL_JOB_QUEUE", JSON.stringify(queue).substring(0, 8000));
+      // Claim the next job under the queue lock so a concurrent enqueue cannot be lost.
+      var job = _cexQueueMutate_(function(queue) {
+        return queue.length ? queue.shift() : null;
+      });
+      if (!job) { remaining = 0; break; }
       // v4.15.118: short BUSY:CEX window (90s) — must clear quickly after the
       // last job so on-chain wallets resume scans.
       props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 90 * 1000));
@@ -488,10 +521,7 @@ function _cexIsTransientResult_(result) {
 
 function _cexRequeueManualJob_(job) {
   var props = PropertiesService.getScriptProperties();
-  var queue = [];
-  try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (e) { queue = []; }
-  queue.push(job);
-  props.setProperty("CEX_MANUAL_JOB_QUEUE", JSON.stringify(queue).substring(0, 8000));
+  _cexQueueMutate_(function(queue) { queue.push(job); });
   props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 10 * 60 * 1000));
 }
 
@@ -614,6 +644,12 @@ function _bpParseBalance_(value) {
 // cumuler les soldes sur une seule ligne (sinon le VLOOKUP tombe sur la base=0).
 var BITPANDA_SYMBOL_ALIASES = {
   "USDC": "USDT",
+  // v4.16.46: EURCV (EUR CoinVertible) is a euro stablecoin like EURC, and the
+  // portfolio already tracks an EURC position for this sheet. Left under its own
+  // ticker the balance never matched that line: Verif showed X and the amount fed
+  // nothing. Consolidating euro stables onto EURC mirrors USDC -> USDT above and the
+  // EUR family handled for Bitfinex.
+  "EURCV": "EURC",
   "AMD-US": "AMD", "WMT-US": "WMT", "JPM-US": "JPM", "LLYC-US": "LLY",
   "MRKUS": "MRK",
   "TSFA": "TSM", "BROA": "AVGO", "BRK": "BRKB", "SMSN": "SSU",

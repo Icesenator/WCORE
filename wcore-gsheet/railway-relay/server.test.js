@@ -302,21 +302,30 @@ test("collectStockFxQuotes bounds workers and aborts each fetch at its timeout",
   let active = 0;
   let maxActive = 0;
   const signals = [];
-  await collectStockFxQuotes(["KRW", "JPY", "CHF", "CAD"], {
-    concurrency: 2,
-    timeoutMs: 10,
-    fetchQuote: (_candidate, options) => {
-      active++;
-      maxActive = Math.max(maxActive, active);
-      signals.push(options.signal);
-      return new Promise((_resolve, reject) => {
-        options.signal.addEventListener("abort", () => {
-          active--;
-          reject(options.signal.reason);
-        }, { once: true });
-      });
-    },
-  });
+  // The production deadline is AbortSignal.timeout, whose timer is deliberately
+  // unref'd: a live server is held open by its listening socket. Here every worker
+  // waits only on that deadline, so without a ref'd timer the loop would drain and
+  // Node would cancel the test before the aborts it is asserting ever fire.
+  const keepEventLoopAlive = setInterval(() => {}, 5);
+  try {
+    await collectStockFxQuotes(["KRW", "JPY", "CHF", "CAD"], {
+      concurrency: 2,
+      timeoutMs: 10,
+      fetchQuote: (_candidate, options) => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        signals.push(options.signal);
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => {
+            active--;
+            reject(options.signal.reason);
+          }, { once: true });
+        });
+      },
+    });
+  } finally {
+    clearInterval(keepEventLoopAlive);
+  }
 
   assert.equal(maxActive, 2);
   assert.equal(signals.length, 4);
@@ -722,5 +731,92 @@ test("POST /stock/prices keeps legacy GBp-to-EUR conversion behavior", async () 
     global.fetch = previousFetch;
     if (previousToken == null) delete process.env.RELAY_TOKEN;
     else process.env.RELAY_TOKEN = previousToken;
+  }
+});
+
+test("relay auth accepts the token as a header, keeping it out of URLs and logs", async () => {
+  const previousToken = process.env.RELAY_TOKEN;
+  const previousFetch = global.fetch;
+  process.env.RELAY_TOKEN = "relay-test-token";
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ chart: { result: [{ meta: { regularMarketPrice: 0.86, currency: "EUR" } }] } }),
+  });
+  try {
+    await withServer(async (baseUrl) => {
+      // A query string leaks the shared secret into access logs and Referer headers,
+      // so the header is the supported way to authenticate.
+      const viaHeader = await previousFetch(baseUrl + "/stock/fx-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-relay-token": "relay-test-token" },
+        body: JSON.stringify({ currencies: ["KRW"] }),
+      });
+      assert.equal(viaHeader.status, 200);
+
+      const viaBearer = await previousFetch(baseUrl + "/stock/fx-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", authorization: "Bearer relay-test-token" },
+        body: JSON.stringify({ currencies: ["KRW"] }),
+      });
+      assert.equal(viaBearer.status, 200);
+
+      const wrongHeader = await previousFetch(baseUrl + "/stock/fx-quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-relay-token": "nope" },
+        body: JSON.stringify({ currencies: ["KRW"] }),
+      });
+      assert.equal(wrongHeader.status, 401);
+    });
+  } finally {
+    global.fetch = previousFetch;
+    if (previousToken == null) delete process.env.RELAY_TOKEN;
+    else process.env.RELAY_TOKEN = previousToken;
+  }
+});
+
+test("relay auth still refuses a query token where none was ever accepted", async () => {
+  const previousToken = process.env.RELAY_TOKEN;
+  process.env.RELAY_TOKEN = "relay-test-token";
+  try {
+    await withServer(async (baseUrl) => {
+      // Centralising the auth check must not widen where a token is accepted:
+      // /stock/quotes only ever read it from the body.
+      const viaQuery = await fetch(baseUrl + "/stock/quotes?token=relay-test-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: ["AAPL"] }),
+      });
+      assert.equal(viaQuery.status, 401);
+    });
+  } finally {
+    if (previousToken == null) delete process.env.RELAY_TOKEN;
+    else process.env.RELAY_TOKEN = previousToken;
+  }
+});
+
+test("relay rate limit caps a flood and never throttles the health probe", async () => {
+  const previousLimit = process.env.RELAY_RATE_LIMIT;
+  process.env.RELAY_RATE_LIMIT = "5";
+  try {
+    await withServer(async (baseUrl) => {
+      // The relay had no limit at all, so anyone could drive unbounded signed traffic
+      // toward the exchanges from this single IP.
+      let sawRateLimited = false;
+      for (let i = 0; i < 50; i++) {
+        const res = await fetch(baseUrl + "/stock/quotes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (res.status === 429) { sawRateLimited = true; break; }
+      }
+      assert.equal(sawRateLimited, true, "a flood must eventually be rate limited");
+
+      const health = await fetch(baseUrl + "/health");
+      assert.equal(health.status, 200, "the Railway health probe must never be throttled");
+    });
+  } finally {
+    if (previousLimit == null) delete process.env.RELAY_RATE_LIMIT;
+    else process.env.RELAY_RATE_LIMIT = previousLimit;
   }
 });

@@ -1,5 +1,5 @@
 "use client";
-import { getApiUrl, apiFetch } from "@/lib/api";
+import { advanceAuthGeneration, getApiUrl, apiFetch, getAuthGeneration } from "@/lib/api";
 import { classifyWalletSignError, walletErrorLabel } from "@/lib/wallet-errors";
 import { resolveRehydratedAuth, shouldHandleAuthExpired, type AuthStep } from "@/lib/auth-state";
 import { useEip6963Providers, type Eip6963ProviderEntry, type Eip6963Provider } from "@/hooks/useEip6963Providers";
@@ -16,6 +16,7 @@ interface WalletState {
   error: string;
   pickOpen: boolean;
   detectedWallets: Eip6963ProviderEntry[];
+  rawProvider: Eip6963Provider | null;
   connect: () => Promise<void>;
   connectWith: (connectorId: string) => Promise<void>;
   openPicker: () => void;
@@ -25,7 +26,7 @@ interface WalletState {
 }
 
 const WalletCtx = createContext<WalletState>({
-  address: null, loading: false, authStep: "idle", error: "", pickOpen: false, detectedWallets: [],
+  address: null, loading: false, authStep: "idle", error: "", pickOpen: false, detectedWallets: [], rawProvider: null,
   connect: async () => {}, connectWith: async () => {}, openPicker: () => {}, closePicker: () => {},
   disconnect: () => {}, clearError: () => {},
 });
@@ -43,15 +44,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [authStep, _setAuthStep] = useState<AuthStep>("idle");
   const [error, setError] = useState("");
   const [pickOpen, setPickOpen] = useState(false);
+  const [rawProvider, setRawProvider] = useState<Eip6963Provider | null>(null);
+  const authGenerationRef = useRef(getAuthGeneration());
 
-  // Keep a live ref of authStep that is updated *synchronously* with every
-  // transition (not deferred to a useEffect). Event handlers registered once at
-  // mount read this ref to avoid acting on a stale closure value — critical so a
-  // racing `wcore-auth-expired` (from a stale /api/auth/me at page load) cannot
-  // demote an active login or an authenticated session.
-  const authStepRef = useRef<AuthStep>(authStep);
   const setAuthStep = useCallback((next: AuthStep) => {
-    authStepRef.current = next;
     _setAuthStep(next);
   }, []);
 
@@ -59,6 +55,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const storedAddr = localStorage.getItem("wcore_address");
     if (!storedAddr) return;
+    const rehydrateGeneration = authGenerationRef.current;
 
     apiFetch(`${API_URL}/api/auth/me`)
       .then(async r => {
@@ -68,6 +65,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           verifiedAddress = data.address ?? null;
         } catch { /* non-JSON auth responses are handled by status */ }
 
+        if (rehydrateGeneration !== authGenerationRef.current) return;
         const next = resolveRehydratedAuth(storedAddr, r.status, r.ok, verifiedAddress);
         if (next.clearStoredAddress) localStorage.removeItem("wcore_address");
         else if (next.address) localStorage.setItem("wcore_address", next.address);
@@ -75,6 +73,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setAuthStep(next.authStep);
       })
       .catch(() => {
+        if (rehydrateGeneration !== authGenerationRef.current) return;
         const next = resolveRehydratedAuth(storedAddr, 0, false);
         if (next.address) localStorage.setItem("wcore_address", next.address);
         setAddress(next.address);
@@ -84,13 +83,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handler = () => setAuthStep("expired");
-    const authExpiredHandler = () => {
-      // A stale `/api/auth/me` from page load can race the just-completed login:
-      // it returns 401, triggers the refresh→401 chain and fires this event
-      // milliseconds after we set "authenticated". Never let a transient
-      // auth-expired demote an active login or an authenticated session, or the
-      // user is bounced back to "Sign In" and has to click twice.
-      if (!shouldHandleAuthExpired(authStepRef.current)) return;
+    const authExpiredHandler = (event: Event) => {
+      const eventGeneration = (event as CustomEvent<{ authGeneration?: number }>).detail?.authGeneration;
+      if (eventGeneration == null || !shouldHandleAuthExpired(eventGeneration, authGenerationRef.current)) return;
       const storedAddr = localStorage.getItem("wcore_address");
       if (storedAddr) {
         setAddress(storedAddr.toLowerCase());
@@ -110,6 +105,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const prevAddressRef = useRef(address);
   const prevAuthStepRef = useRef(authStep);
   useEffect(() => {
+    // A selected EIP-6963 provider owns the session. An older eager wagmi
+    // connection must not overwrite its account identity.
+    if (rawProvider) return;
     if (isConnected && wagmiAddress) {
       const addr = wagmiAddress.toLowerCase();
       if (authStep === "authenticated" && prevAddressRef.current && prevAddressRef.current !== addr) {
@@ -125,7 +123,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
       prevAuthStepRef.current = authStep;
     }
-  }, [isConnected, wagmiAddress, authStep, setAuthStep]);
+  }, [isConnected, wagmiAddress, authStep, rawProvider, setAuthStep]);
 
   // Declared before signAndLogin/signAndLoginRaw which call it (avoids TDZ-style
   // use-before-declaration and lets the hooks list it as a dependency).
@@ -148,6 +146,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const data = await res.json() as { user?: { id: string; address: string }; error?: string };
     if (data.user) {
       localStorage.setItem("wcore_address", addr);
+      authGenerationRef.current = advanceAuthGeneration();
       setAuthStep("authenticated");
     } else {
       throw new Error(data.error ?? "login_failed");
@@ -224,6 +223,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         if (!addr) throw new Error("No account returned from wallet.");
         const chainIdHex = (await entry.provider.request({ method: "eth_chainId" })) as string;
         const chainId = chainIdHex ? parseInt(chainIdHex, 16) : 1;
+        setRawProvider(entry.provider);
         setAddress(addr);
         await signAndLoginRaw(addr, chainId, entry.provider);
         return;
@@ -232,6 +232,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const connector = connectors.find(c => c.id === connectorId)
         ?? connectors[0];
       if (!connector) throw new Error("wallet_not_found");
+      setRawProvider(null);
       const result = await connectAsync({ connector });
       const addr = result.accounts[0]?.toLowerCase() ?? "";
       if (!addr) throw new Error("No account returned from wallet.");
@@ -272,8 +273,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const closePicker = useCallback(() => setPickOpen(false), []);
 
   const disconnect = useCallback(() => {
+    authGenerationRef.current = advanceAuthGeneration();
     wagmiDisconnect();
     setAddress(null);
+    setRawProvider(null);
     localStorage.removeItem("wcore_address");
     setAuthStep("idle");
     fetch(`${API_URL}/api/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
@@ -282,7 +285,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const clearError = useCallback(() => setError(""), []);
 
   return (
-    <WalletCtx.Provider value={{ address, loading, authStep, error, pickOpen, detectedWallets: eip6963Wallets, connect, connectWith, openPicker, closePicker, disconnect, clearError }}>
+    <WalletCtx.Provider value={{ address, loading, authStep, error, pickOpen, detectedWallets: eip6963Wallets, rawProvider, connect, connectWith, openPicker, closePicker, disconnect, clearError }}>
       {children}
     </WalletCtx.Provider>
   );

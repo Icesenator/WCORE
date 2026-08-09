@@ -38,6 +38,7 @@ export async function getWalletAssets(
   const key = normalizeDispatchKey(chainKey);
   const chain = getChain(key);
   if (!chain) throw new Error(`unknown chain: ${chainKey}`);
+  if (chain.FLAGS?.DISABLE_CHAIN === true) throw new Error(`chain disabled: ${key}`);
 
   switch (chain.vm) {
     case "EVM": {

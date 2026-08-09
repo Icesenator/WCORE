@@ -22,38 +22,13 @@ export function GmPageClient() {
   const { address, authStep } = useWallet();
   const isAuthenticated = authStep === "authenticated";
   const [chainStatuses, setChainStatuses] = useState<Record<string, { deployed: boolean | null; gmDone: boolean }>>({});
-  const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(address);
-
-  // Pre-warm the native price cache for every GM chain as soon as the page
-  // mounts, in parallel. When the user later clicks "Deploy" or "Say GM",
-  // useOnChainGm can read the prefetched price from this map and skip the
-  // /api/price/native round-trip + 3-retry ladder that previously delayed
-  // the MetaMask popup by ~500-1500ms.
-  const [nativePriceMap, setNativePriceMap] = useState<Record<string, number>>({});
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all(
-      GM_CHAINS.map(async (chain) => {
-        try {
-          const r = await apiFetch(`/api/price/native?chain=${encodeURIComponent(chain.key)}`);
-          if (r.ok) {
-            const data = (await r.json()) as { price?: number };
-            if (data.price && data.price > 0) return [chain.key, data.price] as const;
-          }
-        } catch { /* ignore */ }
-        return null;
-      })
-    ).then((results) => {
-      if (cancelled) return;
-      const map: Record<string, number> = {};
-      for (const r of results) if (r) map[r[0]] = r[1];
-      setNativePriceMap(map);
-    });
-    return () => { cancelled = true; };
-  }, []);
+  const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(isAuthenticated ? address : null);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setChainStatuses({});
+      return;
+    }
     apiFetch("/api/gm/status")
       .then(r => r.ok ? r.json() : null)
       .then((data: ApiGmStatus | null) => {
@@ -112,7 +87,6 @@ export function GmPageClient() {
           onWithdrawCreator={withdrawCreator}
           onWithdrawPlatform={withdrawPlatform}
           connectedAddress={address ?? ""}
-          nativePriceMap={nativePriceMap}
         />
       ))}
       {SOON_CHAINS.map((chain) => (
@@ -133,7 +107,7 @@ export function GmPageClient() {
   );
 }
 
-function GmChainCard({ chain, initialStatus, walletAddress, gmContracts, withdrawingId, onWithdrawCreator, onWithdrawPlatform, connectedAddress, nativePriceMap }: {
+function GmChainCard({ chain, initialStatus, walletAddress, gmContracts, withdrawingId, onWithdrawCreator, onWithdrawPlatform, connectedAddress }: {
   chain: GmChain;
   initialStatus: { deployed: boolean | null; gmDone: boolean };
   walletAddress: string;
@@ -142,7 +116,6 @@ function GmChainCard({ chain, initialStatus, walletAddress, gmContracts, withdra
   onWithdrawCreator: (contract: GmContractWithBalance) => Promise<void>;
   onWithdrawPlatform: (contract: GmContractWithBalance) => Promise<void>;
   connectedAddress: string;
-  nativePriceMap: Record<string, number>;
 }) {
   const isPlatformOwner = connectedAddress?.toLowerCase() === GM_PLATFORM_OWNER;
   const creatorContracts = gmContracts.filter((contract) => contract.role !== "platform");
@@ -151,7 +124,6 @@ function GmChainCard({ chain, initialStatus, walletAddress, gmContracts, withdra
     chain.key,
     walletAddress,
     initialStatus,
-    nativePriceMap,
   );
 
   return (

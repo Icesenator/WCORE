@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { encodeFunctionData } from "viem";
-import { useSendTransaction, useChainId, useAccount } from "wagmi";
+import { useSendTransaction, useChainId, useAccount, useConfig } from "wagmi";
+import { getPublicClient } from "@wagmi/core";
 import { gmOnChainAbi, gmFactoryAbi } from "@/lib/gm-abi";
 import { getFactory, getFactoryAddress } from "@wcore/shared";
 import { getApiUrl, apiFetch } from "@/lib/api";
 import { lsContractDeployed, lsSetContractDeployed, lsSetGmDone } from "@/lib/gm-storage";
 import { useSafeSwitchChain } from "./useSafeSwitchChain";
-import { switchChainAny, sendTransactionAny, type RawProvider } from "@/lib/onchain-tx";
+import { switchChainAny, sendTransactionAny, waitForTransactionReceiptAny } from "@/lib/onchain-tx";
+import { useWallet } from "@/components/ConnectButton";
 
 export { getFactoryAddress };
 
@@ -17,7 +19,6 @@ export function getGmChainId(chainKey: string): number {
   if (!f) throw new Error(`GM not supported on ${chainKey}. Factory not deployed yet.`);
   return f.chainId;
 }
-
 const API_URL = getApiUrl();
 
 interface GmConfig {
@@ -44,6 +45,8 @@ export function useOnChainGm(config: GmConfig) {
   const { sendTransactionAsync } = useSendTransaction();
   const safeSwitchChain = useSafeSwitchChain();
   const { isConnected } = useAccount();
+  const { rawProvider } = useWallet();
+  const wagmiConfig = useConfig();
   const currentChainId = useChainId();
   const chainIdRef = useRef(currentChainId);
   useEffect(() => { chainIdRef.current = currentChainId; }, [currentChainId]);
@@ -52,22 +55,30 @@ export function useOnChainGm(config: GmConfig) {
   // (ConnectButton.connectWith) which never registers a wagmi connector, so
   // `isConnected` is false even though the user is logged in. Wagmi's
   // sendTransaction/switchChain throw "connector not connected" in that case.
-  // Build a sender set that routes through wagmi when a connector exists and
-  // falls back to the raw injected provider otherwise (same approach as the
-  // raw `personal_sign` login fallback).
+  // Build a sender set that keeps the selected EIP-6963 provider authoritative
+  // and otherwise routes through wagmi.
   const buildSenders = useCallback(() => {
-    const rawProvider = (typeof window !== "undefined"
-      ? (window as unknown as { ethereum?: RawProvider }).ethereum
-      : undefined);
     return {
       wagmiConnected: isConnected,
       wagmiSend: (p: { to: string; value: bigint; data: string }) =>
         sendTransactionAsync({ to: p.to as `0x${string}`, value: p.value, data: p.data as `0x${string}` }),
       wagmiSwitch: (chainId: number) => safeSwitchChain(chainId),
-      rawProvider,
+      rawProvider: rawProvider ?? undefined,
       from: config.walletAddress,
     };
-  }, [isConnected, sendTransactionAsync, safeSwitchChain, config.walletAddress]);
+  }, [isConnected, sendTransactionAsync, safeSwitchChain, rawProvider, config.walletAddress]);
+
+  const waitForReceipt = useCallback(async (txHash: string, chainId: number, timeoutMs: number) => {
+    const publicClient = rawProvider ? undefined : getPublicClient(wagmiConfig, { chainId });
+    const receipt = await waitForTransactionReceiptAny(
+      rawProvider ?? undefined,
+      publicClient ? (hash, timeout) => publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout }) : undefined,
+      txHash,
+      timeoutMs,
+    );
+    if (receipt.status === "0x0") throw new Error("Transaction reverted on-chain. Check your wallet for details.");
+    return receipt;
+  }, [rawProvider, wagmiConfig]);
 
   const getRandomContract = useCallback(async (): Promise<RandomContract> => {
     const params = new URLSearchParams();
@@ -91,13 +102,16 @@ export function useOnChainGm(config: GmConfig) {
 
     try {
       const depRes = await apiFetch(`${API_URL}/api/gm/has-deployed?chain=${chain}`);
-      if (depRes.ok) {
-          const depData = (await depRes.json()) as { hasDeployed?: boolean };
-          if (depData.hasDeployed) { lsSetContractDeployed(chain, "1"); return true; }
-      }
+      // Only a successful answer is evidence. Reporting "not deployed" when the request
+      // failed offered a Deploy button to someone who already has a contract; null is
+      // the unknown state both callers already render as still loading.
+      if (!depRes.ok) return null;
+      const depData = (await depRes.json()) as { hasDeployed?: boolean };
+      if (depData.hasDeployed) { lsSetContractDeployed(chain, "1"); return true; }
       return false;
-    } catch {
-      return false;
+    } catch (e) {
+      console.error("checkHasDeployed failed:", e);
+      return null;
     }
   }, [config.chainKey]);
 
@@ -150,14 +164,16 @@ export function useOnChainGm(config: GmConfig) {
       const switchDeadline = Date.now() + 3000;
       let providerConfirmed = false;
       while (Date.now() < switchDeadline) {
-        if (chainIdRef.current === expectedChainId) { providerConfirmed = true; break; }
-        // Also check wallet directly for providers that lag behind wagmi state
-        const actualHex = await window.ethereum?.request({ method: "eth_chainId" }).catch(() => null) as string | null;
-        if (actualHex && Number(actualHex) === expectedChainId) { providerConfirmed = true; break; }
+        if (senders.rawProvider) {
+          const actualHex = await senders.rawProvider.request({ method: "eth_chainId" }).catch(() => null) as string | null;
+          if (actualHex && Number(actualHex) === expectedChainId) { providerConfirmed = true; break; }
+        } else if (chainIdRef.current === expectedChainId) {
+          providerConfirmed = true;
+          break;
+        }
         await new Promise((r) => setTimeout(r, 250));
       }
-      // Accept the provider-confirmed switch even if wagmi React state still lags.
-      if (!providerConfirmed && chainIdRef.current !== expectedChainId) {
+      if (!providerConfirmed) {
         throw new Error(`Wallet did not switch to ${chainKey.replace(/_/g, " ")}. Switch manually and retry.`);
       }
 
@@ -184,8 +200,7 @@ export function useOnChainGm(config: GmConfig) {
       //   spinner -> "GM Done" (optimistic) -> "Say GM" (checkStatus read
       //   a stale API response while recordGmBackend was still retrying).
       // 60s matches deployContract and covers slow chains (B3, etc.).
-      const ethereum = (window as unknown as Record<string, unknown>).ethereum as { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } | undefined;
-      await waitForGmReceipt(txHash, ethereum, 60_000);
+      await waitForReceipt(txHash, expectedChainId, 60_000);
 
       // Record on-chain GM in backend. Receipt is now validated, so the
       // DB write will succeed on the first try in nearly all cases; the
@@ -220,7 +235,7 @@ export function useOnChainGm(config: GmConfig) {
     } finally {
       setSending(false);
     }
-  }, [config.walletAddress, config.streak, getRandomContract, fetchNativePrice, buildSenders]);
+  }, [config.walletAddress, config.streak, getRandomContract, fetchNativePrice, buildSenders, waitForReceipt]);
 
   const deployContract = useCallback(async (): Promise<{ address: string; txHash: string }> => {
     if (!config.chainKey) throw new Error("chainKey required for deploy");
@@ -236,13 +251,16 @@ export function useOnChainGm(config: GmConfig) {
       const switchDeadline = Date.now() + 3000;
       let providerConfirmed = false;
       while (Date.now() < switchDeadline) {
-        if (chainIdRef.current === expectedChainId) { providerConfirmed = true; break; }
-        const actualHex = await window.ethereum?.request({ method: "eth_chainId" }).catch(() => null) as string | null;
-        if (actualHex && Number(actualHex) === expectedChainId) { providerConfirmed = true; break; }
+        if (senders.rawProvider) {
+          const actualHex = await senders.rawProvider.request({ method: "eth_chainId" }).catch(() => null) as string | null;
+          if (actualHex && Number(actualHex) === expectedChainId) { providerConfirmed = true; break; }
+        } else if (chainIdRef.current === expectedChainId) {
+          providerConfirmed = true;
+          break;
+        }
         await new Promise((r) => setTimeout(r, 250));
       }
-      // Accept the provider-confirmed switch even if wagmi React state still lags.
-      if (!providerConfirmed && chainIdRef.current !== expectedChainId) {
+      if (!providerConfirmed) {
         throw new Error(`Wallet did not switch to ${config.chainKey.replace(/_/g, " ")}. Switch manually and retry.`);
       }
 
@@ -262,31 +280,15 @@ export function useOnChainGm(config: GmConfig) {
       });
 
       let contractAddress = "";
-      const ethereum = (window as unknown as Record<string, unknown>).ethereum as { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } | undefined;
-      if (!ethereum) throw new Error("No ethereum provider for receipt polling");
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 2000));
-        try {
-          const receipt = await ethereum.request({
-            method: "eth_getTransactionReceipt",
-            params: [txHash],
-          }) as { status?: string; logs?: Array<{ address: string; topics: string[] }> } | null;
-          if (!receipt || receipt.status !== "0x1") continue;
-
-          // Read deployed contract address from ContractDeployed event (topics[1])
-          // Safer than contractCount() which has race conditions
-          const DEPLOYED_EVENT = "0x33c981baba081f8fd2c52ac6ad1ea95b6814b4376640f55689051f6584729688";
-          const factoryAddrLower = factoryAddr.toLowerCase();
-          const deployedLog = receipt.logs?.find((log) =>
-            log.address.toLowerCase() === factoryAddrLower
-            && log.topics[0]?.toLowerCase() === DEPLOYED_EVENT
-          );
-          if (deployedLog?.topics[1]) {
-            contractAddress = "0x" + deployedLog.topics[1].slice(26);
-            break;
-          }
-        } catch { /* retry */ }
-      }
+       const receipt = await waitForReceipt(txHash, expectedChainId, 60_000);
+       // Read deployed contract address from ContractDeployed event (topics[1]).
+       const DEPLOYED_EVENT = "0x33c981baba081f8fd2c52ac6ad1ea95b6814b4376640f55689051f6584729688";
+       const factoryAddrLower = factoryAddr.toLowerCase();
+       const deployedLog = receipt.logs.find((log) =>
+         log.address.toLowerCase() === factoryAddrLower
+         && log.topics[0]?.toLowerCase() === DEPLOYED_EVENT
+       );
+       if (deployedLog?.topics[1]) contractAddress = "0x" + deployedLog.topics[1].slice(26);
       if (!contractAddress) throw new Error("Could not find deployed contract address");
 
       // Register the deployed contract in the backend DB. The tx is already
@@ -321,41 +323,7 @@ export function useOnChainGm(config: GmConfig) {
     } finally {
       setDeploying(false);
     }
-  }, [config.chainKey, config.walletAddress, fetchNativePrice, buildSenders]);
+  }, [config.chainKey, config.walletAddress, fetchNativePrice, buildSenders, waitForReceipt]);
 
   return { sendGm, deployContract, checkHasDeployed, sending, deploying };
-}
-
-/**
- * Poll the wallet's RPC for `eth_getTransactionReceipt` until the tx is
- * mined. Resolves on `status === "0x1"`, throws on `status === "0x0"`
- * (reverted) or after `timeoutMs`. Mirrors the polling loop in
- * `deployContract` so the two flows have the same UX.
- */
-async function waitForGmReceipt(
-  txHash: string,
-  ethereum: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } | undefined,
-  timeoutMs: number,
-): Promise<void> {
-  if (!ethereum) throw new Error("No ethereum provider for receipt polling");
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const receipt = (await ethereum.request({
-        method: "eth_getTransactionReceipt",
-        params: [txHash],
-      })) as { status?: string } | null;
-      if (receipt) {
-        if (receipt.status === "0x1") return; // success
-        if (receipt.status === "0x0") {
-          throw new Error("Transaction reverted on-chain. Check your wallet for details.");
-        }
-      }
-    } catch (e) {
-      if ((e as Error).message?.includes("reverted")) throw e;
-      // Network / RPC blip — keep polling until deadline.
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw new Error(`Transaction validation timeout (${Math.round(timeoutMs / 1000)}s). The tx may still be mined — check your wallet.`);
 }

@@ -29,6 +29,23 @@ function erc20SkipCacheKey(chainKey: string, contract: string, customSelector?: 
   return `${base}:${customSelector.toLowerCase()}:${(customSelectorExtraArgs || []).join(",").toLowerCase()}`;
 }
 
+/**
+ * Picks a usable head block among the endpoints that answered.
+ *
+ * Block height moves constantly, so the strict-majority consensus used for balances is
+ * the wrong tool here: on a fast chain two perfectly healthy endpoints disagree by
+ * construction. Requiring exact agreement collapsed discovery to a single block and
+ * flagged the whole chain degraded while nothing was actually wrong.
+ *
+ * The lower median tolerates one lagging and one racing node, and never returns a height
+ * above what a slower endpoint has seen, so the log window stays valid for all of them.
+ */
+export function pickHeadBlock(values: ReadonlyArray<number>): number | null {
+  const sorted = values.filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  return sorted[Math.ceil(sorted.length / 2) - 1]!;
+}
+
 export async function getRecentLogRange(
   dispatcher: RpcDispatcher,
   rpc: EvmRpc,
@@ -51,11 +68,16 @@ export async function getRecentLogRange(
     const res = await dispatcher.run(endpoints, (endpoint, rpcOpts) =>
       rpc.blockNumber(endpoint, rpcOpts),
     (value) => String(value));
-    if (!res.consensus || res.value == null) {
-      errors.push("blockNumber consensus failed; token log discovery limited to latest block");
+    // Deliberately ignores res.consensus: see pickHeadBlock. Only a chain where every
+    // endpoint failed is a real problem worth reporting.
+    const heads = res.attempts
+      .filter((a) => a.ok && a.value != null)
+      .map((a) => Number(a.value));
+    toBlock = pickHeadBlock(heads);
+    if (toBlock == null) {
+      errors.push("blockNumber unavailable on every endpoint; token log discovery limited to latest block");
       return { fromBlock: "latest", toBlock: "latest" };
     }
-    toBlock = res.value;
     if (chainKey) _blockCache.set(chainKey, { block: toBlock, ts: Date.now() });
   }
 

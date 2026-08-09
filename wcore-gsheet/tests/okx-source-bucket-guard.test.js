@@ -1,60 +1,47 @@
+const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const assert = require('assert');
 
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'src/40_OKX_SYNC.gs'), 'utf8');
-
-function extractFunction(sourceText, name) {
-  const start = sourceText.indexOf(`function ${name}(`);
-  if (start < 0) throw new Error(`Missing function ${name}`);
-  const brace = sourceText.indexOf('{', start);
-  let depth = 0;
-  for (let i = brace; i < sourceText.length; i++) {
-    if (sourceText[i] === '{') depth++;
-    if (sourceText[i] === '}') depth--;
-    if (depth === 0) return sourceText.slice(start, i + 1);
-  }
-  throw new Error(`Unclosed function ${name}`);
-}
-
-function verifySourcePreservation(sourceText) {
-  const context = {
-    JSON,
-    String,
-    Number,
-    Array,
-    Object,
-    RegExp,
-    isFinite,
-    encodeURIComponent,
-    OKX_SYMBOL_ALIASES: { OKSOL: 'SOL' },
-    _okxGetRelay_: () => ({ url: 'https://relay.test', token: 'token' }),
-    UrlFetchApp: {
-      fetch: () => ({
-        getResponseCode: () => 200,
-        getContentText: () => JSON.stringify({ ok: true, spot: [['OKSOL', '2', 'funding', '300', '150']] }),
+const properties = {
+  OKX_RELAY_URL: 'https://relay.example.test',
+  OKX_RELAY_TOKEN: 'test-relay-token-long-enough',
+};
+const context = {
+  console,
+  PropertiesService: {
+    getUserProperties: () => ({ getProperty: (key) => properties[key] || null }),
+    getDocumentProperties: () => ({ getProperty: () => null }),
+  },
+  UrlFetchApp: {
+    fetch: () => ({
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({
+        ok: true,
+        spot: [
+          ['BTC', '1', 'trading', '60000', '60000'],
+          ['BTC', '2', 'funding', '120000', '60000'],
+          ['BTC', '0.5', 'trading', '31000', '62000'],
+        ],
       }),
-    },
-  };
-  vm.createContext(context);
-  vm.runInContext([
-    extractFunction(sourceText, '_okxParseAmount_'),
-    extractFunction(sourceText, '_okxCanonicalSymbol_'),
-    extractFunction(sourceText, '_okxFetchBucketsViaRelay_'),
-    extractFunction(sourceText, '_okxBuildValues_'),
-  ].join('\n'), context);
-  const buckets = context._okxFetchBucketsViaRelay_();
-  const values = context._okxBuildValues_(buckets, 'stamp');
-  assert.equal(buckets.spot[0][2], 'funding', 'relay source must survive bucket normalization');
-  assert.equal(values[0][2], 'funding', 'normalized row source must survive sheet value construction');
-}
+    }),
+  },
+};
+vm.createContext(context);
+vm.runInContext(source, context);
 
-verifySourcePreservation(source);
-const sourceLosingBucket = source.replace('var row = [sym, amt, src, valueUsd, priceUsd];', 'var row = [sym, amt, "spot", valueUsd, priceUsd];');
-assert.throws(() => verifySourcePreservation(sourceLosingBucket), /relay source must survive/, 'guard must fail when bucket normalization loses source');
-const sourceLosingBuild = source.replace('var src = String(list[i][2] || "spot").trim().toLowerCase() || "spot";', 'var src = "spot";');
-assert.throws(() => verifySourcePreservation(sourceLosingBuild), /normalized row source must survive/, 'guard must fail when sheet construction loses source');
+const buckets = context._okxFetchBucketsViaRelay_();
+assert.deepStrictEqual(Array.from(buckets.spot, (row) => Array.from(row)), [
+  ['BTC', 1.5, 'trading', 91000, 91000 / 1.5],
+  ['BTC', 2, 'funding', 120000, 60000],
+], 'relay rows must retain and merge by their real source bucket');
+
+const values = context._okxBuildValues_(buckets, '2026-08-07 12:00:00');
+assert.deepStrictEqual(Array.from(values, (row) => Array.from(row)), [
+  ['BTC', 1.5, 'trading', '2026-08-07 12:00:00', 91000, 91000 / 1.5],
+  ['BTC', 2, 'funding', '2026-08-07 12:00:00', 120000, 60000],
+], 'sheet rows must carry source and relay valuation metadata without forcing spot');
 
 console.log('OKX source bucket guard OK');

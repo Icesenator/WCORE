@@ -103,6 +103,8 @@ export async function getSvmWalletAssets(
     deepScan?: boolean;
     intraScanCache?: IntraScanCache;
     forceRefresh?: boolean;
+    /** Cancels the scan's outbound work; the caller's timeout stopped here before. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<SvmWalletAssets> {
   const key = normalizeChainKey(chainKey);
@@ -134,7 +136,7 @@ export async function getSvmWalletAssets(
   if (cache && emptyCacheKey) {
     const cachedEmpty = await cache.get<{ chain: string; chainName: string; nativeSymbol: string; nativeLogo?: string }>(emptyCacheKey);
     if (cachedEmpty) {
-      const alive = await quickSvmLivenessCheck(rpc, endpoints, address);
+      const alive = await quickSvmLivenessCheck(rpc, endpoints, address, opts.signal);
       if (!alive) {
         return {
           chain: cachedEmpty.chain,
@@ -186,7 +188,7 @@ export async function getSvmWalletAssets(
   }
 
   const tokens: SvmWalletToken[] = [];
-  const taResult = await readSvmTokenAccounts(rpc, endpoints, address, errors);
+  const taResult = await readSvmTokenAccounts(rpc, endpoints, address, errors, opts.signal);
   let tokenAccounts = taResult.items;
   const taFailed = taResult.failed;
 
@@ -194,14 +196,25 @@ export async function getSvmWalletAssets(
   // SVM reads all balances in one shot via getTokenAccountsByOwner — no per-token RPC.
   const taCacheKey = cache ? `ta:${key.toLowerCase()}:${address}` : undefined;
   if (cache && taCacheKey) {
-    if (!taFailed) {
+    const cachedTa = await cache.get<SvmTokenAccount[]>(taCacheKey);
+    const cachedPositive = cachedTa?.some((account) => rawAmountToBigInt(account.amount) > 0n) === true;
+    const livePositive = tokenAccounts.some((account) => rawAmountToBigInt(account.amount) > 0n);
+    if (!taFailed && (!cachedPositive || livePositive)) {
       cache.set(taCacheKey, tokenAccounts, 86400_000).catch(() => {});
-    } else {
-      const cachedTa = await cache.get<SvmTokenAccount[]>(taCacheKey);
-      if (cachedTa && cachedTa.length > 0) {
+    } else if (!taFailed && cachedPositive) {
+      const remaining = endpoints.filter((endpoint) => endpoint !== taResult.endpoint);
+      const corroborationErrors: string[] = [];
+      const corroboration = await readSvmTokenAccounts(rpc, remaining, address, corroborationErrors, opts.signal);
+      const corroboratedEmpty = !corroboration.failed && !corroboration.items.some((account) => rawAmountToBigInt(account.amount) > 0n);
+      if (corroboratedEmpty) {
+        cache.set(taCacheKey, tokenAccounts, 86400_000).catch(() => {});
+      } else {
         tokenAccounts = cachedTa;
-        errors.push("[DEGRADED] token accounts: using cached fallback (RPC failed)");
+        errors.push("[DEGRADED] token accounts: preserving positive cache (empty live response uncorroborated)");
       }
+    } else if (cachedPositive) {
+      tokenAccounts = cachedTa!;
+      errors.push("[DEGRADED] token accounts: using cached fallback (RPC failed)");
     }
   }
 
@@ -230,7 +243,7 @@ export async function getSvmWalletAssets(
       const ta = tokenQueue[idx]!;
       const meta = tokenMeta.get(ta.mint) || _svmMetaCache.get(ta.mint);
       const metaDecimals = meta && meta.decimals > 0 ? meta.decimals : undefined;
-      const decimals = ta.decimals ?? metaDecimals ?? await tryGetSvmTokenDecimals(rpc, endpoint, ta.mint) ?? 0;
+      const decimals = ta.decimals ?? metaDecimals ?? await tryGetSvmTokenDecimals(rpc, endpoint, ta.mint, opts.signal) ?? 0;
       if (decimals === 0) {
         errors.push(`${ta.mint.slice(0, 8)}: decimals unavailable`);
         continue;
@@ -362,20 +375,23 @@ async function readSvmTokenAccounts(
   endpoints: string[],
   owner: string,
   errors: string[],
-): Promise<{ items: SvmTokenAccount[]; failed: boolean }> {
+  signal?: AbortSignal,
+): Promise<{ items: SvmTokenAccount[]; failed: boolean; endpoint?: string }> {
   for (const endpoint of endpoints) {
-    const res = await tryReadTokenAccounts(rpc, endpoint, owner, TOKEN_PROGRAM_ID);
+    // Stop walking the endpoint list once the caller has given up.
+    if (signal?.aborted) return { items: [], failed: true };
+    const res = await tryReadTokenAccounts(rpc, endpoint, owner, TOKEN_PROGRAM_ID, signal);
     if (res.failed) continue;
 
     // TOKEN-2022 is optional — most wallets have no Token-2022 accounts,
     // and some RPCs (e.g. publicnode) timeout on this call.
-    const res2022 = await tryReadTokenAccounts(rpc, endpoint, owner, TOKEN_2022_PROGRAM_ID);
+    const res2022 = await tryReadTokenAccounts(rpc, endpoint, owner, TOKEN_2022_PROGRAM_ID, signal);
     const items2022 = res2022.failed ? [] : res2022.items;
     if (res2022.failed) {
       errors.push(`token accounts: TOKEN-2022 skipped on ${endpoint.slice(0, 40)} (RPC failed)`);
     }
 
-    return { items: [...res.items, ...items2022], failed: false };
+    return { items: [...res.items, ...items2022], failed: false, endpoint };
   }
   errors.push("token accounts: no data from any RPC endpoint");
   return { items: [], failed: true };
@@ -386,6 +402,7 @@ async function tryReadTokenAccounts(
   endpoint: string,
   owner: string,
   programId: string,
+  signal?: AbortSignal,
 ): Promise<{ items: SvmTokenAccount[]; failed: boolean }> {
   try {
     const res = await rpc.call<{
@@ -399,7 +416,7 @@ async function tryReadTokenAccounts(
       endpoint,
       "getTokenAccountsByOwner",
       [owner, { programId }, { encoding: "jsonParsed" }],
-      { timeoutMs: 5000 },
+      { timeoutMs: 5000, signal },
     );
     const accounts: SvmTokenAccount[] = [];
     for (const item of res.value ?? []) {
@@ -416,6 +433,7 @@ async function tryGetSvmTokenDecimals(
   rpc: RpcClient,
   endpoint: string,
   mint: string,
+  signal?: AbortSignal,
 ): Promise<number | null> {
   try {
     const res = await rpc.call<{
@@ -424,7 +442,7 @@ async function tryGetSvmTokenDecimals(
       endpoint,
       "getAccountInfo",
       [mint, { encoding: "jsonParsed" }],
-      { timeoutMs: 3000 },
+      { timeoutMs: 3000, signal },
     );
     return res.value?.parsed?.info?.decimals ?? null;
   } catch {
@@ -523,13 +541,14 @@ async function quickSvmLivenessCheck(
   rpc: RpcClient,
   endpoints: string[],
   address: string,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   // Returns true if wallet has activity (should do full scan).
   // Returns false if wallet appears empty (negative cache can be served).
   if (!endpoints.length) return true; // No RPC available — assume alive (safe)
   try {
     const ep = endpoints[0]!;
-    const res = await rpc.call<{ value: number }>(ep, "getBalance", [address], { timeoutMs: 2000 });
+    const res = await rpc.call<{ value: number }>(ep, "getBalance", [address], { timeoutMs: 2000, signal });
     return BigInt(res.value) > 0n;
   } catch {
     return true; // RPC failed — assume wallet might have assets (safe: do full scan)

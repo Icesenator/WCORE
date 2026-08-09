@@ -96,15 +96,28 @@ export async function discoverTokensForWallet(
     return tokens;
   }
 
+  // Resolving each contract's symbol, name and decimals is an RPC round-trip, and they
+  // were awaited one after another: a wallet touching fifty contracts paid fifty
+  // sequential round-trips before a single balance was read. Deduplicate first, then
+  // resolve in bounded groups so the burst stays comparable to the rest of the engine.
+  const METADATA_CONCURRENCY = 10;
+  const toResolve: string[] = [];
   for (const contract of logs.contracts) {
     if (contract === null || contract === undefined) continue;
     const key = String(contract).toLowerCase();
     if (seen.has(key)) continue;
-    const meta = await context.metadata(key);
-    context.errors?.push(...meta.errors);
-    if (!meta.token) continue;
-    tokens.push(meta.token);
+    // Claim it up front: a contract repeated in the logs must not be queried twice.
     seen.add(key);
+    toResolve.push(key);
+  }
+
+  for (let i = 0; i < toResolve.length; i += METADATA_CONCURRENCY) {
+    const group = toResolve.slice(i, i + METADATA_CONCURRENCY);
+    const metas = await Promise.all(group.map((key) => context.metadata!(key)));
+    for (const meta of metas) {
+      context.errors?.push(...meta.errors);
+      if (meta.token) tokens.push(meta.token);
+    }
   }
 
   if (cache && cacheKey) {

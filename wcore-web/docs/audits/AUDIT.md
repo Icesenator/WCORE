@@ -53,7 +53,7 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 
 ### Core et cache
 
-- [ ] Reutiliser `getStablecoinType` dans `evm-batch.ts`; couvrir EURC/EURS/EURE.
+- [x] **RESOLVED avant le 2026-08-09, couverture ajoutee le 2026-08-09.** Le refactor moteur a deja fait converger single et batch: `evm-batch.ts` appelle `priceToken`, qui derive `isStable` et `peg` via `getStablecoinType`. Le helper canonique couvre EURC/EURS/EURE. Un test au point partage exige 1 EUR, valeur correcte et zero appel externe pour les trois symboles de registre; retirer EURE du helper fait echouer la garde. Core 354/355 (1 skip).
 - [ ] Ne pas ecrire un zero Cosmos quand les branches staking ont echoue.
 - [ ] Respecter `opts.sources` dans l'engine TON.
 - [ ] Appliquer le registre de cles cache aux variantes `empty:v2:*` et constructions directes.

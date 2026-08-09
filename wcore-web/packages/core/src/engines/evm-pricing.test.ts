@@ -52,6 +52,38 @@ test("priceNative preserves a sub-cent CAMP unit price", async () => {
   assert.equal(result.valueEur, 4.57);
 });
 
+test("registry EUR stablecoins bypass external pricing at one euro", async () => {
+  let pricingCalls = 0;
+  const miss = async () => { pricingCalls += 1; return null; };
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: miss, getNativePriceUsd: miss },
+    dexscreener: { getTokenPriceUsd: miss },
+    geckoterminal: { getTokenPriceUsd: miss },
+    coingecko: { getNativePriceUsd: miss, getTokenPriceUsd: miss },
+    jupiter: { getTokenPriceUsd: miss },
+    onchainV3: { getTokenPriceUsd: miss },
+  };
+  const chain = {
+    key: "ETHEREUM",
+    CHAIN: { NAME: "Ethereum", CHAIN_ID: 1, NATIVE_SYMBOL: "ETH", NATIVE_NAME: "Ether", NATIVE_DECIMALS: 18 },
+  } as ChainConfig;
+
+  for (const [index, symbol] of ["EURC", "EURS", "EURE"].entries()) {
+    const known = {
+      contract: `0x${String(index + 1).padStart(40, "0")}`,
+      symbol,
+      name: symbol,
+      decimals: 18,
+      source: "registry",
+    } as DiscoveredToken;
+    const result = await priceToken(chain, known, 2, 0.86, sources, new MemoryPricingCache(), undefined, []);
+    assert.equal(result.priceEur, 1, symbol);
+    assert.equal(result.valueEur, 2, symbol);
+  }
+
+  assert.equal(pricingCalls, 0, "known EUR stables must not call external pricing sources");
+});
+
 test("priceToken prices and displays a DeFi collateral by its asset contract", async () => {
   const comet = "0xe36a30d249f7761327fd973001a32010b521b6fd";
   const asset = "0x2222222222222222222222222222222222222222";

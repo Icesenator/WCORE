@@ -78,6 +78,8 @@ export interface ApiConfig {
   };
   integrations: {
     gsheetApiToken: string | undefined;
+    gsheetScanPriceRepairLimit: number;
+    gsheetPriceBatchConcurrency: number;
     gsheetOwnerAddress: string | undefined;
     internalApiUrl: string;
     publicUrl: string;
@@ -324,7 +326,9 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       },
     },
     integrations: {
-      gsheetApiToken: env.GSHEET_API_TOKEN,
+      gsheetApiToken: readNonBlank(env, "GSHEET_API_TOKEN"),
+      gsheetScanPriceRepairLimit: readNumber(env, "GSHEET_SCAN_PRICE_REPAIR_LIMIT", 24, { min: 0 }),
+      gsheetPriceBatchConcurrency: readNumber(env, "GSHEET_PRICE_BATCH_CONCURRENCY", 3, { min: 1 }),
       gsheetOwnerAddress: env.GSHEET_OWNER_ADDRESS?.trim().toLowerCase() || undefined,
       internalApiUrl: env.INTERNAL_API_URL || "http://localhost:4000",
       publicUrl: env.PUBLIC_URL ?? "http://localhost:3000",

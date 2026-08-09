@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "@wcore/db";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { safeEq } from "../admin-auth.js";
+import { resolveRelayBaseUrl } from "../config.js";
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { CexAccountBodySchema, CexAccountParamsSchema } from "../schemas.js";
 import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, normalizeKrakenBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type KrakenBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
@@ -35,28 +36,18 @@ type KrakenCredentials = { apiKey: string; apiSecret: string };
 
 // Server-side binance-relay (Railway IP not blocked by Binance HTTP 451).
 // The relay signs the per-user request and never exposes RELAY_TOKEN to clients.
+// La resolution vit dans config.ts: elle etait dupliquee ici et dans
+// stocks/stock-service.ts, avec trois comportements divergents.
 function getCexRelayUrl(provider: "binance" | "bybit" | "coinbase" | "okx"): string {
-  const specific = provider === "bybit"
-    ? process.env.BYBIT_RELAY_URL
-    : provider === "coinbase"
-    ? process.env.COINBASE_RELAY_URL
-    : provider === "okx"
-    ? process.env.OKX_RELAY_URL
-    : process.env.BINANCE_RELAY_URL;
-  const explicit = specific || process.env.CEX_RELAY_URL || process.env.BINANCE_RELAY_URL || process.env.BYBIT_RELAY_URL;
-  const railway = process.env.RAILWAY_SERVICE_CEX_RELAY_URL || process.env.RAILWAY_SERVICE_BINANCE_RELAY_URL;
-  const base = explicit || (railway ? `https://${railway.replace(/^https?:\/\//, "")}` : "");
+  const base = resolveRelayBaseUrl(process.env, provider);
   if (!base) throw new Error(`${provider.toUpperCase()}_RELAY_URL or CEX_RELAY_URL not configured`);
-  return base.replace(/\/+$/, "");
+  return base;
 }
 
 // Stock prices use the same relay infra as Binance/Bybit (Yahoo blocks our
 // datacenter IP). Returns "" when no relay is configured so callers can skip.
 function getStockRelayUrl(): string {
-  const explicit = process.env.CEX_RELAY_URL || process.env.BINANCE_RELAY_URL || process.env.BYBIT_RELAY_URL;
-  const railway = process.env.RAILWAY_SERVICE_CEX_RELAY_URL || process.env.RAILWAY_SERVICE_BINANCE_RELAY_URL;
-  const base = explicit || (railway ? `https://${railway.replace(/^https?:\/\//, "")}` : "");
-  return base ? base.replace(/\/+$/, "") : "";
+  return resolveRelayBaseUrl(process.env, "stock");
 }
 
 const CEX_PRICE_IDS: Record<string, string> = {

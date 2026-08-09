@@ -174,6 +174,51 @@ function parseRedisConfig(env: ApiEnv): RedisConfig | null {
   return null;
 }
 
+export type RelayTarget = "binance" | "bybit" | "coinbase" | "okx" | "stock";
+
+const RELAY_SPECIFIC_KEY: Record<RelayTarget, string> = {
+  binance: "BINANCE_RELAY_URL",
+  bybit: "BYBIT_RELAY_URL",
+  coinbase: "COINBASE_RELAY_URL",
+  okx: "OKX_RELAY_URL",
+  stock: "STOCK_RELAY_URL",
+};
+
+function readNonBlank(env: ApiEnv, key: string): string | undefined {
+  const raw = env[key];
+  if (raw == null) return undefined;
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+/**
+ * Resolution unique de l'URL de base du relais, pour les CEX comme pour les
+ * actions. Trois implementations divergeaient auparavant et deux etaient
+ * fausses:
+ *
+ * - `STOCK_RELAY_URL` etait ignore par le resolveur de `plugins/cex.ts`, donc
+ *   un relais dedie aux actions n'etait honore que sur un chemin sur deux.
+ * - Les variables `RAILWAY_SERVICE_*_URL` sont des hostnames **nus**;
+ *   `stocks/stock-service.ts` les utilisait telles quelles, ce qui produisait
+ *   une valeur qui n'est pas une URL. Le schema est desormais toujours pose.
+ * - Le slash final n'etait normalise que d'un cote, d'ou des `//path`.
+ *
+ * Retourne "" quand rien n'est configure: c'est a l'appelant de decider s'il
+ * echoue (CEX) ou s'il se contente de sauter l'appel (actions).
+ */
+export function resolveRelayBaseUrl(env: ApiEnv, target: RelayTarget): string {
+  const explicit =
+    readNonBlank(env, RELAY_SPECIFIC_KEY[target]) ??
+    readNonBlank(env, "CEX_RELAY_URL") ??
+    readNonBlank(env, "BINANCE_RELAY_URL") ??
+    readNonBlank(env, "BYBIT_RELAY_URL");
+  const railwayHost =
+    readNonBlank(env, "RAILWAY_SERVICE_CEX_RELAY_URL") ??
+    readNonBlank(env, "RAILWAY_SERVICE_BINANCE_RELAY_URL");
+  const base = explicit ?? (railwayHost ? `https://${railwayHost.replace(/^https?:\/\//, "")}` : "");
+  return base.replace(/\/+$/, "");
+}
+
 export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
   const nodeEnv = env.NODE_ENV ?? "";
   const isProduction = nodeEnv === "production";

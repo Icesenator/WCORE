@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "@wcore/db";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { safeEq } from "../admin-auth.js";
-import { apiConfig, resolveRelayBaseUrl, resolveRelayToken } from "../config.js";
+import { apiConfig, resolveCexEncryptionSecret, resolveRelayBaseUrl, resolveRelayToken } from "../config.js";
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { CexAccountBodySchema, CexAccountParamsSchema } from "../schemas.js";
 import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, normalizeKrakenBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type KrakenBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
@@ -91,24 +91,6 @@ const CEX_PRICE_IDS: Record<string, string> = {
   SOLO: "coingecko:solo-coin",
   BGB: "coingecko:bitget-token",
 };
-
-/**
- * Picks the secret that exchange credentials are encrypted with.
- *
- * In production this must never fall back. Deriving the key from JWT_SECRET couples two
- * secrets that rotate independently: rotating the JWT would silently make every stored
- * credential undecryptable. Falling back to the fixed development string would be worse
- * still, since it is public. Refusing here disables only the exchange feature instead of
- * encrypting with a key nobody intended.
- */
-export function resolveCexEncryptionSecret(env: NodeJS.ProcessEnv = process.env): string {
-  const secret = env.CEX_SECRET;
-  if (secret) return secret;
-  if (env.NODE_ENV === "production") {
-    throw new Error("CEX_SECRET is required to read or write exchange credentials");
-  }
-  return env.JWT_SECRET || "wcore-dev-cex-secret";
-}
 
 function encryptionKey(): Buffer {
   return createHash("sha256").update(resolveCexEncryptionSecret()).digest();

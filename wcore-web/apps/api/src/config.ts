@@ -233,6 +233,22 @@ export function resolveRelayToken(env: ApiEnv): string {
   return readNonBlank(env, "RELAY_TOKEN") ?? "";
 }
 
+/**
+ * Cle dediee au chiffrement des identifiants CEX. En production elle ne doit
+ * jamais emprunter JWT_SECRET: les deux secrets tournent independamment et une
+ * rotation JWT rendrait tous les identifiants d'exchange indechiffrables.
+ * Les replis hors production sont conserves pour les donnees locales deja
+ * chiffrees. Une valeur blanche est une absence, pas une cle valide.
+ */
+export function resolveCexEncryptionSecret(env: ApiEnv = process.env): string {
+  const secret = readNonBlank(env, "CEX_SECRET");
+  if (secret) return secret;
+  if (env.NODE_ENV === "production") {
+    throw new Error("CEX_SECRET is required to read or write exchange credentials");
+  }
+  return readNonBlank(env, "JWT_SECRET") ?? "wcore-dev-cex-secret";
+}
+
 export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
   const nodeEnv = env.NODE_ENV ?? "";
   const isProduction = nodeEnv === "production";

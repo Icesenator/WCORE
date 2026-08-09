@@ -1,0 +1,18 @@
+---
+source_file: "gsheet/26_OPTIMIZATIONS.js"
+type: "code"
+community: "26_OPTIMIZATIONS.js"
+location: "L628"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/26_OPTIMIZATIONSjs
+---
+
+# WCORE_PRUNE_CONTRACTS()
+
+## Connections
+- [[26_OPTIMIZATIONS.js]] - `contains` [EXTRACTED]
+- [[_opt_extractWalletFromKey()]] - `calls` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/26_OPTIMIZATIONSjs

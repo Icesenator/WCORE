@@ -1,0 +1,21 @@
+{
+  "promptDelete": false,
+  "showUnsupportedFiles": false,
+  "newLinkFormat": "absolute",
+  "alwaysUpdateLinks": true,
+  "userIgnoreFilters": [
+    "(^|/)\\.git/",
+    "(^|/)\\.claude/",
+    "(^|/)\\.omc/",
+    "(^|/)\\.playwright-mcp/",
+    "(^|/)node_modules/",
+    "(^|/)\\.next/",
+    "(^|/)coverage/",
+    "(^|/)\\.tmp/",
+    "(^|/)\\.backups/",
+    "(^|/)backups/",
+    "(^|/)graphify-out/",
+    "(^|/)generated/",
+    "(^|/)(dist|build|__pycache__)/"
+  ]
+}

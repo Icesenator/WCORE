@@ -16,6 +16,7 @@ import { gamificationPlugin, seedGmContracts } from "./gamification/index.js";
 import { supportPlugin } from "./support.js";
 import { scanPlugin } from "./plugins/scan.js";
 import { adminPlugin, DependencyTransitionTracker, dependencyHealthStatus } from "./plugins/admin.js";
+import { healthPlugin } from "./plugins/health.js";
 import { walletPlugin } from "./plugins/wallet.js";
 import { cexPlugin } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
@@ -324,22 +325,15 @@ await gamificationPlugin(app, prisma, isAdminAuthorized);
 await supportPlugin(app, prisma);
 // --- Health ---
 
-app.get("/health", async () => ({
-  status: "ok", service: "wcore-api", coreVersion: CORE_VERSION,
-  uptimeSec: Math.round(process.uptime()), chainCount: chainList.length,
-  // Circuit breaker states excluded from public endpoint (SEC-10).
-  // Use admin /api/metrics/errors for detailed circuit info.
-}));
-
-app.get("/ready", async (_req, reply) => {
-  const dbOk = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
-  const redisOk = await checkRedis();
-  const ready = dbOk && redisOk;
-  return reply.code(ready ? 200 : 503).send({
-    status: ready ? "ready" : "not_ready",
-    service: "wcore-api",
-    checks: { db: dbOk, redis: redisOk },
-  });
+// Liveness et readiness vivent dans ./plugins/health.ts, ou leurs garanties
+// sont verrouillees par des tests: /health ne sonde aucune dependance et
+// n'expose pas l'etat des disjoncteurs (SEC-10), /ready repond 503 des que
+// PostgreSQL ou Redis manque.
+await app.register(healthPlugin, {
+  checkDb: () => prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
+  checkRedis,
+  coreVersion: CORE_VERSION,
+  chainCount: chainList.length,
 });
 
 app.get("/api/me/plan", async (req, reply) => {

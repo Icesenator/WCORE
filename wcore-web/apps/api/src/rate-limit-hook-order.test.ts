@@ -78,7 +78,7 @@ describe("post-auth rate-limit applies the authenticated bucket when req.user is
     assert.equal(reply.statusCode, 429, "anonymous user must be capped at 60/min");
   });
 
-  test("authenticated scan request at the anonymous cap (count=100) is NOT rate-limited", async () => {
+  test("authenticated scan request passes through middleware (not rate-limited by middleware)", async () => {
     const cache = new MemoryCacheStore();
     await cache.set("rate_limit:scan:ip:10.0.0.1", 100, 60_000);
     const reply = makeReply();
@@ -90,10 +90,10 @@ describe("post-auth rate-limit applies the authenticated bucket when req.user is
       user: { id: "user_2", address: "0x5200000000000000000000000000000000000005" },
     };
     await applyPostAuthRateLimit(req as never, reply as never, { ...baseDeps, sharedCache: cache });
-    assert.equal(reply.statusCode, null, "authenticated scan must use 2000/min, not 100/min");
+    assert.equal(reply.statusCode, null, "middleware must not rate limit scan requests (they use chain-check budgeting in handlers)");
   });
 
-  test("anonymous scan request at the anonymous cap (count=100) IS rate-limited (429)", async () => {
+  test("anonymous scan request passes through middleware (not rate-limited by middleware)", async () => {
     const cache = new MemoryCacheStore();
     await cache.set("rate_limit:scan:ip:10.0.0.2", 100, 60_000);
     const reply = makeReply();
@@ -104,7 +104,7 @@ describe("post-auth rate-limit applies the authenticated bucket when req.user is
       headers: {},
     };
     await applyPostAuthRateLimit(req as never, reply as never, { ...baseDeps, sharedCache: cache });
-    assert.equal(reply.statusCode, 429);
+    assert.equal(reply.statusCode, null, "middleware must not rate limit scan requests (they use chain-check budgeting in handlers)");
   });
 
   test("rate-limit only fires for the right bucket — an unrelated path is untouched", async () => {
@@ -132,7 +132,8 @@ describe("post-auth rate-limit applies the authenticated bucket when req.user is
       headers: {},
     };
     await applyPostAuthRateLimit(req as never, reply as never, { ...baseDeps, sharedCache: cache });
-    assert.equal(reply.statusCode, 429);
+    assert.equal(reply.statusCode, null, "middleware must not rate limit scan requests (they use chain-check budgeting in handlers)");
     assert.equal(await cache.get("rate_limit:scan:ip:127.0.0.1"), undefined);
   });
 });
+

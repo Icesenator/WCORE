@@ -8,6 +8,11 @@ status: active
 > Date de verification: 2026-07-10
 > Perimetre: `apps/api`, `apps/web`, `packages/core`, `packages/shared`, `packages/db`, CI, Docker/Railway et documentation.
 > Audit transversal complet: [`docs/audits/AUDIT.md`](../../../docs/audits/AUDIT.md).
+>
+> **Attention:** ce fichier precede le contre-audit du 2026-08-07. Une case non
+> cochee ici n'est pas une preuve de travail ouvert — plusieurs l'etaient alors
+> que le correctif existait deja. Croiser avec l'audit transversal et avec le
+> code avant d'ouvrir un chantier.
 
 Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preuve dans le code ou un test frais.
 
@@ -39,9 +44,9 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 
 ### API et securite
 
-- [ ] Rendre `CEX_SECRET` obligatoire en production au lieu du fallback `JWT_SECRET` (`apps/api/src/plugins/cex.ts:103-105`).
+- [x] **RESOLVED 2026-08-04.** `resolveCexEncryptionSecret` leve une erreur en production quand `CEX_SECRET` manque (`apps/api/src/plugins/cex.ts:117`); le repli sur `JWT_SECRET` ne subsiste qu'hors production (`:119`), pour ne pas rendre illisibles les identifiants deja stockes en dev. Preuve: `apps/api/src/plugins/cex-secret.test.ts`.
 - [x] Mettre `ws` a jour en `>=8.21.0`: override et lockfile en `8.21.1`, audit sans HIGH/CRITICAL.
-- [ ] Refuser/degrader readiness si Redis configure est indisponible en production.
+- [x] **RESOLVED 2026-08-07, verrouille 2026-08-09.** `/ready` sonde PostgreSQL et Redis et repond 503 des que l'un manque. La garde existait sans aucun test: un `grep "/ready"` sur les fichiers de test ne renvoyait rien. Les deux routes sont extraites dans `apps/api/src/plugins/health.ts` et couvertes par `health.test.ts`, qui verrouille aussi le fait que `/health` reste une sonde de liveness — elle ne sonde aucune dependance et n'expose pas l'etat des disjoncteurs (SEC-10). Gardes validees par mutation.
 - [ ] Reduire le TTL access token ou ajouter une revocation user/session-level.
 - [ ] Integrer toutes les variables CEX/GSheet dans `config.ts` et les templates env.
 - [ ] Comparer l'origine CSRF complete, pas seulement le hostname.

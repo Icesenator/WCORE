@@ -1,6 +1,6 @@
 # WCORE - Roadmap
 
-> Index cross-runtime et priorites communes. Etat verifie le 2026-07-17. Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
+> Index cross-runtime et priorites communes. Etat recroise avec le code et le contre-audit le 2026-08-09. Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
 
 ## Sources de verite
 
@@ -17,7 +17,7 @@
 - `wcore-gsheet/src/*.gs`: source canonique des configurations de chaines et runtime Apps Script.
 - `wcore-gsheet/dist/`: package genere `@wcore/chains`.
 - `wcore-web/`: frontend Next.js, API Fastify, moteurs Node, Prisma/PostgreSQL et Redis.
-- Compte courant: 183 configurations suivies. Le nombre actif/scannable est dynamique et doit etre lu depuis `/api/chains`.
+- Compte mesure depuis `packages/core/src/chains`: 182 configurations, dont 167 actives et 15 desactivees au 2026-08-09. Le nombre actif/scannable reste dynamique et doit etre lu depuis `/api/chains`.
 
 ## Etat des phases
 
@@ -26,7 +26,7 @@
 | FX et cache keys partages | Terminee | Garder la parite et supprimer les constructions de cles directes restantes |
 | Package unifie `@wcore/chains` | Termine | Fiabiliser metadonnees et CI de generation |
 | CEX runtime alignment | Termine pour 7 providers | Corriger pricing FX, resilience UI et concurrence queue GSheet |
-| Consolidation chain configs | Terminee, 183 configs | Ajouter validation schema exhaustive et gerer les sunsets |
+| Consolidation chain configs | Terminee, 182 configs | Ajouter validation schema exhaustive et gerer les sunsets |
 | Delegation GSheet vers Web | Implementee, hardening actif | Corriger le contrat Cosmos et compter les appels delegues |
 | Cache GSheet Web-backed | Design valide, differe | Migrer les donnees reconstructibles sans casser le mode degrade |
 
@@ -42,26 +42,26 @@
 ### Securite et disponibilite
 
 - [x] Securiser `/api/cex/prices`, consomme par Google Sheets: `x-gsheet-token` obligatoire, lots limites a 50, relais actions en batch unique et concurrence crypto bornee. Verifie le 2026-07-10 par tests auth/limite/batch.
-- [ ] Fermer SSRF/DNS rebinding sur tous les fetches RPC.
-- [ ] Borner et persister les jobs async Web.
-- [ ] Rendre `CEX_SECRET` obligatoire et retirer les tokens relay des URLs.
+- [x] Fermer SSRF/DNS rebinding sur tous les fetches GM. `safeFetch` valide chaque redirection et toutes les resolutions A/AAAA, echoue ferme et borne les redirections. Contre-audit du 2026-08-07.
+- [x] Borner et persister les jobs async Web. File PostgreSQL, admission atomique, leases, heartbeat, fencing et reprise apres crash deployes et verifies le 2026-08-07.
+- [x] Rendre `CEX_SECRET` obligatoire et retirer les tokens relay des URLs. Secret dedie obligatoire en production; relais privilegie par en-tete. Configuration CEX/GSheet centralisee et testee le 2026-08-09.
 - [x] Rendre atomiques quota, queue et leases CEX GSheet. Verifie le 2026-07-16 (v4.16.30, HttpCounter atomique + bulk relay).
 
 ### Livraison reproductible
 
 - [x] Deplacer la CI GitHub dans `.github/workflows/` a la racine. Verifie localement le 2026-07-17 (working-directory/cache/artifacts adaptes au monorepo).
-- [ ] Corriger la chaine de migrations Prisma pour une base vide.
+- [x] Corriger la chaine de migrations Prisma pour une base vide. Historique reconstructible et job CI PostgreSQL vierge verifies par le contre-audit du 2026-08-07.
 - [x] Mettre `ws` a jour au-dela de 8.21.0. `ws@8.21.1`, audit sans HIGH/CRITICAL le 2026-07-17.
 - [ ] Ajouter un `.dockerignore` racine et pruner l'image API.
 - [x] Revenir a un lint vert et bloquant. 0 erreur/0 warning, step CI racine bloquant le 2026-07-17.
-- [ ] Bumper `dist/package.json` version a chaque `build:chains`.
+- [x] Bumper `dist/package.json` version a chaque `build:chains`. L'extracteur derive la version de `WCORE_VERSION` et un test refuse toute divergence depuis le 2026-08-05.
 
 ### Documentation (nouveau, audit 2026-07-16)
 
 - [ ] Archiver les 19 specs/plans termines dans `docs/superpowers/archive/`.
-- [ ] Splitter `wcore-web/AGENTS.md` (979+ lignes, 60% GSheet) en guide web + archive GSheet.
+- [x] Splitter `wcore-web/AGENTS.md` en guide actif + archive. Mesure 2026-08-09: 175 lignes actives, historique dans `wcore-web/AGENTS-ARCHIVE.md`.
 - [ ] Reduire `wcore-web/ROADMAP.md` a l'etat et au futur (actuellement 2500+ lignes).
-- [ ] Reduire les `AGENTS.md` aux regles critiques sans secrets ni procedures locales.
+- [x] Reduire les `AGENTS.md` aux regles critiques sans secrets ni procedures locales. Mesure 2026-08-09: racine 27 lignes, Web 175, GSheet 182; archives separees.
 
 ## Fiabilite GSheet
 
@@ -81,11 +81,11 @@
 
 ## Fiabilite Web
 
-- [ ] Eviter qu'un echec GM soit interprete comme contrat absent.
-- [ ] Supprimer les fan-outs GM frontend et normaliser les `chainKey`.
+- [x] Eviter qu'un echec GM soit interprete comme contrat absent. L'etat inconnu (`null`) remplace `false` sur panne depuis le 2026-08-04.
+- [x] Supprimer les fan-outs GM frontend et normaliser les `chainKey`. Prix charge a l'action, statuts regroupes et cles canoniques verifies par les tests GM le 2026-08-05.
 - [ ] Ne plus poller `/api/circuit` admin-only depuis l'UI publique.
-- [ ] Finir la centralisation des variables d'environnement.
-- [ ] Ajouter un test schema sur les 183 configurations.
+- [x] Centraliser les variables CEX/GSheet. URL et token relais, secret CEX, token et bornes GSheet vivent dans `apps/api/src/config.ts`; 14/14 variables documentees dans les deux templates le 2026-08-09.
+- [ ] Ajouter un test schema sur les 182 configurations.
 - [~] Tests comportementaux CEX ajoutes le 2026-07-17 (pannes, stale, concurrence, session, timeout complet); hooks GM encore a couvrir.
 - [x] `Selected DeFi positions` V1 deploye et verifie le 2026-07-17 pour une couverture ciblee Compound V3, WCT, Chainbase et actifs stakes selectionnes. Le Web `/api/scan/batch` et GSheet partagent la finalisation `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee; Compound est decouvert une fois par batch EVM, appelle `collateralBalanceOf(user, asset)` sur le Comet, utilise le contrat collatéral pour pricing/logo/sortie et derive les decimales de `AssetInfo.scale`. Commits `6accdda1`/`95b91591`; deploys Railway API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`, Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Smoke Optimism force: `degraded=false`, `errors=[]`, WCT `0,47 EUR` + `2,61 EUR`, Comp wrsETH `12,69 EUR`, dette WETH `-10,21 EUR`, net signe `10,43 EUR`.
 - [x] Pages Market Cap livrees sur les routes stables `/cmc/crypto` et `/cmc/stocks`: 5 000 lignes par annuaire, logos, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut fresh/stale. CI et controle live attestes le 2026-07-17. Post X publie (`2078069673707348415`) et trois interactions verifiees.
@@ -107,7 +107,7 @@
 - [ ] Concevoir un moteur de comparaison de quotes distinct du portfolio avec un registre provider ouvert. LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch et Jupiter sont des candidats initiaux non exhaustifs; tout nouvel agregateur peut etre evalue et active par configuration apres verification de ses contrats, quotas, couverture et garanties de securite.
 - [ ] Normaliser chaque route par montant net recu, gas, frais, slippage, duree, nombre d'etapes et risque du bridge; dedupliquer les routes qui utilisent le meme chemin sous-jacent.
 - [ ] Livrer d'abord un comparateur read-only de transactions non signees. Toute execution exige une specification separee, une validation explicite dans le wallet et un audit securite; WCORE ne detient jamais les fonds et ne signe jamais automatiquement.
-- [ ] Definir `toutes chaines` comme toutes les chaines dynamiquement couvertes par au moins un routeur, sans promettre que les 183 configurations WCORE disposent toutes d'une route.
+- [ ] Definir `toutes chaines` comme toutes les chaines dynamiquement couvertes par au moins un routeur, sans promettre que les 182 configurations WCORE disposent toutes d'une route.
 - [ ] Garder budgets, caches, secrets, breakers et telemetrie du routage entierement separes de ceux du scan portfolio.
 
 ## Chain Lifecycle
@@ -131,12 +131,12 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 
 - [ ] Corriger le mojibake de `wcore-web/ROADMAP.md`, `AGENTS.md` et `CHANGELOG.md` par conversion ciblee. L'audit 2026-07-16 confirme que le fix n'a pas encore ete applique.
 - [ ] Reduire `wcore-web/ROADMAP.md` a l'etat et au futur; deplacer le passe vers CHANGELOG/archive.
-- [ ] Splitter `wcore-web/AGENTS.md` (979+ lignes, 60% GSheet) en guide web + archive GSheet.
-- [ ] Mettre a jour les docs CEX GSheet pour Kraken et l'architecture reelle de queue/triggers.
+- [x] Splitter `wcore-web/AGENTS.md` en guide Web actif (175 lignes mesurees) + `AGENTS-ARCHIVE.md`.
+- [x] Mettre a jour les docs CEX GSheet pour les sept providers et l'architecture reelle de queue/triggers. Verification du contre-audit du 2026-08-05.
 - [x] Marquer les plans Kraken, Robinhood, NFT/filter et CEX total comme termines.
 - [ ] Archiver les 19 specs/plans termines dans `docs/superpowers/archive/`.
 - [ ] Archiver `wcore-gsheet/AUDIT.md` (snapshot historique mai 2026, ne pilote plus le backlog).
-- [ ] Reduire `wcore-gsheet/AGENTS.md` (891 lignes) aux contraintes critiques et gotchas.
+- [x] Reduire `wcore-gsheet/AGENTS.md` aux contraintes critiques et gotchas. Mesure 2026-08-09: 182 lignes, historique dans `AGENTS-ARCHIVE.md`.
 
 - [x] Decision d'architecture Graphify : un graphe local AST-only issu du staging unique prefixe Web + GSheet, sans cle fournisseur ni LLM, dans `K:\ProjetIA\WCORE\graphify-out\graph.json`.
 - [ ] Finaliser le wrapper `graphify:sync`, le fallback horaire Windows et le watch OpenCode projet, sans utiliser le watch natif comme proprietaire de la synchronisation.

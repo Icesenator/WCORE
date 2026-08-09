@@ -1,5 +1,6 @@
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { cacheKey } from "@wcore/shared";
+import { resolveRelayBaseUrl } from "../config.js";
 import {
   fetchStockFxQuotesViaRelay,
   fetchStockQuotesViaRelay,
@@ -330,9 +331,11 @@ export class CanonicalStockService {
   }
 }
 
+// Resolution partagee avec plugins/cex.ts. L'implementation locale precedente
+// omettait le schema sur le hostname Railway et ne normalisait pas le slash
+// final, deux divergences invisibles tant que CEX_RELAY_URL etait pose.
 function stockRelayUrl(): string {
-  return process.env.STOCK_RELAY_URL || process.env.CEX_RELAY_URL || process.env.BYBIT_RELAY_URL
-    || process.env.BINANCE_RELAY_URL || process.env.RAILWAY_SERVICE_CEX_RELAY_URL || "";
+  return resolveRelayBaseUrl(process.env, "stock");
 }
 
 async function mapWithConcurrencyLimit<T, R>(items: T[], concurrency: number, mapper: (item: T) => Promise<R>): Promise<R[]> {

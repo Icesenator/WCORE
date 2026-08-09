@@ -1,6 +1,17 @@
 {
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "wcore-web/apps/web/Dockerfile.railway"
+    "dockerfilePath": "wcore-web/apps/web/Dockerfile.railway",
+    "watchPatterns": [
+      "railway.json",
+      "wcore-gsheet/dist/**",
+      "wcore-web/package.json",
+      "wcore-web/pnpm-lock.yaml",
+      "wcore-web/pnpm-workspace.yaml",
+      "wcore-web/tsconfig.base.json",
+      "wcore-web/packages/shared/**",
+      "wcore-web/packages/core/**",
+      "wcore-web/apps/web/**"
+    ]
   }
 }

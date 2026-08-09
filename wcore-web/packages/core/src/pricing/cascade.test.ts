@@ -378,7 +378,6 @@ test("cascade order matches WCORE token fallback order", async () => {
 });
 
 test("runs dex and llama-coins in parallel when llama-map misses", async () => {
-  const t0 = Date.now();
   const sources = sourceSet({});
   let dexStarted = 0;
   let llamaStarted = 0;
@@ -400,12 +399,9 @@ test("runs dex and llama-coins in parallel when llama-map misses", async () => {
     sources,
   });
 
-  const elapsed = Date.now() - t0;
   assert.equal(result.priceEur, 3 * fxRate);
   assert.equal(result.source, "dex");
-  // With parallel, total < sum of both delays (80ms). Allow overhead.
-  assert.ok(elapsed < 90, `elapsed ${elapsed}ms should be sub-sum of sequential delays`);
-  // Both were started within a short window (parallel, not sequential)
+  // Start times prove concurrency without depending on runner scheduling overhead.
   assert.ok(Math.abs(dexStarted - llamaStarted) < 20, `dex started at ${dexStarted}, llama at ${llamaStarted}, should be near-simultaneous`);
 });
 

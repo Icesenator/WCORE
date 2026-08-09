@@ -6,6 +6,7 @@ interface MemoryEntry {
 }
 
 export class MemoryCacheStore implements CacheStore {
+  readonly backend = "memory" as const;
   private store = new Map<string, MemoryEntry>();
 
   async get<T>(key: string): Promise<T | undefined> {
@@ -52,6 +53,20 @@ export class MemoryCacheStore implements CacheStore {
     }
     this.store.set(key, { value: 1, expiresAt: now + ttlSec * 1000 });
     return 1;
+  }
+
+  async consume(key: string, cost: number, limit: number, ttlSec: number): Promise<boolean> {
+    if (!Number.isSafeInteger(cost) || cost <= 0 || !Number.isSafeInteger(limit) || limit < 0 || ttlSec <= 0) return false;
+    const now = Date.now();
+    const entry = this.store.get(key);
+    const active = entry && now <= entry.expiresAt ? entry : undefined;
+    const current = active?.value === undefined ? 0 : active.value;
+    if (!Number.isSafeInteger(current) || (current as number) < 0 || (current as number) + cost > limit) return false;
+    this.store.set(key, {
+      value: (current as number) + cost,
+      expiresAt: active?.expiresAt ?? now + ttlSec * 1000,
+    });
+    return true;
   }
 
   async mget<T>(keys: string[]): Promise<(T | undefined)[]> {

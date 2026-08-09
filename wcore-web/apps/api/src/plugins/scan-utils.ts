@@ -1,10 +1,44 @@
 ﻿// Shared scan utilities extracted from scan.ts for reuse across endpoints.
 import type { CacheStore, WalletAssets } from "@wcore/core";
+import { linkAbortSignal } from "@wcore/core";
 import { cacheKey, type ChainScan } from "@wcore/shared";
 
 export interface TimeoutHandle<T> {
   promise: Promise<T>;
   cancel: () => void;
+}
+
+/**
+ * What a finished chain scan means for that chain's circuit breaker.
+ *
+ * This lived inline in each handler, and the synchronous one both charged a failure in
+ * its catch and charged it again when the placeholder result reached the aggregation
+ * loop. Every timeout therefore counted twice and the breaker opened at half its
+ * configured threshold. Keeping the decision in one place makes that impossible.
+ *
+ * A scan that reports errors yet still returned usable data is deliberately neither:
+ * counting it as a failure would punish a partially degraded chain that is still
+ * serving, and counting it as a success would hide a real problem.
+ */
+export function chainCircuitOutcome(assets: {
+  errors?: unknown[] | null;
+  totalValueEur?: number | null;
+  tokens?: unknown[] | null;
+}): "success" | "failure" | "degraded" {
+  const hasError = (assets.errors ?? []).length > 0;
+  const hasValue = (assets.totalValueEur ?? 0) > 0 || (assets.tokens ?? []).length > 0;
+  if (hasError) return hasValue ? "degraded" : "failure";
+  return "success";
+}
+
+/** Applies {@link chainCircuitOutcome} to a breaker. */
+export function applyChainCircuitOutcome(
+  breaker: { onFailure: () => void; onSuccess: () => void },
+  assets: Parameters<typeof chainCircuitOutcome>[0],
+): void {
+  const outcome = chainCircuitOutcome(assets);
+  if (outcome === "failure") breaker.onFailure();
+  else if (outcome === "success") breaker.onSuccess();
 }
 
 /**
@@ -15,10 +49,15 @@ export interface TimeoutHandle<T> {
  *
  * Use `cancel()` to abort early without waiting for the deadline (e.g. when
  * the caller has already given up for another reason).
+ *
+ * `parentSignal` lets a whole job cancel every chain it started. Without it a job
+ * killed by a TTL guard only changed its own status: the chains it had launched kept
+ * calling RPCs to completion for a result nobody would ever read.
  */
-export function runWithTimeout<T>(factory: (signal: AbortSignal) => Promise<T>, ms: number): TimeoutHandle<T> {
+export function runWithTimeout<T>(factory: (signal: AbortSignal) => Promise<T>, ms: number, parentSignal?: AbortSignal): TimeoutHandle<T> {
   const controller = new AbortController();
   const timeoutError = new Error(`chain_timeout: exceeded ${ms}ms`);
+  const unlinkParent = linkAbortSignal(parentSignal, controller);
 
   let resolveOuter!: (value: T) => void;
   let rejectOuter!: (err: unknown) => void;
@@ -32,6 +71,7 @@ export function runWithTimeout<T>(factory: (signal: AbortSignal) => Promise<T>, 
     if (settled) return;
     settled = true;
     if (timer) clearTimeout(timer);
+    unlinkParent();
     if (action === "resolve") resolveOuter(value as T);
     else rejectOuter(value);
   };

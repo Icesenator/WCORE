@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import type { ChainScan } from "@wcore/shared";
-import { detectChainType } from "@wcore/shared";
+import { AnyAddress, detectChainType } from "@wcore/shared";
 import { getApiUrl } from "@/lib/api";
 import { boundedApiFetch } from "@/lib/cex-api";
 import { fetchBatchScan, makeErrorChainScan } from "@/lib/scan-api";
@@ -42,6 +42,37 @@ type ScanResult = { address: string; label: string; chains: ChainScan[]; totalEu
 export type ScanOrchestratorTask = { index: number; addr: string; vm: string; chains: string[] };
 export type ScanOrchestratorJob = { vm: ScanVm; chains: string[]; tasks: ScanOrchestratorTask[] };
 
+export function mergeChainRefreshResult(
+  previousChains: ChainScan[],
+  chainKey: string,
+  vm: ScanVm,
+  incoming?: ChainScan,
+  error = "scan_failed",
+): { chains: ChainScan[]; totalEur: number } {
+  const failedEmpty = !incoming || (
+    incoming.errors.length > 0 &&
+    incoming.native === null &&
+    incoming.tokens.length === 0 &&
+    incoming.totals.valueEur === 0 &&
+    incoming.totals.tokenCount === 0
+  );
+  if (!failedEmpty) return mergeChainResults(previousChains, [incoming]);
+
+  const previous = previousChains.find(chain => chain.chainKey.toLowerCase() === chainKey.toLowerCase());
+  if (!previous) return mergeChainResults(previousChains, [incoming ?? makeErrorChainScan(chainKey, vm, error)]);
+
+  const messages = incoming?.errors.map(item => item.message).filter(Boolean) ?? [error];
+  const stale = {
+    ...previous,
+    degraded: true,
+    errors: [
+      ...previous.errors,
+      { stage: "scan", message: `stale_refresh_failed: ${messages.join("; ") || error}` },
+    ],
+  };
+  return mergeChainResults(previousChains, [stale]);
+}
+
 export function buildScanOrchestratorJobs({
   enabledAddresses,
   chains,
@@ -56,6 +87,7 @@ export function buildScanOrchestratorJobs({
   const walletTasks: ScanOrchestratorTask[] = [];
   for (let i = 0; i < enabledAddresses.length; i++) {
     const addr = enabledAddresses[i]!;
+    if (!AnyAddress.safeParse(addr).success) continue;
     const addrVm = detectChainType(addr);
     const matchingChains = matchCompatibleChains(addrVm, chains, chainMetaMap);
     if (matchingChains.length > 0) walletTasks.push({ index: i, addr, vm: addrVm, chains: matchingChains });
@@ -119,6 +151,8 @@ export function useScanOrchestrator({
   // other wallets re-scan from cache. Empty = force applies to all (global refresh).
   const forceRefreshAddrsRef = useRef<Set<string>>(new Set());
   const scanRunIdRef = useRef(0);
+  const scanAbortControllerRef = useRef<AbortController | null>(null);
+  const retryAbortControllerRef = useRef<AbortController | null>(null);
   const [circuitBreakers, setCircuitBreakers] = useState<Record<string, { state: string; failureCount: number; openedAt: number | null }>>({});
   const [activeScanChains, setActiveScanChains] = useState<Map<string, Set<string>>>(new Map());
 
@@ -139,11 +173,15 @@ export function useScanOrchestrator({
   // Main scan lifecycle
   useEffect(() => {
     let c = false;
+    const abortController = new AbortController();
+    scanAbortControllerRef.current?.abort();
+    scanAbortControllerRef.current = abortController;
     const cancelSignal = { get aborted() { return c; } };
     let timer: ReturnType<typeof setInterval> | undefined;
     (async () => {
+      const validEnabledAddresses = enabledAddresses.filter(addr => AnyAddress.safeParse(addr).success);
       // Preserve previous results for deselected wallets
-      const initial: Array<ScanResult> = enabledAddresses.map((addr) => {
+      const initial: Array<ScanResult> = validEnabledAddresses.map((addr) => {
         const prev = prevResultsRef.current.find(r => r.address.toLowerCase() === addr.toLowerCase());
         return prev ?? {
           address: addr,
@@ -163,7 +201,7 @@ export function useScanOrchestrator({
       }, 1000);
 
       let done = 0;
-      const total = enabledAddresses.length;
+      const total = validEnabledAddresses.length;
       setProgress({ done: 0, total });
       setChainProgress({ done: 0, total: 0 });
       setOverallChainProgress({ done: 0, total: 0 });
@@ -177,7 +215,7 @@ export function useScanOrchestrator({
 
       // Build scan tasks per wallet
       const jobs = buildScanOrchestratorJobs({
-        enabledAddresses,
+        enabledAddresses: validEnabledAddresses,
         chains,
         chainMetaMap,
         batchSize: CHAIN_BATCH_SIZE,
@@ -188,7 +226,7 @@ export function useScanOrchestrator({
       const totalChainChecks = walletTasks.reduce((sum, task) => sum + task.chains.length, 0);
       setOverallChainProgress({ done: 0, total: totalChainChecks });
 
-      done += enabledAddresses.length - walletTasks.length;
+      done += validEnabledAddresses.length - walletTasks.length;
       if (done > 0) setProgress({ done, total });
       setOverallChainProgress({ done: 0, total: totalChainChecks });
 
@@ -203,8 +241,7 @@ export function useScanOrchestrator({
 
       function markWalletChainDone(task: typeof walletTasks[number], chain: string, chains: ChainScan[], error?: string) {
         const previousChains = updated[task.index]?.chains ?? [];
-        const finalChains = chains.length > 0 ? chains : [makeErrorChainScan(chain, task.vm as ScanVm, error || "scan_failed")];
-        const merged = mergeChainResults(previousChains, finalChains);
+        const merged = mergeChainRefreshResult(previousChains, chain, task.vm as ScanVm, chains[0], error);
         if (error) errorsByWallet.set(task.index, error);
         updated[task.index] = {
           address: task.addr,
@@ -267,7 +304,7 @@ export function useScanOrchestrator({
           let jobError: string | undefined;
           for (const [group, force] of [[forceGroup, true], [cacheGroup, false]] as const) {
             if (group.length === 0) continue;
-            const batchResult = await fetchBatchScan(group, job.chains, deepScan, customTokenList, force);
+            const batchResult = await fetchBatchScan(group, job.chains, deepScan, customTokenList, force, abortController.signal);
             if (myRunId !== scanRunIdRef.current) return;
             if (batchResult?.wallets) {
               for (const w of batchResult.wallets) {
@@ -288,6 +325,7 @@ export function useScanOrchestrator({
             else markWalletChainDone(task, chain, [], jobError || "batch_missing_chain_result");
           }
         } catch (e) {
+          if (abortController.signal.aborted) return;
           const message = e instanceof Error ? e.message : "batch_scan_failed";
           console.warn("Batch scan job failed:", { vm: job.vm, chains: job.chains, message });
           for (const { task, chain } of taskChainPairs) markWalletChainDone(task, chain, [], message);
@@ -342,6 +380,10 @@ export function useScanOrchestrator({
     })();
     return () => {
       c = true;
+      abortController.abort();
+      retryAbortControllerRef.current?.abort();
+      retryAbortControllerRef.current = null;
+      if (scanAbortControllerRef.current === abortController) scanAbortControllerRef.current = null;
       // eslint-disable-next-line react-hooks/exhaustive-deps -- this ref is a scan generation counter, not a rendered node.
       scanRunIdRef.current++;
       if (timer) clearInterval(timer);
@@ -407,31 +449,45 @@ export function useScanOrchestrator({
   }, [results]);
 
   const handleRetryTimedOut = useCallback(async () => {
+    retryAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    retryAbortControllerRef.current = abortController;
     setRetryingTimedOut(true);
-    const uniqueChains = new Map<string, string[]>();
-    for (const c of timedOutChains) {
-      const addrs = uniqueChains.get(c.chainKey) ?? [];
-      if (!addrs.includes(c.address)) addrs.push(c.address);
-      uniqueChains.set(c.chainKey, addrs);
-    }
-    for (const [chainKey, addrs] of uniqueChains) {
-      const batchResult = await fetchBatchScan(addrs, [chainKey], deepScan, customTokenList, true);
-      if (batchResult?.wallets) {
-        const byAddress = new Map(batchResult.wallets.map(w => [w.address.toLowerCase(), w]));
-        setResults(prev => (prev ?? []).map(wallet => {
-          const fresh = byAddress.get(wallet.address.toLowerCase());
-          if (!fresh) return wallet;
-          const idx = wallet.chains.findIndex(c => c.chainKey === chainKey);
-          const newChain = fresh.chains[0];
-          const newChains = idx >= 0
-            ? wallet.chains.map((c, i) => i === idx && newChain ? newChain : c)
-            : newChain ? [...wallet.chains, newChain] : wallet.chains;
-          const sorted = newChains.sort((a, b) => b.totals.valueEur - a.totals.valueEur);
-          return { ...wallet, chains: sorted, totalEur: Math.round(sorted.reduce((s, c) => s + c.totals.valueEur, 0) * 100) / 100 };
-        }));
+    try {
+      const uniqueChains = new Map<string, string[]>();
+      for (const c of timedOutChains) {
+        const addrs = uniqueChains.get(c.chainKey) ?? [];
+        if (!addrs.includes(c.address)) addrs.push(c.address);
+        uniqueChains.set(c.chainKey, addrs);
+      }
+      for (const [chainKey, addrs] of uniqueChains) {
+        const batchResult = await fetchBatchScan(addrs, [chainKey], deepScan, customTokenList, true, abortController.signal);
+        if (batchResult?.wallets) {
+          const byAddress = new Map(batchResult.wallets.map(w => [w.address.toLowerCase(), w]));
+          setResults(prev => (prev ?? []).map(wallet => {
+            const fresh = byAddress.get(wallet.address.toLowerCase());
+            if (!fresh) return wallet;
+            const previous = wallet.chains.find(c => c.chainKey.toLowerCase() === chainKey.toLowerCase());
+            const incoming = fresh.chains.find(c => c.chainKey.toLowerCase() === chainKey.toLowerCase());
+            const merged = mergeChainRefreshResult(
+              wallet.chains,
+              chainKey,
+              (previous?.vm ?? detectChainType(wallet.address)) as ScanVm,
+              incoming,
+              batchResult.error,
+            );
+            return { ...wallet, chains: merged.chains, totalEur: merged.totalEur };
+          }));
+        }
+      }
+    } catch (e) {
+      if (!abortController.signal.aborted) console.warn("Timed-out chain retry failed:", e);
+    } finally {
+      if (retryAbortControllerRef.current === abortController) {
+        retryAbortControllerRef.current = null;
+        setRetryingTimedOut(false);
       }
     }
-    setRetryingTimedOut(false);
   }, [timedOutChains, deepScan, customTokenList]);
   /* eslint-enable react-hooks/refs */
 

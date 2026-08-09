@@ -1,6 +1,6 @@
 ﻿import { getChain } from "../chains/index.js";
 import { EvmRpc, RpcDispatcher, multicall, type MulticallCall, type MulticallResult } from "../rpc/index.js";
-import { getRpcEndpoints } from "../rpc/endpoints.js";
+import { getRpcEndpoints, getVerifiedEvmRpcEndpoints } from "../rpc/endpoints.js";
 import {
   decodeUint256,
   decodeUint256FirstWord,
@@ -94,20 +94,24 @@ export async function getEvmWalletsAssets(
   const chain = getChain(key);
   if (!chain || chain.vm !== "EVM") throw new Error(`unsupported EVM chain: ${chainKey}`);
 
-  const endpoints = getRpcEndpoints(key);
-  const priceCache = opts.sharedPriceCache ?? sharedPriceCache;
-  if (!endpoints.length) throw new Error(`no RPC endpoints for ${key}`);
-
-  const effectiveEndpoints = endpoints;
   const isDeepScan = opts.logBlockRange != null && opts.logBlockRange > 50_000;
   const rpcTimeout = isDeepScan ? 5000 : Number(chain.TIMEOUTS?.HTTP_MS ?? 2500);
+  const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
+  const endpoints = opts.dispatcher
+    ? getRpcEndpoints(key)
+    : await getVerifiedEvmRpcEndpoints(key, { rpc, signal: opts.signal });
+  const priceCache = opts.sharedPriceCache ?? sharedPriceCache;
+  if (!endpoints.length) throw new Error(`no chain-verified RPC endpoints for ${key}`);
+
+  const effectiveEndpoints = endpoints;
 
   const dispatcher = opts.dispatcher ?? new RpcDispatcher(undefined, {
     minRpcs: Number(chain.RPC?.CONSENSUS_MIN_RPCS ?? 2),
     maxRpcs: Number(chain.RPC?.CONSENSUS_MAX_RPCS ?? 3),
     timeoutMs: rpcTimeout,
+    // The batch timeout now reaches the RPC layer instead of stopping at this scan.
+    signal: opts.signal,
   });
-  const rpc = opts.rpc ?? new EvmRpc(undefined, rpcTimeout);
 
   const normalizedAddresses = addresses.map(a => normalizeEvmAddress(a)).filter(Boolean) as string[];
   if (!normalizedAddresses.length) throw new Error("no valid EVM addresses");
@@ -144,8 +148,14 @@ export async function getEvmWalletsAssets(
   // Step 1: Parallel discovery for all wallets.
   // Uses per-wallet discovery cache + incremental cursor + negative cache
   // to avoid re-scanning the full block history on every batch call.
-  const discoveryResults = await Promise.all(
-    normalizedAddresses.map(async (addr) => {
+  // Each wallet's discovery already issues up to LOG_CHUNK_CONCURRENCY log calls per
+  // transfer topic, so running every wallet at once put ten times the wallet count of
+  // concurrent eth_getLogs on one endpoint pool: a twenty-address batch meant two
+  // hundred, which free-tier RPCs answer with rate limits rather than data. Walking the
+  // wallets in small groups keeps the burst bounded whatever the batch size.
+  const DISCOVERY_WALLET_CONCURRENCY = 3;
+  const discoverForAddress = (
+    (async (addr: string) => {
       const wErrors: string[] = [];
 
       // Negative cache: skip RPC entirely for known-empty (wallet, chain) pairs
@@ -263,8 +273,14 @@ export async function getEvmWalletsAssets(
         walletErrors.set(addr, wErrors);
         return { address: addr, tokens: fallback, nativeSymbol: chain.CHAIN?.NATIVE_SYMBOL ?? "NATIVE", nativeLogo: getNativeLogo(chain), isEmpty: false, _empty: false };
       }
-    }),
+    })
   );
+
+  const discoveryResults: Array<Awaited<ReturnType<typeof discoverForAddress>>> = [];
+  for (let i = 0; i < normalizedAddresses.length; i += DISCOVERY_WALLET_CONCURRENCY) {
+    const group = normalizedAddresses.slice(i, i + DISCOVERY_WALLET_CONCURRENCY);
+    discoveryResults.push(...(await Promise.all(group.map(discoverForAddress))));
+  }
 
   // Step 2: Separate discovery results into cache-hit vs active wallets.
   // Cache-hit = negative cache OR bal_cache shortcut (no tokens, cached balances).

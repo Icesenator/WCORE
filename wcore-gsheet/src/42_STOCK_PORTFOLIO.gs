@@ -1,3 +1,4 @@
+// v4.16.33 - Retry incomplete HTTP 200 JSON responses before surfacing an error.
 // v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
 // v4.15.167 - Remove _WCORE_ORIG_FETCH bypass; use patched UrlFetchApp.fetch (respects quota breaker).
 // v4.15.164 - Fix chart row count (A non-empty + S=X) + BW1 onEdit syncs both portfolios.
@@ -7,7 +8,7 @@
 // v4.15.160 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.159 - Repair Action formats with filters suspended so hidden rows are formatted too.
 
-var STOCK_PORTFOLIO_VERSION = "4.16.32";
+var STOCK_PORTFOLIO_VERSION = "4.16.33";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -397,22 +398,30 @@ function _stockPortfolioFetchSnapshot_() {
   var token = props.getProperty("GSHEET_API_TOKEN");
   if (!baseUrl) throw new Error("Missing ScriptProperty WCORE_WEB_API_URL");
   if (!token) throw new Error("Missing ScriptProperty GSHEET_API_TOKEN");
-  var resp = _stockPortfolioFetchWithRetry_(function () {
+  var result = _stockPortfolioFetchWithRetry_(function () {
     var fetchResult = UrlFetchApp.fetch(baseUrl.replace(/\/$/, "") + STOCK_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
       method: "get",
       muteHttpExceptions: true,
       headers: { "x-gsheet-token": token, accept: "application/json" }
     });
-    if (!fetchResult) throw new Error("BLOCKED:QUOTA");
-    return fetchResult;
+    if (!fetchResult) throw new Error("BLOCKED:QUOTA - WCORE stock portfolio HTTP blocked or empty response");
+    if (typeof fetchResult.getResponseCode !== "function") {
+      throw new Error("WCORE stock portfolio HTTP blocked or empty response");
+    }
+    var code = fetchResult.getResponseCode();
+    var text = fetchResult.getContentText();
+    if (code !== 200) return { code: code, text: text };
+    if (!text || !String(text).trim()) {
+      throw new Error("WCORE stock portfolio incomplete JSON response: empty body");
+    }
+    try {
+      return { code: code, snapshot: JSON.parse(text) };
+    } catch (eParse) {
+      throw new Error("WCORE stock portfolio incomplete JSON response: bodyLength=" + String(text).length + "; " + String(eParse && eParse.message ? eParse.message : eParse));
+    }
   });
-  if (!resp || typeof resp.getResponseCode !== "function") {
-    throw new Error("WCORE stock portfolio HTTP blocked or empty response");
-  }
-  var code = resp.getResponseCode();
-  var text = resp.getContentText();
-  if (code !== 200) throw new Error("WCORE stock portfolio HTTP " + code + ": " + text.substring(0, 300));
-  return JSON.parse(text);
+  if (result.code !== 200) throw new Error("WCORE stock portfolio HTTP " + result.code + ": " + String(result.text || "").substring(0, 300));
+  return result.snapshot;
 }
 
 function _stockPortfolioFormatTimestamp_(value) {
@@ -578,7 +587,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   if (sheetRow === STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
     row[17] = "=ARRAYFORMULA(IF(P3:P=\"\";\"\";IF(P3:P=MAX(P3:P);\"V\";IF(P3:P=MIN(P3:P);\"X\";\"\"))))";
   }
-  row[18] = "=IF(R" + sheetRow + "=\"V\";\"X\";IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\")))";
+  row[18] = "=IF(H" + sheetRow + "<>0;\"\";IF(MAX(L" + sheetRow + ";O" + sheetRow + ")>=$G$1*100/2;\"X\";\"\"))";
 }
 
 // Action Rebalancing!F3 equivalent for the EUR cash row: Bitpanda EUR/BCPEUR cash across the

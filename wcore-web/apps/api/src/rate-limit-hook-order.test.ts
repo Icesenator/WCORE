@@ -18,7 +18,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { MemoryCacheStore, metrics } from "@wcore/core";
-import { applyPostAuthRateLimit, type PostAuthRateLimitDeps } from "./server-helpers.js";
+import { applyPostAuthRateLimit, SCAN_POLL_RATE_LIMIT, type PostAuthRateLimitDeps } from "./server-helpers.js";
 
 const baseDeps: Omit<PostAuthRateLimitDeps, "sharedCache"> = {
   metrics,
@@ -119,5 +119,20 @@ describe("post-auth rate-limit applies the authenticated bucket when req.user is
     };
     await applyPostAuthRateLimit(req as never, reply as never, { ...baseDeps, sharedCache: cache });
     assert.equal(reply.statusCode, null, "/health is not in any rate-limited bucket");
+  });
+
+  test("async scan polling uses its own high-capacity bucket", async () => {
+    const cache = new MemoryCacheStore();
+    await cache.set("rate_limit:scan_poll:ip:127.0.0.1", SCAN_POLL_RATE_LIMIT, 60_000);
+    const reply = makeReply();
+    const req = {
+      method: "GET",
+      url: "/api/scan/async/deadbeef",
+      ip: "127.0.0.1",
+      headers: {},
+    };
+    await applyPostAuthRateLimit(req as never, reply as never, { ...baseDeps, sharedCache: cache });
+    assert.equal(reply.statusCode, 429);
+    assert.equal(await cache.get("rate_limit:scan:ip:127.0.0.1"), undefined);
   });
 });

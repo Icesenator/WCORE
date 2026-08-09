@@ -362,7 +362,10 @@ ChainFactory.createCosmosChain = function(chainName, chainConfig) {
  getConfig: getConfig,
  
  // v4.12.0: Added DegradedMode wrapper for quota handling
- getWalletAssets: function(address, forceFull) {
+ // v4.16.45: Same 5-argument contract as the EVM and SVM factories. The sheet calls
+ // *_REFRESH_STATUS(addr;"";I2:I;C1;B1) and 18_CLEANUP calls (wallet,"","",true,false),
+ // so a 2-argument signature bound forceFull to the empty RPC slot: C1 never forced.
+ getWalletAssets: function(address, rpc, tokensRange, forceFull, triggerRefresh) {
  var cfg = getConfig();
  
  // v4.12.0: Wrap with DegradedMode to handle UrlFetch quota errors
@@ -370,12 +373,12 @@ ChainFactory.createCosmosChain = function(chainName, chainConfig) {
  // v4.14.5: Pass forceFull so circuit breaker can be overridden
  if (typeof DegradedMode !== 'undefined' && DegradedMode.wrap) {
  return DegradedMode.wrap(function() {
- return CosmosEngine.getWalletAssets(address, forceFull, cfg, WalletNames);
+ return CosmosEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
  }, address, cfg, WalletNames, CosmosEngine, forceFull);
  }
  
  // Fallback if DegradedMode not available
- return CosmosEngine.getWalletAssets(address, forceFull, cfg, WalletNames);
+ return CosmosEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
  },
  
  // v4.12.1: getCachedWalletAssets now handles degraded mode state
@@ -390,10 +393,12 @@ ChainFactory.createCosmosChain = function(chainName, chainConfig) {
  return CosmosEngine.getCachedWalletAssets(address, cfg, WalletNames);
  },
  
- getRefreshStatus: function(address, forceFull) {
+ // v4.16.45: 5-argument contract. triggerRefresh reaches the engine again, which is
+ // what BaseEngine.shouldSkipRefreshForSameTrigger needs to guard repeat B1 pulses.
+ getRefreshStatus: function(address, rpc, tokensRange, forceFull, triggerRefresh) {
  try {
    var cfg = getConfig();
-   return CosmosEngine.getRefreshStatus(address, forceFull, cfg, WalletNames);
+   return CosmosEngine.getRefreshStatus(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
  } catch (e) {
    var msg = String(e.message || e);
    Logger.log("[" + name + "] getRefreshStatus ERROR: " + msg);

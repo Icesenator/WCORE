@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { switchChainAny, sendTransactionAny, type RawProvider } from "../lib/onchain-tx";
+import { switchChainAny, sendTransactionAny, waitForTransactionReceiptAny, type RawProvider } from "../lib/onchain-tx";
 
 function mockProvider(handlers: Record<string, (params?: unknown) => Promise<unknown> | unknown>): {
   provider: RawProvider;
@@ -45,6 +45,18 @@ describe("switchChainAny", () => {
     assert.deepEqual(calls[0]?.params, [{ chainId: "0x2105" }]);
   });
 
+  test("keeps the selected raw provider when wagmi also reports connected", async () => {
+    const { provider, calls } = mockProvider({ wallet_switchEthereumChain: () => null });
+    let wagmiCalled = false;
+    await switchChainAny({
+      wagmiConnected: true,
+      wagmiSwitch: async () => { wagmiCalled = true; },
+      rawProvider: provider,
+    }, 8453);
+    assert.equal(calls[0]?.method, "wallet_switchEthereumChain");
+    assert.equal(wagmiCalled, false);
+  });
+
   test("throws when no provider and wagmi disconnected", async () => {
     await assert.rejects(
       () => switchChainAny(
@@ -87,6 +99,20 @@ describe("sendTransactionAny", () => {
     ]);
   });
 
+  test("submits through the selected raw provider when wagmi also reports connected", async () => {
+    const { provider, calls } = mockProvider({ eth_sendTransaction: () => "0xselected" });
+    let wagmiCalled = false;
+    const hash = await sendTransactionAny({
+      wagmiConnected: true,
+      wagmiSend: async () => { wagmiCalled = true; return "0xwagmi"; },
+      rawProvider: provider,
+      from: "0xwallet",
+    }, txParams);
+    assert.equal(hash, "0xselected");
+    assert.equal(calls[0]?.method, "eth_sendTransaction");
+    assert.equal(wagmiCalled, false);
+  });
+
   test("throws when raw provider returns a non-hash", async () => {
     const { provider } = mockProvider({ eth_sendTransaction: () => null });
     await assert.rejects(
@@ -107,5 +133,30 @@ describe("sendTransactionAny", () => {
       ),
       /Wallet address unavailable/,
     );
+  });
+});
+
+describe("waitForTransactionReceiptAny", () => {
+  test("polls the selected EIP-6963 provider instead of the public client", async () => {
+    const { provider, calls } = mockProvider({
+      eth_getTransactionReceipt: () => ({ status: "0x1", logs: [] }),
+    });
+    let publicCalls = 0;
+    const receipt = await waitForTransactionReceiptAny(provider, async () => {
+      publicCalls += 1;
+      return { status: "success", logs: [] };
+    }, "0xhash", 100);
+    assert.equal(receipt.status, "0x1");
+    assert.equal(calls[0]?.method, "eth_getTransactionReceipt");
+    assert.equal(publicCalls, 0);
+  });
+
+  test("uses a wagmi public client when WalletConnect has no raw provider", async () => {
+    const receipt = await waitForTransactionReceiptAny(undefined, async (hash, timeout) => {
+      assert.equal(hash, "0xhash");
+      assert.equal(timeout, 60_000);
+      return { status: "success", logs: [] };
+    }, "0xhash", 60_000);
+    assert.equal(receipt.status, "0x1");
   });
 });

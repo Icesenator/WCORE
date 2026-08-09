@@ -1,0 +1,38 @@
+name: Relay
+
+on:
+  pull_request:
+    paths:
+      - 'wcore-gsheet/railway-relay/**/*.js'
+      - 'wcore-gsheet/railway-relay/**/*.cjs'
+      - 'wcore-gsheet/railway-relay/package.json'
+      - 'wcore-gsheet/railway-relay/package-lock.json'
+      - '.github/workflows/relay.yml'
+  push:
+    branches: [master, main]
+    paths:
+      - 'wcore-gsheet/railway-relay/**/*.js'
+      - 'wcore-gsheet/railway-relay/**/*.cjs'
+      - 'wcore-gsheet/railway-relay/package.json'
+      - 'wcore-gsheet/railway-relay/package-lock.json'
+      - '.github/workflows/relay.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: wcore-gsheet/railway-relay
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: wcore-gsheet/railway-relay/package-lock.json
+      - run: npm ci
+      - run: npm test

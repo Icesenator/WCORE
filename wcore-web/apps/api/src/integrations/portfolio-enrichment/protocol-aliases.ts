@@ -39,11 +39,9 @@ function normalizeProviderProtocolId(value: string): string | undefined {
 export function canonicalProtocol(provider: ProviderId, providerProtocolId: string): string | undefined {
   const normalized = normalizeProviderProtocolId(providerProtocolId);
   if (!normalized) return undefined;
-
   if (provider === "zerion") {
     const canonical = ZERION_PROTOCOL_ALIASES[normalized];
     if (canonical) return canonical;
   }
-
   return `${provider}:${normalized}`;
 }

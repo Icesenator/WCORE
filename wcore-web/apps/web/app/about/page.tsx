@@ -3,7 +3,7 @@ export default function AboutPage() {
     <main className="mx-auto min-h-screen w-full px-4 py-8 sm:px-6 sm:py-12">
 
       <h1 className="mb-1 text-2xl font-bold">About WCORE</h1>
-      <p className="mb-8 text-sm text-muted">Your crypto. Every chain. One view. 183 chains, selected DeFi positions, 80+ GM contracts and 7 CEX sources. Read only. Free.</p>
+      <p className="mb-8 text-sm text-muted">Your crypto. Every chain. One view. 182 chains, selected DeFi positions, 80+ GM contracts and 7 CEX sources. Read only. Free.</p>
 
       <div className="grid gap-6 lg:grid-cols-2 text-sm leading-relaxed">
         <section>

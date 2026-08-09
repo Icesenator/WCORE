@@ -10,9 +10,18 @@ export interface DispatcherConfig {
   minRpcs?: number;
   maxRpcs?: number;
   timeoutMs?: number;
+  /**
+   * Aborts every call this dispatcher issues.
+   *
+   * A scan that has already timed out used to keep its RPC calls running: the per-chain
+   * timeout released the concurrency slot while the underlying work carried on, so the
+   * real number of in-flight scans drifted above the configured limit and the RPC quota
+   * kept burning for a result nobody would read.
+   */
+  signal?: AbortSignal;
 }
 
-const DEFAULT_CONFIG: Required<DispatcherConfig> = {
+const DEFAULT_CONFIG: Required<Omit<DispatcherConfig, "signal">> = {
   minRpcs: 2,
   maxRpcs: 3,
   timeoutMs: 2500,
@@ -49,13 +58,20 @@ export class RpcDispatcher {
     serialize: (v: T) => string = (v) => JSON.stringify(v),
   ): Promise<DispatchResult<T>> {
     const cfg = { ...DEFAULT_CONFIG, ...this.config };
+    const signal = this.config.signal;
+
+    // Nothing downstream will consume the result, so do not open the connections.
+    if (signal?.aborted) {
+      return { ...reachConsensus<T>([], serialize, { total: 0 }), attempts: [] };
+    }
+
     const picked = this.pickEndpoints(endpoints);
 
     const attempts = await Promise.all(
       picked.map(async (ep): Promise<DispatchAttempt<T>> => {
         const start = Date.now();
         try {
-          const value = await call(ep, { timeoutMs: cfg.timeoutMs });
+          const value = await call(ep, { timeoutMs: cfg.timeoutMs, signal });
           this.health.recordSuccess(ep);
           return { endpoint: ep, ok: true, value, durationMs: Date.now() - start };
         } catch (err) {

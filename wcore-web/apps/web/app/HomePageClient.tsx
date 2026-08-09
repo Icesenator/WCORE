@@ -11,6 +11,7 @@ import { WalletManager, type WalletManagerProps } from "@/components/WalletManag
 import { usePreferences } from "@/components/PreferencesProvider";
 import { DEFAULT_CHAINS } from "@/lib/defaults";
 import { buildCexWalletListItem, parseCexWalletAddress, shouldApplyCexWalletRequest, type CexProvider, type CexWalletListItem } from "@/lib/cex-display";
+import { readLinkedWallets, writeLinkedWallets } from "@/lib/linked-wallet-storage";
 
 function detectVmType(addr: string): string {
   if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return "EVM";
@@ -59,6 +60,18 @@ export function HomePageClient() {
   const latestCexSessionRef = useRef<string | null>(authenticatedCexAddress?.toLowerCase() ?? null);
   const [, setWelcomeLoading] = useState(true);
 
+  useEffect(() => {
+    const stored = readLinkedWallets(localStorage, authenticatedCexAddress);
+    const next = stored.map((wallet) => ({
+      ...wallet,
+      chainType: detectVmType(wallet.address),
+    }));
+    if (authenticatedCexAddress && connectedAddress && !next.some((wallet) => wallet.address.toLowerCase() === connectedAddress.toLowerCase())) {
+      next.push({ address: connectedAddress, label: connectedAddress.slice(0, 10), chainType: detectVmType(connectedAddress) });
+    }
+    setLinkedWallets(next);
+  }, [authenticatedCexAddress, connectedAddress]);
+
   // Show welcome modal on first wallet connection (DB-backed, cross-device)
   useEffect(() => {
     if (welcomeCheckedRef.current || !isConnected || authStep !== "authenticated") return;
@@ -83,16 +96,15 @@ export function HomePageClient() {
         if (existing) {
           if (existing.label === "🔗 Connected" || existing.label === "Connected") {
             const cleaned = prev.map((w) => w.address.toLowerCase() === key.toLowerCase() ? { ...w, label: key.slice(0, 10) } : w);
-            localStorage.setItem("wcore_linked", JSON.stringify(cleaned.map(w => ({ address: w.address as string, label: w.label }))));
+            writeLinkedWallets(localStorage, authenticatedCexAddress, cleaned.map(w => ({ address: w.address as string, label: w.label })));
             return cleaned;
           }
           return prev;
         }
         let savedLabel = key.slice(0, 10);
         try {
-          const raw = localStorage.getItem("wcore_linked");
-          if (raw) {
-            const parsed = JSON.parse(raw) as Array<{ address: string; label: string }>;
+          const parsed = readLinkedWallets(localStorage, authenticatedCexAddress);
+          if (parsed.length) {
             const saved = parsed.find((w) => w.address.toLowerCase() === key.toLowerCase());
             if (saved?.label && saved.label !== "🔗 Connected" && saved.label !== "Connected") {
               savedLabel = saved.label;
@@ -102,7 +114,7 @@ export function HomePageClient() {
         return [...prev, { address: key, label: savedLabel, chainType: vm }];
       });
     }
-  }, [connectedAddress]);
+  }, [connectedAddress, authenticatedCexAddress]);
 
   const loadCexWallets = useCallback(async () => {
     const requestSessionKey = authenticatedCexAddress?.toLowerCase();
@@ -145,32 +157,21 @@ export function HomePageClient() {
   }, [loadCexWallets]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("wcore_linked");
-      if (raw) {
-        const parsed = JSON.parse(raw) as Array<{ address: string; label: string }>;
-        if (parsed.length) {
-          setLinkedWallets((prev) => {
-            const merged = [...prev];
-            for (const w of parsed) {
-              const vm = detectVmType(w.address);
-              const key = vm === "EVM" || vm === "TON" ? w.address : w.address;
-              if (!merged.some(m => m.address === key)) merged.push({ address: key, label: w.label, chainType: vm });
-            }
-            return merged;
-          });
-        }
-      }
-    } catch { /* ignore */ }
-
-    if (!connectedAddress) return;
+    if (!authenticatedCexAddress) {
+      setRecentScans([]);
+      setScansLeft(null);
+      return;
+    }
+    const controller = new AbortController();
+    const requestOwner = authenticatedCexAddress.toLowerCase();
     Promise.all([
-      apiFetch(`/api/profile/${connectedAddress}`),
-      apiFetch("/api/wallets"),
-      apiFetch("/api/me/plan"),
+      apiFetch(`/api/profile/${authenticatedCexAddress}`, { signal: controller.signal }),
+      apiFetch("/api/wallets", { signal: controller.signal }),
+      apiFetch("/api/me/plan", { signal: controller.signal }),
     ]).then(async ([profRes, walletsRes, planRes]) => {
       const profData = await profRes.json() as { recentScans?: Array<{ totalEur: number; chains: string[]; tokenCount: number; createdAt: string }> };
       const walletsData = await walletsRes.json() as { wallets?: Array<{ id: string; address: string; label: string | null }> };
+      if (controller.signal.aborted || latestCexSessionRef.current !== requestOwner) return;
       if (profData.recentScans) setRecentScans(profData.recentScans.slice(0, 5));
       const planData = await planRes.json() as { scansRemainingToday?: number };
       if (typeof planData.scansRemainingToday === "number") setScansLeft(planData.scansRemainingToday);
@@ -180,15 +181,17 @@ export function HomePageClient() {
           return { address: vm === "EVM" || vm === "TON" ? w.address : w.address, label: w.label ?? w.address.slice(0, 10), chainType: vm as "EVM" | "SVM" | "COSMOS" | "TON" };
         });
         setLinkedWallets((prev) => {
+          if (latestCexSessionRef.current !== requestOwner) return prev;
           const apiAddrs = new Set(fromApi.map((w) => w.address.toLowerCase()));
           const localOnly = prev.filter((w) => !apiAddrs.has(w.address.toLowerCase()));
           const merged = [...fromApi, ...localOnly];
-          localStorage.setItem("wcore_linked", JSON.stringify(merged.map(w => ({ address: w.address, label: w.label }))));
+          writeLinkedWallets(localStorage, requestOwner, merged.map(w => ({ address: w.address, label: w.label })));
           return merged;
         });
       }
-    }).catch((_e) => { console.error("Failed to load profile/wallets/plan:", _e); });
-  }, [connectedAddress]);
+    }).catch((_e) => { if (!controller.signal.aborted) console.error("Failed to load profile/wallets/plan:", _e); });
+    return () => controller.abort();
+  }, [authenticatedCexAddress]);
 
   const handleChainsChange = useCallback((newChains: string[]) => setChains(newChains), []);
 
@@ -198,7 +201,7 @@ export function HomePageClient() {
     if (linkedWallets.some((w) => w.address === key)) return;
     const updated = [...linkedWallets, { address: key, label, chainType: vm }];
     setLinkedWallets(updated);
-    localStorage.setItem("wcore_linked", JSON.stringify(updated.map(w => ({ address: w.address, label: w.label }))));
+    writeLinkedWallets(localStorage, authenticatedCexAddress, updated.map(w => ({ address: w.address, label: w.label })));
       apiFetch("/api/wallets", {
         method: "POST",
         body: JSON.stringify({ address: addr, label: label || null, mode: "view_only" }),
@@ -219,7 +222,7 @@ export function HomePageClient() {
     }
     const updated = linkedWallets.filter((w) => w.address !== addr);
     setLinkedWallets(updated);
-    localStorage.setItem("wcore_linked", JSON.stringify(updated.map(w => ({ address: w.address, label: w.label }))));
+    writeLinkedWallets(localStorage, authenticatedCexAddress, updated.map(w => ({ address: w.address, label: w.label })));
   }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
@@ -348,7 +351,7 @@ export function HomePageClient() {
       <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-2 text-2xl">⛓️</div>
-          <h3 className="text-sm font-semibold mb-1">Track 183 chains</h3>
+          <h3 className="text-sm font-semibold mb-1">Track 182 chains</h3>
           <p className="text-xs text-muted leading-relaxed">
             Paste any public EVM, Solana, Cosmos or TON address. Automatic VM detection, real-time pricing from 5 sources (DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko), multi-wallet linking, custom tokens and CSV export. Unavailable chains are auto-skipped to keep scans fast and accurate.
           </p>

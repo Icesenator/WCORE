@@ -1629,6 +1629,43 @@ var EvmEngine = {
  out.push(OutputBuilder.metaRow("script_version", config.VERSION));
  }
 
+ // Signalement des donnees figees.
+ // Le chemin cache rejoue les lignes INFO du dernier scan live (rot=WEB,
+ // degraded=false...). Rien n'y reflete l'age reel de la donnee : une chaine
+ // injoignable depuis des heures s'affiche comme nominale. On emet une ligne
+ // ERROR, lue telle quelle par la colonne ERROR de "Recap Portfolio" via
+ // MATCH("ERROR") sur la colonne B de l'onglet.
+ // Horodatage absolu volontaire : cette fonction personnalisee ne se recalcule
+ // que lorsque son argument (J1) change, or J1 est justement fige sur une
+ // chaine bloquee. Une duree relative ("depuis 17 h") vieillirait donc en
+ // silence et redeviendrait fausse.
+ // On reutilise _webScanCacheTimestamp_ plutot que WalletCache.getLastUpdateStr :
+ // cette derniere renvoie "" sur ce chemin (aucun de ses quatre champs n'est
+ // renseigne), alors que la premiere resout correctement le meme cache.
+ // Le seuil doit rester superieur a la cadence de rafraichissement, sinon une
+ // feuille parfaitement saine est signalee pendant qu'elle attend son tour.
+ // WATCHDOG_FROM_RECAP ne repulse une feuille valide qu'au-dela de
+ // WD_STALE_I1_HOURS (5 h) : le seuil fixe de 2 h transformait donc toute
+ // attente normale en fausse alerte, entre 2 h et 5 h, pour chaque feuille.
+ // On derive le seuil de cette constante pour que les deux ne puissent plus
+ // diverger, avec 2 h de marge pour absorber la file @customfunction et le
+ // batch du watchdog. Reference resolue a l'execution : 16_REFRESH est charge
+ // apres ce fichier (ordre alphabetique), donc la constante n'existe pas
+ // encore au chargement.
+ try {
+ var _wdStaleHours = (typeof WD_STALE_I1_HOURS !== "undefined" && isFinite(WD_STALE_I1_HOURS)) ? WD_STALE_I1_HOURS : 5;
+ var _staleAlertMs = (_wdStaleHours + 2) * 3600000;
+ var _staleMs = (typeof _webScanCacheTimestamp_ === "function") ? _webScanCacheTimestamp_(cache) : 0;
+ var _chainOff = !!(config && config.FLAGS && config.FLAGS.DISABLE_CHAIN === true);
+ if (isFinite(_staleMs) && _staleMs > 0 && (_chainOff || (Date.now() - _staleMs) >= _staleAlertMs)) {
+ // Une chaine desactivee n'est pas une panne a reparer: son age est attendu et
+ // definitif. "DONNEES FIGEES" enverrait chercher un incident inexistant.
+ out.push(OutputBuilder.infoRow(chainName, "ERROR",
+ (_chainOff ? "CHAINE DESACTIVEE - donnee conservee du " : "DONNEES FIGEES - dernier scan reussi le ") +
+ Utilities.formatDate(new Date(_staleMs), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss")));
+ }
+ } catch (eStale) {}
+
  // Ensure script_version is present and up-to-date
  try {
  var foundSv = false;
@@ -1689,6 +1726,8 @@ var EvmEngine = {
     var addrLower = Addr.normalize(address);
     var cexBusyStatus = BaseEngine.cexBusyStatus ? BaseEngine.cexBusyStatus(addrLower, config) : "";
     if (cexBusyStatus) return cexBusyStatus;
+    var chainDisabled = BaseEngine.chainDisabledStatus ? BaseEngine.chainDisabledStatus(addrLower, config) : "";
+    if (chainDisabled) return chainDisabled;
     // v4.13.3: Centralized quota pre-check via BaseEngine
     // v4.14.5: forceFull bypasses quota check — user explicitly wants fresh data
      var forceBypass = (forceFull === false || forceFull === "false" || forceFull === "FALSE") ? false : true;
@@ -1706,12 +1745,13 @@ var EvmEngine = {
       }
     } catch (e) {}
 
+    var _cacheStatusTs = _evmCacheStatusDatetime_(cacheBefore, beforeTs);
     if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
-      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker(Format.datetime(beforeTs), _httpBefore);
+      if (_cacheStatusTs) return BaseEngine.wrapCacheOnlyMarker(_cacheStatusTs, _httpBefore);
       return "[NO_CACHE] " + Format.now();
     }
     if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
-      if (beforeTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + Format.datetime(beforeTs), _httpBefore);
+      if (_cacheStatusTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + _cacheStatusTs, _httpBefore);
       return "[NO_CACHE] " + Format.now();
     }
 
@@ -2093,6 +2133,41 @@ var EvmEngine = {
  }
  }
 };
+
+// ============================================================
+// HORODATAGE DES STATUTS CACHE-ONLY
+// ============================================================
+
+/**
+ * Rend la date du cache pour un statut I1, quelle que soit la forme stockee.
+ *
+ * cache.updatedAt est produit par CacheManager._fromEpochSec_, qui renvoie une
+ * CHAINE rendue dans le fuseau du script, pas un epoch. Or Format.datetime
+ * exige un nombre (Num.isValid teste typeof === "number") et retourne "N/A"
+ * sinon. Les appelants testaient la valeur en truthy — une chaine passe — puis
+ * la formataient : le statut devenait "[CACHE_ONLY] N/A" ou
+ * "[CACHE_ONLY] [FRESH] N/A" alors que la date existe dans le cache.
+ *
+ * Consequence observee le 2026-08-06 sur "Ledger - Degen" : I1 sans horodatage
+ * exploitable, donc illisible pour l'utilisateur et non parsable par le
+ * watchdog (_wd_extractTimestamp_ / _wd_shouldSyncJ1_ exigent une date).
+ *
+ * _webScanCacheTimestamp_ resout les deux formes (epoch et chaine). Charge en
+ * 41_, donc apres ce fichier : la reference est resolue a l'execution.
+ */
+function _evmCacheStatusDatetime_(cacheBefore, beforeTs) {
+  if (typeof Num !== "undefined" && Num.isValid(beforeTs) && beforeTs > 0) {
+    return Format.datetime(beforeTs);
+  }
+  if (typeof _webScanCacheTimestamp_ === "function") {
+    var ms = _webScanCacheTimestamp_(cacheBefore);
+    if (isFinite(ms) && ms > 0) return Format.datetime(ms);
+  }
+  // Dernier recours : la chaine deja rendue par _fromEpochSec_ vaut mieux qu'un
+  // "N/A" qui efface une information pourtant disponible.
+  if (typeof beforeTs === "string" && beforeTs) return beforeTs;
+  return "";
+}
 
 // ============================================================
 // ALIASES (backward compatibility)

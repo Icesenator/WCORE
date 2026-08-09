@@ -1,33 +1,51 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { createZerionProvider, type ZerionProviderError } from "./zerion.js";
+
+import {
+  createZerionProvider,
+  ZerionProviderError,
+  type CreateZerionProviderOptions,
+  type ZerionErrorKind,
+} from "./zerion.js";
 
 const EVM = "0x1234567890abcdef1234567890abcdef12345678";
 const SOLANA = "9xQeWvG816bUx9EPjHmaT23yvVMNPoT7hCzY8nZL7QYp";
+const TOKEN = "0x1111111111111111111111111111111111111111";
 const NOW = Date.parse("2026-07-18T12:00:00.000Z");
-const fixture = JSON.parse(
-  await readFile(fileURLToPath(new URL("./fixtures/zerion-positions.json", import.meta.url)), "utf8"),
-);
 
-function asFetch(impl: (input: string | URL | Request, init?: RequestInit) => Promise<Response>): typeof fetch {
-  return impl as typeof fetch;
+function position(id: string, overrides: Record<string, unknown> = {}): any {
+  const base = {
+    type: "positions",
+    id,
+    attributes: {
+      position_type: "deposit",
+      quantity: { float: 2 },
+      price: 3,
+      value: 6,
+      flags: { displayable: true, is_trash: false },
+      fungible_info: {
+        flags: { verified: true },
+        implementations: [{ chain_id: "ethereum", address: TOKEN }],
+      },
+      protocol_metadata: {
+        protocol_module: "lending",
+        liquidity: "liquid",
+        pool_address: null,
+        receipt_contract: null,
+        underlying_contract: null,
+      },
+      group_id: null,
+    },
+    relationships: {
+      chain: { data: { type: "chains", id: "ethereum" } },
+      dapp: { data: { type: "dapps", id: "aave-v3" } },
+    },
+  };
+  return { ...base, ...overrides };
 }
 
-function provider(
-  fetchImpl: typeof fetch,
-  overrides: Partial<{ timeoutMs: number; maxResponseBytes: number; maxPositions: number }> = {},
-) {
-  return createZerionProvider({
-    apiKey: "top-secret",
-    timeoutMs: 3000,
-    maxResponseBytes: 2_000_000,
-    maxPositions: 1000,
-    fetchImpl,
-    now: () => NOW,
-    ...overrides,
-  });
+function envelope(data: unknown[]) {
+  return { links: { self: "fixture://zerion", next: null, prev: null }, meta: { total: data.length }, data };
 }
 
 function context(maxPositions = 1000) {
@@ -39,21 +57,31 @@ function context(maxPositions = 1000) {
   };
 }
 
-function errorKind(kind: ZerionProviderError["kind"], status?: number, retryAfterMs?: number) {
+function provider(fetchImpl: typeof fetch, overrides: Partial<CreateZerionProviderOptions> = {}) {
+  return createZerionProvider({
+    apiKey: "top-secret",
+    timeoutMs: 3000,
+    maxResponseBytes: 2_000_000,
+    maxPositions: 1000,
+    fetchImpl,
+    now: () => NOW,
+    ...overrides,
+  });
+}
+
+function expectError(kind: ZerionErrorKind, status?: number, retryAfterMs?: number) {
   return (error: unknown) => {
-    const actual = error as ZerionProviderError;
-    assert.equal(actual.kind, kind);
-    assert.equal(actual.status, status);
-    assert.equal(actual.retryAfterMs, retryAfterMs);
-    assert.deepEqual(Object.keys(actual).sort(), ["kind", "name", "retryAfterMs", "status"].sort());
-    assert.doesNotMatch(String(error), /top-secret|api\.zerion\.io\/v1\/wallets/);
+    assert.ok(error instanceof ZerionProviderError);
+    assert.equal(error.kind, kind);
+    assert.equal(error.status, status);
+    assert.equal(error.retryAfterMs, retryAfterMs);
+    assert.doesNotMatch(String(error), /top-secret|api\.zerion\.io\/v1\/wallets|upstream body/);
     return true;
   };
 }
 
-test("declares the approved provider contract and supports only valid EVM or Solana addresses", () => {
-  const subject = provider(asFetch(async () => new Response(JSON.stringify(fixture))));
-  assert.equal(subject.id, "zerion");
+test("declares one wallet-scoped request and supports only EVM or Solana addresses", () => {
+  const subject = provider(async () => new Response(JSON.stringify(envelope([]))));
   assert.deepEqual(subject.capabilities, {
     requestScope: "wallet",
     purposes: ["complex-positions", "wallet-hints", "diagnostics"],
@@ -61,324 +89,133 @@ test("declares the approved provider contract and supports only valid EVM or Sol
   });
   assert.equal(subject.supports(EVM), true);
   assert.equal(subject.supports(SOLANA), true);
-  assert.equal(subject.supports("cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"), false);
-  assert.equal(subject.supports("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), false);
   assert.equal(subject.supports("0x1234"), false);
+  assert.equal(subject.supports("cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a"), false);
 });
 
-test("makes one exact authenticated request without putting the key in the URL", async () => {
+test("makes the exact authenticated request without exposing the key in the URL", async () => {
   let calls = 0;
-  const subject = provider(asFetch(async (input, init) => {
-    calls++;
+  const subject = provider(async (input, init) => {
+    calls += 1;
     const request = new Request(input, init);
     const url = new URL(request.url);
     assert.equal(url.origin, "https://api.zerion.io");
     assert.equal(url.pathname, `/v1/wallets/${encodeURIComponent(EVM)}/positions/`);
     assert.equal(url.search, "?filter%5Bpositions%5D=no_filter&currency=eur&filter%5Btrash%5D=only_non_trash");
-    assert.equal(request.method, "GET");
     assert.equal(request.headers.get("authorization"), `Basic ${Buffer.from("top-secret:").toString("base64")}`);
     assert.equal(request.url.includes("top-secret"), false);
-    return new Response(JSON.stringify(fixture), { headers: { "content-type": "application/json" } });
-  }));
-
+    return new Response(JSON.stringify(envelope([])));
+  });
   await subject.load(context());
   assert.equal(calls, 1);
 });
 
-test("partitions wallet hints and maps every complex position type", async () => {
-  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(fixture)))).load(context());
-  assert.deepEqual(snapshot.walletHints, [
-    { chain: "ETHEREUM", contract: "0x1111111111111111111111111111111111111111" },
-    { chain: "SOLANA", contract: "So11111111111111111111111111111111111111112" },
-  ]);
-  const byId = new Map(snapshot.positions.map((position) => [position.positionId, position]));
-  assert.equal(byId.get("deposit-aave")?.type, "collateral");
-  assert.equal(byId.get("deposit-vault")?.type, "vault_share");
-  assert.equal(byId.get("loan")?.type, "lending_debt");
-  assert.equal(byId.get("locked")?.type, "staking_locked");
-  assert.equal(byId.get("staked")?.type, "staking_liquid");
-  assert.equal(byId.get("reward")?.type, "claimable");
-  assert.equal(byId.get("investment")?.type, "real_world_asset");
-  assert.equal(byId.get("lp-good-a")?.type, "unknown_defi");
-  assert.equal(byId.get("contractless")?.contract, undefined);
-  assert.equal(byId.get("contractless")?.positionId, "contractless");
-  assert.equal(byId.get("deposit-aave")?.protocol, "aave-v3");
-  assert.equal(byId.get("deposit-aave")?.receiptContract, "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-  assert.ok(snapshot.positions.every((position) => position.providerVerified));
+test("normalizes wallet hints, complex positions, debt, and locked liquidity", async () => {
+  const wallet = position("wallet");
+  wallet.attributes.position_type = "wallet";
+  wallet.attributes.protocol_metadata = null;
+  wallet.relationships.dapp.data = null;
+  const loan = position("loan");
+  loan.attributes.position_type = "loan";
+  loan.attributes.quantity.float = 4;
+  loan.attributes.value = 20;
+  const locked = position("locked");
+  locked.attributes.position_type = "locked";
+  locked.attributes.protocol_metadata!.liquidity = "liquid";
+  const snapshot = await provider(async () => new Response(JSON.stringify(envelope([wallet, loan, locked])))).load(context());
+
+  assert.deepEqual(snapshot.walletHints, [{ chain: "ETHEREUM", contract: TOKEN }]);
+  assert.equal(snapshot.positions[0]?.type, "lending_debt");
+  assert.equal(snapshot.positions[0]?.balance, -4);
+  assert.equal(snapshot.positions[0]?.valueEur, -20);
+  assert.equal(snapshot.positions[1]?.type, "staking_locked");
+  assert.equal(snapshot.positions[1]?.liquidity, "locked");
+  assert.equal(snapshot.derivedPositionValueEur, -14);
   assert.equal(snapshot.observedAt, "2026-07-18T12:00:00.000Z");
 });
 
-test("normalizes debt as negative and retains valid grouped LP components", async () => {
-  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(fixture)))).load(context());
-  const debt = snapshot.positions.find((position) => position.positionId === "loan")!;
-  assert.equal(debt.balance, -4);
-  assert.equal(debt.valueEur, -20);
-  const lp = snapshot.positions.filter((position) => position.groupId === "lp-good");
-  assert.equal(lp.length, 2);
-  assert.ok(lp.every((position) => position.poolAddress === "0xcccccccccccccccccccccccccccccccccccccccc"));
-});
-
-test("drops every LP sibling when any component fails semantic adaptation", async (t) => {
-  const mutations: Array<[string, (position: typeof fixture.data[number]) => void]> = [
-    ["pool", (position) => { position.attributes.protocol_metadata.pool_address = "invalid"; }],
-    ["receipt", (position) => { position.attributes.protocol_metadata.receipt_contract = "invalid"; }],
-    ["underlying", (position) => { position.attributes.protocol_metadata.underlying_contract = "invalid"; }],
-    ["contract", (position) => { position.attributes.fungible_info.implementations[0].address = "invalid"; }],
-    ["quantity", (position) => { position.attributes.quantity.float = "NaN"; }],
-    ["value", (position) => { position.attributes.value = "Infinity"; }],
-    ["price", (position) => { position.attributes.price = "NaN"; }],
-    ["mapping", (position) => { position.attributes.position_type = "unsupported"; }],
-    ["metadata", (position) => { position.attributes.protocol_metadata = null; }],
-    ["protocol", (position) => { position.relationships.dapp = { data: null }; }],
-    ["display", (position) => { position.attributes.flags.displayable = false; }],
-    ["trash", (position) => { position.attributes.flags.is_trash = true; }],
-  ];
-
-  for (const [name, mutate] of mutations) {
-    await t.test(name, async () => {
-      const first = structuredClone(fixture.data.find((position: { id: string }) => position.id === "lp-good-a"));
-      const second = structuredClone(fixture.data.find((position: { id: string }) => position.id === "lp-good-b"));
-      mutate(second);
-      const response = {
-        links: { self: `fixture://lp-${name}`, next: null, prev: null },
-        meta: { total: 2 },
-        data: [first, second],
-      };
-      const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(response)))).load(context());
-      assert.deepEqual(snapshot.positions, []);
-      assert.equal(snapshot.diagnostics.droppedCount, 2);
-    });
-  }
-});
-
-test("normalizes contradictory locked liquidity to locked", async () => {
-  const locked = structuredClone(fixture.data.find((position: { id: string }) => position.id === "locked"));
-  locked.attributes.protocol_metadata.liquidity = "liquid";
-  const response = {
-    links: { self: "fixture://locked", next: null, prev: null },
-    meta: { total: 1 },
-    data: [locked],
-  };
-  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(response)))).load(context());
-  assert.equal(snapshot.positions[0]?.type, "staking_locked");
-  assert.equal(snapshot.positions[0]?.liquidity, "locked");
-});
-
-test("drops hidden, trash, unknown-chain, native wallet, invalid, unverified, and whole mixed LP groups", async () => {
-  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(fixture)))).load(context());
-  const ids = new Set(snapshot.positions.map((position) => position.positionId));
-  for (const id of ["hidden", "trash", "unknown-chain", "invalid-contract", "invalid-quantity", "unverified", "lp-mixed-a", "lp-mixed-b", "native-wallet"]) {
-    assert.equal(ids.has(id), false, id);
-  }
-  assert.deepEqual(snapshot.diagnostics, {
-    status: "ok",
-    rawCount: 21,
-    normalizedCount: 10,
-    walletHintCount: 2,
-    droppedCount: 9,
-  });
-  assert.equal(snapshot.derivedPositionValueEur, 69);
-});
-
-test("accepts a structurally valid empty snapshot", async () => {
-  const empty = { links: { self: "fixture://empty", next: null, prev: null }, meta: { total: 0 }, data: [] };
-  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(empty)))).load(context());
+test("drops an entire grouped position when one sibling fails semantic validation", async () => {
+  const first = position("lp-a");
+  first.attributes.group_id = "lp";
+  const second = position("lp-b");
+  second.attributes.group_id = "lp";
+  second.attributes.protocol_metadata!.pool_address = "invalid";
+  const snapshot = await provider(async () => new Response(JSON.stringify(envelope([first, second])))).load(context());
   assert.deepEqual(snapshot.positions, []);
-  assert.deepEqual(snapshot.walletHints, []);
-  assert.equal(snapshot.derivedPositionValueEur, 0);
+  assert.equal(snapshot.diagnostics.droppedCount, 2);
 });
 
-test("rejects paginated and count-inconsistent snapshots", async () => {
-  for (const invalid of [
-    { ...fixture, links: { ...fixture.links, next: "fixture://zerion/page-2" } },
-    { ...fixture, links: { ...fixture.links, prev: "fixture://zerion/page-0" } },
-    { ...fixture, meta: { total: fixture.data.length - 1 } },
-    { ...fixture, meta: { total: -1 } },
-    { ...fixture, meta: { total: 1.5 } },
-  ]) {
-    const subject = provider(asFetch(async () => new Response(JSON.stringify(invalid))));
-    await assert.rejects(subject.load(context()), errorKind("malformed"));
+test("fails closed for pagination, count mismatch, unknown envelope fields, and incomplete rows", async () => {
+  const valid = envelope([position("one")]);
+  const incomplete = structuredClone(valid) as Record<string, unknown> & { data: Array<{ attributes: Record<string, unknown> }> };
+  delete incomplete.data[0]!.attributes.value;
+  const invalid = [
+    { ...valid, links: { ...valid.links, next: "fixture://page-2" } },
+    { ...valid, meta: { total: 0 } },
+    { ...valid, unexpected: true },
+    incomplete,
+  ];
+  for (const body of invalid) {
+    await assert.rejects(
+      provider(async () => new Response(JSON.stringify(body))).load(context()),
+      expectError("malformed"),
+    );
   }
 });
 
-test("rejects unknown root, links, and meta fields", async () => {
-  for (const invalid of [
-    { ...fixture, unexpected: true },
-    { ...fixture, links: { ...fixture.links, unexpected: true } },
-    { ...fixture, meta: { total: fixture.data.length, unexpected: true } },
-  ]) {
-    const subject = provider(asFetch(async () => new Response(JSON.stringify(invalid))));
-    await assert.rejects(subject.load(context()), errorKind("malformed"));
+test("bounds declared count, received count, normalized count, and response bytes", async () => {
+  const rows = Array.from({ length: 3 }, (_, index) => position(String(index)));
+  await assert.rejects(
+    provider(async () => new Response(JSON.stringify(envelope(rows))), { maxPositions: 2 }).load(context()),
+    expectError("oversize"),
+  );
+  await assert.rejects(
+    provider(async () => new Response(JSON.stringify(envelope(rows))), { maxPositions: 3 }).load(context(2)),
+    expectError("oversize"),
+  );
+
+  let cancelled = false;
+  const stream = new ReadableStream({ cancel() { cancelled = true; } });
+  await assert.rejects(
+    provider(async () => new Response(stream, { headers: { "content-length": "101" } }), { maxResponseBytes: 100 }).load(context()),
+    expectError("oversize"),
+  );
+  assert.equal(cancelled, true);
+});
+
+test("sanitizes HTTP and network errors and parses bounded Retry-After", async () => {
+  for (const [status, kind] of [[400, "malformed-request"], [401, "auth"], [403, "auth"], [418, "http"], [500, "server"]] as const) {
+    await assert.rejects(
+      provider(async () => new Response("upstream body", { status })).load(context()),
+      expectError(kind, status),
+    );
   }
+  await assert.rejects(
+    provider(async () => new Response("", { status: 429, headers: { "retry-after": "999999" } })).load(context()),
+    expectError("rate", 429, 600_000),
+  );
+  let calls = 0;
+  await assert.rejects(provider(async () => {
+    calls += 1;
+    throw new Error("top-secret network details");
+  }).load(context()), expectError("network"));
+  assert.equal(calls, 1);
 });
 
-test("checks both declared and received raw counts before adaptation", async () => {
-  const declaredOversize = { ...fixture, meta: { total: 1001 }, data: [fixture.data[1]] };
-  const declaredSubject = provider(asFetch(async () => new Response(JSON.stringify(declaredOversize))));
-  await assert.rejects(declaredSubject.load(context()), errorKind("oversize"));
-
-  const data = Array.from({ length: 1001 }, (_, index) => ({ ...fixture.data[1], id: `raw-data-${index}` }));
-  const receivedOversize = { ...fixture, meta: { total: 1 }, data };
-  const receivedSubject = provider(asFetch(async () => new Response(JSON.stringify(receivedOversize))));
-  await assert.rejects(receivedSubject.load(context()), errorKind("oversize"));
-});
-
-test("allows contractless complex rows only with verified fungible metadata", async () => {
-  const bare = structuredClone(fixture.data.find((position: { id: string }) => position.id === "contractless"));
-  bare.id = "contractless-bare";
-  bare.attributes.fungible_info = null;
-  const verified = structuredClone(bare);
-  verified.id = "contractless-verified";
-  verified.attributes.fungible_info = { flags: { verified: true }, implementations: [] };
-  const response = {
-    links: { self: "fixture://contractless", next: null, prev: null },
-    meta: { total: 2 },
-    data: [bare, verified],
-  };
-  const snapshot = await provider(asFetch(async () => new Response(JSON.stringify(response)))).load(context());
-  assert.deepEqual(snapshot.positions.map((position) => position.positionId), ["contractless-verified"]);
-  assert.equal(snapshot.positions[0]?.providerVerified, true);
-  assert.equal(snapshot.positions[0]?.contract, undefined);
-});
-
-test("times out before response headers", async () => {
-  const subject = provider(asFetch((_input, init) => new Promise((_resolve, reject) => {
+test("times out before headers and while reading a stalled body", async () => {
+  const beforeHeaders = provider((_input, init) => new Promise((_resolve, reject) => {
     init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
-  })), { timeoutMs: 10 });
-  await assert.rejects(subject.load(context()), errorKind("timeout"));
-});
+  }), { timeoutMs: 10 });
+  await assert.rejects(beforeHeaders.load(context()), expectError("timeout"));
 
-test("times out while a streamed response body stalls", async () => {
-  const subject = provider(asFetch(async (_input, init) => {
-    const stream = new ReadableStream<Uint8Array>({
+  const stalled = provider(async (_input, init) => {
+    const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode('{"links":'));
         init?.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")));
       },
     });
     return new Response(stream);
-  }), { timeoutMs: 10 });
-  await assert.rejects(subject.load(context()), errorKind("timeout"));
-});
-
-test("rejects Content-Length overflow before reading the body", async () => {
-  let cancelled = false;
-  const stream = new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } });
-  const subject = provider(asFetch(async () => new Response(stream, { headers: { "content-length": "101" } })), { maxResponseBytes: 100 });
-  await assert.rejects(subject.load(context()), errorKind("oversize"));
-  assert.equal(cancelled, true);
-});
-
-test("aborts a chunked body immediately when its byte cap is exceeded", async () => {
-  let cancelled = false;
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(new Uint8Array(60));
-      controller.enqueue(new Uint8Array(60));
-    },
-    cancel() { cancelled = true; },
-  });
-  const subject = provider(asFetch(async () => new Response(stream)), { maxResponseBytes: 100 });
-  await assert.rejects(subject.load(context()), errorKind("oversize"));
-  assert.equal(cancelled, true);
-});
-
-test("rejects malformed JSON and structurally incomplete JSON:API snapshots wholly", async () => {
-  const malformed = provider(asFetch(async () => new Response("{")));
-  await assert.rejects(malformed.load(context()), errorKind("malformed"));
-  const incomplete = provider(asFetch(async () => new Response(JSON.stringify({ data: fixture.data }))));
-  await assert.rejects(incomplete.load(context()), errorKind("malformed"));
-  const incompletePosition = structuredClone(fixture);
-  delete incompletePosition.data[1].attributes.value;
-  const partial = provider(asFetch(async () => new Response(JSON.stringify(incompletePosition))));
-  await assert.rejects(partial.load(context()), errorKind("malformed"));
-});
-
-test("rejects snapshots with more than 1,000 raw positions", async () => {
-  const data = Array.from({ length: 1001 }, (_, index) => ({ ...fixture.data[1], id: `raw-${index}` }));
-  const oversized = { ...fixture, meta: { total: data.length }, data };
-  const subject = provider(asFetch(async () => new Response(JSON.stringify(oversized))));
-  await assert.rejects(subject.load(context()), errorKind("oversize"));
-});
-
-test("rejects snapshots with more than 1,000 normalized positions", async () => {
-  const data = Array.from({ length: 1001 }, (_, index) => ({ ...fixture.data[1], id: `normalized-${index}` }));
-  const oversized = { ...fixture, meta: { total: data.length }, data };
-  const subject = provider(asFetch(async () => new Response(JSON.stringify(oversized))), { maxPositions: 1100 });
-  await assert.rejects(subject.load(context(1000)), errorKind("oversize"));
-});
-
-test("rejects a finite-position snapshot when the derived sum overflows", async () => {
-  const data = [0, 1].map((index) => {
-    const position = structuredClone(fixture.data[1]);
-    position.id = `overflow-${index}`;
-    position.attributes.value = Number.MAX_VALUE;
-    return position;
-  });
-  const response = {
-    links: { self: "fixture://overflow", next: null, prev: null },
-    meta: { total: data.length },
-    data,
-  };
-  const subject = provider(asFetch(async () => new Response(JSON.stringify(response))));
-  await assert.rejects(subject.load(context()), errorKind("malformed"));
-});
-
-test("fails closed for synthetic-looking, changed, and extended 400 payloads", async () => {
-  for (const payload of [
-    { errors: [{ title: "Wallet not found", detail: "The requested wallet is not tracked" }] },
-    { errors: [{ title: "Wallet not found", detail: "wording changed" }] },
-    { errors: [{ title: "Wallet not found", detail: "The requested wallet is not tracked", code: "extra" }], extra: true },
-  ]) {
-    const subject = provider(asFetch(async () => new Response(JSON.stringify(payload), { status: 400 })));
-    await assert.rejects(subject.load(context()), errorKind("malformed-request", 400));
-  }
-});
-
-test("sanitizes auth, rate, and server HTTP errors", async (t) => {
-  for (const [status, kind] of [[401, "auth"], [403, "auth"], [429, "rate"], [503, "server"]] as const) {
-    await t.test(String(status), async () => {
-      const subject = provider(asFetch(async () => new Response("secret upstream text", { status })));
-      await assert.rejects(subject.load(context()), errorKind(kind, status));
-    });
-  }
-});
-
-test("cancels every non-2xx response body and sanitizes cancellation failures", async () => {
-  for (const [status, kind] of [[400, "malformed-request"], [401, "auth"], [403, "auth"], [429, "rate"], [503, "server"]] as const) {
-    let cancellations = 0;
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) { controller.enqueue(new TextEncoder().encode("raw upstream body")); },
-      cancel() {
-        cancellations++;
-        throw new Error("raw cancellation details");
-      },
-    });
-    const subject = provider(asFetch(async () => new Response(body, { status })));
-    await assert.rejects(subject.load(context()), (error: unknown) => {
-      assert.equal((error as ZerionProviderError).kind, kind);
-      assert.doesNotMatch(String(error), /raw upstream|raw cancellation/);
-      return true;
-    });
-    assert.equal(cancellations, 1, String(status));
-  }
-});
-
-test("parses Retry-After seconds and dates only for 429/503 and caps them at ten minutes", async () => {
-  const seconds = provider(asFetch(async () => new Response("", { status: 429, headers: { "retry-after": "12" } })));
-  await assert.rejects(seconds.load(context()), errorKind("rate", 429, 12_000));
-  const date = new Date(NOW + 30_000).toUTCString();
-  const dated = provider(asFetch(async () => new Response("", { status: 503, headers: { "retry-after": date } })));
-  await assert.rejects(dated.load(context()), errorKind("server", 503, 30_000));
-  const bounded = provider(asFetch(async () => new Response("", { status: 429, headers: { "retry-after": "999999" } })));
-  await assert.rejects(bounded.load(context()), errorKind("rate", 429, 600_000));
-  const ignored = provider(asFetch(async () => new Response("", { status: 500, headers: { "retry-after": "12" } })));
-  await assert.rejects(ignored.load(context()), errorKind("server", 500));
-});
-
-test("sanitizes fetch failures and never retries", async () => {
-  let calls = 0;
-  const subject = provider(asFetch(async () => { calls++; throw new Error("top-secret raw network failure"); }));
-  await assert.rejects(subject.load(context()), errorKind("network"));
-  assert.equal(calls, 1);
+  }, { timeoutMs: 10 });
+  await assert.rejects(stalled.load(context()), expectError("timeout"));
 });

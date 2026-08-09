@@ -5,10 +5,13 @@ import {
   type WalletAssets,
 } from "@wcore/core";
 import { SvmAddress } from "@wcore/shared";
+
 import type { ProviderWalletHint } from "./types.js";
 
 const EVM_CONTRACT = /^0x[0-9a-f]{40}$/;
 const MAX_WALLET_HINTS = 1_000;
+
+type WalletToken = WalletAssets["tokens"][number] & Record<string, unknown>;
 
 export interface WalletHintVerifierDeps {
   scanEvmHints(chain: string, address: string, contracts: readonly string[]): Promise<WalletAssets>;
@@ -22,15 +25,12 @@ export interface VerifyWalletHintsInput {
 }
 
 interface WalletHintEngine {
-  getEvmWalletAssets(
-    address: string,
-    chain: string,
-    options: { customTokens?: string[]; strictTokens?: boolean },
-  ): Promise<WalletAssets>;
+  getEvmWalletAssets(address: string, chain: string, options: {
+    customTokens?: string[];
+    strictTokens?: boolean;
+  }): Promise<WalletAssets>;
   getWalletAssets(address: string, chain: string): Promise<WalletAssets>;
 }
-
-type HintGroup = { vm: "EVM" | "SVM"; contracts: Map<string, string> };
 
 export function createWalletHintVerifierDeps(
   engine: WalletHintEngine = { getEvmWalletAssets, getWalletAssets },
@@ -58,9 +58,10 @@ export async function verifyWalletHints(
   for (const [chain, group] of groups) {
     const original = originalByChain.get(chain);
     if (!original) continue;
-
     const existing = new Set(
-      tokenRecords(original.assets).map((token) => tokenIdentity(group.vm, token)).filter((value): value is string => value !== undefined),
+      tokenRecords(original.assets)
+        .map((token) => tokenIdentity(group.vm, token))
+        .filter((value): value is string => value !== undefined),
     );
     const requested = [...group.contracts].filter(([identity]) => !existing.has(identity));
     if (requested.length === 0) continue;
@@ -76,7 +77,7 @@ export async function verifyWalletHints(
     if (scanned.chain.trim().toUpperCase() !== chain) continue;
 
     const requestedIds = new Set(requested.map(([identity]) => identity));
-    const additions: Record<string, unknown>[] = [];
+    const additions: WalletToken[] = [];
     for (const token of tokenRecords(scanned)) {
       const identity = tokenIdentity(group.vm, token);
       if (!identity || !requestedIds.has(identity) || existing.has(identity)) continue;
@@ -87,7 +88,7 @@ export async function verifyWalletHints(
       const valueEur = balance * priceEur;
       if (!Number.isFinite(valueEur)) continue;
 
-      const trusted: Record<string, unknown> = {
+      const trusted: WalletToken = {
         ...token,
         valueEur,
         priceSource: token.priceSource ?? "pricing-cascade",
@@ -112,6 +113,12 @@ export async function verifyWalletHints(
   return result;
 }
 
+type HintVm = "EVM" | "SVM";
+interface HintGroup {
+  vm: HintVm;
+  contracts: Map<string, string>;
+}
+
 function normalizeHints(hints: readonly ProviderWalletHint[]): Map<string, HintGroup> {
   const groups = new Map<string, HintGroup>();
   let count = 0;
@@ -119,7 +126,7 @@ function normalizeHints(hints: readonly ProviderWalletHint[]): Map<string, HintG
     if (count >= MAX_WALLET_HINTS) break;
     const chain = hint.chain.trim().toUpperCase();
     const chainConfig = getChain(chain);
-    const vm = chain === "SOLANA" && chainConfig?.vm === "SVM"
+    const vm: HintVm | undefined = chain === "SOLANA" && chainConfig?.vm === "SVM"
       ? "SVM"
       : chainConfig?.vm === "EVM" ? "EVM" : undefined;
     if (!vm) continue;
@@ -139,7 +146,7 @@ function normalizeHints(hints: readonly ProviderWalletHint[]): Map<string, HintG
   return groups;
 }
 
-function normalizeContract(vm: "EVM" | "SVM", contract: string): string | undefined {
+function normalizeContract(vm: HintVm, contract: string): string | undefined {
   const value = contract.trim();
   if (vm === "EVM") {
     const normalized = value.toLowerCase();
@@ -148,11 +155,11 @@ function normalizeContract(vm: "EVM" | "SVM", contract: string): string | undefi
   return SvmAddress.safeParse(value).success ? value : undefined;
 }
 
-function tokenIdentity(vm: "EVM" | "SVM", token: Record<string, unknown>): string | undefined {
+function tokenIdentity(vm: HintVm, token: WalletToken): string | undefined {
   const value = vm === "EVM" ? token.contract : token.mint;
   return typeof value === "string" ? normalizeContract(vm, value) : undefined;
 }
 
-function tokenRecords(assets: WalletAssets): Record<string, unknown>[] {
-  return assets.tokens as Record<string, unknown>[];
+function tokenRecords(assets: WalletAssets): WalletToken[] {
+  return assets.tokens as WalletToken[];
 }

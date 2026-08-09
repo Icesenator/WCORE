@@ -8,6 +8,9 @@ export const AVES_NETWORK: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 1,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://3333.rpc.thirdweb.com",

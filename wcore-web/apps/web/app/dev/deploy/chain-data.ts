@@ -386,7 +386,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x27bc86aa",
     chainName: "Degen",
     nativeCurrency: { name: "Degen", symbol: "DEGEN", decimals: 18 },
-    rpcUrls: ["https://rpc.degen.tips", "https://degen.drpc.org", "https://666666666.rpc.thirdweb.com"],
+    rpcUrls: ["https://degen-mainnet.g.alchemy.com/public", "https://rpc.degen.tips"],
   },
   BEAM: {
     chainId: "0x10f1",

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Prisma, PrismaClient } from "@wcore/db";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
+import { safeEq } from "../admin-auth.js";
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { CexAccountBodySchema, CexAccountParamsSchema } from "../schemas.js";
 import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, normalizeKrakenBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type KrakenBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
@@ -100,9 +101,26 @@ const CEX_PRICE_IDS: Record<string, string> = {
   BGB: "coingecko:bitget-token",
 };
 
+/**
+ * Picks the secret that exchange credentials are encrypted with.
+ *
+ * In production this must never fall back. Deriving the key from JWT_SECRET couples two
+ * secrets that rotate independently: rotating the JWT would silently make every stored
+ * credential undecryptable. Falling back to the fixed development string would be worse
+ * still, since it is public. Refusing here disables only the exchange feature instead of
+ * encrypting with a key nobody intended.
+ */
+export function resolveCexEncryptionSecret(env: NodeJS.ProcessEnv = process.env): string {
+  const secret = env.CEX_SECRET;
+  if (secret) return secret;
+  if (env.NODE_ENV === "production") {
+    throw new Error("CEX_SECRET is required to read or write exchange credentials");
+  }
+  return env.JWT_SECRET || "wcore-dev-cex-secret";
+}
+
 function encryptionKey(): Buffer {
-  const secret = process.env.CEX_SECRET || process.env.JWT_SECRET || "wcore-dev-cex-secret";
-  return createHash("sha256").update(secret).digest();
+  return createHash("sha256").update(resolveCexEncryptionSecret()).digest();
 }
 
 function encryptJson(value: unknown): EncryptedPayload {
@@ -321,10 +339,10 @@ export function convertUsdPriceToEur(priceUsd: number, fxRate: number): number |
   return Number.isFinite(priceEur) && priceEur > 0 ? priceEur : null;
 }
 
-async function priceSymbolEur(symbol: string): Promise<{ priceEur: number | null; source: string | null }> {
+async function priceSymbolEur(symbol: string, fxCache?: CacheStore): Promise<{ priceEur: number | null; source: string | null }> {
   const s = symbol.toUpperCase();
   if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") return { priceEur: 1, source: "fiat-eur" };
-  const eurUsd = await getEurUsdRate();
+  const eurUsd = await getEurUsdRate({ cache: fxCache });
   if (["USD", "USDT", "USDC", "TUSD", "FDUSD", "BUSD", "DAI"].includes(s)) return { priceEur: convertUsdPriceToEur(1, eurUsd), source: "stable-usd" };
   const llamaId = CEX_PRICE_IDS[s];
   if (!llamaId) return { priceEur: null, source: null };
@@ -414,8 +432,30 @@ export async function priceCexRowsForTest(rows: RawCexRow[], deps: PriceCexRowsD
   }));
 }
 
-async function pricedRows(rows: RawCexRow[], stockCache?: StockPriceCache): Promise<Array<RawCexRow & { priceEur: number | null; valueEur: number | null; priceSource: string | null }>> {
-  return priceCexRowsForTest(rows, { priceStockSymbolEur: (s) => priceStockSymbolEur(s, stockCache), priceSymbolEur });
+async function pricedRows(rows: RawCexRow[], stockCache?: StockPriceCache, fxCache?: CacheStore): Promise<Array<RawCexRow & { priceEur: number | null; valueEur: number | null; priceSource: string | null }>> {
+  return priceCexRowsForTest(rows, { priceStockSymbolEur: (s) => priceStockSymbolEur(s, stockCache), priceSymbolEur: (s) => priceSymbolEur(s, fxCache) });
+}
+
+/**
+ * Turns an upstream failure into a stable, safe reason.
+ *
+ * The exchange helpers embed up to 300 characters of the raw response in their error
+ * message, and that message used to be returned to the browser and stored verbatim on
+ * the account. Those bodies can carry request ids, internal hostnames and account
+ * context. Each reason below is still actionable for the user, which is the only part
+ * of the detail that was ever worth showing.
+ */
+export function describeCexSyncFailure(raw: string): string {
+  if (/\b(401|403)\b|unauthorized|invalid api|invalid key|signature|permission denied/i.test(raw)) {
+    return "credentials_rejected";
+  }
+  if (/\b429\b|rate limit|too many requests/i.test(raw)) return "rate_limited_by_exchange";
+  if (/timeout|timed out|aborted|etimedout|econnreset|enotfound|fetch failed/i.test(raw)) {
+    return "exchange_unreachable";
+  }
+  const status = raw.match(/\bHTTP (\d{3})\b/);
+  if (status) return `exchange_http_${status[1]}`;
+  return "sync_failed";
 }
 
 export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
@@ -424,7 +464,11 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
 
   app.get("/api/cex/prices", async (req, reply) => {
     const expectedToken = process.env.GSHEET_API_TOKEN;
-    if (!expectedToken || req.headers["x-gsheet-token"] !== expectedToken) {
+    const presented = req.headers["x-gsheet-token"];
+    // Constant time, like the admin token: `!==` leaks the shared secret one byte at
+    // a time to anyone who can measure the response, and this token opens the whole
+    // /api/gsheet surface.
+    if (!expectedToken || typeof presented !== "string" || !safeEq(presented, expectedToken)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
 
@@ -469,7 +513,7 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
     await Promise.all(Array.from({ length: Math.min(5, symbols.length) }, async () => {
       while (cursor < symbols.length) {
         const symbol = symbols[cursor++]!;
-        prices[symbol] = await priceSymbolEur(symbol);
+        prices[symbol] = await priceSymbolEur(symbol, deps.sharedCache);
       }
     }));
     return { prices };
@@ -544,7 +588,7 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
         : account.provider === "kraken"
         ? await fetchKrakenRows(decryptJson<KrakenCredentials>(account.encryptedCredentials))
         : await fetchBitpandaRows(decryptJson<BitpandaCredentials>(account.encryptedCredentials));
-      const holdings = await pricedRows(rows, stockPriceCache);
+      const holdings = await pricedRows(rows, stockPriceCache, deps.sharedCache);
       const writes: Prisma.PrismaPromise<unknown>[] = [
         prisma.cexHolding.deleteMany({ where: { accountId: account.id } }),
       ];
@@ -557,9 +601,13 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
       await prisma.$transaction(writes);
       return { ok: true, rows: holdings.length, totalEur: holdings.reduce((sum, h) => sum + (h.valueEur ?? 0), 0) };
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      await prisma.cexAccount.update({ where: { id: account.id }, data: { lastSyncAt: new Date(), lastSyncStatus: "error", lastSyncError: message.slice(0, 500) } }).catch(() => {});
-      return reply.code(502).send({ error: "sync_failed", message });
+      const raw = e instanceof Error ? e.message : String(e);
+      // The raw text stays in the server log, where it is useful, and never reaches
+      // the response or the stored record.
+      console.error(`[cex] sync failed for ${account.provider} account ${account.id}:`, raw);
+      const reason = describeCexSyncFailure(raw);
+      await prisma.cexAccount.update({ where: { id: account.id }, data: { lastSyncAt: new Date(), lastSyncStatus: "error", lastSyncError: reason } }).catch(() => {});
+      return reply.code(502).send({ error: "sync_failed", message: reason });
     }
   });
 }

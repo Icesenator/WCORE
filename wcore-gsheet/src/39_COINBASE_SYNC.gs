@@ -98,8 +98,9 @@ function COINBASE_SYNC_STATUS() {
 
 function _cbFetchBucketsViaRelay_() {
   var relay = _cbGetRelay_();
-  var url = relay.url + "/coinbase?token=" + encodeURIComponent(relay.token);
-  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
+  // Token as a header, not in the URL: a query string leaks it into access logs.
+  var url = relay.url + "/coinbase";
+  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": relay.token } });
   if (!resp) throw new Error("Coinbase relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();

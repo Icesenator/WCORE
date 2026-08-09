@@ -4,11 +4,16 @@
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectDir = Split-Path -Parent $scriptDir
 
-# Load DATABASE_URL from scripts/.env.backup (gitignored)
+# Load DATABASE_URL from the environment or scripts/.env.backup (gitignored)
 $envFile = Join-Path $scriptDir ".env.backup"
+if (-not $env:DATABASE_URL -and $env:BACKUP_DATABASE_URL) {
+    $env:DATABASE_URL = $env:BACKUP_DATABASE_URL
+}
 if (Test-Path $envFile) {
     Get-Content $envFile | ForEach-Object {
-        if ($_ -match '^\s*DATABASE_URL\s*=\s*(.+?)\s*$') {
+        if (-not $env:DATABASE_URL -and $_ -match '^\s*BACKUP_DATABASE_URL\s*=\s*(.+?)\s*$') {
+            $env:DATABASE_URL = $matches[1].Trim('"').Trim("'")
+        } elseif (-not $env:DATABASE_URL -and $_ -match '^\s*DATABASE_URL\s*=\s*(.+?)\s*$') {
             $env:DATABASE_URL = $matches[1].Trim('"').Trim("'")
         }
     }
@@ -19,9 +24,9 @@ if (-not $env:DATABASE_URL) {
     exit 2
 }
 
-# Run from apps/api where @prisma/client is installed
+# Run from apps/api where @prisma/client is installed.
 Set-Location "$projectDir\apps\api"
-& pnpm exec tsx backup-db.cjs
+& node backup-db.cjs
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Backup failed with exit code $LASTEXITCODE"

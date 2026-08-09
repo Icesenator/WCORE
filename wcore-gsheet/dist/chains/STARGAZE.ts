@@ -7,7 +7,10 @@ export const STARGAZE: ChainConfig = {
   key: "STARGAZE",
   vm: "COSMOS",
   ...({
-  CACHE_VERSION: 67,
+  CACHE_VERSION: 68,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   API: {
     REST_URL: "https://stargaze-rest.publicnode.com",
     RPC_URL: "https://stargaze-rpc.publicnode.com",

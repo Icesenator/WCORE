@@ -317,6 +317,50 @@ test("getSvmWalletAssets token accounts use cached fallback when RPC fails", asy
   assert.ok(result2.tokens.length >= 1);
 });
 
+test("getSvmWalletAssets preserves positive token cache when one live endpoint returns empty", async () => {
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => 20 },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => 1.5 },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const cache = new MemoryCacheStore();
+  const positiveAccount = {
+    pubkey: "AToken123",
+    account: { data: { parsed: { info: { mint: MOCK_MINT, tokenAmount: { amount: "1000000", decimals: 9 } } } } },
+  };
+  await getSvmWalletAssets(OWNER, "solana", {
+    rpc: mockRpc({
+      getBalance: () => ({ value: 0 }),
+      getTokenAccountsByOwner: () => ({ value: [positiveAccount] }),
+    }) as never,
+    sources,
+    fxRate: 1,
+    cache,
+  });
+
+  const primary = "https://api.mainnet-beta.solana.com";
+  const result = await getSvmWalletAssets(OWNER, "solana", {
+    rpc: mockRpc({
+      getBalance: () => ({ value: 0 }),
+      getTokenAccountsByOwner: (endpoint: string) => {
+        if (endpoint === primary) return { value: [] };
+        throw new Error("alternate unavailable");
+      },
+    }) as never,
+    sources,
+    fxRate: 1,
+    cache,
+  });
+
+  assert.ok(result.tokens.some((token) => token.mint === MOCK_MINT));
+  assert.ok(result.errors.some((error) => error.includes("empty live response uncorroborated")));
+  const cached = await cache.get<Array<{ amount: string }>>(`ta:solana:${OWNER}`);
+  assert.equal(cached?.[0]?.amount, "1000000");
+});
+
 test("getSvmWalletAssets writes per-token cache after pricing", async () => {
   const sources: PricingSourceSet = {
     defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => 20 },

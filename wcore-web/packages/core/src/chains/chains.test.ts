@@ -37,6 +37,28 @@ test("Robinhood Chain is registered with verified mainnet metadata", () => {
   assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://rpc.mainnet.chain.robinhood.com"]);
 });
 
+test("Somnia keeps the chainId its RPC endpoints actually serve", () => {
+  const chain = getChain("SOMNIA");
+
+  assert.ok(chain, "SOMNIA chain should be registered");
+  // Every configured endpoint answers eth_chainId with 0x13a7. The config held
+  // 50311 twice in the project history, which silently failed each chainId
+  // consensus check while the chain itself was live.
+  assert.equal(chain.CHAIN?.CHAIN_ID, 5031);
+});
+
+test("Degen prefers the measured public Alchemy gateway", () => {
+  const chain = getChain("DEGEN");
+
+  assert.ok(chain, "DEGEN chain should be registered");
+  assert.equal(chain.CHAIN?.CHAIN_ID, 666666666);
+  assert.equal(chain.RPC?.MAX_LOG_RANGE, 99);
+  assert.deepEqual(chain.RPC?.ENDPOINTS, [
+    "https://degen-mainnet.g.alchemy.com/public",
+    "https://rpc.degen.tips",
+  ]);
+});
+
 test("all active GM chains have native pricing oracle ids", () => {
   const missing = Object.keys(GM_FACTORIES)
     .sort()

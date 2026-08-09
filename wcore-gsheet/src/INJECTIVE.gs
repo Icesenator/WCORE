@@ -30,9 +30,9 @@ CHAIN: {
 });
 
 // Main functions
-function GET_WALLET_ASSETS_INJECTIVE(address, forceFull){return _INJECTIVE.getWalletAssets(address, forceFull);}
+function GET_WALLET_ASSETS_INJECTIVE(a,r,t,f,g){return _INJECTIVE.getWalletAssets(a,r,t,f,g);}
 function CACHED_WALLET_ASSETS_INJECTIVE(address){return _INJECTIVE.getCachedWalletAssets(address);}
-function INJECTIVE_REFRESH_STATUS(address, forceFull){return _INJECTIVE.getRefreshStatus(address, forceFull);}
+function INJECTIVE_REFRESH_STATUS(a,r,t,f,g){return _INJECTIVE.getRefreshStatus(a,r,t,f,g);}
 function INJECTIVE_STATS(address, trigger){return _INJECTIVE.getStats(address, trigger);}
 
 // Diagnostic stubs (use centralized CosmosDiagStubs)

@@ -1,0 +1,111 @@
+// Garde-fou: le store de RPC dynamiques doit etre rafraichi automatiquement.
+//
+// 33_DYNAMIC_RPC.gs annonce "TTL: 30 days (auto-expires if trigger stops
+// running)" et "weekly trigger with 25-day staleness check". Ce trigger n'avait
+// jamais ete installe par l'auto-heal: mesure du 2026-08-06, DYNAMIC_RPC_STATUS
+// renvoyait "EMPTY - Run UPDATE_DYNAMIC_RPCS() to populate".
+//
+// Consequence: WCORE tournait uniquement sur les endpoints codes en dur, sans
+// jamais decouvrir les nouveaux ni ecarter les morts. Les endpoints defunts
+// s'accumulaient (Degen: drpc.org en HTTP 404, thirdweb inutilisable).
+//
+// Un trigger absent ne se voit pas: rien n'echoue, le systeme sert simplement
+// une liste figee. D'ou ce test.
+
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+
+const srcDir = path.join(__dirname, '..', 'src');
+const autoHeal = fs.readFileSync(path.join(srcDir, '16B_AUTO_HEAL.gs'), 'utf8');
+const dynamicRpc = fs.readFileSync(path.join(srcDir, '33_DYNAMIC_RPC.gs'), 'utf8');
+
+const failures = [];
+function test(name, fn) {
+  try {
+    fn();
+    console.log('OK - ' + name);
+  } catch (err) {
+    failures.push(name);
+    console.error('FAIL - ' + name + ': ' + err.message);
+  }
+}
+
+function creationBlock() {
+  const start = autoHeal.indexOf('function _wcoreAutoHealCreateManagedTriggers_');
+  assert.ok(start >= 0, '_wcoreAutoHealCreateManagedTriggers_ introuvable');
+  const end = autoHeal.indexOf('\nfunction ', start + 10);
+  return autoHeal.slice(start, end > 0 ? end : autoHeal.length);
+}
+
+test("l'auto-heal installe le rafraichissement des RPC dynamiques", () => {
+  const block = creationBlock();
+  assert.ok(
+    /newTrigger\("UPDATE_DYNAMIC_RPCS"\)/.test(block),
+    'sans ce trigger, le store expire au bout de 30 jours et rien ne le signale',
+  );
+});
+
+test('la cadence reste hebdomadaire, comme le suppose le TTL de 30 jours', () => {
+  const block = creationBlock();
+  const m = block.match(/newTrigger\("UPDATE_DYNAMIC_RPCS"\)[\s\S]{0,200}?\.onWeekDay\(/);
+  assert.ok(m, 'cadence hebdomadaire introuvable pour UPDATE_DYNAMIC_RPCS');
+});
+
+test('le trigger hebdomadaire precise son jour, sinon GAS le refuse', () => {
+  // Incident 2026-08-06: everyWeeks(1) sans onWeekDay() leve
+  // "You tried to create a weekly trigger, but did not specify which day in
+  // the week." L'exception interrompait _wcoreAutoHealCreateManagedTriggers_,
+  // donc les triggers declares APRES n'etaient pas recrees apres suppression.
+  const block = creationBlock();
+  const decl = block.match(/newTrigger\("UPDATE_DYNAMIC_RPCS"\)[\s\S]{0,240}?\.create\(\)/);
+  assert.ok(decl, 'declaration du trigger introuvable');
+  assert.ok(
+    /\.onWeekDay\(ScriptApp\.WeekDay\.\w+\)/.test(decl[0]),
+    'un trigger hebdomadaire sans onWeekDay() est rejete par GAS',
+  );
+  assert.ok(
+    !/\.everyWeeks\(/.test(decl[0]),
+    'everyWeeks() combine a onWeekDay() est ambigu: onWeekDay() suffit',
+  );
+});
+
+test("l'echec de ce trigger n'empeche pas la creation des suivants", () => {
+  const block = creationBlock();
+  const decl = block.match(/if \(typeof UPDATE_DYNAMIC_RPCS === "function"\) \{[\s\S]*?\n  \}/);
+  assert.ok(decl, 'bloc de creation introuvable');
+  assert.ok(/try \{/.test(decl[0]), 'la creation doit etre isolee par un try/catch');
+  assert.ok(
+    /stats\.dynamicRpcTriggerError/.test(decl[0]),
+    "l'erreur doit etre remontee dans stats, jamais avalee en silence",
+  );
+  // Les triggers critiques doivent rester declares apres, donc proteges.
+  const after = block.slice(block.indexOf('UPDATE_DYNAMIC_RPCS'));
+  assert.ok(
+    /newTrigger\("CEX_MANUAL_REFRESH_WORKER"\)/.test(after),
+    'ce test perd son sens si plus aucun trigger ne suit',
+  );
+});
+
+test("le trigger est declare geré, sinon l'auto-heal le supprimerait", () => {
+  const managedLists = autoHeal.match(/var managed = \[[^\]]+\]/g) || [];
+  assert.ok(managedLists.length >= 2, `listes managed introuvables (${managedLists.length})`);
+  for (let i = 0; i < managedLists.length; i++) {
+    assert.ok(
+      managedLists[i].indexOf('"UPDATE_DYNAMIC_RPCS"') >= 0,
+      `liste managed #${i + 1}: le trigger serait supprime au prochain nettoyage`,
+    );
+  }
+});
+
+test('le cout reste borne par le skip de fraicheur et le test partiel', () => {
+  // Sans ces deux gardes, un trigger hebdomadaire couterait ~250 appels/semaine.
+  assert.ok(/ageDays < 25/.test(dynamicRpc), 'le skip de fraicheur a 25 jours doit rester');
+  assert.ok(/rotationMod = 3/.test(dynamicRpc), 'le test par rotation (1/3 des chaines) doit rester');
+});
+
+if (failures.length) {
+  console.error('\n' + failures.length + ' failing test(s)');
+  process.exit(1);
+}
+console.log('\ndynamic rpc trigger OK');

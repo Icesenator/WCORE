@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore, type WalletAssets } from "@wcore/core";
+import { safeEq } from "../admin-auth.js";
 
 export interface GsheetFxTelemetry {
   rate: number;
@@ -517,7 +518,12 @@ async function repairMissingGsheetScanPrices(
   return { ...result, tokens: repairedTokens, totalValueEur: roundMoney(nativeValue + tokenValue), errors, degraded: errors.length > 0 };
 }
 
-async function injectChainbaseStakingTokens(result: GsheetScanResult, address: string, provider?: (address: string) => Promise<unknown>): Promise<GsheetScanResult> {
+async function injectChainbaseStakingTokens(
+  result: GsheetScanResult,
+  address: string,
+  cache?: CacheStore,
+  provider?: (address: string) => Promise<unknown>,
+): Promise<GsheetScanResult> {
   if (String(result.chain || "").toUpperCase() !== "BASE") return result;
   try {
     const cb = provider
@@ -530,8 +536,8 @@ async function injectChainbaseStakingTokens(result: GsheetScanResult, address: s
     if (chain) {
       try {
         const fxRate = await core.getEurUsdRate();
-        const priceCache = new core.MemoryPricingCache();
-        const sources = core.buildSources(priceCache, chain);
+        const priceCache = cache ? new core.RedisPricingCache(cache) : new core.MemoryPricingCache();
+        const sources = core.buildSources(priceCache, chain, cache);
         const priced = await core.priceTokenCascade({
           token: {
             key: `${String(chain.key).toLowerCase()}:${cb.tokenAddress}`,
@@ -862,7 +868,8 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   app.addHook("onRequest", async (req, reply) => {
     if (!req.url || !req.url.startsWith("/api/gsheet/")) return;
     const header = req.headers["x-gsheet-token"];
-    if (header !== opts.token) {
+    // Constant time: this hook is the only thing standing in front of /api/gsheet/*.
+    if (typeof header !== "string" || !opts.token || !safeEq(header, opts.token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
   });
@@ -940,7 +947,7 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
       const mirrored = applyStakedPriceMirrors(repaired);
       const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens);
       const labeled = labelGsheetWalletScan(sanitized, parsed.input.address);
-      return injectChainbaseStakingTokens(labeled, parsed.input.address, opts.chainbaseStakingProvider);
+      return injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (message === "chain_not_found") return reply.code(404).send({ error: "chain_not_found" });

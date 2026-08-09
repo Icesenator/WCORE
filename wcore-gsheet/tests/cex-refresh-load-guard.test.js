@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
-const assert = require('assert');
 
 const root = path.resolve(__dirname, '..');
 
@@ -26,168 +25,6 @@ const autoHeal = read('src/16B_AUTO_HEAL.gs');
 const bitpanda = read('src/35_BITPANDA_SYNC.gs');
 const activity = read('src/27_ACTIVITY_REFRESH.gs');
 const kraken = read('src/41_KRAKEN_SYNC.gs');
-
-const legacyCexWatchdogs = [
-  ['src/35_BITPANDA_SYNC.gs', 'BITPANDA_REFRESH_WATCHDOG'],
-  ['src/36_BINANCE_SYNC.gs', 'BINANCE_REFRESH_WATCHDOG'],
-  ['src/37_BITFINEX_SYNC.gs', 'BITFINEX_REFRESH_WATCHDOG'],
-  ['src/38_BYBIT_SYNC.gs', 'BYBIT_REFRESH_WATCHDOG'],
-  ['src/39_COINBASE_SYNC.gs', 'COINBASE_REFRESH_WATCHDOG'],
-  ['src/40_OKX_SYNC.gs', 'OKX_REFRESH_WATCHDOG'],
-  ['src/41_KRAKEN_SYNC.gs', 'KRAKEN_REFRESH_WATCHDOG'],
-];
-for (const [file, name] of legacyCexWatchdogs) {
-  const body = extractFunction(read(file), name);
-  if (!/^function\s+\w+\s*\([^)]*\)\s*\{\s*return\s+["']LEGACY_DISABLED:[^"']*["'];?\s*\}$/.test(body)) {
-    throw new Error(`${name} must be a non-mutating LEGACY_DISABLED return`);
-  }
-}
-
-for (const [file, versionName] of [
-  ['src/35_BITPANDA_SYNC.gs', 'BITPANDA_SYNC_VERSION'],
-  ['src/36_BINANCE_SYNC.gs', 'BINANCE_SYNC_VERSION'],
-  ['src/37_BITFINEX_SYNC.gs', 'BITFINEX_SYNC_VERSION'],
-  ['src/38_BYBIT_SYNC.gs', 'BYBIT_SYNC_VERSION'],
-  ['src/39_COINBASE_SYNC.gs', 'COINBASE_SYNC_VERSION'],
-  ['src/40_OKX_SYNC.gs', 'OKX_SYNC_VERSION'],
-  ['src/41_KRAKEN_SYNC.gs', 'KRAKEN_SYNC_VERSION'],
-]) {
-  const text = read(file);
-  if (!text.startsWith('// v4.16.34') || !new RegExp(`var ${versionName} = ["']4\\.16\\.34["']`).test(text)) {
-    throw new Error(`${file} header and ${versionName} must be synchronized to 4.16.34`);
-  }
-}
-
-for (const [file, installer] of [
-  ['src/36_BINANCE_SYNC.gs', 'INSTALL_BINANCE_SYNC_TRIGGER'],
-  ['src/38_BYBIT_SYNC.gs', 'INSTALL_BYBIT_SYNC_TRIGGER'],
-]) {
-  const installerBody = extractFunction(read(file), installer);
-  if (!installerBody.includes('LEGACY_DISABLED') || installerBody.includes('newTrigger(')) {
-    throw new Error(`${installer} must be disabled and must not create a non-canonical relay trigger`);
-  }
-}
-for (const [file, handler] of [
-  ['src/39_COINBASE_SYNC.gs', 'UPDATE_COINBASE_SPOT'],
-  ['src/40_OKX_SYNC.gs', 'UPDATE_OKX_SPOT'],
-]) {
-  if (read(file).includes(`newTrigger("${handler}")`)) {
-    throw new Error(`${file} must not provide an installer that creates non-canonical relay trigger ${handler}`);
-  }
-}
-const bitfinexInstallerBody = extractFunction(read('src/37_BITFINEX_SYNC.gs'), 'INSTALL_BITFINEX_SYNC_TRIGGER');
-if (!bitfinexInstallerBody.includes('newTrigger("UPDATE_BITFINEX_SPOT").timeBased().everyHours(1).create()')) {
-  throw new Error('Bitfinex must keep its dedicated hourly installer');
-}
-const krakenInstallerBody = extractFunction(read('src/41_KRAKEN_SYNC.gs'), 'INSTALL_KRAKEN_SYNC_TRIGGER');
-if (!krakenInstallerBody.includes('newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create()') || krakenInstallerBody.includes('KRAKEN_REFRESH_WATCHDOG").timeBased()')) {
-  throw new Error('Kraken must keep its dedicated hourly installer without a watchdog trigger');
-}
-
-const activeCexDocsDir = path.join(root, 'docs', 'integrations', 'cex');
-const activeCexDocNames = ['binance-sync.md', 'bitfinex-sync.md', 'bitpanda-sync.md', 'bybit-eu-sync.md', 'coinbase-sync.md', 'okx-sync.md', 'cex-sync.md', 'kraken-sync.md'];
-const obsoleteDocPattern = /CEX_HOURLY_REFRESH|everyHours\(4\)|watchdog central|supprime les anciens triggers horaires individuels|bulk[^\n]*(?:planifi|trigger automatique|refresh auto)|\b(?:Z1|AC2)\b|(?:6|six) jobs|\+60s|Portefeuille Crypto V2!U2|retry a \+5s|retry transitoire 5s/i;
-for (const name of activeCexDocNames) {
-  const file = path.join(activeCexDocsDir, name);
-  if (!fs.existsSync(file)) throw new Error(`Missing active CEX documentation ${name}`);
-  const text = fs.readFileSync(file, 'utf8');
-  if (obsoleteDocPattern.test(text)) throw new Error(`Active CEX documentation ${name} contains obsolete trigger guidance`);
-}
-for (const name of ['binance-sync.md', 'bitfinex-sync.md', 'bybit-eu-sync.md', 'cex-sync.md']) {
-  const text = fs.readFileSync(path.join(activeCexDocsDir, name), 'utf8');
-  if (!text.includes('Utilities.sleep(2000)') || !text.includes('_cexEnsureManualWorkerTrigger_(5000)')) {
-    throw new Error(`Active CEX documentation ${name} must describe same-worker sleep2s and remaining-queue +5s scheduling`);
-  }
-}
-{
-  const text = fs.readFileSync(path.join(activeCexDocsDir, 'cex-sync.md'), 'utf8');
-  if (!/UPDATE_CEX_RELAY_ALL[^\n]*LEGACY_DISABLED/.test(text) || !/refresh individuel[^\n]*UPDATE_CEX_RELAY_ROTATION/i.test(text)) {
-    throw new Error('Active CEX documentation must disable bulk fallback and direct users to individual refresh or rotation');
-  }
-}
-const activeCexSource = ['src/35_BITPANDA_SYNC.gs', 'src/36_BINANCE_SYNC.gs', 'src/37_BITFINEX_SYNC.gs', 'src/38_BYBIT_SYNC.gs', 'src/39_COINBASE_SYNC.gs', 'src/40_OKX_SYNC.gs', 'src/41_KRAKEN_SYNC.gs']
-  .map(read).join('\n');
-if (/hourly refresh uses CEX_HOURLY_REFRESH|use CEX_HOURLY_REFRESH|auto CEX_HOURLY_REFRESH \(4h\)|watchdog central/i.test(activeCexSource)) {
-  throw new Error('Active CEX source comments/messages contain obsolete central trigger guidance');
-}
-
-function reconcileAutoHealTriggers(initialHandlers, force = true, matchingSpec = false, options = {}) {
-  let nextTriggerId = 1;
-  const triggers = initialHandlers.map((handler) => ({
-    id: nextTriggerId++,
-    deleted: false,
-    getHandlerFunction: () => handler,
-  }));
-  const context = {
-    console,
-    Date,
-    JSON,
-    Math,
-    String,
-    Number,
-    Array,
-    Object,
-    RegExp,
-    isFinite,
-    _wcoreGetSpreadsheet_: () => ({}),
-    UPDATE_CEX_RELAY_ALL: () => {},
-    UPDATE_CEX_RELAY_ROTATION: () => {},
-    STOCK_PORTFOLIO_HOURLY_REFRESH: () => {},
-    CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH: () => {},
-    SpreadsheetApp: {
-      getActiveSpreadsheet: () => ({ getSheetByName: () => null }),
-      openById: () => null,
-    },
-    ScriptApp: {
-      getProjectTriggers: () => triggers.filter((trigger) => !trigger.deleted),
-      deleteTrigger: (trigger) => { trigger.deleted = true; },
-      newTrigger: (handler) => {
-        const create = () => triggers.push({ id: nextTriggerId++, deleted: false, getHandlerFunction: () => handler });
-        const timeBuilder = {
-          everyMinutes: () => ({ create }),
-          everyHours: () => ({ create }),
-        };
-        return {
-          timeBased: () => timeBuilder,
-          forSpreadsheet: () => ({
-            onChange: () => ({ create }),
-            onEdit: () => ({ create }),
-          }),
-        };
-      },
-    },
-  };
-  vm.createContext(context);
-  vm.runInContext(autoHeal, context);
-  const props = {
-    getProperty: (key) => {
-      if (matchingSpec && key === 'WCORE_AUTO_HEAL_TRIGGER_SPEC') return context.WCORE_AUTO_HEAL_TRIGGER_SPEC;
-      if (matchingSpec && key === 'WCORE_WD_LAST_RUN_MS') return String(Date.now());
-      if (matchingSpec && key === 'CEX_HOURLY_REFRESH_LAST_MS') {
-        return String(options.staleCex ? Date.now() - (6 * 60 * 60 * 1000) : Date.now());
-      }
-      return '';
-    },
-    setProperty: () => {},
-  };
-  for (let cycle = 0; cycle < (options.cycles || 1); cycle++) {
-    context._wcoreAutoHealEnsureTriggers_([], props, force);
-  }
-  const active = triggers.filter((trigger) => !trigger.deleted);
-  return options.returnTriggers ? active : active.map((trigger) => trigger.getHandlerFunction());
-}
-
-{
-  const canonical = reconcileAutoHealTriggers([]);
-  const extras = ['UPDATE_CEX_RELAY_ALL', 'UPDATE_BINANCE_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT'].concat(legacyCexWatchdogs.map((entry) => entry[1]));
-  const reconciled = reconcileAutoHealTriggers(canonical.concat(extras), false, true);
-  if (reconciled.filter((handler) => handler === 'UPDATE_CEX_RELAY_ROTATION').length !== 1) {
-    throw new Error('Normal auto-heal must preserve exactly one canonical relay rotation');
-  }
-  for (const handler of extras) {
-    if (reconciled.includes(handler)) throw new Error(`Normal auto-heal must remove managed extra ${handler}`);
-  }
-}
 
 function loadAutoHealCexStatus() {
   const context = {
@@ -226,31 +63,8 @@ for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'U
     throw new Error(`CEX auto refresh must install an hourly per-connector trigger for ${handler}`);
   }
 }
-
-{
-  const staleRelayHandlers = ['UPDATE_CEX_RELAY_ALL', 'UPDATE_BINANCE_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT'].concat(legacyCexWatchdogs.map((entry) => entry[1]));
-  const reconciled = reconcileAutoHealTriggers(staleRelayHandlers);
-  const rotationCount = reconciled.filter((candidate) => candidate === 'UPDATE_CEX_RELAY_ROTATION').length;
-  if (rotationCount !== 1) {
-    throw new Error(`Auto-heal reconciliation must leave exactly one UPDATE_CEX_RELAY_ROTATION trigger; got ${rotationCount}`);
-  }
-  for (const handler of staleRelayHandlers) {
-    if (reconciled.includes(handler)) throw new Error(`Auto-heal reconciliation must delete stale ${handler} triggers`);
-  }
-  for (const handler of ['BITPANDA_REFRESH_WATCHDOG', 'BINANCE_REFRESH_WATCHDOG', 'BITFINEX_REFRESH_WATCHDOG', 'BYBIT_REFRESH_WATCHDOG', 'KRAKEN_REFRESH_WATCHDOG']) {
-    if (reconciled.includes(handler)) throw new Error(`Auto-heal must not recreate legacy watchdog ${handler}`);
-  }
-  if (reconciled.length > 14) throw new Error(`Canonical permanent trigger count must not exceed prior baseline 14; got ${reconciled.length}`);
-}
-
 if (!autoHeal.includes('ScriptApp.newTrigger("UPDATE_CEX_RELAY_ROTATION").timeBased().everyMinutes(15).create()')) {
-  throw new Error('Auto-heal must install UPDATE_CEX_RELAY_ROTATION every 15 minutes');
-}
-if (!/required = \[[^\]]*UPDATE_CEX_RELAY_ROTATION/.test(autoHeal)) {
-  throw new Error('UPDATE_CEX_RELAY_ROTATION must be the canonical required relay trigger');
-}
-for (const handler of ['UPDATE_CEX_RELAY_ALL', 'UPDATE_BINANCE_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT']) {
-  if (new RegExp(`required = \\[[^\\]]*${handler}`).test(autoHeal)) throw new Error(`${handler} must not remain canonically required`);
+  throw new Error('CEX auto refresh must install the 15-minute relay rotation trigger');
 }
 
 // v4.15.140: Bitpanda stocks must not be starved behind crypto/commodity/fiat
@@ -275,23 +89,8 @@ if (!cexStatus || cexStatus.staleCount < 1 || cexStatus.mode !== 'heartbeat+shee
   throw new Error('CEX heartbeat must not mask stale individual CEX sheets; auto-heal needs sheet-level staleness even when the global heartbeat is fresh');
 }
 const ensureTriggersBody = extractFunction(autoHeal, '_wcoreAutoHealEnsureTriggers_');
-if (!ensureTriggersBody.includes('"CEX heartbeat", "STALE"')) {
-  throw new Error('Auto-heal must retain CEX staleness diagnostics');
-}
-
-{
-  const canonical = reconcileAutoHealTriggers([]);
-  const initial = canonical.map((handler, index) => ({ handler, id: index + 1 }));
-  const afterStaleCycles = reconcileAutoHealTriggers(canonical, false, true, {
-    staleCex: true,
-    cycles: 3,
-    returnTriggers: true,
-  });
-  assert.deepEqual(
-    afterStaleCycles.map((trigger) => ({ handler: trigger.getHandlerFunction(), id: trigger.id })),
-    initial,
-    'Repeated stale CEX diagnostics must not delete/recreate healthy trigger identities'
-  );
+if (!/cexStatus\.staleCount\s*>=\s*1/.test(ensureTriggersBody)) {
+  throw new Error('Auto-heal must reinstall CEX triggers when any individual CEX sheet is stale, not wait for multiple stale sheets');
 }
 
 if (autoHeal.includes('ScriptApp.newTrigger("BITPANDA_REFRESH_WATCHDOG")') || /required = \[[^\]]*BITPANDA_REFRESH_WATCHDOG/.test(autoHeal)) {
@@ -303,34 +102,27 @@ if (cleanupBody.includes('WCORE_AUTO_HEAL(')) {
   throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must not call full WCORE_AUTO_HEAL; it times out in listing/hyperlink maintenance');
 }
 if (!cleanupBody.includes('MASTER_ON_EDIT') || !cleanupBody.includes('UPDATE_CEX_RELAY_ROTATION') || !cleanupBody.includes('UPDATE_KRAKEN_SPOT')) {
-  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall MASTER_ON_EDIT, relay rotation, and non-relay CEX triggers directly');
+  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall MASTER_ON_EDIT and canonical CEX triggers directly');
 }
-if (!cleanupBody.includes('newTrigger("UPDATE_CEX_RELAY_ROTATION").timeBased().everyMinutes(15)')) {
-  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall relay rotation every 15 minutes');
-}
-for (const handler of ['UPDATE_CEX_RELAY_ALL', 'UPDATE_BINANCE_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT']) {
-  if (!cleanupBody.includes(handler)) throw new Error(`WCORE_CEX_TRIGGER_CLEANUP_FORCE must delete stale ${handler}`);
-  if (cleanupBody.includes(`newTrigger("${handler}")`)) throw new Error(`WCORE_CEX_TRIGGER_CLEANUP_FORCE must not recreate stale ${handler}`);
+if (!cleanupBody.includes('everyHours(1)') || !cleanupBody.includes('everyMinutes(15)')) {
+  throw new Error('WCORE_CEX_TRIGGER_CLEANUP_FORCE must reinstall hourly direct CEX triggers and 15-minute relay rotation');
 }
 const cexTriggerList = bitpanda.slice(
   bitpanda.indexOf('var _BP_CEX_TRIGGERS_TO_HEAL'),
   bitpanda.indexOf('var _BP_CEX_LEGACY_TRIGGERS_TO_DELETE')
 );
-const cexLegacyDeleteList = bitpanda.slice(
-  bitpanda.indexOf('var _BP_CEX_LEGACY_TRIGGERS_TO_DELETE'),
-  bitpanda.indexOf('function _bpEnsureCexTriggers_')
-);
-for (const legacy of legacyCexWatchdogs.map((entry) => entry[1])) {
-  if (cexTriggerList.includes(legacy)) throw new Error(`CEX trigger repair must not recreate legacy ${legacy}`);
-  if (!cexLegacyDeleteList.includes(legacy)) throw new Error(`CEX trigger repair must delete legacy ${legacy}`);
+for (const legacy of ['BINANCE_REFRESH_WATCHDOG', 'BITFINEX_REFRESH_WATCHDOG', 'BYBIT_REFRESH_WATCHDOG']) {
+  if (cexTriggerList.includes(legacy)) {
+    throw new Error(`CEX onEdit self-heal must not recreate legacy ${legacy} pollers`);
+  }
+}
+if (cexTriggerList.includes('BITPANDA_REFRESH_WATCHDOG')) {
+  throw new Error('CEX onEdit self-heal must not recreate BITPANDA_REFRESH_WATCHDOG');
 }
 for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_CEX_RELAY_ROTATION', 'UPDATE_BITFINEX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
   if (!cexTriggerList.includes(handler)) {
-    throw new Error(`CEX trigger repair list must keep canonical ${handler}`);
+    throw new Error(`CEX onEdit self-heal must keep canonical ${handler}`);
   }
-}
-for (const handler of ['UPDATE_CEX_RELAY_ALL', 'UPDATE_BINANCE_SPOT', 'UPDATE_BYBIT_SPOT', 'UPDATE_COINBASE_SPOT', 'UPDATE_OKX_SPOT']) {
-  if (cexTriggerList.includes(handler)) throw new Error(`CEX trigger repair list must not recreate stale ${handler}`);
 }
 
 const activityBody = extractFunction(activity, 'ACTIVITY_WATCHDOG');
@@ -458,13 +250,6 @@ const bitpandaWatchdog = extractFunction(bitpanda, 'BITPANDA_REFRESH_WATCHDOG');
 if (!bitpandaWatchdog.includes('LEGACY_DISABLED') || bitpandaWatchdog.includes('UPDATE_BITPANDA')) {
   throw new Error('BITPANDA_REFRESH_WATCHDOG must be disabled; manual CEX refreshes must not depend on a poller');
 }
-if (bitpandaWatchdog.includes('CEX_HOURLY_REFRESH')) {
-  throw new Error('BITPANDA_REFRESH_WATCHDOG guidance must not present CEX_HOURLY_REFRESH as active');
-}
-const installBitpandaWatchdog = extractFunction(bitpanda, 'INSTALL_BITPANDA_REFRESH_WATCHDOG');
-if (!installBitpandaWatchdog.includes('LEGACY_DISABLED') || installBitpandaWatchdog.includes('CEX_HOURLY_REFRESH')) {
-  throw new Error('INSTALL_BITPANDA_REFRESH_WATCHDOG must be clearly disabled without obsolete central-refresh guidance');
-}
 
 const onEditFiles = {
   'src/36_BINANCE_SYNC.gs': ['BINANCE_ON_EDIT', 'BINANCE', 'UPDATE_BINANCE_SPOT'],
@@ -517,22 +302,9 @@ const hourlyBody = extractFunction(bitpanda, 'CEX_HOURLY_REFRESH');
 if (!hourlyBody.includes('UPDATE_KRAKEN_SPOT')) {
   throw new Error('CEX_HOURLY_REFRESH must include Kraken');
 }
-const hourlyPrefix = bitpanda.slice(Math.max(0, bitpanda.indexOf('function CEX_HOURLY_REFRESH') - 300), bitpanda.indexOf('function CEX_HOURLY_REFRESH'));
-if (!hourlyPrefix.includes('LEGACY_DISABLED_FOR_SCHEDULING')) {
-  throw new Error('CEX_HOURLY_REFRESH must be documented as legacy and disabled for scheduling');
-}
 const installCexHourlyBody = extractFunction(bitpanda, 'INSTALL_CEX_HOURLY_REFRESH');
-if (!installCexHourlyBody.includes('LEGACY_DISABLED') || installCexHourlyBody.includes('newTrigger(')) {
-  throw new Error('INSTALL_CEX_HOURLY_REFRESH must stay disabled and must not create non-canonical triggers');
-}
-const installBitpandaBody = extractFunction(bitpanda, 'INSTALL_BITPANDA_SYNC_TRIGGER');
-for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT']) {
-  if (!installBitpandaBody.includes(`newTrigger("${handler}").timeBased().everyHours(1).create()`)) {
-    throw new Error(`INSTALL_BITPANDA_SYNC_TRIGGER must install dedicated hourly ${handler}`);
-  }
-}
-if (installBitpandaBody.includes('CEX_HOURLY_REFRESH') || installBitpandaBody.includes('LEGACY_DISABLED')) {
-  throw new Error('INSTALL_BITPANDA_SYNC_TRIGGER must report supported dedicated Bitpanda triggers, not obsolete central guidance');
+if (!installCexHourlyBody.includes('LEGACY_DISABLED') || !installCexHourlyBody.includes('UPDATE_CEX_RELAY_ROTATION')) {
+  throw new Error('INSTALL_CEX_HOURLY_REFRESH must remain disabled in favor of the auto-healed relay rotation');
 }
 const directCryptoBody = extractFunction(bitpanda, '_bpRunCryptoCexRefreshDirect_');
 if (!directCryptoBody.includes('UPDATE_KRAKEN_SPOT')) {

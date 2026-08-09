@@ -553,12 +553,12 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
     var ss = _wcoreGetSpreadsheet_();
     var recap = ss.getSheetByName(RECAP_SHEET_NAME);
     if (!recap) {
-      return [["ERROR", "Recap Chain sheet not found"]];
+      return [["ERROR", "Recap Portfolio sheet not found"]];
     }
     
     var lastRow = recap.getLastRow();
     if (lastRow < 2) {
-      return [["INFO", "No data in Recap Chain"]];
+      return [["INFO", "No data in Recap Portfolio"]];
     }
     
     // Find Rotation.cycle column
@@ -734,7 +734,7 @@ function _wd_isLastUpdateFormat_(s) {
 function _wd_extractTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   // Match usable prefixes followed by timestamp.
-  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
+  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|CHAIN_DISABLED|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
   if (match && match[1]) {
     vI1 = match[1].trim();
   }
@@ -1304,8 +1304,12 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     var noUsableCache = !i1Norm || i1Norm.indexOf("[NO_CACHE]") === 0 || i1Norm.indexOf("[WEB_SCAN_DEFERRED]") === 0 ||
       (i1Norm.indexOf("[CACHE_ONLY]") === 0 &&
         (!_wd_isLastUpdateFormat_(extractedI1) || !isFinite(extractedI1Ms)));
+    var vA2Norm = _wd_norm_(d.vA2 || "");
+    var needsA2Recalc = (vA2Norm === "" || vA2Norm.indexOf("#") === 0 ||
+      vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
+      _wd_isLastUpdateFormat_(extractedI1) && _wd_shouldSyncJ1_(d.vI1 || "", "");
     var cooldownMin = refreshCheck.useBlockedCooldown ? WD_PULSE_MIN_BLOCKED : WD_PULSE_MIN;
-    var canPulseNormally = !suppressB1Pulses && webErrorAllowed &&
+    var canPulseNormally = !needsA2Recalc && !suppressB1Pulses && webErrorAllowed &&
       refreshCheck.blockedReason !== "QUOTA" &&
       _wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin);
     var cycleAgeMs = Number.MAX_SAFE_INTEGER;
@@ -1363,9 +1367,7 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     }
 
     var actualI1 = refreshCheck.actualTimestamp || _wd_extractTimestamp_(d.vI1 || "");
-    var vA2Norm = _wd_norm_(d.vA2 || "");
-    if ((vA2Norm === "" || vA2Norm.indexOf("#") === 0 || vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
-        _wd_isLastUpdateFormat_(actualI1) && _wd_shouldSyncJ1_(d.vI1 || "", "")) {
+    if (needsA2Recalc) {
       var bumpedJ1 = _wd_bumpTimestampSeconds_(actualI1, 1);
       if (bumpedJ1) {
         syncActions.push({
@@ -1521,6 +1523,13 @@ function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
   // normal 10 min cooldown so the wallet rescans once the CEX window is over.
   if (vI1.indexOf("[BUSY:CEX]") === 0) {
     return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
+  }
+
+  // Etat terminal: la chaine est explicitement desactivee (FLAGS.DISABLE_CHAIN).
+  // Re-pulser ne peut rien produire — ses RPC sont morts — et chaque pulse coute
+  // un appel HTTP. Seule une reactivation de la chaine doit relancer les scans.
+  if (vI1.indexOf("[CHAIN_DISABLED]") === 0) {
+    return { needsPulse: false, reason: "ok", blockedReason: null, useBlockedCooldown: false };
   }
 
   if (vI1.indexOf("[WEB_SCAN_PRESERVED]") === 0) {

@@ -40,13 +40,21 @@ var _ETHEREUM = ChainFactory.createEvmChain("ETHEREUM", {
  // v4.14.10: Trimmed to 5 fastest RPCs — 8 endpoints caused fetchAll to wait for slowest
  // Removed: mevblocker (637ms), nodies (253ms), ethereum.publicnode (duplicate of rpc.publicnode)
  // Kept: publicnode, drpc, 1rpc, tenderly, merkle — all <310ms from EU datacenter
+ //
+ // 2026-08-02: order matters. Selection is `pool.slice(0, maxRpcs)` after an
+ // order-preserving health filter, so the first CONSENSUS_MAX_RPCS entries are the
+ // ones actually used. publicnode answers fine from Google/Apps Script IPs but
+ // returns HTTP 403 from Railway datacenter IPs on every scan, which flagged every
+ // Ethereum scan as degraded. Kept last as a fallback instead of being removed, so
+ // Apps Script does not lose a working endpoint. 1rpc is rate-limited (HTTP 429) and
+ // sits just above it.
  RPC: {
  ENDPOINTS: [
- "https://ethereum-rpc.publicnode.com",
  "https://eth.drpc.org",
- "https://1rpc.io/eth",
  "https://gateway.tenderly.co/public/mainnet",
- "https://eth.merkle.io"
+ "https://eth.merkle.io",
+ "https://1rpc.io/eth",
+ "https://ethereum-rpc.publicnode.com"
  ],
  
   // v4.14.10: Cap consensus to 2 RPCs max — 3 sequential RPCs from GAS datacenter

@@ -77,8 +77,13 @@ export class RpcClient {
     const timeoutMs = opts.timeoutMs ?? this.defaultTimeoutMs;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    // The caller's signal is linked, then unlinked in the finally. Without the removal
+    // a single scan signal accumulates one listener per RPC call - hundreds on a wide
+    // scan - and Node starts warning about a listener leak.
+    const onCallerAbort = () => ctrl.abort();
     if (opts.signal) {
-      opts.signal.addEventListener("abort", () => ctrl.abort(), { once: true });
+      if (opts.signal.aborted) ctrl.abort();
+      else opts.signal.addEventListener("abort", onCallerAbort, { once: true });
     }
     try {
       const res = await this.fetchImpl(endpoint, {
@@ -96,6 +101,7 @@ export class RpcClient {
       throw new RpcCallError((err as Error).message ?? "fetch failed", endpoint, err);
     } finally {
       clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", onCallerAbort);
     }
   }
 }

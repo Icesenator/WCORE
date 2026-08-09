@@ -11,7 +11,9 @@ export const TAC: ChainConfig = {
   RPC: {
     ENDPOINTS: [
       "https://rpc.tac.build",
+      "https://rpc.ankr.com/tac",
     ],
+    MAX_LOG_RANGE: 999,
   },
   CHAIN: {
     NAME: "TAC",

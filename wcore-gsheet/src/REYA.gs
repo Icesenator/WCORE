@@ -1,6 +1,12 @@
 /**
- * REYA.gs - Reya Network (v4.10.2)
+ * REYA.gs - Reya Network (v4.16.42)
  * ChainFactory pattern with explicit function declarations
+ *
+ * v4.16.42 - REMOVED rpc.reya-cronos.gelato.digital: it answers eth_chainId with
+ *            89346162, which is Reya Cronos, the TESTNET. A testnet endpoint sitting
+ *            in a mainnet pool can serve balances for the wrong network, and WCORE
+ *            tracks mainnet only. Removed rather than demoted: unlike an IP-scoped
+ *            block, a wrong chain is never worth falling back to.
  * v4.10.2 - Reordered RPCs for better reliability
  */
 
@@ -9,8 +15,7 @@ var _REYA = ChainFactory.createEvmChain("REYA", {
  RPC: { ENDPOINTS: [
  "https://rpc.reya.network",
  "https://reya.drpc.org",
- "https://1729.rpc.thirdweb.com",
- "https://rpc.reya-cronos.gelato.digital"
+ "https://1729.rpc.thirdweb.com"
  ] },
  CHAIN: {
  NAME: "Reya Network",

@@ -1,4 +1,5 @@
 import { getChain } from "../chains/index.js";
+import { linkAbortSignal } from "../abort.js";
 import type { ChainConfig } from "../types.js";
 import {
   CoinGeckoPriceSource,
@@ -61,6 +62,8 @@ export async function getCosmosWalletAssets(
     deepScan?: boolean;
     intraScanCache?: IntraScanCache;
     forceRefresh?: boolean;
+    /** Cancels the scan's outbound work; the caller's timeout stopped here before. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<CosmosWalletAssets> {
   const key = normalizeChainKey(chainKey);
@@ -99,6 +102,9 @@ export async function getCosmosWalletAssets(
       for (let i = 0; i < candidates.length; i++) {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 10000);
+        // The caller's timeout reaches the REST failover too: without this, a scan that
+        // had already given up still walked its whole endpoint list.
+        const unlink = linkAbortSignal(opts.signal, ctrl);
         try {
           const res = await rawFetch(candidates[i]!, { ...init, signal: ctrl.signal });
           // On a server error from a non-last endpoint, try the next one.
@@ -106,8 +112,9 @@ export async function getCosmosWalletAssets(
           return res;
         } catch (e) {
           lastErr = e;
+          if (opts.signal?.aborted) throw e; // stop the failover, the caller is gone
           if (i < candidates.length - 1) continue;
-        } finally { clearTimeout(t); }
+        } finally { clearTimeout(t); unlink(); }
       }
       throw lastErr ?? new Error("all REST endpoints failed");
     };
@@ -153,15 +160,24 @@ export async function getCosmosWalletAssets(
 
   // Cache bank balances for fallback on future REST failures.
   const balCacheKey = cache ? `bal:${key.toLowerCase()}:${address}` : undefined;
+  let emptyBankResponseCorroborated: boolean | undefined;
   if (cache && balCacheKey) {
-    if (!balFailed) {
+    const cachedBal = await cache.get<BankBalance[]>(balCacheKey);
+    const cachedPositive = cachedBal?.some((balance) => rawAmountToBigInt(balance.amount) > 0n) === true;
+    const livePositive = balances.some((balance) => rawAmountToBigInt(balance.amount) > 0n);
+    if (!balFailed && (!cachedPositive || livePositive)) {
       cache.set(balCacheKey, balances, 86400_000).catch(() => {});
-    } else {
-      const cachedBal = await cache.get<BankBalance[]>(balCacheKey);
-      if (cachedBal && cachedBal.length > 0) {
-        balances = cachedBal;
-        errors.push("[DEGRADED] bank balances: using cached fallback (REST failed)");
+    } else if (!balFailed && cachedPositive) {
+      emptyBankResponseCorroborated = await corroborateCosmosEmptyBalances(rawFetch, restUrls.slice(1), address, opts.signal);
+      if (emptyBankResponseCorroborated) {
+        cache.set(balCacheKey, balances, 86400_000).catch(() => {});
+      } else {
+        balances = cachedBal!;
+        errors.push("[DEGRADED] bank balances: preserving positive cache (empty live response uncorroborated)");
       }
+    } else if (cachedPositive) {
+      balances = cachedBal!;
+      errors.push("[DEGRADED] bank balances: using cached fallback (REST failed)");
     }
   }
 
@@ -171,58 +187,17 @@ export async function getCosmosWalletAssets(
 
   let stakedRawAmount = 0n;
   if (chain.CHAIN?.INCLUDE_STAKED_NATIVE) {
-    // Fetch delegations, with fallback to cached data on REST failure.
-    const delCacheKey = cache ? `del:${key.toLowerCase()}:${address}` : undefined;
-    const delResult = await fetchCosmosDelegations(fetchFn, restUrl, address, errors);
-    let delegations = delResult.items;
-    const delFailed = delResult.failed;
-    if (cache && delCacheKey) {
-      if (!delFailed) {
-        cache.set(delCacheKey, delegations, 86400_000).catch(() => {});
-      } else {
-        const cachedDel = await cache.get<StakingDelegation[]>(delCacheKey);
-        if (cachedDel && cachedDel.length > 0) {
-          delegations = cachedDel;
-          errors.push("[DEGRADED] delegations: using cached fallback");
-        }
-      }
-    }
+    // Delegations, unbonding and rewards are three independent REST reads. They were
+    // awaited one after another, so a chain whose endpoint is slow paid that latency
+    // three times over; the failover alone allows 10 s per call.
+    const [delegations, unbonding, rewards] = await Promise.all([
+      readStakingWithFallback("delegations", cache ? `del:${key.toLowerCase()}:${address}` : undefined, () => fetchCosmosDelegations(fetchFn, restUrl, address, errors), cache, errors),
+      readStakingWithFallback("unbonding", cache ? `unb:${key.toLowerCase()}:${address}` : undefined, () => fetchCosmosUnbonding(fetchFn, restUrl, address, errors), cache, errors),
+      readStakingWithFallback("rewards", cache ? `rew:${key.toLowerCase()}:${address}` : undefined, () => fetchCosmosRewards(fetchFn, restUrl, address, errors), cache, errors),
+    ]);
+
     stakedRawAmount = delegations.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
-
-    // Fetch unbonding, with fallback to cached data on REST failure.
-    const unbCacheKey = cache ? `unb:${key.toLowerCase()}:${address}` : undefined;
-    const unbResult = await fetchCosmosUnbonding(fetchFn, restUrl, address, errors);
-    let unbonding = unbResult.items;
-    const unbFailed = unbResult.failed;
-    if (cache && unbCacheKey) {
-      if (!unbFailed) {
-        cache.set(unbCacheKey, unbonding, 86400_000).catch(() => {});
-      } else {
-        const cachedUnb = await cache.get<StakingDelegation[]>(unbCacheKey);
-        if (cachedUnb && cachedUnb.length > 0) {
-          unbonding = cachedUnb;
-          errors.push("[DEGRADED] unbonding: using cached fallback");
-        }
-      }
-    }
     stakedRawAmount += unbonding.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
-
-    // Fetch rewards, with fallback to cached data on REST failure.
-    const rewCacheKey = cache ? `rew:${key.toLowerCase()}:${address}` : undefined;
-    const rewResult = await fetchCosmosRewards(fetchFn, restUrl, address, errors);
-    let rewards = rewResult.items;
-    const rewFailed = rewResult.failed;
-    if (cache && rewCacheKey) {
-      if (!rewFailed) {
-        cache.set(rewCacheKey, rewards, 86400_000).catch(() => {});
-      } else {
-        const cachedRew = await cache.get<StakingDelegation[]>(rewCacheKey);
-        if (cachedRew && cachedRew.length > 0) {
-          rewards = cachedRew;
-          errors.push("[DEGRADED] rewards: using cached fallback");
-        }
-      }
-    }
     stakedRawAmount += rewards.filter((d) => !d.denom || d.denom === nativeDenom).reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
   }
 
@@ -237,17 +212,23 @@ export async function getCosmosWalletAssets(
   // never when it returned a genuine zero.
   const nativeCacheKey = cache ? `native:${key.toLowerCase()}:${address}` : undefined;
   if (cache && nativeCacheKey) {
-    if (nativeBalance > 0 || !balFailed) {
+    const cachedNative = await cache.get<{ balance: string }>(nativeCacheKey);
+    const cachedBalance = cachedNative ? rawAmountToNumber(cachedNative.balance, nativeDecimals) : 0;
+    if (nativeBalance > 0) {
       cache.set(nativeCacheKey, { balance: nativeRawAmount }, 86400_000).catch(() => {});
-    } else {
-      const cachedNative = await cache.get<{ balance: string }>(nativeCacheKey);
-      if (cachedNative) {
-        const cachedBalance = rawAmountToNumber(cachedNative.balance, nativeDecimals);
-        if (cachedBalance > 0) {
-          nativeBalance = cachedBalance;
-          errors.push("[DEGRADED] native balance: using cached fallback");
-        }
+    } else if (cachedBalance > 0 && balFailed) {
+      nativeBalance = cachedBalance;
+      errors.push("[DEGRADED] native balance: using cached fallback");
+    } else if (cachedBalance > 0) {
+      emptyBankResponseCorroborated ??= await corroborateCosmosEmptyBalances(rawFetch, restUrls.slice(1), address, opts.signal);
+      if (emptyBankResponseCorroborated) {
+        cache.set(nativeCacheKey, { balance: nativeRawAmount }, 86400_000).catch(() => {});
+      } else {
+        nativeBalance = cachedBalance;
+        errors.push("[DEGRADED] native balance: preserving positive cache (empty live response uncorroborated)");
       }
+    } else {
+      cache.set(nativeCacheKey, { balance: nativeRawAmount }, 86400_000).catch(() => {});
     }
   }
 
@@ -269,7 +250,7 @@ export async function getCosmosWalletAssets(
       const denom = bal.denom;
       if (!denom) continue;
       const symbol = denomSymbols[denom] ?? denom;
-      const decimals = await resolveCosmosTokenDecimals(fetchFn, restUrl, cosmosChain, denom, errors);
+      const decimals = await resolveCosmosTokenDecimals(fetchFn, restUrl, cosmosChain, denom, errors, cache, key);
       if (decimals == null) continue;
       const balance = rawAmountToNumber(bal.amount, decimals);
       pricedTokens[idx] = await priceCosmosToken(cosmosChain, denom, symbol, decimals, balance, fxRate, sources, priceCache, errors, opts.intraScanCache);
@@ -337,6 +318,33 @@ async function fetchCosmosBalances(
   } catch (error) {
     errors.push(`balances fetch: ${error instanceof Error ? error.message : String(error)}`);
     return { items: [], failed: true };
+  }
+}
+
+async function corroborateCosmosEmptyBalances(
+  fetchImpl: typeof fetch,
+  alternateRestUrls: string[],
+  address: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const restUrl = alternateRestUrls[0];
+  if (!restUrl) return false;
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 3000);
+  const unlink = linkAbortSignal(signal, ctrl);
+  try {
+    const res = await fetchImpl(`${restUrl}/cosmos/bank/v1beta1/balances/${encodeURIComponent(address)}`, {
+      headers: { accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return false;
+    const json = await res.json() as { balances?: BankBalance[] };
+    return Array.isArray(json.balances) && !json.balances.some((balance) => rawAmountToBigInt(balance.amount) > 0n);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+    unlink();
   }
 }
 
@@ -495,12 +503,51 @@ async function priceCosmosToken(
   };
 }
 
+/** An IBC hash maps to one denomination for good; only a chain rename would alter it. */
+const IBC_DENOM_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Reads one staking list, falling back to its cached copy when the REST call fails.
+ *
+ * A genuinely empty list is never replaced by the cache: only a failed read is, which
+ * keeps a transient endpoint outage from erasing a delegation that is still there.
+ */
+async function readStakingWithFallback(
+  label: string,
+  cacheKey: string | undefined,
+  read: () => Promise<{ items: StakingDelegation[]; failed: boolean }>,
+  cache: import("../cache/index.js").CacheStore | undefined,
+  errors: string[],
+): Promise<StakingDelegation[]> {
+  const result = await read();
+  if (!cache || !cacheKey) return result.items;
+
+  const cached = await cache.get<StakingDelegation[]>(cacheKey);
+
+  if (!result.failed) {
+    if (result.items.length === 0 && cached?.some((item) => rawAmountToBigInt(item.amount) > 0n)) {
+      errors.push(`[DEGRADED] ${label}: preserving positive cache (empty live response uncorroborated)`);
+      return cached;
+    }
+    cache.set(cacheKey, result.items, 86400_000).catch(() => {});
+    return result.items;
+  }
+
+  if (cached && cached.length > 0) {
+    errors.push(`[DEGRADED] ${label}: using cached fallback`);
+    return cached;
+  }
+  return result.items;
+}
+
 async function resolveCosmosTokenDecimals(
   fetchFn: typeof fetch,
   restUrl: string,
   chain: ChainConfig,
   denom: string,
   errors: string[],
+  cache?: import("../cache/index.js").CacheStore,
+  chainKey?: string,
 ): Promise<number | null> {
   const denomDecimals = (chain.DENOM_DECIMALS ?? {}) as Record<string, number>;
   if (denomDecimals[denom] != null) return denomDecimals[denom];
@@ -515,21 +562,87 @@ async function resolveCosmosTokenDecimals(
   }
 
   const hash = denom.slice(4);
-  try {
-    const res = await fetchFn(`${restUrl}/ibc/apps/transfer/v1/denom_traces/${encodeURIComponent(hash)}`, { headers: { accept: "application/json" } });
-    if (!res.ok) {
-      errors.push(`${denom.slice(0, 12)}: decimals_unknown (denom trace HTTP ${res.status})`);
-      return null;
-    }
-    const json = await res.json() as { denom_trace?: { base_denom?: string } };
-    const baseDenom = json.denom_trace?.base_denom;
-    if (baseDenom && denomDecimals[baseDenom] != null) return denomDecimals[baseDenom];
-    errors.push(`${denom.slice(0, 12)}: decimals_unknown (${baseDenom || "no base denom"})`);
-    return null;
-  } catch (error) {
-    errors.push(`${denom.slice(0, 12)}: decimals_unknown (${error instanceof Error ? error.message : String(error)})`);
+  const resolved = await resolveIbcBaseDenom(fetchFn, restUrl, hash, cache, chainKey);
+  if (!resolved.baseDenom) {
+    errors.push(`${denom.slice(0, 12)}: decimals_unknown (${resolved.reason})`);
     return null;
   }
+
+  const baseDenom = resolved.baseDenom;
+  if (denomDecimals[baseDenom] != null) return denomDecimals[baseDenom];
+  const convention = microDenomDecimals(baseDenom);
+  if (convention != null) return convention;
+  errors.push(`${denom.slice(0, 12)}: decimals_unknown (${baseDenom})`);
+  return null;
+}
+
+/**
+ * Decimals implied by the Cosmos denomination naming convention, or null when the name
+ * carries no reliable scale.
+ *
+ * Only the micro prefix is trusted. A liquid-staking derivative embeds the denomination
+ * it wraps and shares its scale, so stuatom is uatom is 6 - but staevmos wraps aevmos,
+ * which is 18. Reading every st denomination as 6 would therefore be twelve orders of
+ * magnitude off on the Evmos family, so anything that does not reduce to a simple
+ * u-prefixed denomination is left unknown rather than guessed.
+ */
+function microDenomDecimals(denom: string): number | null {
+  if (/^u[a-z]+$/.test(denom)) return 6;
+  if (/^stu[a-z]+$/.test(denom)) return 6;
+  return null;
+}
+
+/**
+ * Resolves an IBC hash to its base denom.
+ *
+ * IBC-Go v10 retired `denom_traces` in favour of `denoms`, and the chains we scan run
+ * both generations: Cosmos Hub answers 501 on the old route while Injective and Terra
+ * answer 501 on the new one. Querying only one of them left every IBC token on half the
+ * chains unpriced, so both are tried.
+ */
+async function resolveIbcBaseDenom(
+  fetchFn: typeof fetch,
+  restUrl: string,
+  hash: string,
+  cache?: import("../cache/index.js").CacheStore,
+  chainKey?: string,
+): Promise<{ baseDenom: string | null; reason: string }> {
+  // An IBC hash is the digest of its trace, so the denomination it maps to never
+  // changes. Re-resolving it on every scan cost one REST call per token and made the
+  // whole wallet depend on that endpoint answering right then.
+  const cacheKey = cache && chainKey ? `ibcdenom:${chainKey.toLowerCase()}:${hash}` : undefined;
+  if (cacheKey && cache) {
+    const cached = await cache.get<string>(cacheKey).catch(() => undefined);
+    if (cached) return { baseDenom: cached, reason: "" };
+  }
+
+  const routes: Array<{ path: string; pick: (json: unknown) => string | undefined }> = [
+    {
+      path: `ibc/apps/transfer/v1/denoms/${encodeURIComponent(hash)}`,
+      pick: (json) => (json as { denom?: { base?: string } })?.denom?.base,
+    },
+    {
+      path: `ibc/apps/transfer/v1/denom_traces/${encodeURIComponent(hash)}`,
+      pick: (json) => (json as { denom_trace?: { base_denom?: string } })?.denom_trace?.base_denom,
+    },
+  ];
+
+  let reason = "no base denom";
+  for (const route of routes) {
+    try {
+      const res = await fetchFn(`${restUrl}/${route.path}`, { headers: { accept: "application/json" } });
+      if (!res.ok) { reason = `denom lookup HTTP ${res.status}`; continue; }
+      const base = route.pick(await res.json());
+      if (base) {
+        if (cacheKey && cache) cache.set(cacheKey, base, IBC_DENOM_CACHE_TTL_MS).catch(() => {});
+        return { baseDenom: base, reason: "" };
+      }
+      reason = "no base denom";
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+  }
+  return { baseDenom: null, reason };
 }
 
 /** Quick liveness check: single REST call to verify wallet is still empty. */

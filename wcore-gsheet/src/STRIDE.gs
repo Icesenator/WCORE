@@ -1,12 +1,22 @@
 /**
- * STRIDE.gs - Stride (v4.15.51)
+ * STRIDE.gs - Stride (v4.16.42)
  * Phase 3 bulk port from wcore-web chain config.
+ *
+ * v4.16.42 - stride-rest.publicnode.com answers HTTP 403 "unsupported platform" on
+ *            every module route, leaving the chain with no usable LCD. That block
+ *            looks IP-scoped, so the endpoint is kept last instead of removed and
+ *            two endpoints verified on the bank and staking routes are added first.
  */
 
 var _STRIDE = ChainFactory.createCosmosChain("STRIDE", {
   CACHE_VERSION: 67,
   API: {
-    REST_URL: "https://stride-rest.publicnode.com",
+    REST_URL: "https://stride-api.polkachu.com",
+    REST_URLS: [
+      "https://stride-api.polkachu.com",
+      "https://rest.cosmos.directory/stride",
+      "https://stride-rest.publicnode.com"
+    ],
     RPC_URL: "https://stride-rpc.publicnode.com"
   },
   CHAIN: {

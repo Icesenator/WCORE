@@ -233,6 +233,32 @@ function emitIndex(chains) {
   writeFileSync(join(OUT_DIR, "index.ts"), ts);
 }
 
+/**
+ * Keeps the generated package version in step with WCORE_VERSION.
+ *
+ * It was hand-maintained and had drifted far behind the chain configs it ships. That is
+ * not only cosmetic: `@wcore/chains` is consumed through a `file:` dependency, and pnpm
+ * materialises it as a frozen copy in its store, so a version that never changes gives
+ * consumers nothing to notice a chain config change by.
+ */
+function syncPackageVersion() {
+  const pkgPath = join(ROOT, "dist", "package.json");
+  let init;
+  try { init = readFileSync(join(SRC_DIR, "01_INIT.gs"), "utf8"); } catch { return null; }
+  const major = init.match(/MAJOR:\s*(\d+)/)?.[1];
+  const minor = init.match(/MINOR:\s*(\d+)/)?.[1];
+  const patch = init.match(/PATCH:\s*(\d+)/)?.[1];
+  if (!major || !minor || !patch) return null;
+  const version = `${major}.${minor}.${patch}`;
+
+  let pkg;
+  try { pkg = JSON.parse(readFileSync(pkgPath, "utf8")); } catch { return null; }
+  if (pkg.version === version) return version;
+  pkg.version = version;
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+  return version;
+}
+
 function main() {
   rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
@@ -270,6 +296,9 @@ function main() {
     console.log(`[extract-chains] skipped ${skipped.length}:`);
     for (const s of skipped) console.log(`  - ${s.file}: ${s.reason}`);
   }
+
+  const version = syncPackageVersion();
+  if (version) console.log(`[extract-chains] package version ${version}`);
 }
 
 main();

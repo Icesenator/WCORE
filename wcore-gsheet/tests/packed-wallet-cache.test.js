@@ -63,4 +63,50 @@ vm.runInContext(source, context);
   assert.equal(inflated.scanStats.fullCycleComplete, false, 'packed wallet cache must preserve incomplete cycle status');
 }
 
+{
+  const key = 'wallet:test';
+  const oldTs = Math.floor(Date.now() / 1000) - 11 * 24 * 3600;
+  const packed = {
+    v: 1,
+    m: {
+      collision: [
+        { k: 'wallet:neighbor', ts: oldTs, j: 1, v: { a: [['native', 2]] } },
+        { k: key, ts: oldTs, j: 1, v: { a: [['native', 1.5]] } },
+      ],
+    },
+  };
+
+  context.CacheManager._VIRTUALIZE_CHAIN_CACHES = true;
+  context.CacheManager._WALLET_TTL_SEC = 10 * 24 * 3600;
+  context.CacheManager._isVirtualKey_ = () => true;
+  context.CacheManager._hashKey_ = () => 'collision';
+  context.CacheManager._inflateWalletPayload_ = (payload) => payload;
+  context.CacheManager._cache = { get: () => JSON.stringify(packed), put: () => {} };
+  context.CacheManager._loadPackedWalletCache_ = () => packed;
+
+  assert.deepEqual(
+    JSON.parse(context.CacheManager._packedGet_(key)).a,
+    [['native', 1.5]],
+    'an aged positive entry preserved by pruning must remain readable',
+  );
+
+  packed.m.collision[1].v.a[0][1] = 0;
+  assert.equal(
+    context.CacheManager._packedGet_(key),
+    null,
+    'an aged zero-balance entry must still expire',
+  );
+
+  packed.m.collision[1] = {
+    k: key,
+    ts: oldTs,
+    s: JSON.stringify({ assets: [{ contract: 'native', balance: '3' }] }),
+  };
+  assert.deepEqual(
+    JSON.parse(context.CacheManager._packedGet_(key)).assets[0].balance,
+    '3',
+    'the historical object format must follow the same preservation rule',
+  );
+}
+
 console.log('packed wallet cache OK');

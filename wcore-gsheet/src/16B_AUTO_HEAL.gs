@@ -111,6 +111,33 @@ function _wcoreAutoHealCreateManagedTriggers_() {
     ScriptApp.newTrigger("CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH").timeBased().everyHours(1).create();
     stats.timeTriggers++;
   }
+  // v4.16.57: le store de RPC dynamiques expire seul au bout de 30 jours
+  // ("auto-expires if trigger stops running", 33_DYNAMIC_RPC.gs). Le trigger
+  // hebdomadaire que ce TTL suppose n'avait jamais ete installe: mesure du
+  // 2026-08-06, DYNAMIC_RPC_STATUS renvoyait "EMPTY". WCORE tournait donc
+  // uniquement sur les endpoints codes en dur, sans jamais decouvrir les
+  // nouveaux ni ecarter les morts — d'ou leur accumulation (ex. Degen).
+  // Cout reel tres faible: UPDATE_DYNAMIC_RPCS s'auto-skip tant que les
+  // donnees ont moins de 25 jours, et ne teste qu'un tiers des chaines par
+  // cycle (~80 appels), soit environ un cycle utile par mois.
+  // GAS refuse everyWeeks() sans onWeekDay(): "You tried to create a weekly
+  // trigger, but did not specify which day in the week." Le try/catch est
+  // volontaire et borne a CE trigger: la creation des triggers suivants
+  // (CEX_MANUAL_REFRESH_WORKER, LEDGER_ON_CHANGE, MASTER_ON_EDIT) ne doit pas
+  // etre annulee par l'echec d'un rafraichissement mensuel. L'erreur est
+  // remontee dans stats, jamais avalee en silence.
+  if (typeof UPDATE_DYNAMIC_RPCS === "function") {
+    try {
+      ScriptApp.newTrigger("UPDATE_DYNAMIC_RPCS")
+        .timeBased()
+        .onWeekDay(ScriptApp.WeekDay.MONDAY)
+        .atHour(4)
+        .create();
+      stats.timeTriggers++;
+    } catch (eDynRpc) {
+      stats.dynamicRpcTriggerError = String(eDynRpc && eDynRpc.message ? eDynRpc.message : eDynRpc);
+    }
+  }
   // v4.15.118: 1-min safety net that drains the CEX_MANUAL_JOB_QUEUE.
   // GAS one-shot triggers (after(1s)) have ~1 min granularity and silently
   // miss in some saturation windows. A 1-min recurring trigger is reliable
@@ -213,7 +240,7 @@ function _wcoreAutoHealCexStatus_(props) {
 }
 
 function _wcoreAutoHealEnsureTriggers_(out, props, force) {
-  var managed = ["WCORE_AUTO_HEAL_TIMER", "ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "UPDATE_TOP_MARKETCAP", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG", "_runPricingWorker"];
+  var managed = ["WCORE_AUTO_HEAL_TIMER", "ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "UPDATE_TOP_MARKETCAP", "UPDATE_DYNAMIC_RPCS", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG", "_runPricingWorker"];
   var required = ["WCORE_AUTO_HEAL_TIMER", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "SYNC_J1_ALL_SHEETS", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_BITFINEX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "MASTER_ON_EDIT"];
   var staleRelay = ["UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "BITPANDA_REFRESH_WATCHDOG", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG"];
   var staleCounts = _wcoreAutoHealCountHandlers_(staleRelay);
@@ -434,6 +461,16 @@ function _wcoreAutoHealBootstrapState_(out, force) {
     _wcoreAutoHealRow_(out, "J1 staleness", "WARN", eStale.message);
   }
 
+  // v4.16.47: same blind spot for the CEX manual worker. Google can disable a
+  // present trigger, and ScriptApp exposes no enabled/disabled state, so counting
+  // handlers cannot see it: the worker stayed dead and every queued manual refresh
+  // sat unhandled. Detect the missing effect instead - a queue that stops draining.
+  try {
+    _wcoreAutoHealCexQueueStaleness_(out, force === true);
+  } catch (eCexStale) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "WARN", eCexStale.message);
+  }
+
 }
 
 /**
@@ -487,6 +524,66 @@ function _wcoreAutoHealNewLedgers_(out, force) {
  * If stale sheets >= threshold count, force SYNC_J1_ALL_SHEETS and revive the
  * dedicated trigger. Sheet I/O only (no HTTP).
  */
+/**
+ * Revives CEX_MANUAL_REFRESH_WORKER when the manual queue stops draining.
+ *
+ * A trigger can be present yet disabled by Google, and `ScriptApp.getProjectTriggers()`
+ * exposes no enabled flag, so `_wcoreAutoHealCountHandlers_` reports it as healthy while
+ * nothing runs. Only `WCORE_CEX_TRIGGER_CLEANUP_FORCE`, run by hand, brought it back.
+ * The observable symptom is a queue whose oldest job stops being consumed, which is what
+ * this checks: the worker fires every minute and drains within a three minute budget, so
+ * a job older than the threshold means nobody is draining it.
+ */
+var _WCORE_CEX_QUEUE_STALE_MS = 10 * 60 * 1000;
+
+function _wcoreAutoHealCexQueueStaleness_(out, force) {
+  var props = PropertiesService.getScriptProperties();
+  var queue = [];
+  try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
+  if (Object.prototype.toString.call(queue) !== "[object Array]" || !queue.length) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "OK", "queue empty");
+    return;
+  }
+
+  var now = Date.now();
+  var oldest = now;
+  for (var i = 0; i < queue.length; i++) {
+    var ts = queue[i] && Number(queue[i].ts);
+    if (isFinite(ts) && ts > 0 && ts < oldest) oldest = ts;
+  }
+  // Deliberately symptom-driven only: under force the ensure pass already deletes and
+  // recreates this trigger, so reacting to force here would fight it.
+  void force;
+  var ageMs = now - oldest;
+  if (ageMs < _WCORE_CEX_QUEUE_STALE_MS) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "OK", "pending=" + queue.length + " oldestMin=" + Math.round(ageMs / 60000));
+    return;
+  }
+
+  // Delete + recreate: that is what wakes a trigger Google has stopped firing.
+  var removed = 0;
+  try {
+    var trigs = ScriptApp.getProjectTriggers();
+    for (var t = 0; t < trigs.length; t++) {
+      var fn = ""; try { fn = trigs[t].getHandlerFunction(); } catch (eFn) {}
+      if (fn === "CEX_MANUAL_REFRESH_WORKER") { ScriptApp.deleteTrigger(trigs[t]); removed++; }
+    }
+  } catch (eDel) {
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "WARN", "delete failed: " + eDel.message);
+    return;
+  }
+
+  try {
+    ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create();
+  } catch (eCreate) {
+    // Never swallow this: an unreported creation failure is exactly why the worker
+    // stayed dead for so long without anything showing it.
+    _wcoreAutoHealRow_(out, "CEX queue staleness", "FAIL", "recreate failed: " + eCreate.message);
+    return;
+  }
+  _wcoreAutoHealRow_(out, "CEX queue staleness", "REPAIRED", "pending=" + queue.length + " oldestMin=" + Math.round(ageMs / 60000) + " removed=" + removed);
+}
+
 function _wcoreAutoHealJ1Staleness_(out, force) {
   var STALE_GAP_MS = 30 * 60 * 1000;   // 30 min gap = suspicious
   var STALE_COUNT_THRESHOLD = 10;      // this many stale sheets => repair
@@ -651,7 +748,7 @@ function WCORE_AUTO_HEAL_FORCE() {
 
 function WCORE_TRIGGER_REINSTALL_FORCE_ONLY() {
   var props = PropertiesService.getScriptProperties();
-  var managed = ["WCORE_AUTO_HEAL_TIMER", "ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "UPDATE_TOP_MARKETCAP", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG", "_runPricingWorker"];
+  var managed = ["WCORE_AUTO_HEAL_TIMER", "ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "UPDATE_TOP_MARKETCAP", "UPDATE_DYNAMIC_RPCS", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG", "_runPricingWorker"];
   var removed = _wcoreAutoHealDeleteHandlers_(managed);
   var createStats = _wcoreAutoHealCreateManagedTriggers_();
   props.setProperty("WCORE_AUTO_HEAL_TRIGGER_SPEC", WCORE_AUTO_HEAL_TRIGGER_SPEC);
@@ -712,7 +809,16 @@ function WCORE_CEX_TRIGGER_CLEANUP_FORCE() {
     installed.push("CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH_1H");
   }
   // v4.15.118: 1-min safety net to drain the manual CEX queue reliably.
-  try { ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create(); installed.push("CEX_MANUAL_REFRESH_WORKER_1MIN"); } catch (eNet) {}
+  // v4.16.47: report a creation failure instead of swallowing it. This catch hid the
+  // one thing that would have explained a worker that never came back.
+  try {
+    ScriptApp.newTrigger("CEX_MANUAL_REFRESH_WORKER").timeBased().everyMinutes(1).create();
+    installed.push("CEX_MANUAL_REFRESH_WORKER_1MIN");
+  } catch (eNet) {
+    var netMsg = "CEX_MANUAL_REFRESH_WORKER_1MIN FAILED: " + (eNet && eNet.message ? eNet.message : eNet);
+    installed.push(netMsg);
+    console.log("[CEX_TRIGGER_CLEANUP] " + netMsg);
+  }
   return "Removed CEX/manual triggers: " + (removed.length ? removed.join(", ") : "none") + ". Installed: " + installed.join(", ") + ".";
 }
 

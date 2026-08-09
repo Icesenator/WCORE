@@ -1,7 +1,6 @@
 import type { WalletAssets } from "@wcore/core";
 
 export type ProviderId = "zerion" | "helius" | "etherscan" | "lifi-earn";
-
 export type EnrichmentPurpose = "complex-positions" | "wallet-hints" | "diagnostics";
 
 export const DISABLED_PROVIDER_IDS = ["helius", "etherscan", "lifi-earn"] as const satisfies readonly ProviderId[];

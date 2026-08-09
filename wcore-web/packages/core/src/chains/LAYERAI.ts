@@ -9,7 +9,13 @@ export const LAYERAI: ChainConfig = {
   ...({
   CACHE_VERSION: 1,
   RPC: {
-    ENDPOINTS: ["https://2800.rpc.thirdweb.com"],
+    // Kept in sync with wcore-gsheet/src/LAYERAI.gs (enforced by test:phase3-chains).
+    // 2026-08-02: thirdweb was the only endpoint and is dead, demoted behind aere.
+    ENDPOINTS: [
+      "https://rpc.aere.network",
+      "https://rpc2.aere.network",
+      "https://2800.rpc.thirdweb.com",
+    ],
   },
   CHAIN: {
     NAME: "LayerAI",

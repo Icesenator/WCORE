@@ -5,7 +5,8 @@
 //            v4.16.30 wrote raw relay rows, reintroducing OKSOL every 4h bulk refresh.
 // v4.16.30 - Bulk relay-based CEX refresh: 1 HTTP call instead of 4.
 // Replaces hourly UPDATE_BINANCE_SPOT / UPDATE_BYBIT_SPOT / UPDATE_COINBASE_SPOT / UPDATE_OKX_SPOT.
-// The relay exposes GET /all?token=... which runs all 4 providers in parallel server-side.
+// The relay exposes GET /all, authenticated with the x-relay-token header, which runs
+// all 4 providers in parallel server-side.
 //
 // Non-relay CEXs (Bitpanda direct API, Bitfinex direct API, Kraken direct API) keep
 // their own hourly triggers — they don't use the relay.
@@ -127,8 +128,9 @@ function _cexBulkGetRelayToken_() {
 }
 
 function _cexBulkFetchAll_() {
-  var url = _cexBulkGetRelayUrl_() + "/all?token=" + encodeURIComponent(_cexBulkGetRelayToken_());
-  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true });
+  // Token as a header rather than in the URL, so it stays out of access and proxy logs.
+  var url = _cexBulkGetRelayUrl_() + "/all";
+  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": _cexBulkGetRelayToken_() } });
   if (!resp) throw new Error("CEX bulk relay: null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();

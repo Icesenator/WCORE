@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnyAddress } from "@wcore/shared";
 
 interface LinkedWallet {
   address: string;
@@ -21,13 +22,19 @@ export interface WalletManagerProps {
 export function WalletManager({ wallets, onAdd, onRemove, connectedAddress }: WalletManagerProps) {
   const [address, setAddress] = useState("");
   const [label, setLabel] = useState("");
+  const [addressError, setAddressError] = useState<string | null>(null);
 
   function handleAdd() {
     const trimmed = address.trim();
     if (!trimmed) return;
+    if (!AnyAddress.safeParse(trimmed).success) {
+      setAddressError("Enter a valid EVM, Solana, Cosmos, or TON address.");
+      return;
+    }
     onAdd(trimmed, label.trim() || trimmed.slice(0, 10));
     setAddress("");
     setLabel("");
+    setAddressError(null);
   }
 
   return (
@@ -36,7 +43,7 @@ export function WalletManager({ wallets, onAdd, onRemove, connectedAddress }: Wa
         <input
           type="text"
           value={address}
-          onChange={(e) => setAddress(e.target.value)}
+          onChange={(e) => { setAddress(e.target.value); setAddressError(null); }}
           placeholder="0x... / cosmos1... / Solana..."
           className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-fg outline-none focus:border-accent"
           autoComplete="off"
@@ -59,6 +66,7 @@ export function WalletManager({ wallets, onAdd, onRemove, connectedAddress }: Wa
           + Add
         </button>
       </div>
+      {addressError ? <p className="text-xs text-red-400">{addressError}</p> : null}
 
       {wallets.length > 0 ? (
         <div className="space-y-1">

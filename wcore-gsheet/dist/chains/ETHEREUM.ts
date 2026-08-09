@@ -21,11 +21,11 @@ export const ETHEREUM: ChainConfig = {
   },
   RPC: {
     ENDPOINTS: [
-      "https://ethereum-rpc.publicnode.com",
       "https://eth.drpc.org",
-      "https://1rpc.io/eth",
       "https://gateway.tenderly.co/public/mainnet",
       "https://eth.merkle.io",
+      "https://1rpc.io/eth",
+      "https://ethereum-rpc.publicnode.com",
     ],
     CONSENSUS_MIN_RPCS: 2,
     CONSENSUS_MAX_RPCS: 2,

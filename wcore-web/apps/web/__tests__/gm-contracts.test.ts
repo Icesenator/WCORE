@@ -18,4 +18,8 @@ describe("GM contract helpers", () => {
     assert.equal(getGmContractChainId("MOONBEAM"), 1284);
     assert.equal(getGmChainId("moonbeam"), 1284);
   });
+
+  test("keeps the chain ID needed to withdraw from retired DuckChain contracts", () => {
+    assert.equal(getGmContractChainId("DUCKCHAIN"), 5545);
+  });
 });

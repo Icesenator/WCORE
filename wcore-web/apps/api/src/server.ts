@@ -5,13 +5,17 @@ import cookie from "@fastify/cookie";
 import compress from "@fastify/compress";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@wcore/db";
-import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert } from "@wcore/core";
+import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, warmDynamicRpcEndpoints } from "@wcore/core";
+import { GM_FACTORIES } from "@wcore/shared";
+
+// Le cache d'endpoints dynamiques vit 6 h; on le renouvelle avant expiration.
+const RPC_WARM_INTERVAL_MS = 5 * 60 * 60 * 1000;
 
 import { authPlugin } from "./auth.js";
 import { gamificationPlugin, seedGmContracts } from "./gamification/index.js";
 import { supportPlugin } from "./support.js";
 import { scanPlugin } from "./plugins/scan.js";
-import { adminPlugin } from "./plugins/admin.js";
+import { adminPlugin, DependencyTransitionTracker, dependencyHealthStatus } from "./plugins/admin.js";
 import { walletPlugin } from "./plugins/wallet.js";
 import { cexPlugin } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
@@ -22,7 +26,7 @@ import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
 import { RealTPriceSource } from "@wcore/core";
-import { buildChainScan, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
+import { buildChainScan, findUnreachableChains, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
 import { apiConfig } from "./config.js";
 
@@ -53,8 +57,8 @@ const sharedCache = redisConfig
     },
   })
   : Object.assign(new MemoryCacheStore(), { errorCount: 0 });
-const cacheBackend = isAtomicCacheStore(sharedCache) ? sharedCache.backend : "memory";
 
+const cacheBackend = isAtomicCacheStore(sharedCache) ? sharedCache.backend : "memory";
 // Diagnostic: log cache backend at startup so we know if discovery/pricing
 // caches are shared (Redis) or per-process (MemoryCacheStore).
 app.log.info(
@@ -164,12 +168,33 @@ async function recordOpsEvent(type: string, severity: string, message: string, d
   } catch (e) { console.error("recordOpsEvent DB error:", (e).message || String(e)); }
 }
 
+async function checkRedis(): Promise<boolean> {
+  if (!redisConfig) return true;
+  if (!isAtomicCacheStore(sharedCache) || sharedCache.backend !== "redis") return false;
+  const key = `health:ping:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+  const ok = await sharedCache.add(key, { ts: Date.now() }, 5000).catch(() => false);
+  if (ok) sharedCache.delete(key).catch(() => {});
+  return ok;
+}
+
+const dependencyTransitions = new DependencyTransitionTracker({
+  recordOpsEvent,
+  // The webhook accepts recovery event names; the shared AlertEvent union has
+  // not yet been widened beyond the original down-only dependency events.
+  sendAlert: (alert) => sendAlert(alert as Parameters<typeof sendAlert>[0]),
+});
+
+// Memoire des chaines deja signalees: l'alerte doit se lever une fois, pas
+// toutes les 5 minutes. Repartie a zero au redemarrage, ce qui est voulu — une
+// chaine toujours morte sera re-signalee apres un deploiement.
+const unreachableChainsAlerted = new Set<string>();
+
 async function snapshotMetrics() {
   try {
     const snap = metrics.snapshot();
     const now = Date.now();
     const dbOk = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
-    const redisOk = await sharedCache.set("health:ping", { ts: now }, 5000).then(() => true).catch(() => false);
+    const redisOk = await checkRedis();
     const circuits = Object.fromEntries(Array.from(circuitBreakers.entries()).map(([k, v]) => [k, v.getStatus()]));
     const openCircuits = Object.values(circuits).filter((c: { state: string }) => c.state === "OPEN").length;
     const gm24h = await prisma.onchainGm.count({ where: { createdAt: { gte: new Date(now - 24 * 60 * 60 * 1000) } } }).catch(() => 0);
@@ -177,7 +202,41 @@ async function snapshotMetrics() {
     const gm30d = await prisma.onchainGm.count({ where: { createdAt: { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) } } }).catch(() => 0);
     const rpcErrors = Object.values(snap.errors.byChain).reduce((s, c) => s + c.rpc, 0);
     const pricingErrors = Object.values(snap.errors.byChain).reduce((s, c) => s + c.pricing, 0);
-    const status = !dbOk ? "down" : openCircuits > 0 ? "degraded" : "ok";
+    const status = dependencyHealthStatus(dbOk, redisOk, openCircuits);
+    await dependencyTransitions.observe({ db: dbOk, redis: redisOk }, new Date(now));
+    // Une chaine dont tous les RPC sont morts n'ouvre aucun circuit et ne fait
+    // rien echouer: le scan est degrade, le cache preserve, et personne ne le
+    // voit. "Ledger - Degen" est reste ainsi deux jours. On le signale une fois
+    // par chaine, sinon l'alerte se repeterait toutes les 5 min et perdrait sa
+    // valeur de signal.
+    const openCircuitChains = Object.entries(circuits)
+      .filter(([, c]) => (c as { state: string }).state === "OPEN")
+      .map(([chain]) => chain);
+    for (const chain of findUnreachableChains(snap.scans.byChain, openCircuitChains)) {
+      if (unreachableChainsAlerted.has(chain)) continue;
+      unreachableChainsAlerted.add(chain);
+      const m = snap.scans.byChain[chain] ?? snap.scans.byChain[chain.toLowerCase()];
+      const detail = `${m?.rpcErrors ?? 0} RPC errors over ${m?.scans ?? 0} scans, ${m?.tokensFound ?? 0} token found`;
+      console.warn(`[chain_unreachable] ${chain}: ${detail}`);
+      // recordOpsEvent est le seul canal reellement consultable aujourd'hui:
+      // sendAlert est un no-op tant qu'ALERT_WEBHOOK_URL n'est pas configure
+      // (verifie le 2026-08-06 — la variable est absente en production, donc
+      // meme les alertes "circuit_opened" en severite critical ne partent
+      // nulle part). L'evenement persiste est lisible via /api/admin/events.
+      await recordOpsEvent("chain_unreachable", "warning", `All RPC endpoints failing for ${chain}`, {
+        chain,
+        scans: m?.scans ?? 0,
+        rpcErrors: m?.rpcErrors ?? 0,
+        circuitOpen: openCircuitChains.some((c) => c.toUpperCase() === chain),
+      });
+      sendAlert({
+        type: "chain_unreachable",
+        severity: "warning",
+        service: "wcore-api",
+        ts: new Date().toISOString(),
+        data: { chain, scans: m?.scans ?? 0, rpcErrors: m?.rpcErrors ?? 0 },
+      }).catch(() => { /* alerting is best-effort, never blocks the snapshot */ });
+    }
     await prisma.systemMetricSnapshot.create({ data: { status, dbOk, redisOk, openCircuits, rpcErrors, pricingErrors, scanCount: snap.scans.total, gm24h, gm7d, gm30d } });
     await prisma.systemMetricSnapshot.deleteMany({ where: { createdAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } } });
     await prisma.opsEvent.deleteMany({ where: { createdAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } } });
@@ -272,6 +331,17 @@ app.get("/health", async () => ({
   // Use admin /api/metrics/errors for detailed circuit info.
 }));
 
+app.get("/ready", async (_req, reply) => {
+  const dbOk = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
+  const redisOk = await checkRedis();
+  const ready = dbOk && redisOk;
+  return reply.code(ready ? 200 : 503).send({
+    status: ready ? "ready" : "not_ready",
+    service: "wcore-api",
+    checks: { db: dbOk, redis: redisOk },
+  });
+});
+
 app.get("/api/me/plan", async (req, reply) => {
   if (!req.user) return reply.code(401).send({ error: "not_authenticated" });
   const plan = await getUserPlan(req.user.id);
@@ -310,7 +380,7 @@ async function resolveCustomTokens(userId: string | undefined, requestTokens: un
 // --- Feature Plugins ---
 
 await scanPlugin(app, { prisma, sharedCache, getCircuitBreaker, validateChains, resolveCustomTokens, buildChainScan, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN });
-await adminPlugin(app, { prisma, sharedCache, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION });
+await adminPlugin(app, { prisma, checkRedis, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION });
 await walletPlugin(app, { prisma, validateCustomToken });
 await cexPlugin(app, { prisma, sharedCache });
 await chainsPlugin(app, { circuitBreakers, cache: sharedCache });
@@ -490,7 +560,22 @@ if (!apiConfig.runtime.isTest && isMainModule) {
     realTSource.getTokenPriceUsd({ key: "realt-dummy", chain: { key: "GNOSIS", vm: "EVM" } as any, contract: "0x0000000000000000000000000000000000000000", symbol: "" }).catch(() => { /* registry load failed, will retry on first RealT scan */ });
     await app.listen({ port: PORT, host: HOST });
     loadChainlist().catch((e) => { console.error("loadChainlist error:", (e).message || String(e)); });
+    snapshotMetrics().catch((e) => { console.error("initial snapshotMetrics error:", (e).message || String(e)); });
     setInterval(() => snapshotMetrics().catch((e) => { console.error("snapshotMetrics interval error:", (e).message || String(e)); }), 300_000).unref();
+    // Le cache d'endpoints dynamiques expire au bout de 6 h (DYNAMIC_TTL_MS,
+    // rpc/endpoints.ts), mais warmDynamicRpcEndpoints n'etait appele qu'une
+    // fois, au chargement du module gamification. Un process Railway vit
+    // plusieurs jours: passe la 6e heure, getRpcEndpoints ne renvoyait donc
+    // plus que les endpoints statiques, sans que rien ne le signale — les
+    // endpoints decouverts par chainlist etaient perdus jusqu'au redeploiement.
+    // On renouvelle avant expiration.
+    setInterval(() => {
+      try {
+        warmDynamicRpcEndpoints(Object.keys(GM_FACTORIES));
+      } catch (e) {
+        console.error("warmDynamicRpcEndpoints interval error:", (e as Error).message || String(e));
+      }
+    }, RPC_WARM_INTERVAL_MS).unref();
   } catch (err) {
     app.log.error(err);
     process.exit(1);

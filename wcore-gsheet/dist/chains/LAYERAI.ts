@@ -10,6 +10,8 @@ export const LAYERAI: ChainConfig = {
   CACHE_VERSION: 1,
   RPC: {
     ENDPOINTS: [
+      "https://rpc.aere.network",
+      "https://rpc2.aere.network",
       "https://2800.rpc.thirdweb.com",
     ],
   },

@@ -51,10 +51,7 @@ export function requiresCsrfOriginCheck(method: string, path: string): boolean {
 export function getApiRateLimitBucket(method: string, path: string): ApiRateLimitBucket {
   const cleanPath = path.split("?")[0] ?? "";
   if (cleanPath.startsWith("/api/scan/async/") && method.toUpperCase() === "GET") return "scan_poll";
-  if (cleanPath.startsWith("/api/scan")) {
-    // Scan requests are rate-limited by chain-check budgeting in the scan handlers.
-    return null;
-  }
+  if (cleanPath.startsWith("/api/scan")) return "scan";
   if (cleanPath.startsWith("/api/auth") || cleanPath === "/api/wallets/nonce") return "auth";
   if (cleanPath.startsWith("/api/leaderboard")) return "leaderboard";
   if (cleanPath.startsWith("/api/gm")) {
@@ -367,4 +364,3 @@ export function classifyScanError(message: string): ScanErrorKind {
   ) return "rpc";
   return "other";
 }
-

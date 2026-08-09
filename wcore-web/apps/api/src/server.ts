@@ -27,7 +27,7 @@ import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
 import { RealTPriceSource } from "@wcore/core";
-import { buildChainScan, findUnreachableChains, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
+import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
 import { apiConfig } from "./config.js";
 
@@ -276,24 +276,17 @@ app.addHook("onRequest", async (req, reply) => {
         return reply.code(500).send({ error: "csrf_config_missing", message: "CORS_ORIGIN must be set in production." });
       }
       if (apiConfig.cors.origins.length > 0) {
-      const allowedHosts = apiConfig.cors.origins
-        .map(s => {
-          try { return new URL(s.trim()).hostname.toLowerCase(); } catch { return s.trim().toLowerCase(); }
-        });
-      const hostOf = (raw: string | undefined): string | null => {
-        if (!raw) return null;
-        try { return new URL(raw).hostname.toLowerCase(); } catch { return null; }
-      };
-      const originHost = hostOf(req.headers.origin as string | undefined);
-      const refererHost = hostOf(req.headers.referer as string | undefined);
-      const allowed = (originHost && allowedHosts.includes(originHost)) ||
-                      (refererHost && allowedHosts.includes(refererHost));
-      // Dev-bypass is explicit: only when running tests. NODE_ENV unset in prod must NOT
-      // fail open.
-      const allowDevBypass = apiConfig.runtime.isTest;
-      if (!allowed && !allowDevBypass) {
-        return reply.code(403).send({ error: "csrf_origin_mismatch", message: "Origin not in allowlist" });
-      }
+        const allowed = isAllowedCsrfOrigin(
+          req.headers.origin as string | undefined,
+          req.headers.referer as string | undefined,
+          apiConfig.cors.origins,
+        );
+        // Dev-bypass is explicit: only when running tests. NODE_ENV unset in prod must NOT
+        // fail open.
+        const allowDevBypass = apiConfig.runtime.isTest;
+        if (!allowed && !allowDevBypass) {
+          return reply.code(403).send({ error: "csrf_origin_mismatch", message: "Origin not in allowlist" });
+        }
       }
   }
 });

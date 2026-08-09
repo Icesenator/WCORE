@@ -38,6 +38,38 @@ export type ApiRateLimitBucket = "scan" | "scan_poll" | "auth" | "leaderboard" |
 
 export const SCAN_POLL_RATE_LIMIT = 600;
 
+function httpOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.username || url.password) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate the complete browser origin (scheme + hostname + effective port).
+ * Origin is authoritative when present; Referer is only a fallback for clients
+ * that omit Origin. Accepting either header independently lets a hostile Origin
+ * hide behind an allowed Referer.
+ */
+export function isAllowedCsrfOrigin(
+  origin: string | undefined,
+  referer: string | undefined,
+  allowedOrigins: readonly string[],
+): boolean {
+  const allowed = new Set(allowedOrigins.map(httpOrigin).filter((value): value is string => value !== null));
+  if (origin !== undefined) {
+    const parsed = httpOrigin(origin);
+    return parsed !== null && allowed.has(parsed);
+  }
+  const parsedReferer = httpOrigin(referer);
+  return parsedReferer !== null && allowed.has(parsedReferer);
+}
+
 export function requiresCsrfOriginCheck(method: string, path: string): boolean {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) return false;
   const cleanPath = path.split("?")[0] ?? "";

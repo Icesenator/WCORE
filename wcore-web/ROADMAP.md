@@ -21,7 +21,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - Audit transversal Web + GSheet : `../docs/audits/AUDIT.md`.
 - Priorités immédiates : conversion USD/EUR CEX, endpoint pricing CEX, migrations Prisma, CI racine, SSRF/jobs async, fiabilité GM/CEX frontend.
 - Baseline : core 284/284, shared 17/17, Web 129 tests passants et 6 tests non hermétiques faute d'API locale; typecheck vert; lint rouge à 19 erreurs.
-- Convention de couverture : **183 configurations suivies**; le nombre actif/scannable vient de `/api/chains`.
+- Convention de couverture : **182 configurations suivies** (168 EVM, 2 SVM, 11 Cosmos, 1 TON); le nombre actif/scannable vient de `/api/chains`.
 
 ---
 

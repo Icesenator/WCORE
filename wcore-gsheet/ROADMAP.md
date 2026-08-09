@@ -4,7 +4,7 @@
 
 ## Etat courant
 
-- 183 configurations generees: 169 EVM, 2 SVM, 11 Cosmos, 1 TON.
+- 182 configurations generees: 168 EVM, 2 SVM, 11 Cosmos, 1 TON.
 - `src/*.gs` est la source canonique; `dist/` est genere pour `@wcore/chains`.
 - Sept CEX: Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX et Kraken.
 - Portefeuille crypto canonique: `Portefeuille Crypto` + `Portefeuille Crypto Details`.

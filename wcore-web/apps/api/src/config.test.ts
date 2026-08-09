@@ -155,6 +155,8 @@ describe("getApiConfig", () => {
       RATE_LIMIT_SCAN: "200",
       RATE_LIMIT_GM_READ: "333",
       GSHEET_API_TOKEN: "token-1",
+      GSHEET_SCAN_PRICE_REPAIR_LIMIT: "0",
+      GSHEET_PRICE_BATCH_CONCURRENCY: "7",
       GSHEET_OWNER_ADDRESS: " 0x17D518736EE9341dCDc0a2498e013D33CFcDD080 ",
       INTERNAL_API_URL: "https://api.internal",
       PUBLIC_URL: "https://wcore.xyz",
@@ -169,9 +171,24 @@ describe("getApiConfig", () => {
     assert.equal(config.limits.rateLimitScan, 200);
     assert.equal(config.limits.rateLimitGmRead, 333);
     assert.equal(config.integrations.gsheetApiToken, "token-1");
+    assert.equal(config.integrations.gsheetScanPriceRepairLimit, 0);
+    assert.equal(config.integrations.gsheetPriceBatchConcurrency, 7);
     assert.equal(config.integrations.gsheetOwnerAddress, "0x17d518736ee9341dcdc0a2498e013d33cfcdd080");
     assert.equal(config.integrations.internalApiUrl, "https://api.internal");
     assert.equal(config.integrations.publicUrl, "https://wcore.xyz");
+  });
+
+  it("treats a blank GSheet token as unconfigured and bounds its worker settings", () => {
+    const config = getApiConfig({
+      NODE_ENV: "test",
+      GSHEET_API_TOKEN: "   ",
+      GSHEET_SCAN_PRICE_REPAIR_LIMIT: "-4",
+      GSHEET_PRICE_BATCH_CONCURRENCY: "0",
+    });
+
+    assert.equal(config.integrations.gsheetApiToken, undefined);
+    assert.equal(config.integrations.gsheetScanPriceRepairLimit, 0);
+    assert.equal(config.integrations.gsheetPriceBatchConcurrency, 1);
   });
 
   it("parses scan timeout, cache, retry, and job TTL values", () => {

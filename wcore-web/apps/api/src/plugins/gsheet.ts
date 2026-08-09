@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore, type WalletAssets } from "@wcore/core";
 import { safeEq } from "../admin-auth.js";
+import { apiConfig } from "../config.js";
 
 export interface GsheetFxTelemetry {
   rate: number;
@@ -123,9 +124,6 @@ export interface GsheetStockPortfolioSnapshot {
     unpriced: number;
   };
 }
-
-const GSHEET_SCAN_PRICE_REPAIR_LIMIT = Math.max(0, Math.floor(Number(process.env.GSHEET_SCAN_PRICE_REPAIR_LIMIT) || 24));
-const GSHEET_PRICE_BATCH_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.GSHEET_PRICE_BATCH_CONCURRENCY) || 3));
 
 const GSHEET_WALLET_LABELS: Record<string, string> = {
   "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7": "Layer3 Wallet",
@@ -487,7 +485,7 @@ async function repairMissingGsheetScanPrices(
     .filter(({ token, id }) => id && (tokenNumberField(token, "balance") ?? 0) > 0 && (tokenNumberField(token, "priceEur") ?? 0) <= 0);
   if (missing.length === 0) return result;
 
-  const repairIds = [...new Set(missing.map((m) => m.id))].slice(0, GSHEET_SCAN_PRICE_REPAIR_LIMIT);
+  const repairIds = [...new Set(missing.map((m) => m.id))].slice(0, apiConfig.integrations.gsheetScanPriceRepairLimit);
   if (repairIds.length === 0) return result;
 
   const priceResult = await batcher({ chain: input.chain, tokens: repairIds });
@@ -800,7 +798,7 @@ async function defaultPriceBatcher(input: GsheetPriceBatchInput, cache?: CacheSt
   const priceCache = cache ? new core.RedisPricingCache(cache) : new core.MemoryPricingCache();
   const sources = core.buildSources(priceCache, chain, cache);
   const prices: Record<string, GsheetPriceRecord> = {};
-  await mapWithConcurrencyLimit(input.tokens, GSHEET_PRICE_BATCH_CONCURRENCY, async (token) => {
+  await mapWithConcurrencyLimit(input.tokens, apiConfig.integrations.gsheetPriceBatchConcurrency, async (token) => {
     const priced = await core.priceTokenCascade({
       token: {
         key: `${String(chain.key).toLowerCase()}:${token}`,

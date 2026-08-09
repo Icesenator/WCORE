@@ -8,6 +8,9 @@ export const SYNDICATE_COMMONS: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 63,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   TIMEOUTS: {
     MAX_EXECUTION_MS: 25000,
     HTTP_MS: 8000,

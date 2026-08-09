@@ -178,6 +178,10 @@ export async function getEvmWalletAssets(
   };
 
   const cache = opts.cache;
+  const balanceCacheKey = `bal_cache:${key.toLowerCase()}:${normalizedAddress}`;
+  if (cache && opts.forceRefresh) {
+    await cache.delete(balanceCacheKey);
+  }
   const sources = opts.sources ?? {
     ...defaultSources,
     geckoterminal: new GeckoTerminalPriceSource(priceCache),
@@ -421,9 +425,8 @@ export async function getEvmWalletAssets(
   // The cache TTL (1h) acts as the "no activity" window — if the user had activity,
   // the next scan after TTL expiry will do a full scan.
   const BALANCE_CACHE_TTL_MS = 3600_000;
-  const balanceCacheKey = `bal_cache:${key.toLowerCase()}:${normalizedAddress}`;
   const hasNoNewTokens = discoveredTokens.length === 0 && !hasCustomTokens;
-  if (cache && hasNoNewTokens) {
+  if (cache && hasNoNewTokens && !opts.forceRefresh) {
     try {
       const cachedBal = await cache.get<{
         nativeBalance: string;
@@ -648,7 +651,8 @@ export async function getEvmWalletAssets(
   }
 
   // Fire-and-forget: cache balances for no-TX shortcut on next scan
-  if (cache && !hasCustomTokens) {
+  const hasUnavailableBalance = errors.some((error) => error.includes("balance unavailable"));
+  if (cache && !hasCustomTokens && !hasUnavailableBalance) {
     cache.set(balanceCacheKey, {
       nativeBalance: String(nativeRaw),
       nativePriceEur: native.priceEur,

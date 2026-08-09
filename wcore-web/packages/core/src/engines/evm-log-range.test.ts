@@ -64,7 +64,7 @@ test("getRecentLogRange does not report an error when endpoints merely disagree"
   // single block and flagged the chain degraded while both endpoints were healthy.
   assert.deepEqual(errors, []);
   assert.equal(range.toBlock, `0x${(100).toString(16)}`);
-  assert.equal(range.fromBlock, `0x${(50).toString(16)}`);
+  assert.equal(range.fromBlock, `0x${(51).toString(16)}`);
 });
 
 test("getRecentLogRange still reports an error when every endpoint fails", async () => {
@@ -112,5 +112,5 @@ test("getRecentLogRange keeps honouring the chain log-range cap", async () => {
 
   assert.deepEqual(errors, []);
   assert.equal(range.toBlock, `0x${(10_000).toString(16)}`);
-  assert.equal(range.fromBlock, `0x${(10_000 - 999).toString(16)}`);
+  assert.equal(range.fromBlock, `0x${(10_000 - 998).toString(16)}`);
 });

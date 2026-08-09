@@ -1,7 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GM_FACTORIES } from "@wcore/shared";
-import { getChain } from "./index.js";
+import { GM_FACTORIES, RUNTIME_CHAIN_CONFIG_SCHEMA } from "@wcore/shared";
+import { chainList, getChain } from "./index.js";
+
+test("every published chain satisfies the runtime schema", () => {
+  const failures = chainList.flatMap((chain) => {
+    const result = RUNTIME_CHAIN_CONFIG_SCHEMA.safeParse(chain);
+    return result.success
+      ? []
+      : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
+  });
+
+  assert.equal(chainList.length, 182, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
+  assert.deepEqual(failures, []);
+});
+
+test("runtime schema rejects corrupt published metadata", () => {
+  const ethereum = getChain("ETHEREUM");
+  assert.ok(ethereum);
+
+  const missingChainId = structuredClone(ethereum);
+  delete missingChainId.CHAIN?.CHAIN_ID;
+  assert.equal(RUNTIME_CHAIN_CONFIG_SCHEMA.safeParse(missingChainId).success, false);
+
+  const invalidRpc = structuredClone(ethereum);
+  invalidRpc.RPC = { ...invalidRpc.RPC, ENDPOINTS: ["not-a-url"] };
+  assert.equal(RUNTIME_CHAIN_CONFIG_SCHEMA.safeParse(invalidRpc).success, false);
+
+  const missingNativeSymbol = structuredClone(ethereum);
+  missingNativeSymbol.CHAIN = { ...missingNativeSymbol.CHAIN, NATIVE_SYMBOL: "" };
+  assert.equal(RUNTIME_CHAIN_CONFIG_SCHEMA.safeParse(missingNativeSymbol).success, false);
+});
 
 test("Nexus Mainnet is registered with verified RPC metadata", () => {
   const chain = getChain("NEXUS");

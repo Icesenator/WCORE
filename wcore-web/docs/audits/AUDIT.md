@@ -73,7 +73,7 @@ Ce fichier remplace l'etat du 2026-06-11. Une case n'est cochee qu'avec une preu
 - [ ] Ajouter un `.dockerignore` racine adapte au contexte Railway parent.
 - [x] Corriger les 19 problemes lint et rendre le lint bloquant en CI: 0 erreur/0 warning.
 - [x] Deplacer `apps/web/__tests__/ui.test.ts` en `ui.integration.ts` avec commande `test:integration`; le test unitaire est hermetique.
-- [ ] Ajouter un test schema exhaustif sur les 183 chaines.
+- [x] **RESOLVED 2026-08-09.** `RUNTIME_CHAIN_CONFIG_SCHEMA` valide le contrat reel publie par `@wcore/chains` (forme GAS historique) sans pretendre que les 182 configs ont deja migre vers le schema cible en minuscules. Le test parcourt les 182 configs, refuse cles dupliquees, chainId EVM absent, URL RPC invalide et metadonnees natives manquantes; exceptions explicites par VM et pour `DISABLE_NATIVE_BALANCE`. Gardes chainId/URL validees par mutation. Core 353/354 (1 skip), Shared 41/41.
 
 ## P3 - Structure
 

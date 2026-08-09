@@ -1,0 +1,19 @@
+---
+source_file: "gsheet/28_PRICING_WORKER.js"
+type: "code"
+community: "28_PRICING_WORKER.js"
+location: "L1371"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/28_PRICING_WORKERjs
+---
+
+# UNINSTALL_PRICING_WORKER_TRIGGER()
+
+## Connections
+- [[28_PRICING_WORKER.js]] - `contains` [EXTRACTED]
+- [[INSTALL_PRICING_WORKER_TRIGGER()]] - `calls` [EXTRACTED]
+- [[_pricingWorkerProps_()]] - `calls` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/28_PRICING_WORKERjs

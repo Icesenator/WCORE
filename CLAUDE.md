@@ -1,0 +1,5 @@
+﻿- Project: WCORE (wcore)
+- Language: French
+- Stack: Google Apps Script (clasp), Node.js, PostgreSQL (GSheet)
+- Commands: npm test, npm run lint, npm run typecheck
+- Conventions: Respect Karpathy Raw/Wiki workflow. All data local first.

@@ -9,11 +9,19 @@ interface DexPair {
   liquidity?: { usd?: string | number };
 }
 
+// The allowlist keeps a pair from being priced off an arbitrary counter asset.
+// It was written for EVM and omitted SOL, the dominant quote on Solana, so the
+// deepest pairs of major mints were discarded and those tokens showed no price.
 const QUOTE_ALLOWLIST = new Set(["usdc", "usdt", "dai", "weth", "wbnb", "wbtc", "cbbtc", "usdce", "frax", "lusd", "busd", "tusd", "crvusd", "susd", "usdd", "mim", "fei"]);
+const WSOL_MINT = normalizePriceKey("So11111111111111111111111111111111111111112");
 
-function isAllowedQuote(symbol?: string): boolean {
+function isAllowedQuote(symbol: string | undefined, address: string | undefined, vm: string): boolean {
   if (!symbol) return false;
-  return QUOTE_ALLOWLIST.has(symbol.toLowerCase());
+  const normalizedSymbol = symbol.toLowerCase();
+  if (normalizedSymbol === "sol" || normalizedSymbol === "wsol") {
+    return vm === "SVM" && normalizePriceKey(address ?? "") === WSOL_MINT;
+  }
+  return QUOTE_ALLOWLIST.has(normalizedSymbol);
 }
 export class DexScreenerPriceSource implements TokenPriceSource {
   constructor(private readonly fetchImpl: typeof fetch = fetch) {}
@@ -37,11 +45,11 @@ export class DexScreenerPriceSource implements TokenPriceSource {
       const baseUsd = Number(pair.priceUsd);
       if (!isPositiveFinite(baseUsd)) continue;
       if (base === contract) {
-        if (!isAllowedQuote(pair.quoteToken?.symbol)) continue;
+        if (!isAllowedQuote(pair.quoteToken?.symbol, pair.quoteToken?.address, token.chain.vm)) continue;
         best = { priceUsd: baseUsd, source: "dex", symbol: pair.baseToken?.symbol, name: pair.baseToken?.name };
         bestLiquidity = liq;
       } else if (quote === contract) {
-        if (!isAllowedQuote(pair.baseToken?.symbol)) continue;
+        if (!isAllowedQuote(pair.baseToken?.symbol, pair.baseToken?.address, token.chain.vm)) continue;
         const native = Number(pair.priceNative);
         if (!isPositiveFinite(native)) continue;
         best = { priceUsd: baseUsd / native, source: "dex", symbol: pair.quoteToken?.symbol, name: pair.quoteToken?.name };

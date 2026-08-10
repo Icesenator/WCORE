@@ -17,6 +17,14 @@ Rules:
 - Rebuild or refresh only with `npm run graphify:sync`, which becomes available after repository setup in Task 2.
 - A manual Obsidian export must use `rtk graphify export obsidian --graph "K:\ProjetIA\WCORE\graphify-out\graph.json" --dir "K:\ProjetIA\WCORE\.generated\graphify"`.
 
+## Session journaling (reflex, not optional)
+
+Every opencode session must be journaled continuously, not just at the end:
+- Log at each milestone (task done, bug found/fixed, decision, config/file change).
+- Target: a vault journal note (`journal/YYYY-MM-DD-*.md`), created if missing, then **append** at each milestone. Never rewrite the whole note.
+- Minimal content: context, actions (files modified), results/verifications, lessons, status.
+- If a session runs over ~30 min, journal at least once mid-session, even partially.
+
 ## Cross-project rules
 
 See ../AGENTS.md:
@@ -25,4 +33,5 @@ See ../AGENTS.md:
 3. **Wiki & Raw (Karpathy)** — write Raw first, distill to Wiki after
 4. **Monthly audit** — 1st of every month, full system audit
 5. **No learning loops** — every output verifiable against ground truth
-6. **Principle** — never build SEO projects with LLMs without rules 1-5
+6. **Session journaling** — continuous session logs (see above)
+7. **Principle** — never build SEO projects with LLMs without rules 1-5

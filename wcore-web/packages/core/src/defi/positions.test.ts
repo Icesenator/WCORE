@@ -160,6 +160,22 @@ test("registry flags Superlend Etherlink aTokens as lending collateral [Flex]", 
   assert.equal(slmBasis?.pricing?.mode, "direct");
 });
 
+test("registry flags ZetaEarn stZETA as liquid staking [Flex]", () => {
+  const stZeta = getDeFiPositionMetadata("ZETACHAIN", "0x45334a5b0a01ce6c260f2b570ec941c680ea62c0", "STZETA");
+
+  assert.ok(stZeta, "STZETA should be a known DeFi position");
+  assert.equal(stZeta?.type, "liquid_staking");
+  assert.equal(stZeta?.liquidityStatus, "flex");
+  assert.equal(stZeta?.pricing?.mode, "direct");
+});
+
+test("ZetaEarn stZETA renders with [Flex] suffix", () => {
+  const meta = getDeFiPositionMetadata("ZETACHAIN", "0x45334a5b0a01ce6c260f2b570ec941c680ea62c0", "STZETA");
+  const suffixed = withLiquiditySuffix("ZetaEarn Staked ZETA", { type: meta?.type, liquidityStatus: meta?.liquidityStatus });
+
+  assert.equal(suffixed, "ZetaEarn Staked ZETA [Flex]");
+});
+
 test("Superlend aTokens keep their direct price under withLiquiditySuffix", () => {
   const meta = getDeFiPositionMetadata("ETHERLINK", "0x660adef5993167acdb490df287f4db6cc226ffeb", "slmBASIS");
   const suffixed = withLiquiditySuffix("Superlend Midas Basis Trading Token", { type: meta?.type, liquidityStatus: meta?.liquidityStatus });

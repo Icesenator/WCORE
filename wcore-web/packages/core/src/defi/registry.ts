@@ -62,6 +62,19 @@ const entries: DeFiPositionRegistryEntry[] = [
     confidence: "high",
     pricing: { mode: "mirror_underlying", sign: "asset" },
   },
+  // ZetaEarn stZETA: liquid staking receipt for delegated ZETA. Freely
+  // unstakeable => [Flex]. Priced directly via GeckoTerminal pools on
+  // ZetaChain (stZETA/WZETA, ~$149k reserve), no mirror needed.
+  {
+    chain: "ZETACHAIN",
+    contract: "0x45334a5b0a01ce6c260f2b570ec941c680ea62c0",
+    symbol: "STZETA",
+    protocol: "zetaearn-staking",
+    type: "liquid_staking",
+    liquidityStatus: "flex",
+    confidence: "high",
+    pricing: { mode: "direct" },
+  },
   // Superlend aTokens on Etherlink (Aave V3 fork): the token is the deposit
   // receipt for the underlying supplied to the lending market. Freely
   // withdrawable => [Flex]. Priced directly by DefiLlama, no mirror needed.

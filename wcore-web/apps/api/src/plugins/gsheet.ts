@@ -883,6 +883,17 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
     return { found: value !== null, value };
   });
 
+  app.delete("/api/gsheet/cache/price", async (req, reply) => {
+    if (!opts.cache) return reply.code(503).send({ error: "cache_unavailable" });
+    const { chain, contract } = req.query as { chain?: string; contract?: string };
+    const chainKey = String(chain || "").trim().toLowerCase();
+    const contractKey = String(contract || "").trim().toLowerCase();
+    if (!chainKey || !contractKey) return reply.code(400).send({ error: "chain_and_contract_required" });
+    const key = `price:${chainKey}:${contractKey}`;
+    await opts.cache.delete(key);
+    return { ok: true, key };
+  });
+
   app.get("/api/gsheet/stocks/portfolio", async (req, reply) => {
     const query = req.query as Record<string, unknown>;
     if (Object.keys(query).some((key) => key !== "fresh")) return reply.code(400).send({ error: "unexpected_query" });

@@ -918,6 +918,44 @@ describe("gsheetPlugin", () => {
     await app.close();
   });
 
+  test("price repair forwards forceRefresh so stale Redis prices are skipped", async () => {
+    const app = Fastify();
+    let sawForceRefresh: boolean | undefined;
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "TELL", name: "tell you straight", contract: "0xed9bba84974a06e3886fa6228b27de43c93b4147", balance: 19500, decimals: 18, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 21,
+        errors: ["TELL price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+      priceBatcher: async (input) => {
+        sawForceRefresh = input.forceRefresh;
+        return { fxRate: 0.86, prices: {} };
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base", forceRefresh: true },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(sawForceRefresh, true, "repair batch must propagate forceRefresh");
+    await app.close();
+  });
+
   test("limits gsheet scan price repair work while covering Base long-tail gaps", async () => {
     const app = Fastify();
     let requestedTokens: string[] = [];

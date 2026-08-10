@@ -55,6 +55,8 @@ export interface PricingResult {
   priceEur: number | null;
   priceUsd: number | null;
   source: PriceSource | string | null;
+  symbol?: string;
+  name?: string;
   reason: string | null;
   marker?: PricingMarker;
   trail: PricingTrailStep[];

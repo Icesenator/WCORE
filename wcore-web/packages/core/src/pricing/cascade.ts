@@ -221,7 +221,7 @@ function commitSourcePrice(
   Promise.resolve(options.cache.setPrice(key, { priceEur, ts: nowMs, source: source.source })).catch((e) => {
     if (!_setPriceLogged) { _setPriceLogged = true; console.error("[cascade] cache.setPrice failed:", e?.message ?? e); }
   });
-  return result(key, priceEur, source.priceUsd, source.source, null, _trail, source.marker);
+  return result(key, priceEur, source.priceUsd, source.source, null, _trail, source.marker, source.symbol, source.name);
 }
 
 function normalizeSourcePrice(raw: SourcePriceLike, fallbackSource: PriceSource): SourcePrice | null {
@@ -242,8 +242,20 @@ function result(
   reason: string | null,
   trail: PricingResult["trail"],
   marker?: PricingResult["marker"],
+  symbol?: string,
+  name?: string,
 ): PricingResult {
-  return { key, priceEur, priceUsd, source, reason, trail, ...(marker ? { marker } : {}) };
+  return {
+    key,
+    priceEur,
+    priceUsd,
+    source,
+    reason,
+    trail,
+    ...(marker ? { marker } : {}),
+    ...(symbol ? { symbol } : {}),
+    ...(name ? { name } : {}),
+  };
 }
 
 function getContractLlamaId(token: PricingToken): string | null {

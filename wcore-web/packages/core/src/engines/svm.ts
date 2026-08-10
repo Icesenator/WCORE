@@ -35,6 +35,10 @@ type SvmTokenMetadata = {
   peg?: string;
 };
 
+function normalizeSvmIdentityValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export function resolveSvmTokenIdentity({
   mint,
   symbol,
@@ -43,24 +47,27 @@ export function resolveSvmTokenIdentity({
   market,
 }: {
   mint: string;
-  symbol: string;
-  name: string;
-  metadata?: { symbol?: string; name?: string };
-  market?: { symbol?: string; name?: string };
+  symbol: unknown;
+  name: unknown;
+  metadata?: { symbol?: unknown; name?: unknown };
+  market?: { symbol?: unknown; name?: unknown };
 }): { symbol: string; name: string; improved: boolean } {
   const placeholder = mint.slice(0, 8);
-  const marketSymbol = typeof market?.symbol === "string" ? market.symbol.trim() : "";
-  const marketName = typeof market?.name === "string" ? market.name.trim() : "";
-  const canImproveSymbol = !metadata?.symbol?.trim() && (!symbol.trim() || symbol === placeholder);
-  const canImproveName = !metadata?.name?.trim()
-    && (!name.trim() || name === placeholder || name === symbol);
-  const resolvedSymbol = canImproveSymbol && marketSymbol ? marketSymbol : symbol;
-  const resolvedName = canImproveName && marketName ? marketName : name;
+  const currentSymbol = normalizeSvmIdentityValue(symbol) || placeholder;
+  const currentName = normalizeSvmIdentityValue(name) || currentSymbol;
+  const canonicalSymbol = normalizeSvmIdentityValue(metadata?.symbol);
+  const canonicalName = normalizeSvmIdentityValue(metadata?.name);
+  const marketSymbol = normalizeSvmIdentityValue(market?.symbol);
+  const marketName = normalizeSvmIdentityValue(market?.name);
+  const resolvedSymbol = canonicalSymbol
+    || (currentSymbol === placeholder && marketSymbol ? marketSymbol : currentSymbol);
+  const resolvedName = canonicalName
+    || ((currentName === placeholder || currentName === currentSymbol) && marketName ? marketName : currentName);
 
   return {
     symbol: resolvedSymbol,
     name: resolvedName,
-    improved: resolvedSymbol !== symbol || resolvedName !== name,
+    improved: resolvedSymbol !== currentSymbol || resolvedName !== currentName,
   };
 }
 
@@ -280,8 +287,14 @@ export async function getSvmWalletAssets(
         errors.push(`${ta.mint.slice(0, 8)}: decimals unavailable`);
         continue;
       }
-      const symbol = meta?.symbol || ta.symbol || ta.mint.slice(0, 8);
-      const name = meta?.name || symbol;
+      const rawSymbol = meta?.symbol || ta.symbol || ta.mint.slice(0, 8);
+      const rawName = meta?.name || rawSymbol;
+      const { symbol, name } = resolveSvmTokenIdentity({
+        mint: ta.mint,
+        symbol: rawSymbol,
+        name: rawName,
+        metadata: meta,
+      });
       const logoUrl = meta?.logoUrl;
       const balance = rawAmountToNumber(ta.amount, decimals);
       if (!meta && symbol !== ta.mint.slice(0, 8)) {
@@ -547,10 +560,10 @@ async function priceSvmToken(
   });
   if (identity.improved) {
     const placeholder = mint.slice(0, 8);
-    const hasCanonicalSymbol = typeof metadata?.symbol === "string" && metadata.symbol.trim().length > 0;
-    const hasCanonicalName = typeof metadata?.name === "string" && metadata.name.trim().length > 0;
-    const currentSymbolIsPlaceholder = !symbol.trim() || symbol === placeholder;
-    const currentNameIsPlaceholder = !name.trim() || name === placeholder || name === symbol;
+    const hasCanonicalSymbol = normalizeSvmIdentityValue(metadata?.symbol).length > 0;
+    const hasCanonicalName = normalizeSvmIdentityValue(metadata?.name).length > 0;
+    const currentSymbolIsPlaceholder = symbol === placeholder;
+    const currentNameIsPlaceholder = name === placeholder || name === symbol;
     const learnedSymbol = hasCanonicalSymbol || identity.symbol !== symbol || !currentSymbolIsPlaceholder
       ? identity.symbol
       : "";

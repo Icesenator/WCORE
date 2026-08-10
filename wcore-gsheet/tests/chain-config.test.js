@@ -82,12 +82,4 @@ test("Monad canonical, generated, and runtime configs cap log ranges at 1000", (
   }
 });
 
-test("Syndicate Commons stays disabled and uses only the official RPC", () => {
-  const expectedEndpoints = ["https://commons.rpc.syndicate.io"];
 
-  for (const [runtime, read] of CONFIGS) {
-    const syndicate = read("SYNDICATE_COMMONS");
-    assert.equal(syndicate.FLAGS?.DISABLE_CHAIN, true, `${runtime} remains disabled`);
-    assert.deepEqual(syndicate.RPC.ENDPOINTS, expectedEndpoints, `${runtime} endpoints`);
-  }
-});

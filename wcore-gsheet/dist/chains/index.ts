@@ -161,7 +161,6 @@ import { SUPERSEED } from "./SUPERSEED.js";
 import { SURFLAYER } from "./SURFLAYER.js";
 import { SWAN } from "./SWAN.js";
 import { SWELLCHAIN } from "./SWELLCHAIN.js";
-import { SYNDICATE_COMMONS } from "./SYNDICATE_COMMONS.js";
 import { TAC } from "./TAC.js";
 import { TAIKO_ALETHIA } from "./TAIKO_ALETHIA.js";
 import { TANGLE } from "./TANGLE.js";
@@ -345,7 +344,6 @@ export const chains = {
   SURFLAYER,
   SWAN,
   SWELLCHAIN,
-  SYNDICATE_COMMONS,
   TAC,
   TAIKO_ALETHIA,
   TANGLE,

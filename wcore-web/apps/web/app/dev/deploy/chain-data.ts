@@ -532,12 +532,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.superposition.so", "https://55244.rpc.thirdweb.com"],
   },
-  SYNDICATE_COMMONS: {
-    chainId: "0x7c833",
-    chainName: "Syndicate Commons",
-    nativeCurrency: { name: "Syndicate", symbol: "SYND", decimals: 18 },
-    rpcUrls: ["https://commons.rpc.syndicate.io"],
-  },
   SOMNIA: {
     chainId: "0x13a7",
     chainName: "Somnia",
@@ -743,7 +737,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   98866, // PLUME
   8008, // POLYNOMIAL
   55244, // SUPERPOSITION
-  510003, // SYNDICATE_COMMONS
   5031, // SOMNIA
   143, // MONAD
   4326, // MEGAETH

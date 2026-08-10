@@ -8,6 +8,9 @@ export const DUCKCHAIN: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 64,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://rpc.duckchain.io",

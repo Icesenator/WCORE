@@ -1773,7 +1773,7 @@ test("getEvmWalletsAssets: unexpected native read exception is reported as unava
     ) {
       dispatcherRuns++;
       if (dispatcherRuns === 2) throw new Error("dispatcher_crashed");
-      const value = await call("https://commons.rpc.syndicate.io", {} as RpcCallOptions);
+      const value = await call("https://rpc.example", {} as RpcCallOptions);
       return { consensus: true, value, votes: 1, total: 1, attempts: [] };
     },
   };
@@ -1786,7 +1786,7 @@ test("getEvmWalletsAssets: unexpected native read exception is reported as unava
     async batch(): Promise<unknown[]> { return []; },
   };
 
-  const result = await getEvmWalletsAssets([WALLET_A], "SYNDICATE_COMMONS", {
+  const result = await getEvmWalletsAssets([WALLET_A], "B3", {
     dispatcher: dispatcher as never,
     rpc: rpc as never,
     sources: makeNativeSources(1),

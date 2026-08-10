@@ -485,7 +485,7 @@ function _dynamicRpcGetOurChainIds() {
     "PLASMA", "POLYNOMIAL", "RACE", "REYA", "STABLE", "SUPERPOSITION",
     "SUPERSEED", "SWAN", "TAC", "ZKLINKNOVA", "XRPLEVM", "ZIRCUIT",
     "LENS", "APPCHAIN", "B3", "DBK_CHAIN", "DOMA",
-    "INTUITION", "KATANA", "OPENLEDGER", "SYNDICATE_COMMONS"
+    "INTUITION", "KATANA", "OPENLEDGER"
   ];
 
   var ids = [];

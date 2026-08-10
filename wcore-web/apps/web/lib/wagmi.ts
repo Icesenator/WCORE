@@ -189,14 +189,6 @@ const katana: Chain = {
   blockExplorers: { default: { name: "Katana Explorer", url: "https://katanascan.com" } },
 };
 
-const syndicateCommons: Chain = {
-  id: 510003,
-  name: "Syndicate Commons",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: ["https://commons.rpc.syndicate.io"] }, public: { http: ["https://commons.rpc.syndicate.io"] } },
-  blockExplorers: { default: { name: "Syndicate Explorer", url: "https://explorer.syndicate.io" } },
-};
-
 const race: Chain = {
   id: 6805,
   name: "RACE",
@@ -535,7 +527,7 @@ const wagmiConnectors = [
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, redstone, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
-    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, syndicateCommons, race, doma, b2, juchain, mind, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
+    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, mind, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story],
   // as any needed — wagmi connector types mismatch with custom chain list
@@ -590,7 +582,6 @@ export const config = createConfig({
     [monad.id]: http(),
     [megaeth.id]: http(),
     [katana.id]: http(),
-    [syndicateCommons.id]: http(),
     [race.id]: http(),
     [doma.id]: http(),
     [b2.id]: http(),

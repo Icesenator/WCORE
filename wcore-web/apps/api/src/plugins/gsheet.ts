@@ -675,24 +675,33 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
       if (symbol) filteredSymbols.add(symbol);
       return false;
     }
-    if (id && protectedContracts.has(id)) return true;
+    // Scam detection (including hard-blocked contracts) must run BEFORE the
+    // protected-contracts short-circuit: a user-approved custom token that is a
+    // known scam (e.g. ZK "zkanalyst") must never surface just because it was
+    // passed in customTokens.
+    let scamCheck: { isSuspicious: boolean; level: string } | null = null;
     try {
-      const scam = core.detectScam(
+      scamCheck = core.detectScam(
         tokenStringField(token, "symbol"),
         tokenStringField(token, "name"),
         tokenNumberField(token, "balance") ?? 0,
         tokenNumberField(token, "priceEur"),
         tokenStringField(token, "contract") || tokenStringField(token, "address") || tokenStringField(token, "mint") || tokenStringField(token, "denom"),
       );
-      if (scam.isSuspicious) {
-        const symbol = tokenStringField(token, "symbol");
-        if (symbol) filteredSymbols.add(symbol);
-        return false;
-      }
-      return true;
     } catch {
-      return true;
+      scamCheck = null;
     }
+    // Only hard-scam verdicts (blocked/admin-blocked contracts, weight >= 4)
+    // override the protected-contracts short-circuit. Heuristic "suspicious"
+    // (score 2-3) may be an absurd-but-real price that is later neutralized by
+    // isAbsurdGsheetPrice instead of dropping the token (e.g. BONSAI).
+    if (scamCheck?.level === "scam") {
+      const symbol = tokenStringField(token, "symbol");
+      if (symbol) filteredSymbols.add(symbol);
+      return false;
+    }
+    if (id && protectedContracts.has(id)) return true;
+    return true;
   });
   const sanitizedTokens = tokens.map((token) => {
     if (!isAbsurdGsheetPrice(token)) return token;

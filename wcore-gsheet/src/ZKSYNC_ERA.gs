@@ -17,6 +17,7 @@ var _ZKSYNC_ERA = ChainFactory.createEvmChain("ZKSYNC_ERA", {
  DEX_SLUG: "zksync",
  GT_NETWORK: "zksync"
  },
+ LLAMA_CONTRACT_MAP: { "0x90973213e2a230227bd7ccafb30391f4a52439ee": "coingecko:usd-coin" },
  LLAMA_ID_MAP: { "DAI":"coingecko:dai", "ETH":"coingecko:ethereum", "USDC":"coingecko:usd-coin", "USDC.e":"coingecko:bridged-usd-coin-zksync", "USDT":"coingecko:tether", "WBTC":"coingecko:wrapped-bitcoin", "WETH":"coingecko:weth", "ZK":"coingecko:zksync" }
 });
 

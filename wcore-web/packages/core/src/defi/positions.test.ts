@@ -160,6 +160,15 @@ test("registry flags Superlend Etherlink aTokens as lending collateral [Flex]", 
   assert.equal(slmBasis?.pricing?.mode, "direct");
 });
 
+test("registry flags EraLend eUSDC as lending collateral [Flex]", () => {
+  const eUsdc = getDeFiPositionMetadata("ZKSYNC_ERA", "0x90973213e2a230227bd7ccafb30391f4a52439ee", "eUSDC");
+
+  assert.ok(eUsdc, "eUSDC should be a known DeFi position");
+  assert.equal(eUsdc?.type, "lending_collateral");
+  assert.equal(eUsdc?.liquidityStatus, "flex");
+  assert.equal(eUsdc?.pricing?.mode, "direct");
+});
+
 test("registry flags ZetaEarn stZETA as liquid staking [Flex]", () => {
   const stZeta = getDeFiPositionMetadata("ZETACHAIN", "0x45334a5b0a01ce6c260f2b570ec941c680ea62c0", "STZETA");
 

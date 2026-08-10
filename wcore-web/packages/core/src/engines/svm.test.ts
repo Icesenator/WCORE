@@ -44,6 +44,18 @@ test("resolveSvmTokenIdentity ignores malformed runtime market metadata", () => 
   }), { symbol: "7atgF8KQ", name: "7atgF8KQ", improved: false });
 });
 
+test("resolveSvmTokenIdentity safely replaces malformed current and canonical metadata", () => {
+  const mint = "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+
+  assert.deepEqual(resolveSvmTokenIdentity({
+    mint,
+    symbol: 123,
+    name: { value: "unsafe" },
+    metadata: { symbol: 456, name: ["unsafe"] },
+    market: { symbol: " CWIF ", name: " catwifhat " },
+  } as never), { symbol: "CWIF", name: "catwifhat", improved: true });
+});
+
 // Minimal mock for RpcClient with call<T>() method
 function mockRpc(handlers: Record<string, unknown>) {
   return {
@@ -570,6 +582,56 @@ test("getSvmWalletAssets can learn a market name after learning only the symbol"
     assert.ok(second.tokens.length > 0);
     assert.ok(first.tokens.every((token) => token.symbol === "CWIF" && token.name === mint.slice(0, 8)));
     assert.ok(second.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("getSvmWalletAssets normalizes malformed runtime identity before cache learning", async () => {
+  const mint = "AatgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: {
+      getTokenPriceUsd: async () => ({
+        priceUsd: 1,
+        source: "dex",
+        symbol: "CWIF",
+        name: "catwifhat",
+      }),
+    },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const rpc = mockRpc({
+    getBalance: () => ({ value: 0 }),
+    getTokenAccountsByOwner: () => ({
+      value: [{
+        pubkey: "MalformedIdentityTokenAccount",
+        account: {
+          data: {
+            parsed: {
+              info: { mint, symbol: 123, tokenAmount: { amount: "1000000", decimals: 6 } },
+            },
+          },
+        },
+      }],
+    }),
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ json: async () => ({}) }) as Response;
+
+  try {
+    const result = await getSvmWalletAssets(OWNER, "solana", {
+      rpc: rpc as never,
+      sources,
+      sharedPriceCache: new MemoryPricingCache(),
+      fxRate: 1,
+    });
+
+    assert.ok(result.tokens.length > 0);
+    assert.ok(result.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
   } finally {
     globalThis.fetch = originalFetch;
   }

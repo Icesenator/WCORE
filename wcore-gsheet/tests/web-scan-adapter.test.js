@@ -11,6 +11,8 @@ const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EV
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
 
+assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.63["']/, 'web scan adapter version must advance to 4.16.63');
+
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
 }
@@ -137,7 +139,10 @@ function makeContext(props, fetchBody) {
     CacheManager: { init: () => {} },
     WalletCache: {
       save: (address, cache, config) => saved.push({ address, cache, config }),
-      load: (_address, _timer, config) => config ? (props.__walletCache || null) : null,
+      load: (_address, _timer, config) => {
+        if (props.__walletCacheError) throw new Error('cache unavailable');
+        return config ? (props.__walletCache || null) : null;
+      },
       getLastUpdateStr: (cache) => cache && cache.updatedAt ? '2026-06-26 19:00:00' : '',
       getLastRunUpdateStr: (cache) => cache && cache.last_run_update_ms ? '2026-06-26 19:00:00' : '',
     },
@@ -492,6 +497,87 @@ const samplePayload = JSON.stringify({
   );
   assert.equal(payload.strictTokens, true, 'web scan requests must use strict token mode when I2:I is provided');
   assert.deepEqual(payload.customTokens, ['TokenMint11111111111111111111111111111111', 'TokenMint22222222222222222222222222222222']);
+}
+
+{
+  let sentPayload = null;
+  const cachedMint = '6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN';
+  const secondCachedMint = 'FRAGSEthVFL7fdqM8hxfxkfCZzUvmg21cqPJVvC1qdbo';
+  const priorityMint = 'LedgerMint111111111111111111111111111111111';
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: {
+      updatedAt: 111,
+      assets: [
+        { contract: 'native', symbol: 'SOL', balance: 1, price_eur: 100 },
+        { contract: priorityMint.toLowerCase(), symbol: 'DUPLICATE', balance: 1 },
+        { contract: cachedMint, symbol: 'TRUMP', balance: 0.000002 },
+        { contract: secondCachedMint, symbol: 'fragSOL', balance: 0.00001 },
+      ],
+    },
+  }, (_url, options) => {
+    sentPayload = JSON.parse(options.payload);
+    return { getResponseCode: () => 200, getContentText: () => samplePayload };
+  });
+
+  ctx._webScanWallet_('SolanaRawAddress111111111111111111111111111', [[priorityMint]], true, { CHAIN: { KEY: 'SOLANA', NAME: 'Solana' } }, 'svm_cache_key');
+
+  assert.deepEqual(
+    sentPayload.customTokens,
+    [priorityMint, cachedMint, secondCachedMint],
+    'strict refreshes must include every cached wallet token, not only the external priority list'
+  );
+  assert.equal(sentPayload.strictTokens, true);
+}
+
+{
+  let sentPayload = null;
+  const priorityTokens = Array.from({ length: 199 }, (_, i) => [`PriorityMint${String(i).padStart(3, '0')}`]);
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: {
+      assets: [
+        { contract: 'native', symbol: 'SOL', balance: 1 },
+        { contract: 'CachedMintFirst', symbol: 'FIRST', balance: 1 },
+        { contract: 'CachedMintOverLimit', symbol: 'OVER', balance: 1 },
+      ],
+    },
+  }, (_url, options) => {
+    sentPayload = JSON.parse(options.payload);
+    return { getResponseCode: () => 200, getContentText: () => samplePayload };
+  });
+
+  ctx._webScanWallet_('SolanaRawAddress111111111111111111111111111', priorityTokens, true, { CHAIN: { KEY: 'SOLANA', NAME: 'Solana' } }, 'svm_cache_key');
+
+  assert.equal(sentPayload.customTokens.length, 200, 'strict requests must stay within the API token limit');
+  assert.equal(sentPayload.customTokens[199], 'CachedMintFirst');
+  assert.ok(!sentPayload.customTokens.includes('CachedMintOverLimit'));
+}
+
+{
+  let sentPayload = null;
+  const priorityMint = 'PriorityMint11111111111111111111111111111111';
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCacheError: true,
+  }, (_url, options) => {
+    sentPayload = JSON.parse(options.payload);
+    return { getResponseCode: () => 200, getContentText: () => samplePayload };
+  });
+
+  const result = ctx._webScanWallet_('SolanaRawAddress111111111111111111111111111', [[priorityMint]], true, { CHAIN: { KEY: 'SOLANA', NAME: 'Solana' } }, 'svm_cache_key');
+
+  assert.equal(result.ok, true, 'cache read failures must not block the delegated scan');
+  assert.deepEqual(sentPayload.customTokens, [priorityMint]);
 }
 
 {

@@ -1,6 +1,9 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.63 - Include every token already held in the wallet cache when an
+ *   external priority list enables strict scans, so wallet-specific assets are
+ *   still repriced instead of being silently preserved forever.
  * v4.16.43 - Stopped treating a blockNumber failure as a non-destructive gap. The Web
  *   engine no longer reports one when endpoints merely disagree on the head block, so
  *   the only remaining case is every endpoint failing, which yields no data and must
@@ -63,7 +66,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.43";
+var GSHEET_WEB_SCAN_VERSION = "4.16.63";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -851,6 +854,21 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     var baseUrl = _webScanProp_("WCORE_WEB_API_URL").replace(/\/$/, "");
     var token = _webScanProp_("GSHEET_API_TOKEN");
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
+    if (req.strictTokens) {
+      try {
+        var requestCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config);
+        var requestAssets = requestCache && Array.isArray(requestCache.assets) ? requestCache.assets : [];
+        var requestSeen = {};
+        for (var rt = 0; rt < req.customTokens.length; rt++) requestSeen[String(req.customTokens[rt] || "").toLowerCase()] = true;
+        for (var ra = 0; ra < requestAssets.length && req.customTokens.length < 200; ra++) {
+          var requestContract = String(requestAssets[ra] && requestAssets[ra].contract || "").trim();
+          var requestKey = requestContract.toLowerCase();
+          if (!requestContract || requestKey === "native" || requestSeen[requestKey]) continue;
+          requestSeen[requestKey] = true;
+          req.customTokens.push(requestContract);
+        }
+      } catch (eRequestCache) {}
+    }
     if (!req.address || !req.chain) return null;
     var transport = typeof _httpTelemetryTransport_ === "function"
       ? _httpTelemetryTransport_()

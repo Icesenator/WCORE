@@ -256,6 +256,30 @@ test("falls back to DexScreener when DefiLlama misses", async () => {
   assert.equal(result.source, "dex");
 });
 
+test("returns metadata from the source that supplied the accepted price", async () => {
+  const sources = sourceSet({});
+  sources.dexscreener.getTokenPriceUsd = async () => ({
+    priceUsd: 2.4e-8,
+    source: "dex",
+    symbol: "CWIF",
+    name: "catwifhat",
+  });
+
+  const result = await priceTokenCascade({
+    token: token({
+      key: "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1",
+      contract: "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1",
+      chain: { ...baseChain, key: "SOLANA", vm: "SVM" },
+    }),
+    fxRate,
+    cache: new MemoryPricingCache(),
+    sources,
+  });
+
+  assert.equal(result.symbol, "CWIF");
+  assert.equal(result.name, "catwifhat");
+});
+
 test("falls back to GeckoTerminal when DexScreener misses", async () => {
   const result = await priceTokenCascade({
     token: token(),

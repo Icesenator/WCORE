@@ -62,6 +62,29 @@ const entries: DeFiPositionRegistryEntry[] = [
     confidence: "high",
     pricing: { mode: "mirror_underlying", sign: "asset" },
   },
+  // Superlend aTokens on Etherlink (Aave V3 fork): the token is the deposit
+  // receipt for the underlying supplied to the lending market. Freely
+  // withdrawable => [Flex]. Priced directly by DefiLlama, no mirror needed.
+  {
+    chain: "ETHERLINK",
+    contract: "0xd03bfdf9b26db1e6764724d914d7c3d18106a9fb",
+    symbol: "slUSDC",
+    protocol: "superlend-lending",
+    type: "lending_collateral",
+    liquidityStatus: "flex",
+    confidence: "high",
+    pricing: { mode: "direct" },
+  },
+  {
+    chain: "ETHERLINK",
+    contract: "0x660adef5993167acdb490df287f4db6cc226ffeb",
+    symbol: "slmBASIS",
+    protocol: "superlend-lending",
+    type: "lending_collateral",
+    liquidityStatus: "flex",
+    confidence: "high",
+    pricing: { mode: "direct" },
+  },
   // Compound V3 (Compound III) positions are NOT in the static registry.
   // They are discovered on-chain at scan time via discoverCompoundV3CTokens +
   // getCompoundV3Tokens (in compound-v3.ts), which queries Comet.numAssets() +

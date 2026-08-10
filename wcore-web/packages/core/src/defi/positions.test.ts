@@ -145,6 +145,29 @@ test("registry returns undefined for normal tokens", () => {
   assert.equal(getDeFiPositionMetadata("OPTIMISM", "0xef4461891dfb3ac8572ccf7c794664a8dd927945", "WCT"), undefined);
 });
 
+test("registry flags Superlend Etherlink aTokens as lending collateral [Flex]", () => {
+  const slUsdc = getDeFiPositionMetadata("ETHERLINK", "0xd03bfdf9b26db1e6764724d914d7c3d18106a9fb", "slUSDC");
+  const slmBasis = getDeFiPositionMetadata("ETHERLINK", "0x660adef5993167acdb490df287f4db6cc226ffeb", "slmBASIS");
+
+  assert.ok(slUsdc, "slUSDC should be a known DeFi position");
+  assert.equal(slUsdc?.type, "lending_collateral");
+  assert.equal(slUsdc?.liquidityStatus, "flex");
+  assert.equal(slUsdc?.pricing?.mode, "direct");
+
+  assert.ok(slmBasis, "slmBASIS should be a known DeFi position");
+  assert.equal(slmBasis?.type, "lending_collateral");
+  assert.equal(slmBasis?.liquidityStatus, "flex");
+  assert.equal(slmBasis?.pricing?.mode, "direct");
+});
+
+test("Superlend aTokens keep their direct price under withLiquiditySuffix", () => {
+  const meta = getDeFiPositionMetadata("ETHERLINK", "0x660adef5993167acdb490df287f4db6cc226ffeb", "slmBASIS");
+  const suffixed = withLiquiditySuffix("Superlend Midas Basis Trading Token", { type: meta?.type, liquidityStatus: meta?.liquidityStatus });
+
+  assert.equal(suffixed, "Superlend Midas Basis Trading Token [Flex]");
+  assert.equal(meta?.pricing?.mode, "direct");
+});
+
 test("token registry keeps static DeFi metadata while Compound remains dynamic", () => {
   const optimism = TOKEN_REGISTRY.OPTIMISM ?? [];
   const stake = optimism.find((token) => token.symbol === "WCT Stake");

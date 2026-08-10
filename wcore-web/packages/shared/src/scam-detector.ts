@@ -230,11 +230,13 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
     }
   }
 
-  // 9. Unknown token with near-zero value despite non-zero price (fake pool)
+  // 9. Unknown token with near-zero value despite non-zero price (fake pool).
+  // Weak alone: legitimate micro-cap holdings (e.g. 0.57 CWIF) are worth << €0.01
+  // but still have real DEX identity. Needs another signal to mark suspicious.
   if (priceEur != null && priceEur > 0 && !isKnownToken(s.toUpperCase(), contract)) {
     const value = balance * priceEur;
     if (value > 0 && value < 0.01) {
-      signals.push({ reason: `dust amount (${value.toExponential(1)} EUR) at price ${priceEur.toFixed(2)} — likely fake`, weight: 3 });
+      signals.push({ reason: `dust amount (${value.toExponential(1)} EUR) at price ${priceEur.toFixed(2)} — likely fake`, weight: 1 });
     }
   }
 

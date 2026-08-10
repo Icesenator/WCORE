@@ -13,7 +13,6 @@ import { ARENA_Z } from "./ARENA_Z.js";
 import { ASTAR } from "./ASTAR.js";
 import { AURORA } from "./AURORA.js";
 import { AVALANCHE } from "./AVALANCHE.js";
-import { AVES_NETWORK } from "./AVES_NETWORK.js";
 import { AWAJI } from "./AWAJI.js";
 import { B2 } from "./B2.js";
 import { B3 } from "./B3.js";
@@ -36,7 +35,6 @@ import { CORN } from "./CORN.js";
 import { COSMOS_HUB } from "./COSMOS_HUB.js";
 import { CREDITCOIN } from "./CREDITCOIN.js";
 import { CRONOS } from "./CRONOS.js";
-import { CROSS_MAINNET } from "./CROSS_MAINNET.js";
 import { CROSSBELL } from "./CROSSBELL.js";
 import { CYBER } from "./CYBER.js";
 import { CYSIC } from "./CYSIC.js";
@@ -54,7 +52,6 @@ import { ENDURANCE } from "./ENDURANCE.js";
 import { ETHEREUM } from "./ETHEREUM.js";
 import { ETHEREUM_CLASSIC } from "./ETHEREUM_CLASSIC.js";
 import { ETHERLINK } from "./ETHERLINK.js";
-import { ETHO_PROTOCOL } from "./ETHO_PROTOCOL.js";
 import { FANTOM } from "./FANTOM.js";
 import { FLARE } from "./FLARE.js";
 import { FLOW } from "./FLOW.js";
@@ -103,7 +100,6 @@ import { METIS } from "./METIS.js";
 import { MEZO } from "./MEZO.js";
 import { MIND } from "./MIND.js";
 import { MITOSIS } from "./MITOSIS.js";
-import { MOCA_CHAIN } from "./MOCA_CHAIN.js";
 import { MODE } from "./MODE.js";
 import { MONAD } from "./MONAD.js";
 import { MOONBEAM } from "./MOONBEAM.js";
@@ -133,7 +129,6 @@ import { RACE } from "./RACE.js";
 import { REDSTONE } from "./REDSTONE.js";
 import { REI_NETWORK } from "./REI_NETWORK.js";
 import { REYA } from "./REYA.js";
-import { RIVALZ } from "./RIVALZ.js";
 import { ROBINHOOD_CHAIN } from "./ROBINHOOD_CHAIN.js";
 import { ROLLUX } from "./ROLLUX.js";
 import { RONIN } from "./RONIN.js";
@@ -151,14 +146,12 @@ import { SOMNIA } from "./SOMNIA.js";
 import { SONEIUM } from "./SONEIUM.js";
 import { SONIC } from "./SONIC.js";
 import { STABLE } from "./STABLE.js";
-import { STACK } from "./STACK.js";
 import { STARGAZE } from "./STARGAZE.js";
 import { STEP_NETWORK } from "./STEP_NETWORK.js";
 import { STORY } from "./STORY.js";
 import { STRIDE } from "./STRIDE.js";
 import { SUPERPOSITION } from "./SUPERPOSITION.js";
 import { SUPERSEED } from "./SUPERSEED.js";
-import { SURFLAYER } from "./SURFLAYER.js";
 import { SWAN } from "./SWAN.js";
 import { SWELLCHAIN } from "./SWELLCHAIN.js";
 import { TAC } from "./TAC.js";
@@ -196,7 +189,6 @@ export const chains = {
   ASTAR,
   AURORA,
   AVALANCHE,
-  AVES_NETWORK,
   AWAJI,
   B2,
   B3,
@@ -219,7 +211,6 @@ export const chains = {
   COSMOS_HUB,
   CREDITCOIN,
   CRONOS,
-  CROSS_MAINNET,
   CROSSBELL,
   CYBER,
   CYSIC,
@@ -237,7 +228,6 @@ export const chains = {
   ETHEREUM,
   ETHEREUM_CLASSIC,
   ETHERLINK,
-  ETHO_PROTOCOL,
   FANTOM,
   FLARE,
   FLOW,
@@ -286,7 +276,6 @@ export const chains = {
   MEZO,
   MIND,
   MITOSIS,
-  MOCA_CHAIN,
   MODE,
   MONAD,
   MOONBEAM,
@@ -316,7 +305,6 @@ export const chains = {
   REDSTONE,
   REI_NETWORK,
   REYA,
-  RIVALZ,
   ROBINHOOD_CHAIN,
   ROLLUX,
   RONIN,
@@ -334,14 +322,12 @@ export const chains = {
   SONEIUM,
   SONIC,
   STABLE,
-  STACK,
   STARGAZE,
   STEP_NETWORK,
   STORY,
   STRIDE,
   SUPERPOSITION,
   SUPERSEED,
-  SURFLAYER,
   SWAN,
   SWELLCHAIN,
   TAC,

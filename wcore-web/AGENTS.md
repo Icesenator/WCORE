@@ -33,6 +33,12 @@ pnpm test                      # typecheck + packages tests + web tests
 # DB
 & scripts/backup-db.ps1                  # Manual backup
 & scripts/check-backup-freshness.ps1     # Alert if no backup >48h
+
+# Chain lifecycle audit (weekly, see .github/workflows/chain-lifecycle-audit.yml)
+# Probes every EVM RPC from Railway (cloud, not local ISP), cross-checks ChainList,
+# flags chains that are dead / removed / chainId-mismatched / misconfigured.
+$env:ADMIN_TOKEN="<railway ADMIN_TOKEN>"
+pnpm audit:chain-lifecycle
 ```
 
 ---

@@ -25,6 +25,91 @@ export function dependencyHealthStatus(dbOk: boolean, redisOk: boolean, openCirc
 type DependencyName = "db" | "redis";
 type AlertSeverity = "info" | "warning" | "critical";
 
+type RpcAuditChain = {
+  key: string;
+  vm: string;
+  CHAIN?: { CHAIN_ID?: number | string };
+  RPC?: { ENDPOINTS?: readonly string[] };
+  FLAGS?: { DISABLE_CHAIN?: boolean };
+};
+
+type RpcProbeResult = {
+  url: string;
+  ok: boolean;
+  ms: number;
+  status?: number;
+  chainId?: number;
+  error?: string;
+};
+
+export async function auditEvmRpcChains(
+  chains: readonly RpcAuditChain[],
+  options: { fetcher?: typeof fetch; timeoutMs?: number; concurrency?: number } = {},
+) {
+  const fetcher = options.fetcher ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 8_000;
+  const concurrency = options.concurrency ?? 12;
+  const evmChains = chains.filter((chain) => chain.vm === "EVM" && typeof chain.CHAIN?.CHAIN_ID === "number");
+  const rows: Array<{
+    key: string;
+    chainId: number;
+    disabled: boolean;
+    total: number;
+    alive: number;
+    mismatched: number;
+    endpoints: RpcProbeResult[];
+  }> = [];
+
+  let cursor = 0;
+  async function worker() {
+    while (cursor < evmChains.length) {
+      const chain = evmChains[cursor++];
+      if (!chain || typeof chain.CHAIN?.CHAIN_ID !== "number") continue;
+      const expectedChainId = chain.CHAIN.CHAIN_ID;
+      const endpoints = [...(chain.RPC?.ENDPOINTS ?? [])];
+      const probes = await Promise.all(endpoints.map(async (url): Promise<RpcProbeResult> => {
+        const startedAt = Date.now();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetcher(url, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
+            signal: controller.signal,
+          });
+          const ms = Date.now() - startedAt;
+          if (!response.ok) return { url, ok: false, ms, status: response.status, error: `HTTP ${response.status}` };
+          const data = await response.json() as { result?: string };
+          const chainId = typeof data.result === "string" ? Number.parseInt(data.result, 16) : Number.NaN;
+          if (!Number.isFinite(chainId)) return { url, ok: false, ms, error: "invalid_chain_id" };
+          return chainId === expectedChainId
+            ? { url, ok: true, ms, chainId }
+            : { url, ok: false, ms, chainId, error: `chain_id_mismatch expected=${expectedChainId} got=${chainId}` };
+        } catch (error) {
+          return { url, ok: false, ms: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) };
+        } finally {
+          clearTimeout(timer);
+        }
+      }));
+      rows.push({
+        key: chain.key,
+        chainId: expectedChainId,
+        disabled: Boolean(chain.FLAGS?.DISABLE_CHAIN),
+        total: probes.length,
+        alive: probes.filter((probe) => probe.ok).length,
+        mismatched: probes.filter((probe) => probe.error?.startsWith("chain_id_mismatch")).length,
+        endpoints: probes,
+      });
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, evmChains.length)) }, () => worker()));
+  rows.sort((a, b) => a.key.localeCompare(b.key));
+  const dead = rows.filter((row) => row.total === 0 || row.alive === 0);
+  return { scanned: rows.length, dead, rows };
+}
+
 export class DependencyTransitionTracker {
   private readonly states = new Map<DependencyName, boolean>();
 
@@ -103,6 +188,15 @@ export async function adminPlugin(app: FastifyInstance, deps: AdminPluginDeps) {
       recentScans: recentScanRows.map(s => ({ address: s.address, chains: s.chains.length, totalEur: s.totalEur, at: s.createdAt.toISOString() })),
       chainCount: (await import("@wcore/core")).chainList.length, chainErrors, slowChains: scanMetrics,
     };
+  });
+
+  // --- Chain RPC lifecycle audit (runs from Railway, not the local network) ---
+
+  app.get("/api/admin/chains/rpc-audit", async (req, reply) => {
+    if (!isAdminAuthorized(req)) return reply.code(401).send({ error: "unauthorized" });
+    const { chainList } = await import("@wcore/core");
+    const audit = await auditEvmRpcChains(chainList, { timeoutMs: 8_000, concurrency: 12 });
+    return { generatedAt: new Date().toISOString(), ...audit };
   });
 
   // --- Metrics History ---

@@ -3,8 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { detectScam, SCAM_RULES_VERSION } from "./scam-detector.js";
 
-test("SCAM_RULES_VERSION bumped for the ZK impersonation rule", () => {
-  assert.ok(SCAM_RULES_VERSION >= 17, "rules version must be bumped to 17");
+test("SCAM_RULES_VERSION bumped for the phantom-value rule", () => {
+  assert.ok(SCAM_RULES_VERSION >= 18, "rules version must be bumped to 18");
 });
 
 test("blocks the known zkanalyst ZK impersonator contract", () => {
@@ -44,4 +44,60 @@ test("does not flag ARB with a name matching Arbitrum", () => {
 test("flags OP ticker with an unrelated financial name", () => {
   const result = detectScam("OP", "OperaFinance", 1, 0.005, "0x1111111111111111111111111111111111111111");
   assert.equal(result.isSuspicious, true, "OP + unrelated name must be suspicious");
+});
+
+test("blocks the World Chain AnimeCoin phantom-price scam", () => {
+  const result = detectScam("Anime", "AnimeCoin", 20, 19.05, "0xffb41fbf0935e16e1cbf25a4c8e05e437c1c6f95");
+  assert.equal(result.level, "scam", "AnimeCoin must be hard-blocked");
+  assert.ok(result.reasons.some((r) => r.toLowerCase().includes("blocked")));
+});
+
+test("blocks the World Chain RamenCoin phantom-price scam", () => {
+  const result = detectScam("Ramen", "RamenCoin", 10, 13.04, "0xc6f44893a558d9ae0576a2bb6bfa9c1c3f313815");
+  assert.equal(result.level, "scam", "RamenCoin must be hard-blocked");
+});
+
+test("blocks the World Chain CoffeeCoin phantom-price scam", () => {
+  const result = detectScam("Coffee", "CoffeeCoin", 10, 11.33, "0x5ef30ba3a27b92399a46ee86d2b810ee7e9d8abc");
+  assert.equal(result.level, "scam", "CoffeeCoin must be hard-blocked");
+});
+
+test("flags generic <Noun>Coin with phantom high value via heuristic", () => {
+  const result = detectScam("Foo", "FooCoin", 50, 15, "0xbaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  assert.equal(result.isSuspicious, true, "generic noun+Coin with high phantom value must be suspicious");
+  assert.ok(result.score >= 4, `score should be scam-level, got ${result.score}`);
+});
+
+test("does not flag real tokens with generic names and genuine value", () => {
+  const real = [
+    ["BONK", "Bonk", 100_000_000, 0.00000005, "0x1151cb3d861920e07a38e03eead12d6657e9f9e1"], // real BONK (Bonk on Solana) - low value per token
+    ["LINK", "ChainLink Token", 5, 18, "0x514910771af9ca656af840dff83e8264ecf986ca"], // real LINK
+    ["UNI", "Uniswap", 2, 9, "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984"], // real UNI
+    ["AAVE", "Aave", 1, 90, "0x7fc66500c84a76ad7e9c93437bfc5ac33e2ddae9"], // real AAVE
+  ];
+  for (const entry of real as Array<[string, string, number, number, string]>) {
+    const [symbol, name, balance, price, contract] = entry;
+    const result = detectScam(symbol, name, balance, price, contract);
+    assert.equal(result.isSuspicious, false, `${symbol} (${name}) must not be flagged`);
+  }
+});
+
+test("does not flag genuine project tokens with noun+Token names", () => {
+  const real = [
+    ["COMP", "Compound", 3, 45, "0xc00e94cb662c3520282e6f5717214004a7f26888"],
+    ["MKR", "Maker", 0.5, 1200, "0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2"],
+    ["CRV", "Curve DAO Token", 100, 0.35, "0xd533a949740bb3306d119cc777fa900ba034cd52"],
+    ["PEPE", "Pepe", 1_000_000, 0.000001, "0x6982508145454ce325ddbe47a25d4ec3d2311933"],
+  ];
+  for (const entry of real as Array<[string, string, number, number, string]>) {
+    const [symbol, name, balance, price, contract] = entry;
+    const result = detectScam(symbol, name, balance, price, contract);
+    assert.equal(result.isSuspicious, false, `${symbol} (${name}) must not be flagged`);
+  }
+});
+
+test("does not flag WLD/Worldcoin (real World Chain token)", () => {
+  const result = detectScam("WLD", "Worldcoin", 10, 2, "0x1237");
+  assert.equal(result.isSuspicious, false, "Worldcoin is legitimate");
+  assert.equal(result.level, "clean");
 });

@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 17;
+export const SCAM_RULES_VERSION = 18;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -51,7 +51,7 @@ const _KNOWN_TOKENS = new Set([
   "AVAX", "WAVAX", "MATIC", "WMATIC", "POL", "ARB", "OP", "LINK",
   "UNI", "AAVE", "CRV", "SNX", "COMP", "MKR", "LDO", "STETH", "RETH",
   "ATOM", "OSMO", "INJ", "SEI", "TIA", "DOT", "NEAR", "FLOW", "SUI", "APT",
-  "PEPE", "SHIB", "FLOKI", "DOGE", "BONK", "WIF",
+  "PEPE", "SHIB", "FLOKI", "DOGE", "BONK", "WIF", "WLD", "WORLDCOIN",
   "SOLVBTC", "CBBTC", "BTCB", "XGRAIL", "ARUSDC", "RSTONE", "LSTONE", "RE7USDC",
 ]);
 
@@ -100,6 +100,11 @@ const _BLOCKED_CONTRACTS = new Set([
   "0x69ca8b02d2aa27619e02fbf6de1b1502da5f147a", // BASE: ZAMRUD fake-price spam
   // 2026-08-10 — zkSync Era: ZK-ticker impersonator ("zkanalyst", 1-unit airdrop)
   "0x2937489455711b275e854fb8e2238d0b7cc5fa7b", // zkSync Era: ZK "zkanalyst" impersonator
+  // 2026-08-10 — World Chain phantom-value airdrop batch (generic noun+Coin,
+  // fake $11-22 unit price, ~1M holders, $0-volume pools)
+  "0xffb41fbf0935e16e1cbf25a4c8e05e437c1c6f95", // World Chain: AnimeCoin phantom-price scam
+  "0xc6f44893a558d9ae0576a2bb6bfa9c1c3f313815", // World Chain: RamenCoin phantom-price scam
+  "0x5ef30ba3a27b92399a46ee86d2b810ee7e9d8abc", // World Chain: CoffeeCoin phantom-price scam
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([
@@ -300,6 +305,24 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
     const hasBrand = brands.some((b) => lowerName.includes(b));
     if (!hasBrand) {
       signals.push({ reason: `major ticker ${s} impersonation: name "${n}" is unrelated`, weight: 3 });
+    }
+  }
+
+  // 14. Phantom-value airdrop: token named "<everyday noun>Coin/Token" with an
+  // implausibly high unit price and no brand identity. AnimeCoin/RamenCoin/
+  // CoffeeCoin on World Chain: ~1M holders, a $0-volume pool, and a fake
+  // $11-22 unit price produce a phantom €100-600 holding.
+  // Safe by design: excluded when the name shares the ticker or a real brand
+  // (LINK "ChainLink Token", UNI "Uniswap", AAVE "Aave", COMP "Compound").
+  if (priceEur != null && priceEur > 0 && !isKnownToken(s.toUpperCase(), contract)) {
+    const lowerName = n.toLowerCase();
+    const genericNounCoin = /^[a-z]+(coin|token)$/i.test(lowerName.replace(/[^a-z]/g, ""));
+    const value = balance * priceEur;
+    if (genericNounCoin && value > 100 && priceEur > 1) {
+      const knownBrand = /chainlink|uniswap|compound|maker|curve|aave|pepe|shiba|bonk|dogecoin|dai\b|lido|staked ether|wrapped|worldcoin|world\s*coin|bitcoin|ethereum|solana|cardano|polkadot|chainlink|arbitrum|optimism/i.test(lowerName);
+      if (!knownBrand) {
+        signals.push({ reason: `generic <noun>Coin with phantom value (${value.toFixed(0)} EUR at ${priceEur.toFixed(2)} EUR/unit): "${n}"`, weight: 4 });
+      }
     }
   }
 

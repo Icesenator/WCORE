@@ -1,0 +1,33 @@
+name: Chain lifecycle audit
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wcore-web
+    env:
+      ADMIN_TOKEN: ${{ secrets.WCORE_ADMIN_TOKEN }}
+      WCORE_API_URL: https://api-production-b5bf.up.railway.app
+      CHAIN_AUDIT_JSON: ${{ github.workspace }}/chain-lifecycle-audit.json
+      CHAIN_AUDIT_TEXT: ${{ github.workspace }}/chain-lifecycle-audit.txt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Audit cloud RPCs and ChainList lifecycle
+        run: node scripts/audit-chain-lifecycle.mjs
+      - name: Upload lifecycle report
+        uses: actions/upload-artifact@v4
+        with:
+          name: chain-lifecycle-audit
+          path: |
+            chain-lifecycle-audit.json
+            chain-lifecycle-audit.txt
+          retention-days: 30

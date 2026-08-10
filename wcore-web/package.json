@@ -11,7 +11,8 @@
     "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
     "build": "pnpm -r --filter \"./packages/*\" build && pnpm -r --filter \"./apps/*\" build",
     "typecheck": "pnpm -r typecheck",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "audit:chain-lifecycle": "node scripts/audit-chain-lifecycle.mjs"
   },
   "keywords": [],
   "author": "",

@@ -1,4 +1,5 @@
 import { getChain } from "../chains/index.js";
+import { cacheKey } from "@wcore/shared";
 import { linkAbortSignal } from "../abort.js";
 import type { ChainConfig } from "../types.js";
 import {
@@ -90,7 +91,7 @@ export async function getTonWalletAssets(
 
   // Negative cache: 2min TTL with liveness check (matches SVM pattern).
   const emptyCacheKey = opts.cache && !opts.forceRefresh
-    ? `empty:v2:${key.toLowerCase()}:${address}`
+    ? cacheKey("emptyWalletV2", { chainKey: key.toLowerCase(), address })
     : undefined;
   if (opts.cache && emptyCacheKey) {
     const cachedEmpty = await opts.cache.get<{ chain: string; chainName: string; nativeSymbol: string; nativeLogo?: string }>(emptyCacheKey);

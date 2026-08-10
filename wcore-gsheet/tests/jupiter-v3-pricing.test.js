@@ -6,7 +6,7 @@ const vm = require('vm');
 const source = fs.readFileSync(path.join(__dirname, '..', 'src', '07_PRICES.gs'), 'utf8');
 const initSource = fs.readFileSync(path.join(__dirname, '..', 'src', '01_INIT.gs'), 'utf8');
 const start = source.indexOf('PriceSources.jupBulkMints =');
-const end = source.indexOf('/**\n * Jupiter Token API V1', start);
+const end = start + source.slice(start).search(/\/\*\*\r?\n \* Jupiter Token API V1/);
 assert.ok(start >= 0 && end > start, 'Jupiter bulk pricing source not found');
 
 const mint = 'So11111111111111111111111111111111111111112';

@@ -35,8 +35,48 @@ type SvmTokenMetadata = {
   peg?: string;
 };
 
+function normalizeSvmIdentityValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function resolveSvmTokenIdentity({
+  mint,
+  symbol,
+  name,
+  metadata,
+  market,
+}: {
+  mint: string;
+  symbol: unknown;
+  name: unknown;
+  metadata?: { symbol?: unknown; name?: unknown };
+  market?: { symbol?: unknown; name?: unknown };
+}): { symbol: string; name: string; improved: boolean } {
+  const placeholder = mint.slice(0, 8);
+  const currentSymbol = normalizeSvmIdentityValue(symbol) || placeholder;
+  const currentName = normalizeSvmIdentityValue(name) || currentSymbol;
+  const canonicalSymbol = normalizeSvmIdentityValue(metadata?.symbol);
+  const canonicalName = normalizeSvmIdentityValue(metadata?.name);
+  const marketSymbol = normalizeSvmIdentityValue(market?.symbol);
+  const marketName = normalizeSvmIdentityValue(market?.name);
+  const resolvedSymbol = canonicalSymbol
+    || (currentSymbol === placeholder && marketSymbol ? marketSymbol : currentSymbol);
+  const resolvedName = canonicalName
+    || ((currentName === placeholder || currentName === currentSymbol) && marketName ? marketName : currentName);
+
+  return {
+    symbol: resolvedSymbol,
+    name: resolvedName,
+    improved: resolvedSymbol !== currentSymbol || resolvedName !== currentName,
+  };
+}
+
 let _svmTokenMap: Map<string, SvmTokenMetadata> | null = null;
 const _svmMetaCache = new Map<string, SvmTokenMetadata>();
+
+export function resetSvmMetaCacheForTests(): void {
+  _svmMetaCache.clear();
+}
 
 async function loadSvmTokenMetadata(): Promise<Map<string, SvmTokenMetadata>> {
   if (_svmTokenMap) return _svmTokenMap;
@@ -251,12 +291,19 @@ export async function getSvmWalletAssets(
         errors.push(`${ta.mint.slice(0, 8)}: decimals unavailable`);
         continue;
       }
-      const symbol = meta?.symbol || ta.symbol || ta.mint.slice(0, 8);
-      const name = meta?.name || symbol;
+      const rawSymbol = meta?.symbol || ta.symbol || ta.mint.slice(0, 8);
+      const rawName = meta?.name || rawSymbol;
+      const { symbol, name } = resolveSvmTokenIdentity({
+        mint: ta.mint,
+        symbol: rawSymbol,
+        name: rawName,
+        metadata: meta,
+      });
       const logoUrl = meta?.logoUrl;
       const balance = rawAmountToNumber(ta.amount, decimals);
       if (!meta && symbol !== ta.mint.slice(0, 8)) {
-        _svmMetaCache.set(ta.mint, { symbol, name, decimals });
+        const learnedName = !name.trim() || name === ta.mint.slice(0, 8) || name === symbol ? "" : name;
+        _svmMetaCache.set(ta.mint, { symbol, name: learnedName, decimals });
       }
       pricedTokens[idx] = await priceSvmToken(svmChain, ta.mint, symbol, name, logoUrl, meta, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache);
 
@@ -508,11 +555,38 @@ async function priceSvmToken(
     peg: metadata?.peg,
   };
   const priced = await priceTokenCascade({ token, fxRate, cache, sources, allowCoinGeckoTokenFallback: true, intraScanCache });
-  if (priced.reason) errors.push(`${symbol} price: ${priced.reason}`);
-  return {
+  const identity = resolveSvmTokenIdentity({
     mint,
     symbol,
     name,
+    metadata,
+    market: { symbol: priced.symbol, name: priced.name },
+  });
+  if (identity.improved) {
+    const placeholder = mint.slice(0, 8);
+    const hasCanonicalSymbol = normalizeSvmIdentityValue(metadata?.symbol).length > 0;
+    const hasCanonicalName = normalizeSvmIdentityValue(metadata?.name).length > 0;
+    const currentSymbolIsPlaceholder = symbol === placeholder;
+    const currentNameIsPlaceholder = name === placeholder || name === symbol;
+    const learnedSymbol = hasCanonicalSymbol || identity.symbol !== symbol || !currentSymbolIsPlaceholder
+      ? identity.symbol
+      : "";
+    const learnedName = hasCanonicalName || identity.name !== name || !currentNameIsPlaceholder
+      ? identity.name
+      : "";
+    _svmMetaCache.set(mint, {
+      ...metadata,
+      symbol: learnedSymbol,
+      name: learnedName,
+      decimals,
+      logoUrl,
+    });
+  }
+  if (priced.reason) errors.push(`${identity.symbol} price: ${priced.reason}`);
+  return {
+    mint,
+    symbol: identity.symbol,
+    name: identity.name,
     decimals,
     balance,
     priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),

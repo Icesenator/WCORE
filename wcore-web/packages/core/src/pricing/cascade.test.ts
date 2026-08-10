@@ -313,6 +313,45 @@ test("price cache hit preserves accepted source metadata", async () => {
   assert.equal(cached?.name, "catwifhat");
 });
 
+test("fresh price cache without identity self-heals from market sources", async () => {
+  const cache = new MemoryPricingCache();
+  const mint = "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+  await cache.setPrice(`solana:${mint}`, {
+    priceEur: 2.4e-8 * fxRate,
+    ts: Date.now(),
+    source: "dex",
+  });
+  let marketCalls = 0;
+  const sources = sourceSet({});
+  sources.dexscreener.getTokenPriceUsd = async () => {
+    marketCalls++;
+    return {
+      priceUsd: 2.4e-8,
+      source: "dex",
+      symbol: "CWIF",
+      name: "catwifhat",
+    };
+  };
+
+  const result = await priceTokenCascade({
+    token: token({
+      key: `solana:${mint}`,
+      contract: mint,
+      chain: { ...baseChain, key: "SOLANA", vm: "SVM" },
+    }),
+    fxRate,
+    cache,
+    sources,
+  });
+  const cached = await cache.getPrice(`solana:${mint}`);
+
+  assert.equal(result.symbol, "CWIF");
+  assert.equal(result.name, "catwifhat");
+  assert.equal(marketCalls, 1);
+  assert.equal(cached?.symbol, "CWIF");
+  assert.equal(cached?.name, "catwifhat");
+});
+
 test("falls back to GeckoTerminal when DexScreener misses", async () => {
   const result = await priceTokenCascade({
     token: token(),

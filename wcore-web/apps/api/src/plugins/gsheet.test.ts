@@ -918,6 +918,40 @@ describe("gsheetPlugin", () => {
     await app.close();
   });
 
+  test("drops a hard-blocked scam token even when passed as a custom token", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "zkSync Era",
+        vm: "EVM",
+        timestamp: "2026-08-10T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "ZK", name: "zkanalyst", contract: "0x2937489455711b275e854fb8e2238d0b7cc5fa7b", balance: 1, decimals: 18, priceEur: 0.0068, valueEur: 0.0068 },
+        ],
+        totalValueEur: 21,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "zksync_era", strictTokens: true, customTokens: ["0x2937489455711b275e854fb8e2238d0b7cc5fa7b"] },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.tokens.length, 0, "blocked scam custom token must be filtered out");
+    await app.close();
+  });
+
   test("price repair forwards forceRefresh so stale Redis prices are skipped", async () => {
     const app = Fastify();
     let sawForceRefresh: boolean | undefined;

@@ -583,7 +583,7 @@ test("getSvmWalletAssets can learn a market name after learning only the symbol"
 
     assert.ok(first.tokens.length > 0);
     assert.ok(second.tokens.length > 0);
-    assert.ok(first.tokens.every((token) => token.symbol === "CWIF" && token.name === mint.slice(0, 8)));
+    assert.ok(first.tokens.every((token) => token.symbol === "CWIF" && token.name === ""));
     assert.ok(second.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
   } finally {
     globalThis.fetch = originalFetch;

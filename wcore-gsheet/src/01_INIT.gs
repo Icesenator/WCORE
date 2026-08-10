@@ -39,7 +39,7 @@ var INIT_VERSION = "4.15.63";
 var WCORE_VERSION = {
   MAJOR: 4,
   MINOR: 16,
-  PATCH: 61,
+  PATCH: 62,
 
   toString: function() {
     return 'v' + this.MAJOR + '.' + this.MINOR + '.' + this.PATCH;
@@ -238,7 +238,7 @@ var WCORE_PRICE_API_URLS = {
   COINGECKO_TOKEN: 'https://api.coingecko.com/api/v3/simple/token_price/',
   
   // Jupiter (Solana specific)
-  JUPITER_PRICE: 'https://price.jup.ag/v4/price',
+  JUPITER_PRICE: 'https://lite-api.jup.ag/price/v3',
   JUPITER_QUOTE: 'https://quote-api.jup.ag/v6/quote',
   
   // FX Rate

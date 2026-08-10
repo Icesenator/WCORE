@@ -26,6 +26,9 @@ export const FUSE: ChainConfig = {
     DEX_SLUG: "fuse",
     GT_NETWORK: "fuse",
   },
+  LLAMA_CONTRACT_MAP: {
+    "0x0be9e53fd7edac9f859882afdda116645287c629": "coingecko:fuse-network-token",
+  },
   LLAMA_ID_MAP: {
     DAI: "coingecko:dai",
     FUSE: "coingecko:fuse-network-token",

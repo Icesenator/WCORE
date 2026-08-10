@@ -17,7 +17,8 @@ var _FUSE = ChainFactory.createEvmChain("FUSE", {
  DEX_SLUG: "fuse",
  GT_NETWORK: "fuse"
  },
- LLAMA_ID_MAP: { "DAI":"coingecko:dai", "FUSE":"coingecko:fuse-network-token", "USDC":"coingecko:usd-coin", "USDT":"coingecko:tether", "WBTC":"coingecko:wrapped-bitcoin", "WETH":"coingecko:weth", "WFUSE":"coingecko:fuse-network-token" }
+    LLAMA_CONTRACT_MAP: { "0x0be9e53fd7edac9f859882afdda116645287c629": "coingecko:fuse-network-token" },
+    LLAMA_ID_MAP: { "DAI":"coingecko:dai", "FUSE":"coingecko:fuse-network-token", "USDC":"coingecko:usd-coin", "USDT":"coingecko:tether", "WBTC":"coingecko:wrapped-bitcoin", "WETH":"coingecko:weth", "WFUSE":"coingecko:fuse-network-token" }
 });
 
 // Main functions

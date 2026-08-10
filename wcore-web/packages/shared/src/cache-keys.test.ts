@@ -12,6 +12,13 @@ describe("cacheKey", () => {
       .toBe("scan:result:0x123:BASE");
   });
 
+  it("keeps versioned non-EVM empty-wallet keys in the registry", () => {
+    expect(cacheKey("emptyWalletV2", { chainKey: "solana", address: "WalletABC" }))
+      .toBe("empty:v2:solana:WalletABC");
+    expect(cacheKeyGsheet("emptyWalletV2", { chainKey: "solana", address: "WalletABC" }))
+      .toBeNull();
+  });
+
   it("throws on missing var", () => {
     expect(() => cacheKey("priceDex", { chainSlug: "ethereum" }))
       .toThrow("Missing var contract");

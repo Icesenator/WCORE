@@ -1,4 +1,5 @@
 import { getChain } from "../chains/index.js";
+import { cacheKey } from "@wcore/shared";
 import type { ChainConfig } from "../types.js";
 import { RpcClient } from "../rpc/client.js";
 import { reachConsensus } from "../rpc/consensus.js";
@@ -132,7 +133,9 @@ export async function getSvmWalletAssets(
   // v2: Liveness check — a single fast getBalance call (~200ms) verifies the
   // wallet is still empty before serving the cached result. This prevents
   // stale cache from blocking real assets indefinitely (no more prefix bumps).
-  const emptyCacheKey = cache && !opts.forceRefresh ? `empty:v2:${key.toLowerCase()}:${address}` : undefined;
+  const emptyCacheKey = cache && !opts.forceRefresh
+    ? cacheKey("emptyWalletV2", { chainKey: key.toLowerCase(), address })
+    : undefined;
   if (cache && emptyCacheKey) {
     const cachedEmpty = await cache.get<{ chain: string; chainName: string; nativeSymbol: string; nativeLogo?: string }>(emptyCacheKey);
     if (cachedEmpty) {

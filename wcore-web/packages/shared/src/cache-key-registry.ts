@@ -90,6 +90,13 @@ export const CACHE_KEY_REGISTRY = {
     storage: "local" as const,
     ttl: "10m",
   },
+  emptyWalletV2: {
+    vars: ["chainKey", "address"],
+    gsheet: null,
+    web: "empty:v2:{chainKey}:{address}",
+    storage: "web-only" as const,
+    ttl: "10m",
+  },
   compoundV3CTokens: {
     vars: ["chain", "market"],
     gsheet: null,

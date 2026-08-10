@@ -1,4 +1,5 @@
 import { getChain } from "../chains/index.js";
+import { cacheKey } from "@wcore/shared";
 import { linkAbortSignal } from "../abort.js";
 import type { ChainConfig } from "../types.js";
 import {
@@ -131,7 +132,9 @@ export async function getCosmosWalletAssets(
   // v2: Liveness check — a single fast REST call (~1-2s) verifies the
   // wallet is still empty before serving the cached result. This prevents
   // stale cache from blocking real assets indefinitely (no more prefix bumps).
-  const emptyCacheKey = cache && !opts.forceRefresh ? `empty:v2:${key.toLowerCase()}:${address}` : undefined;
+  const emptyCacheKey = cache && !opts.forceRefresh
+    ? cacheKey("emptyWalletV2", { chainKey: key.toLowerCase(), address })
+    : undefined;
   if (cache && emptyCacheKey) {
     const cachedEmpty = await cache.get<{ chain: string; chainName: string; nativeSymbol: string }>(emptyCacheKey);
     if (cachedEmpty) {

@@ -55,6 +55,8 @@ export interface PricingResult {
   priceEur: number | null;
   priceUsd: number | null;
   source: PriceSource | string | null;
+  symbol?: string;
+  name?: string;
   reason: string | null;
   marker?: PricingMarker;
   trail: PricingTrailStep[];
@@ -64,6 +66,8 @@ export interface CachedPrice {
   priceEur: number;
   ts: number;
   source?: PriceSource | string;
+  symbol?: string;
+  name?: string;
 }
 
 export interface PricingCache {

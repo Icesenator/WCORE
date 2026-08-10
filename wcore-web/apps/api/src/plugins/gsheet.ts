@@ -43,6 +43,8 @@ export interface GsheetPluginOptions {
 export interface GsheetPriceBatchInput {
   chain: string;
   tokens: string[];
+  /** forceRefresh propagates skipCache so a forced scan never resurrects stale Redis prices. */
+  forceRefresh?: boolean;
 }
 
 export interface GsheetPriceRecord {
@@ -488,7 +490,7 @@ async function repairMissingGsheetScanPrices(
   const repairIds = [...new Set(missing.map((m) => m.id))].slice(0, apiConfig.integrations.gsheetScanPriceRepairLimit);
   if (repairIds.length === 0) return result;
 
-  const priceResult = await batcher({ chain: input.chain, tokens: repairIds });
+  const priceResult = await batcher({ chain: input.chain, tokens: repairIds, forceRefresh: input.forceRefresh === true });
   const repairedSymbols = new Set<string>();
   const repairedTokens = tokens.map((token) => {
     const id = gsheetTokenId(token).toLowerCase();
@@ -809,6 +811,8 @@ async function defaultPriceBatcher(input: GsheetPriceBatchInput, cache?: CacheSt
       cache: priceCache,
       sources,
       allowCoinGeckoTokenFallback: true,
+      skipCache: input.forceRefresh === true,
+      allowStaleCacheOnMiss: input.forceRefresh === true,
     });
     prices[token] = {
       priceEur: priced.priceEur,

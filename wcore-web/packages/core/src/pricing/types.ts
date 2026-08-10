@@ -66,6 +66,8 @@ export interface CachedPrice {
   priceEur: number;
   ts: number;
   source?: PriceSource | string;
+  symbol?: string;
+  name?: string;
 }
 
 export interface PricingCache {

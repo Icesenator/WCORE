@@ -70,7 +70,17 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
   const staleMs = options.priceStaleMs ?? DEFAULT_PRICE_STALE_MS;
   if (cached && nowMs - cached.ts >= 0 && nowMs - cached.ts < staleMs) {
     trail.push({ source: "cache", status: "hit" });
-    return result(key, cached.priceEur, cached.priceEur / options.fxRate, cached.source ?? "cache", null, trail);
+    return result(
+      key,
+      cached.priceEur,
+      cached.priceEur / options.fxRate,
+      cached.source ?? "cache",
+      null,
+      trail,
+      undefined,
+      cached.symbol,
+      cached.name,
+    );
   }
   const staleFallback = options.skipCache && options.allowStaleCacheOnMiss
     ? await options.cache.getPrice(key)
@@ -218,7 +228,13 @@ function commitSourcePrice(
   if (!isPositiveFinite(priceEur)) return result(key, null, source.priceUsd, source.source, "STABLE_SANITY_REJECTED", _trail);
   // Best-effort cache write: awaiting blocks the cascade return, but we log failures
   // so silent Redis outages don't go undetected.
-  Promise.resolve(options.cache.setPrice(key, { priceEur, ts: nowMs, source: source.source })).catch((e) => {
+  Promise.resolve(options.cache.setPrice(key, {
+    priceEur,
+    ts: nowMs,
+    source: source.source,
+    ...(source.symbol ? { symbol: source.symbol } : {}),
+    ...(source.name ? { name: source.name } : {}),
+  })).catch((e) => {
     if (!_setPriceLogged) { _setPriceLogged = true; console.error("[cascade] cache.setPrice failed:", e?.message ?? e); }
   });
   return result(key, priceEur, source.priceUsd, source.source, null, _trail, source.marker, source.symbol, source.name);

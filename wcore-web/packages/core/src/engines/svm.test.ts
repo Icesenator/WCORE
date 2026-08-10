@@ -1,7 +1,7 @@
 // Run: node --import tsx --test packages/core/src/engines/svm.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getSvmWalletAssets, resolveSvmTokenIdentity } from "./svm.js";
+import { getSvmWalletAssets, resetSvmMetaCacheForTests, resolveSvmTokenIdentity } from "./svm.js";
 import { MemoryCacheStore } from "../cache/memory-cache.js";
 import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 
@@ -508,6 +508,7 @@ test("getSvmWalletAssets learns accepted market identity for later price-cache h
   const priceCache = new MemoryPricingCache();
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({ json: async () => ({}) }) as Response;
+  resetSvmMetaCacheForTests();
 
   try {
     const first = await getSvmWalletAssets(OWNER, "solana", {
@@ -517,6 +518,7 @@ test("getSvmWalletAssets learns accepted market identity for later price-cache h
       fxRate: 1,
     });
     const firstMarketCalls = marketCalls;
+    resetSvmMetaCacheForTests();
     const second = await getSvmWalletAssets(OWNER, "solana", {
       rpc: rpc as never,
       sources,
@@ -530,6 +532,7 @@ test("getSvmWalletAssets learns accepted market identity for later price-cache h
     assert.equal(marketCalls, firstMarketCalls, "second scan should use the price cache");
   } finally {
     globalThis.fetch = originalFetch;
+    resetSvmMetaCacheForTests();
   }
 });
 

@@ -49,8 +49,8 @@ export function resolveSvmTokenIdentity({
   market?: { symbol?: string; name?: string };
 }): { symbol: string; name: string; improved: boolean } {
   const placeholder = mint.slice(0, 8);
-  const marketSymbol = market?.symbol?.trim() ?? "";
-  const marketName = market?.name?.trim() ?? "";
+  const marketSymbol = typeof market?.symbol === "string" ? market.symbol.trim() : "";
+  const marketName = typeof market?.name === "string" ? market.name.trim() : "";
   const canImproveSymbol = !metadata?.symbol?.trim() && (!symbol.trim() || symbol === placeholder);
   const canImproveName = !metadata?.name?.trim()
     && (!name.trim() || name === placeholder || name === symbol);
@@ -285,7 +285,8 @@ export async function getSvmWalletAssets(
       const logoUrl = meta?.logoUrl;
       const balance = rawAmountToNumber(ta.amount, decimals);
       if (!meta && symbol !== ta.mint.slice(0, 8)) {
-        _svmMetaCache.set(ta.mint, { symbol, name, decimals });
+        const learnedName = !name.trim() || name === ta.mint.slice(0, 8) || name === symbol ? "" : name;
+        _svmMetaCache.set(ta.mint, { symbol, name: learnedName, decimals });
       }
       pricedTokens[idx] = await priceSvmToken(svmChain, ta.mint, symbol, name, logoUrl, meta, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache);
 
@@ -545,10 +546,21 @@ async function priceSvmToken(
     market: { symbol: priced.symbol, name: priced.name },
   });
   if (identity.improved) {
+    const placeholder = mint.slice(0, 8);
+    const hasCanonicalSymbol = typeof metadata?.symbol === "string" && metadata.symbol.trim().length > 0;
+    const hasCanonicalName = typeof metadata?.name === "string" && metadata.name.trim().length > 0;
+    const currentSymbolIsPlaceholder = !symbol.trim() || symbol === placeholder;
+    const currentNameIsPlaceholder = !name.trim() || name === placeholder || name === symbol;
+    const learnedSymbol = hasCanonicalSymbol || identity.symbol !== symbol || !currentSymbolIsPlaceholder
+      ? identity.symbol
+      : "";
+    const learnedName = hasCanonicalName || identity.name !== name || !currentNameIsPlaceholder
+      ? identity.name
+      : "";
     _svmMetaCache.set(mint, {
       ...metadata,
-      symbol: identity.symbol,
-      name: identity.name,
+      symbol: learnedSymbol,
+      name: learnedName,
       decimals,
       logoUrl,
     });

@@ -74,6 +74,10 @@ export function resolveSvmTokenIdentity({
 let _svmTokenMap: Map<string, SvmTokenMetadata> | null = null;
 const _svmMetaCache = new Map<string, SvmTokenMetadata>();
 
+export function resetSvmMetaCacheForTests(): void {
+  _svmMetaCache.clear();
+}
+
 async function loadSvmTokenMetadata(): Promise<Map<string, SvmTokenMetadata>> {
   if (_svmTokenMap) return _svmTokenMap;
   try {

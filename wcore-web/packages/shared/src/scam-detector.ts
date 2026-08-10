@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 18;
+export const SCAM_RULES_VERSION = 19;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -105,6 +105,7 @@ const _BLOCKED_CONTRACTS = new Set([
   "0xffb41fbf0935e16e1cbf25a4c8e05e437c1c6f95", // World Chain: AnimeCoin phantom-price scam
   "0xc6f44893a558d9ae0576a2bb6bfa9c1c3f313815", // World Chain: RamenCoin phantom-price scam
   "0x5ef30ba3a27b92399a46ee86d2b810ee7e9d8abc", // World Chain: CoffeeCoin phantom-price scam
+  "0x51c707920d1ee9b308b5754675a0bf856cd25eea", // World Chain: Coffee2Coin phantom-price scam (variant)
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([

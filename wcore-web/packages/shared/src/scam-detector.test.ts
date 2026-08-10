@@ -4,7 +4,12 @@ import assert from "node:assert/strict";
 import { detectScam, SCAM_RULES_VERSION } from "./scam-detector.js";
 
 test("SCAM_RULES_VERSION bumped for the phantom-value rule", () => {
-  assert.ok(SCAM_RULES_VERSION >= 18, "rules version must be bumped to 18");
+  assert.ok(SCAM_RULES_VERSION >= 19, "rules version must be bumped to 19");
+});
+
+test("blocks the World Chain Coffee2Coin phantom-price scam", () => {
+  const result = detectScam("Coffee2", "Coffee2Coin", 10, 1.74, "0x51c707920d1ee9b308b5754675a0bf856cd25eea");
+  assert.equal(result.level, "scam", "Coffee2Coin must be hard-blocked");
 });
 
 test("blocks the known zkanalyst ZK impersonator contract", () => {

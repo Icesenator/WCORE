@@ -87,7 +87,7 @@ if (typeof ModuleRegistry !== 'undefined') {
 // ============================================================
 // MODULE VERSION (for diagnostics)
 // ============================================================
-var SVM_ENGINE_VERSION = "4.15.66";
+var SVM_ENGINE_VERSION = "4.16.64";
 
 // ============================================================
 // SVM CONFIG DEFAULTS
@@ -313,25 +313,27 @@ var SvmTokenMeta = (function() {
  var NS = "__SVM_MINT_META__", MAX = 800;
  function _load(t, c) { var o = {}; try { o = MetaCache.load(t, c) || {}; } catch (e) {} if (!o[NS]) o[NS] = {}; return o; }
  function _save(o, c) { try { MetaCache.save(o, null, c); } catch (e) {} }
- function _ph(s) { s = String(s || "").trim(); return !s || s === "SPL" || s.toUpperCase() === "SPLTOKEN" || s === "Unknown"; }
- function _pn(n) { n = String(n || "").trim(); return !n || n === "SPL Token" || n === "Unknown Token"; }
- function _mg(b, a) { b = b || {}; a = a || {}; var o = { symbol: b.symbol || "", name: b.name || "", decimals: b.decimals != null ? b.decimals : null }; if ((_ph(o.symbol) || !o.symbol) && a.symbol && !_ph(a.symbol)) o.symbol = String(a.symbol).trim(); if ((_pn(o.name) || !o.name) && a.name && !_pn(a.name)) o.name = String(a.name).trim(); if (!Num.isValid(o.decimals) && Num.isValid(a.decimals)) o.decimals = Number(a.decimals) | 0; return o; }
+ function _ph(s, m) { s = String(s || "").trim(); return !s || s === "SPL" || s.toUpperCase() === "SPLTOKEN" || s === "Unknown" || (!!m && s === String(m).slice(0, 8)); }
+ function _pn(n, m) { n = String(n || "").trim(); return !n || n === "SPL Token" || n === "Unknown Token" || (!!m && n === String(m).slice(0, 8)); }
+ function _mg(b, a, m) { b = b || {}; a = a || {}; var o = { symbol: b.symbol || "", name: b.name || "", decimals: b.decimals != null ? b.decimals : null }; if ((_ph(o.symbol, m) || !o.symbol) && a.symbol && !_ph(a.symbol, m)) o.symbol = String(a.symbol).trim(); if ((_pn(o.name, m) || !o.name) && a.name && !_pn(a.name, m)) o.name = String(a.name).trim(); if (!Num.isValid(o.decimals) && Num.isValid(a.decimals)) o.decimals = Number(a.decimals) | 0; return o; }
  
  function resolve(m, ov, t, c, skipApi) {
  m = String(m || "").trim(); if (!_svmIsBase58(m)) return { symbol: "", name: "", decimals: null };
- var mt = { symbol: "", name: "", decimals: null }; if (ov) mt = _mg(mt, ov);
- var co = _load(t, c); try { var l = co[NS] ? co[NS][m] : null; if (l) mt = _mg(mt, l); } catch (e) {}
- if ((!_ph(mt.symbol) && !_pn(mt.name)) || skipApi) return mt;
- try { if (typeof PriceSources !== 'undefined' && PriceSources.getGeckoTerminalMeta) { var gtMeta = PriceSources.getGeckoTerminalMeta(m, t, c); if (gtMeta) { mt = _mg(mt, gtMeta); if (!_ph(mt.symbol) || !_pn(mt.name)) learn(m, mt, t, c); } } } catch (eGt) {}
- if (!_ph(mt.symbol) && !_pn(mt.name)) return mt;
- try { if (typeof PriceSources !== 'undefined' && PriceSources.getJupiterTokenMeta) { var jupMeta = PriceSources.getJupiterTokenMeta(m, t, c); if (jupMeta) { mt = _mg(mt, jupMeta); if (!_ph(mt.symbol) || !_pn(mt.name)) learn(m, mt, t, c); } } } catch (eJup) {}
+ var mt = { symbol: "", name: "", decimals: null }; if (ov) mt = _mg(mt, ov, m);
+ var co = _load(t, c); try { var l = co[NS] ? co[NS][m] : null; if (l) mt = _mg(mt, l, m); } catch (e) {}
+ if ((!_ph(mt.symbol, m) && !_pn(mt.name, m)) || skipApi) return mt;
+ try { if (typeof PriceSources !== 'undefined' && PriceSources.getGeckoTerminalMeta) { var gtMeta = PriceSources.getGeckoTerminalMeta(m, t, c); if (gtMeta) { mt = _mg(mt, gtMeta, m); if (!_ph(mt.symbol, m) || !_pn(mt.name, m)) learn(m, mt, t, c); } } } catch (eGt) {}
+ if (!_ph(mt.symbol, m) && !_pn(mt.name, m)) return mt;
+ try { if (typeof PriceSources !== 'undefined' && PriceSources.getJupiterTokenMeta) { var jupMeta = PriceSources.getJupiterTokenMeta(m, t, c); if (jupMeta) { mt = _mg(mt, jupMeta, m); if (!_ph(mt.symbol, m) || !_pn(mt.name, m)) learn(m, mt, t, c); } } } catch (eJup) {}
+ if (!_ph(mt.symbol, m) && !_pn(mt.name, m)) return mt;
+ try { if (typeof PriceSources !== 'undefined' && PriceSources.dexBulkTokens) { var dexMap = PriceSources.dexBulkTokens([m], t, c); var dexMeta = dexMap ? (dexMap[m.toLowerCase()] || dexMap[m]) : null; if (dexMeta) { var prevSymbol = mt.symbol, prevName = mt.name; mt = _mg(mt, dexMeta, m); if (mt.symbol !== prevSymbol || mt.name !== prevName) learn(m, mt, t, c); } } } catch (eDex) {}
  return mt;
  }
  
  function learn(m, p, t, c) {
  if (!m || !p) return; m = String(m).trim(); if (!_svmIsBase58(m)) return;
- var o = _load(t, c), mm = o[NS] || (o[NS] = {}), ex = mm[m] || {}, up = _mg(ex, { symbol: p.symbol || "", name: p.name || "" });
- var imp = (!_ph(up.symbol) && _ph(ex.symbol)) || (!_pn(up.name) && _pn(ex.name));
+ var o = _load(t, c), mm = o[NS] || (o[NS] = {}), ex = mm[m] || {}, up = _mg(ex, { symbol: p.symbol || "", name: p.name || "" }, m);
+ var imp = (!_ph(up.symbol, m) && _ph(ex.symbol, m)) || (!_pn(up.name, m) && _pn(ex.name, m));
  if (imp) { up.ts = Date.now(); mm[m] = up; if (Object.keys(mm).length > MAX) { var a = []; for (var k in mm) a.push({ k: k, ts: mm[k].ts || 0 }); a.sort(function(x, y) { return x.ts - y.ts; }); for (var i = 0; i < a.length - MAX; i++) delete mm[a[i].k]; } _save(o, c); }
  }
  return { resolve: resolve, learnFromPrice: learn };
@@ -578,8 +580,8 @@ var SvmEngine = {
  if (Num.isValidPositive(pE)) {
  a3.price_eur = pE; state.priceMap[k0] = pE; state.priceTsMap[k0] = state.nowMs;
  splPricesFetched++;
- if ((!a3.symbol || a3.symbol === "SPL") && px.symbol) a3.symbol = px.symbol;
- if ((!a3.name || a3.name === "SPL Token") && px.name) a3.name = px.name;
+ if ((!a3.symbol || a3.symbol === "SPL" || a3.symbol === k0.slice(0, 8)) && px.symbol) a3.symbol = px.symbol;
+ if ((!a3.name || a3.name === "SPL Token" || a3.name === k0.slice(0, 8)) && px.name) a3.name = px.name;
  try { SvmTokenMeta.learnFromPrice(k0, px, state.timer, config); } catch (e) {}
  }
  }

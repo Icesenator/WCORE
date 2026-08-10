@@ -27,6 +27,9 @@ export const ZKSYNC_ERA: ChainConfig = {
     DEX_SLUG: "zksync",
     GT_NETWORK: "zksync",
   },
+  LLAMA_CONTRACT_MAP: {
+    "0x90973213e2a230227bd7ccafb30391f4a52439ee": "coingecko:usd-coin",
+  },
   LLAMA_ID_MAP: {
     DAI: "coingecko:dai",
     ETH: "coingecko:ethereum",

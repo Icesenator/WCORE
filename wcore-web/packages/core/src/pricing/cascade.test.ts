@@ -244,6 +244,36 @@ test("uses DefiLlama mapped token before DexScreener", async () => {
   assert.deepEqual(calls, ["defillama"]);
 });
 
+test("routes EraLend eUSDC contract to the canonical USDC price", async () => {
+  const calls: string[] = [];
+  const sources = sourceSet({ defillama: 1, dexscreener: 0.999 });
+  sources.defillama.getTokenPriceUsd = async (_token, llamaId) => {
+    calls.push(llamaId ?? "none");
+    return 1;
+  };
+
+  const result = await priceTokenCascade({
+    token: token({
+      key: "zksync_era:0x90973213e2a230227bd7ccafb30391f4a52439ee",
+      contract: "0x90973213e2a230227bd7ccafb30391f4a52439ee",
+      symbol: "eUSDC",
+      name: "EraLend USD Coin",
+      chain: {
+        key: "ZKSYNC_ERA",
+        vm: "EVM",
+        CHAIN: { NAME: "zkSync Era", CHAIN_ID: 324, NATIVE_SYMBOL: "ETH", NATIVE_DECIMALS: 18 },
+        LLAMA_CONTRACT_MAP: { "0x90973213e2a230227bd7ccafb30391f4a52439ee": "coingecko:usd-coin" },
+      },
+    }),
+    fxRate,
+    cache: new MemoryPricingCache(),
+    sources,
+  });
+
+  assert.equal(result.source, "llama-map");
+  assert.deepEqual(calls, ["coingecko:usd-coin"]);
+});
+
 test("falls back to DexScreener when DefiLlama misses", async () => {
   const result = await priceTokenCascade({
     token: token({ key: "0x2222222222222222222222222222222222222222", contract: "0x2222222222222222222222222222222222222222" }),

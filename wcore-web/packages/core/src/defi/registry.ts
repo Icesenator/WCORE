@@ -75,6 +75,20 @@ const entries: DeFiPositionRegistryEntry[] = [
     confidence: "high",
     pricing: { mode: "direct" },
   },
+  // EraLend eUSDC: deposit receipt (aToken) for USDC supplied to the EraLend
+  // lending market on zkSync Era. Freely withdrawable => [Flex]. Priced via
+  // the chain LLAMA_CONTRACT_MAP → canonical USDC, so the dust GT pool
+  // (eUSDC/USDC, ~$0.000002 reserve) is never used.
+  {
+    chain: "ZKSYNC_ERA",
+    contract: "0x90973213e2a230227bd7ccafb30391f4a52439ee",
+    symbol: "eUSDC",
+    protocol: "eralend-lending",
+    type: "lending_collateral",
+    liquidityStatus: "flex",
+    confidence: "high",
+    pricing: { mode: "direct" },
+  },
   // Superlend aTokens on Etherlink (Aave V3 fork): the token is the deposit
   // receipt for the underlying supplied to the lending market. Freely
   // withdrawable => [Flex]. Priced directly by DefiLlama, no mirror needed.

@@ -136,7 +136,7 @@
  * 4. GeckoTerminal (token_price endpoint, per-token fallback)
  * 5. CoinGecko (verified IDs only, last resort)
  * 6. CMC DEX HTML (worker-only fallback for DEX microcaps)
- * 7. Jupiter Price API V2 (Solana SPL tokens only)
+ * 7. Jupiter Price API V3 (Solana SPL tokens only)
  */
 var PRICES_VERSION = "4.15.30";
 
@@ -986,10 +986,8 @@ PriceSources.dexBulkTokens = PriceSources.dexBulkTokens || function(tokenAddress
 };
 
 /**
- * Jupiter Price API V2 (Solana mints) bulk lookup.
- * Endpoint: https://api.jup.ag/price/v2?ids=<mint1>,<mint2>,...
- * NOTE: Old endpoint https://price.jup.ag/v3/price deprecated Jan 2026
- * v4.9.2: Now extracts mintSymbol from response for metadata
+ * Jupiter Price API V3 (Solana mints) bulk lookup.
+ * Endpoint: https://lite-api.jup.ag/price/v3?ids=<mint1>,<mint2>,...
  * Returns: { mintLower: {priceUsd:number, symbol?:string, source:'Jupiter'} }
  */
 PriceSources.jupBulkMints = PriceSources.jupBulkMints || function(mints, timer, config) {
@@ -997,7 +995,7 @@ PriceSources.jupBulkMints = PriceSources.jupBulkMints || function(mints, timer, 
  try {
  if (!mints || !mints.length) return out;
 
- // Jupiter Price API V2 (public): ids=<mint1>,<mint2>... (USD)
+ // Jupiter Price API V3 (public): ids=<mint1>,<mint2>... (USD)
  // Note: some environments get intermittent 429/403 without a User-Agent;
  // use retry-aware fetch and shared JSON headers.
  var clean = [];
@@ -1009,9 +1007,12 @@ PriceSources.jupBulkMints = PriceSources.jupBulkMints || function(mints, timer, 
  }
  if (!clean.length) return out;
 
- // v4.5.8: Updated to Jupiter Price API V2 (old v3 deprecated Jan 2026)
- // Format: https://api.jup.ag/price/v2?ids=mint1,mint2
- var url = 'https://api.jup.ag/price/v2?ids=' + clean.join(',');
+ // v4.16.62: V2 answers 404 since Jupiter retired it, exactly as v3 before it.
+ // A dead endpoint here is invisible: the caller reads an empty map as "no
+ // market", so every SPL token silently loses its Solana-specific source.
+ // V3 lives on lite-api, the host published for use without an API key.
+ // Format: https://lite-api.jup.ag/price/v3?ids=mint1,mint2
+ var url = 'https://lite-api.jup.ag/price/v3?ids=' + clean.join(',');
 
  var opt = {
  muteHttpExceptions: true,
@@ -1026,17 +1027,17 @@ PriceSources.jupBulkMints = PriceSources.jupBulkMints || function(mints, timer, 
  ? HTTP.fetchJsonWithRetry(url, opt, config, timer)
  : (HTTP && typeof HTTP.getJson === 'function' ? HTTP.getJson(url, opt, config) : null);
 
- // V2 response format: { data: { "mint": { id, mintSymbol, price, ... } } }
- var data = j && j.data ? j.data : null;
+ // V3 response format: { "mint": { usdPrice, ... } }
+ var data = j;
  if (!data) {
  // Log for debugging if no data returned
- try { Logger.log('Jupiter V2 API: no data for ' + clean.length + ' mints'); } catch(eLog){}
+ try { Logger.log('Jupiter V3 API: no data for ' + clean.length + ' mints'); } catch(eLog){}
  return out;
  }
 
  clean.forEach(function(mint) {
  var r = data[mint] || null;
- var p = r && r.price != null ? Number(r.price) : NaN;
+ var p = r && r.usdPrice != null ? Number(r.usdPrice) : NaN;
  if (!isFinite(p) || p <= 0) return;
  // v4.9.2: Extract mintSymbol from Jupiter response
  var sym = (r && r.mintSymbol) ? String(r.mintSymbol).trim() : '';
@@ -1045,7 +1046,7 @@ PriceSources.jupBulkMints = PriceSources.jupBulkMints || function(mints, timer, 
  out[_pxKeyLower(mint)] = result;
  });
  } catch (e) {
- try { Logger.log('Jupiter V2 API error: ' + String(e.message || e)); } catch(eLog){}
+ try { Logger.log('Jupiter V3 API error: ' + String(e.message || e)); } catch(eLog){}
  }
  return out;
 };

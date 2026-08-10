@@ -1,13 +1,37 @@
 // Run: node --import tsx --test packages/core/src/engines/svm.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getSvmWalletAssets } from "./svm.js";
+import { getSvmWalletAssets, resolveSvmTokenIdentity } from "./svm.js";
 import { MemoryCacheStore } from "../cache/memory-cache.js";
-import type { PricingSourceSet } from "../pricing/index.js";
+import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 
 const OWNER = "AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4";
 const MOCK_MINT = "So11111111111111111111111111111111111111112";
 const FOGO_USDC_MINT = "uSd2czE61Evaf76RNbq4KPpXnkiL3irdzgLFUMe3NoG";
+
+test("resolveSvmTokenIdentity replaces placeholder identity with market metadata", () => {
+  const mint = "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+
+  assert.deepEqual(resolveSvmTokenIdentity({
+    mint,
+    symbol: "7atgF8KQ",
+    name: "7atgF8KQ",
+    metadata: undefined,
+    market: { symbol: "CWIF", name: "catwifhat" },
+  }), { symbol: "CWIF", name: "catwifhat", improved: true });
+});
+
+test("resolveSvmTokenIdentity preserves canonical metadata", () => {
+  const mint = "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+
+  assert.deepEqual(resolveSvmTokenIdentity({
+    mint,
+    symbol: "CANON",
+    name: "Canonical Token",
+    metadata: { symbol: "CANON", name: "Canonical Token" },
+    market: { symbol: "CWIF", name: "catwifhat" },
+  }), { symbol: "CANON", name: "Canonical Token", improved: false });
+});
 
 // Minimal mock for RpcClient with call<T>() method
 function mockRpc(handlers: Record<string, unknown>) {
@@ -431,4 +455,57 @@ test("getSvmWalletAssets forceRefresh bypasses the empty cache for a fresh re-sc
   assert.ok(!second.errors.some((e) => e.includes("[CACHED_EMPTY]")), "forceRefresh must bypass the empty cache");
   assert.ok(balanceCalls >= 1, "forceRefresh must call getBalance for fresh scan");
   assert.ok(tokenAccountCalls >= 1, "forceRefresh must call getTokenAccountsByOwner for full scan");
+});
+
+test("getSvmWalletAssets learns accepted market identity for later price-cache hits", async () => {
+  const mint = "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+  let marketCalls = 0;
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: {
+      getTokenPriceUsd: async () => {
+        marketCalls++;
+        return { priceUsd: 1, source: "dex", symbol: "CWIF", name: "catwifhat" };
+      },
+    },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const rpc = mockRpc({
+    getBalance: () => ({ value: 0 }),
+    getTokenAccountsByOwner: () => ({
+      value: [{
+        pubkey: "CatwifhatTokenAccount",
+        account: { data: { parsed: { info: { mint, tokenAmount: { amount: "1000000", decimals: 6 } } } } },
+      }],
+    }),
+  });
+  const priceCache = new MemoryPricingCache();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ json: async () => ({}) }) as Response;
+
+  try {
+    const first = await getSvmWalletAssets(OWNER, "solana", {
+      rpc: rpc as never,
+      sources,
+      sharedPriceCache: priceCache,
+      fxRate: 1,
+    });
+    const firstMarketCalls = marketCalls;
+    const second = await getSvmWalletAssets(OWNER, "solana", {
+      rpc: rpc as never,
+      sources,
+      sharedPriceCache: priceCache,
+      fxRate: 1,
+    });
+
+    assert.ok(first.tokens.length > 0);
+    assert.ok(first.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
+    assert.ok(second.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
+    assert.equal(marketCalls, firstMarketCalls, "second scan should use the price cache");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

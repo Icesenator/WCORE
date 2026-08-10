@@ -35,6 +35,35 @@ type SvmTokenMetadata = {
   peg?: string;
 };
 
+export function resolveSvmTokenIdentity({
+  mint,
+  symbol,
+  name,
+  metadata,
+  market,
+}: {
+  mint: string;
+  symbol: string;
+  name: string;
+  metadata?: { symbol?: string; name?: string };
+  market?: { symbol?: string; name?: string };
+}): { symbol: string; name: string; improved: boolean } {
+  const placeholder = mint.slice(0, 8);
+  const marketSymbol = market?.symbol?.trim() ?? "";
+  const marketName = market?.name?.trim() ?? "";
+  const canImproveSymbol = !metadata?.symbol?.trim() && (!symbol.trim() || symbol === placeholder);
+  const canImproveName = !metadata?.name?.trim()
+    && (!name.trim() || name === placeholder || name === symbol);
+  const resolvedSymbol = canImproveSymbol && marketSymbol ? marketSymbol : symbol;
+  const resolvedName = canImproveName && marketName ? marketName : name;
+
+  return {
+    symbol: resolvedSymbol,
+    name: resolvedName,
+    improved: resolvedSymbol !== symbol || resolvedName !== name,
+  };
+}
+
 let _svmTokenMap: Map<string, SvmTokenMetadata> | null = null;
 const _svmMetaCache = new Map<string, SvmTokenMetadata>();
 
@@ -508,11 +537,27 @@ async function priceSvmToken(
     peg: metadata?.peg,
   };
   const priced = await priceTokenCascade({ token, fxRate, cache, sources, allowCoinGeckoTokenFallback: true, intraScanCache });
-  if (priced.reason) errors.push(`${symbol} price: ${priced.reason}`);
-  return {
+  const identity = resolveSvmTokenIdentity({
     mint,
     symbol,
     name,
+    metadata,
+    market: { symbol: priced.symbol, name: priced.name },
+  });
+  if (identity.improved) {
+    _svmMetaCache.set(mint, {
+      ...metadata,
+      symbol: identity.symbol,
+      name: identity.name,
+      decimals,
+      logoUrl,
+    });
+  }
+  if (priced.reason) errors.push(`${identity.symbol} price: ${priced.reason}`);
+  return {
+    mint,
+    symbol: identity.symbol,
+    name: identity.name,
     decimals,
     balance,
     priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),

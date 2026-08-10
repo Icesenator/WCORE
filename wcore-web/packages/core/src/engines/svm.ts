@@ -305,7 +305,7 @@ export async function getSvmWalletAssets(
         const learnedName = !name.trim() || name === ta.mint.slice(0, 8) || name === symbol ? "" : name;
         _svmMetaCache.set(ta.mint, { symbol, name: learnedName, decimals });
       }
-      pricedTokens[idx] = await priceSvmToken(svmChain, ta.mint, symbol, name, logoUrl, meta, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache);
+      pricedTokens[idx] = await priceSvmToken(svmChain, ta.mint, symbol, name, logoUrl, meta, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache, opts.forceRefresh === true);
 
       if (cache && rawAmountToBigInt(ta.amount) > 0n) {
         const tokenCacheKey = `token:${key.toLowerCase()}:${ta.mint}:${address}`;
@@ -544,6 +544,7 @@ async function priceSvmToken(
   cache: PricingCache,
   errors: string[],
   intraScanCache?: IntraScanCache,
+  skipPriceCache = false,
 ): Promise<SvmWalletToken> {
   const token: PricingToken = {
     key: `${chain.key.toLowerCase()}:${mint}`,
@@ -554,7 +555,16 @@ async function priceSvmToken(
     isStable: metadata?.isStable,
     peg: metadata?.peg,
   };
-  const priced = await priceTokenCascade({ token, fxRate, cache, sources, allowCoinGeckoTokenFallback: true, intraScanCache });
+  const priced = await priceTokenCascade({
+    token,
+    fxRate,
+    cache,
+    sources,
+    allowCoinGeckoTokenFallback: true,
+    intraScanCache,
+    skipCache: skipPriceCache,
+    allowStaleCacheOnMiss: skipPriceCache,
+  });
   const identity = resolveSvmTokenIdentity({
     mint,
     symbol,

@@ -69,18 +69,23 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
   const cached = options.skipCache ? null : await options.cache.getPrice(key);
   const staleMs = options.priceStaleMs ?? DEFAULT_PRICE_STALE_MS;
   if (cached && nowMs - cached.ts >= 0 && nowMs - cached.ts < staleMs) {
-    trail.push({ source: "cache", status: "hit" });
-    return result(
-      key,
-      cached.priceEur,
-      cached.priceEur / options.fxRate,
-      cached.source ?? "cache",
-      null,
-      trail,
-      undefined,
-      cached.symbol,
-      cached.name,
-    );
+    if (cached.symbol || cached.name) {
+      trail.push({ source: "cache", status: "hit" });
+      return result(
+        key,
+        cached.priceEur,
+        cached.priceEur / options.fxRate,
+        cached.source ?? "cache",
+        null,
+        trail,
+        undefined,
+        cached.symbol,
+        cached.name,
+      );
+    }
+    // Fresh price without identity: fall through once so market sources can
+    // enrich symbol/name and rewrite the cache entry.
+    trail.push({ source: "cache", status: "hit", reason: "missing_identity" });
   }
   const staleFallback = options.skipCache && options.allowStaleCacheOnMiss
     ? await options.cache.getPrice(key)
@@ -162,7 +167,17 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
   // Fallback to stale cache if all live sources failed (rate limiting during massive scans)
   if ((!options.skipCache || options.allowStaleCacheOnMiss) && previousPriceEur != null) {
     trail.push({ source: "cache-stale", status: "hit" });
-    return result(key, previousPriceEur, previousPriceEur / options.fxRate, "cache-stale", null, trail);
+    return result(
+      key,
+      previousPriceEur,
+      previousPriceEur / options.fxRate,
+      "cache-stale",
+      null,
+      trail,
+      undefined,
+      staleFallback?.symbol,
+      staleFallback?.name,
+    );
   }
 
   return result(key, null, null, null, "NO_PRICE", trail, gt?.marker);

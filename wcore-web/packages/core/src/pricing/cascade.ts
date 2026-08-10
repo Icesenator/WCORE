@@ -69,7 +69,7 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
   const cached = options.skipCache ? null : await options.cache.getPrice(key);
   const staleMs = options.priceStaleMs ?? DEFAULT_PRICE_STALE_MS;
   if (cached && nowMs - cached.ts >= 0 && nowMs - cached.ts < staleMs) {
-    if (cached.symbol || cached.name) {
+    if (cached.symbol || cached.name || isBulkPriceSource(cached.source)) {
       trail.push({ source: "cache", status: "hit" });
       return result(
         key,
@@ -83,8 +83,8 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
         cached.name,
       );
     }
-    // Fresh price without identity: fall through once so market sources can
-    // enrich symbol/name and rewrite the cache entry.
+    // Fresh price without identity from a per-token source: fall through once
+    // so market sources can enrich symbol/name and rewrite the cache entry.
     trail.push({ source: "cache", status: "hit", reason: "missing_identity" });
   }
   const staleFallback = options.skipCache && options.allowStaleCacheOnMiss
@@ -166,6 +166,13 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
 
   // Fallback to stale cache if all live sources failed (rate limiting during massive scans)
   if ((!options.skipCache || options.allowStaleCacheOnMiss) && previousPriceEur != null) {
+    // Under forceRefresh, refuse stale AMM-pool prices (dex/gt/onchain/jupiter):
+    // dust pools fabricate prices (e.g. sbFUSE $0.31 from a $0.00016 GT pool)
+    // that would otherwise be resurrected forever. Registry sources are trusted.
+    if (options.skipCache && staleFallback?.source && isUntrustedStalePoolSource(staleFallback.source)) {
+      trail.push({ source: "cache-stale", status: "skipped", reason: "untrusted_amm_stale" });
+      return result(key, null, null, null, "NO_PRICE", trail, gt?.marker);
+    }
     trail.push({ source: "cache-stale", status: "hit" });
     return result(
       key,
@@ -311,4 +318,29 @@ function getSymbolLlamaId(symbol: unknown, chain: ChainConfig): string | null {
 
 function stringField(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+const UNTRUSTED_STALE_POOL_SOURCES = new Set([
+  "dex",
+  "dex-batch",
+  "gt",
+  "gt-batch",
+  "gt-l1",
+  "onchain-v3",
+  "onchain-v3-l1",
+  "jupiter",
+  "zora",
+]);
+
+const BULK_PRICE_SOURCES = new Set(["gt-batch", "llama-batch", "dex-batch", "llama-map"]);
+
+/** Bulk pre-fetch prices are trustworthy enough to serve even without identity. */
+function isBulkPriceSource(source: string | undefined): boolean {
+  return !!source && BULK_PRICE_SOURCES.has(String(source).toLowerCase());
+}
+
+/** AMM/aggregator pool prices can be fabricated by dust liquidity; never trust them as a stale fallback. */
+function isUntrustedStalePoolSource(source: string): boolean {
+  const s = String(source || "").toLowerCase();
+  return UNTRUSTED_STALE_POOL_SOURCES.has(s);
 }

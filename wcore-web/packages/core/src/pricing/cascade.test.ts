@@ -583,6 +583,55 @@ test("token pricing falls back to stale cache when all sources fail", async () =
   assert.equal(result.source, "cache-stale", "source should be cache-stale");
 });
 
+test("forceRefresh refuses a stale AMM-pool price when live sources miss", async () => {
+  const cache = new MemoryPricingCache();
+  const mint = "0xd13be8b716b18265e294831fcb1330d170840bb3";
+  const testToken = token({
+    key: `fuse:${mint}`,
+    contract: mint,
+    chain: { ...baseChain, key: "FUSE", vm: "EVM" },
+  });
+
+  // Stale price from a dust GT pool (like sbFUSE $0.31)
+  cache.setPrice(testToken.key, { priceEur: 0.269, ts: Date.now() - 2 * 60 * 60 * 1000, source: "gt" });
+
+  // All sources miss under forceRefresh
+  const sources = sourceSet({ defillama: null, dexscreener: null, geckoterminal: null, coingecko: null });
+
+  const result = await priceTokenCascade({
+    token: testToken,
+    fxRate,
+    cache,
+    sources,
+    skipCache: true,
+    allowStaleCacheOnMiss: true,
+  });
+
+  assert.equal(result.priceEur, null, "forceRefresh must not resurrect a stale AMM-pool price");
+  assert.equal(result.reason, "NO_PRICE");
+});
+
+test("forceRefresh still falls back to a stale registry price on full outage", async () => {
+  const cache = new MemoryPricingCache();
+  const testToken = token();
+
+  cache.setPrice(testToken.key, { priceEur: 3.1, ts: Date.now() - 2 * 60 * 60 * 1000, source: "llama-map" });
+
+  const sources = sourceSet({ defillama: null, dexscreener: null, geckoterminal: null, coingecko: null });
+
+  const result = await priceTokenCascade({
+    token: testToken,
+    fxRate,
+    cache,
+    sources,
+    skipCache: true,
+    allowStaleCacheOnMiss: true,
+  });
+
+  assert.equal(result.priceEur, 3.1, "stale registry price is trustworthy under forceRefresh");
+  assert.equal(result.source, "cache-stale");
+});
+
 // Staked mirror pricing is implemented in the gsheet plugin post-scan step
 // (apps/api/src/plugins/gsheet.ts STAKED_PRICE_MIRRORS) because the underlying
 // tokens (DAYS, SWEET) have no DefiLlama coverage and the price comes from

@@ -267,6 +267,41 @@ test("GeckoTerminal Try3 scans pools and keeps the highest reserve price", async
   assert.equal(await cache.getMarker(`base:${CONTRACT}`), "NEED_TRY3");
 });
 
+test("GeckoTerminal Try3 ignores pools below the liquidity floor", async () => {
+  const cache = new MemoryPricingCache();
+  const source = new GeckoTerminalPriceSource(
+    cache,
+    fetchMock((url) => {
+      if (url.includes("/simple/networks/base/token_price/")) {
+        return { data: { attributes: { token_prices: { [CONTRACT]: null } } } };
+      }
+      if (url.includes(`/networks/base/tokens/${CONTRACT}/pools`)) {
+        return {
+          data: [
+            {
+              attributes: { base_token_price_usd: "0.31", reserve_in_usd: "0.00016" },
+              relationships: { base_token: { data: { id: `base_${CONTRACT}` } } },
+            },
+            {
+              attributes: { base_token_price_usd: "0.007", reserve_in_usd: "0.001" },
+              relationships: { base_token: { data: { id: `base_${CONTRACT}` } } },
+            },
+          ],
+        };
+      }
+      if (url.includes(`/networks/base/tokens/${CONTRACT}`)) {
+        return { data: { attributes: { price_usd: null } } };
+      }
+      throw new Error(`unexpected url ${url}`);
+    }),
+  );
+
+  const result = await source.getTokenPriceUsd(token());
+
+  assert.equal(result?.priceUsd, null);
+  assert.equal(result?.marker, "NEED_TRY3");
+});
+
 // Jupiter retired the v2 price API: it answers 404, and the source swallowed that
 // through `if (!res.ok) return null`, so every SVM token silently lost its most
 // important source. v3 replies with a flat map keyed by mint, holding `usdPrice`.

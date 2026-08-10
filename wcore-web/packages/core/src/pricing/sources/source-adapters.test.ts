@@ -139,6 +139,44 @@ test("DexScreener picks highest liquidity pair and infers quote token price", as
   });
 });
 
+// SOL is the dominant quote asset on Solana. Leaving it out of the allowlist
+// rejected the deepest pairs of major mints: OFFICIAL TRUMP quotes in SOL with
+// tens of millions in liquidity and still resolved to no price.
+test("DexScreener accepts SOL-quoted Solana pairs", async () => {
+  const mint = "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN";
+  const source = new DexScreenerPriceSource(
+    fetchMock(() => [
+      {
+        baseToken: { address: mint, symbol: "TRUMP", name: "OFFICIAL TRUMP" },
+        quoteToken: { address: "So11111111111111111111111111111111111111112", symbol: "SOL" },
+        priceUsd: "1.49",
+        priceNative: "0.0075",
+        liquidity: { usd: "142098" },
+      },
+    ]),
+  );
+
+  const result = await source.getTokenPriceUsd(token(svmChain, mint));
+
+  assert.deepEqual(result, { priceUsd: 1.49, source: "dex", symbol: "TRUMP", name: "OFFICIAL TRUMP" });
+});
+
+test("DexScreener rejects a fake SOL quote token", async () => {
+  const mint = "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN";
+  const source = new DexScreenerPriceSource(
+    fetchMock(() => [
+      {
+        baseToken: { address: mint, symbol: "TRUMP", name: "OFFICIAL TRUMP" },
+        quoteToken: { address: "Fake111111111111111111111111111111111111111", symbol: "SOL" },
+        priceUsd: "999999",
+        liquidity: { usd: "999999999" },
+      },
+    ]),
+  );
+
+  assert.equal(await source.getTokenPriceUsd(token(svmChain, mint)), null);
+});
+
 test("GeckoTerminal batchTokenPrices fetches multiple tokens in one call", async () => {
   const cache = new MemoryPricingCache();
   const CT1 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -229,21 +267,27 @@ test("GeckoTerminal Try3 scans pools and keeps the highest reserve price", async
   assert.equal(await cache.getMarker(`base:${CONTRACT}`), "NEED_TRY3");
 });
 
-test("Jupiter only prices SVM mints", async () => {
+// Jupiter retired the v2 price API: it answers 404, and the source swallowed that
+// through `if (!res.ok) return null`, so every SVM token silently lost its most
+// important source. v3 replies with a flat map keyed by mint, holding `usdPrice`.
+test("Jupiter prices SVM mints through the live v3 endpoint", async () => {
   const mint = "So11111111111111111111111111111111111111112";
   let calls = 0;
+  let seenUrl = "";
   const source = new JupiterPriceSource(
-    fetchMock(() => {
+    fetchMock((url) => {
       calls++;
-      return { data: { [mint]: { price: "123", mintSymbol: "SOL" } } };
+      seenUrl = url;
+      return { [mint]: { usdPrice: 123.5, decimals: 9, blockId: 1 } };
     }),
   );
 
   assert.equal(await source.getTokenPriceUsd(token(evmChain, mint)), null);
   const result = await source.getTokenPriceUsd(token(svmChain, mint));
 
-  assert.deepEqual(result, { priceUsd: 123, source: "jupiter", symbol: "SOL" });
+  assert.deepEqual(result, { priceUsd: 123.5, source: "jupiter" });
   assert.equal(calls, 1);
+  assert.match(seenUrl, /^https:\/\/lite-api\.jup\.ag\/price\/v3\?ids=/, "v2 is retired and answers 404");
 });
 
 test("CoinGecko simple price parses a verified id", async () => {

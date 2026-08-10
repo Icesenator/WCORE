@@ -5,17 +5,14 @@
   "alwaysUpdateLinks": true,
   "userIgnoreFilters": [
     "(^|/)\\.git/",
-    "(^|/)\\.claude/",
-    "(^|/)\\.omc/",
     "(^|/)\\.playwright-mcp/",
+    "(^|/)\\.tmp/",
+    "(^|/)graphify-out/",
+    "(^|/)generated/",
+    "(^|/)backups/",
     "(^|/)node_modules/",
     "(^|/)\\.next/",
     "(^|/)coverage/",
-    "(^|/)\\.tmp/",
-    "(^|/)\\.backups/",
-    "(^|/)backups/",
-    "(^|/)graphify-out/",
-    "(^|/)generated/",
     "(^|/)(dist|build|__pycache__)/"
   ]
 }

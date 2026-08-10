@@ -1,13 +1,12 @@
 ---
-type: daily-log
-project: wcore
-status: active
-date: "{{date:YYYY-MM-DD}}"
+type: journal
+date: "{{date}}"
 ---
-# Journal de dev
 
-## Sessions
+# {{date}}
 
-## Décisions
+## Notes
 
-## Blocages / À suivre
+## Tasks
+
+- [ ] 

@@ -15,6 +15,8 @@ function envInt(name: string, fallback: number): number {
 const DEFAULT_MAX_CALLS = envInt("GT_THROTTLE_MAX_CALLS", 300);
 const DEFAULT_WINDOW_MS = envInt("GT_THROTTLE_WINDOW_MS", 60_000);
 const GT_BATCH_SIZE = envInt("GT_BATCH_SIZE", 30);
+// Minimum pool reserve ($) before GeckoTerminal pool pricing is trusted.
+const GT_MIN_POOL_RESERVE_USD = envInt("GT_MIN_POOL_RESERVE_USD", 50);
 // Small inter-call delay to avoid burst 429s (esp. when multiple concurrent scans
 // happen to fire calls at the same instant).
 const GT_CALL_DELAY_MS = envInt("GT_CALL_DELAY_MS", 10);
@@ -184,6 +186,10 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
       if (!isPositiveFinite(price)) continue;
       const reserve = Number(attr.reserve_in_usd ?? 0);
       const safeReserve = Number.isFinite(reserve) && reserve >= 0 ? reserve : 0;
+      // Liquidity floor aligned with DexScreener (liq >= $50): pools holding
+      // dust reserves ($0.0001-1) report fabricated prices (e.g. sbFUSE on
+      // Fuse ~$0.31 from a $0.00016 pool) and must be ignored.
+      if (safeReserve < GT_MIN_POOL_RESERVE_USD) continue;
       if (safeReserve > bestReserve) {
         bestPrice = price;
         bestReserve = safeReserve;

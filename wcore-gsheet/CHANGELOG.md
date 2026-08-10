@@ -194,3 +194,13 @@ sur la page ExÃ©cutions (workers concurrents, `MASTER_ON_EDIT` 50-75s, timeouts
 
 - **Cause** : le watchdog `BITPANDA_REFRESH_WATCHDOG` Ã©tait lui-mÃªme mort avec OAuth stale (gotcha v4.15.61), donc le re-install auto-heal des triggers ledger ne pouvait plus se dÃ©clencher.
 - **Fix** : await le self-heal via run `BP_REINSTALL_CEX_TRIGGERS` depuis l'editor Apps Script, suivi de `_ensureLedgerCache_(true)` pour re-lier toutes les cellules E de `Portefeuille Crypto Details`.
+
+## 2026-08-10 - Fallback métadonnées SVM (CWIF + micro-holdings)
+
+- **Web** : propagation symbol/
+ame de la source de prix acceptée ; cache prix enrichi ; auto-guérison des entrées Redis sans identité ; orceRefresh skipe le cache prix SVM.
+- **Apps Script** : fallback métadonnées marché sur esolve() ; placeholders sanitizés à vide ; pas d’écrasement des métadonnées canoniques/Metaplex.
+- **GSheet** : CWIF/catwifhat visible dans Layer3 - Solana ; prix et identité stables.
+- **Scam detector** : signal dust réduit à poids 1 (micro-holdings réels comme CWIF ne sont plus filtrés).
+- **Cross-runtime** : placeholders mint-prefix alignés Web = Sheet (blank) ; tags canonical/metaplex/market/pc pour retry Metaplex.
+- **Prod** : master poussé, API Railway déployée, clasp push déployé.

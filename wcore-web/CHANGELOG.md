@@ -1646,3 +1646,13 @@ Audit transversal post-v0.2.29 (correctness, s├®curit├®, tests, hygi├¿n
 - ROADMAP.md ÔÇö project plan
 - SESSION_SUMMARY.md ÔÇö session handoff + audit prompt
 - DEPLOY.md ÔÇö deployment checklist
+
+## 2026-08-10 - Fallback métadonnées SVM (CWIF + micro-holdings)
+
+- **Web** : propagation symbol/
+ame de la source de prix acceptée ; cache prix enrichi ; auto-guérison des entrées Redis sans identité ; orceRefresh skipe le cache prix SVM.
+- **Apps Script** : fallback métadonnées marché sur esolve() ; placeholders sanitizés à vide ; pas d’écrasement des métadonnées canoniques/Metaplex.
+- **GSheet** : CWIF/catwifhat visible dans Layer3 - Solana ; prix et identité stables.
+- **Scam detector** : signal dust réduit à poids 1 (micro-holdings réels comme CWIF ne sont plus filtrés).
+- **Cross-runtime** : placeholders mint-prefix alignés Web = Sheet (blank) ; tags canonical/metaplex/market/pc pour retry Metaplex.
+- **Prod** : master poussé, API Railway déployée, clasp push déployé.

@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 16;
+export const SCAM_RULES_VERSION = 17;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -55,6 +55,21 @@ const _KNOWN_TOKENS = new Set([
   "SOLVBTC", "CBBTC", "BTCB", "XGRAIL", "ARUSDC", "RSTONE", "LSTONE", "RE7USDC",
 ]);
 
+// Major token tickers that scammers impersonate by reusing the ticker with an
+// unrelated name (e.g. "ZK" + "zkanalyst"). Value is the set of official brand
+// strings the name must contain to be considered legitimate.
+const MAJOR_TOKEN_BRANDS: Record<string, string[]> = {
+  ZK: ["zk", "zksync", "zeta"],
+  ARB: ["arb", "arbitrum"],
+  OP: ["optimism", "op "],
+  WIF: ["wif", "dogwifhat"],
+  STETH: ["steth", "staked ether", "lido"],
+  PEPE: ["pepe"],
+  SHIB: ["shib", "shiba"],
+  BONK: ["bonk"],
+  FLOKI: ["floki", "floki"],
+};
+
 // Permanently blocked contracts — known scams that bypass heuristic detection
 const _BLOCKED_CONTRACTS = new Set([
   "0x94b5bd0c97f8a7b6cf0d2cb312069212f120b864", // Scroll: scam token
@@ -83,6 +98,8 @@ const _BLOCKED_CONTRACTS = new Set([
   "0x1626691e26c985f98fbc22193f24b719d3ae9491", // BASE: singularity-coin "singularity-engine"
   "0x3142b47221a8e9418e161bf5f747d65459f5535e", // BASE: TIMES "POLYMARKET TIMES"
   "0x69ca8b02d2aa27619e02fbf6de1b1502da5f147a", // BASE: ZAMRUD fake-price spam
+  // 2026-08-10 — zkSync Era: ZK-ticker impersonator ("zkanalyst", 1-unit airdrop)
+  "0x2937489455711b275e854fb8e2238d0b7cc5fa7b", // zkSync Era: ZK "zkanalyst" impersonator
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([
@@ -267,6 +284,22 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
     const genericBase = /^(Based|BaseCoin|Base Token|BaseToken|World Coin|WorldCoin)$/i;
     if (genericBase.test(s) || genericBase.test(n)) {
       signals.push({ reason: `ultra-generic chain impersonation (${s} / ${n})`, weight: 4 });
+    }
+  }
+
+  // 13. Major-ticker impersonation: token carries the ticker of a well-known
+  // asset but its name shares no official brand. Scammers airdrop 1 unit of
+  // e.g. "ZK" named "zkanalyst" to look like the real ZKsync token.
+  // Safe by design: the name must contain none of the brand strings, so real
+  // tokens (WIF/"dogwifhat", STETH/"Lido Staked Ether", ARB/"Arbitrum") pass.
+  // Admin-approved contracts always short-circuit above; this rule intentionally
+  // applies even to _KNOWN_TOKENS tickers because impersonation targets them.
+  const brands = MAJOR_TOKEN_BRANDS[s.toUpperCase()];
+  if (brands) {
+    const lowerName = n.toLowerCase();
+    const hasBrand = brands.some((b) => lowerName.includes(b));
+    if (!hasBrand) {
+      signals.push({ reason: `major ticker ${s} impersonation: name "${n}" is unrelated`, weight: 3 });
     }
   }
 

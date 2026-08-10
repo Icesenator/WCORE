@@ -33,6 +33,17 @@ test("resolveSvmTokenIdentity preserves canonical metadata", () => {
   }), { symbol: "CANON", name: "Canonical Token", improved: false });
 });
 
+test("resolveSvmTokenIdentity ignores malformed runtime market metadata", () => {
+  const mint = "7atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+
+  assert.deepEqual(resolveSvmTokenIdentity({
+    mint,
+    symbol: "7atgF8KQ",
+    name: "7atgF8KQ",
+    market: { symbol: 123, name: { value: "catwifhat" } } as never,
+  }), { symbol: "7atgF8KQ", name: "7atgF8KQ", improved: false });
+});
+
 // Minimal mock for RpcClient with call<T>() method
 function mockRpc(handlers: Record<string, unknown>) {
   return {
@@ -505,6 +516,60 @@ test("getSvmWalletAssets learns accepted market identity for later price-cache h
     assert.ok(first.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
     assert.ok(second.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
     assert.equal(marketCalls, firstMarketCalls, "second scan should use the price cache");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("getSvmWalletAssets can learn a market name after learning only the symbol", async () => {
+  const mint = "9atgF8KQo4wJrD5ATGX7t1V2zVvykPJbFfNeVf1icFv1";
+  let marketName: string | undefined;
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: {
+      getTokenPriceUsd: async () => ({
+        priceUsd: 1,
+        source: "dex",
+        symbol: "CWIF",
+        ...(marketName ? { name: marketName } : {}),
+      }),
+    },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const rpc = mockRpc({
+    getBalance: () => ({ value: 0 }),
+    getTokenAccountsByOwner: () => ({
+      value: [{
+        pubkey: "PartialCatwifhatTokenAccount",
+        account: { data: { parsed: { info: { mint, tokenAmount: { amount: "1000000", decimals: 6 } } } } },
+      }],
+    }),
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ json: async () => ({}) }) as Response;
+
+  try {
+    const first = await getSvmWalletAssets(OWNER, "solana", {
+      rpc: rpc as never,
+      sources,
+      sharedPriceCache: new MemoryPricingCache(),
+      fxRate: 1,
+    });
+    marketName = "catwifhat";
+    const second = await getSvmWalletAssets(OWNER, "solana", {
+      rpc: rpc as never,
+      sources,
+      sharedPriceCache: new MemoryPricingCache(),
+      fxRate: 1,
+    });
+
+    assert.ok(first.tokens.length > 0);
+    assert.ok(second.tokens.length > 0);
+    assert.ok(first.tokens.every((token) => token.symbol === "CWIF" && token.name === mint.slice(0, 8)));
+    assert.ok(second.tokens.every((token) => token.symbol === "CWIF" && token.name === "catwifhat"));
   } finally {
     globalThis.fetch = originalFetch;
   }

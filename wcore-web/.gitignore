@@ -62,6 +62,7 @@ scripts/*
 !scripts/backup-db-scheduled.ps1
 !scripts/setup-backup-task.ps1
 !scripts/analyze-errors.ps1
+!scripts/audit-chain-lifecycle.mjs
 !scripts/build-post-gm-8-new-chains.cjs
 !scripts/build-post-gm-8-more-chains.cjs
 !scripts/build-post-scam-flags.cjs

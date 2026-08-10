@@ -13,7 +13,6 @@ const QUESTION_MARK_PLACEHOLDERS = [
   "NEXI_CHAIN",
   "LUMIO",
   "BXN",
-  "MOCA_CHAIN",
 ] as const;
 
 describe("chain icon manifest", () => {

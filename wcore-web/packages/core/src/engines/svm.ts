@@ -26,6 +26,8 @@ import { roundUnitPrice } from "../pricing/rounding.js";
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
+type SvmMetaSource = "canonical" | "metaplex" | "market" | "rpc";
+
 type SvmTokenMetadata = {
   symbol: string;
   name: string;
@@ -33,10 +35,31 @@ type SvmTokenMetadata = {
   logoUrl?: string;
   isStable?: boolean;
   peg?: string;
+  source?: SvmMetaSource;
 };
 
 function normalizeSvmIdentityValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+export function isSvmPlaceholderSymbol(symbol: unknown, mint: string): boolean {
+  const s = normalizeSvmIdentityValue(symbol);
+  const m = normalizeSvmIdentityValue(mint);
+  return !s || s === "SPL" || s.toUpperCase() === "SPLTOKEN" || s === "Unknown" || (!!m && s === m.slice(0, 8));
+}
+
+export function isSvmPlaceholderName(name: unknown, mint: string): boolean {
+  const n = normalizeSvmIdentityValue(name);
+  const m = normalizeSvmIdentityValue(mint);
+  return !n || n === "SPL Token" || n === "Unknown Token" || (!!m && n === m.slice(0, 8));
+}
+
+/** Align Web display with Apps Script: blank unresolved mint-prefix placeholders. */
+export function sanitizeSvmDisplayIdentity(mint: string, symbol: string, name: string): { symbol: string; name: string } {
+  return {
+    symbol: isSvmPlaceholderSymbol(symbol, mint) ? "" : symbol,
+    name: isSvmPlaceholderName(name, mint) ? "" : name,
+  };
 }
 
 export function resolveSvmTokenIdentity({
@@ -261,9 +284,15 @@ export async function getSvmWalletAssets(
     }
   }
 
-  // Enrich unknown tokens via Metaplex getAsset (try mainnet-beta RPC)
+  // Enrich unknown tokens via Metaplex getAsset (try mainnet-beta RPC).
+  // Market-only cache entries still retry Metaplex so a later canonical name can win.
   const unknownMints = tokenAccounts
-    .filter(ta => !tokenMeta.has(ta.mint) && !_svmMetaCache.has(ta.mint))
+    .filter((ta) => {
+      if (tokenMeta.has(ta.mint)) return false;
+      const cached = _svmMetaCache.get(ta.mint);
+      if (!cached) return true;
+      return cached.source === "market";
+    })
     .map(ta => ta.mint);
   if (unknownMints.length > 0) {
     await enrichSvmMetadata(rpc, unknownMints);
@@ -303,7 +332,7 @@ export async function getSvmWalletAssets(
       const balance = rawAmountToNumber(ta.amount, decimals);
       if (!meta && symbol !== ta.mint.slice(0, 8)) {
         const learnedName = !name.trim() || name === ta.mint.slice(0, 8) || name === symbol ? "" : name;
-        _svmMetaCache.set(ta.mint, { symbol, name: learnedName, decimals });
+        _svmMetaCache.set(ta.mint, { symbol, name: learnedName, decimals, source: "rpc" });
       }
       pricedTokens[idx] = await priceSvmToken(svmChain, ta.mint, symbol, name, logoUrl, meta, balance, decimals, fxRate, sources, priceCache, errors, opts.intraScanCache, opts.forceRefresh === true);
 
@@ -584,19 +613,46 @@ async function priceSvmToken(
     const learnedName = hasCanonicalName || identity.name !== name || !currentNameIsPlaceholder
       ? identity.name
       : "";
-    _svmMetaCache.set(mint, {
-      ...metadata,
-      symbol: learnedSymbol,
-      name: learnedName,
-      decimals,
-      logoUrl,
-    });
+    const existing = _svmMetaCache.get(mint);
+    const fromMarket = !hasCanonicalSymbol && !hasCanonicalName
+      && (normalizeSvmIdentityValue(priced.symbol) === identity.symbol
+        || normalizeSvmIdentityValue(priced.name) === identity.name);
+    const nextSource: SvmMetaSource = hasCanonicalSymbol || hasCanonicalName
+      ? (existing?.source === "metaplex" ? "metaplex" : "canonical")
+      : fromMarket
+        ? "market"
+        : (existing?.source ?? "rpc");
+    // Never downgrade Metaplex/canonical identity to market-only.
+    if (existing?.source === "metaplex" || existing?.source === "canonical") {
+      if (!hasCanonicalSymbol && !hasCanonicalName) {
+        /* keep existing canonical/metaplex entry */
+      } else {
+        _svmMetaCache.set(mint, {
+          ...metadata,
+          symbol: learnedSymbol,
+          name: learnedName,
+          decimals,
+          logoUrl,
+          source: nextSource,
+        });
+      }
+    } else {
+      _svmMetaCache.set(mint, {
+        ...metadata,
+        symbol: learnedSymbol,
+        name: learnedName,
+        decimals,
+        logoUrl,
+        source: nextSource,
+      });
+    }
   }
   if (priced.reason) errors.push(`${identity.symbol} price: ${priced.reason}`);
+  const display = sanitizeSvmDisplayIdentity(mint, identity.symbol, identity.name);
   return {
     mint,
-    symbol: identity.symbol,
-    name: identity.name,
+    symbol: display.symbol,
+    name: display.name,
     decimals,
     balance,
     priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),
@@ -617,7 +673,13 @@ async function enrichSvmMetadata(rpc: RpcClient, mints: string[]): Promise<void>
       const meta = data.result?.content?.metadata;
       const image = data.result?.content?.links?.image;
       if (meta?.name) {
-        _svmMetaCache.set(mint, { symbol: meta.symbol || meta.name.slice(0, 8), name: meta.name, decimals: -1, logoUrl: image });
+        _svmMetaCache.set(mint, {
+          symbol: meta.symbol || meta.name.slice(0, 8),
+          name: meta.name,
+          decimals: -1,
+          logoUrl: image,
+          source: "metaplex",
+        });
       }
     }
   } catch { /* Metaplex unavailable */ }

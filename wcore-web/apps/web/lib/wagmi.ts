@@ -14,19 +14,6 @@ import { base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
 // ConnectButton (we lazy-load @wagmi/connectors/injected there).
 import { walletConnect, coinbaseWallet } from "@wagmi/connectors";
 
-const redstone: Chain = {
-  id: 690,
-  name: "Redstone",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: {
-    default: { http: ["https://rpc.redstonechain.com", "https://690.rpc.thirdweb.com"] },
-    public: { http: ["https://rpc.redstonechain.com", "https://690.rpc.thirdweb.com"] },
-  },
-  blockExplorers: {
-    default: { name: "Redstone Explorer", url: "https://explorer.redstone.xyz" },
-  },
-};
-
 const robinhoodChain: Chain = {
   id: 4663,
   name: "Robinhood Chain",
@@ -219,14 +206,6 @@ const juchain: Chain = {
   nativeCurrency: { name: "JuChain", symbol: "JUCHAIN", decimals: 18 },
   rpcUrls: { default: { http: ["https://rpc.juchain.org", "https://210000.rpc.thirdweb.com"] }, public: { http: ["https://rpc.juchain.org", "https://210000.rpc.thirdweb.com"] } },
   blockExplorers: { default: { name: "JuChain Explorer", url: "https://explorer.juchain.org" } },
-};
-
-const mind: Chain = {
-  id: 228,
-  name: "Mind Network",
-  nativeCurrency: { name: "Mind", symbol: "MIND", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.mindnetwork.xyz", "https://228.rpc.thirdweb.com"] }, public: { http: ["https://rpc.mindnetwork.xyz", "https://228.rpc.thirdweb.com"] } },
-  blockExplorers: { default: { name: "Mind Explorer", url: "https://explorer.mindnetwork.xyz" } },
 };
 
 const og: Chain = {
@@ -526,8 +505,8 @@ const wagmiConnectors = [
 
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, redstone, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
-    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, mind, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
+    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
+    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story],
   // as any needed — wagmi connector types mismatch with custom chain list
@@ -563,7 +542,6 @@ export const config = createConfig({
     [bob.id]: http(),
     [lisk.id]: http(),
     [metalL2.id]: http(),
-    [redstone.id]: http(),
     [robinhoodChain.id]: http(),
     [appchain.id]: http(),
     [camp.id]: http(),
@@ -586,7 +564,6 @@ export const config = createConfig({
     [doma.id]: http(),
     [b2.id]: http(),
     [juchain.id]: http(),
-    [mind.id]: http(),
     [og.id]: http(),
     [zero.id]: http(),
     [geb.id]: http(),

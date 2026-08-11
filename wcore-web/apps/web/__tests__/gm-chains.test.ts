@@ -13,9 +13,24 @@ describe("GM page chain lists", () => {
     assert.ok(!soonKeys.includes("moonbeam"));
   });
 
-  test("does not advertise disabled chains as coming soon", () => {
-    const soonKeys = getSoonChains().map((chain) => chain.key);
-    assert.ok(!soonKeys.includes("syndicate_commons"));
+  test("does not advertise removed chains", () => {
+    const removedKeys = [
+      "arena_z",
+      "corn",
+      "horizen_eon",
+      "inevm",
+      "mind",
+      "nexi_chain",
+      "polygon_zkevm",
+      "polynomial",
+      "redstone",
+      "rss3",
+      "stargaze",
+      "tangle",
+    ];
+    const visibleKeys = new Set([...getGmChains(), ...getSoonChains()].map((chain) => chain.key));
+
+    for (const key of removedKeys) assert.ok(!visibleKeys.has(key), `${key} is still visible in /gm`);
   });
 
   test("every GM_FACTORIES entry has a display label so it appears in /gm", () => {

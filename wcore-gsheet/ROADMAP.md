@@ -4,14 +4,14 @@
 
 ## Etat courant
 
-- 182 configurations generees: 168 EVM, 2 SVM, 11 Cosmos, 1 TON.
+- 162 configurations generees: 149 EVM, 2 SVM, 10 Cosmos, 1 TON; 150 actives et 12 desactivees.
 - `src/*.gs` est la source canonique; `dist/` est genere pour `@wcore/chains`.
 - Sept CEX: Binance, Bitpanda, Bitfinex, Bybit, Coinbase, OKX et Kraken.
 - Portefeuille crypto canonique: `Portefeuille Crypto` + `Portefeuille Crypto Details`.
 - Delegation de scan vers WCORE Web disponible, avec mode required par allowlist.
 - Cache wallet packed limite a 455 000 octets, TTL nominal 10 jours.
 - Validation statique: 3 107 fonctions globales au dernier audit.
-- **Compteur HTTP**: `HttpCounter` (buckets glissants 24h) compte maintenant les web scans (v4.16.30), expose via `GET_HTTP_COUNT_LAST_24H()` / `GET_HTTP_BREAKDOWN_24H()`.
+- **Compteur HTTP**: `HttpCounter` (buckets glissants 24h) compte les web scans et protege ses read-modify-write par verrou (`09e3d89e`), expose via `GET_HTTP_COUNT_LAST_24H()` / `GET_HTTP_BREAKDOWN_24H()`.
 - **ACTIVITY_WATCHDOG**: desactive (v4.16.30, -5760 UrlFetch/jour).
 - **Refresh CEX relay**: un trigger `UPDATE_CEX_RELAY_ROTATION` toutes les 15 minutes avance Binance, Bybit, Coinbase, OKX, soit environ une fois par heure chacun; `UPDATE_CEX_RELAY_ALL()` reste manuel/fallback uniquement.
 
@@ -26,22 +26,22 @@
 
 ## P1 - Integrite et fiabilite
 
+- [x] Preserver le dernier total natif Cosmos sain lorsqu'une composante staking Web est incomplete; exposer `INFO_STAKING` et conserver la completude dans `scanStats` (2026-08-10).
 - [x] Eviter la casse de mise en forme `Portefeuille Action` sous filtre actif.
-- [x] **Audit G2** : compteur HTTP rendu fiable (web scans comptes, attribution par trigger). La partie atomique du compteur (read-modify-write sans verrou) reste a corriger.
+- [x] **Audit G2** : compteur HTTP fiable et atomique (web scans comptes, attribution par trigger, read-modify-write verrouille par `09e3d89e`).
 - [x] ACTIVITY_WATCHDOG desactive — economie ~5760 UrlFetch/jour.
 
-- [ ] Corriger `ChainFactory.createCosmosChain().getRefreshStatus` pour propager les cinq arguments standards.
-- [ ] Rendre atomique le compteur HTTP (concurrence read-modify-write — compteur de base fiable depuis v4.16.30, atomicite restante).
-- [ ] Rendre atomiques queue, pop, retry et leases CEX; supprimer toute troncature JSON dangereuse (bulk relay v4.16.30 reduit le risque, atomicite restante).
+- [x] Corriger `ChainFactory.createCosmosChain().getRefreshStatus` pour propager les cinq arguments standards (v4.16.30).
+- [x] Rendre atomiques queue, pop, retry et leases CEX; aucune mutation sans `ScriptLock`, lease avec proprietaire et comportement fail-closed, aucun job evince silencieusement en cas de capacite pleine. Tests `cex-queue-integrity.test.js` et `cex-worker-revival.test.js` passants.
 - [ ] Remplacer la reinstallation globale de triggers par une reparation ciblee avec backoff.
 - [ ] Aligner `_packedGet_` avec la preservation annoncee des wallets positifs.
 - [ ] Borner les retries A2/J1 par feuille et par fenetre temporelle.
-- [ ] Imposer une vraie majorite au consensus SVM.
+- [x] Imposer une vraie majorite au consensus SVM: `votes * 2 > RPC interroges`, avec regression 1 reponse / 3 refusee dans `svm-balance-consensus.test.js`.
 
 ## P2 - Coherence technique
 
 - [ ] Corriger ou renommer `batchWithConsensus`, qui s'arrete actuellement apres le premier succes.
-- [ ] Supprimer le fallback FX fixe de TON et clarifier le symbole natif GRAM/TON.
+- [x] Supprimer le fallback FX fixe de TON et clarifier le symbole natif: aucun `1 USD = 1 EUR` implicite; echec ferme si la cascade FX est indisponible; identite native `TON` / `Toncoin`, jamais `GRAM`.
 - [ ] Centraliser les chemins `UrlFetchApp` sous budget, mode et compteur communs.
 - [ ] Passer les tokens relay dans un header, jamais dans l'URL.
 - [ ] Restreindre `executionApi.access` avant toute reactivation de l'Execution API.

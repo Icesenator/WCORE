@@ -1,6 +1,7 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.65 - Preserve the last healthy Cosmos native total when delegated staking data is incomplete, and expose the staking breakdown in scan metadata.
  * v4.16.63 - Include every token already held in the wallet cache when an
  *   external priority list enables strict scans, so wallet-specific assets are
  *   still repriced instead of being silently preserved forever.
@@ -66,7 +67,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.63";
+var GSHEET_WEB_SCAN_VERSION = "4.16.65";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -398,6 +399,14 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     + "; balance=" + _webScanNum_(native.balance, 0)
     + "; price_eur=" + (native.priceEur == null ? "N/A" : _webScanNum_(native.priceEur, 0))
     + "; value_eur=" + (native.valueEur == null ? "N/A" : _webScanNum_(native.valueEur, 0));
+  var staking = payload.staking || null;
+  var stakingInfo = staking ? {
+    delegated: _webScanNum_(staking.delegated, 0),
+    unbonding: _webScanNum_(staking.unbonding, 0),
+    rewards: _webScanNum_(staking.rewards, 0),
+    total: _webScanNum_(staking.total, 0),
+    complete: staking.complete !== false
+  } : null;
   var phases = payload.phases || {};
   var timingInfo = "scan=" + _webScanNum_(payload.scanMs, 0) + "ms"
     + "; native=" + _webScanNum_(phases.nativeMs, 0) + "ms"
@@ -425,6 +434,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
       httpCalls: 1,
       fetchAllItems: 0,
       totalValueEur: cleanTotalEur,
+      staking: stakingInfo,
       priorityTokens: priority ? priority.count : 0,
       extraTokens: extraAssets.length,
       filteredOut: filteredOut,
@@ -441,6 +451,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     lastInfoMetaRows: [
       ["", "INFO_ROT", "chain=" + _webScanChainKey_(config) + "; rot=WEB; profile=WCORE_WEB; degraded=" + (!!payload.degraded), "", "", "", ""],
       ["", "INFO_NATIVE", nativeInfo, "", "", "", ""],
+      ["", "INFO_STAKING", stakingInfo ? ("delegated=" + stakingInfo.delegated + "; unbonding=" + stakingInfo.unbonding + "; rewards=" + stakingInfo.rewards + "; total=" + stakingInfo.total) : "N/A", "", "", "", ""],
       ["", "INFO_FX", payload.fxRate ? ("USD->EUR=" + Number(payload.fxRate).toFixed(4)) : "USD->EUR=N/A", "", "", "", ""],
       ["", "INFO_TIMING", timingInfo, "", "", "", ""],
       ["", "INFO_RPC", rpcInfo, "", "", "", ""],
@@ -532,12 +543,13 @@ function _webScanCacheTimestamp_(cache) {
   return ts;
 }
 
-function _webScanMergeAsset_(oldAsset, newAsset) {
+function _webScanMergeAsset_(oldAsset, newAsset, preserveIncompleteNative) {
   var out = _webScanClone_(oldAsset || {}) || {};
   newAsset = newAsset || {};
-  var preservePositiveNative = String((oldAsset && oldAsset.contract) || (newAsset && newAsset.contract) || "").toLowerCase() === "native"
+  var isNative = String((oldAsset && oldAsset.contract) || (newAsset && newAsset.contract) || "").toLowerCase() === "native";
+  var preservePositiveNative = isNative
     && _webScanNum_(oldAsset && oldAsset.balance, 0) > 0
-    && _webScanNum_(newAsset && newAsset.balance, 0) === 0;
+    && (_webScanNum_(newAsset && newAsset.balance, 0) === 0 || preserveIncompleteNative === true);
   if (newAsset.contract) out.contract = newAsset.contract;
   if (newAsset.symbol) out.symbol = newAsset.symbol;
   if (newAsset.name) out.name = newAsset.name;
@@ -585,13 +597,14 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   var updated = 0;
   var updatedKeys = {};
   var nativePreserved = 0;
+  var preserveIncompleteNative = !!(incoming.scanStats && incoming.scanStats.staking && incoming.scanStats.staking.complete === false);
   for (var j = 0; j < newAssets.length; j++) {
     var newAsset = newAssets[j] || {};
     var key = _webScanAssetKey_(newAsset);
     if (!key) continue;
     if (!byKey[key]) order.push(key);
-    if (key === "native" && _webScanNum_(byKey[key] && byKey[key].balance, 0) > 0 && _webScanNum_(newAsset.balance, 0) === 0) nativePreserved++;
-    byKey[key] = _webScanMergeAsset_(byKey[key], newAsset);
+    if (key === "native" && _webScanNum_(byKey[key] && byKey[key].balance, 0) > 0 && (_webScanNum_(newAsset.balance, 0) === 0 || preserveIncompleteNative)) nativePreserved++;
+    byKey[key] = _webScanMergeAsset_(byKey[key], newAsset, preserveIncompleteNative);
     updatedKeys[key] = true;
     updated++;
   }

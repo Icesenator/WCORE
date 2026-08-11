@@ -273,6 +273,7 @@ const samplePayload = JSON.stringify({
     degraded: false,
     fxRate: 0.86,
     scanMs: 123,
+    staking: { delegated: 1, unbonding: 2, rewards: 3, total: 6, complete: true },
   };
   const cache = ctx._webScanConvertToWalletCache_(payload, config);
   assert.equal(cache.version, 7);
@@ -283,11 +284,13 @@ const samplePayload = JSON.stringify({
   assert.equal(cache.priceMap['0x0000000000000000000000000000000000000001'], 0.86);
   assert.equal(cache.scanStats.source, 'wcore-web');
   assert.equal(cache.scanStats.httpCalls, 1);
+  assert.deepEqual(cache.scanStats.staking, { delegated: 1, unbonding: 2, rewards: 3, total: 6, complete: true });
   const meta = Object.fromEntries(cache.lastInfoMetaRows.filter((row) => row[0] === 'META').map((row) => [row[1], row[2]]));
   const info = Object.fromEntries(cache.lastInfoMetaRows.filter((row) => row[1] && String(row[1]).startsWith('INFO_')).map((row) => [row[1], row[2]]));
   assert.equal(meta.exec_ms, 123, 'web scan visible output must expose META exec_ms for Recap Portfolio');
   assert.equal(meta.last_cache_update, '2026-06-26 19:00:00', 'web scan visible output must expose META last_cache_update for Recap Portfolio');
   assert.match(info.INFO_NATIVE, /native=ETH/, 'web scan visible output must expose INFO_NATIVE for Recap Portfolio');
+  assert.match(info.INFO_STAKING, /delegated=1; unbonding=2; rewards=3; total=6/, 'web scan visible output must expose Cosmos staking details');
   assert.match(info.INFO_TIMING, /scan=123ms/, 'web scan visible output must expose INFO_TIMING for Recap Portfolio');
   assert.match(info.INFO_RPC, /web_api/, 'web scan visible output must expose INFO_RPC for Recap Portfolio');
 }
@@ -712,6 +715,45 @@ const samplePayload = JSON.stringify({
   const savedNames = (ctx.__saved[0].cache.assets || []).map((t) => t.name);
   assert.ok(savedNames.includes('Chainbase Staking [Lock]'));
   assert.ok(savedNames.includes('Chainbase Airdrop [Flex]'));
+}
+
+{
+  const cosmosPartialPayload = JSON.stringify({
+    ok: true,
+    chain: 'COSMOS_HUB',
+    chainName: 'Cosmos Hub',
+    vm: 'COSMOS',
+    timestamp: '2026-06-30T10:20:00.000Z',
+    native: { symbol: 'ATOM', balance: 7, priceEur: 4, valueEur: 28 },
+    tokens: [],
+    staking: { delegated: 4, unbonding: 0, rewards: 1, total: 5, complete: false },
+    totalValueEur: 28,
+    errors: ['unbonding HTTP 503'],
+    degraded: true,
+    fxRate: 0.86,
+    scanMs: 3000,
+  });
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [{ contract: 'native', symbol: 'ATOM', name: 'Cosmos', balance: 10, decimals: 6, price_eur: 4, value_eur: 40 }],
+    priceMap: { native: 4 },
+    priceTsMap: {},
+    balanceTsMap: {},
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, cosmosPartialPayload);
+  const res = ctx._webScanWallet_('cosmos1test', [], false, { CHAIN: { KEY: 'COSMOS_HUB', NAME: 'Cosmos Hub', NATIVE_SYMBOL: 'ATOM' } }, 'cosmos_cache_key');
+  assert.equal(res.ok, true);
+  assert.equal(ctx.__saved[0].cache.assets[0].balance, 10, 'incomplete Cosmos staking must not replace a complete cached native total');
+  assert.equal(ctx.__saved[0].cache.assets[0].value_eur, 40, 'incomplete Cosmos staking must preserve the cached native value');
+  assert.equal(ctx.__saved[0].cache.scanStats.webNativePreservedFromCache, 1);
 }
 
 {

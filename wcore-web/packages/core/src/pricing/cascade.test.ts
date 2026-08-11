@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { priceTokenCascade } from "./cascade.js";
 import { MemoryPricingCache } from "./types.js";
+import { getStablecoinType } from "./stablecoins.js";
 import { NEED_TRY3, onchainMarkerKey } from "./markers.js";
 import type { PricingSourceSet, PricingToken } from "./types.js";
 import type { ChainConfig } from "../types.js";
@@ -75,6 +76,16 @@ test("stablecoin USD returns fxRate without calling sources", async () => {
   assert.equal(result.priceEur, fxRate);
   assert.equal(result.source, "stablecoin-usd");
   assert.deepEqual(calls, []);
+});
+
+test("stablecoin symbols stay aligned with the GSheet canonical classification", () => {
+  for (const symbol of ["FRXUSD", "USDP", "TUSD", "USDD", "GUSD", "USDY", "USDN", "SUSD", "BUSD", "FDUSD", "PYUSD", "USDX", "USD+", "CUSD", "MUSD", "EUSD", "DOLA", "MIM", "PATHUSD", "AZND"]) {
+    assert.equal(getStablecoinType(symbol), "USD", `${symbol} must use the USD peg`);
+  }
+  for (const symbol of ["SEUR", "EURA", "JEUR", "PAR"]) {
+    assert.equal(getStablecoinType(symbol), "EUR", `${symbol} must use the EUR peg`);
+  }
+  assert.equal(getStablecoinType("FRAX"), null, "FRAX is the Fraxtal gas token, not frxUSD");
 });
 
 test("stablecoin symbol alone does not bypass pricing sources", async () => {

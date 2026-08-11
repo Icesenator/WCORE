@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "WCORE — Multi-chain portfolio tracking",
-  description: "Your crypto. Every chain. One view. 182 tracked chains across EVM, Solana, Cosmos and TON, selected DeFi positions, real-time pricing, on-chain GM and 7 CEX sources. Read only. Free.",
+  description: "Your crypto. Every chain. One view. 162 tracked chains across EVM, Solana, Cosmos and TON, selected DeFi positions, real-time pricing, on-chain GM and 7 CEX sources. Read only. Free.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

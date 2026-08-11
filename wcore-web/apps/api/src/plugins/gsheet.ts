@@ -79,7 +79,9 @@ export interface GsheetScanResult {
   degraded: boolean;
   fxRate: number;
   scanMs: number;
+  phases?: unknown;
   cacheStats?: unknown;
+  staking?: unknown;
   chainbaseStaking?: unknown;
   wallet?: string;
 }
@@ -679,7 +681,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     // protected-contracts short-circuit: a user-approved custom token that is a
     // known scam (e.g. ZK "zkanalyst") must never surface just because it was
     // passed in customTokens.
-    let scamCheck: { isSuspicious: boolean; level: string } | null = null;
+    let scamCheck: { isSuspicious: boolean; level: string } | null;
     try {
       scamCheck = core.detectScam(
         tokenStringField(token, "symbol"),
@@ -871,7 +873,9 @@ async function defaultScanRunner(
     degraded: errors.length > 0,
     fxRate,
     scanMs: Number(assets.scanMs || 0),
+    phases: assets.phases,
     cacheStats: assets.cacheStats,
+    staking: "staking" in assets ? assets.staking : undefined,
   };
 }
 

@@ -48,8 +48,15 @@ test("the three staking reads are issued together, not one after another", async
   // times over; the REST failover alone allows 10 s per call.
   assert.equal(peak, 3, `the staking reads must overlap, peak concurrency was ${peak}`);
 
-  // The staked total must still be delegations + unbonding + native rewards.
+  // The native total remains backward-compatible while the staking contract exposes its breakdown.
   assert.equal(assets.native.balance, 6, "1 + 2 + 3 ATOM staked must be summed");
+  assert.deepEqual(assets.staking, {
+    delegated: 1,
+    unbonding: 2,
+    rewards: 3,
+    total: 6,
+    complete: true,
+  });
 });
 
 test("a failed staking read falls back to its cached copy", async () => {
@@ -67,6 +74,7 @@ test("a failed staking read falls back to its cached copy", async () => {
 
   const warm = await getCosmosWalletAssets(ADDRESS, "COSMOS_HUB", { fetchImpl, fxRate: 1, cache });
   assert.equal(warm.native.balance, 5, "precondition: 5 ATOM delegated");
+  assert.equal(warm.staking?.delegated, 5);
   await new Promise((r) => setTimeout(r, 300)); // the cache write is fire-and-forget
 
   const failing = (async (url: string) => {
@@ -78,6 +86,9 @@ test("a failed staking read falls back to its cached copy", async () => {
   const degraded = await getCosmosWalletAssets(ADDRESS, "COSMOS_HUB", { fetchImpl: failing, fxRate: 1, cache });
 
   assert.equal(degraded.native.balance, 5, "a transient outage must not erase a live delegation");
+  assert.equal(degraded.staking?.delegated, 5);
+  assert.equal(degraded.staking?.total, 5);
+  assert.equal(degraded.staking?.complete, false);
   assert.ok(
     degraded.errors.some((e) => e.includes("[DEGRADED] delegations")),
     "the fallback must be visible to the caller",

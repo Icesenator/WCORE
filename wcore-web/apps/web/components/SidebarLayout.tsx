@@ -59,7 +59,7 @@ export function SidebarLayout({ children }: { children: ReactNode }) {
         </div>
         <footer className="py-6 flex flex-col items-center gap-2">
           <Logo className="h-5 w-5 text-accent/30" />
-          <p className="text-center text-xs text-muted">182 tracked chains · 4 VMs · Selected DeFi · 7 CEX · 80+ GM chains</p>
+          <p className="text-center text-xs text-muted">162 tracked chains · 4 VMs · Selected DeFi · 7 CEX · 80+ GM chains</p>
           <p className="text-center text-xs text-muted">
             Read only{coreVersion ? ` · v${coreVersion}` : ""} · <a href="https://x.com/wcorexyz" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">@WCORExyz</a>
           </p>

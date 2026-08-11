@@ -3,25 +3,44 @@ import type { PricingToken } from "./types.js";
 export type StablecoinType = "USD" | "EUR";
 
 const USD_STABLES = new Set([
+  "USD",
   "USDC",
+  "USDC.E",
   "USDT",
   "DAI",
+  "FRXUSD",
+  "USDP",
+  "TUSD",
+  "LUSD",
   "USDE",
-  "USDS",
+  "USDD",
+  "GUSD",
+  "USDY",
+  "USDN",
+  "SUSD",
+  "BUSD",
+  "FDUSD",
   "USDB",
   "USDBS",
-  "USDBC",
-  "USDC.E",
-  "LUSD",
-  "FRAX",
   "PYUSD",
-  "GHO",
-  "CRVUSD",
+  "USDS",
+  "USDX",
+  "USDBC",
+  "USD+",
   "USD0",
   "USDA",
+  "CUSD",
+  "MUSD",
+  "EUSD",
+  "DOLA",
+  "MIM",
+  "CRVUSD",
+  "GHO",
+  "PATHUSD",
+  "AZND",
 ]);
 
-const EUR_STABLES = new Set(["EURC", "EURS", "EUROC", "AGEUR", "EURE"]);
+const EUR_STABLES = new Set(["EURC", "EUROC", "EURS", "AGEUR", "SEUR", "EURA", "EURE", "JEUR", "PAR"]);
 
 const STABLE_CONTRACTS = new Map<string, StablecoinType>([
   ["arbitrum_one:0xd1be1f98991cf69355e468ad15b6d0b6429bcfcb", "USD"], // aRUSDC, Ample Arbitrum USDC

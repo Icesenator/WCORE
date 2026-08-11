@@ -112,10 +112,9 @@ function _tonBalanceFromNano_(v, decimals) {
 }
 
 function _tonGetFx_() {
-  try {
-    var fx = FxRate.getUsdToEur();
-    return Num.isValidPositive(fx) ? fx : 1;
-  } catch (e) { return 1; }
+  var fx = FxRate.getUsdToEur();
+  if (!Num.isValidPositive(fx)) throw new Error("TON USD/EUR FX unavailable");
+  return fx;
 }
 
 function _tonGetMappedPriceEur_(symbol, contract, timer) {

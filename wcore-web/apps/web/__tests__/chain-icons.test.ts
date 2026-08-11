@@ -10,7 +10,6 @@ const QUESTION_MARK_PLACEHOLDERS = [
   "STEP_NETWORK",
   "HYCHAIN",
   "CROSSBELL",
-  "NEXI_CHAIN",
   "LUMIO",
   "BXN",
 ] as const;

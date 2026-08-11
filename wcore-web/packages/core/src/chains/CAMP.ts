@@ -10,9 +10,9 @@ export const CAMP: ChainConfig = {
   CACHE_VERSION: 63,
   RPC: {
     ENDPOINTS: [
-      "https://rpc.camp.raas.gelato.cloud",
-      "https://484.rpc.thirdweb.com",
+      "https://rpc-mainnet.campnetwork.xyz",
     ],
+    BLOCKSCOUT_RPC: "https://camp.cloud.blockscout.com/api/eth-rpc",
   },
   CHAIN: {
     NAME: "Camp",

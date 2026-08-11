@@ -5,6 +5,7 @@
 
 var _HYCHAIN = ChainFactory.createEvmChain("HYCHAIN", {
   CACHE_VERSION: 1,
+  FLAGS: { DISABLE_CHAIN: true },
   RPC: {
     ENDPOINTS: [
       "https://2911.rpc.thirdweb.com",

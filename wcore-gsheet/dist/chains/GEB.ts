@@ -10,8 +10,8 @@ export const GEB: ChainConfig = {
   CACHE_VERSION: 63,
   RPC: {
     ENDPOINTS: [
-      "https://rpc-mainnet-1.bevm.io",
-      "https://rpc-mainnet-2.bevm.io",
+      "https://rpc-mainnet-1.geb.network/",
+      "https://rpc-mainnet-2.geb.network/",
     ],
   },
   CHAIN: {

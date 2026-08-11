@@ -5,6 +5,7 @@
 
 var _LORENZO = ChainFactory.createEvmChain("LORENZO", {
   CACHE_VERSION: 1,
+  FLAGS: { DISABLE_CHAIN: true },
   RPC: {
     ENDPOINTS: [
       "https://8329.rpc.thirdweb.com",

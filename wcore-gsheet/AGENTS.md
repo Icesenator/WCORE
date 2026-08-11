@@ -1,7 +1,7 @@
 ﻿# WCORE â€” Wallet CORE
 
 SystÃ¨me de suivi de portefeuilles crypto multi-chaÃ®nes sur **Google Sheets + Apps Script**.
-- **182 chaÃ®nes** (EVM, SVM/Solana, Cosmos SDK, TON) â€” **120 combinaisons wallet-chaÃ®ne**
+- **162 chaÃ®nes** (EVM, SVM/Solana, Cosmos SDK, TON) â€” **120 combinaisons wallet-chaÃ®ne**
 - **Stack** : Apps Script (.gs), clasp (dÃ©ploiement), Google Sheets (frontend)
 - **Langue** : franÃ§ais
 - **Spreadsheet ID** : `1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4`
@@ -24,7 +24,7 @@ npm run port:web-chains     # GÃ©nÃ©ration .gs manquants depuis configs web
 
 ```
 wcore-gsheet/
-â”œâ”€â”€ src/               â† Fichiers .gs (source canonique, 182 chaÃ®nes)
+â”œâ”€â”€ src/               â† Fichiers .gs (source canonique, 162 chaÃ®nes)
 â”œâ”€â”€ dist/              â† Package @wcore/chains (gÃ©nÃ©rÃ©)
 â”œâ”€â”€ tests/             â† Tests Node.js (*.test.js)
 â”œâ”€â”€ tools/             â† Scripts de build/validation

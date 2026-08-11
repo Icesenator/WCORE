@@ -8,6 +8,9 @@ export const LUMIO: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 1,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://8866.rpc.thirdweb.com",

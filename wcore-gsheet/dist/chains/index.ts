@@ -9,7 +9,6 @@ import { APECHAIN } from "./APECHAIN.js";
 import { APPCHAIN } from "./APPCHAIN.js";
 import { ARBITRUM_NOVA } from "./ARBITRUM_NOVA.js";
 import { ARBITRUM_ONE } from "./ARBITRUM_ONE.js";
-import { ARENA_Z } from "./ARENA_Z.js";
 import { ASTAR } from "./ASTAR.js";
 import { AURORA } from "./AURORA.js";
 import { AVALANCHE } from "./AVALANCHE.js";
@@ -31,7 +30,6 @@ import { CELESTIA } from "./CELESTIA.js";
 import { CELO } from "./CELO.js";
 import { CITREA } from "./CITREA.js";
 import { CORE } from "./CORE.js";
-import { CORN } from "./CORN.js";
 import { COSMOS_HUB } from "./COSMOS_HUB.js";
 import { CREDITCOIN } from "./CREDITCOIN.js";
 import { CRONOS } from "./CRONOS.js";
@@ -68,12 +66,10 @@ import { HARMONY } from "./HARMONY.js";
 import { HASHKEY } from "./HASHKEY.js";
 import { HAVEN1 } from "./HAVEN1.js";
 import { HEMI } from "./HEMI.js";
-import { HORIZEN_EON } from "./HORIZEN_EON.js";
 import { HYCHAIN } from "./HYCHAIN.js";
 import { HYPEREVM } from "./HYPEREVM.js";
 import { ICB_NETWORK } from "./ICB_NETWORK.js";
 import { IMMUTABLE } from "./IMMUTABLE.js";
-import { INEVM } from "./INEVM.js";
 import { INJECTIVE } from "./INJECTIVE.js";
 import { INK } from "./INK.js";
 import { INTUITION } from "./INTUITION.js";
@@ -98,7 +94,6 @@ import { MERLIN } from "./MERLIN.js";
 import { METAL_L2 } from "./METAL_L2.js";
 import { METIS } from "./METIS.js";
 import { MEZO } from "./MEZO.js";
-import { MIND } from "./MIND.js";
 import { MITOSIS } from "./MITOSIS.js";
 import { MODE } from "./MODE.js";
 import { MONAD } from "./MONAD.js";
@@ -109,7 +104,6 @@ import { MORPH } from "./MORPH.js";
 import { NEO_X } from "./NEO_X.js";
 import { NEON } from "./NEON.js";
 import { NEUTRON } from "./NEUTRON.js";
-import { NEXI_CHAIN } from "./NEXI_CHAIN.js";
 import { NEXUS } from "./NEXUS.js";
 import { NOBLE } from "./NOBLE.js";
 import { NUMINE } from "./NUMINE.js";
@@ -121,19 +115,15 @@ import { PLASMA } from "./PLASMA.js";
 import { PLAYNANCE_PLAYBLOCK } from "./PLAYNANCE_PLAYBLOCK.js";
 import { PLUME } from "./PLUME.js";
 import { POLYGON } from "./POLYGON.js";
-import { POLYGON_ZKEVM } from "./POLYGON_ZKEVM.js";
-import { POLYNOMIAL } from "./POLYNOMIAL.js";
 import { PROOF_OF_PLAY_APEX } from "./PROOF_OF_PLAY_APEX.js";
 import { PULSECHAIN } from "./PULSECHAIN.js";
 import { RACE } from "./RACE.js";
-import { REDSTONE } from "./REDSTONE.js";
 import { REI_NETWORK } from "./REI_NETWORK.js";
 import { REYA } from "./REYA.js";
 import { ROBINHOOD_CHAIN } from "./ROBINHOOD_CHAIN.js";
 import { ROLLUX } from "./ROLLUX.js";
 import { RONIN } from "./RONIN.js";
 import { ROOTSTOCK } from "./ROOTSTOCK.js";
-import { RSS3 } from "./RSS3.js";
 import { SCROLL } from "./SCROLL.js";
 import { SEI } from "./SEI.js";
 import { SHAPE } from "./SHAPE.js";
@@ -146,7 +136,6 @@ import { SOMNIA } from "./SOMNIA.js";
 import { SONEIUM } from "./SONEIUM.js";
 import { SONIC } from "./SONIC.js";
 import { STABLE } from "./STABLE.js";
-import { STARGAZE } from "./STARGAZE.js";
 import { STEP_NETWORK } from "./STEP_NETWORK.js";
 import { STORY } from "./STORY.js";
 import { STRIDE } from "./STRIDE.js";
@@ -156,7 +145,6 @@ import { SWAN } from "./SWAN.js";
 import { SWELLCHAIN } from "./SWELLCHAIN.js";
 import { TAC } from "./TAC.js";
 import { TAIKO_ALETHIA } from "./TAIKO_ALETHIA.js";
-import { TANGLE } from "./TANGLE.js";
 import { TARAXA } from "./TARAXA.js";
 import { TEMPO } from "./TEMPO.js";
 import { TERRA } from "./TERRA.js";
@@ -185,7 +173,6 @@ export const chains = {
   APPCHAIN,
   ARBITRUM_NOVA,
   ARBITRUM_ONE,
-  ARENA_Z,
   ASTAR,
   AURORA,
   AVALANCHE,
@@ -207,7 +194,6 @@ export const chains = {
   CELO,
   CITREA,
   CORE,
-  CORN,
   COSMOS_HUB,
   CREDITCOIN,
   CRONOS,
@@ -244,12 +230,10 @@ export const chains = {
   HASHKEY,
   HAVEN1,
   HEMI,
-  HORIZEN_EON,
   HYCHAIN,
   HYPEREVM,
   ICB_NETWORK,
   IMMUTABLE,
-  INEVM,
   INJECTIVE,
   INK,
   INTUITION,
@@ -274,7 +258,6 @@ export const chains = {
   METAL_L2,
   METIS,
   MEZO,
-  MIND,
   MITOSIS,
   MODE,
   MONAD,
@@ -285,7 +268,6 @@ export const chains = {
   NEO_X,
   NEON,
   NEUTRON,
-  NEXI_CHAIN,
   NEXUS,
   NOBLE,
   NUMINE,
@@ -297,19 +279,15 @@ export const chains = {
   PLAYNANCE_PLAYBLOCK,
   PLUME,
   POLYGON,
-  POLYGON_ZKEVM,
-  POLYNOMIAL,
   PROOF_OF_PLAY_APEX,
   PULSECHAIN,
   RACE,
-  REDSTONE,
   REI_NETWORK,
   REYA,
   ROBINHOOD_CHAIN,
   ROLLUX,
   RONIN,
   ROOTSTOCK,
-  RSS3,
   SCROLL,
   SEI,
   SHAPE,
@@ -322,7 +300,6 @@ export const chains = {
   SONEIUM,
   SONIC,
   STABLE,
-  STARGAZE,
   STEP_NETWORK,
   STORY,
   STRIDE,
@@ -332,7 +309,6 @@ export const chains = {
   SWELLCHAIN,
   TAC,
   TAIKO_ALETHIA,
-  TANGLE,
   TARAXA,
   TEMPO,
   TERRA,

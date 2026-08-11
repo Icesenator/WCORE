@@ -4,8 +4,8 @@
  */
 
 var _CAMP = ChainFactory.createEvmChain("CAMP", {
- CACHE_VERSION: 63,
-  RPC: { ENDPOINTS: [], BLOCKSCOUT_RPC: "https://camp.cloud.blockscout.com/api/eth-rpc" }, // pas de RPC public; Blockscout en fallback (v4.15.50)
+  CACHE_VERSION: 63,
+  RPC: { ENDPOINTS: ["https://rpc-mainnet.campnetwork.xyz"], BLOCKSCOUT_RPC: "https://camp.cloud.blockscout.com/api/eth-rpc" },
  CHAIN: {
  NAME: "Camp",
  CHAIN_ID: 484,

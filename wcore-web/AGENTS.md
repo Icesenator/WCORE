@@ -1,6 +1,6 @@
 ﻿# WCORE Web â€” Wallet CORE
 
-Portfolio tracking app (182 chains, EVM/SVM/Cosmos/TON) migrated from Google Apps Script.
+Portfolio tracking app (162 chains, EVM/SVM/Cosmos/TON) migrated from Google Apps Script.
 
 **Stack** : Node.js (>=20.10), pnpm (>=9), TypeScript, Next.js 16 (Turbopack), Fastify, Prisma, Redis, PostgreSQL, Docker, Railway
 **Domains** : `wcore.xyz` (web), `api-production-b5bf.up.railway.app` (API)
@@ -62,7 +62,7 @@ wcore-web/
   packages/
     core/                  # Scan engines (EVM, SVM, Cosmos, TON) + pricing cascade
       src/
-        chains/            # 182 chain configs (*.ts)
+        chains/            # 162 chain configs (*.ts)
         engines/           # evm.ts (split: -types, -balances, -pricing, -scan, -batch), svm.ts, cosmos.ts, ton.ts
         pricing/           # Cascade: DefiLlama â†’ DexScreener â†’ GT â†’ Jupiter â†’ CoinGecko
         tokens/            # scam-detector.ts, explorer-discovery.ts, registry.ts
@@ -93,7 +93,7 @@ wcore-web/
 | `AUTH_ALLOW_BEARER` | `false` in prod (cookie-only) |
 | `ADMIN_TOKEN` | Required for admin endpoints, `timingSafeEqual` |
 | `DATABASE_URL` / `REDIS_URL` | Railway viaduct.proxy (not internal `postgres.railway.internal`) |
-| 182 chain configs | 15 disabled via `FLAGS.DISABLE_CHAIN=true` |
+| 162 chain configs | 12 disabled via `FLAGS.DISABLE_CHAIN=true` |
 
 **PSA** : `railway.json` controls which Dockerfile deploys. Never `edit railway.json` + `railway up` manually â€” always use `scripts/deploy.ps1`. Never run two deploys in parallel (race condition).
 

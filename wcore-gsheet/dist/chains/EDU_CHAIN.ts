@@ -10,8 +10,7 @@ export const EDU_CHAIN: ChainConfig = {
   CACHE_VERSION: 1,
   RPC: {
     ENDPOINTS: [
-      "https://41923.rpc.thirdweb.com",
-      "https://rpc.edu-chain.raas.gelato.cloud",
+      "https://rpc.educhain.xyz",
     ],
   },
   CHAIN: {

@@ -14,13 +14,13 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x2105",
     chainName: "Base",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://base.drpc.org", "https://mainnet.base.org", "https://base-mainnet.public.blastapi.io"],
+    rpcUrls: ["https://mainnet.base.org", "https://1rpc.io/base", "https://base.drpc.org", "https://base-rpc.publicnode.com"],
   },
   ETHEREUM: {
     chainId: "0x1",
     chainName: "Ethereum",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://eth.drpc.org", "https://1rpc.io/eth", "https://gateway.tenderly.co/public/mainnet", "https://eth.merkle.io", "https://rpc.eth.gateway.fm"],
+    rpcUrls: ["https://eth.drpc.org", "https://gateway.tenderly.co/public/mainnet", "https://eth.merkle.io", "https://1rpc.io/eth", "https://ethereum-rpc.publicnode.com"],
   },
   ARBITRUM_ONE: {
     chainId: "0xa4b1",
@@ -122,7 +122,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x82",
     chainName: "Unichain",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://mainnet.unichain.org", "https://unichain.drpc.org", "https://130.rpc.thirdweb.com"],
+    rpcUrls: ["https://mainnet.unichain.org", "https://rpc.unichain.org", "https://unichain.drpc.org", "https://rpc.ankr.com/unichain", "https://1rpc.io/unichain", "https://unichain.blockpi.network/v1/rpc/public", "https://130.rpc.thirdweb.com", "https://unichain-mainnet.g.alchemy.com/public"],
   },
   BERACHAIN: {
     chainId: "0x138de",
@@ -148,12 +148,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.soneium.org", "https://soneium.drpc.org"],
   },
-  POLYGON_ZKEVM: {
-    chainId: "0x44d",
-    chainName: "Polygon zkEVM",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://zkevm-rpc.com", "https://polygon-zkevm.drpc.org", "https://1rpc.io/polygon/zkevm"],
-  },
   ARBITRUM_NOVA: {
     chainId: "0xa4ba",
     chainName: "Arbitrum Nova",
@@ -176,7 +170,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x531",
     chainName: "Sei",
     nativeCurrency: { name: "Sei", symbol: "SEI", decimals: 18 },
-    rpcUrls: ["https://evm-rpc.sei-apis.com", "https://1329.rpc.thirdweb.com"],
+    rpcUrls: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com", "https://1329.rpc.thirdweb.com"],
   },
   SUPERSEED: {
     chainId: "0x14d2",
@@ -190,12 +184,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://mainnet.shape.network", "https://shape-mainnet.g.alchemy.com/public", "https://360.rpc.thirdweb.com"],
   },
-  ANCIENT8: {
-    chainId: "0x34fb5e38",
-    chainName: "Ancient8",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.ancient8.gg", "https://888888888.rpc.thirdweb.com"],
-  },
   BOB: {
     chainId: "0xed88",
     chainName: "BOB",
@@ -206,7 +194,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x46f",
     chainName: "Lisk",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.api.lisk.com", "https://lisk.drpc.org", "https://1135.rpc.thirdweb.com"],
+    rpcUrls: ["https://rpc.api.lisk.com", "https://rpc.lisk.com", "https://lisk.drpc.org", "https://1rpc.io/lisk", "https://rpc.ankr.com/lisk", "https://lisk-mainnet.public.blastapi.io", "https://lisk.blockpi.network/v1/rpc/public", "https://1135.rpc.thirdweb.com", "https://lisk-mainnet-rpc.publicnode.com"],
   },
   METAL_L2: {
     chainId: "0x6d6",
@@ -214,28 +202,16 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.metall2.com", "https://metall2.drpc.org"],
   },
-  REDSTONE: {
-    chainId: "0x2b2",
-    chainName: "Redstone",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.redstonechain.com", "https://690.rpc.thirdweb.com"],
-  },
   APPCHAIN: {
     chainId: "0x1d2",
     chainName: "AppChain",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.appchain.xyz", "https://466.rpc.thirdweb.com"],
   },
-  CAMP: {
-    chainId: "0x1e4",
-    chainName: "Camp",
-    nativeCurrency: { name: "Camp", symbol: "CAMP", decimals: 18 },
-    rpcUrls: ["https://rpc.camp.raas.gelato.cloud", "https://484.rpc.thirdweb.com"],
-  },
   DUCKCHAIN: {
     chainId: "0x15a9",
     chainName: "DuckChain",
-    nativeCurrency: { name: "Toncoin", symbol: "TON", decimals: 18 },
+    nativeCurrency: { name: "Gram", symbol: "GRAM", decimals: 18 },
     rpcUrls: ["https://rpc.duckchain.io", "https://rpc-hk.duckchain.io"],
   },
   CYBER: {
@@ -248,13 +224,13 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0xbf04",
     chainName: "Zircuit",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://mainnet.zircuit.com", "https://48900.rpc.thirdweb.com"],
+    rpcUrls: ["https://zircuit1-mainnet.p2pify.com", "https://zircuit.drpc.org", "https://mainnet.zircuit.com"],
   },
   OPENLEDGER: {
     chainId: "0x64c",
     chainName: "OpenLedger",
     nativeCurrency: { name: "OpenLedger", symbol: "OPEN", decimals: 18 },
-    rpcUrls: ["https://rpc.openledger.xyz", "https://1612.rpc.thirdweb.com"],
+    rpcUrls: ["https://rpc.openledger.xyz"],
   },
   STABLE: {
     chainId: "0x3dc",
@@ -266,7 +242,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0xef",
     chainName: "TAC",
     nativeCurrency: { name: "TAC", symbol: "TAC", decimals: 18 },
-    rpcUrls: ["https://rpc.tac.build", "https://rpc.ankr.com/tac", "https://tac.drpc.org", "https://239.rpc.thirdweb.com"],
+    rpcUrls: ["https://rpc.tac.build", "https://rpc.ankr.com/tac"],
   },
   MITOSIS: {
     chainId: "0x1e790",
@@ -278,7 +254,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x208d",
     chainName: "B3",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://mainnet-rpc.b3.fun", "https://8333.rpc.thirdweb.com"],
+    rpcUrls: ["https://mainnet-rpc.b3.fun"],
   },
   CITREA: {
     chainId: "0x1012",
@@ -290,7 +266,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x19",
     chainName: "Cronos",
     nativeCurrency: { name: "Cronos", symbol: "CRO", decimals: 18 },
-    rpcUrls: ["https://cronos.drpc.org", "https://cronos.blockpi.network/v1/rpc/public"],
+    rpcUrls: ["https://evm.cronos.org", "https://cronos.drpc.org", "https://cronos-evm-rpc.publicnode.com", "https://cronos.blockpi.network/v1/rpc/public"],
   },
   FUSE: {
     chainId: "0x7a",
@@ -314,7 +290,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x505",
     chainName: "Moonriver",
     nativeCurrency: { name: "Moonriver", symbol: "MOVR", decimals: 18 },
-    rpcUrls: ["https://rpc.api.moonriver.moonbeam.network", "https://moonriver.drpc.org"],
+    rpcUrls: ["https://rpc.api.moonriver.moonbeam.network", "https://moonriver.drpc.org", "https://moonriver-rpc.publicnode.com"],
   },
   ASTAR: {
     chainId: "0x250",
@@ -338,7 +314,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x120",
     chainName: "Boba",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://mainnet.boba.network", "https://1rpc.io/boba/eth", "https://gateway.tenderly.co/public/boba-ethereum"],
+    rpcUrls: ["https://mainnet.boba.network", "https://boba-ethereum.drpc.org", "https://1rpc.io/boba/eth", "https://gateway.tenderly.co/public/boba-ethereum"],
   },
   ROOTSTOCK: {
     chainId: "0x1e",
@@ -410,13 +386,13 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x659",
     chainName: "Gravity",
     nativeCurrency: { name: "Gravity", symbol: "G", decimals: 18 },
-    rpcUrls: ["https://rpc.gravity.xyz", "https://1625.rpc.thirdweb.com"],
+    rpcUrls: ["https://rpc.gravity.xyz", "https://rpc.ankr.com/gravity", "https://gravity-rpc.polkachu.com", "https://1625.rpc.thirdweb.com"],
   },
   MERLIN: {
     chainId: "0x1068",
     chainName: "Merlin",
     nativeCurrency: { name: "Bitcoin", symbol: "BTC", decimals: 18 },
-    rpcUrls: ["https://rpc.merlinchain.io", "https://merlin.drpc.org", "https://4200.rpc.thirdweb.com/"],
+    rpcUrls: ["https://rpc.merlinchain.io", "https://merlin.blockpi.network/v1/rpc/public", "https://merlin.drpc.org", "https://4200.rpc.thirdweb.com/"],
   },
   MANTA_PACIFIC: {
     chainId: "0xa9",
@@ -476,13 +452,13 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x6c1",
     chainName: "Reya Network",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.reya.network", "https://reya.drpc.org", "https://1729.rpc.thirdweb.com", "https://rpc.reya-cronos.gelato.digital"],
+    rpcUrls: ["https://rpc.reya.network", "https://reya.drpc.org", "https://1729.rpc.thirdweb.com"],
   },
   SWELLCHAIN: {
     chainId: "0x783",
     chainName: "Swell Chain",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://swell.drpc.org", "https://rpc.ankr.com/swell", "https://swell-mainnet.alt.technology", "https://swell.hypersync.xyz", "https://swellchain.gateway.tenderly.co"],
+    rpcUrls: ["https://swell.drpc.org", "https://rpc.ankr.com/swell"],
   },
   SWAN: {
     chainId: "0xfe",
@@ -494,7 +470,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x5c8",
     chainName: "Vana",
     nativeCurrency: { name: "Vana", symbol: "VANA", decimals: 18 },
-    rpcUrls: ["https://rpc.vana.org/"],
+    rpcUrls: ["https://rpc.vana.org"],
   },
   STORY: {
     chainId: "0x5ea",
@@ -506,7 +482,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x483",
     chainName: "Intuition",
     nativeCurrency: { name: "Trust", symbol: "TRUST", decimals: 18 },
-    rpcUrls: ["https://rpc.intuition.systems"],
+    rpcUrls: ["https://rpc.intuition.systems", "https://intuition.calderachain.xyz/http"],
   },
   ETHERLINK: {
     chainId: "0xa729",
@@ -520,12 +496,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Plume", symbol: "PLUME", decimals: 18 },
     rpcUrls: ["https://rpc.plume.org", "https://plume.drpc.org", "https://plume-mainnet.gateway.tatum.io"],
   },
-  POLYNOMIAL: {
-    chainId: "0x1f48",
-    chainName: "Polynomial",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.polynomial.fi", "https://rpc-proxy.polynomial.fi"],
-  },
   SUPERPOSITION: {
     chainId: "0xd7cc",
     chainName: "Superposition",
@@ -535,8 +505,8 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
   SOMNIA: {
     chainId: "0x13a7",
     chainName: "Somnia",
-    nativeCurrency: { name: "Somnia Token", symbol: "SOMI", decimals: 18 },
-    rpcUrls: ["https://somnia-rpc.publicnode.com", "https://somnia.publicnode.com", "https://api.infra.mainnet.somnia.network", "https://5031.rpc.thirdweb.com"],
+    nativeCurrency: { name: "Somnia Token", symbol: "STT", decimals: 18 },
+    rpcUrls: ["https://api.infra.mainnet.somnia.network", "https://5031.rpc.thirdweb.com", "https://somnia-rpc.publicnode.com", "https://somnia.publicnode.com", "https://somnia-json-rpc.stakely.io"],
   },
   MONAD: {
     chainId: "0x8f",
@@ -578,7 +548,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0xe35",
     chainName: "Botanix",
     nativeCurrency: { name: "Bitcoin", symbol: "BTC", decimals: 18 },
-    rpcUrls: ["https://rpc.botanixlabs.com"],
+    rpcUrls: ["https://rpc.ankr.com/botanix_mainnet", "https://rpc.botanixlabs.com"],
   },
   KATANA: {
     chainId: "0xb67d2",
@@ -592,12 +562,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "GHO", symbol: "GHO", decimals: 18 },
     rpcUrls: ["https://rpc.lens.xyz", "https://lens.drpc.org", "https://232.rpc.thirdweb.com"],
   },
-  MIND: {
-    chainId: "0xe4",
-    chainName: "Mind Network",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc-mainnet.mindnetwork.xyz", "https://228.rpc.thirdweb.com"],
-  },
   ZERO: {
     chainId: "0x849ea",
     chainName: "ZERO Network",
@@ -608,7 +572,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x1b58",
     chainName: "ZetaChain",
     nativeCurrency: { name: "Zeta", symbol: "ZETA", decimals: 18 },
-    rpcUrls: ["https://zetachain-evm.blockpi.network/v1/rpc/public", "https://zeta-chain.drpc.org"],
+    rpcUrls: ["https://zetachain-evm.blockpi.network/v1/rpc/public", "https://zetachain-mainnet.g.allthatnode.com/archive/evm", "https://zeta-chain.drpc.org"],
   },
   ZKLINKNOVA: {
     chainId: "0xc5cc4",
@@ -633,12 +597,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainName: "Bitlayer",
     nativeCurrency: { name: "Bitcoin", symbol: "BTC", decimals: 18 },
     rpcUrls: ["https://rpc.bitlayer.org", "https://rpc.bitlayer-rpc.com", "https://rpc.ankr.com/bitlayer"],
-  },
-  CORN: {
-    chainId: "0x1406f40",
-    chainName: "Corn",
-    nativeCurrency: { name: "BTCN", symbol: "BTCN", decimals: 18 },
-    rpcUrls: ["https://corn.drpc.org", "https://maizenet-rpc.usecorn.com"],
   },
   FLOW: {
     chainId: "0x2eb",
@@ -673,18 +631,15 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   57073, // INK
   2741, // ABSTRACT
   1868, // SONEIUM
-  1101, // POLYGON_ZKEVM
   42170, // ARBITRUM_NOVA
   7777777, // ZORA
   34443, // MODE
   1329, // SEI
   5330, // SUPERSEED
   360, // SHAPE
-  888888888, // ANCIENT8
   60808, // BOB
   1135, // LISK
   1750, // METAL_L2
-  690, // REDSTONE
   466, // APPCHAIN
   484, // CAMP
   5545, // DUCKCHAIN
@@ -735,7 +690,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   1155, // INTUITION
   42793, // ETHERLINK
   98866, // PLUME
-  8008, // POLYNOMIAL
   55244, // SUPERPOSITION
   5031, // SOMNIA
   143, // MONAD
@@ -747,13 +701,11 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   3637, // BOTANIX
   747474, // KATANA
   232, // LENS
-  228, // MIND
   543210, // ZERO
   7000, // ZETACHAIN
   810180, // ZKLINKNOVA
   20240603, // DBK_CHAIN
   11501, // GEB
   200901, // BITLAYER
-  21000000, // CORN
   747, // FLOW
 ]);

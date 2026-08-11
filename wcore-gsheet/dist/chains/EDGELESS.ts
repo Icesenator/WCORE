@@ -8,6 +8,9 @@ export const EDGELESS: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 1,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://2026.rpc.thirdweb.com",

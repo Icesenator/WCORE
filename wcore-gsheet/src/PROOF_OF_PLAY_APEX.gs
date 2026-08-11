@@ -5,6 +5,7 @@
 
 var _PROOF_OF_PLAY_APEX = ChainFactory.createEvmChain("PROOF_OF_PLAY_APEX", {
   CACHE_VERSION: 1,
+  FLAGS: { DISABLE_CHAIN: true },
   RPC: {
     ENDPOINTS: [
       "https://70700.rpc.thirdweb.com",

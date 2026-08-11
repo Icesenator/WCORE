@@ -24,7 +24,7 @@ const DEPLOY_CHAIN_KEYS = [
   "FRAXTAL", "WORLDCHAIN", "ROBINHOOD_CHAIN", "UNICHAIN", "BERACHAIN", "INK", "ABSTRACT", "SONEIUM",
   "ARBITRUM_NOVA", "ZORA", "MODE", "SEI",
   // L2s / OP Stack / Superchains
-  "SUPERSEED", "SHAPE", "BOB", "LISK", "METAL_L2", "REDSTONE",
+  "SUPERSEED", "SHAPE", "BOB", "LISK", "METAL_L2",
   "APPCHAIN", "CAMP", "DUCKCHAIN", "CYBER", "ZIRCUIT",
   "OPENLEDGER", "STABLE", "TAC", "MITOSIS", "B3", "CITREA",
   // EVM-compatible majors
@@ -34,11 +34,11 @@ const DEPLOY_CHAIN_KEYS = [
   "OPBNB", "GRAVITY", "MERLIN", "MANTA_PACIFIC", "TAIKO_ALETHIA", "PLASMA",
   "HASHKEY", "HEMI", "HYPEREVM", "IMMUTABLE", "MORPH", "MEZO", "REYA",
   "SWELLCHAIN", "SWAN", "VANA", "STORY", "INTUITION",
-  "ETHERLINK", "PLUME", "POLYNOMIAL", "SUPERPOSITION",
+  "ETHERLINK", "PLUME", "SUPERPOSITION",
   "SOMNIA", "MONAD", "MEGAETH", "MATCHAIN", "RACE", "DOMA",
-  "B2", "BOTANIX", "CODEX", "JUCHAIN", "KATANA", "LENS", "MIND",
+  "B2", "BOTANIX", "CODEX", "JUCHAIN", "KATANA", "LENS",
   "OG", "ZERO", "ZETACHAIN", "ZKLINKNOVA", "DBK_CHAIN", "GEB",
-  "BITLAYER", "CORN", "FLOW",
+  "BITLAYER", "FLOW",
 ] as const;
 
 const CHAIN_META: Record<string, { name: string; chainId: number }> = {
@@ -75,7 +75,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   BOB: { name: "BOB", chainId: 60808 },
   LISK: { name: "Lisk", chainId: 1135 },
   METAL_L2: { name: "Metal L2", chainId: 1750 },
-  REDSTONE: { name: "Redstone", chainId: 690 },
   APPCHAIN: { name: "AppChain", chainId: 466 },
   CAMP: { name: "Camp", chainId: 484 },
   DUCKCHAIN: { name: "DuckChain", chainId: 5545 },
@@ -130,7 +129,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   INTUITION: { name: "Intuition", chainId: 1155 },
   ETHERLINK: { name: "Etherlink", chainId: 42793 },
   PLUME: { name: "Plume", chainId: 98866 },
-  POLYNOMIAL: { name: "Polynomial", chainId: 8008 },
   SUPERPOSITION: { name: "Superposition", chainId: 55244 },
   SOMNIA: { name: "Somnia", chainId: 5031 },
   MONAD: { name: "Monad", chainId: 143 },
@@ -144,7 +142,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   JUCHAIN: { name: "JuChain Mainnet", chainId: 210000 },
   KATANA: { name: "Katana", chainId: 747474 },
   LENS: { name: "Lens", chainId: 232 },
-  MIND: { name: "Mind Network", chainId: 228 },
   OG: { name: "0G Mainnet", chainId: 16661 },
   ZERO: { name: "ZERO Network", chainId: 543210 },
   ZETACHAIN: { name: "ZetaChain", chainId: 7000 },
@@ -152,7 +149,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   DBK_CHAIN: { name: "DBK Chain", chainId: 20240603 },
   GEB: { name: "GEB", chainId: 11501 },
   BITLAYER: { name: "Bitlayer", chainId: 200901 },
-  CORN: { name: "Corn", chainId: 21000000 },
   FLOW: { name: "Flow EVM", chainId: 747 },
 };
 

@@ -5,6 +5,7 @@
 
 var _AIRDAO = ChainFactory.createEvmChain("AIRDAO", {
   CACHE_VERSION: 1,
+  FLAGS: { DISABLE_CHAIN: true },
   RPC: {
     ENDPOINTS: [
       "https://16718.rpc.thirdweb.com",

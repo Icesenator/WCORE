@@ -8,6 +8,9 @@ export const AIRDAO: ChainConfig = {
   vm: "EVM",
   ...({
   CACHE_VERSION: 1,
+  FLAGS: {
+    DISABLE_CHAIN: true,
+  },
   RPC: {
     ENDPOINTS: [
       "https://16718.rpc.thirdweb.com",

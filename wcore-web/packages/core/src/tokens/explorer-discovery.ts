@@ -30,7 +30,6 @@ const BLOCKSCOUT_CHAIN_IDS: Record<string, number> = {
   SHAPE: 360,
   ASTAR: 592,
   FLOW: 747,
-  REDSTONE: 690,
   MATCHAIN: 698,
   ZETACHAIN: 7000,
   LISK: 1135,

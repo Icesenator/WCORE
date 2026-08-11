@@ -15,7 +15,7 @@ const CHAIN_SLUGS: Record<string, string> = {
   MODE: "mode", FRAXTAL: "fraxtal", WORLDCHAIN: "worldchain",
   UNICHAIN: "unichain", BERACHAIN: "berachain", SONIC: "sonic",
   ZORA: "zora", SEI: "sei", SHAPE: "shape", ANCIENT8: "ancient8",
-  BOB: "bob", LISK: "lisk", METAL_L2: "metal", REDSTONE: "redstone",
+  BOB: "bob", LISK: "lisk", METAL_L2: "metal",
   CYBER: "cyber", ZIRCUIT: "zircuit", OPENLEDGER: "openledger",
   STABLE: "stable", TAC: "tac", SONEIUM: "soneium", MEGAETH: "megaeth",
   INK: "ink", STORY: "story", REYA: "reya", MATCHAIN: "matchain",

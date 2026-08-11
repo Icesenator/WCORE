@@ -5,6 +5,7 @@
 
 var _CROSSBELL = ChainFactory.createEvmChain("CROSSBELL", {
   CACHE_VERSION: 1,
+  FLAGS: { DISABLE_CHAIN: true },
   RPC: {
     ENDPOINTS: [
       "https://3737.rpc.thirdweb.com",

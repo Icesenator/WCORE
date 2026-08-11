@@ -2,9 +2,11 @@
 // Usage: cd apps/api && DATABASE_URL=... pnpm exec tsx backup-db.cjs
 // Requires: DATABASE_URL env var
 
-const { PrismaClient } = require('@prisma/client');
 const fs = require('fs');
 const path = require('path');
+const { createRequire } = require('module');
+const dbRequire = createRequire(path.join(__dirname, '..', '..', 'packages', 'db', 'package.json'));
+const { PrismaClient } = dbRequire('@prisma/client');
 
 const BACKUP_MODELS = [
   'user', 'linkedWallet', 'walletScan', 'scanJob', 'cexAccount', 'cexHolding',

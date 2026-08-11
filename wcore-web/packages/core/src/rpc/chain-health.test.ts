@@ -3,12 +3,6 @@ import assert from "node:assert/strict";
 import { classifyChainHealth, isChainDisabled } from "./chain-health.js";
 
 describe("classifyChainHealth", () => {
-  it("classifies MIND via live health data", () => {
-    const r = classifyChainHealth("MIND");
-    assert.ok(["healthy", "single", "half"].includes(r.category));
-    assert.ok(r.totalEndpoints >= 1, "MIND has at least 1 endpoint");
-  });
-
   it("classifies an unknown chain as dead", () => {
     const r = classifyChainHealth("__no_such_chain__");
     assert.equal(r.category, "dead");

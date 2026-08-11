@@ -1,4 +1,4 @@
-import { getChain } from "../chains/index.js";
+import { chainList, getChain } from "../chains/index.js";
 import { cacheKey } from "@wcore/shared";
 import { linkAbortSignal } from "../abort.js";
 import type { ChainConfig } from "../types.js";
@@ -196,7 +196,6 @@ export async function getCosmosWalletAssets(
 
   const nativeDenom = String(chain.CHAIN?.NATIVE_DENOM ?? "");
   const nativeDecimals = Number(chain.CHAIN?.NATIVE_DECIMALS ?? 6);
-  const denomSymbols = (chain.DENOM_SYMBOLS ?? {}) as Record<string, string>;
 
   let delegatedRawAmount = 0n;
   let unbondingRawAmount = 0n;
@@ -274,15 +273,14 @@ export async function getCosmosWalletAssets(
       const bal = tokenQueue[idx]!;
       const denom = bal.denom;
       if (!denom) continue;
-      const symbol = denomSymbols[denom] ?? denom;
-      const decimals = await resolveCosmosTokenDecimals(fetchFn, restUrl, cosmosChain, denom, errors, cache, key);
-      if (decimals == null) continue;
-      const balance = rawAmountToNumber(bal.amount, decimals);
-      pricedTokens[idx] = await priceCosmosToken(cosmosChain, denom, symbol, decimals, balance, fxRate, sources, priceCache, errors, opts.intraScanCache);
+      const identity = await resolveCosmosTokenIdentity(fetchFn, restUrl, cosmosChain, denom, errors, cache, key);
+      if (!identity) continue;
+      const balance = rawAmountToNumber(bal.amount, identity.decimals);
+      pricedTokens[idx] = await priceCosmosToken(cosmosChain, denom, identity.symbol, identity.decimals, balance, fxRate, sources, priceCache, errors, opts.intraScanCache, identity.pricingChain);
 
       if (cache && rawAmountToBigInt(bal.amount) > 0n) {
         const tokenCacheKey = `token:${key.toLowerCase()}:${denom}:${address}`;
-        cache.set(tokenCacheKey, { balance: bal.amount, decimals, symbol }, 86400_000).catch(() => {});
+        cache.set(tokenCacheKey, { balance: bal.amount, decimals: identity.decimals, symbol: identity.symbol }, 86400_000).catch(() => {});
       }
     }
   }
@@ -508,13 +506,15 @@ async function priceCosmosToken(
   cache: PricingCache,
   errors: string[],
   intraScanCache?: IntraScanCache,
+  pricingChain: ChainConfig = chain,
 ): Promise<CosmosWalletToken> {
   const token: PricingToken = {
     key: `${chain.key.toLowerCase()}:${denom}`,
     contract: denom,
     symbol,
     name: symbol,
-    chain,
+    chain: pricingChain,
+    isStable: isStableCosmosSymbol(symbol),
   };
   const priced = await priceTokenCascade({ token, fxRate, cache, sources, allowCoinGeckoTokenFallback: true, intraScanCache });
   if (priced.reason) errors.push(`${symbol} price: ${priced.reason}`);
@@ -566,7 +566,13 @@ async function readStakingWithFallback(
   return { items: result.items, complete: false };
 }
 
-async function resolveCosmosTokenDecimals(
+interface CosmosTokenIdentity {
+  decimals: number;
+  symbol: string;
+  pricingChain: ChainConfig;
+}
+
+async function resolveCosmosTokenIdentity(
   fetchFn: typeof fetch,
   restUrl: string,
   chain: ChainConfig,
@@ -574,32 +580,51 @@ async function resolveCosmosTokenDecimals(
   errors: string[],
   cache?: import("../cache/index.js").CacheStore,
   chainKey?: string,
-): Promise<number | null> {
-  const denomDecimals = (chain.DENOM_DECIMALS ?? {}) as Record<string, number>;
-  if (denomDecimals[denom] != null) return denomDecimals[denom];
+): Promise<CosmosTokenIdentity | null> {
+  const direct = findCosmosDenomIdentity(denom, chain);
+  if (direct) return direct;
   if (!denom.startsWith("ibc/")) {
-    // Standard Cosmos micro-denom convention: u-prefix (uatom, uosmo) = 6.
-    // Only default to 6 for simple lowercase denoms; non-standard denoms
-    // (factory/, erc20/, cw20:, gamm/pool/, alloyed/, etc.) have unknown
-    // decimals — skip rather than mis-value by assuming 6 (could be 10^12 off).
-    if (/^u[a-z]+$/.test(denom)) return 6;
+    const decimals = microDenomDecimals(denom);
+    if (decimals != null) return { decimals, symbol: denom, pricingChain: chain };
     errors.push(`${denom.slice(0, 16)}: decimals_unknown (non-standard denom)`);
     return null;
   }
 
-  const hash = denom.slice(4);
-  const resolved = await resolveIbcBaseDenom(fetchFn, restUrl, hash, cache, chainKey);
+  const resolved = await resolveIbcBaseDenom(fetchFn, restUrl, denom.slice(4), cache, chainKey);
   if (!resolved.baseDenom) {
     errors.push(`${denom.slice(0, 12)}: decimals_unknown (${resolved.reason})`);
     return null;
   }
 
-  const baseDenom = resolved.baseDenom;
-  if (denomDecimals[baseDenom] != null) return denomDecimals[baseDenom];
-  const convention = microDenomDecimals(baseDenom);
-  if (convention != null) return convention;
-  errors.push(`${denom.slice(0, 12)}: decimals_unknown (${baseDenom})`);
+  const identity = findCosmosDenomIdentity(resolved.baseDenom, chain);
+  if (identity) return identity;
+  const decimals = microDenomDecimals(resolved.baseDenom);
+  if (decimals != null) return { decimals, symbol: cosmosSymbolFromDenom(resolved.baseDenom), pricingChain: chain };
+  errors.push(`${denom.slice(0, 12)}: decimals_unknown (${resolved.baseDenom})`);
   return null;
+}
+
+function findCosmosDenomIdentity(denom: string, destinationChain: ChainConfig): CosmosTokenIdentity | null {
+  const candidates = [destinationChain, ...chainList.filter((candidate) => candidate.vm === "COSMOS" && candidate.key !== destinationChain.key)];
+  for (const candidate of candidates) {
+    const decimals = candidate.DENOM_DECIMALS?.[denom];
+    const nativeMatch = candidate.CHAIN?.NATIVE_DENOM === denom;
+    if (decimals == null && !nativeMatch) continue;
+    return {
+      decimals: decimals ?? candidate.CHAIN?.NATIVE_DECIMALS ?? 6,
+      symbol: candidate.DENOM_SYMBOLS?.[denom] ?? (nativeMatch ? candidate.CHAIN?.NATIVE_SYMBOL : undefined) ?? cosmosSymbolFromDenom(denom),
+      pricingChain: candidate,
+    };
+  }
+  return null;
+}
+
+function cosmosSymbolFromDenom(denom: string): string {
+  return /^u[a-z]+$/.test(denom) ? denom.slice(1).toUpperCase() : denom;
+}
+
+function isStableCosmosSymbol(symbol: string): boolean {
+  return /^(?:USD|USDC|USDC\.E|USDT|DAI|USDE|USDS|EURC|EUROC|EURS)$/i.test(symbol);
 }
 
 /**

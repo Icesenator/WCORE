@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getCosmosWalletAssets } from "./cosmos.js";
 import { MemoryCacheStore } from "../cache/index.js";
+import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 
 const ADDRESS = "cosmos1nvfsmt48nemfullrkkxa6gze05c4xeypfslj7t";
 const IBC_DENOM = "ibc/0025F8A87464A471E66B234C4F93AEC5B4DA3D42D7986451A059273426290DD5";
@@ -38,9 +39,9 @@ function makeFetch(routes: { newRoute?: () => Response; legacy?: () => Response 
   return { fetchImpl, seen };
 }
 
-async function scan(routes: Parameters<typeof makeFetch>[0]) {
+async function scan(routes: Parameters<typeof makeFetch>[0], sources?: PricingSourceSet) {
   const { fetchImpl, seen } = makeFetch(routes);
-  const assets = await getCosmosWalletAssets(ADDRESS, "COSMOS_HUB", { fetchImpl, fxRate: 1 });
+  const assets = await getCosmosWalletAssets(ADDRESS, "COSMOS_HUB", { fetchImpl, fxRate: 1, sources, sharedPriceCache: new MemoryPricingCache() });
   return { assets, seen };
 }
 
@@ -54,6 +55,47 @@ test("an IBC denom resolves through the current denoms route", async () => {
   assert.ok(token, "the IBC token must be reported");
   assert.equal(token.decimals, 6, "untrn is a micro-denom, so 6 decimals");
   assert.equal(token.balance, 1, "1000000 untrn is 1 NTRN");
+  assert.equal(token.symbol, "NTRN");
+});
+
+test("an IBC token uses its origin chain price mapping", async () => {
+  const requestedIds: Array<string | undefined> = [];
+  const sources: PricingSourceSet = {
+    defillama: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: {
+      getNativePriceUsd: async () => null,
+      getTokenPriceUsd: async (_token, geckoId) => {
+        requestedIds.push(geckoId);
+        return geckoId === "neutron-3" ? 0.5 : null;
+      },
+    },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+
+  const { assets } = await scan({
+    newRoute: () => json({ denom: { base: "untrn", trace: [] } }),
+  }, sources);
+
+  const token = assets.tokens.find((t) => t.denom === IBC_DENOM);
+  assert.ok(token);
+  assert.equal(token.symbol, "NTRN");
+  assert.equal(token.priceEur, 0.5);
+  assert.ok(requestedIds.includes("neutron-3"));
+});
+
+test("an IBC stablecoin uses the resolved symbol and peg price", async () => {
+  const { assets } = await scan({
+    newRoute: () => json({ denom: { base: "uusdc", trace: [] } }),
+  });
+
+  const token = assets.tokens.find((t) => t.denom === IBC_DENOM);
+  assert.ok(token);
+  assert.equal(token.symbol, "USDC");
+  assert.equal(token.priceEur, 1);
+  assert.equal(token.valueEur, 1);
 });
 
 test("an IBC denom still resolves on chains that only expose denom_traces", async () => {

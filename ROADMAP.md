@@ -17,7 +17,7 @@
 - `wcore-gsheet/src/*.gs`: source canonique des configurations de chaines et runtime Apps Script.
 - `wcore-gsheet/dist/`: package genere `@wcore/chains`.
 - `wcore-web/`: frontend Next.js, API Fastify, moteurs Node, Prisma/PostgreSQL et Redis.
-- Compte mesure depuis `packages/core/src/chains`: 182 configurations, dont 167 actives et 15 desactivees au 2026-08-09. Le nombre actif/scannable reste dynamique et doit etre lu depuis `/api/chains`.
+- Compte mesure depuis les configurations generees: 162 configurations, dont 149 EVM, 2 SVM, 10 Cosmos et 1 TON; 150 actives et 12 desactivees. Etat lifecycle aligne par `187309df`; nettoyage GM/wagmi finalise par `eb0ef921`. Le nombre actif/scannable reste dynamique et doit etre lu depuis `/api/chains`.
 
 ## Etat des phases
 
@@ -25,9 +25,9 @@
 |---|---|---|
 | FX et cache keys partages | Terminee | Garder la parite et supprimer les constructions de cles directes restantes |
 | Package unifie `@wcore/chains` | Termine | Fiabiliser metadonnees et CI de generation |
-| CEX runtime alignment | Termine pour 7 providers | Corriger pricing FX, resilience UI et concurrence queue GSheet |
-| Consolidation chain configs | Terminee, 182 configs | Ajouter validation schema exhaustive et gerer les sunsets |
-| Delegation GSheet vers Web | Implementee, hardening actif | Corriger le contrat Cosmos et compter les appels delegues |
+| CEX runtime alignment | Termine pour 7 providers | Maintenir pricing FX, resilience UI et invariants atomiques de queue GSheet |
+| Consolidation chain configs | Terminee, 162 configs | Maintenir la validation schema exhaustive et gerer les futurs sunsets |
+| Delegation GSheet vers Web | Implementee, hardening actif | Compter les appels delegues et poursuivre le cache Web-backed |
 | Cache GSheet Web-backed | Design valide, differe | Migrer les donnees reconstructibles sans casser le mode degrade |
 
 ## Priorite immediate
@@ -36,7 +36,7 @@
 
 - [x] Corriger la conversion USD vers EUR dans les deux chemins pricing CEX Web. Verifie le 2026-07-10 (29/29 tests API CEX/normalizers).
 - [x] Conserver les derniers avoirs CEX sains lors d'une panne transitoire. Verifie le 2026-07-10 (28/28 tests Web CEX state/display).
-- [ ] Aligner stablecoins batch, Cosmos staking et TON FX/sources avec les chemins canoniques.
+- [x] Aligner stablecoins batch et Cosmos staking avec les chemins canoniques. Le batch reutilise le registre stablecoins partage; Cosmos expose les composantes staking, leur completude et preserve le dernier total GSheet sain sur erreur partielle. Verifie le 2026-08-10 (core, API et adaptateur GSheet). TON utilise la cascade FX commune sans taux fixe et l'identite `TON` / `Toncoin`.
 - [x] Corriger la propagation des arguments Cosmos GSheet. Verifie le 2026-07-16 (v4.16.30).
 
 ### Securite et disponibilite
@@ -45,7 +45,7 @@
 - [x] Fermer SSRF/DNS rebinding sur tous les fetches GM. `safeFetch` valide chaque redirection et toutes les resolutions A/AAAA, echoue ferme et borne les redirections. Contre-audit du 2026-08-07.
 - [x] Borner et persister les jobs async Web. File PostgreSQL, admission atomique, leases, heartbeat, fencing et reprise apres crash deployes et verifies le 2026-08-07.
 - [x] Rendre `CEX_SECRET` obligatoire et retirer les tokens relay des URLs. Secret dedie obligatoire en production; relais privilegie par en-tete. Configuration CEX/GSheet centralisee et testee le 2026-08-09.
-- [x] Rendre atomiques quota, queue et leases CEX GSheet. Verifie le 2026-07-16 (v4.16.30, HttpCounter atomique + bulk relay).
+- [x] Rendre atomiques quota, queue et leases CEX GSheet. Compteur HTTP verrouille par `09e3d89e`; queue/pop/retry sous `ScriptLock`, lease proprietaire et fail-closed valides par les tests CEX ciblés.
 
 ### Livraison reproductible
 
@@ -66,13 +66,13 @@
 ## Fiabilite GSheet
 
 - [x] Corriger la mise en forme `Portefeuille Action` quand des lignes sont masquees par filtre: reparation explicite avec filtre suspendu puis restaure, conditional formats etendus a la plage geree. Verifie le 2026-07-13.
-- [x] HTTP counter rendu atomique (read-modify-write). Verifie le 2026-07-16 (v4.16.30).
-- [x] Queue et leases CEX rendus atomiques via bulk relay (1 appel au lieu de 4). Verifie le 2026-07-16 (v4.16.30).
+- [x] HTTP counter rendu atomique (read-modify-write). Implemente par `09e3d89e`; tests `http-counter-atomicity.test.js` et `quota-recovery-state.test.js` passants.
+- [x] Queue et leases CEX rendus atomiques: bulk relay, mutations sous `ScriptLock`, lease avec proprietaire, echec ferme sans perte silencieuse de jobs. Tests `cex-queue-integrity.test.js` et `cex-worker-revival.test.js` passants.
 - [x] ACTIVITY_WATCHDOG desactive (v4.16.30).
 - [ ] Reparer uniquement le trigger fautif, avec backoff, au lieu de recreer tous les triggers.
 - [ ] Borner les recalculs A2/J1 par feuille et par jour.
 - [ ] Aligner l'expiration du cache packed avec la preservation des wallets positifs.
-- [ ] Exiger une vraie majorite pour le consensus SVM.
+- [x] Exiger une vraie majorite pour le consensus SVM: quorum calcule sur tous les RPC interroges, y compris les echecs; un seul survivant sur trois ne peut plus publier une balance.
 - [ ] Corriger `batchWithConsensus`, actuellement premier-succes.
 - [ ] Centraliser tous les appels HTTP sous budget, breaker et compteur.
 - [ ] Splitter les 16 fichiers > 1000 lignes (plan HOTSPOT_SPLIT_PLAN.md non execute).
@@ -85,7 +85,7 @@
 - [x] Supprimer les fan-outs GM frontend et normaliser les `chainKey`. Prix charge a l'action, statuts regroupes et cles canoniques verifies par les tests GM le 2026-08-05.
 - [x] Ne plus poller `/api/circuit` admin-only depuis l'UI publique. Appel 401 et bandeau duplique supprimes le 2026-08-09; l'UI derive `circuitOpenChains` des erreurs de scan.
 - [x] Centraliser les variables CEX/GSheet. URL et token relais, secret CEX, token et bornes GSheet vivent dans `apps/api/src/config.ts`; 14/14 variables documentees dans les deux templates le 2026-08-09.
-- [x] Ajouter un test schema sur les 182 configurations. Le contrat runtime historique du package genere est valide exhaustivement dans Core; corruptions chainId/RPC/metadonnees refusees et gardes validees par mutation le 2026-08-09.
+- [x] Ajouter un test schema sur les 162 configurations generees. Le contrat runtime historique du package genere est valide exhaustivement dans Core; corruptions chainId/RPC/metadonnees refusees et gardes validees par mutation le 2026-08-09.
 - [~] Tests comportementaux CEX ajoutes le 2026-07-17 (pannes, stale, concurrence, session, timeout complet); hooks GM encore a couvrir.
 - [x] `Selected DeFi positions` V1 deploye et verifie le 2026-07-17 pour une couverture ciblee Compound V3, WCT, Chainbase et actifs stakes selectionnes. Le Web `/api/scan/batch` et GSheet partagent la finalisation `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee; Compound est decouvert une fois par batch EVM, appelle `collateralBalanceOf(user, asset)` sur le Comet, utilise le contrat collatéral pour pricing/logo/sortie et derive les decimales de `AssetInfo.scale`. Commits `6accdda1`/`95b91591`; deploys Railway API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`, Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Smoke Optimism force: `degraded=false`, `errors=[]`, WCT `0,47 EUR` + `2,61 EUR`, Comp wrsETH `12,69 EUR`, dette WETH `-10,21 EUR`, net signe `10,43 EUR`.
 - [x] Pages Market Cap livrees sur les routes stables `/cmc/crypto` et `/cmc/stocks`: 5 000 lignes par annuaire, logos, pays pour les actions, resumes responsive, recherche, pagination de 100 lignes et statut fresh/stale. CI et controle live attestes le 2026-07-17. Post X publie (`2078069673707348415`) et trois interactions verifiees.
@@ -107,7 +107,7 @@
 - [ ] Concevoir un moteur de comparaison de quotes distinct du portfolio avec un registre provider ouvert. LI.FI, Relay, Socket/Bungee, Rango, 0x/1inch et Jupiter sont des candidats initiaux non exhaustifs; tout nouvel agregateur peut etre evalue et active par configuration apres verification de ses contrats, quotas, couverture et garanties de securite.
 - [ ] Normaliser chaque route par montant net recu, gas, frais, slippage, duree, nombre d'etapes et risque du bridge; dedupliquer les routes qui utilisent le meme chemin sous-jacent.
 - [ ] Livrer d'abord un comparateur read-only de transactions non signees. Toute execution exige une specification separee, une validation explicite dans le wallet et un audit securite; WCORE ne detient jamais les fonds et ne signe jamais automatiquement.
-- [ ] Definir `toutes chaines` comme toutes les chaines dynamiquement couvertes par au moins un routeur, sans promettre que les 182 configurations WCORE disposent toutes d'une route.
+- [ ] Definir `toutes chaines` comme toutes les chaines dynamiquement couvertes par au moins un routeur, sans promettre que les 162 configurations WCORE disposent toutes d'une route.
 - [ ] Garder budgets, caches, secrets, breakers et telemetrie du routage entierement separes de ceux du scan portfolio.
 
 ## Chain Lifecycle
@@ -115,7 +115,7 @@
 Deadlines passees, revalidees le 2026-07-17:
 
 - Swellchain: vivante (blocs frais), conservee; 3 RPCs morts retires (v4.16.31).
-- Corn: morte (RPC unique en 401), `DISABLE_CHAIN` pose (v4.16.31); retrait complet du code (Web, GM, wagmi, docs, tests) reste a faire.
+- Corn: morte (RPC unique en 401); retrait des configurations finalise par `187309df`, puis nettoyage GM/wagmi deploye par `eb0ef921`.
 - Polygon zkEVM: HALTED depuis le 2026-07-03 (sunset sequencer), `DISABLE_CHAIN` pose (v4.16.31); retrait complet a planifier.
 - Botanix: vivante (blocs frais), conservee.
 

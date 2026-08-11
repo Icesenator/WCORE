@@ -1,4 +1,4 @@
-﻿# WCORE Web ÔÇö Roadmap migration
+# WCORE Web ÔÇö Roadmap migration
 
 Document unique de suivi de la migration de WCORE (Google Apps Script) vers une application web moderne.
 
@@ -21,7 +21,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - Audit transversal Web + GSheet : `../docs/audits/AUDIT.md`.
 - Priorités immédiates : conversion USD/EUR CEX, endpoint pricing CEX, migrations Prisma, CI racine, SSRF/jobs async, fiabilité GM/CEX frontend.
 - Baseline : core 284/284, shared 17/17, Web 129 tests passants et 6 tests non hermétiques faute d'API locale; typecheck vert; lint rouge à 19 erreurs.
-- Convention de couverture : **182 configurations suivies** (168 EVM, 2 SVM, 11 Cosmos, 1 TON); le nombre actif/scannable vient de `/api/chains`.
+- Convention de couverture courante : **162 configurations generees** (149 EVM, 2 SVM, 10 Cosmos, 1 TON), dont 150 actives et 12 desactivees; lifecycle aligne par `187309df`, nettoyage GM/wagmi deploye par `eb0ef921`; le nombre actif/scannable vient de `/api/chains`.
 
 ---
 
@@ -40,6 +40,12 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Post X Market Cap** : publie `https://x.com/WCORExyz/status/2078069673707348415`. Image finale `apps/web/public/wcore-post-market-cap.svg` + `.png` en 1200x675, generee par `scripts/build-post-market-cap.cjs`. Les captures Crypto et Stock affichent quatre rangs, avec contours lime et bleu visibles et arrondis, sans badges redondants.
 - **Cycle X interaction** : trois replies approuvees, publiees et verifiees sur `strivex_`, `DeFiDegen_0x` et `MARCELLUScryp`. Angles : market cap vs qualite, distinction equity/token market cap, emissions/unlocks et risque de dilution. Aucun like, follow ou autre engagement automatique.
 - **Nettoyage** : processus de brouillon X arrete, branche `feature/market-cap-x-cycle` supprimee apres fast-forward sur `master`, et dossier worktree orphelin retire. Aucun worktree ne doit etre recree pour ce projet.
+
+### Session 2026-08-10 - Parite pricing batch et staking Cosmos
+
+- **Stablecoins batch** : le pricing batch reutilise le registre canonique `STABLECOIN_SYMBOLS` et `isStablecoinLikeSymbol`, avec couverture des symboles `USD*` reconnus et rejet des faux positifs non USD.
+- **Cosmos staking** : le scan expose `delegated`, `unbonding`, `rewards`, `total` et `complete`; l'API GSheet propage aussi les phases. Une composante REST sans fallback marque le staking incomplet afin d'eviter qu'un total natif partiel remplace le dernier cache GSheet sain.
+- **Validation** : tests et typecheck `@wcore/core`, tests et typecheck `@wcore/api`, test d'integration adaptateur GSheet.
 
 ### Session 2026-07-17 — DeFi Position Engine V1 en production
 

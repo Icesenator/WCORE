@@ -16,7 +16,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   zora: "Zora", mode: "Mode",
   sei: "Sei", superseed: "Superseed", shape: "Shape",
   bob: "BOB", lisk: "Lisk",
-  metal_l2: "Metal L2",   redstone: "Redstone", robinhood_chain: "Robinhood Chain", appchain: "AppChain",
+  metal_l2: "Metal L2", robinhood_chain: "Robinhood Chain", appchain: "AppChain",
   camp: "Camp", duckchain: "DuckChain", cyber: "Cyber",
   zircuit: "Zircuit", openledger: "OpenLedger",
   stable: "Stable", tac: "TAC", mitosis: "Mitosis", b3: "B3", sonic: "Sonic", citrea: "Citrea", cronos: "Cronos", fuse: "Fuse", kaia: "Kaia",
@@ -91,7 +91,6 @@ const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "intuition", name: "Intuition" },
   { key: "etherlink", name: "Etherlink" },
   { key: "plume", name: "Plume" },
-  { key: "polynomial", name: "Polynomial" },
   { key: "superposition", name: "Superposition" },
   { key: "somnia", name: "Somnia" },
   { key: "monad", name: "Monad" },
@@ -105,7 +104,6 @@ const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "juchain", name: "JuChain Mainnet" },
   { key: "katana", name: "Katana" },
   { key: "lens", name: "Lens" },
-  { key: "mind", name: "Mind Network" },
   { key: "og", name: "0G Mainnet" },
   { key: "zero", name: "ZERO Network" },
   { key: "zetachain", name: "ZetaChain" },
@@ -113,7 +111,6 @@ const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "dbk_chain", name: "DBK Chain" },
   { key: "geb", name: "GEB" },
   { key: "bitlayer", name: "Bitlayer" },
-  { key: "corn", name: "Corn" },
   { key: "flow", name: "Flow EVM" },
 ];
 

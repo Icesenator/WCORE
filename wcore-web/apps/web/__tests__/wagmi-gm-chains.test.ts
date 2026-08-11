@@ -2,7 +2,6 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { config } from "../lib/wagmi";
 import { getFactoryChainIds } from "@wcore/shared";
-import { DEPLOY_CHAIN_PARAMS } from "../app/dev/deploy/chain-data";
 
 describe("wagmi config covers GM factory chains", () => {
   test("every GM factory chainId is configured in wagmi", () => {

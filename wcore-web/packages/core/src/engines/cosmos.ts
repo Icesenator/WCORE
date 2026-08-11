@@ -28,7 +28,17 @@ export interface CosmosWalletToken extends WalletAssetPrice, WalletAssetProvenan
 
 export type CosmosScanPhases = ScanPhases;
 
-export type CosmosWalletAssets = WalletAssetsCommon<CosmosWalletToken>;
+export interface CosmosNativeStaking {
+  delegated: number;
+  unbonding: number;
+  rewards: number;
+  total: number;
+  complete: boolean;
+}
+
+export type CosmosWalletAssets = WalletAssetsCommon<CosmosWalletToken> & {
+  staking?: CosmosNativeStaking;
+};
 
 const sharedPriceCache = new MemoryPricingCache();
 const defaultSources: PricingSourceSet = {
@@ -188,7 +198,10 @@ export async function getCosmosWalletAssets(
   const nativeDecimals = Number(chain.CHAIN?.NATIVE_DECIMALS ?? 6);
   const denomSymbols = (chain.DENOM_SYMBOLS ?? {}) as Record<string, string>;
 
-  let stakedRawAmount = 0n;
+  let delegatedRawAmount = 0n;
+  let unbondingRawAmount = 0n;
+  let rewardsRawAmount = 0n;
+  let stakingComplete = true;
   if (chain.CHAIN?.INCLUDE_STAKED_NATIVE) {
     // Delegations, unbonding and rewards are three independent REST reads. They were
     // awaited one after another, so a chain whose endpoint is slow paid that latency
@@ -199,11 +212,20 @@ export async function getCosmosWalletAssets(
       readStakingWithFallback("rewards", cache ? `rew:${key.toLowerCase()}:${address}` : undefined, () => fetchCosmosRewards(fetchFn, restUrl, address, errors), cache, errors),
     ]);
 
-    stakedRawAmount = delegations.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
-    stakedRawAmount += unbonding.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
-    stakedRawAmount += rewards.filter((d) => !d.denom || d.denom === nativeDenom).reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
+    delegatedRawAmount = delegations.items.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
+    unbondingRawAmount = unbonding.items.reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
+    rewardsRawAmount = rewards.items.filter((d) => !d.denom || d.denom === nativeDenom).reduce((sum, d) => sum + rawAmountToBigInt(d.amount), 0n);
+    stakingComplete = delegations.complete && unbonding.complete && rewards.complete;
   }
 
+  const stakedRawAmount = delegatedRawAmount + unbondingRawAmount + rewardsRawAmount;
+  const staking = chain.CHAIN?.INCLUDE_STAKED_NATIVE ? {
+    delegated: rawAmountToNumber(delegatedRawAmount.toString(), nativeDecimals),
+    unbonding: rawAmountToNumber(unbondingRawAmount.toString(), nativeDecimals),
+    rewards: rawAmountToNumber(rewardsRawAmount.toString(), nativeDecimals),
+    total: rawAmountToNumber(stakedRawAmount.toString(), nativeDecimals),
+    complete: stakingComplete,
+  } : undefined;
   const balancesMs = Date.now() - balancesStart;
 
   const pricingStart = Date.now();
@@ -290,6 +312,7 @@ export async function getCosmosWalletAssets(
     chainName: String(chain.CHAIN?.NAME ?? chain.key),
     native,
     tokens,
+    staking,
     errors,
     totalValueEur,
     scanMs,
@@ -521,26 +544,26 @@ async function readStakingWithFallback(
   read: () => Promise<{ items: StakingDelegation[]; failed: boolean }>,
   cache: import("../cache/index.js").CacheStore | undefined,
   errors: string[],
-): Promise<StakingDelegation[]> {
+): Promise<{ items: StakingDelegation[]; complete: boolean }> {
   const result = await read();
-  if (!cache || !cacheKey) return result.items;
+  if (!cache || !cacheKey) return { items: result.items, complete: !result.failed };
 
   const cached = await cache.get<StakingDelegation[]>(cacheKey);
 
   if (!result.failed) {
     if (result.items.length === 0 && cached?.some((item) => rawAmountToBigInt(item.amount) > 0n)) {
       errors.push(`[DEGRADED] ${label}: preserving positive cache (empty live response uncorroborated)`);
-      return cached;
+      return { items: cached, complete: false };
     }
     cache.set(cacheKey, result.items, 86400_000).catch(() => {});
-    return result.items;
+    return { items: result.items, complete: true };
   }
 
   if (cached && cached.length > 0) {
     errors.push(`[DEGRADED] ${label}: using cached fallback`);
-    return cached;
+    return { items: cached, complete: false };
   }
-  return result.items;
+  return { items: result.items, complete: false };
 }
 
 async function resolveCosmosTokenDecimals(

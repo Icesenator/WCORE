@@ -54,11 +54,11 @@ const RPCS = ['https://rpc1', 'https://rpc2', 'https://rpc3'];
   assert.strictEqual(res.consensus, '2/3');
 }
 
-// Majority among the endpoints that actually answered.
+// Two matching votes still form a strict majority of the three queried endpoints.
 {
   const res = clientWith([7, 7, null]).getBalanceWithConsensus(RPCS, 'addr');
-  assert.strictEqual(res.result.value, 7, 'a failed endpoint does not count against the majority');
-  assert.strictEqual(res.consensus, '2/2');
+  assert.strictEqual(res.result.value, 7, '2 of 3 queried endpoints is a majority');
+  assert.strictEqual(res.consensus, '2/3');
 }
 
 // Three-way disagreement: this is the regression.
@@ -67,6 +67,13 @@ const RPCS = ['https://rpc1', 'https://rpc2', 'https://rpc3'];
   assert.ok(!res.result, 'a 1/3 minority must never be published as a balance');
   assert.strictEqual(res.noConsensus, true);
   assert.ok(/no consensus/.test(res.lastError), 'the caller needs an error to fall back to cache');
+}
+
+// A single surviving response cannot satisfy the quorum for three queried endpoints.
+{
+  const res = clientWith([7, null, null]).getBalanceWithConsensus(RPCS, 'addr');
+  assert.ok(!res.result, '1 of 3 queried endpoints is not a majority');
+  assert.strictEqual(res.noConsensus, true);
 }
 
 // A tie is not a consensus.

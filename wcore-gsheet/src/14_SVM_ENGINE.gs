@@ -226,12 +226,11 @@ var SvmRpcClient = {
     } catch (eFetchAll) {
       errors.push({ error: "fetchAll error: " + String(eFetchAll.message || eFetchAll).substring(0, 80) });
     }
-    // v4.16.45: require the WCORE strict majority (votes * 2 > total) over the RPCs that
-    // actually answered. This function was named "consensus" but returned the first value
-    // seen with the highest count, so three endpoints disagreeing published a 1/3 minority
-    // as if it were agreed. A stale endpoint could therefore overwrite a correct balance.
-    if (bestValue !== null && maxCount * 2 > successfulVotes) {
-      return { result: { value: Number(bestValue) }, rpc: bestRpc, attempts: rpcUrls.length, consensus: maxCount + "/" + successfulVotes, errors: errors };
+    // v4.16.45: require the WCORE strict majority (votes * 2 > total) over every RPC
+    // queried. Failed endpoints abstain but still count in the quorum denominator, so one
+    // surviving response cannot publish a balance on behalf of a three-endpoint set.
+    if (bestValue !== null && maxCount * 2 > rpcUrls.length) {
+      return { result: { value: Number(bestValue) }, rpc: bestRpc, attempts: rpcUrls.length, consensus: maxCount + "/" + rpcUrls.length, errors: errors };
     }
     if (bestValue !== null) {
       // No majority: report failure so the caller keeps the cached balance rather than

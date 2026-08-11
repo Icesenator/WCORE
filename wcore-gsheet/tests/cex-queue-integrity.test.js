@@ -66,47 +66,38 @@ function makeContext() {
   return { context, store, isLockHeld: () => lockHeld };
 }
 
-// A job is never lost when the payload has to shrink.
 {
   const { context, store } = makeContext();
-  let previousLength = 0;
-  let worstDrop = 0;
+  let accepted = 0;
+  let previousRaw = null;
   for (let i = 0; i < 400; i++) {
-    context._cexQueueMutate_((q) => { q.push({ kind: `JOB_${i}`, pad: 'x'.repeat(40), ts: i }); });
-    let length = 0;
-    try { length = JSON.parse(store.CEX_MANUAL_JOB_QUEUE).length; } catch (e) { length = 0; }
-    worstDrop = Math.max(worstDrop, previousLength - length);
-    previousLength = length;
+    try {
+      context._cexQueueMutate_((q) => { q.push({ kind: `JOB_${i}`, pad: 'x'.repeat(40), ts: i }); });
+      accepted++;
+      previousRaw = store.CEX_MANUAL_JOB_QUEUE;
+    } catch (error) {
+      assert.match(String(error.message || error), /capacity exceeded/);
+      assert.strictEqual(store.CEX_MANUAL_JOB_QUEUE, previousRaw, 'overflow must leave the persisted queue unchanged');
+      break;
+    }
   }
 
-  // The decisive invariant. Truncating the JSON left an unparseable value, so the next
-  // enqueue fell into its catch, restarted from [] and stored a single job: the queue
-  // collapsed from ~100 entries to 1. Shedding the oldest entries removes a couple at a
-  // time, never the whole backlog.
-  assert.ok(
-    worstDrop <= 5,
-    `overflow must shed the oldest jobs, not reset the queue (largest single drop: ${worstDrop})`,
+  const parsed = JSON.parse(store.CEX_MANUAL_JOB_QUEUE);
+  assert.strictEqual(parsed.length, accepted);
+  assert.strictEqual(parsed[0].kind, 'JOB_0', 'overflow must not evict the oldest job');
+  assert.strictEqual(parsed[parsed.length - 1].kind, `JOB_${accepted - 1}`);
+}
+
+{
+  const { context, store } = makeContext();
+  store.CEX_MANUAL_JOB_QUEUE = JSON.stringify([{ kind: 'EXISTING' }]);
+  context.LockService.getScriptLock = () => ({ tryLock: () => false, releaseLock: () => {} });
+
+  assert.throws(
+    () => context._cexQueueMutate_((q) => { q.push({ kind: 'LOST' }); }),
+    /lock unavailable/,
   );
-
-  const raw = store.CEX_MANUAL_JOB_QUEUE;
-  assert.ok(raw.length <= 8000, `stored payload must stay bounded, got ${raw.length}`);
-
-  // The decisive property: what is stored is still parseable. With the old truncation
-  // this threw, and every reader silently restarted from an empty queue.
-  const parsed = JSON.parse(raw);
-  assert.ok(Array.isArray(parsed), 'the stored queue must remain valid JSON');
-
-  // Overflow drops the OLDEST jobs, never the one just submitted.
-  assert.strictEqual(
-    parsed[parsed.length - 1].kind, 'JOB_399',
-    'the newest job must survive an overflow',
-  );
-
-  // What survives is the most recent contiguous run, with nothing lost in the middle.
-  const kept = parsed.map((j) => Number(String(j.kind).replace('JOB_', '')));
-  for (let i = 1; i < kept.length; i++) {
-    assert.strictEqual(kept[i], kept[i - 1] + 1, 'retained jobs must stay contiguous');
-  }
+  assert.deepStrictEqual(JSON.parse(store.CEX_MANUAL_JOB_QUEUE).map((j) => j.kind), ['EXISTING']);
 }
 
 // Claiming and enqueueing agree on a single serialised view.
@@ -142,6 +133,52 @@ function makeContext() {
   const { context, isLockHeld } = makeContext();
   assert.throws(() => context._cexQueueMutate_(() => { throw new Error('boom'); }), /boom/);
   assert.strictEqual(isLockHeld(), false, 'the queue lock must be released on failure');
+}
+
+{
+  const store = {};
+  let lockHeld = false;
+  let uuid = 0;
+  const context = {
+    console, Date, JSON, Math, Number, String, Array, Object, RegExp,
+    isFinite, parseInt, parseFloat,
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (k) => (k in store ? store[k] : null),
+        setProperty: (k, v) => { store[k] = String(v); },
+        deleteProperty: (k) => { delete store[k]; },
+      }),
+    },
+    LockService: {
+      getScriptLock: () => ({
+        tryLock: () => {
+          if (lockHeld) return false;
+          lockHeld = true;
+          return true;
+        },
+        releaseLock: () => { lockHeld = false; },
+      }),
+    },
+    Utilities: { getUuid: () => `owner-${++uuid}` },
+  };
+  vm.createContext(context);
+  const start = source.indexOf('var _CEX_WORKER_LEASE_TTL_MS');
+  const end = source.indexOf('function CEX_MANUAL_REFRESH_WORKER');
+  vm.runInContext('var _CEX_LOCK_TRY_MS = 1000;\n' + source.slice(start, end), context);
+
+  assert.strictEqual(context._cexWorkerAcquireLease_(), true);
+  const acquired = JSON.parse(store.CEX_WORKER_LEASE);
+  assert.strictEqual(acquired.owner, 'owner-1');
+  assert.strictEqual(context._cexWorkerAcquireLease_(), false, 'an active lease must reject a second worker');
+
+  context._cexWorkerRenewLease_(context.PropertiesService.getScriptProperties());
+  const renewed = JSON.parse(store.CEX_WORKER_LEASE);
+  assert.strictEqual(renewed.owner, 'owner-1', 'lease renewal must preserve the current owner');
+  assert.ok(renewed.until > Date.now(), 'lease renewal must extend the expiry');
+
+  store.CEX_WORKER_LEASE = JSON.stringify({ owner: 'owner-2', until: Date.now() + 60000 });
+  context._cexWorkerReleaseLease_();
+  assert.strictEqual(JSON.parse(store.CEX_WORKER_LEASE).owner, 'owner-2', 'a worker must not release another owner lease');
 }
 
 console.log('OK - CEX queue integrity verified');

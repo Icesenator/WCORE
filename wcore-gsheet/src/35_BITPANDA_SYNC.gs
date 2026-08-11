@@ -318,22 +318,19 @@ function _cexQueueMutate_(mutator) {
   var props = PropertiesService.getScriptProperties();
   var lock = null, locked = false;
   try { lock = LockService.getScriptLock(); locked = lock.tryLock(_CEX_LOCK_TRY_MS); } catch (eLock) { locked = false; }
+  if (!locked) throw new Error("CEX queue lock unavailable");
   try {
     var queue = [];
     try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
     if (Object.prototype.toString.call(queue) !== "[object Array]") queue = [];
 
     var outcome = mutator(queue);
-
     var serialized = JSON.stringify(queue);
-    while (serialized.length > _CEX_QUEUE_MAX_CHARS && queue.length > 1) {
-      queue.shift();
-      serialized = JSON.stringify(queue);
-    }
+    if (serialized.length > _CEX_QUEUE_MAX_CHARS) throw new Error("CEX queue capacity exceeded");
     props.setProperty("CEX_MANUAL_JOB_QUEUE", serialized);
     return outcome;
   } finally {
-    if (locked && lock) { try { lock.releaseLock(); } catch (eRelease) {} }
+    if (lock) { try { lock.releaseLock(); } catch (eRelease) {} }
   }
 }
 
@@ -412,29 +409,57 @@ function _cexEnsureManualWorkerTrigger_(delayMs) {
 // (observed 2026-07-01: two CEX_MANUAL_REFRESH_WORKER running 177s + 58s) doing
 // racy read-modify-write on CEX_MANUAL_JOB_QUEUE (jobs lost or run twice).
 var _CEX_WORKER_LEASE_TTL_MS = 2 * 60 * 1000;
+var _CEX_WORKER_LEASE_OWNER = "";
 
 function _cexWorkerAcquireLease_() {
   var props = PropertiesService.getScriptProperties();
-  var now = Date.now();
+  var lock = null, locked = false;
   try {
+    lock = LockService.getScriptLock();
+    locked = lock.tryLock(_CEX_LOCK_TRY_MS);
+    if (!locked) return false;
+    var now = Date.now();
     var raw = props.getProperty("CEX_WORKER_LEASE");
-    if (raw) {
-      var heldUntil = parseInt(raw, 10);
-      if (isFinite(heldUntil) && heldUntil > now) return false;
+    var lease = null;
+    try { lease = raw ? JSON.parse(raw) : null; } catch (eParse) {
+      var legacyUntil = parseInt(raw, 10);
+      if (isFinite(legacyUntil)) lease = { owner: "legacy", until: legacyUntil };
     }
-    props.setProperty("CEX_WORKER_LEASE", String(now + _CEX_WORKER_LEASE_TTL_MS));
+    if (lease && isFinite(parseInt(lease.until, 10)) && parseInt(lease.until, 10) > now) return false;
+    var owner = Utilities.getUuid();
+    props.setProperty("CEX_WORKER_LEASE", JSON.stringify({ owner: owner, until: now + _CEX_WORKER_LEASE_TTL_MS }));
+    _CEX_WORKER_LEASE_OWNER = owner;
     return true;
   } catch (e) {
-    return true;
+    return false;
+  } finally {
+    if (locked && lock) { try { lock.releaseLock(); } catch (eRelease) {} }
   }
 }
 
-// Hard cap on a single manual-worker lease. Keep it short so a dropped worker
-// cannot block queued jobs; per-connector locks live separately.
-var _CEX_WORKER_LEASE_TTL_MS = 2 * 60 * 1000;
+function _cexWorkerRenewLease_(props) {
+  var owner = _CEX_WORKER_LEASE_OWNER;
+  if (!owner) return;
+  props.setProperty("CEX_WORKER_LEASE", JSON.stringify({ owner: owner, until: Date.now() + _CEX_WORKER_LEASE_TTL_MS }));
+}
 
 function _cexWorkerReleaseLease_() {
-  try { PropertiesService.getScriptProperties().deleteProperty("CEX_WORKER_LEASE"); } catch (e) {}
+  var owner = _CEX_WORKER_LEASE_OWNER;
+  if (!owner) return;
+  var lock = null, locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    locked = lock.tryLock(_CEX_LOCK_TRY_MS);
+    if (!locked) return;
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty("CEX_WORKER_LEASE");
+    var lease = null;
+    try { lease = raw ? JSON.parse(raw) : null; } catch (eParse) {}
+    if (lease && lease.owner === owner) props.deleteProperty("CEX_WORKER_LEASE");
+  } finally {
+    if (locked && lock) { try { lock.releaseLock(); } catch (eRelease) {} }
+    _CEX_WORKER_LEASE_OWNER = "";
+  }
 }
 
 // v4.15.116: drain BUDGET. One job per run was far too slow in practice: GAS
@@ -469,7 +494,7 @@ function CEX_MANUAL_REFRESH_WORKER() {
       props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 90 * 1000));
       lastResult = _cexRunManualJob_(job);
       results.push(lastResult);
-      try { props.setProperty("CEX_WORKER_LEASE", String(Date.now() + _CEX_WORKER_LEASE_TTL_MS)); } catch (eLease) {}
+      try { _cexWorkerRenewLease_(props); } catch (eLease) {}
       // Transient failure (per-connector lock BUSY, Spreadsheets timeout...): the job was
       // requeued at the TAIL — keep draining the OTHER jobs instead of stalling
       // the whole queue for 60s. Short pause to let the collision pass.

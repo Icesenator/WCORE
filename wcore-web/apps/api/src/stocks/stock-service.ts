@@ -21,6 +21,8 @@ const CACHE_WRITE_CONCURRENCY = 4;
 const FRESH_TTL_MS = 1 * 60 * 60 * 1000;
 const LAST_GOOD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const LOCK_TTL_MS = 15 * 60 * 1000;
+const LOCK_WAIT_ATTEMPTS = 20;
+const LOCK_WAIT_INTERVAL_MS = 1000;
 const CLOCK_TOLERANCE_MS = 2 * 60 * 1000;
 
 export interface StockSnapshotRow extends ResolvedStockPrice {
@@ -93,6 +95,11 @@ export class CanonicalStockService {
     const cached = await this.safeGet<TopMarketCapSnapshot>(freshKey);
     if (!skipCache && isCompleteSnapshot(cached, this.now(), FRESH_TTL_MS) && cached.rows.length >= requested) return sliceSnapshot(cached, requested);
 
+    // A `fresh` request must not start a second rebuild while one is in flight:
+    // it would stack heavy workloads (CMC + quotes + cache writes) and blow past
+    // the platform proxy timeout. The lock is distributed (Redis SET NX PX) so
+    // every worker shares the same in-flight rebuild, then both wait for its
+    // outcome instead of duplicating it.
     const lockKey = cacheKey("stockTopMarketCapLock", {});
     let acquired: boolean;
     try {
@@ -100,7 +107,7 @@ export class CanonicalStockService {
     } catch {
       acquired = false;
     }
-    if (!acquired) return this.staleSnapshotOrThrow(requested);
+    if (!acquired) return this.waitForRebuild(requested);
 
     try {
       const snapshot = await this.buildSnapshot(Math.max(DEFAULT_SNAPSHOT_LIMIT, requested));
@@ -320,6 +327,28 @@ export class CanonicalStockService {
       return sliceSnapshot(markSnapshotStale(lastGood), limit);
     }
     throw new StockServiceUnavailableError("Canonical stock refresh is already in progress and no last-good snapshot exists");
+  }
+
+  // A fresh request arriving while a rebuild holds the lock waits for the
+  // rebuild's outcome: it returns the fresh snapshot the rebuild just wrote,
+  // then falls back to a stale last-good snapshot, and only throws when
+  // neither exists. This converts the previous hard failure (request-time
+  // throw even though a fresh snapshot was being produced) into a degraded
+  // response, keeping the 502/503 class of errors out of the happy path.
+  private async waitForRebuild(limit: number): Promise<TopMarketCapSnapshot> {
+    const freshKey = cacheKey("stockTopMarketCapFresh", {});
+    for (let attempt = 0; attempt < LOCK_WAIT_ATTEMPTS; attempt++) {
+      const fresh = await this.safeGet<TopMarketCapSnapshot>(freshKey);
+      if (isCompleteSnapshot(fresh, this.now(), FRESH_TTL_MS) && fresh.rows.length >= limit) return sliceSnapshot(fresh, limit);
+      if (attempt < LOCK_WAIT_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, LOCK_WAIT_INTERVAL_MS));
+      }
+    }
+    const fallback = await this.safeGet<TopMarketCapSnapshot>(cacheKey("stockTopMarketCapLastGood", {}));
+    if (isCompleteSnapshot(fallback, this.now(), LAST_GOOD_TTL_MS) && fallback.rows.length >= limit) {
+      return sliceSnapshot(markSnapshotStale(fallback), limit);
+    }
+    throw new StockServiceUnavailableError("Canonical stock refresh is in progress and neither fresh nor last-good snapshot is available");
   }
 
   private async safeGet<T>(key: string): Promise<T | undefined> {

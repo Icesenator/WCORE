@@ -670,3 +670,70 @@ test("lock contention without last-good throws a typed unavailable error", async
   const { service } = deps(cache);
   await assert.rejects(() => service.getTopMarketCapSnapshot(), StockServiceUnavailableError);
 });
+
+test("fresh requests share an in-flight rebuild instead of starting a second one", async () => {
+  const sharedCache = new MemoryCacheStore(); // simule le cache Redis partagé (lock + fresh + last-good)
+  let releaseBuild: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => { releaseBuild = resolve; });
+  let builds = 0;
+
+  // Le premier worker acquiert le lock (SET NX PX), puis son rebuild est gelé sur la gate.
+  const firstService = new CanonicalStockService({
+    cache: sharedCache,
+    fetchImpl: async () => {
+      builds++;
+      await gate;
+      return new Response(csv(), { status: 200 });
+    },
+    fetchStockQuotes: async () => ({}),
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+
+  const first = firstService.getTopMarketCapSnapshot(300, { fresh: true }).then((snapshot) => snapshot.rows.length);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(builds, 1, "the first fresh request must start the rebuild");
+
+  // Le second worker (même cache Redis partagé) ne peut pas prendre le lock, donc
+  // il ne doit PAS démarrer un second rebuild : il attend la sortie du premier.
+  const secondService = new CanonicalStockService({
+    cache: sharedCache,
+    fetchImpl: async () => {
+      builds++;
+      throw new Error("duplicate rebuild must not run");
+    },
+    fetchStockQuotes: async () => ({}),
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+  const second = secondService.getTopMarketCapSnapshot(300, { fresh: true }).then((snapshot) => snapshot.rows.length).catch(() => { throw new Error("second fresh request must wait for the in-flight rebuild"); });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(builds, 1, "the second fresh request must not start a duplicate rebuild while one is in flight");
+
+  releaseBuild!();
+  const [firstRows, secondRows] = await Promise.all([first, second]);
+  assert.equal(firstRows, 300);
+  assert.equal(secondRows, 300);
+  assert.equal(builds, 1);
+});
+
+test("waitForRebuild falls back to last-good when the in-flight rebuild fails", async () => {
+  const cache = new MemoryCacheStore();
+  const healthy = deps(cache);
+  const lastGood = await healthy.service.getTopMarketCapSnapshot();
+  await cache.delete("stock:top-market-cap:fresh");
+  await cache.add("stock:top-market-cap:lock", "in-flight", 900_000);
+  const failing = new CanonicalStockService({
+    cache,
+    fetchImpl: async () => { throw new Error("upstream down"); },
+    fetchStockQuotes: async () => ({}),
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+  const stale = await failing.getTopMarketCapSnapshot(300, { fresh: true });
+  assert.equal(stale.stale, true);
+  assert.equal(stale.rows.length, lastGood.rows.length);
+});

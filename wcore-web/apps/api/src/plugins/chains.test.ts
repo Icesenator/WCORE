@@ -21,7 +21,7 @@ test("/api/chains counts centralized RPC fallbacks", async () => {
   assert.equal(res.statusCode, 200);
   const body = JSON.parse(res.body) as { chains: Array<{ key: string; rpcCount: number }> };
   const camp = body.chains.find((chain) => chain.key === "CAMP");
-  assert.equal(camp?.rpcCount, 1);
+  assert.equal(camp?.rpcCount, 2);
 
   await app.close();
 });

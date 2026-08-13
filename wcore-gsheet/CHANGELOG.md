@@ -1,5 +1,9 @@
 # GSheet Changelog
 
+## 2026-08-13 â€” v4.16.34 : retry proxy 502/503 du portefeuille Action
+
+- Le fetch du portefeuille Action retente dÃ©sormais les rÃ©ponses HTTP 502/503 de l'API WCORE (`upstream error` du proxy Railway) avant de remonter une erreur en B1, laissant le temps au rebuild du snapshot de se terminer.
+
 ## 2026-08-10 â€” v4.16.65 : staking Cosmos dÃ©lÃ©guÃ© fiable
 
 - Les scans Web Cosmos exposent les composantes dÃ©lÃ©guÃ©es, en dÃ©liaison et rÃ©compenses avec leur Ã©tat de complÃ©tude.
@@ -200,12 +204,12 @@ sur la page ExÃ©cutions (workers concurrents, `MASTER_ON_EDIT` 50-75s, timeouts
 - **Cause** : le watchdog `BITPANDA_REFRESH_WATCHDOG` Ã©tait lui-mÃªme mort avec OAuth stale (gotcha v4.15.61), donc le re-install auto-heal des triggers ledger ne pouvait plus se dÃ©clencher.
 - **Fix** : await le self-heal via run `BP_REINSTALL_CEX_TRIGGERS` depuis l'editor Apps Script, suivi de `_ensureLedgerCache_(true)` pour re-lier toutes les cellules E de `Portefeuille Crypto Details`.
 
-## 2026-08-10 - Fallback métadonnées SVM (CWIF + micro-holdings)
+## 2026-08-10 - Fallback mï¿½tadonnï¿½es SVM (CWIF + micro-holdings)
 
 - **Web** : propagation symbol/
-ame de la source de prix acceptée ; cache prix enrichi ; auto-guérison des entrées Redis sans identité ; orceRefresh skipe le cache prix SVM.
-- **Apps Script** : fallback métadonnées marché sur esolve() ; placeholders sanitizés à vide ; pas d’écrasement des métadonnées canoniques/Metaplex.
-- **GSheet** : CWIF/catwifhat visible dans Layer3 - Solana ; prix et identité stables.
-- **Scam detector** : signal dust réduit à poids 1 (micro-holdings réels comme CWIF ne sont plus filtrés).
-- **Cross-runtime** : placeholders mint-prefix alignés Web = Sheet (blank) ; tags canonical/metaplex/market/pc pour retry Metaplex.
-- **Prod** : master poussé, API Railway déployée, clasp push déployé.
+ame de la source de prix acceptï¿½e ; cache prix enrichi ; auto-guï¿½rison des entrï¿½es Redis sans identitï¿½ ; orceRefresh skipe le cache prix SVM.
+- **Apps Script** : fallback mï¿½tadonnï¿½es marchï¿½ sur esolve() ; placeholders sanitizï¿½s ï¿½ vide ; pas dï¿½ï¿½crasement des mï¿½tadonnï¿½es canoniques/Metaplex.
+- **GSheet** : CWIF/catwifhat visible dans Layer3 - Solana ; prix et identitï¿½ stables.
+- **Scam detector** : signal dust rï¿½duit ï¿½ poids 1 (micro-holdings rï¿½els comme CWIF ne sont plus filtrï¿½s).
+- **Cross-runtime** : placeholders mint-prefix alignï¿½s Web = Sheet (blank) ; tags canonical/metaplex/market/pc pour retry Metaplex.
+- **Prod** : master poussï¿½, API Railway dï¿½ployï¿½e, clasp push dï¿½ployï¿½.

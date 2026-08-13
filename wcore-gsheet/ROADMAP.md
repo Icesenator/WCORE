@@ -1,6 +1,6 @@
 # WCORE GSheet - Roadmap
 
-> Etat verifie le 2026-07-16. Cette page est la source d'etat et de backlog du runtime Apps Script. Le passe appartient a `CHANGELOG.md`; l'ancien `AUDIT.md` est un snapshot historique.
+> Etat recroise le 2026-08-11. Cette page est la source d'etat et de backlog du runtime Apps Script. Le passe appartient a `CHANGELOG.md`; l'ancien `AUDIT.md` est un snapshot historique.
 
 ## Etat courant
 
@@ -27,6 +27,7 @@
 ## P1 - Integrite et fiabilite
 
 - [x] Preserver le dernier total natif Cosmos sain lorsqu'une composante staking Web est incomplete; exposer `INFO_STAKING` et conserver la completude dans `scanStats` (2026-08-10).
+- [x] Consommer les actifs IBC resolus et prices par le moteur Web sans modifier le contrat de delegation GSheet; smoke Cosmos Hub production valide avec NTRN, STRD et USDC (API `4009d23c`, 2026-08-11).
 - [x] Eviter la casse de mise en forme `Portefeuille Action` sous filtre actif.
 - [x] **Audit G2** : compteur HTTP fiable et atomique (web scans comptes, attribution par trigger, read-modify-write verrouille par `09e3d89e`).
 - [x] ACTIVITY_WATCHDOG desactive — economie ~5760 UrlFetch/jour.

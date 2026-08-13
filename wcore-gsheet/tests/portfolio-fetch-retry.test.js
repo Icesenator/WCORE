@@ -83,6 +83,28 @@ test('stock snapshot fetch does not retry a genuine HTTP error status', () => {
   assert.equal(calls, 1, 'a 401 is authoritative and must not be retried');
 });
 
+test('stock snapshot fetch retries an HTTP 502 proxy upstream error before succeeding', () => {
+  let calls = 0;
+  const ctx = makeContext(stockSource, () => {
+    calls++;
+    if (calls < 3) return { getResponseCode: () => 502, getContentText: () => 'upstream error' };
+    return okResponse(stockSnapshot);
+  });
+  const snapshot = ctx._stockPortfolioFetchSnapshot_();
+  assert.equal(calls, 3, 'must retry a 502 proxy error before succeeding');
+  assert.equal(snapshot.ok, true, 'snapshot must be returned after a successful retry');
+});
+
+test('stock snapshot fetch reports a 502 after exhausting retries', () => {
+  let calls = 0;
+  const ctx = makeContext(stockSource, () => {
+    calls++;
+    return { getResponseCode: () => 502, getContentText: () => 'upstream error' };
+  });
+  assert.throws(() => ctx._stockPortfolioFetchSnapshot_(), /HTTP 502/);
+  assert.equal(calls, 3, 'must stop after the configured retry limit');
+});
+
 test('stock snapshot fetch retries an HTTP 200 response with an empty JSON body', () => {
   let calls = 0;
   const ctx = makeContext(stockSource, () => {

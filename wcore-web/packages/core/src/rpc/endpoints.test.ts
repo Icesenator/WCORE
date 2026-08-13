@@ -10,9 +10,13 @@ describe("centralized RPC endpoints", () => {
     assert.equal(getPrimaryRpcEndpoint("ETHEREUM"), endpoints[0]);
   });
 
-  test("uses Blockscout RPC fallback when a chain has no public RPC endpoints", () => {
+  test("appends the Blockscout RPC as a fallback behind public endpoints", () => {
     const endpoints = getRpcEndpoints("camp", { includeDynamic: false, useHealth: false });
-    assert.deepEqual(endpoints, ["https://camp.cloud.blockscout.com/api/eth-rpc"]);
+    assert.deepEqual(endpoints, [
+      "https://rpc-mainnet.campnetwork.xyz",
+      "https://camp.cloud.blockscout.com/api/eth-rpc",
+    ]);
+    assert.equal(endpoints.at(-1), "https://camp.cloud.blockscout.com/api/eth-rpc");
   });
 
   test("returns empty array for unknown chains", () => {

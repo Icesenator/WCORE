@@ -681,7 +681,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     // protected-contracts short-circuit: a user-approved custom token that is a
     // known scam (e.g. ZK "zkanalyst") must never surface just because it was
     // passed in customTokens.
-    let scamCheck: { isSuspicious: boolean; level: string } | null;
+    let scamCheck: { isSuspicious: boolean; level: string; reasons?: string[] } | null;
     try {
       scamCheck = core.detectScam(
         tokenStringField(token, "symbol"),
@@ -697,12 +697,14 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     // override the protected-contracts short-circuit. Heuristic "suspicious"
     // (score 2-3) may be an absurd-but-real price that is later neutralized by
     // isAbsurdGsheetPrice instead of dropping the token (e.g. BONSAI).
-    if (scamCheck?.level === "scam") {
+    const isProtected = Boolean(id && protectedContracts.has(id));
+    const isBlockedContract = scamCheck?.reasons?.some((reason) => reason === "blocked contract" || reason === "admin blocked contract") === true;
+    if (scamCheck?.level === "scam" && (!isProtected || isBlockedContract)) {
       const symbol = tokenStringField(token, "symbol");
       if (symbol) filteredSymbols.add(symbol);
       return false;
     }
-    if (id && protectedContracts.has(id)) return true;
+    if (isProtected) return true;
     return true;
   });
   const sanitizedTokens = tokens.map((token) => {

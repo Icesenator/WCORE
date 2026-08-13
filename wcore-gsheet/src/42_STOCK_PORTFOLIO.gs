@@ -1,3 +1,4 @@
+// v4.16.34 - Retry HTTP 502/503 from the WCORE API proxy before surfacing an error.
 // v4.16.33 - Retry incomplete HTTP 200 JSON responses before surfacing an error.
 // v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
 // v4.15.167 - Remove _WCORE_ORIG_FETCH bypass; use patched UrlFetchApp.fetch (respects quota breaker).
@@ -8,21 +9,38 @@
 // v4.15.160 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.159 - Repair Action formats with filters suspended so hidden rows are formatted too.
 
-var STOCK_PORTFOLIO_VERSION = "4.16.33";
+var STOCK_PORTFOLIO_VERSION = "4.16.34";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
-// HTTP status. Retry those a few times before surfacing an error to B1. Real
-// HTTP statuses (401/500/...) are returned by fetch and handled by the caller,
-// so they are NOT retried here.
+// HTTP status. Retry those a few times before surfacing an error to B1.
+// HTTP 502/503 are also retried here: the WCORE API proxy (Railway) answers
+// `upstream error` when its worker is transiently overloaded, and the retry
+// window lets the in-flight snapshot rebuild finish instead of surfacing the
+// error immediately. Other real HTTP statuses (401/400/...) are returned by
+// fetch and handled by the caller, so they are NOT retried here.
 var STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS = 3;
 var STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS = 5000;
+var STOCK_PORTFOLIO_RETRYABLE_HTTP_CODES = { 502: true, 503: true };
 
 function _stockPortfolioFetchWithRetry_(fetchFn) {
   var lastErr = null;
   for (var attempt = 1; attempt <= STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS; attempt++) {
     try {
-      return fetchFn();
+      var result = fetchFn();
+      if (result && typeof result.code === "number") {
+        var isRetryableCode = !!STOCK_PORTFOLIO_RETRYABLE_HTTP_CODES[result.code];
+        if (isRetryableCode && attempt < STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS) {
+          try {
+            if (typeof Logger !== "undefined" && Logger.log) {
+              Logger.log("[STOCK_PORTFOLIO] fetch attempt " + attempt + "/" + STOCK_PORTFOLIO_FETCH_MAX_ATTEMPTS + " failed: HTTP " + result.code + " — retrying in " + (STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS / 1000) + "s");
+            }
+          } catch (eLog) {}
+          try { Utilities.sleep(STOCK_PORTFOLIO_FETCH_RETRY_DELAY_MS); } catch (eSleep) {}
+          continue;
+        }
+      }
+      return result;
     } catch (e) {
       lastErr = e;
       var errorMessage = String(e && e.message ? e.message : e);

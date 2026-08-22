@@ -1,5 +1,39 @@
 ﻿# Changelog
 
+## 2026-08-22 — GM: fallback wallet_addEthereumChain sur 4902 (raw EIP-6963)
+
+- **Cause** : le clic "Say GM" / "Deploy" sur une chain inconnue du wallet (ex. REYA 1729) échouait avec `Could not switch to REYA` — `switchChainAny` ne faisait que `wallet_switchEthereumChain` sans fallback add (contrairement à `/dev/deploy/chain-switch.ts`).
+- **Fix** : `switchChainAny` (lib/onchain-tx.ts) attrape l'erreur (4902 ou code niche wagmi `data.originalError.code`), puis appelle `wallet_addEthereumChain` (EIP-3085) si des params sont fournis. Pas de retry du switch après add (leçon KCC). 4001 (user reject) est propagé tel quel.
+- **Wiring** : `useOnChainGm.buildSenders` fournit `lookupAddChain` construit depuis `wagmiConfig.chains` (source unique, couvre toutes les chains GM) — plus de duplication de données.
+- **Tests** : `onchain-tx.test.ts` +5 cas (4902→add sans retry, code nested, 4001 rejet, pas de params, add échoue). 188/188 tests web, typecheck + lint OK.
+- **Production** : déploiement Railway web en succès (`Deploy complete`), smoke test `https://wcore.xyz/gm` HTTP 200.
+
+## 2026-08-21 — Scam-detector v22: LokiCoin (Base) bloqué
+
+- **`_BLOCKED_CONTRACTS` étendu** : `0xc970c50bee2ffd114f5d65ee18520b66da5f62c1` (Base: `LOKI` "LokiCoin", détecté dans wallet Ethos - Base).
+- **Signature** : contrat non vérifié, 9 décimales, 173 213 holders mais zéro paire DEX (DexScreener), prix $0.00, bytecode avec fonction d'airdrop de masse gated par signature EIP-712 + blacklist + cooldown de trading — dusting spam classique.
+- **Tests** : shared scam-detector 16/16 (`node --import tsx --test src/scam-detector.test.ts`), typecheck shared OK. SCAM_RULES_VERSION bump 21 → 22.
+- **Production** : déploiement Railway API via `scripts/deploy.ps1 -Service api`.
+
+## 2026-08-21 — Scam-detector v20: campagne dusting Ledger - Ethereum bloquée (11 contrats)
+
+- **`_BLOCKED_CONTRACTS` étendu** (11 nouvelles entrées, vérifiées sur Etherscan) :
+  - `0x66a3c2fa3e467aa586e90912f977e648589cabaf` (Ethereum: `AICC` "AI Chain Coin" — proxy dusting, holders > supply)
+  - `0x514b9e5467b9eb811519e316263c9099eae546ca` (Ethereum: `PVC` "Privacy Coin" — même proxy impl `0xACaB8790...` qu'AICC, bytecode identique → campagne coordonnée)
+  - `0x00e2b6d170740c15bf9fb01d0b6e77c0d4510e32` (Ethereum: `DOG` "Royal Dog" — contrat non vérifié, supply absurde)
+  - `0x53fdca91fd33b9131b5ceade42a3edbd9b38edff` (Ethereum: `CAT` "Royal Cat")
+  - `0xcdb9f907bd8828be9643b39cd4638d362fd6e9c4` (Ethereum: `KEKIUS` "Volt Kekius")
+  - `0x37dabad8ac496148596196fe9adeb54ee3111c78` (Ethereum: `DOG` "Little Dog")
+  - `0x83819bf7e906bcf57e9f5b20453a2eff43f3845c` (Ethereum: `PORT` "DePORT")
+  - `0x496a35a65c00b4aed125d19df3871e6b4cb05188` (Ethereum: `REKT` "Trump Rekt" — impersonateur)
+  - `0x4921bb864de2e557939b074be20ff4b98723b86b` (Ethereum: `WAR` "Trump Wars" — impersonateur)
+  - `0x3e391e5cb8ea766c93134faf486e6393158032c2` (Ethereum: `BEAR` "Brave Bear")
+  - `0x9d24364b97270961b2948734afe8d58832efd43a` (Ethereum: `FAM` "yefam.finance")
+- **Signature** : airdrops de 1 unité pile, zéro paire DEX / market cap, millions de holders, activité quasi nulle → address poisoning + honeypot potentiel.
+- **Tests** : shared scam-detector 16/16 (`node --test`), API gsheet 57/57. SCAM_RULES_VERSION bump 19 → 20.
+- **Production** : déploiement Railway API via `scripts/deploy.ps1 -Service api` en succès. Refresh forcé requis pour purger WalletCache (14j).
+- **Non-scams vérifiés** : Phavercoin `SOCIAL` (Base, `0xd3c68968...`) et Penpie `PNP` (Arbitrum, `0x2ac2b254...`) — projets légitimes, non ajoutés.
+
 ## 2026-07-17 - Rafraichissement CEX Web fiabilise
 
 - **Acces direct `/wallet`** : tous les comptes CEX, y compris ceux sans holding, sont synchronises avant le rechargement des avoirs. Le formulaire Home ne lance plus un double sync avant la navigation.

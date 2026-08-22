@@ -66,6 +66,125 @@ describe("switchChainAny", () => {
       /No wallet provider available/,
     );
   });
+
+  const reyaAddParams = {
+    chainId: "0x6c1",
+    chainName: "Reya Network",
+    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: ["https://rpc.reya.network"],
+  };
+
+  test("falls back to wallet_addEthereumChain on 4902 without retrying the switch", async () => {
+    const { provider, calls } = mockProvider({
+      wallet_switchEthereumChain: () => {
+        throw Object.assign(new Error("Unrecognized chain ID"), { code: 4902 });
+      },
+      wallet_addEthereumChain: () => null,
+    });
+    await switchChainAny(
+      {
+        wagmiConnected: false,
+        wagmiSwitch: async () => {},
+        rawProvider: provider,
+        lookupAddChain: (id) => (id === 1729 ? reyaAddParams : null),
+      },
+      1729,
+    );
+    // NO RETRY of wallet_switchEthereumChain after add (KCC lesson).
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.method, "wallet_switchEthereumChain");
+    assert.equal(calls[1]?.method, "wallet_addEthereumChain");
+    assert.deepEqual(calls[1]?.params, [reyaAddParams]);
+  });
+
+  test("handles nested data.originalError.code when falling back to add", async () => {
+    const { provider, calls } = mockProvider({
+      wallet_switchEthereumChain: () => {
+        throw { code: -32603, data: { originalError: { code: 4902 } } };
+      },
+      wallet_addEthereumChain: () => null,
+    });
+    await switchChainAny(
+      {
+        wagmiConnected: false,
+        wagmiSwitch: async () => {},
+        rawProvider: provider,
+        lookupAddChain: () => reyaAddParams,
+      },
+      1729,
+    );
+    assert.equal(calls[1]?.method, "wallet_addEthereumChain");
+  });
+
+  test("rethrows the switch error when the user rejects it (4001)", async () => {
+    const { provider, calls } = mockProvider({
+      wallet_switchEthereumChain: () => {
+        throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+      },
+      wallet_addEthereumChain: () => null,
+    });
+    await assert.rejects(
+      () =>
+        switchChainAny(
+          {
+            wagmiConnected: false,
+            wagmiSwitch: async () => {},
+            rawProvider: provider,
+            lookupAddChain: () => reyaAddParams,
+          },
+          1729,
+        ),
+      /User rejected/,
+    );
+    assert.equal(calls.length, 1, "must not call wallet_addEthereumChain on user reject");
+  });
+
+  test("rethrows the original error when no add params are available", async () => {
+    const { provider, calls } = mockProvider({
+      wallet_switchEthereumChain: () => {
+        throw Object.assign(new Error("Unrecognized chain ID"), { code: 4902 });
+      },
+    });
+    await assert.rejects(
+      () =>
+        switchChainAny(
+          {
+            wagmiConnected: false,
+            wagmiSwitch: async () => {},
+            rawProvider: provider,
+            lookupAddChain: () => null,
+          },
+          9999999999,
+        ),
+      /Unrecognized chain ID/,
+    );
+    assert.equal(calls.length, 1);
+  });
+
+  test("rethrows the original switch error when the add also fails", async () => {
+    const { provider, calls } = mockProvider({
+      wallet_switchEthereumChain: () => {
+        throw Object.assign(new Error("Unrecognized chain ID"), { code: 4902 });
+      },
+      wallet_addEthereumChain: () => {
+        throw Object.assign(new Error("add failed"), { code: -32000 });
+      },
+    });
+    await assert.rejects(
+      () =>
+        switchChainAny(
+          {
+            wagmiConnected: false,
+            wagmiSwitch: async () => {},
+            rawProvider: provider,
+            lookupAddChain: () => reyaAddParams,
+          },
+          1729,
+        ),
+      /Unrecognized chain ID/,
+    );
+    assert.equal(calls.length, 2);
+  });
 });
 
 describe("sendTransactionAny", () => {

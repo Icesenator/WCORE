@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+<defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.52" stop-color="#080f14"/>
+      <stop offset="1" stop-color="#14220f"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#84cc16" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .white { fill: #f7f7f8; }
+      .muted { fill: #a1a1aa; }
+      .soft { fill: #d4d4d8; }
+      .lime { fill: #a3e635; }
+      .red { fill: #f87171; }
+      .label { fill: #71717a; }
+    </style>
+  </defs>
+<rect width="1200" height="675" fill="url(#bg)"/>
+<circle cx="165" cy="95" r="390" fill="url(#glow)"/>
+<circle cx="1010" cy="595" r="340" fill="url(#glow)" opacity="0.8"/>
+<g opacity="0.045" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+<path d="M-80 116C112 28 318 76 526 140C716 198 844 126 1010 72C1110 40 1190 54 1280 110" fill="none" stroke="#84cc16" stroke-opacity="0.12" stroke-width="2"/>
+<path d="M-80 558C128 470 306 518 492 574C680 630 842 590 1010 504C1100 458 1186 464 1280 524" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+<g>
+    <text x="572" y="74" text-anchor="middle" class="font white" font-size="54" font-weight="950" letter-spacing="-2">That old wallet? Still yours.</text>
+    <text x="572" y="104" text-anchor="middle" class="font muted" font-size="20" font-weight="500" letter-spacing="-0.2">Forgotten addresses hold real value. WCORE finds every one.</text>
+  </g>
+<g transform="translate(964 50)">
+    <rect x="0" y="0" width="164" height="52" rx="26" fill="#111722" stroke="#2a3442"/>
+    <g transform="translate(16 12) scale(0.45)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.8">WCORE</text>
+  </g>
+<line x1="100" y1="130" x2="1100" y2="130" stroke="#1a2332" stroke-width="1"/>
+<rect x="70" y="176" width="470" height="80" rx="12" fill="#0d1117" stroke="#232c38"/>
+<circle cx="114" cy="216" r="17" fill="#141a22" stroke="#2a3442"/>
+<rect x="107" y="209" width="14" height="11" rx="2.5" fill="none" stroke="#a1a1aa" stroke-width="1.5"/>
+<path d="M109.5 209 v-3 a4.5 4.5 0 0 1 9 0 v3" fill="none" stroke="#a1a1aa" stroke-width="1.5"/>
+<text x="144" y="206" class="font soft" font-size="15" font-weight="800">0x8f3a...c21d</text>
+<text x="144" y="226" class="font label" font-size="12" font-weight="500">MetaMask - last active March 2023</text>
+<g transform="translate(448 200)">
+      <rect x="0" y="0" width="72" height="30" rx="15" fill="#132117" stroke="#3f6212"/>
+      <text x="36" y="20" text-anchor="middle" class="font" font-size="13.5" font-weight="900" fill="url(#lime)">+$142</text>
+    </g>
+<rect x="70" y="268" width="470" height="80" rx="12" fill="#0d1117" stroke="#232c38"/>
+<circle cx="114" cy="308" r="17" fill="#141a22" stroke="#2a3442"/>
+<rect x="107" y="301" width="14" height="11" rx="2.5" fill="none" stroke="#a1a1aa" stroke-width="1.5"/>
+<path d="M109.5 301 v-3 a4.5 4.5 0 0 1 9 0 v3" fill="none" stroke="#a1a1aa" stroke-width="1.5"/>
+<text x="144" y="298" class="font soft" font-size="15" font-weight="800">0xd41e...77aa</text>
+<text x="144" y="318" class="font label" font-size="12" font-weight="500">Old burner wallet - dormant for 14 months</text>
+<g transform="translate(448 292)">
+      <rect x="0" y="0" width="72" height="30" rx="15" fill="#132117" stroke="#3f6212"/>
+      <text x="36" y="20" text-anchor="middle" class="font" font-size="13.5" font-weight="900" fill="url(#lime)">+$58</text>
+    </g>
+<rect x="70" y="360" width="470" height="80" rx="12" fill="#0d1117" stroke="#232c38"/>
+<circle cx="114" cy="400" r="17" fill="#141a22" stroke="#2a3442"/>
+<rect x="107" y="393" width="14" height="11" rx="2.5" fill="none" stroke="#a1a1aa" stroke-width="1.5"/>
+<path d="M109.5 393 v-3 a4.5 4.5 0 0 1 9 0 v3" fill="none" stroke="#a1a1aa" stroke-width="1.5"/>
+<text x="144" y="390" class="font soft" font-size="15" font-weight="800">Exchange account</text>
+<text x="144" y="410" class="font label" font-size="12" font-weight="500">CEX - 2021 era - never checked since signup</text>
+<g transform="translate(448 384)">
+      <rect x="0" y="0" width="72" height="30" rx="15" fill="#132117" stroke="#3f6212"/>
+      <text x="36" y="20" text-anchor="middle" class="font" font-size="13.5" font-weight="900" fill="url(#lime)">+$310</text>
+    </g>
+<text x="305" y="480" text-anchor="middle" class="font label" font-size="13" font-weight="700" letter-spacing="1.6">DORMANT WALLETS YOU FORGOT</text>
+<path d="M556 350 C 576 350 578 350 596 350" fill="none" stroke="#84cc16" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round"/>
+<path d="M588 342 L598 350 L588 358" fill="none" stroke="#84cc16" stroke-opacity="0.5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="610" y="156" width="500" height="424" rx="16" fill="#0d1117" stroke="#3f6212" stroke-width="1.5"/>
+<rect x="610" y="156" width="500" height="56" rx="16" fill="#132117"/>
+<rect x="610" y="196" width="500" height="16" fill="#132117"/>
+<g transform="translate(632 170) scale(0.32)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#a3e635" stroke-width="4"/>
+    <circle cx="32" cy="33" r="5" fill="#a3e635" stroke="none"/>
+    <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#a3e635" stroke-width="3"/>
+    <circle cx="32" cy="20" r="3.5" fill="#a3e635" stroke="none"/>
+    <circle cx="21" cy="40" r="3.5" fill="#a3e635" stroke="none"/>
+    <circle cx="43" cy="40" r="3.5" fill="#a3e635" stroke="none"/>
+  </g>
+<text x="672" y="191" class="font white" font-size="19" font-weight="950" letter-spacing="1">WCORE</text>
+<g transform="translate(962 170)">
+    <rect x="0" y="0" width="126" height="28" rx="14" fill="#132117" stroke="#3f6212"/>
+    <text x="63" y="19" text-anchor="middle" class="font lime" font-size="12" font-weight="900" letter-spacing="1">READ ONLY</text>
+  </g>
+<text x="638" y="274" class="font" font-size="52" font-weight="950" fill="url(#lime)" letter-spacing="-2">$510</text>
+<text x="800" y="256" class="font white" font-size="17" font-weight="800">rediscovered</text>
+<text x="800" y="278" class="font muted" font-size="12.5" font-weight="500">across every address you own</text>
+<line x1="638" y1="302" x2="1082" y2="302" stroke="#1f2937" stroke-width="1"/>
+<rect x="630" y="320" width="460" height="50" rx="10" fill="#0f141b"/>
+<circle cx="658" cy="345" r="10" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M653.5 345 l 3 3.5 l 7 -8" fill="none" stroke="#a3e635" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="686" y="341" class="font white" font-size="14.5" font-weight="800">Every address scanned</text>
+<text x="686" y="361" class="font muted" font-size="11.5" font-weight="500">Add all your wallets, past and present</text>
+<rect x="630" y="374" width="460" height="50" rx="10" fill="#0f141b"/>
+<circle cx="658" cy="399" r="10" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M653.5 399 l 3 3.5 l 7 -8" fill="none" stroke="#a3e635" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="686" y="395" class="font white" font-size="14.5" font-weight="800">183 chains covered</text>
+<text x="686" y="415" class="font muted" font-size="11.5" font-weight="500">EVM, Solana, Cosmos, TON</text>
+<rect x="630" y="428" width="460" height="50" rx="10" fill="#0f141b"/>
+<circle cx="658" cy="453" r="10" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M653.5 453 l 3 3.5 l 7 -8" fill="none" stroke="#a3e635" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="686" y="449" class="font white" font-size="14.5" font-weight="800">CEX balances folded in</text>
+<text x="686" y="469" class="font muted" font-size="11.5" font-weight="500">7 exchanges, read-only keys</text>
+<rect x="630" y="482" width="460" height="50" rx="10" fill="#0f141b"/>
+<path d="M658 497 L666.7 500.8 V508.4 C666.7 513.8 658 517 658 517 C658 517 649.3 513.8 649.3 508.4 V500.8 Z" fill="#132117" stroke="#84cc16" stroke-width="1.4"/>
+<path d="M654 507 l 2.8 3.2 l 6 -7" fill="none" stroke="#a3e635" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="686" y="503" class="font white" font-size="14.5" font-weight="800">Scam tokens excluded</text>
+<text x="686" y="523" class="font muted" font-size="11.5" font-weight="500">Dust never reaches your total</text>
+<g transform="translate(752 540)">
+    <rect x="0" y="0" width="216" height="30" rx="15" fill="#132117" stroke="#3f6212"/>
+    <text x="108" y="20" text-anchor="middle" class="font" font-size="13" font-weight="900" letter-spacing="1" fill="url(#lime)">ONE CLEAN TOTAL</text>
+  </g>
+<text x="860" y="606" text-anchor="middle" class="font lime" font-size="13" font-weight="700" letter-spacing="1.6">FOUND BY WCORE</text>
+<line x1="100" y1="618" x2="1100" y2="618" stroke="#1a2332" stroke-width="1"/>
+<g>
+    <text x="100" y="652" class="font soft" font-size="17" font-weight="900" letter-spacing="-0.4">Read first. Act later.</text>
+    <text x="1100" y="652" text-anchor="end" class="font" font-size="19" font-weight="950" letter-spacing="2.4" fill="url(#lime)">wcore.xyz</text>
+  </g>
+<rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+</svg>

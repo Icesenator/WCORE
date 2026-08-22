@@ -65,8 +65,22 @@ export function useOnChainGm(config: GmConfig) {
       wagmiSwitch: (chainId: number) => safeSwitchChain(chainId),
       rawProvider: rawProvider ?? undefined,
       from: config.walletAddress,
+      // The wallet picker connects via raw EIP-6963, so chains missing from
+      // the user's wallet (e.g. REYA 1729) fail wallet_switchEthereumChain
+      // with 4902. Feed the wagmi-config chain metadata (single source of
+      // truth in lib/wagmi.ts) so switchChainAny can add the chain instead.
+      lookupAddChain: (id: number) => {
+        const chain = wagmiConfig.chains.find((c) => c.id === id);
+        if (!chain) return null;
+        return {
+          chainId: "0x" + id.toString(16),
+          chainName: chain.name,
+          nativeCurrency: chain.nativeCurrency,
+          rpcUrls: [...chain.rpcUrls.default.http],
+        };
+      },
     };
-  }, [isConnected, sendTransactionAsync, safeSwitchChain, rawProvider, config.walletAddress]);
+  }, [isConnected, sendTransactionAsync, safeSwitchChain, rawProvider, config.walletAddress, wagmiConfig]);
 
   const waitForReceipt = useCallback(async (txHash: string, chainId: number, timeoutMs: number) => {
     const publicClient = rawProvider ? undefined : getPublicClient(wagmiConfig, { chainId });

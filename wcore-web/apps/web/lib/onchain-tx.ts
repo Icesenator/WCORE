@@ -32,6 +32,15 @@ export interface OnChainSenders {
   wagmiSwitch: (chainId: number) => Promise<unknown>;
   /** Explicitly selected EIP-6963 provider, authoritative when present. */
   rawProvider: RawProvider | undefined;
+  /**
+   * EIP-3085 params for chains the wallet may not know yet. When present and
+   * the raw switch fails (4902 "Unrecognized chain ID" or a wallet-specific
+   * quirk code), `switchChainAny` falls back to `wallet_addEthereumChain`.
+   * NO retry of `wallet_switchEthereumChain` after add: the add flow already
+   * selects the chain, and a retry can race into 4902 again (KCC lesson,
+   * see app/dev/deploy/chain-switch.ts).
+   */
+  lookupAddChain?: (chainId: number) => AddEthereumChainParams | null;
   /** The wallet address (hex), required for raw `eth_sendTransaction.from`. */
   from: string | null;
 }
@@ -41,6 +50,35 @@ export interface TransactionReceipt {
   logs: Array<{ address: string; topics: readonly string[] }>;
 }
 
+/** EIP-3085 params for `wallet_addEthereumChain`. */
+export interface AddEthereumChainParams {
+  chainId: string; // hex
+  chainName: string;
+  nativeCurrency: { name: string; symbol: string; decimals: number };
+  rpcUrls: string[];
+}
+
+/**
+ * Wallet error codes arrive as number, numeric string ("4902"), or nested at
+ * `data.originalError.code` (wagmi pattern). Normalize all three.
+ */
+function getErrorCode(e: unknown): number | undefined {
+  if (!e || typeof e !== "object") return undefined;
+  const err = e as { code?: unknown; data?: { originalError?: { code?: unknown } } };
+  if (typeof err.code === "number") return err.code;
+  if (typeof err.code === "string") {
+    const n = Number(err.code);
+    if (!Number.isNaN(n)) return n;
+  }
+  const inner = err.data?.originalError?.code;
+  if (typeof inner === "number") return inner;
+  if (typeof inner === "string") {
+    const n = Number(inner);
+    if (!Number.isNaN(n)) return n;
+  }
+  return undefined;
+}
+
 export type PublicReceiptWaiter = (txHash: string, timeoutMs: number) => Promise<{
   status: "success" | "reverted";
   logs: Array<{ address: string; topics: readonly string[] }>;
@@ -48,16 +86,40 @@ export type PublicReceiptWaiter = (txHash: string, timeoutMs: number) => Promise
 
 /** Ask the wallet to switch chains, via wagmi or the raw provider. */
 export async function switchChainAny(
-  senders: Pick<OnChainSenders, "wagmiConnected" | "wagmiSwitch" | "rawProvider">,
+  senders: Pick<
+    OnChainSenders,
+    "wagmiConnected" | "wagmiSwitch" | "rawProvider" | "lookupAddChain"
+  >,
   chainId: number,
 ): Promise<void> {
   if (senders.rawProvider) {
     const chainIdHex = "0x" + chainId.toString(16);
-    await senders.rawProvider.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: chainIdHex }],
-    });
-    return;
+    try {
+      await senders.rawProvider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: chainIdHex }],
+      });
+      return;
+    } catch (e) {
+      // User rejected the switch — propagate so we never continue a GM/deploy
+      // on the wrong chain.
+      if (getErrorCode(e) === 4001) throw e;
+      // Chains not pre-configured in the user's wallet (e.g. REYA, chainId
+      // 1729) fail with "Unrecognized chain ID". Fall back to
+      // `wallet_addEthereumChain` (EIP-3085); some quirky wallets throw an
+      // unrecognised code instead of 4902, hence no code filter here.
+      const addParams = senders.lookupAddChain?.(chainId);
+      if (!addParams) throw e;
+      try {
+        await senders.rawProvider.request({
+          method: "wallet_addEthereumChain",
+          params: [addParams],
+        });
+        return;
+      } catch {
+        throw e;
+      }
+    }
   }
   if (!senders.wagmiConnected) throw new Error("No wallet provider available");
   await senders.wagmiSwitch(chainId);

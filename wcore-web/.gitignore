@@ -73,6 +73,7 @@ scripts/*
 !scripts/build-post-read-first-sign-later.cjs
 !scripts/build-post-one-clean-view.cjs
 !scripts/build-post-zapper-continuity.cjs
+!scripts/build-post-dust-campaign.cjs
 !scripts/parity-gsheet-vs-web.cjs
 # Planning/session docs (Codex internal)
 docs/superpowers/
@@ -122,6 +123,7 @@ astar-snapshot.md
 !apps/web/public/wcore-post-read-first-sign-later.png
 !apps/web/public/wcore-post-one-clean-view.png
 !apps/web/public/wcore-post-zapper-continuity.png
+!apps/web/public/wcore-post-dust-campaign.png
 !apps/web/public/chains/**
 !apps/web/public/cex/**
 

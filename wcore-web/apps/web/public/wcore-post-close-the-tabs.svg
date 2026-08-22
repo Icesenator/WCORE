@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+<defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="0.52" stop-color="#080f14"/>
+      <stop offset="1" stop-color="#14220f"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#bef264"/>
+      <stop offset="1" stop-color="#84cc16"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#84cc16" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#84cc16" stop-opacity="0"/>
+    </radialGradient>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .white { fill: #f7f7f8; }
+      .muted { fill: #a1a1aa; }
+      .soft { fill: #d4d4d8; }
+      .lime { fill: #a3e635; }
+      .red { fill: #f87171; }
+      .label { fill: #71717a; }
+    </style>
+  </defs>
+<rect width="1200" height="675" fill="url(#bg)"/>
+<circle cx="165" cy="95" r="390" fill="url(#glow)"/>
+<circle cx="1010" cy="595" r="340" fill="url(#glow)" opacity="0.8"/>
+<g opacity="0.045" stroke="#84cc16">
+    <path d="M0 112H1200M0 225H1200M0 338H1200M0 451H1200M0 564H1200"/>
+    <path d="M150 0V675M300 0V675M450 0V675M600 0V675M750 0V675M900 0V675M1050 0V675"/>
+  </g>
+<path d="M-80 116C112 28 318 76 526 140C716 198 844 126 1010 72C1110 40 1190 54 1280 110" fill="none" stroke="#84cc16" stroke-opacity="0.12" stroke-width="2"/>
+<path d="M-80 558C128 470 306 518 492 574C680 630 842 590 1010 504C1100 458 1186 464 1280 524" fill="none" stroke="#22c55e" stroke-opacity="0.08" stroke-width="2"/>
+<g>
+    <text x="572" y="74" text-anchor="middle" class="font white" font-size="56" font-weight="950" letter-spacing="-2.2">Close the tabs.</text>
+    <text x="572" y="104" text-anchor="middle" class="font muted" font-size="20" font-weight="500" letter-spacing="-0.2">Your portfolio is not five browser windows.</text>
+  </g>
+<g transform="translate(964 50)">
+    <rect x="0" y="0" width="164" height="52" rx="26" fill="#111722" stroke="#2a3442"/>
+    <g transform="translate(16 12) scale(0.45)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#84cc16" stroke-width="4"/>
+      <circle cx="32" cy="33" r="5" fill="#84cc16" stroke="none"/>
+      <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#84cc16" stroke-width="3"/>
+      <circle cx="32" cy="20" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="21" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+      <circle cx="43" cy="40" r="3.5" fill="#84cc16" stroke="none"/>
+    </g>
+    <text x="60" y="33" class="font white" font-size="18" font-weight="950" letter-spacing="0.8">WCORE</text>
+  </g>
+<line x1="100" y1="130" x2="1100" y2="130" stroke="#1a2332" stroke-width="1"/>
+<g transform="translate(96 208) rotate(-4)">
+      <rect x="0" y="0" width="360" height="64" rx="10" fill="#0d1117" stroke="#232c38"/>
+      <line x1="0" y1="22" x2="360" y2="22" stroke="#232c38" stroke-width="1"/>
+      <circle cx="16" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="28" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="40" cy="11" r="3.5" fill="#3f3f46"/>
+      <text x="18" y="44" class="font muted" font-size="15" font-weight="800" letter-spacing="1">BLOCK EXPLORER</text>
+      <text x="18" y="58" class="font label" font-size="10.5" font-weight="500">chain 1 only</text>
+    </g>
+<g transform="translate(116 292) rotate(-1.5)">
+      <rect x="0" y="0" width="360" height="64" rx="10" fill="#0d1117" stroke="#232c38"/>
+      <line x1="0" y1="22" x2="360" y2="22" stroke="#232c38" stroke-width="1"/>
+      <circle cx="16" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="28" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="40" cy="11" r="3.5" fill="#3f3f46"/>
+      <text x="18" y="44" class="font muted" font-size="15" font-weight="800" letter-spacing="1">DEX SCREENER</text>
+      <text x="18" y="58" class="font label" font-size="10.5" font-weight="500">prices lagging</text>
+    </g>
+<g transform="translate(106 376) rotate(2)">
+      <rect x="0" y="0" width="360" height="64" rx="10" fill="#0d1117" stroke="#232c38"/>
+      <line x1="0" y1="22" x2="360" y2="22" stroke="#232c38" stroke-width="1"/>
+      <circle cx="16" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="28" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="40" cy="11" r="3.5" fill="#3f3f46"/>
+      <text x="18" y="44" class="font muted" font-size="15" font-weight="800" letter-spacing="1">CEX DASHBOARD</text>
+      <text x="18" y="58" class="font label" font-size="10.5" font-weight="500">spot balance</text>
+    </g>
+<g transform="translate(128 462) rotate(-2.5)">
+      <rect x="0" y="0" width="360" height="64" rx="10" fill="#0d1117" stroke="#232c38"/>
+      <line x1="0" y1="22" x2="360" y2="22" stroke="#232c38" stroke-width="1"/>
+      <circle cx="16" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="28" cy="11" r="3.5" fill="#3f3f46"/>
+      <circle cx="40" cy="11" r="3.5" fill="#3f3f46"/>
+      <text x="18" y="44" class="font muted" font-size="15" font-weight="800" letter-spacing="1">SPREADSHEET.CSV</text>
+      <text x="18" y="58" class="font label" font-size="10.5" font-weight="500">updated in March</text>
+    </g>
+<line x1="118" y1="230" x2="470" y2="216" stroke="#f87171" stroke-width="2.5" opacity="0.85"/>
+<g transform="translate(430 190)">
+    <circle cx="0" cy="0" r="16" fill="#450a0a" stroke="#b91c1c" stroke-width="1.5"/>
+    <path d="M-6 -6 L6 6 M6 -6 L-6 6" stroke="#f87171" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
+<text x="250" y="580" text-anchor="middle" class="font label" font-size="13" font-weight="700" letter-spacing="1.6">THE OLD WAY</text>
+<rect x="610" y="156" width="500" height="424" rx="16" fill="#0d1117" stroke="#3f6212" stroke-width="1.5"/>
+<rect x="610" y="156" width="500" height="56" rx="16" fill="#132117"/>
+<rect x="610" y="196" width="500" height="16" fill="#132117"/>
+<g transform="translate(632 170) scale(0.32)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 8L54 20.5V45.5L32 58L10 45.5V20.5L32 8Z" stroke="#a3e635" stroke-width="4"/>
+    <circle cx="32" cy="33" r="5" fill="#a3e635" stroke="none"/>
+    <path d="M32 33L32 20M32 33L21 40M32 33L43 40" stroke="#a3e635" stroke-width="3"/>
+    <circle cx="32" cy="20" r="3.5" fill="#a3e635" stroke="none"/>
+    <circle cx="21" cy="40" r="3.5" fill="#a3e635" stroke="none"/>
+    <circle cx="43" cy="40" r="3.5" fill="#a3e635" stroke="none"/>
+  </g>
+<text x="672" y="191" class="font white" font-size="19" font-weight="950" letter-spacing="1">WCORE</text>
+<g transform="translate(962 170)">
+    <rect x="0" y="0" width="126" height="28" rx="14" fill="#132117" stroke="#3f6212"/>
+    <text x="63" y="19" text-anchor="middle" class="font lime" font-size="12" font-weight="900" letter-spacing="1">READ ONLY</text>
+  </g>
+<rect x="630" y="240" width="460" height="66" rx="10" fill="#0f141b"/>
+<circle cx="662" cy="273" r="13" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M656 273 l 4 4.5 l 9 -10" fill="none" stroke="#a3e635" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="692" y="267" class="font white" font-size="15.5" font-weight="800">180+ chains scanned</text>
+<text x="692" y="288" class="font muted" font-size="12" font-weight="500">EVM, Solana, Cosmos, TON</text>
+<rect x="630" y="314" width="460" height="66" rx="10" fill="#0f141b"/>
+<circle cx="662" cy="347" r="13" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M656 347 l 4 4.5 l 9 -10" fill="none" stroke="#a3e635" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="692" y="341" class="font white" font-size="15.5" font-weight="800">7 CEX folded in</text>
+<text x="692" y="362" class="font muted" font-size="12" font-weight="500">Binance, Bybit, Kraken, Coinbase...</text>
+<rect x="630" y="388" width="460" height="66" rx="10" fill="#0f141b"/>
+<path d="M662 408 L673 413 V423 C673 430 662 434 662 434 C662 434 651 430 651 423 V413 Z" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M657 421 l 3.5 4 l 7 -8" fill="none" stroke="#a3e635" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="692" y="415" class="font white" font-size="15.5" font-weight="800">Scam tokens flagged</text>
+<text x="692" y="436" class="font muted" font-size="12" font-weight="500">Dust never reaches your total</text>
+<rect x="630" y="462" width="460" height="66" rx="10" fill="#0f141b"/>
+<rect x="652" y="488" width="20" height="15" rx="3" fill="#132117" stroke="#84cc16" stroke-width="1.5"/>
+<path d="M657 488 v-3 a5 5 0 0 1 10 0 v3" fill="none" stroke="#84cc16" stroke-width="1.5"/>
+<text x="692" y="489" class="font white" font-size="15.5" font-weight="800">No wallet connect</text>
+<text x="692" y="510" class="font muted" font-size="12" font-weight="500">Public data only. No seed phrase.</text>
+<g transform="translate(768 532)">
+    <rect x="0" y="0" width="184" height="30" rx="15" fill="#132117" stroke="#3f6212"/>
+    <text x="92" y="20" text-anchor="middle" class="font" font-size="13" font-weight="900" letter-spacing="1.2" fill="url(#lime)">ONE CLEAN VIEW</text>
+  </g>
+<text x="860" y="606" text-anchor="middle" class="font lime" font-size="13" font-weight="700" letter-spacing="1.6">THE WCORE WAY</text>
+<line x1="100" y1="618" x2="1100" y2="618" stroke="#1a2332" stroke-width="1"/>
+<g>
+    <text x="100" y="652" class="font soft" font-size="17" font-weight="900" letter-spacing="-0.4">Read first. Act later.</text>
+    <text x="1100" y="652" text-anchor="end" class="font" font-size="19" font-weight="950" letter-spacing="2.4" fill="url(#lime)">wcore.xyz</text>
+  </g>
+<rect x="0" y="671" width="1200" height="4" fill="url(#lime)" opacity="0.72"/>
+</svg>

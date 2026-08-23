@@ -1,5 +1,21 @@
 ﻿# Changelog
 
+## 2026-08-23 - Scam-detector v26: auto-blocking dynamique (GoPlus cache + liquidite ecran)
+
+Implementation du design docs/superpowers/specs/2026-08-23-scam-detector-auto-blocking-design.md - fin des ajouts manuels systematiques pour les campagnes dusting/honeypot.
+
+- detectScam enrichi (packages/shared) : parametre optionnel enrichment?: ScamEnrichment (retrocompatibilite totale). Nouvelles regles :
+  - Screen pool (+2) : prix > 1 EUR ET liquidite < $10k ET volume 24h < $500 ET 0 achat - aurait attrape automatiquement Bad Dad ($5.7k/vol 0) et YOM ($194/$0.50).
+  - Poids GoPlus prudents (divises par 2 vs design initial) : honeypot +2, blacklist anti-sell +1, take-back ownership +1, slippage modifiable +1, owner >50% supply +2.
+- Client GoPlus batche (packages/core/tokens/goplus-enrichment.ts) : <=30 contrats/appel, timeout AbortController 5s, parsing string-bools, fail-graceful (available:false, jamais persiste comme clean).
+- Persistance (packages/db) : tables scam_verdicts (PK composite chainId+address, TTL logique 30j cote lecture, verdicts admin permanents) + scam_scan_logs (audit 90j des decisions suspicious/scam). Migration 20260823120000_add_scam_verdicts_and_logs.
+- Wiring API (apps/api/plugins/scam-enrichment.ts + branchement sanitizeGsheetScanResult) : precharge les verdicts inconnus avant agregation sous feature flag SCAN_ENRICHMENT=1 (defaut OFF = comportement strictement inchangé). Decisions flaggees loggees fire-and-forget.
+- Retractation admin : reutilise le mecanisme existant POST /api/admin/scam-override {action:"approve"} (DB scam_overrides + memoire + sync web localStorage) - bouton "Report as LEGIT" deja present dans TokenTable. Aucun nouveau code UI necessaire.
+- Suite de regression tokens legitimes (scam-legit-regression.test.ts) : xGRAIL, rSTONE/lSTONE, aRUSDC, Re7USDC, SOCIAL, PNP, WLD, CWIF ne basculent JAMAIS en scam/suspicious>=4 avec donnees marche saines + GoPlus clean - garde-fou explicite contre les faux positifs.
+- Tests : shared 16 historiques + regression 2/2 ; core GoPlus 5/5 (suite core 385 pass) ; API scam-enrichment 5/5 ; gsheet 57/57 ; backup-db repare au passage (funnelEventAggregate manquait). Typechecks shared/core/api exit 0.
+- Rollout : deploy API (migration auto au boot), puis activation SCAN_ENRICHMENT=1 (canari), observation taux faux positifs <20%.
+
+
 ## 2026-08-23 — Scam-detector v25: Citrea CTR (Ethereum) bloqué
 
 - **`_BLOCKED_CONTRACTS` étendu** : `0x4623aa7087a1004d12afa717d7bf5e77981174f7` (Ethereum: `CTR` "Citrea", détecté dans Ledger - Ethereum).

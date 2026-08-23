@@ -18,6 +18,7 @@ afterEach(() => {
 describe("privacy-first funnel analytics", () => {
   test("normalizes campaign and buckets dimensions", () => {
     assert.equal(normalizeCampaign("one_portfolio"), "one_portfolio");
+    assert.equal(normalizeCampaign("clean_total"), "clean_total");
     assert.equal(normalizeCampaign("raw-utm-value"), "unknown");
     assert.equal(bucketWalletCount(1), "1");
     assert.equal(bucketWalletCount(3), "2_3");

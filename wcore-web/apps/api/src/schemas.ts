@@ -169,7 +169,7 @@ const FunnelDimensionsSchema = z.object({
 
 export const FunnelEventSchema = z.object({
   event: z.enum(["campaign_landing_viewed", "scan_started", "scan_completed", "scan_failed", "portfolio_action"]),
-  campaign: z.enum(["one_portfolio", "unknown"]),
+  campaign: z.enum(["one_portfolio", "clean_total", "unknown"]),
   surface: z.enum(["home", "wallet"]),
   variant: z.literal("control"),
   dimensions: FunnelDimensionsSchema,
@@ -182,7 +182,7 @@ export const FunnelEventsBodySchema = z.object({
 export const AdminFunnelQuerySchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
-  campaign: z.enum(["one_portfolio", "unknown"]).optional(),
+  campaign: z.enum(["one_portfolio", "clean_total", "unknown"]).optional(),
 }).strict();
 
 /** GET /api/price/native */

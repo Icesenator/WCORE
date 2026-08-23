@@ -16,7 +16,7 @@ const orchestratorSource = readFileSync(new URL("../hooks/useScanOrchestrator.ts
 describe("One portfolio frontend funnel contracts", () => {
   test("home wraps campaign search params in a suspense boundary", () => {
     assert.match(homePageSource, /import\s*\{\s*Suspense\s*\}\s*from\s*["']react["']/);
-    assert.match(homePageSource, /<Suspense[\s\S]*<HomePageClient\s*\/>[\s\S]*<\/Suspense>/);
+    assert.match(homePageSource, /<Suspense[\s\S]*<HomePageClient\s[\s\S]*\/>[\s\S]*<\/Suspense>/);
   });
 
   test("home reads campaign, deduplicates the landing view, tracks scan start, and propagates campaign", () => {

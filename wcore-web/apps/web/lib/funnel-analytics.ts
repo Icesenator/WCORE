@@ -1,6 +1,6 @@
 import { apiPost } from "./api";
 
-export type FunnelCampaign = "one_portfolio" | "unknown";
+export type FunnelCampaign = "one_portfolio" | "clean_total" | "unknown";
 export type FunnelSurface = "home" | "wallet";
 export type FunnelVariant = "control";
 export type FunnelEventName =
@@ -52,7 +52,9 @@ export interface ScanFinishedInput {
 }
 
 export function normalizeCampaign(value: string | null | undefined): FunnelCampaign {
-  return value === "one_portfolio" ? "one_portfolio" : "unknown";
+  if (value === "one_portfolio") return "one_portfolio";
+  if (value === "clean_total") return "clean_total";
+  return "unknown";
 }
 
 export function bucketWalletCount(count: number): WalletCountBucket {

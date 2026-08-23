@@ -2,6 +2,7 @@
   "name": "wcore",
   "version": "0.0.0-private",
   "private": true,
+  "type": "module",
   "description": "WCORE - Multi-chain wallet tracker. wcore-gsheet (Google Sheets + Apps Script) + wcore-web (Next.js 16 + Fastify + PostgreSQL)",
   "scripts": {
     "dev": "pnpm --dir wcore-web dev",
@@ -30,6 +31,12 @@
     "pnpm": ">=9.0.0"
   },
   "devDependencies": {
-    "mcp-gsheets": "^1.7.1"
+    "@playwright/mcp": "^0.0.79",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.0.0",
+    "dotenv": "^17.0.0",
+    "mcp-gsheets": "^1.7.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
   }
 }

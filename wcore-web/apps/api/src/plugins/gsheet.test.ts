@@ -355,6 +355,7 @@ describe("gsheetPlugin", () => {
       timestamp: "2026-06-26T17:00:00.000Z",
       native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
       tokens: [{ symbol: "USDC", name: "USD Coin", contract: "0x0000000000000000000000000000000000000001", balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 }],
+      blockedContracts: [],
       totalValueEur: 29.6,
       errors: [],
       degraded: false,
@@ -949,6 +950,49 @@ describe("gsheetPlugin", () => {
     assert.equal(res.statusCode, 200);
     const body = JSON.parse(res.body);
     assert.equal(body.tokens.length, 0, "blocked scam custom token must be filtered out");
+    assert.deepEqual(body.blockedContracts, ["0x2937489455711b275e854fb8e2238d0b7cc5fa7b"], "blocked contract must be reported for gsheet cache purge");
+    await app.close();
+  });
+
+  test("reports hard-blocked Trump/Shib/Doge impersonators as blockedContracts", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Ethereum",
+        vm: "EVM",
+        timestamp: "2026-08-21T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "DOGE", name: "Trump Doge", contract: "0x290b3b9f7661a6834135be44c3475aef987fa3b2", balance: 1, decimals: 18, priceEur: 0.000008995612, valueEur: 0.000008995612 },
+          { symbol: "DOGE", name: "Royal Doge", contract: "0x05cd8430676f04b63b33c1ece124818858edfc4f", balance: 1, decimals: 18, priceEur: 0.000002777048, valueEur: 0.000002777048 },
+          { symbol: "SHIB", name: "Trump Shib", contract: "0x5497b1ab5bb59b194e25764ea0b61871b122a43f", balance: 1, decimals: 18, priceEur: 0.000000937208, valueEur: 0.000000937208 },
+          { symbol: "USDC", name: "USD Coin", contract: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 },
+        ],
+        totalValueEur: 21.0086,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "ethereum" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.deepEqual(body.tokens.map((t: { symbol: string }) => t.symbol), ["USDC"]);
+    assert.deepEqual(body.blockedContracts.sort(), [
+      "0x05cd8430676f04b63b33c1ece124818858edfc4f",
+      "0x290b3b9f7661a6834135be44c3475aef987fa3b2",
+      "0x5497b1ab5bb59b194e25764ea0b61871b122a43f",
+    ].sort());
     await app.close();
   });
 

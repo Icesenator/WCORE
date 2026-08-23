@@ -1,6 +1,9 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.66 - Drop the local GSHEET_WEB_SCAN_BLOCKED_CONTRACTS list: the Web API
+ *   now reports the hard-blocked contracts it filtered (blockedContracts) and the
+ *   adapter purges stale cached assets against that authoritative signal.
  * v4.16.65 - Preserve the last healthy Cosmos native total when delegated staking data is incomplete, and expose the staking breakdown in scan metadata.
  * v4.16.63 - Include every token already held in the wallet cache when an
  *   external priority list enables strict scans, so wallet-specific assets are
@@ -67,7 +70,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.65";
+var GSHEET_WEB_SCAN_VERSION = "4.16.66";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -79,16 +82,19 @@ var GSHEET_WEB_BREAKER_STATE_TTL_SEC = 35 * 60;
 var GSHEET_WEB_MAX_TOKEN_PRICE_EUR = 1e9;
 var GSHEET_WEB_MAX_TOKEN_VALUE_EUR = 1e12;
 
-var GSHEET_WEB_SCAN_BLOCKED_CONTRACTS = {
-  "0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3": true, // BASE: AGI
-  "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2": true, // BASE: DRB
-  "0x1b9371e474aac1337b327ff8c30c1036dcecb7b6": true, // BASE: dick
-  "0x9f86db9fc6f7c9408e8fda3ff8ce4e78ac7a6b07": true, // BASE: CLAWD
-  "0x06a4665fd49c1c959e982a9ed22ea83e9f6be7df": true, // BASE: BALDYS
-  "0x1626691e26c985f98fbc22193f24b719d3ae9491": true, // BASE: singularity-coin
-  "0x3142b47221a8e9418e161bf5f747d65459f5535e": true, // BASE: TIMES
-  "0x69ca8b02d2aa27619e02fbf6de1b1502da5f147a": true  // BASE: ZAMRUD
-};
+// Blocked-scam contracts are authoritative on the Web API side. The adapter no
+// longer keeps a local copy; instead it consumes payload.blockedContracts (the
+// hard-blocked contracts the API filtered out of this response) and purges any
+// stale cached asset matching them during degraded merges.
+function _webScanBlockedSet_(payload) {
+  var set = {};
+  var list = payload && Array.isArray(payload.blockedContracts) ? payload.blockedContracts : [];
+  for (var i = 0; i < list.length; i++) {
+    var c = String(list[i] || "").trim().toLowerCase();
+    if (c) set[c] = true;
+  }
+  return set;
+}
 
 function _webScanProps_() {
   try { return PropertiesService.getScriptProperties(); } catch (e) { return null; }
@@ -303,10 +309,10 @@ function _webScanAssetFromToken_(tokenObj) {
   };
 }
 
-function _webScanIsScamToken_(tokenObj) {
+function _webScanIsScamToken_(tokenObj, blockedSet) {
   tokenObj = tokenObj || {};
   var contract = String(tokenObj.contract || tokenObj.address || tokenObj.mint || tokenObj.denom || "").trim().toLowerCase();
-  if (contract && GSHEET_WEB_SCAN_BLOCKED_CONTRACTS[contract]) return true;
+  if (contract && blockedSet && blockedSet[contract]) return true;
   if (tokenObj.scam === true || tokenObj.isScam === true || tokenObj.suspicious === true || tokenObj.isSuspicious === true) return true;
   var level = String(tokenObj.scamLevel || tokenObj.riskLevel || tokenObj.level || "").toLowerCase();
   if (level === "scam" || level === "blocked") return true;
@@ -328,6 +334,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   var priceTsMap = {};
   var balanceTsMap = {};
   var priority = _webScanPriorityTokenSet_(tokensRange);
+  var blockedSet = _webScanBlockedSet_(payload);
   var filteredOut = 0;
   var scamFiltered = 0;
   var missingPrices = 0;
@@ -353,7 +360,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
 
   var tokens = Array.isArray(payload.tokens) ? payload.tokens : [];
   for (var i = 0; i < tokens.length; i++) {
-    if (_webScanIsScamToken_(tokens[i])) { scamFiltered++; continue; }
+    if (_webScanIsScamToken_(tokens[i], blockedSet)) { scamFiltered++; continue; }
     var tokenForCache = tokens[i];
     var rawTokenPrice = _webScanFirstNum_(tokenForCache || {}, ["priceEur", "price_eur", "price"], null);
     var rawTokenValue = _webScanFirstNum_(tokenForCache || {}, ["valueEur", "value_eur", "value"], null);
@@ -462,6 +469,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     ]
   };
   if (priority && priority.set) outCache._webScanRequestedTokenSet = priority.set;
+  outCache._webScanBlockedContractSet = blockedSet;
   return outCache;
 }
 
@@ -579,6 +587,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   var newAssets = Array.isArray(incoming.assets) ? incoming.assets : [];
   if (!oldAssets.length || !newAssets.length) return null;
   var requestedSet = (incoming && incoming._webScanRequestedTokenSet && typeof incoming._webScanRequestedTokenSet === "object") ? incoming._webScanRequestedTokenSet : null;
+  var blockedSet = (incoming && incoming._webScanBlockedContractSet && typeof incoming._webScanBlockedContractSet === "object") ? incoming._webScanBlockedContractSet : {};
 
   var out = _webScanClone_(existing) || {};
   var byKey = {};
@@ -588,7 +597,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
     var oldAsset = _webScanClone_(oldAssets[i]) || {};
     var oldKey = _webScanAssetKey_(oldAsset);
     if (!oldKey) continue;
-    if (_webScanIsScamToken_(oldAsset)) { purgedScams++; continue; }
+    if (_webScanIsScamToken_(oldAsset, blockedSet)) { purgedScams++; continue; }
     if (requestedSet && requestedSet[oldKey]) continue;
     if (!byKey[oldKey]) order.push(oldKey);
     byKey[oldKey] = oldAsset;
@@ -624,7 +633,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
 
   function purgeBlockedMapKeys(mapObj) {
     if (!mapObj) return;
-    for (var mk in GSHEET_WEB_SCAN_BLOCKED_CONTRACTS) {
+    for (var mk in blockedSet) {
       try { delete mapObj[mk]; } catch (eDel) {}
     }
   }

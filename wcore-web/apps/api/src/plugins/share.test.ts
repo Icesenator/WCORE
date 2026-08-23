@@ -45,13 +45,15 @@ describe("share card endpoint", () => {
     }
   });
 
-  test("svg contains only rounded aggregates and campaign cta, never free-form input", () => {
+  test("svg contains only rounded aggregates and a clean cta, never free-form input", () => {
     const svg = buildShareCardSvg({ total: "12.4k", cur: "usd", wallets: "4_plus", chains: "51_plus", cex: 7 });
     assert.match(svg, /\$12\.4k/);
     assert.match(svg, /4\+ wallets/);
     assert.match(svg, /51\+ chains/);
     assert.match(svg, /7 CEX/);
-    assert.match(svg, /wcore\.xyz\/\?campaign=share/);
+    assert.match(svg, /Scam tokens flagged/);
+    assert.match(svg, />wcore\.xyz<\/text>/);
+    assert.doesNotMatch(svg, /campaign/);
     assert.doesNotMatch(svg, /address|0x[0-9a-fA-F]{6,}/);
   });
 

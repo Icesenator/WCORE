@@ -4,6 +4,7 @@ import { getApiUrl } from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePreferences } from "@/components/PreferencesProvider";
+import { ConnectButton, useWallet } from "@/components/ConnectButton";
 import { processFunnelEvents, formatFunnelRate, type FunnelEventRow, type FunnelStats } from "@/lib/admin-funnel-stats";
 
 const API_URL = getApiUrl();
@@ -98,6 +99,8 @@ function HistoryBarRaw({ data, label, color }: { data: Array<{ v: number; t: str
 
 export function AdminClient() {
   const { t } = usePreferences();
+  const { address: walletAddress, authStep } = useWallet();
+  const isAdmin = authStep === "authenticated";
   const [tab, setTab] = useState<"overview" | "pricing" | "funnel">("overview");
   const [funnelRows, setFunnelRows] = useState<FunnelEventRow[] | null>(null);
   const [funnelLoading, setFunnelLoading] = useState(false);
@@ -110,18 +113,10 @@ export function AdminClient() {
   const [eventFilter, setEventFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [adminToken, setAdminToken] = useState(() => {
-    if (typeof window !== "undefined") return sessionStorage.getItem("wc_admin_token") ?? "";
-    return "";
-  });
-  const [tokenInput, setTokenInput] = useState("");
-  const [needsAuth, setNeedsAuth] = useState(false);
 
   const fetchAuth = useCallback(async (url: string): Promise<Response> => {
-    const headers: Record<string, string> = {};
-    if (adminToken) headers["authorization"] = `Bearer ${adminToken}`;
-    return fetch(url, { headers });
-  }, [adminToken]);
+    return fetch(url, { credentials: "include" });
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -133,7 +128,6 @@ export function AdminClient() {
           fetchAuth(`${API_URL}/api/admin/pricing/accuracy`),
         ]);
         if (hRes.status === 401 || mRes.status === 401) {
-          setNeedsAuth(true);
           setLoading(false);
           return;
         }
@@ -147,7 +141,7 @@ export function AdminClient() {
       }
       setLoading(false);
     })();
-  }, [adminToken, fetchAuth]);
+  }, [fetchAuth]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -166,7 +160,7 @@ export function AdminClient() {
   }, [fetchAuth]);
 
   useEffect(() => {
-    if (tab !== "funnel" || !adminToken) return;
+    if (tab !== "funnel" || !isAdmin) return;
     let cancelled = false;
     (async () => {
       setFunnelLoading(true);
@@ -180,7 +174,7 @@ export function AdminClient() {
         const res = await fetchAuth(`${API_URL}/api/admin/analytics/funnel?${params}`);
         if (cancelled) return;
         if (!res.ok) {
-          if (res.status === 401) setNeedsAuth(true);
+          if (res.status === 401) setFunnelError("Admin wallet authentication required");
           else setFunnelError(`Funnel API error ${res.status}`);
           return;
         }
@@ -193,25 +187,20 @@ export function AdminClient() {
       }
     })();
     return () => { cancelled = true; };
-  }, [tab, funnelRange, adminToken, fetchAuth]);
+  }, [tab, funnelRange, isAdmin, fetchAuth]);
 
   if (loading) return <p className="text-muted">Loading...</p>;
   if (error) return <p className="text-red-400">{error}</p>;
 
-  if (needsAuth) {
-    const doLogin = () => {
-      sessionStorage.setItem("wc_admin_token", tokenInput);
-      setAdminToken(tokenInput);
-      setNeedsAuth(false);
-      setLoading(true);
-    };
+  if (!isAdmin) {
     return (
-      <div className="mx-auto max-w-md">
+      <div className="mx-auto max-w-md text-center">
         <h1 className="text-xl font-bold mb-4">Admin Access</h1>
-        <p className="text-sm text-muted mb-4">This area requires an admin token.</p>
-        <input type="password" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doLogin()} placeholder="Admin token" className="w-full rounded border border-border bg-card px-4 py-3 text-fg outline-none focus:border-accent mb-3" autoFocus />
-        <button onClick={doLogin} className="w-full rounded-lg bg-accent px-4 py-2.5 font-semibold text-bg transition hover:opacity-90">Access Admin</button>
-        <p className="text-[10px] text-muted mt-4 text-center">Set ADMIN_TOKEN in your environment to require authentication.</p>
+        <p className="text-sm text-muted mb-4">Connect and sign in with the admin wallet to access this dashboard.</p>
+        <ConnectButton />
+        {walletAddress && authStep !== "authenticated" ? (
+          <p className="text-xs text-muted mt-3">Wallet connected. Sign the SIWE message to authenticate.</p>
+        ) : null}
       </div>
     );
   }

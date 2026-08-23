@@ -16,7 +16,7 @@ export type DurationBucket = "lt_5s" | "5_15s" | "15_60s" | "60s_plus";
 export type AuthState = "anonymous" | "ready" | "authenticated";
 export type ScanMode = "standard" | "deep";
 export type ScanResult = "success" | "partial" | "failed";
-export type PortfolioAction = "add" | "refresh" | "export" | "tab_overview" | "tab_wallets" | "tab_tokens";
+export type PortfolioAction = "add" | "refresh" | "export" | "share" | "tab_overview" | "tab_wallets" | "tab_tokens";
 
 export interface FunnelDimensions {
   walletCount?: WalletCountBucket;

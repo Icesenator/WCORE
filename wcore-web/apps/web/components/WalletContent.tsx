@@ -301,6 +301,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
           refreshingAll={scanOrch.refreshingAll || isRefreshingCex}
           onRefreshAll={handleRefreshAll}
           campaign={campaign}
+          cexCount={cexResults.length}
         />
 
         {/* Tab navigation */}

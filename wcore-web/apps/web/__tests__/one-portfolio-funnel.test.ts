@@ -41,7 +41,7 @@ describe("One portfolio frontend funnel contracts", () => {
   });
 
   test("portfolio controls and tabs emit allowlisted portfolio actions", () => {
-    for (const action of ["add", "refresh", "export"] as const) {
+    for (const action of ["add", "refresh", "export", "share"] as const) {
       assert.match(summarySource, new RegExp(`trackAction\\(["']${action}["']\\)`));
     }
     for (const action of ["tab_overview", "tab_wallets", "tab_tokens"] as const) {

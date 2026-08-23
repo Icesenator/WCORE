@@ -164,7 +164,7 @@ const FunnelDimensionsSchema = z.object({
   authState: z.enum(["anonymous", "ready", "authenticated"]).optional(),
   scanMode: z.enum(["standard", "deep"]).optional(),
   result: z.enum(["success", "partial", "failed"]).optional(),
-  action: z.enum(["add", "refresh", "export", "tab_overview", "tab_wallets", "tab_tokens"]).optional(),
+  action: z.enum(["add", "refresh", "export", "share", "tab_overview", "tab_wallets", "tab_tokens"]).optional(),
 }).strict();
 
 export const FunnelEventSchema = z.object({

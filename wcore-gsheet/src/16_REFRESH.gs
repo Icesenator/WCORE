@@ -1,7 +1,23 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.16.47
+ * Version: v4.16.68
+ *
+ * v4.16.68: le correctif J1/[CACHE_ONLY] (v4.16.67) ne couvrait que la boucle
+ *   watchdog (_wd_collectGlobalRefreshActions_). SYNC_J1_ALL_SHEETS — pass
+ *   rapide toutes les 2 min via ACTIVITY_WATCHDOG — utilisait encore
+ *   _wd_extractTimestamp_ et faisait reculer J1 a la date de la donnee des
+ *   qu'une reevaluation I1 produisait un [CACHE_ONLY] <cache> (constate sur
+ *   Botanix : J1 revenu au 2026-08-17 alors que I1 = PRESERVED du jour).
+ *   Fix: helper partage _wd_j1LatchValue_(vI1, vB1) utilise par les DEUX
+ *   ecrivains; SYNC_J1_ALL_SHEETS lit desormais la colonne D (B1).
+ *
+ * v4.16.67: J1 sync d'une ligne [CACHE_ONLY] recopie B1 (la tentative) au lieu
+ *   de la date de la donnee. [CACHE_ONLY] garde volontairement la date du cache
+ *   dans I1 (regle de re-pulse v4.16.46), mais J1 est le latch "derniere
+ *   tentative" : le recopier depuis I1 faisait reculer J1 a la donnee (ex.
+ *   2026-07-12), figeait le latch et empechait la reactualisation de la ligne
+ *   ERROR, pendant que le Recap affichait "LAST SCAN" = derniere reussite.
  *
  * v4.16.46: Detect CACHE_ONLY B1/I1 mismatch — when B1 advances but
  *   the scan keeps serving a stale [CACHE_ONLY] timestamp, re-pulse
@@ -146,7 +162,7 @@ var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse
 var P_WD_J1_CURSOR = "WD_J1_CURSOR";
 var P_SYNC_J1_CURSOR = "SYNC_J1_CURSOR";
 
-var REFRESH_VERSION = "4.16.47";
+var REFRESH_VERSION = "4.16.68";
 
 function _wcoreAcquireLease_(key, ttlMs, owner) {
   var lock = null;
@@ -1367,6 +1383,13 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     }
 
     var actualI1 = refreshCheck.actualTimestamp || _wd_extractTimestamp_(d.vI1 || "");
+    // v4.16.68: le latch J1 passe par le helper partage — pour [CACHE_ONLY] il
+    // vaut B1 (la tentative) et non la date de la donnee (voir _wd_j1LatchValue_).
+    var j1SyncValue = _wd_j1LatchValue_(d.vI1 || "", d.vB1 || "");
+    var j1SyncReason = "";
+    if (_wd_norm_(d.vI1 || "").indexOf("[CACHE_ONLY]") === 0 && j1SyncValue !== actualI1) {
+      j1SyncReason = "cache_only_attempt";
+    }
     if (needsA2Recalc) {
       var bumpedJ1 = _wd_bumpTimestampSeconds_(actualI1, 1);
       if (bumpedJ1) {
@@ -1383,15 +1406,17 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
       }
       continue;
     }
-    if (_wd_shouldSyncJ1_(actualI1, d.vJ1 || "")) {
-      syncActions.push({
+    if (_wd_shouldSyncJ1_(j1SyncValue, d.vJ1 || "")) {
+      var _syncAction = {
         sheet: d.sheet || null,
         sheetName: d.name || d.sheetName || "",
         range: "J1",
-        value: actualI1,
+        value: j1SyncValue,
         type: "sync",
         fairnessIndex: i
-      });
+      };
+      if (j1SyncReason) _syncAction.reason = j1SyncReason;
+      syncActions.push(_syncAction);
       stats.toSync++;
     }
   }
@@ -1469,6 +1494,33 @@ function _wd_shouldSyncJ1_(vI1, vJ1) {
   const actualI1 = _wd_extractTimestamp_(vI1);
   if (!_wd_isLastUpdateFormat_(actualI1)) return false;
   return _wd_norm_(actualI1) !== _wd_norm_(vJ1);
+}
+
+/**
+ * v4.16.68: valeur du latch J1 pour une ligne donnee.
+ *
+ * Une ligne I1 [CACHE_ONLY] date la DONNEE servie (le timestamp du cache),
+ * pas la TENTATIVE : la regle de re-pulse v4.16.46 compare B1 a cette date
+ * pour detecter un cache servi en boucle, donc I1 doit la conserver. Mais J1
+ * est le latch "derniere tentative" (AUDIT.md 2026-08-06) : y recopier la
+ * date du cache fait reculer J1 a la derniere reussite, fige la ligne ERROR
+ * et affiche "LAST SCAN" faux dans le Recap.
+ *
+ * Pour [CACHE_ONLY], on retourne donc l'horodatage B1 (le pulse = la
+ * tentative). Pour tous les autres statuts (WEB_SCAN_OK, PRESERVED,
+ * CHAIN_DISABLED, BLOCKED...), I1 date deja la tentative : extraction simple.
+ *
+ * Utilise par les DEUX ecrivains de J1 : _wd_collectGlobalRefreshActions_
+ * (watchdog 10 min) et SYNC_J1_ALL_SHEETS (pass rapide toutes les 2 min) —
+ * corriger un seul des deux laisse l'autre faire reculer le latch.
+ */
+function _wd_j1LatchValue_(vI1, vB1) {
+  var extracted = _wd_extractTimestamp_(vI1);
+  if (_wd_norm_(vI1 || "").indexOf("[CACHE_ONLY]") === 0) {
+    var pulseTs = (vB1 instanceof Date) ? _wd_fmtDate_(vB1) : _wd_norm_(vB1 || "");
+    if (pulseTs && _wd_isLastUpdateFormat_(pulseTs)) return pulseTs;
+  }
+  return extracted;
 }
 
 function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
@@ -2427,6 +2479,9 @@ function SYNC_J1_ALL_SHEETS() {
     var names = recap.getRange(2, 1, lastRow - 1, 1).getValues();
     var valsI1 = recap.getRange(2, 6, lastRow - 1, 1).getValues();
     var valsJ1 = recap.getRange(2, 7, lastRow - 1, 1).getValues();
+    // v4.16.68: colonne D = PULSE (B1), necessaire pourdater la TENTATIVE
+    // quand I1 est un [CACHE_ONLY] (qui porte la date de la donnee).
+    var valsB1 = recap.getRange(2, 4, lastRow - 1, 1).getValues();
 
     var actions = [];
     for (var i = 0; i < valsI1.length; i++) {
@@ -2434,7 +2489,11 @@ function SYNC_J1_ALL_SHEETS() {
       var rawJ1 = (valsJ1[i] && valsJ1[i][0]);
       var i1 = (rawI1 instanceof Date) ? _wd_fmtDate_(rawI1) : String(rawI1 || "").trim();
       var j1 = (rawJ1 instanceof Date) ? _wd_fmtDate_(rawJ1) : String(rawJ1 || "").trim();
-      var cleanI1 = _wd_extractTimestamp_(i1);
+      // v4.16.68: latch J1 via helper partage — [CACHE_ONLY] sync sur B1
+      // (la tentative), pas sur la date du cache. Sans cela ce pass rapide
+      // (toutes les 2 min) faisait reculer J1 a la derniere reussite.
+      var rawB1 = (valsB1[i] && valsB1[i][0]);
+      var cleanI1 = _wd_j1LatchValue_(i1, rawB1);
       if (_wd_isUnsafeLatchSource_(i1)) continue;
       if (!_wd_isLastUpdateFormat_(cleanI1)) continue;
       if (cleanI1 === j1) continue;

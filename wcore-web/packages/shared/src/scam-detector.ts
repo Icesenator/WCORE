@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 24;
+export const SCAM_RULES_VERSION = 25;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -131,6 +131,10 @@ const _BLOCKED_CONTRACTS = new Set([
   // 2026-08-22 — YOM (Ethereum) impersonation du vrai YOM (Avalanche), même template que LokiCoin
   // Phantom-price pool $194.20/$0.50, airdrop 9 décimales, blacklist anti-sell + cooldown sig-gaté, bytecode identique.
   "0x12fbd83663161c7a3e3acff67507072da2cf57a2", // Ethereum: YOM "YOM" impersonation dusting scam
+  // 2026-08-23 — CTR "Citrea" (Ethereum) impersonation du L2 Citrea (pas de token ERC-20 officiel) ;
+  // template Vyper généré en masse (jumeau 0xE6D352e9...), fonctions calculatrice absurdes,
+  // hook externe owner-control à chaque transfer, zéro paire DEX, 5 930 holders dusting
+  "0x4623aa7087a1004d12afa717d7bf5e77981174f7", // Ethereum: CTR "Citrea" impersonation dusting scam
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([

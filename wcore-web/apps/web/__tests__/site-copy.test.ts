@@ -35,8 +35,11 @@ test("public site copy advertises selected DeFi coverage without stale claims", 
   assert.match(about, /Selected DeFi positions/);
   assert.match(about, /Coinbase, Kraken and OKX/);
   const chains = registryChainCount();
-  assert.match(layout, new RegExp(`${chains} tracked chains`));
-  assert.match(footer, new RegExp(`${chains} tracked chains.*Selected DeFi.*7 CEX.*80\\+ GM chains`, "s"));
+  assert.match(layout, /coverage\.chainConfigCount} tracked chains/);
+  assert.match(layout, /getCoverageStats/);
+  assert.match(footer, /coverage\.chainConfigCount} tracked chains/);
+  assert.match(footer, /coverage\.cexProviderCount} CEX/);
+  assert.match(footer, /coverage\.gmEnabledChainCount} GM chains/);
 
   // No page may advertise a different count from the one the registry ships.
   for (const [name, text] of [["home", home], ["homeClient", homeClient], ["about", about], ["welcome", welcome]] as const) {

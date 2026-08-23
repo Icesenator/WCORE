@@ -76,6 +76,7 @@ scripts/*
 !scripts/build-post-dust-campaign.cjs
 !scripts/build-post-close-the-tabs.cjs
 !scripts/build-post-forgotten-wallets.cjs
+!scripts/build-post-one-portfolio-v2.cjs
 !scripts/parity-gsheet-vs-web.cjs
 # Planning/session docs (Codex internal)
 docs/superpowers/
@@ -128,6 +129,7 @@ astar-snapshot.md
 !apps/web/public/wcore-post-dust-campaign.png
 !apps/web/public/wcore-post-close-the-tabs.png
 !apps/web/public/wcore-post-forgotten-wallets.png
+!apps/web/public/wcore-post-one-portfolio-v2.png
 !apps/web/public/chains/**
 !apps/web/public/cex/**
 

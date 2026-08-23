@@ -42,6 +42,7 @@ function loadWatchdogHelpers() {
     '_wd_isCexSheet_',
     '_wd_collectGlobalRefreshActions_',
     '_wd_shouldSyncJ1_',
+    '_wd_j1LatchValue_',
     '_wd_needsRefresh_',
     '_wd_isSystemBlocked_',
     '_wd_tryUnblock_'
@@ -153,6 +154,54 @@ assert(
     reason: 'a2_error_recalc',
     fairnessIndex: 0
   }], 'Blank Recap total with fresh I1/J1 should bump J1 by one second, not B1');
+}
+
+{
+  const statsJ1 = { b1Set: 0, b1Blocked: 0, b1Stale: 0, b1Empty: 0, b1Error: 0, toSync: 0 };
+  // v4.16.67: une ligne [CACHE_ONLY] datant la DONNEE (cache), pas la TENTATIVE,
+  // doit synchroniser J1 sur B1 (l'horodatage du pulse = la tentative) pour
+  // respecter la sémantique I1/J1 = tentative, ERROR = age reel de la donnee.
+  const actionsJ1 = helpers._wd_collectGlobalRefreshActions_([
+    {
+      sheetName: 'Ledger - Frozen',
+      vA2: '1,00 €',
+      vB1: '2026-08-21 14:00:00',
+      vI1: '[CACHE_ONLY] [FRESH] 2026-06-27 12:38:03',
+      vJ1: '2026-06-27 12:38:03'
+    }
+  ], helpers._wd_parseLocalDateTimeToMs_('2026-08-21 14:05:00'), 5 * 3600000, '2026-08-21 14:05:00', statsJ1);
+  assert.deepEqual(actionsJ1, [{
+    sheet: null,
+    sheetName: 'Ledger - Frozen',
+    range: 'J1',
+    value: '2026-08-21 14:00:00',
+    type: 'sync',
+    reason: 'cache_only_attempt',
+    fairnessIndex: 0
+  }], 'a [CACHE_ONLY] row must sync J1 to B1 (the attempt), not the cached data date');
+}
+
+{
+  // v4.16.68: _wd_j1LatchValue_ — helper partagé par les DEUX écrivains de J1
+  // (watchdog 10 min + SYNC_J1_ALL_SHEETS toutes les 2 min). Le pass rapide
+  // faisait reculer J1 à la date de la donnée dès qu'une réévaluation I1
+  // produisait un [CACHE_ONLY] <cache> (constaté sur Botanix : J1 revenu au
+  // 2026-08-17 alors que I1 affichait PRESERVED du jour).
+  assert.equal(
+    helpers._wd_j1LatchValue_('[CACHE_ONLY] [FRESH] 2026-06-27 12:38:03', '2026-08-21 14:00:00'),
+    '2026-08-21 14:00:00',
+    '[CACHE_ONLY] latch must be B1 (the attempt), not the cached data date',
+  );
+  assert.equal(
+    helpers._wd_j1LatchValue_('[WEB_SCAN_PRESERVED] 2026-08-21 15:31:58', '2026-08-21 15:30:35'),
+    '2026-08-21 15:31:58',
+    'PRESERVED already dates the attempt — extraction must keep it',
+  );
+  assert.equal(
+    helpers._wd_j1LatchValue_('WEB_SCAN_OK 2026-08-21 14:23:23', ''),
+    '2026-08-21 14:23:23',
+    'plain success timestamps must pass through untouched',
+  );
 }
 
 console.log('watchdog quota guard OK');

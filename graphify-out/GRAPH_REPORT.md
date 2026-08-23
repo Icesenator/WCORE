@@ -1,18 +1,13 @@
-# Graph Report - graphify-input  (2026-08-09)
+# Graph Report - graphify-input  (2026-08-10)
 
 ## Corpus Check
-- 354 files · ~379,499 words
+- 349 files · ~381,633 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4406 nodes · 5924 edges · 311 communities (291 shown, 20 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 33 edges (avg confidence: 0.54)
+- 4366 nodes · 5933 edges · 305 communities (286 shown, 19 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 35 edges (avg confidence: 0.54)
 - Token cost: 0 input · 0 output
-
-## Graph Freshness
-- Built from commit: `344f9a5a`
-- Run `git rev-parse HEAD` and compare to check if the graph is stale.
-- Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - cex.ts
@@ -118,19 +113,20 @@
 - 08_ASSETS.js
 - @noble/curves
 - p-limit
-- viem
 - @wcore/core
 - p-limit
 - @wcore/core
 - zod
 - @wcore/db
 - @wcore/shared
+- server.ts
+- stock-pricing.ts
 
 ## God Nodes (most connected - your core abstractions)
 1. `scanPlugin()` - 27 edges
 2. `_webScanWallet_()` - 26 edges
-3. `_wd_collectGlobalRefreshActions_()` - 21 edges
-4. `cexPlugin()` - 21 edges
+3. `cexPlugin()` - 22 edges
+4. `_wd_collectGlobalRefreshActions_()` - 21 edges
 5. `authPlugin()` - 19 edges
 6. `_pricingWorkerMergeSheetContracts_()` - 18 edges
 7. `_runPricingWorker()` - 18 edges
@@ -143,21 +139,21 @@
   web-api/src/plugins/scan-job.postgres.test.ts → gsheet/14_SVM_ENGINE.js
 - `scanPlugin()` --indirect_call--> `scanCacheKey()`  [INFERRED]
   web-api/src/plugins/scan.ts → web-api/test/scan-plugin-routes.test.ts
+- `buildApp()` --indirect_call--> `healthPlugin()`  [INFERRED]
+  web-api/src/plugins/health.test.ts → web-api/src/plugins/health.ts
 - `makeDeps()` --indirect_call--> `buildChainScan()`  [INFERRED]
   web-api/test/scan-plugin-routes.test.ts → web-api/src/server-helpers.ts
 - `cexPlugin()` --calls--> `safeEq()`  [EXTRACTED]
   web-api/src/plugins/cex.ts → web-api/src/admin-auth.ts
-- `gsheetPlugin()` --calls--> `safeEq()`  [EXTRACTED]
-  web-api/src/plugins/gsheet.ts → web-api/src/admin-auth.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (311 total, 20 thin omitted)
+## Communities (305 total, 19 thin omitted)
 
 ### Community 0 - "cex.ts"
-Cohesion: 0.06
-Nodes (73): BITFINEX_STABLE_MAP, BITFINEX_SYMBOL_ALIASES, BitfinexBuckets, bitfinexCanonicalSymbol(), BitpandaBuckets, BybitBuckets, canonicalCexSymbol(), CexProvider (+65 more)
+Cohesion: 0.11
+Nodes (34): resolveRelayToken(), BinanceCredentials, bitfinexAuthPost(), BitfinexCredentials, BitpandaCredentials, bitpandaWalletRow(), BybitCredentials, CEX_PRICE_IDS (+26 more)
 
 ### Community 1 - "16_REFRESH.js"
 Cohesion: 0.07
@@ -173,7 +169,7 @@ Nodes (53): DIAG_PRICING_WORKER_BASE_MICROCAPS(), DIAG_PRICING_WORKER_BLOCKERS()
 
 ### Community 4 - "07_PRICES.js"
 Cohesion: 0.07
-Nodes (36): consider(), DIAG_BASE_ONCHAIN_V3(), DIAG_CMC_DEX_BASE_MISSING(), DIAG_CMC_DEX_TOKEN_BASE(), _dispatchGlobal(), _fetchJson(), _flushChunk(), _l1Key() (+28 more)
+Nodes (35): consider(), DIAG_BASE_ONCHAIN_V3(), DIAG_CMC_DEX_BASE_MISSING(), DIAG_CMC_DEX_TOKEN_BASE(), _dispatchGlobal(), _fetchJson(), _flushChunk(), _l1Key() (+27 more)
 
 ### Community 5 - "03E_QUOTA_CIRCUIT_BREAKER.js"
 Cohesion: 0.06
@@ -185,23 +181,23 @@ Nodes (47): DIAG_WEB_SCAN_LAST_ERROR(), DIAG_WEB_SCAN_STATUS(), LIVE_PROBE_WEB_S
 
 ### Community 7 - "gsheet.ts"
 Cohesion: 0.09
-Nodes (44): applyDeFiPositionMirrorsToWalletAssets(), applyStakedPriceMirrors(), DefaultChainbaseData, defaultChainbaseProvider(), defaultPriceBatcher(), defaultScanRunner(), getOptimismRpcEndpoints(), GSHEET_PRICE_BATCH_CONCURRENCY (+36 more)
+Nodes (41): applyDeFiPositionMirrorsToWalletAssets(), applyStakedPriceMirrors(), DefaultChainbaseData, defaultChainbaseProvider(), defaultPriceBatcher(), defaultScanRunner(), getOptimismRpcEndpoints(), GSHEET_WALLET_LABELS (+33 more)
 
 ### Community 8 - "42_STOCK_PORTFOLIO.js"
 Cohesion: 0.10
 Nodes (38): COMPARE_STOCK_PORTFOLIO_SHADOW(), DIAG_PORTFOLIO_CHART_RESIZE(), _portfolioReapplyFilter_(), _portfolioSyncBothViews_(), REPAIR_STOCK_PORTFOLIO_FORMATS(), REPAIR_STOCK_PORTFOLIO_FORMULAS(), SETUP_STOCK_PORTFOLIO(), STOCK_PORTFOLIO_HOURLY_REFRESH() (+30 more)
 
 ### Community 9 - "server.ts"
-Cohesion: 0.09
-Nodes (18): TEST_ACCOUNT, app, checkRedis(), circuitBreakers, dependencyTransitions, getCircuitBreaker(), getScanLimit(), getUserPlan() (+10 more)
+Cohesion: 0.23
+Nodes (12): clampLimit(), ColumnIndexes, HEADER_NAMES, HeaderResolution, normalizeHeader(), parseCsv(), parsePositiveNumber(), parseTopMarketCapCsv() (+4 more)
 
 ### Community 10 - "scan-utils.ts"
 Cohesion: 0.15
 Nodes (16): BalanceCacheEntry, BYPASS_PREFIXES, errorMessage(), getBalanceCacheKey(), getEngineCacheForScan(), getScanResultCacheKey(), hasCachedValue(), hasMajorPriceableTokenWithoutPrice() (+8 more)
 
 ### Community 11 - "crypto-listing-service.ts"
-Cohesion: 0.09
-Nodes (27): CanonicalCryptoService, CanonicalCryptoServiceDeps, CmcListingsPayload, CryptoListingRow, CryptoListingSnapshot, CryptoServiceUnavailableError, hasContiguousRanks(), isCompleteSnapshot() (+19 more)
+Cohesion: 0.10
+Nodes (26): CanonicalCryptoService, CanonicalCryptoServiceDeps, CmcListingsPayload, CryptoListingSnapshot, CryptoServiceUnavailableError, hasContiguousRanks(), isCompleteSnapshot(), isNonemptyString() (+18 more)
 
 ### Community 12 - "auth.ts"
 Cohesion: 0.10
@@ -216,16 +212,16 @@ Cohesion: 0.13
 Nodes (21): BYBIT_ON_EDIT(), _bybitAuthGet_(), _bybitBuildValues_(), _bybitCanonicalSymbol_(), _bybitCredsOrNull_(), _bybitFetchBuckets_(), _bybitFetchBucketsViaRelay_(), _bybitFetchFund_() (+13 more)
 
 ### Community 15 - "stock-service.ts"
-Cohesion: 0.16
-Nodes (20): StockFxQuoteMap, StockNativeQuoteMap, ResolvedStockPrice, lastGood(), CanonicalStockService, CanonicalStockServiceDeps, distinctFxCurrencies(), isCompleteSnapshot() (+12 more)
+Cohesion: 0.17
+Nodes (18): StockFxQuoteMap, StockNativeQuoteMap, CanonicalStockService, CanonicalStockServiceDeps, distinctFxCurrencies(), isCompleteSnapshot(), isNonemptyString(), isRecentIso() (+10 more)
 
 ### Community 16 - "index.ts"
-Cohesion: 0.11
-Nodes (24): RFC-1918, registerCreatorRoutes(), checkStreakBadges(), CREATOR_BALANCE_SELECTOR, extractDeployedContractAddresses(), gamificationPlugin(), getChainRpc(), getChainRpcs() (+16 more)
+Cohesion: 0.09
+Nodes (28): RFC-1918, registerCreatorRoutes(), checkStreakBadges(), CREATOR_BALANCE_SELECTOR, extractDeployedContractAddresses(), gamificationPlugin(), getChainRpc(), getChainRpcs() (+20 more)
 
 ### Community 17 - "schemas.ts"
 Cohesion: 0.14
-Nodes (23): EXCLUDED_NOTIFICATION_TYPES, registerNotificationRoutes(), walletPlugin(), WalletPluginDeps, AnyWalletAddress, CexProviderSchema, ChainKey, CuidId (+15 more)
+Nodes (24): registerGmContractsRoutes(), walletPlugin(), WalletPluginDeps, AnyWalletAddress, CexProviderSchema, ChainKey, ChainQuerySchema, CuidId (+16 more)
 
 ### Community 18 - "26B_HTTP_SAVINGS.js"
 Cohesion: 0.13
@@ -276,16 +272,20 @@ Cohesion: 0.11
 Nodes (4): CACHED_WALLET_ASSETS_FOGO(), _FOGO_applyKnownTokens(), _FOGO_recalculateTotal(), GET_WALLET_ASSETS_FOGO()
 
 ### Community 33 - "stock-portfolio.ts"
-Cohesion: 0.17
-Nodes (14): toCryptoMarketCapRow(), toStockMarketCapRow(), GsheetStockPortfolioRow, GsheetStockPortfolioSnapshot, buildGsheetStockPortfolioSnapshot(), BuildGsheetStockPortfolioSnapshotInput, holdingForRankedRow(), NormalizedHolding (+6 more)
+Cohesion: 0.16
+Nodes (16): CryptoListingRow, toCryptoMarketCapRow(), toStockMarketCapRow(), GsheetStockPortfolioRow, GsheetStockPortfolioSnapshot, buildGsheetStockPortfolioSnapshot(), BuildGsheetStockPortfolioSnapshotInput, holdingForRankedRow() (+8 more)
 
 ### Community 34 - "gm-contracts.ts"
-Cohesion: 0.16
-Nodes (18): addressFromTopic(), DeployReceipt, DISABLED_GM_CONTRACTS, filterDisabledGmContracts(), filterUnusedGmContracts(), findVerifiedDeployedContract(), GmContractAddress, GmContractResponse (+10 more)
+Cohesion: 0.20
+Nodes (13): addressFromTopic(), DeployReceipt, DISABLED_GM_CONTRACTS, filterDisabledGmContracts(), filterUnusedGmContracts(), findVerifiedDeployedContract(), GmContractAddress, GmContractResponse (+5 more)
 
 ### Community 35 - "41_KRAKEN_SYNC.js"
 Cohesion: 0.17
 Nodes (14): DIAG_KRAKEN_API(), KRAKEN_ON_EDIT(), _krakenBuildValues_(), _krakenBytesConcat_(), _krakenCanonicalSymbol_(), _krakenFetchBuckets_(), _krakenGetCreds_(), _krakenParseAmount_() (+6 more)
+
+### Community 37 - "SYNDICATE_COMMONS.js"
+Cohesion: 0.19
+Nodes (17): CHAINBASE_RPC_TIMEOUT_MS, ChainbaseLiquidityStatus, ChainbaseStaking, CONFIG_PATHS, decodeUint256At(), encodeAddress(), encodeUint256(), getChainbaseDelegationLiquidityStatus() (+9 more)
 
 ### Community 38 - "TON.js"
 Cohesion: 0.25
@@ -296,12 +296,12 @@ Cohesion: 0.15
 Nodes (8): DIAG_ANKR_TEST(), DIAG_ANKR_TEST_BASE(), DIAG_BLOCKSCOUT_TEST(), DIAG_BLOCKSCOUT_TEST_BASE(), DIAG_WATCHDOG(), DIAG_WATCHDOG_SHEET(), _isValidDateFormat(), _parseDate()
 
 ### Community 43 - "chainbase-staking.ts"
-Cohesion: 0.23
-Nodes (12): clampLimit(), ColumnIndexes, HEADER_NAMES, HeaderResolution, normalizeHeader(), parseCsv(), parsePositiveNumber(), parseTopMarketCapCsv() (+4 more)
+Cohesion: 0.15
+Nodes (26): BITFINEX_STABLE_MAP, BITFINEX_SYMBOL_ALIASES, BitfinexBuckets, bitfinexCanonicalSymbol(), BitpandaBuckets, BybitBuckets, canonicalCexSymbol(), CexProvider (+18 more)
 
 ### Community 44 - "chainbase-staking.ts"
-Cohesion: 0.19
-Nodes (17): CHAINBASE_RPC_TIMEOUT_MS, ChainbaseLiquidityStatus, ChainbaseStaking, CONFIG_PATHS, decodeUint256At(), encodeAddress(), encodeUint256(), getChainbaseDelegationLiquidityStatus() (+9 more)
+Cohesion: 0.47
+Nodes (5): convertUsdPriceToEur(), priceCexRowsForTest(), pricedRows(), priceStockSymbolEur(), priceSymbolEur()
 
 ### Community 45 - "40_OKX_SYNC.js"
 Cohesion: 0.19
@@ -332,8 +332,8 @@ Cohesion: 0.23
 Nodes (15): DIAG_TOP_MARKETCAP(), REPAIR_ACTION_REBALANCING_SPOT(), _topMcActionFormulaRow_(), _topMcActionSpotFormula_(), _topMcBitpandaAlias1Formula_(), _topMcBitpandaAlias2Formula_(), _topMcBitpandaLookupFormula_(), _topMcCurrencyFallbackFormula_() (+7 more)
 
 ### Community 155 - "stock-pricing.ts"
-Cohesion: 0.23
-Nodes (14): StockNativeQuote, decimalInteger(), DRIFT_ERROR, isDriftAboveLimit(), isPositiveFinite(), normalizeCurrency(), quotePriceEur(), resolveStockPrice() (+6 more)
+Cohesion: 0.21
+Nodes (15): StockNativeQuote, decimalInteger(), DRIFT_ERROR, isDriftAboveLimit(), isPositiveFinite(), normalizeCurrency(), quotePriceEur(), resolveStockPrice() (+7 more)
 
 ### Community 156 - "_bpUpdateSelectedBuckets_"
 Cohesion: 0.19
@@ -344,12 +344,12 @@ Cohesion: 0.21
 Nodes (10): _cbBuildValues_(), _cbFetchBucketsViaRelay_(), _cbGetRelay_(), _cbParseAmount_(), _cbSetRefreshFlag_(), _cbSetStatus_(), _cbWriteSheet_(), COINBASE_ON_EDIT() (+2 more)
 
 ### Community 158 - "gm-streak-rebuild.ts"
-Cohesion: 0.17
-Nodes (12): CHAIN_STEP_SIZES, fetchAllUserGmLogs(), GmLog, rebuildChainStreakFromOnchain(), RebuildDeps, RebuildEvent, RebuildResult, makeGmLog() (+4 more)
+Cohesion: 0.11
+Nodes (21): CHAIN_STEP_SIZES, fetchAllUserGmLogs(), GmLog, rebuildChainStreakFromOnchain(), RebuildDeps, RebuildEvent, RebuildResult, makeGmLog() (+13 more)
 
 ### Community 159 - "14_SVM_ENGINE.js"
-Cohesion: 0.29
-Nodes (11): learn(), _load(), _mg(), _ph(), _pn(), resolve(), _save(), _svmHex() (+3 more)
+Cohesion: 0.28
+Nodes (12): learn(), _load(), _mg(), _ph(), _pn(), resolve(), _save(), _svmHex() (+4 more)
 
 ### Community 160 - "17_LISTING.js"
 Cohesion: 0.23
@@ -364,12 +364,12 @@ Cohesion: 0.13
 Nodes (14): dependencies, enabledAdvancedServices, exceptionLogging, executionApi, access, oauthScopes, runtimeVersion, timeZone (+6 more)
 
 ### Community 163 - "stock-relay.ts"
-Cohesion: 0.23
-Nodes (11): fetchStockFxQuotesViaRelay(), fetchStockPricesViaRelay(), fetchStockQuotesViaRelay(), normalizeStockCurrency(), normalizeStockFxCurrencies(), STOCK_FX_CURRENCIES, STOCK_QUOTE_CURRENCIES, StockFxQuote (+3 more)
+Cohesion: 0.24
+Nodes (12): fetchStockFxQuotesViaRelay(), fetchStockPricesViaRelay(), fetchStockQuotesViaRelay(), hasRelayCredentials(), normalizeStockCurrency(), normalizeStockFxCurrencies(), STOCK_FX_CURRENCIES, STOCK_QUOTE_CURRENCIES (+4 more)
 
 ### Community 164 - "config.ts"
-Cohesion: 0.19
-Nodes (15): ApiConfig, ApiEnv, DEV_ENVS, getApiConfig(), parseRedisConfig(), parseTrustProxy(), readBoolean(), readCsv() (+7 more)
+Cohesion: 0.16
+Nodes (18): ApiEnv, DEV_ENVS, getApiConfig(), parseRedisConfig(), parseTrustProxy(), readBoolean(), readCsv(), readJwtSecret() (+10 more)
 
 ### Community 165 - "zerion.test.ts"
 Cohesion: 0.13
@@ -400,16 +400,16 @@ Cohesion: 0.13
 Nodes (15): RFC-5737, createGmHelpers(), GmHelpersDeps, getStatusOnchainCache(), registerGmOnchainRoutes(), setStatusOnchainCache(), MockUser, registerRoutes() (+7 more)
 
 ### Community 173 - "server-helpers.ts"
-Cohesion: 0.11
-Nodes (19): baseDeps, ApiRateLimitBucket, applyPostAuthRateLimit(), buildChainScan(), ChainScanMetrics, classifyScanError(), consumeScanBudget(), extractPhases() (+11 more)
+Cohesion: 0.10
+Nodes (21): baseDeps, ApiRateLimitBucket, applyPostAuthRateLimit(), buildChainScan(), ChainScanMetrics, classifyScanError(), consumeScanBudget(), extractPhases() (+13 more)
 
 ### Community 174 - "stock-service.test.ts"
 Cohesion: 0.18
 Nodes (6): StockServiceUnavailableError, BatchRecordingCache, csv(), csvWithRankGap(), deps(), RecordingCache
 
 ### Community 175 - "scan-plugin-routes.test.ts"
-Cohesion: 0.11
-Nodes (15): ScanJobHandler, ScanJobQueue, ScanPluginDeps, breakers, FakeBreaker, getFakeBreaker(), makeDeps(), MemoryScanJobQueue (+7 more)
+Cohesion: 0.10
+Nodes (17): EnqueueScanJobInput, ScanJobHandler, ScanJobPollResult, ScanJobQueue, ScanPluginDeps, breakers, FakeBreaker, getFakeBreaker() (+9 more)
 
 ### Community 176 - "01_INIT.js"
 Cohesion: 0.20
@@ -424,8 +424,8 @@ Cohesion: 0.25
 Nodes (11): _bpCanonicalSymbol_(), _bpFetch_(), _bpFetchBuckets_(), _bpGetApiKey_(), _bpParseBalance_(), _bpPushUniqueRow_(), _bpReclassifyCashLike_(), _bpWalkAssetWallets_() (+3 more)
 
 ### Community 180 - "gm-helpers.ts"
-Cohesion: 0.10
-Nodes (23): asProgress(), asRequest(), ClaimedScanJob, createLeaseToken(), EnqueueScanJobInput, fencedLeaseWhere(), JobAdmission, ownsScanJob() (+15 more)
+Cohesion: 0.11
+Nodes (21): asProgress(), asRequest(), ClaimedScanJob, createLeaseToken(), fencedLeaseWhere(), JobAdmission, ownsScanJob(), progress (+13 more)
 
 ### Community 182 - "_bpRunManualCexUpdate_"
 Cohesion: 0.27
@@ -438,10 +438,6 @@ Nodes (8): _auditSingleToken(), DIAG_BASE_CBBTC_AUDIT(), DIAG_BASE_CBBTC_IN_RANG
 ### Community 184 - "compilerOptions"
 Cohesion: 0.20
 Nodes (9): compilerOptions, outDir, rootDir, useUnknownInCatchVariables, verbatimModuleSyntax, extends, include, src/**/* (+1 more)
-
-### Community 185 - "safe-http.ts"
-Cohesion: 0.27
-Nodes (9): assertAllPublicHttp(), assertPublicHttp(), assertResolvesPublic(), isPrivateAddress(), isPublicHttp(), redirectKey(), ResolveAddresses, safeFetch() (+1 more)
 
 ### Community 186 - "28_DIAG_ACTIVITY.js"
 Cohesion: 0.28
@@ -476,8 +472,8 @@ Cohesion: 0.62
 Nodes (6): _scanDetectDegraded(), _scanDetectError(), _scanFindColumns(), _scanParseNum(), WCORE_SCAN_ERRORS(), WCORE_SCAN_PRICING_GAPS()
 
 ### Community 196 - "@fastify/cookie"
-Cohesion: 0.20
-Nodes (14): fetchFxRate(), hasUnfinalizedDeFiAssets(), getPostgresScanJobQueue(), jobPrincipal(), ScanJobContext, resolveScanChainLimit(), scanPlugin(), applyChainCircuitOutcome() (+6 more)
+Cohesion: 0.19
+Nodes (15): fetchFxRate(), finalizeDeFiAssets(), hasUnfinalizedDeFiAssets(), getPostgresScanJobQueue(), jobPrincipal(), ScanJobContext, resolveScanChainLimit(), scanPlugin() (+7 more)
 
 ### Community 199 - "restore-db.cjs"
 Cohesion: 0.40
@@ -488,8 +484,8 @@ Cohesion: 0.50
 Nodes (3): _forceRegisterAllModules(), NOTE: eval() in _forceRegisterAllModules() works at runtime but NOT in, TEST_MODULE_AUTOREGISTER()
 
 ### Community 270 - "presentation.ts"
-Cohesion: 0.24
-Nodes (9): adminPlugin(), AdminPluginDeps, AlertSeverity, dependencyHealthStatus(), DependencyName, DependencyTransitionTracker, AdminEventsQuerySchema, MetricsHistoryQuerySchema (+1 more)
+Cohesion: 0.20
+Nodes (12): adminPlugin(), AdminPluginDeps, AlertSeverity, auditEvmRpcChains(), dependencyHealthStatus(), DependencyName, DependencyTransitionTracker, RpcAuditChain (+4 more)
 
 ### Community 272 - "bs58"
 Cohesion: 0.31
@@ -515,25 +511,33 @@ Nodes (3): endpoints, here, server
 Cohesion: 0.40
 Nodes (4): name, private, type, version
 
+### Community 311 - "server.ts"
+Cohesion: 0.08
+Nodes (24): TEST_ACCOUNT, ApiConfig, healthPlugin(), HealthPluginOptions, buildApp(), metricsPlugin(), MetricsPluginDeps, app (+16 more)
+
+### Community 313 - "stock-pricing.ts"
+Cohesion: 0.27
+Nodes (7): BITPANDA_YAHOO_SYMBOLS, CachedStockPrice, priceYahooStockSymbolEur(), StockPriceCache, YahooChartResponse, YahooStockPricingDeps, yahooStockSymbolCandidates()
+
 ## Knowledge Gaps
-- **220 isolated node(s):** `timeZone`, `enabledAdvancedServices`, `access`, `https://www.googleapis.com/auth/script.projects`, `https://www.googleapis.com/auth/script.scriptapp` (+215 more)
+- **222 isolated node(s):** `timeZone`, `enabledAdvancedServices`, `access`, `https://www.googleapis.com/auth/script.projects`, `https://www.googleapis.com/auth/script.scriptapp` (+217 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **20 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **19 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `getEngineCacheForScan()` connect `scan-utils.ts` to `@fastify/cookie`?**
+- **Why does `gamificationPlugin()` connect `index.ts` to `schemas.ts`, `gm-onchain.ts`, `server.ts`?**
+  _High betweenness centrality (0.002) - this node is a cross-community bridge._
+- **Why does `CanonicalCryptoService` connect `crypto-listing-service.ts` to `server.ts`?**
   _High betweenness centrality (0.001) - this node is a cross-community bridge._
-- **Why does `scanPlugin()` connect `@fastify/cookie` to `gsheet.ts`, `server.ts`, `scan-utils.ts`, `server-helpers.ts`, `scan-plugin-routes.test.ts`?**
-  _High betweenness centrality (0.001) - this node is a cross-community bridge._
-- **Why does `registerGmOnchainRoutes()` connect `gm-onchain.ts` to `index.ts`, `safe-http.ts`, `gm-streak-rebuild.ts`, `schemas.ts`?**
-  _High betweenness centrality (0.000) - this node is a cross-community bridge._
 - **What connects `timeZone`, `enabledAdvancedServices`, `access` to the rest of the system?**
-  _220 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _222 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `cex.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.055651176133103844 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.1111111111111111 - nodes in this community are weakly interconnected._
 - **Should `16_REFRESH.js` be split into smaller, more focused modules?**
   _Cohesion score 0.07441688263606072 - nodes in this community are weakly interconnected._
 - **Should `27_ACTIVITY_REFRESH.js` be split into smaller, more focused modules?**
   _Cohesion score 0.06892655367231638 - nodes in this community are weakly interconnected._
+- **Should `28_PRICING_WORKER.js` be split into smaller, more focused modules?**
+  _Cohesion score 0.09696969696969697 - nodes in this community are weakly interconnected._

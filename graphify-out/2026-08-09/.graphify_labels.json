@@ -297,6 +297,7 @@
   "295": "viem",
   "296": "@wcore/core",
   "297": "p-limit",
+  "298": "@wcore/core",
   "299": "zod",
   "300": "09_SIMPLE_ROTATION.js",
   "301": "12_WALLET_NAMES.js",
@@ -305,5 +306,12 @@
   "304": "19_CHAIN_FACTORY.js",
   "305": "24_DEGRADED_MODE.js",
   "306": "30_MISSING_TOKENS.js",
-  "307": "gm-chainkey.test.ts"
+  "307": "gm-chainkey.test.ts",
+  "308": "@wcore/db",
+  "309": "@wcore/shared",
+  "310": "dev.ts",
+  "311": "server.ts",
+  "313": "stock-pricing.ts",
+  "314": "resolveRelayToken",
+  "315": "healthPlugin"
 }

@@ -1,3 +1,4 @@
+// Admin dashboard: wallet-based auth + funnel analytics.
 "use client";
 import { getApiUrl } from "@/lib/api";
 

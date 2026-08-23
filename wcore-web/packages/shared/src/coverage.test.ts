@@ -1,6 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { CEX_PROVIDERS } from "./coverage.ts";
+import { CEX_PROVIDERS } from "./coverage";
 
 describe("CEX provider registry", () => {
   test("exposes the seven live CEX providers in a single tuple", () => {

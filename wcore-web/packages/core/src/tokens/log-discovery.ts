@@ -42,7 +42,13 @@ async function discoverLogsInRange(
         const contract = normalizeAddress(log.address);
         if (contract) found.add(contract);
       }
-      return { contracts: [...found], errors };
+      // v4.16.66(web): un fallback réussi ne propage PAS les échecs des
+      // endpoints précédents. Sinon une simple avance de tête de bloc d'un
+      // nœud ("after last accepted block" / "block not found ... not yet
+      // available") empoisonnait errors[] et basculait le scan en dégradé
+      // alors que la découverte a abouti. La santé RPC est déjà tracée par
+      // rpc-health ; ici seul le résultat final compte.
+      return { contracts: [...found], errors: [] };
     } catch (err) {
       errors.push(`${endpoint}: ${err instanceof Error ? err.message : String(err)}`);
     }

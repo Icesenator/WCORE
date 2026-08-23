@@ -66,7 +66,7 @@ export function HomePageClient({ coverage }: { coverage: CoverageStats }) {
   const [, setWelcomeLoading] = useState(true);
 
   useEffect(() => {
-    if (campaign !== "one_portfolio" || landingTrackedRef.current) return;
+    if (campaign === "unknown" || landingTrackedRef.current) return;
     landingTrackedRef.current = true;
     void trackFunnelEvent({
       event: "campaign_landing_viewed",

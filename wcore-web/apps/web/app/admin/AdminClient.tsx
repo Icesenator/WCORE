@@ -107,6 +107,7 @@ export function AdminClient() {
   const [funnelLoading, setFunnelLoading] = useState(false);
   const [funnelError, setFunnelError] = useState("");
   const [funnelRange, setFunnelRange] = useState<"7d" | "30d" | "all">("7d");
+  const [funnelCampaign, setFunnelCampaign] = useState<"one_portfolio" | "clean_total">("one_portfolio");
   const [data, setData] = useState<HealthDetail | null>(null);
   const [history, setHistory] = useState<MetricHistory | null>(null);
   const [events, setEvents] = useState<OpsEventItem[]>([]);
@@ -182,7 +183,7 @@ export function AdminClient() {
       setFunnelLoading(true);
       setFunnelError("");
       try {
-        const params = new URLSearchParams({ campaign: "one_portfolio" });
+        const params = new URLSearchParams({ campaign: funnelCampaign });
         if (funnelRange !== "all") {
           const days = funnelRange === "7d" ? 7 : 30;
           params.set("from", new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
@@ -203,7 +204,7 @@ export function AdminClient() {
       }
     })();
     return () => { cancelled = true; };
-  }, [tab, funnelRange, isAdmin, fetchAuth]);
+  }, [tab, funnelRange, funnelCampaign, isAdmin, fetchAuth]);
 
   if (loading) return <p className="text-muted">Loading...</p>;
   if (error) return <p className="text-red-400">{error}</p>;
@@ -241,7 +242,7 @@ export function AdminClient() {
       </div>
 
       {tab === "funnel" ? (
-        <FunnelTab rows={funnelRows} loading={funnelLoading} error={funnelError} range={funnelRange} onRangeChange={setFunnelRange} />
+        <FunnelTab rows={funnelRows} loading={funnelLoading} error={funnelError} range={funnelRange} onRangeChange={setFunnelRange} campaign={funnelCampaign} onCampaignChange={setFunnelCampaign} />
       ) : tab === "pricing" ? (
         <div>
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -433,14 +434,16 @@ export function AdminClient() {
   );
 }
 
-function FunnelTab({ rows, loading, error, range, onRangeChange }: {
+function FunnelTab({ rows, loading, error, range, onRangeChange, campaign, onCampaignChange }: {
   rows: FunnelEventRow[] | null;
   loading: boolean;
   error: string;
   range: "7d" | "30d" | "all";
   onRangeChange: (range: "7d" | "30d" | "all") => void;
+  campaign: "one_portfolio" | "clean_total";
+  onCampaignChange: (campaign: "one_portfolio" | "clean_total") => void;
 }) {
-  const stats: FunnelStats | null = rows ? processFunnelEvents(rows) : null;
+  const stats: FunnelStats | null = rows ? processFunnelEvents(rows, campaign) : null;
 
   return (
     <div>
@@ -452,7 +455,11 @@ function FunnelTab({ rows, loading, error, range, onRangeChange }: {
             <option value="30d">30 days</option>
             <option value="all">All time</option>
           </select>
-          <span className="text-xs text-muted">Campaign: One portfolio</span>
+          <label className="text-xs text-muted ml-2">Campaign</label>
+          <select value={campaign} onChange={(e) => onCampaignChange(e.target.value as "one_portfolio" | "clean_total")} className="rounded border border-border bg-bg px-2 py-1.5 text-xs text-fg">
+            <option value="one_portfolio">One portfolio</option>
+            <option value="clean_total">Clean total</option>
+          </select>
         </div>
       </div>
 

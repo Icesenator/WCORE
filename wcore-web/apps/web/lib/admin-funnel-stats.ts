@@ -18,7 +18,7 @@ export interface FunnelStats {
   portfolioActions: Record<string, number>;
 }
 
-export function processFunnelEvents(rows: FunnelEventRow[]): FunnelStats {
+export function processFunnelEvents(rows: FunnelEventRow[], campaign: string): FunnelStats {
   const eventCounts: Record<string, number> = {};
   const portfolioActions: Record<string, number> = {};
   let landing = 0;
@@ -27,7 +27,7 @@ export function processFunnelEvents(rows: FunnelEventRow[]): FunnelStats {
   let failed = 0;
 
   for (const row of rows) {
-    if (row.campaign !== "one_portfolio") continue;
+    if (row.campaign !== campaign) continue;
     eventCounts[row.event] = (eventCounts[row.event] ?? 0) + row.count;
     if (row.event === "campaign_landing_viewed") landing += row.count;
     if (row.event === "scan_started") starts += row.count;

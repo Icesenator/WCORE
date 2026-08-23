@@ -221,6 +221,41 @@ model ScamOverride {
   @@map("scam_overrides")
 }
 
+model ScamVerdict {
+  chainId   Int
+  address   String
+  verdict   String
+  source    String
+  payload   Json?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@id([chainId, address])
+  @@index([source, updatedAt])
+  @@index([verdict])
+  @@map("scam_verdicts")
+}
+
+model ScamScanLog {
+  id               String   @id @default(cuid())
+  chainId          Int
+  address          String
+  symbol           String
+  heuristicScore   Int
+  goPlusPayload    Json?
+  totalScore       Int
+  level            String
+  decision         String
+  reason           String   @default("")
+  reviewedByAdmin  DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([chainId, address, createdAt])
+  @@index([level, createdAt])
+  @@index([createdAt])
+  @@map("scam_scan_logs")
+}
+
 model GmContract {
   id              String   @id @default(cuid())
   chainKey        String

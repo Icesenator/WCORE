@@ -27,6 +27,11 @@ describe("One portfolio frontend funnel contracts", () => {
     assert.match(homeSource, /campaign=\$\{campaign\}/);
   });
 
+  test("landing view tracking covers every known campaign, not a single hard-coded one", () => {
+    assert.doesNotMatch(homeSource, /campaign\s*!==\s*["']one_portfolio["']/);
+    assert.match(homeSource, /campaign === "unknown"/);
+  });
+
   test("wallet page passes campaign through to WalletContent and the orchestrator", () => {
     assert.match(walletPageSource, /campaign\?:\s*string/);
     assert.match(walletPageSource, /<WalletContent[\s\S]*campaign=/);

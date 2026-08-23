@@ -3,6 +3,8 @@ import Link from "next/link";
 import type { ChainScan } from "@wcore/shared";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { exportCSV } from "@/lib/csv-export";
+import { getApiUrl } from "@/lib/api";
+import { buildShareCardUrl } from "@/lib/share-card";
 import { trackFunnelEvent, type FunnelCampaign, type PortfolioAction } from "@/lib/funnel-analytics";
 
 export function PortfolioSummaryCard({
@@ -18,6 +20,7 @@ export function PortfolioSummaryCard({
   refreshingAll,
   onRefreshAll,
   campaign,
+  cexCount = 0,
 }: {
   totalEur: number;
   timeAgo: string;
@@ -31,6 +34,7 @@ export function PortfolioSummaryCard({
   refreshingAll: boolean;
   onRefreshAll: () => void;
   campaign: FunnelCampaign;
+  cexCount?: number;
 }) {
   const { formatValue, t } = usePreferences();
   const trackAction = (action: PortfolioAction) => {
@@ -69,6 +73,14 @@ export function PortfolioSummaryCard({
             className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition"
             title={t("exportCSV") ?? "Export CSV"}
           >⬇ Export</button>
+          <a
+            href={buildShareCardUrl(getApiUrl(), { totalEur, walletCount: addresses.length, chainCount: uniqueChains, cexCount })}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => trackAction("share")}
+            className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition"
+            title="Share your clean portfolio card"
+          >↗ Share</a>
         </div>
       </div>
 

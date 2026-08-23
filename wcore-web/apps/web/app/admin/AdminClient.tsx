@@ -101,7 +101,7 @@ function HistoryBarRaw({ data, label, color }: { data: Array<{ v: number; t: str
 export function AdminClient() {
   const { t } = usePreferences();
   const { address: walletAddress, authStep } = useWallet();
-  const isAdmin = authStep === "authenticated";
+  const isAdmin = (authStep as string) === "authenticated";
   const [tab, setTab] = useState<"overview" | "pricing" | "funnel">("overview");
   const [funnelRows, setFunnelRows] = useState<FunnelEventRow[] | null>(null);
   const [funnelLoading, setFunnelLoading] = useState(false);

@@ -36,3 +36,9 @@ graphify-out/*.log
 graphify-out/*.pid
 graphify-out/*.lock
 graphify-out/status.json
+
+# Local runtime data (chrome profile with cookies/sessions — never commit)
+/data/
+
+# Dated graphify snapshots (current graph.json stays tracked)
+graphify-out/20*/

@@ -78,6 +78,7 @@ scripts/*
 !scripts/build-post-forgotten-wallets.cjs
 !scripts/build-post-one-portfolio-v2.cjs
 !scripts/build-post-prove-your-balance.cjs
+!scripts/build-post-clean-total.cjs
 !scripts/parity-gsheet-vs-web.cjs
 # Planning/session docs (Codex internal)
 docs/superpowers/
@@ -132,6 +133,7 @@ astar-snapshot.md
 !apps/web/public/wcore-post-forgotten-wallets.png
 !apps/web/public/wcore-post-one-portfolio-v2.png
 !apps/web/public/wcore-post-prove-your-balance.png
+!apps/web/public/wcore-post-clean-total.png
 !apps/web/public/chains/**
 !apps/web/public/cex/**
 

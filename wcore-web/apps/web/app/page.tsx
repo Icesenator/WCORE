@@ -41,7 +41,7 @@ export default function HomePage() {
       </section>
 
       <Suspense fallback={null}>
-        <HomePageClient />
+        <HomePageClient coverage={coverage} />
       </Suspense>
     </main>
   );

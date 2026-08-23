@@ -13,7 +13,7 @@ import { DEFAULT_CHAINS } from "@/lib/defaults";
 import { buildCexWalletListItem, parseCexWalletAddress, shouldApplyCexWalletRequest, type CexProvider, type CexWalletListItem } from "@/lib/cex-display";
 import { readLinkedWallets, writeLinkedWallets } from "@/lib/linked-wallet-storage";
 import { bucketChainCount, bucketWalletCount, normalizeCampaign, trackFunnelEvent } from "@/lib/funnel-analytics";
-import { getCoverageStats } from "@/lib/coverage";
+import type { CoverageStats } from "@/lib/coverage";
 
 function detectVmType(addr: string): string {
   if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return "EVM";
@@ -39,11 +39,10 @@ function cexAccountTotal(account: CexAccountApi): number {
   return Math.round(account.holdings.reduce((sum, h) => sum + (h.valueEur ?? 0), 0) * 100) / 100;
 }
 
-export function HomePageClient() {
+export function HomePageClient({ coverage }: { coverage: CoverageStats }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const campaign = normalizeCampaign(searchParams.get("campaign"));
-  const coverage = getCoverageStats();
   const { address: connectedAddress, authStep } = useWallet();
   const authenticatedCexAddress = authStep === "authenticated" ? connectedAddress : null;
   const { isConnected } = useAccount();
@@ -410,7 +409,7 @@ export function HomePageClient() {
       </div>
 
       {showWelcome ? (
-        <WelcomeModal referralCode={referralCode} onClose={() => setShowWelcome(false)} />
+        <WelcomeModal coverage={coverage} referralCode={referralCode} onClose={() => setShowWelcome(false)} />
       ) : null}
     </>
   );

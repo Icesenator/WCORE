@@ -1,5 +1,21 @@
 ﻿# Changelog
 
+## 2026-08-23 — Scam-detector v24: YOM (Ethereum) bloqué
+
+- **`_BLOCKED_CONTRACTS` étendu** : `0x12fbd83663161c7a3e3acff67507072da2cf57a2` (Ethereum: `YOM`, détecté dans Ledger - Ethereum).
+- **Impersonation du vrai YOM** (yom.net, DePIN cloud gaming, contrat officiel Avalanche `0xb6314518b61b4864162c7ae7fdc36261e0a14c4b`, 18 décimales, 750M supply). Le token Ethereum : 9 décimales, supply 1T, 92 702 holders airdropés, contrat non vérifié, **même template bytecode que LokiCoin v22** (admin sig-gaté EIP-712, airdrop en masse, blacklists + cooldown, token miroir anti-sell).
+- **Pool écran phantom-price** : $194.20/unité sur **$0.50 de liquidité** (Uniswap V2, mai 2026), volume $0.24/24h — un dusting de 10 YOM s'affiche ~$1 940 dans les wallets.
+- **Tests** : shared scam-detector 16/16, typecheck OK. SCAM_RULES_VERSION bump 23 → 24.
+- **Production** : déploiement Railway API via `scripts/deploy.ps1 -Service api` (Deploy complete, /ready db+redis OK).
+- **Suite** : design doc d'auto-détection dynamique (`docs/superpowers/specs/2026-08-23-scam-detector-auto-blocking-design.md`) — enrichissement GoPlus caché + règle « liquidité écran » + contestation admin ; ce cas YOM aurait été attrapé automatiquement.
+
+## 2026-08-22 — Scam-detector v23: Bad Dad (Ethereum) bloqué
+
+- **`_BLOCKED_CONTRACTS` étendu** : `0x6dc629b667a3431c95934a7c530872786d75581d` (Ethereum: `DAD` "Bad Dad", détecté dans Ledger - Ethereum).
+- **Signature honeypot** : contrat non vérifié ; bytecode avec `"Blacklisted addresses cannot sell tokens"` (blacklist anti-sell), `"Only marketing wallet can airdrop"` (80 033 holders = airdrop de masse), soldes fantômes (`"Exceeds phantom balance"`), taxe jusqu'à 100 %, mint/burn owner-only, récupération ETH/tokens. Liquidité écran ~$5,7k (Uniswap V3, avril 2026), FDV $3,9k, volume $0, 0 achat / 3 ventes 24h.
+- **Tests** : shared scam-detector 16/16, typecheck OK. SCAM_RULES_VERSION bump 22 → 23.
+- **Production** : déploiement Railway API via `scripts/deploy.ps1 -Service api`.
+
 ## 2026-08-22 — GM: fallback wallet_addEthereumChain sur 4902 (raw EIP-6963)
 
 - **Cause** : le clic "Say GM" / "Deploy" sur une chain inconnue du wallet (ex. REYA 1729) échouait avec `Could not switch to REYA` — `switchChainAny` ne faisait que `wallet_switchEthereumChain` sans fallback add (contrairement à `/dev/deploy/chain-switch.ts`).

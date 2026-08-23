@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 19;
+export const SCAM_RULES_VERSION = 24;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -106,6 +106,31 @@ const _BLOCKED_CONTRACTS = new Set([
   "0xc6f44893a558d9ae0576a2bb6bfa9c1c3f313815", // World Chain: RamenCoin phantom-price scam
   "0x5ef30ba3a27b92399a46ee86d2b810ee7e9d8abc", // World Chain: CoffeeCoin phantom-price scam
   "0x51c707920d1ee9b308b5754675a0bf856cd25eea", // World Chain: Coffee2Coin phantom-price scam (variant)
+  // 2026-08-21 — Ledger - Ethereum dusting campaign (verified on Etherscan:
+  // AICC + PVC share the same proxy implementation 0xACaB8790..., holders > supply,
+  // zero DEX liquidity, 1-unit airdrops)
+  "0x66a3c2fa3e467aa586e90912f977e648589cabaf", // Ethereum: AICC "AI Chain Coin" dusting proxy scam
+  "0x514b9e5467b9eb811519e316263c9099eae546ca", // Ethereum: PVC "Privacy Coin" dusting proxy scam
+  "0x00e2b6d170740c15bf9fb01d0b6e77c0d4510e32", // Ethereum: DOG "Royal Dog" unverified dusting scam
+  "0x53fdca91fd33b9131b5ceade42a3edbd9b38edff", // Ethereum: CAT "Royal Cat" dusting scam
+  "0xcdb9f907bd8828be9643b39cd4638d362fd6e9c4", // Ethereum: KEKIUS "Volt Kekius" dusting scam
+  "0x37dabad8ac496148596196fe9adeb54ee3111c78", // Ethereum: DOG "Little Dog" dusting scam
+  "0x83819bf7e906bcf57e9f5b20453a2eff43f3845c", // Ethereum: PORT "DePORT" dusting scam
+  "0x496a35a65c00b4aed125d19df3871e6b4cb05188", // Ethereum: REKT "Trump Rekt" impersonator dusting scam
+  "0x4921bb864de2e557939b074be20ff4b98723b86b", // Ethereum: WAR "Trump Wars" impersonator dusting scam
+  "0x3e391e5cb8ea766c93134faf486e6393158032c2", // Ethereum: BEAR "Brave Bear" dusting scam
+  "0x9d24364b97270961b2948734afe8d58832efd43a", // Ethereum: FAM "yefam.finance" dusting scam
+  "0x108a908a51fe79f84584d2da02c38ca588bc442d", // Ethereum: DOG "Good Dog" unverified dusting scam (same campaign)
+  // 2026-08-21 — Ethos - Base dusting (LokiCoin, unverified, 9 decimals,
+  // 173k holders vs zero DEX liquidity, signature-gated admin + blacklist + cooldown in bytecode)
+  "0xc970c50bee2ffd114f5d65ee18520b66da5f62c1", // BASE: LOKI "LokiCoin" dusting scam
+  // 2026-08-21 — Ledger - Ethereum honeypot dusting (Bad Dad, unverified; bytecode:
+  // "Blacklisted addresses cannot sell tokens", "Only marketing wallet can airdrop",
+  // phantom balances, 100% max tax, owner mint/burn, ETH/token recovery)
+  "0x6dc629b667a3431c95934a7c530872786d75581d", // Ethereum: DAD "Bad Dad" honeypot dusting scam
+  // 2026-08-22 — YOM (Ethereum) impersonation du vrai YOM (Avalanche), même template que LokiCoin
+  // Phantom-price pool $194.20/$0.50, airdrop 9 décimales, blacklist anti-sell + cooldown sig-gaté, bytecode identique.
+  "0x12fbd83663161c7a3e3acff67507072da2cf57a2", // Ethereum: YOM "YOM" impersonation dusting scam
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([

@@ -11,7 +11,7 @@ const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EV
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
 
-assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.65["']/, 'web scan adapter version must advance to 4.16.65');
+assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.66["']/, 'web scan adapter version must advance to 4.16.66');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
@@ -767,6 +767,10 @@ const samplePayload = JSON.stringify({
     tokens: [
       { symbol: 'C-Locked', name: 'Chainbase Staking [Lock]', contract: '0x0297E997b56017164110f75F71ecd58dA823085B', balance: 58.58143972, decimals: 18, priceEur: 0.067, valueEur: 3.94 },
     ],
+    blockedContracts: [
+      '0x30eba82795fe0f7e5b1fc51a1109ffe47c941ba3',
+      '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2',
+    ],
     totalValueEur: 12.24,
     errors: ['balances fetch: RPC_TIMEOUT'],
     degraded: true,
@@ -809,6 +813,60 @@ const samplePayload = JSON.stringify({
   assert.ok(!merged.find((t) => t.symbol === 'DRB'), 'old scam cache-only token must be purged during degraded merge');
   assert.ok(merged.find((t) => t.symbol === 'C-Locked' && t.name === 'Chainbase Staking [Lock]'), 'new useful metadata must update the cached token');
   assert.equal(ctx.__saved[0].cache.scanStats.webMergePreservedAssets, 1);
+}
+
+{
+  const ethPartialPayload = JSON.stringify({
+    ok: true,
+    chain: 'ETHEREUM',
+    chainName: 'Ledger - Ethereum',
+    vm: 'EVM',
+    timestamp: '2026-08-21T10:00:00.000Z',
+    native: { symbol: 'ETH', balance: 0.01, priceEur: 2100, valueEur: 21 },
+    tokens: [
+      { symbol: 'USDC', name: 'USD Coin', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 },
+    ],
+    blockedContracts: [
+      '0x290b3b9f7661a6834135be44c3475aef987fa3b2',
+      '0x05cd8430676f04b63b33c1ece124818858edfc4f',
+      '0x5497b1ab5bb59b194e25764ea0b61871b122a43f',
+    ],
+    totalValueEur: 29.6,
+    errors: ['balances fetch: RPC_TIMEOUT'],
+    degraded: true,
+    fxRate: 0.86,
+    scanMs: 3000,
+  });
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [
+      { contract: 'native', symbol: 'ETH', name: 'Ether', balance: 0.01, decimals: 18, price_eur: 2100, value_eur: 21 },
+      { contract: '0x290b3b9f7661a6834135be44c3475aef987fa3b2', symbol: 'DOGE', name: 'Trump Doge', balance: 1, decimals: 18, price_eur: 0.000008995612, value_eur: 0.000008995612 },
+      { contract: '0x05cd8430676f04b63b33c1ece124818858edfc4f', symbol: 'DOGE', name: 'Royal Doge', balance: 1, decimals: 18, price_eur: 0.000002777048, value_eur: 0.000002777048 },
+      { contract: '0x5497b1ab5bb59b194e25764ea0b61871b122a43f', symbol: 'SHIB', name: 'Trump Shib', balance: 1, decimals: 18, price_eur: 0.000000937208, value_eur: 0.000000937208 },
+    ],
+    priceMap: {},
+    priceTsMap: {},
+    balanceTsMap: {},
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, ethPartialPayload);
+  const res = ctx._webScanWallet_('0x17d518736Ee9341dcDc0A2498e013D33CFCDD080', [], false, { CHAIN: { KEY: 'ETHEREUM', NAME: 'Ethereum', NATIVE_SYMBOL: 'ETH' } }, 'eth_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_DEGRADED/);
+  const merged = ctx.__saved[0].cache.assets;
+  assert.ok(!merged.find((t) => t.contract === '0x290b3b9f7661a6834135be44c3475aef987fa3b2'), 'Trump Doge must be purged via API blockedContracts signal');
+  assert.ok(!merged.find((t) => t.contract === '0x05cd8430676f04b63b33c1ece124818858edfc4f'), 'Royal Doge must be purged via API blockedContracts signal');
+  assert.ok(!merged.find((t) => t.contract === '0x5497b1ab5bb59b194e25764ea0b61871b122a43f'), 'Trump Shib must be purged via API blockedContracts signal');
+  assert.ok(merged.find((t) => t.contract === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'), 'legitimate USDC must remain');
+  assert.equal(ctx.__saved[0].cache.scanStats.webMergePurgedScamAssets, 3);
 }
 
 {

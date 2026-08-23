@@ -13,6 +13,7 @@ import { DEFAULT_CHAINS } from "@/lib/defaults";
 import { buildCexWalletListItem, parseCexWalletAddress, shouldApplyCexWalletRequest, type CexProvider, type CexWalletListItem } from "@/lib/cex-display";
 import { readLinkedWallets, writeLinkedWallets } from "@/lib/linked-wallet-storage";
 import { bucketChainCount, bucketWalletCount, normalizeCampaign, trackFunnelEvent } from "@/lib/funnel-analytics";
+import { getCoverageStats } from "@/lib/coverage";
 
 function detectVmType(addr: string): string {
   if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return "EVM";
@@ -42,6 +43,7 @@ export function HomePageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const campaign = normalizeCampaign(searchParams.get("campaign"));
+  const coverage = getCoverageStats();
   const { address: connectedAddress, authStep } = useWallet();
   const authenticatedCexAddress = authStep === "authenticated" ? connectedAddress : null;
   const { isConnected } = useAccount();
@@ -379,7 +381,7 @@ export function HomePageClient() {
       <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-2 text-2xl">⛓️</div>
-          <h3 className="text-sm font-semibold mb-1">Track 162 chains</h3>
+          <h3 className="text-sm font-semibold mb-1">Track {coverage.chainConfigCount} chains</h3>
           <p className="text-xs text-muted leading-relaxed">
             Paste any public EVM, Solana, Cosmos or TON address. Automatic VM detection, real-time pricing from 5 sources (DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko), multi-wallet linking, custom tokens and CSV export. Unavailable chains are auto-skipped to keep scans fast and accurate.
           </p>
@@ -402,7 +404,7 @@ export function HomePageClient() {
           <div className="mb-2 text-2xl">⛽</div>
           <h3 className="text-sm font-semibold mb-1">On-chain GM</h3>
           <p className="text-xs text-muted leading-relaxed">
-            Say GM across 80+ supported chains. Deploy your own GM contract, earn 50% creator revenue per GM, withdraw anytime. Per-chain streaks, leaderboard, referrals and 1-click daily GM.
+            Say GM across {coverage.gmEnabledChainCount} supported chains. Deploy your own GM contract, earn 50% creator revenue per GM, withdraw anytime. Per-chain streaks, leaderboard, referrals and 1-click daily GM.
           </p>
         </div>
       </div>

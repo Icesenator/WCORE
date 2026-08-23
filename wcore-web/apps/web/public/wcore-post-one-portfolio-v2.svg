@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#040506"/>
+      <stop offset="1" stop-color="#101f0c"/>
+    </linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d9f99d"/>
+      <stop offset="1" stop-color="#65a30d"/>
+    </linearGradient>
+    <style>
+      .font { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .white { fill: #f8fafc; }
+      .muted { fill: #a1a1aa; }
+      .lime { fill: #a3e635; }
+    </style>
+  </defs>
+  <rect width="1200" height="675" fill="url(#bg)"/>
+  <circle cx="180" cy="80" r="280" fill="#84cc16" fill-opacity="0.12"/>
+  <circle cx="1020" cy="620" r="260" fill="#22c55e" fill-opacity="0.10"/>
+  <text x="80" y="92" class="font lime" font-size="18" font-weight="900" letter-spacing="3">ONE PORTFOLIO</text>
+  <text x="80" y="168" class="font white" font-size="58" font-weight="950">162 chains.</text>
+  <text x="80" y="236" class="font white" font-size="58" font-weight="950">7 CEX.</text>
+  <text x="80" y="304" class="font lime" font-size="58" font-weight="950">One view.</text>
+  <text x="80" y="360" class="font muted" font-size="22">Public wallets and read-only exchange keys, together.</text>
+  <g>
+    <rect x="80" y="410" width="220" height="92" rx="16" fill="#111827" stroke="#3f6212"/>
+    <text x="190" y="448" text-anchor="middle" class="font lime" font-size="28" font-weight="950">162</text>
+    <text x="190" y="478" text-anchor="middle" class="font muted" font-size="14" font-weight="800">CHAINS</text>
+    <rect x="316" y="410" width="220" height="92" rx="16" fill="#111827" stroke="#3f6212"/>
+    <text x="426" y="448" text-anchor="middle" class="font lime" font-size="28" font-weight="950">7</text>
+    <text x="426" y="478" text-anchor="middle" class="font muted" font-size="14" font-weight="800">CEX</text>
+    <rect x="552" y="410" width="220" height="92" rx="16" fill="#111827" stroke="#3f6212"/>
+    <text x="662" y="448" text-anchor="middle" class="font lime" font-size="28" font-weight="950">1</text>
+    <text x="662" y="478" text-anchor="middle" class="font muted" font-size="14" font-weight="800">PORTFOLIO</text>
+  </g>
+  <text x="80" y="560" class="font white" font-size="22" font-weight="800">No wallet connection. No seed phrase.</text>
+  <text x="80" y="620" class="font muted" font-size="18">Read first. Act later.</text>
+  <text x="1120" y="620" text-anchor="end" class="font lime" font-size="22" font-weight="950">wcore.xyz/?campaign=one_portfolio</text>
+</svg>

@@ -2,11 +2,14 @@ import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { Web3Provider } from "@/components/Web3Provider";
 import { SidebarLayout } from "@/components/SidebarLayout";
+import { getCoverageStats } from "@/lib/coverage";
 import "./globals.css";
+
+const coverage = getCoverageStats();
 
 export const metadata: Metadata = {
   title: "WCORE — Multi-chain portfolio tracking",
-  description: "Your crypto. Every chain. One view. 162 tracked chains across EVM, Solana, Cosmos and TON, selected DeFi positions, real-time pricing, on-chain GM and 7 CEX sources. Read only. Free.",
+  description: `Your crypto. Every chain. One view. ${coverage.chainConfigCount} tracked chains across EVM, Solana, Cosmos and TON, selected DeFi positions, real-time pricing, on-chain GM and ${coverage.cexProviderCount} CEX sources. Read only. Free.`,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

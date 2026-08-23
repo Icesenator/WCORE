@@ -1,5 +1,6 @@
 "use client";
 import { getApiUrl, apiFetch } from "@/lib/api";
+import { getCoverageStats } from "@/lib/coverage";
 
 import { useState } from "react";
 const API_URL = getApiUrl();
@@ -14,8 +15,9 @@ export function WelcomeModal({ referralCode, onClose }: WelcomeModalProps) {
 
   const refLink = referralCode ? `https://wcore.xyz?ref=${referralCode}` : null;
 
+  const coverage = getCoverageStats();
   const shareText = encodeURIComponent(
-    "Tracking my portfolio across 162 chains and 7 CEX with WCORE\n\n" +
+    `Tracking my portfolio across ${coverage.chainConfigCount} chains and ${coverage.cexProviderCount} CEX with WCORE\n\n` +
     "EVM · Solana · Cosmos · TON · Selected DeFi positions · Read only\n\n" +
     (refLink ? `Join with my referral: ${refLink}` : "Join now: https://wcore.xyz")
   );

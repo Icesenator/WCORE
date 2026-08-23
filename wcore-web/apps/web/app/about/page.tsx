@@ -1,9 +1,12 @@
+import { getCoverageStats } from "@/lib/coverage";
+
 export default function AboutPage() {
+  const coverage = getCoverageStats();
   return (
     <main className="mx-auto min-h-screen w-full px-4 py-8 sm:px-6 sm:py-12">
 
       <h1 className="mb-1 text-2xl font-bold">About WCORE</h1>
-      <p className="mb-8 text-sm text-muted">Your crypto. Every chain. One view. 162 chains, selected DeFi positions, 80+ GM contracts and 7 CEX sources. Read only. Free.</p>
+      <p className="mb-8 text-sm text-muted">Your crypto. Every chain. One view. {coverage.chainConfigCount} chains, selected DeFi positions, {coverage.gmEnabledChainCount} GM contracts and {coverage.cexProviderCount} CEX sources. Read only. Free.</p>
 
       <div className="grid gap-6 lg:grid-cols-2 text-sm leading-relaxed">
         <section>
@@ -60,7 +63,7 @@ export default function AboutPage() {
         <section>
           <h2 className="text-lg font-semibold text-fg mb-3">Features</h2>
           <div className="grid gap-2 sm:grid-cols-2">
-            <div className="flex gap-2"><span className="text-accent">⛽</span><span className="text-muted text-xs"><strong className="text-fg">On-chain GM</strong>. Say GM across 80 supported chains. Deploy your contract, earn 50% of tips.</span></div>
+            <div className="flex gap-2"><span className="text-accent">⛽</span><span className="text-muted text-xs"><strong className="text-fg">On-chain GM</strong>. Say GM across {coverage.gmEnabledChainCount} supported chains. Deploy your contract, earn 50% of tips.</span></div>
             <div className="flex gap-2"><span className="text-accent">🏦</span><span className="text-muted text-xs"><strong className="text-fg">CEX tracking</strong>. Link your own Binance, Bitpanda, Bitfinex, Bybit, Coinbase, Kraken or OKX read-only API key. Spot, Earn, commodities, stocks, all in one view.</span></div>
             <div className="flex gap-2"><span className="text-accent">🌐</span><span className="text-muted text-xs"><strong className="text-fg">Selected DeFi positions</strong>. Compound V3, WCT, Chainbase and selected staked assets with signed debt and liquidity status.</span></div>
             <div className="flex gap-2"><span className="text-accent">🔗</span><span className="text-muted text-xs"><strong className="text-fg">Referral system</strong>. Share your link, earn 10% of your referrals points.</span></div>

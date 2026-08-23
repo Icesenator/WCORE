@@ -1,6 +1,5 @@
-import type { ChainScan } from "@wcore/shared";
-
-export type CexProvider = "binance" | "bitpanda" | "bitfinex" | "bybit" | "coinbase" | "okx" | "kraken";
+import type { ChainScan, CexProvider } from "@wcore/shared";
+export type { CexProvider };
 
 export interface WalletResultLike {
   address: string;

@@ -7,6 +7,7 @@ export * from "./cache-key-registry";
 export * from "./cache-keys";
 export * from "./chain-config";
 export * from "./chain-type";
+export * from "./coverage";
 export * from "./factories";
 export * from "./scam-detector";
 export * from "./scan-result";

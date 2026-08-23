@@ -1,8 +1,10 @@
 import { Suspense } from "react";
 import { Logo } from "@/components/Logo";
+import { getCoverageStats } from "@/lib/coverage";
 import { HomePageClient } from "./HomePageClient";
 
 export default function HomePage() {
+  const coverage = getCoverageStats();
   return (
     <main className="mx-auto min-h-screen w-full px-4 py-8 sm:px-6 sm:py-12">
 
@@ -18,17 +20,17 @@ export default function HomePage() {
           <Logo className="h-12 w-12 text-accent/80 shrink-0" />
           <div>
             <h2 className="text-2xl font-bold sm:text-3xl text-fg">Your crypto. Every chain. One view.</h2>
-            <p className="text-sm text-muted mt-0.5">162 chains. 4 VMs. Selected DeFi positions. Real-time pricing, on-chain GM, 7 CEX.</p>
+            <p className="text-sm text-muted mt-0.5">{coverage.chainConfigCount} chains. 4 VMs. Selected DeFi positions. Real-time pricing, on-chain GM, {coverage.cexProviderCount} CEX.</p>
           </div>
         </div>
 
         <div className="relative grid gap-1.5 grid-cols-3 lg:grid-cols-6 mt-4">
-          <MiniCard icon="⛓️" label="162 chains" />
-          <MiniCard icon="🏦" label="7 CEX" />
+          <MiniCard icon="⛓️" label={`${coverage.chainConfigCount} chains`} />
+          <MiniCard icon="🏦" label={`${coverage.cexProviderCount} CEX`} />
           <MiniCard icon="🌊" label="TON support" />
           <MiniCard icon="🛡️" label="Read-only" />
           <MiniCard icon="⚡" label="Live pricing" />
-          <MiniCard icon="⛽" label="80+ GM chains" />
+          <MiniCard icon="⛽" label={`${coverage.gmEnabledChainCount} GM chains`} />
           <MiniCard icon="🚩" label="Scam detection" />
           <MiniCard icon="👛" label="Multi-wallet" />
           <MiniCard icon="🏆" label="Leaderboard" />

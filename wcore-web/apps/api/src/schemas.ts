@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CEX_PROVIDERS } from "@wcore/shared";
 
 // ─── Primitives ─────────────────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ export const CustomTokenAddBodySchema = z.object({
   chainType: z.enum(["EVM", "SVM", "COSMOS"]).optional().default("EVM"),
 });
 
-export const CexProviderSchema = z.enum(["binance", "bitpanda", "bitfinex", "bybit", "coinbase", "okx", "kraken"]);
+export const CexProviderSchema = z.enum(CEX_PROVIDERS);
 
 export const CexAccountBodySchema = z.object({
   provider: CexProviderSchema,

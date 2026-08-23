@@ -22,6 +22,7 @@ import { cexPlugin } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
 import { metricsPlugin } from "./plugins/metrics-plugin.js";
 import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics.js";
+import { sharePlugin } from "./plugins/share.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
 import { createScamEnrichmentLoader, createScamDecisionLogger } from "./plugins/scam-enrichment.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
@@ -376,6 +377,7 @@ await cexPlugin(app, { prisma, sharedCache });
 await chainsPlugin(app, { circuitBreakers, cache: sharedCache });
 await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized, cacheBackend });
 await analyticsPlugin(app, { store: createPrismaAnalyticsStore(prisma), isAdminAuthorized });
+await sharePlugin(app);
 
 // Gsheet bridge: expose /api/gsheet/cache/get to GAS for delegated reads of
 // the shared cache (Redis or in-memory). Gated by GSHEET_API_TOKEN so envs

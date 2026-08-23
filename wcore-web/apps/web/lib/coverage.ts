@@ -16,7 +16,10 @@ function registryChainCount(): number {
   ];
   for (const dir of candidates) {
     try {
-      return readdirSync(dir).filter((file) => file.endsWith(".ts") && file !== "index.ts").length;
+      const stems = readdirSync(dir)
+        .filter((file) => /\.(?:ts|js)$/.test(file) && !file.startsWith("index."))
+        .map((file) => file.replace(/\.(?:ts|js)$/, ""));
+      return new Set(stems).size;
     } catch {
       continue;
     }

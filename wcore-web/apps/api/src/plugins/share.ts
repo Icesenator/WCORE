@@ -26,6 +26,17 @@ export function buildShareCardSvg(input: { total: string; cur: string; wallets: 
   const chainLabel = CHAIN_LABELS[input.chains] ?? input.chains;
   const cexLabel = `${input.cex} CEX`;
   const safeTotal = escapeXml(input.total);
+  const pills: Array<[string, number]> = [
+    [escapeXml(walletLabel), 24 + escapeXml(walletLabel).length * 14.5],
+    [escapeXml(chainLabel), 24 + escapeXml(chainLabel).length * 14.5],
+    [escapeXml(cexLabel), 24 + escapeXml(cexLabel).length * 14.5],
+  ];
+  const pillTexts = pills
+    .map(([label], index) => {
+      const x = 96 + pills.slice(0, index).reduce((sum, [, w]) => sum + w + 18, 0);
+      return `  <rect x="${x}" y="446" width="${Math.round(pills[index][1])}" height="58" rx="29" fill="#0d131c" stroke="#22303f"/>\n  <text x="${Math.round(x + pills[index][1] / 2)}" y="484" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="bold" fill="#c3cfda">${label}</text>`;
+    })
+    .join("\n");
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
   <defs>
@@ -33,16 +44,24 @@ export function buildShareCardSvg(input: { total: string; cur: string; wallets: 
       <stop offset="0" stop-color="#0b0f14"/>
       <stop offset="1" stop-color="#101822"/>
     </linearGradient>
+    <radialGradient id="glow" cx="0.85" cy="0.12" r="0.55">
+      <stop offset="0" stop-color="#4ade80" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#4ade80" stop-opacity="0"/>
+    </radialGradient>
   </defs>
   <rect width="1200" height="675" fill="url(#bg)"/>
+  <rect width="1200" height="675" fill="url(#glow)"/>
   <rect x="24" y="24" width="1152" height="627" rx="28" fill="#0d131c" stroke="#22303f"/>
-  <text x="96" y="128" font-family="DejaVu Sans, Arial, sans-serif" font-size="40" font-weight="bold" fill="#4ade80">WCORE</text>
-  <text x="1104" y="128" text-anchor="end" font-family="DejaVu Sans, Arial, sans-serif" font-size="26" fill="#8aa0b4">clean portfolio</text>
-  <text x="96" y="300" font-family="DejaVu Sans, Arial, sans-serif" font-size="34" fill="#8aa0b4">My clean total</text>
-  <text x="96" y="410" font-family="DejaVu Sans, Arial, sans-serif" font-size="130" font-weight="bold" fill="#e6edf3">${symbol}${safeTotal}</text>
-  <text x="96" y="500" font-family="DejaVu Sans, Arial, sans-serif" font-size="32" fill="#c3cfda">${escapeXml(walletLabel)}  \u00b7  ${escapeXml(chainLabel)}  \u00b7  ${escapeXml(cexLabel)}</text>
-  <text x="96" y="600" font-family="DejaVu Sans, Arial, sans-serif" font-size="26" fill="#8aa0b4">Read-only \u00b7 No wallet connection \u00b7 No seed phrase</text>
-  <text x="1104" y="600" text-anchor="end" font-family="DejaVu Sans, Arial, sans-serif" font-size="26" fill="#4ade80">wcore.xyz/?campaign=share</text>
+  <rect x="24" y="24" width="6" height="627" rx="3" fill="#4ade80" fill-opacity="0.55"/>
+  <text x="96" y="122" font-family="DejaVu Sans, Arial, sans-serif" font-size="40" font-weight="bold" fill="#4ade80">WCORE</text>
+  <text x="1104" y="120" text-anchor="end" font-family="DejaVu Sans, Arial, sans-serif" font-size="26" fill="#8aa0b4">clean portfolio</text>
+  <text x="96" y="252" font-family="DejaVu Sans, Arial, sans-serif" font-size="24" font-weight="bold" fill="#8aa0b4" letter-spacing="4">MY CLEAN TOTAL</text>
+  <text x="92" y="392" font-family="DejaVu Sans, Arial, sans-serif" font-size="148" font-weight="bold" fill="#e6edf3">${symbol}${safeTotal}</text>
+${pillTexts}
+  <circle cx="103" cy="561" r="6" fill="#f59e0b"/>
+  <text x="122" y="569" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" fill="#c3cfda">Scam tokens flagged &amp; excluded from this total</text>
+  <text x="96" y="628" font-family="DejaVu Sans, Arial, sans-serif" font-size="21" fill="#8aa0b4">Read-only \u00b7 No wallet connection \u00b7 No seed phrase</text>
+  <text x="1104" y="629" text-anchor="end" font-family="DejaVu Sans, Arial, sans-serif" font-size="27" font-weight="bold" fill="#4ade80">wcore.xyz</text>
 </svg>`;
 }
 

@@ -31,10 +31,12 @@ export function buildShareCardSvg(input: { total: string; cur: string; wallets: 
     [escapeXml(chainLabel), 24 + escapeXml(chainLabel).length * 14.5],
     [escapeXml(cexLabel), 24 + escapeXml(cexLabel).length * 14.5],
   ];
+  let cursor = 96;
   const pillTexts = pills
-    .map(([label], index) => {
-      const x = 96 + pills.slice(0, index).reduce((sum, [, w]) => sum + w + 18, 0);
-      return `  <rect x="${x}" y="446" width="${Math.round(pills[index][1])}" height="58" rx="29" fill="#0d131c" stroke="#22303f"/>\n  <text x="${Math.round(x + pills[index][1] / 2)}" y="484" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="bold" fill="#c3cfda">${label}</text>`;
+    .map(([label, width]) => {
+      const x = cursor;
+      cursor += width + 18;
+      return `  <rect x="${Math.round(x)}" y="446" width="${Math.round(width)}" height="58" rx="29" fill="#0d131c" stroke="#22303f"/>\n  <text x="${Math.round(x + width / 2)}" y="484" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" font-weight="bold" fill="#c3cfda">${label}</text>`;
     })
     .join("\n");
 

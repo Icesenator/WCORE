@@ -4,7 +4,7 @@ import { cexFetch } from "@/lib/cex-api";
 
 import { useState, useCallback, useEffect, useRef, type FormEvent } from "react";
 import { useAccount } from "wagmi";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChainSelector } from "@/components/ChainSelector";
 import { useWallet } from "@/components/ConnectButton";
 import { WalletManager, type WalletManagerProps } from "@/components/WalletManager";
@@ -12,6 +12,7 @@ import { usePreferences } from "@/components/PreferencesProvider";
 import { DEFAULT_CHAINS } from "@/lib/defaults";
 import { buildCexWalletListItem, parseCexWalletAddress, shouldApplyCexWalletRequest, type CexProvider, type CexWalletListItem } from "@/lib/cex-display";
 import { readLinkedWallets, writeLinkedWallets } from "@/lib/linked-wallet-storage";
+import { bucketChainCount, bucketWalletCount, normalizeCampaign, trackFunnelEvent } from "@/lib/funnel-analytics";
 
 function detectVmType(addr: string): string {
   if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return "EVM";
@@ -39,6 +40,8 @@ function cexAccountTotal(account: CexAccountApi): number {
 
 export function HomePageClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const campaign = normalizeCampaign(searchParams.get("campaign"));
   const { address: connectedAddress, authStep } = useWallet();
   const authenticatedCexAddress = authStep === "authenticated" ? connectedAddress : null;
   const { isConnected } = useAccount();
@@ -56,9 +59,22 @@ export function HomePageClient() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const welcomeCheckedRef = useRef(false);
+  const landingTrackedRef = useRef(false);
   const cexRequestIdRef = useRef(0);
   const latestCexSessionRef = useRef<string | null>(authenticatedCexAddress?.toLowerCase() ?? null);
   const [, setWelcomeLoading] = useState(true);
+
+  useEffect(() => {
+    if (campaign !== "one_portfolio" || landingTrackedRef.current) return;
+    landingTrackedRef.current = true;
+    void trackFunnelEvent({
+      event: "campaign_landing_viewed",
+      campaign,
+      surface: "home",
+      variant: "control",
+      dimensions: {},
+    });
+  }, [campaign]);
 
   useEffect(() => {
     const stored = readLinkedWallets(localStorage, authenticatedCexAddress);
@@ -262,7 +278,19 @@ export function HomePageClient() {
       }
     }
     const labelsParam = labelsParts.length > 0 ? "&labels=" + labelsParts.join(",") : "";
-    router.push(`/wallet/${encoded}?chains=${chains.join(",")}&deep=${deepScan ? "1" : "0"}${linkedParam ? `&linked=${linkedParam}` : ""}${labelsParam}`);
+    void trackFunnelEvent({
+      event: "scan_started",
+      campaign,
+      surface: "home",
+      variant: "control",
+      dimensions: {
+        walletCount: bucketWalletCount(targets.length),
+        chainCount: bucketChainCount(chains.length),
+        authState: authStep === "authenticated" ? "authenticated" : authStep === "ready" ? "ready" : "anonymous",
+        scanMode: deepScan ? "deep" : "standard",
+      },
+    });
+    router.push(`/wallet/${encoded}?chains=${chains.join(",")}&deep=${deepScan ? "1" : "0"}${linkedParam ? `&linked=${linkedParam}` : ""}${labelsParam}&campaign=${campaign}`);
   }
 
   return (

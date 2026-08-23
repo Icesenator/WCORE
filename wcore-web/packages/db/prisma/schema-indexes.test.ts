@@ -22,4 +22,12 @@ describe("Prisma hot-path indexes", () => {
     assert.match(modelBlock("OnchainGm"), /@@index\(\[contractId\]\)/);
     assert.match(modelBlock("Notification"), /@@index\(\[userId, createdAt\]\)/);
   });
+
+  test("aggregates funnel events without user-level identifiers", () => {
+    const block = modelBlock("FunnelEventAggregate");
+    assert.match(block, /@@unique\(\[bucketDate, event, campaign, surface, variant, dimensionKey\]\)/);
+    assert.match(block, /@@index\(\[bucketDate\]\)/);
+    assert.match(block, /@@index\(\[campaign, bucketDate\]\)/);
+    assert.doesNotMatch(block, /userId|sessionId|wallet|address|ipAddress|Json/);
+  });
 });

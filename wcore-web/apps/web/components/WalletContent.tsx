@@ -23,6 +23,7 @@ import { PortfolioSummaryCard } from "./PortfolioSummaryCard";
 import { WalletSelector } from "./WalletSelector";
 import { AllTokensTable } from "./AllTokensTable";
 import { getCexProviderMeta, parseCexWalletAddress, sortWalletResultsByValueDesc } from "@/lib/cex-display";
+import { trackFunnelEvent, type FunnelCampaign, type PortfolioAction } from "@/lib/funnel-analytics";
 
 function formatTimeAgo(ms: number): string {
   const sec = Math.round((Date.now() - ms) / 1000);
@@ -36,13 +37,14 @@ function formatTimeAgo(ms: number): string {
   return `${d}d ago`;
 }
 
-export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains, deepScan, customTokens: ct, walletLabels }: {
+export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains, deepScan, customTokens: ct, walletLabels, campaign }: {
   addresses: string[];
   linkedAddresses?: string[];
   chains: string[];
   deepScan: boolean;
   customTokens?: string;
   walletLabels?: Record<string, string>;
+  campaign: FunnelCampaign;
 }) {
   const customTokenList = useMemo(() =>
     ct ? ct.split(",").map((c) => c.trim()).filter((c) => /^0x[0-9a-fA-F]{40}$/.test(c)) : [],
@@ -67,6 +69,12 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
   const chainDropdownRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "wallets" | "tokens">("overview");
   const [timeAgo, setTimeAgo] = useState("");
+  const trackPortfolioAction = useCallback((action: PortfolioAction) => {
+    void trackFunnelEvent({ event: "portfolio_action", campaign, surface: "wallet", variant: "control", dimensions: { action } });
+  }, [campaign]);
+  const trackTab = useCallback((tab: "overview" | "wallets" | "tokens") => {
+    trackPortfolioAction(tab === "overview" ? "tab_overview" : tab === "wallets" ? "tab_wallets" : "tab_tokens");
+  }, [trackPortfolioAction]);
   useScamOverrideSync();
 
   // Fetch GM status once to pass as initialStatus to ChainCards, avoiding
@@ -120,6 +128,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
     customTokenList,
     labels,
     enabledAddresses: enabledOnChainAddresses,
+    campaign,
   });
 
   // Update time-ago display every 30s after a scan completes
@@ -291,12 +300,13 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
           displayResultsAdjusted={displayResultsAdjusted}
           refreshingAll={scanOrch.refreshingAll || isRefreshingCex}
           onRefreshAll={handleRefreshAll}
+          campaign={campaign}
         />
 
         {/* Tab navigation */}
         <div className="flex items-center gap-1 border-b border-border/50 pb-2">
           {(["overview", "wallets", "tokens"] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
+            <button key={tab} onClick={() => { setActiveTab(tab); trackTab(tab); }}
               className={`px-3 py-1.5 text-xs font-medium rounded-t transition capitalize border-b-2 ${
                 activeTab === tab ? "text-accent border-accent" : "text-muted border-transparent hover:text-fg hover:border-border/40"
               }`}>{t(tab)}</button>

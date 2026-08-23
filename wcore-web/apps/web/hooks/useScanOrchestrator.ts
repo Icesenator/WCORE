@@ -8,6 +8,7 @@ import { matchCompatibleChains, type ChainScanMeta, type ScanVm } from "@/lib/ch
 import { getScanProgressDisplay } from "@/components/scan-progress";
 import { mergeChainResults, orderScanJobsForExecution } from "@/components/scan-results";
 import { runWithConcurrency } from "@/lib/concurrency";
+import { buildScanFinishedEvent, trackFunnelEvent, type FunnelCampaign } from "@/lib/funnel-analytics";
 
 const GLOBAL_CHAIN_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.NEXT_PUBLIC_SCAN_CONCURRENCY) || 50));
 // PERF-8: batch multiple chains of the same VM into a single /api/scan/batch
@@ -119,6 +120,7 @@ export interface ScanOrchestratorParams {
   customTokenList: string[];
   labels: Record<string, string>;
   enabledAddresses: string[];
+  campaign: FunnelCampaign;
 }
 
 export function useScanOrchestrator({
@@ -127,6 +129,7 @@ export function useScanOrchestrator({
   customTokenList,
   labels,
   enabledAddresses,
+  campaign,
 }: ScanOrchestratorParams) {
   const [results, setResults] = useState<Array<ScanResult> | null>(null);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -368,6 +371,20 @@ export function useScanOrchestrator({
       forceRefreshRef.current = false;
       forceRefreshAddrsRef.current = new Set();
       if (total > 0) {
+        void trackFunnelEvent(buildScanFinishedEvent({
+          campaign,
+          walletCount: total,
+          durationMs: endTime - startTime,
+          wallets: updated.map(wallet => ({
+            error: wallet.error,
+            chains: wallet.chains.map(chain => ({
+              chainKey: chain.chainKey,
+              degraded: chain.degraded,
+              errors: chain.errors,
+              hasAssets: chain.native !== null || chain.tokens.length > 0,
+            })),
+          })),
+        }));
         const chainCount = new Set(updated.flatMap(u => u.chains.map(c => c.chainKey))).size;
         const tokenCount = updated.flatMap(u => u.chains).reduce((s, c) => s + c.totals.tokenCount, 0);
         setToastMsg(`Scan complete · ${chainCount} chains · ${tokenCount} tokens`);

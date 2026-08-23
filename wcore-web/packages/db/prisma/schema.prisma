@@ -338,3 +338,21 @@ model OpsEvent {
   @@index([type])
   @@map("ops_events")
 }
+
+model FunnelEventAggregate {
+  id           String   @id @default(cuid())
+  bucketDate   DateTime
+  event        String
+  campaign     String
+  surface      String
+  variant      String
+  dimensionKey String
+  count        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([bucketDate, event, campaign, surface, variant, dimensionKey])
+  @@index([bucketDate])
+  @@index([campaign, bucketDate])
+  @@map("funnel_event_aggregates")
+}

@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { ChainScan } from "@wcore/shared";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { exportCSV } from "@/lib/csv-export";
+import { trackFunnelEvent, type FunnelCampaign, type PortfolioAction } from "@/lib/funnel-analytics";
 
 export function PortfolioSummaryCard({
   totalEur,
@@ -16,6 +17,7 @@ export function PortfolioSummaryCard({
   displayResultsAdjusted,
   refreshingAll,
   onRefreshAll,
+  campaign,
 }: {
   totalEur: number;
   timeAgo: string;
@@ -28,8 +30,12 @@ export function PortfolioSummaryCard({
   displayResultsAdjusted: Array<{ address: string; label: string; chains: ChainScan[]; totalEur: number }>;
   refreshingAll: boolean;
   onRefreshAll: () => void;
+  campaign: FunnelCampaign;
 }) {
   const { formatValue, t } = usePreferences();
+  const trackAction = (action: PortfolioAction) => {
+    void trackFunnelEvent({ event: "portfolio_action", campaign, surface: "wallet", variant: "control", dimensions: { action } });
+  };
 
   return (
     <div className="rounded-lg border border-border bg-card p-5">
@@ -42,21 +48,24 @@ export function PortfolioSummaryCard({
           <p className="mt-1 text-3xl font-bold">{formatValue(totalEur)}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/" className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted hover:text-fg hover:border-accent/30 transition" title="Add another wallet to scan">＋ Add</Link>
+          <Link href={`/?campaign=${campaign}`} onClick={() => trackAction("add")} className="flex items-center gap-1 rounded-lg border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted hover:text-fg hover:border-accent/30 transition" title="Add another wallet to scan">＋ Add</Link>
           <button
             type="button"
-            onClick={onRefreshAll}
+            onClick={() => { trackAction("refresh"); onRefreshAll(); }}
             disabled={refreshingAll}
             className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${refreshingAll ? "cursor-not-allowed text-accent border-accent/30 bg-accent/10 animate-pulse" : "text-accent border-accent/30 hover:bg-accent/10"}`}
             title={t("refreshWallet") + " all"}
           >↻ Refresh All</button>
           <button
             type="button"
-            onClick={() => exportCSV(displayResultsAdjusted, {
-              address: t("address"), label: t("label"), chain: t("chain"),
-              symbol: "Symbol", name: "Name", contract: "Contract",
-              balance: t("balance"), priceLabel: t("price"), valueLabel: t("value"),
-            })}
+            onClick={() => {
+              trackAction("export");
+              exportCSV(displayResultsAdjusted, {
+                address: t("address"), label: t("label"), chain: t("chain"),
+                symbol: "Symbol", name: "Name", contract: "Contract",
+                balance: t("balance"), priceLabel: t("price"), valueLabel: t("value"),
+              });
+            }}
             className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition"
             title={t("exportCSV") ?? "Export CSV"}
           >⬇ Export</button>

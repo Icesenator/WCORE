@@ -1,7 +1,16 @@
 /************************************************************
  * 04B_CACHE_WALLET.gs - Packed Wallet Cache System
- * 
- * Version: v4.15.19
+ *
+ * Version: v4.16.66
+ *
+ * v4.16.66 - FIX: _mergePackedWalletCache_ privilegie la fraicheur (ts) sur le
+ *   nombre d'assets. L'ancienne regle "plus d'assets gagne" faisait ecraser le
+ *   resultat web-scan (filtre scam/zero-balance, donc moins d'assets) par un
+ *   cache direct-RPC vieux de plusieurs semaines riche en tokens zombies : la
+ *   save etait annulee a chaque cycle et le wallet restait gele. Constate le
+ *   2026-08-21 : 39 wallets STALE_GT_24H, wallet principal 0x17d5...d080 gele
+ *   sur ~30 chaines depuis la bascule web-scan (27/06), I1 affichant
+ *   WEB_SCAN_OK pendant que ERROR signalait DONNEES FIGEES.
  *
  * v4.15.19 - Keep aged positive entries readable when TTL pruning preserves them.
  *
@@ -119,7 +128,7 @@
  * 
  * DEPENDANCES: 04A_CACHE_CORE.gs
  ************************************************************/
-var CACHE_WALLET_VERSION = "4.15.18";
+var CACHE_WALLET_VERSION = "4.16.66";
 
 // ============================================================
 // STORAGE VIRTUALIZATION LAYER
@@ -694,7 +703,12 @@ CacheManager._mergePackedWalletCache_ = function(incoming) {
     var aNew = CacheManager._packedEntryAssetCount_(ent);
     var tCur = Number((arr[i] && (arr[i].ts || arr[i].t)) || 0);
     var tNew = Number((ent && (ent.ts || ent.t)) || 0);
-    if (aNew > aCur || (aNew === aCur && tNew > tCur)) arr[i] = ent;
+    // v4.16.66: la fraicheur gagne d'abord. L'ancienne regle "plus d'assets
+    // gagne" faisait ecraser le resultat web-scan (filtre scam/zero-balance,
+    // donc moins d'assets) par un cache direct-RPC vieux de plusieurs semaines
+    // riche en tokens zombies : la save etait annulee a chaque cycle et le
+    // wallet restait gele (39 wallets STALE_GT_24H constates le 2026-08-21).
+    if (tNew > tCur || (tNew === tCur && aNew > aCur)) arr[i] = ent;
     replaced = true;
     break;
    }

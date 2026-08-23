@@ -53,7 +53,7 @@ function buildSvg() {
   </g>
   <text x="80" y="560" class="font white" font-size="22" font-weight="800">No wallet connection. No seed phrase.</text>
   <text x="80" y="620" class="font muted" font-size="18">Read first. Act later.</text>
-  <text x="1120" y="620" text-anchor="end" class="font lime" font-size="22" font-weight="950">wcore.xyz/?campaign=one_portfolio</text>
+  <text x="1120" y="620" text-anchor="end" class="font lime" font-size="22" font-weight="950">wcore.xyz</text>
 </svg>`;
 }
 

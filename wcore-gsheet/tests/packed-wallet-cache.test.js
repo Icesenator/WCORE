@@ -109,4 +109,89 @@ vm.runInContext(source, context);
   );
 }
 
+{
+  // Bug 2026-08-21 (gel de cache depuis la bascule web-scan) :
+  // _mergePackedWalletCache_ ecrasait l'entree fraiche (web scan, moins d'assets
+  // car filtree scam/zero-balance) par l'entree stockee (cache direct-RPC riche en
+  // tokens zombies) des que celle-ci avait plus d'assets. La regle doit privilegier
+  // la fraicheur (ts), le nombre d'assets ne servant que de tie-breaker.
+  const key = 'CELO_CACHE_WALLET_0x17d518736ee9341dcdc0a2498e013d33cfcdd080';
+  const nowSec = Math.floor(Date.now() / 1000);
+  const staleTs = nowSec - 55 * 24 * 3600;
+
+  const freshEntry = {
+    k: key,
+    ts: nowSec,
+    j: 1,
+    v: { v: 5, cv: 11, u: nowSec * 1000, a: [['native', 1.72], ['0xa', 2], ['0xb', 3]], pm: {}, fx: null },
+  };
+  const staleEntry = {
+    k: key,
+    ts: staleTs,
+    j: 1,
+    v: { v: 5, cv: 11, u: staleTs * 1000, a: [['native', 1.72], ['0xa', 2], ['0xb', 3], ['0xzombie1', 0], ['0xzombie2', 0]], pm: {}, fx: null },
+  };
+
+  const hash = 'merge_hash';
+  const storedBlob = JSON.stringify({ v: 2, m: { [hash]: staleEntry } });
+  const written = [];
+
+  context.CacheManager._VIRTUALIZE_CHAIN_CACHES = true;
+  context.CacheManager._WALLET_TTL_SEC = 10 * 24 * 3600;
+  context.CacheManager.init = () => {};
+  context.CacheManager._isVirtualKey_ = () => true;
+  context.CacheManager._hashKey_ = () => hash;
+  context.CacheManager._getStorageUsagePct = () => 10;
+  context.CacheManager._emergencyPurge_ = undefined;
+  context.CacheManager._props = {
+    getProperty: (k) => (k === 'GLOBAL_WALLET_CACHE_V1' ? storedBlob : null),
+    setProperty: (k, v) => written.push(v),
+    deleteProperty: () => {},
+  };
+  context.CacheManager._cache = { get: () => null, put: () => {} };
+  context.Obj = {
+    forEach: (obj, fn) => {
+      for (const k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) fn(k, obj[k]);
+      }
+    },
+  };
+
+  function savedEntryFor(blobJson) {
+    const blob = JSON.parse(blobJson);
+    return Array.isArray(blob.m[hash]) ? blob.m[hash].find((e) => e.k === key) : blob.m[hash];
+  }
+
+  // Cas 1 : l'entree fraiche (web scan, moins d'assets) doit gagner face a
+  // l'entree stockee plus vieille mais plus riche en assets.
+  const incomingFresh = { v: 2, m: {} };
+  incomingFresh.m[hash] = freshEntry;
+  assert.equal(context.CacheManager._savePackedWalletCache_(incomingFresh), true, 'la sauvegarde du blob packe doit reussir');
+  assert.equal(
+    savedEntryFor(written[written.length - 1]).ts,
+    nowSec,
+    "l'entree fraiche (web scan) doit gagner meme si l'entree stockee a plus d'assets",
+  );
+
+  // Cas 2 (protection concurrente preservee) : une entree stockee PLUS RECENTE
+  // que l'entree entrante doit rester gagnante (ecriture concurrente plus tard).
+  const concurrentEntry = {
+    k: key,
+    ts: nowSec + 30,
+    j: 1,
+    v: { v: 5, cv: 11, u: (nowSec + 30) * 1000, a: [['native', 9]], pm: {}, fx: null },
+  };
+  const newerStoredBlob = JSON.stringify({ v: 2, m: { [hash]: concurrentEntry } });
+  context.CacheManager._props.getProperty = (k) => (k === 'GLOBAL_WALLET_CACHE_V1' ? newerStoredBlob : null);
+
+  const incomingOlder = { v: 2, m: {} };
+  incomingOlder.m[hash] = freshEntry;
+  assert.equal(context.CacheManager._savePackedWalletCache_(incomingOlder), true, 'la seconde sauvegarde doit reussir');
+  assert.equal(
+    savedEntryFor(written[written.length - 1]).ts,
+    nowSec + 30,
+    "l'entree stockee plus recente (writer concurrent) doit rester gagnante",
+  );
+}
+
 console.log('packed wallet cache OK');

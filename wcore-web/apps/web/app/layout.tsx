@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body className="min-h-screen antialiased">
         <Web3Provider>
-          <SidebarLayout>{children}</SidebarLayout>
+          <SidebarLayout coverage={coverage}>{children}</SidebarLayout>
         </Web3Provider>
       </body>
     </html>

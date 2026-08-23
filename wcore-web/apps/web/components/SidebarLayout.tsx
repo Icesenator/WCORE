@@ -5,14 +5,13 @@ import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { Logo } from "@/components/Logo";
 import { getApiUrl } from "@/lib/api";
-import { getCoverageStats } from "@/lib/coverage";
+import type { CoverageStats } from "@/lib/coverage";
 
-export function SidebarLayout({ children }: { children: ReactNode }) {
+export function SidebarLayout({ children, coverage }: { children: ReactNode; coverage: CoverageStats }) {
   const [collapsed, setCollapsed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [coreVersion, setCoreVersion] = useState<string | null>(null);
-  const coverage = getCoverageStats();
 
   useEffect(() => {
     if (!mounted) return;

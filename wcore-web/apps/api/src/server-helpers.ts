@@ -137,6 +137,30 @@ function getNativeLogoUrl(symbol: string): string | undefined {
   return logos[symbol.toUpperCase()];
 }
 
+/**
+ * Messages d'erreur NON-degradants : ils décrivent un état attendu ou une
+ * information de diagnostic, pas un échec de scan. Les compter comme
+ * `degraded: true` faisait afficher WEB_SCAN_DEGRADED côté gsheet pour des
+ * scans parfaitement sains (ex. cache-balance hit sans aucun appel RPC).
+ * Aligné avec la liste non-destructive côté GAS (_webScanShouldPreserveExistingCache_).
+ */
+const BENIGN_ERROR_PATTERNS: ReadonlyArray<RegExp> = [
+  /^\[BAL_CACHE\]/, // cache balance < 1h — raccourci sans RPC, scan sain
+  /decimals_unknown/i, // denom IBC/factory sans décimales connues — info metadata
+  /\bprice: NO_PRICE$/i, // gap pricing token isolé — non destructif
+  /explorer API No tokens found/i, // réponse valide de l'explorer
+];
+
+export function hasDegradingErrors(errors: ReadonlyArray<unknown> | null | undefined): boolean {
+  if (!Array.isArray(errors)) return false;
+  for (const err of errors) {
+    const s = String(err ?? "");
+    if (s.length === 0) continue;
+    if (!BENIGN_ERROR_PATTERNS.some((re) => re.test(s))) return true;
+  }
+  return false;
+}
+
 export function buildChainScan(chainKey: string, assets: WalletAssets, fxRate?: number): ChainScan {
   const chainConfig = getChain(chainKey) ?? getChain(chainKey.toUpperCase());
   const vm = chainConfig?.vm ?? "EVM";
@@ -169,7 +193,7 @@ export function buildChainScan(chainKey: string, assets: WalletAssets, fxRate?: 
     chainKey, chainName: assets.chainName ?? chainKey, vm, native, tokens,
     totals: { valueEur: totalValueEur, tokenCount: allAssets.length, pricedCount: allAssets.filter((asset) => asset.priceEur != null).length },
     errors: errors.map(e => ({ chainKey, message: e, stage: "scan" as const })),
-    degraded: errors.length > 0, fxRate: fxRate ?? 0,
+    degraded: hasDegradingErrors(errors), fxRate: fxRate ?? 0,
     scanMs: assets.scanMs ?? 0,
     phases: extractPhases(assets), cachedAt: null, scriptVersion: CORE_VERSION,
   };

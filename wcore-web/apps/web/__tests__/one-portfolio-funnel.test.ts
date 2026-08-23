@@ -7,12 +7,18 @@ import {
 } from "../lib/funnel-analytics";
 
 const homeSource = readFileSync(new URL("../app/HomePageClient.tsx", import.meta.url), "utf8");
+const homePageSource = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 const walletPageSource = readFileSync(new URL("../app/wallet/[address]/page.tsx", import.meta.url), "utf8");
 const walletContentSource = readFileSync(new URL("../components/WalletContent.tsx", import.meta.url), "utf8");
 const summarySource = readFileSync(new URL("../components/PortfolioSummaryCard.tsx", import.meta.url), "utf8");
 const orchestratorSource = readFileSync(new URL("../hooks/useScanOrchestrator.ts", import.meta.url), "utf8");
 
 describe("One portfolio frontend funnel contracts", () => {
+  test("home wraps campaign search params in a suspense boundary", () => {
+    assert.match(homePageSource, /import\s*\{\s*Suspense\s*\}\s*from\s*["']react["']/);
+    assert.match(homePageSource, /<Suspense[\s\S]*<HomePageClient\s*\/>[\s\S]*<\/Suspense>/);
+  });
+
   test("home reads campaign, deduplicates the landing view, tracks scan start, and propagates campaign", () => {
     assert.match(homeSource, /useSearchParams/);
     assert.match(homeSource, /landingTrackedRef\.current/);

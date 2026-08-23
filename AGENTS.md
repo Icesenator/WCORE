@@ -35,3 +35,33 @@ See ../AGENTS.md:
 5. **No learning loops** — every output verifiable against ground truth
 6. **Session journaling** — continuous session logs (see above)
 7. **Principle** — never build SEO projects with LLMs without rules 1-5
+## Mem0
+
+- Mémoires via MCP `mem0` ou CLI `tools\mem0\cli.mjs` (user_id `projet:WCORE`).
+- Source de vérité inchangée : Graphify + Obsidian + data locale.
+- Jamais de positions/montants exacts ni de secrets dans les mémoires.
+
+### Usage optimal (workflow décision → mémoire)
+
+1. **Début de session** : lancer `/session-start` (injecte contexte Mem0 projet +
+   global:preferences + état Graphify).
+2. **Après chaque décision validée** (test OK, donnée vérifiée, note Wiki écrite) :
+   - `/memorize "<fait>" --source <note Obsidian>` (ou le skill `mem0-memorize`).
+   - Ordre : note Wiki/Obsidian d'abord (source de vérité), puis mémoire, puis journal.
+3. **Structure du code** : préférer `rtk graphify query/path/explain` sur
+   `K:\ProjetIA\WCORE\graphify-out\graph.json` avant de grepper.
+4. **Rappel** : une mémoire sans `source` est ignorée au retrieval. Un retour
+   `[]` au `mem0_add` = déjà mémorisé (déduplication), pas une erreur.
+
+### Adoption récurrente (engagement de chaque session)
+
+- **Chaque session doit produire au moins une mémoire Mem0 sourcée** quand une
+  décision a été prise (le dashboard mesure `Mem0 adoption`, CRITICAL = 0).
+- Vérifier `mem0_search` avant de répondre à une question de contexte ; mémoriser
+  après une décision, sans attendre qu'on le demande.
+
+
+## Nettoyage filigranes IA
+
+- Avant export/publication d'un fichier généré : skill `remove-ai-marks`
+  (inspect puis clean, Layer A). Layer B jamais automatique. Contenu propriétaire.

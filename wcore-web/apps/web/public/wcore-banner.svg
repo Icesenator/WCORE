@@ -88,7 +88,7 @@
   </g>
 
   <g transform="translate(350 294)">
-    <g><rect x="0" y="0" width="174" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="87" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#a3e635">183 chains</text></g>
+    <g><rect x="0" y="0" width="174" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="87" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#a3e635">162 chains</text></g>
     <g transform="translate(198 0)"><rect x="0" y="0" width="142" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="71" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#f4f4f5">4 VMs</text></g>
     <g transform="translate(364 0)"><rect x="0" y="0" width="172" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="86" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#f4f4f5">7 CEX</text></g>
     <g transform="translate(560 0)"><rect x="0" y="0" width="226" height="54" rx="27" fill="#12141a" stroke="#2b2f38"/><text x="113" y="35" text-anchor="middle" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="18" font-weight="850" fill="#f4f4f5">on-chain GM</text></g>

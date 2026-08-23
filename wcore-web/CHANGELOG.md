@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## 2026-08-23 — Scam-detector v25: Citrea CTR (Ethereum) bloqué
+
+- **`_BLOCKED_CONTRACTS` étendu** : `0x4623aa7087a1004d12afa717d7bf5e77981174f7` (Ethereum: `CTR` "Citrea", détecté dans Ledger - Ethereum).
+- **Impersonation du L2 Citrea** (rollup Bitcoin, citrea.xyz — aucun token ERC-20 officiel "CTR" sur Ethereum). Zéro paire DEX (DexScreener), 10 Mds supply, 5 930 holders airdropés, réputation UNKNOWN.
+- **Template spam Vyper généré en masse** : source vérifié mais fonctions calculatrice absurdes (`divide_numbers`, `calculate_exponent_modulus`, `maxValue/minValue`) dans un token, jumeau déclaré `0xE6D352e996ecaf0db8f78f669838d302713be58a`, et hook externe owner-control appelé à chaque transfer/transferFrom.
+- **Tests** : shared scam-detector 16/16, typecheck OK. SCAM_RULES_VERSION bump 24 → 25.
+- **Production** : déploiement Railway API via `scripts/deploy.ps1 -Service api`.
+
 ## 2026-08-23 — Scam-detector v24: YOM (Ethereum) bloqué
 
 - **`_BLOCKED_CONTRACTS` étendu** : `0x12fbd83663161c7a3e3acff67507072da2cf57a2` (Ethereum: `YOM`, détecté dans Ledger - Ethereum).

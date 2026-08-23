@@ -1,7 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore, type WalletAssets } from "@wcore/core";
+import type { ScamEnrichment } from "@wcore/shared";
 import { safeEq } from "../admin-auth.js";
 import { apiConfig } from "../config.js";
+import { hasDegradingErrors } from "../server-helpers.js";
+import { goPlusWeight, type ScamEnrichmentLoader, type ScamScanLogEntry, type GoPlusSignal } from "./scam-enrichment.js";
+
+export interface GsheetScamEnrichment {
+  loader: ScamEnrichmentLoader;
+  logDecision: (entry: ScamScanLogEntry) => void;
+}
 
 export interface GsheetFxTelemetry {
   rate: number;
@@ -38,6 +46,7 @@ export interface GsheetPluginOptions {
   chainbaseStakingProvider?: (address: string) => Promise<unknown>;
   stockPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetStockPortfolioSnapshot>;
   cryptoPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetCryptoPortfolioSnapshot>;
+  scamEnrichment?: GsheetScamEnrichment;
 }
 
 export interface GsheetPriceBatchInput {
@@ -74,6 +83,7 @@ export interface GsheetScanResult {
   timestamp: string;
   native: unknown;
   tokens: unknown[];
+  blockedContracts?: string[];
   totalValueEur: number;
   errors: string[];
   degraded: boolean;
@@ -517,7 +527,7 @@ async function repairMissingGsheetScanPrices(
   });
   const nativeValue = tokenNumberField(result.native, "valueEur") ?? 0;
   const tokenValue = repairedTokens.reduce<number>((sum, token) => sum + (tokenNumberField(token, "valueEur") ?? 0), 0);
-  return { ...result, tokens: repairedTokens, totalValueEur: roundMoney(nativeValue + tokenValue), errors, degraded: errors.length > 0 };
+  return { ...result, tokens: repairedTokens, totalValueEur: roundMoney(nativeValue + tokenValue), errors, degraded: hasDegradingErrors(errors) };
 }
 
 async function injectChainbaseStakingTokens(
@@ -619,11 +629,12 @@ async function defaultChainbaseProvider(address: string): Promise<DefaultChainba
   return await getChainbaseStaking(address);
 }
 
-async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain: string, customTokens: string[] = []): Promise<GsheetScanResult> {
+async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain: string, customTokens: string[] = [], scamEnrichment?: GsheetScamEnrichment): Promise<GsheetScanResult> {
   const core = await import("@wcore/core");
   let nonFungibleFiltered = 0;
   let noMarketFiltered = 0;
   const filteredSymbols = new Set<string>();
+  const blockedContracts = new Set<string>();
   const noMarketSymbols: string[] = [];
   const protectedContracts = new Set(customTokens.map((token) => token.trim().toLowerCase()).filter(Boolean));
   // Whitelisted symbols (xGRAIL, aRUSDC, etc.) — pass the no-market filter when the scan
@@ -657,6 +668,20 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     }
   }
   const extraErrors: string[] = [];
+  // Auto-blocking enrichment (spec: scam-detector auto-blocking §4): preload
+  // cached/fetched GoPlus verdicts for unknown EVM contracts. Fail-graceful.
+  let enrichments: Map<string, ScamEnrichment> | null = null;
+  if (scamEnrichment && vm === "EVM") {
+    try {
+      const chainId = Number((chain as { CHAIN_ID?: number | string } | undefined)?.CHAIN_ID ?? 0);
+      const evmContracts = (Array.isArray(result.tokens) ? result.tokens : [])
+        .map((t) => tokenStringField(t, "contract") || tokenStringField(t, "address"))
+        .filter((v): v is string => Boolean(v));
+      enrichments = await scamEnrichment.loader(chainId, evmContracts);
+    } catch {
+      enrichments = null; // never degrade the scan
+    }
+  }
   const tokens = (Array.isArray(result.tokens) ? result.tokens : []).filter((token) => {
     const id = gsheetTokenId(token).toLowerCase();
     if (isNonPortfolioGsheetToken(token)) {
@@ -675,13 +700,16 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     if (rec?.scam === true || rec?.isScam === true || rec?.isSuspicious === true) {
       const symbol = tokenStringField(token, "symbol");
       if (symbol) filteredSymbols.add(symbol);
+      if (id) blockedContracts.add(id);
       return false;
     }
     // Scam detection (including hard-blocked contracts) must run BEFORE the
     // protected-contracts short-circuit: a user-approved custom token that is a
     // known scam (e.g. ZK "zkanalyst") must never surface just because it was
     // passed in customTokens.
-    let scamCheck: { isSuspicious: boolean; level: string; reasons?: string[] } | null;
+    let scamCheck: { isSuspicious: boolean; level: string; score?: number; reasons?: string[] } | null;
+    const evmContract = tokenStringField(token, "contract") || tokenStringField(token, "address");
+    const enrichment = (enrichments && evmContract) ? enrichments.get(evmContract.toLowerCase()) : undefined;
     try {
       scamCheck = core.detectScam(
         tokenStringField(token, "symbol"),
@@ -689,9 +717,26 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
         tokenNumberField(token, "balance") ?? 0,
         tokenNumberField(token, "priceEur"),
         tokenStringField(token, "contract") || tokenStringField(token, "address") || tokenStringField(token, "mint") || tokenStringField(token, "denom"),
+        enrichment,
       );
     } catch {
       scamCheck = null;
+    }
+    // Audit trail for flagged tokens (fire-and-forget, best-effort).
+    if (scamEnrichment && scamCheck && (scamCheck.level === "suspicious" || scamCheck.level === "scam") && evmContract && /^0x[0-9a-fA-F]{40}$/.test(evmContract)) {
+      try {
+        scamEnrichment.logDecision({
+          chainId: Number((chain as { CHAIN_ID?: number | string } | undefined)?.CHAIN_ID ?? 0),
+          address: evmContract.toLowerCase(),
+          symbol: tokenStringField(token, "symbol") || "?",
+          heuristicScore: Math.max(0, (scamCheck.score ?? 0) - (enrichment?.goPlus ? goPlusWeight(enrichment.goPlus) : 0)),
+          totalScore: scamCheck.score ?? 0,
+          level: scamCheck.level,
+          decision: scamCheck.level === "scam" ? "auto_blocked" : "flagged_for_review",
+          reason: (scamCheck.reasons ?? []).join("; "),
+          goPlus: enrichment?.goPlus,
+        });
+      } catch { /* audit must never break the scan */ }
     }
     // Only hard-scam verdicts (blocked/admin-blocked contracts, weight >= 4)
     // override the protected-contracts short-circuit. Heuristic "suspicious"
@@ -702,6 +747,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     if (scamCheck?.level === "scam" && (!isProtected || isBlockedContract)) {
       const symbol = tokenStringField(token, "symbol");
       if (symbol) filteredSymbols.add(symbol);
+      if (id) blockedContracts.add(id);
       return false;
     }
     if (isProtected) return true;
@@ -740,8 +786,9 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     ...result,
     chain: String(result.chain || fallbackChain).toUpperCase(),
     tokens: sanitizedTokens,
+    blockedContracts: Array.from(blockedContracts),
     errors,
-    degraded: errors.length > 0,
+    degraded: hasDegradingErrors(errors),
     cacheStats: Object.keys(cacheStats).length > 0 ? cacheStats : result.cacheStats,
     totalValueEur: roundMoney(nativeValue + tokenValue),
   };
@@ -872,7 +919,7 @@ async function defaultScanRunner(
     tokens: Array.isArray(assets.tokens) ? assets.tokens : [],
     totalValueEur: Number(assets.totalValueEur || 0),
     errors,
-    degraded: errors.length > 0,
+    degraded: hasDegradingErrors(errors),
     fxRate,
     scanMs: Number(assets.scanMs || 0),
     phases: assets.phases,
@@ -973,7 +1020,7 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
       // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.
       await precomputeWCTStakeLockStatus(parsed.input.chain, parsed.input.address);
       const mirrored = applyStakedPriceMirrors(repaired);
-      const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens);
+      const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens, opts.scamEnrichment);
       const labeled = labelGsheetWalletScan(sanitized, parsed.input.address);
       return injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);
     } catch (e) {
@@ -994,6 +1041,7 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
         timestamp: new Date().toISOString(),
         native: { symbol: "N/A", balance: 0, priceEur: null, valueEur: null },
         tokens: [],
+        blockedContracts: [],
         totalValueEur: 0,
         errors: [`[WEB_SCAN_ERROR] ${message} chain=${parsed.input.chain}`],
         degraded: true,

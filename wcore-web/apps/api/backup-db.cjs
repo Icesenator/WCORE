@@ -11,8 +11,9 @@ const { PrismaClient } = dbRequire('@prisma/client');
 const BACKUP_MODELS = [
   'user', 'linkedWallet', 'walletScan', 'scanJob', 'cexAccount', 'cexHolding',
   'quest', 'userQuest', 'badge', 'userBadge', 'customToken', 'scamOverride',
+  'scamVerdict', 'scamScanLog',
   'gmContract', 'onchainGm', 'userChainGm', 'notification', 'ticket',
-  'systemMetricSnapshot', 'opsEvent',
+  'systemMetricSnapshot', 'opsEvent', 'funnelEventAggregate',
 ];
 
 async function collectBackup(client, timestamp = new Date().toISOString(), onModel = () => {}) {

@@ -23,6 +23,7 @@ import { chainsPlugin } from "./plugins/chains.js";
 import { metricsPlugin } from "./plugins/metrics-plugin.js";
 import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
+import { createScamEnrichmentLoader, createScamDecisionLogger } from "./plugins/scam-enrichment.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
@@ -473,6 +474,13 @@ if (gsheetApiToken) {
           unpriced: 0,
         },
       };
+    },
+    scamEnrichment: {
+      loader: createScamEnrichmentLoader({
+        prisma,
+        warn: (msg) => app.log.warn(`[scam-enrichment] ${msg}`),
+      }),
+      logDecision: createScamDecisionLogger(prisma),
     },
   });
 

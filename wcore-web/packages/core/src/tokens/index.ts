@@ -8,3 +8,4 @@ export * from "./explorer-discovery.js";
 export * from "./scam-detector.js";
 export * from "./token-logos.js";
 export * from "./token-logo-resolver.js";
+export * from "./goplus-enrichment.js";

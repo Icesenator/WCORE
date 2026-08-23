@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 25;
+export const SCAM_RULES_VERSION = 26;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -55,7 +55,27 @@ const _KNOWN_TOKENS = new Set([
   "SOLVBTC", "CBBTC", "BTCB", "XGRAIL", "ARUSDC", "RSTONE", "LSTONE", "RE7USDC",
 ]);
 
+export interface GoPlusSignal {
+  available: boolean;
+  isHoneypot?: boolean;
+  canTakeBackOwnership?: boolean;
+  isBlacklisted?: boolean;
+  slippageModifiable?: boolean;
+  ownerPercent?: number;
+  isOpenSource?: boolean;
+  isInDex?: boolean;
+}
+
+export interface ScamEnrichment {
+  goPlus?: GoPlusSignal;
+  dexLiquidityUsd?: number;
+  dexVolume24h?: number;
+  dexBuys24h?: number;
+}
+
 // Major token tickers that scammers impersonate by reusing the ticker with an
+// unrelated name (e.g. "ZK" + "zkanalyst"). Value is the set of official brand
+// strings the name must contain to be considered legitimate.
 // unrelated name (e.g. "ZK" + "zkanalyst"). Value is the set of official brand
 // strings the name must contain to be considered legitimate.
 const MAJOR_TOKEN_BRANDS: Record<string, string[]> = {
@@ -192,7 +212,7 @@ function assess(score: number): ScamLevel {
   return "clean";
 }
 
-export function detectScam(symbol: string, name: string, balance: number, priceEur: number | null, contract?: string): ScamCheck {
+export function detectScam(symbol: string, name: string, balance: number, priceEur: number | null, contract?: string, enrichment?: ScamEnrichment): ScamCheck {
   if (contract && _adminBlockedContracts.has(contract.toLowerCase())) {
     return { isSuspicious: true, level: "scam", score: 10, reasons: ["admin blocked contract"] };
   }
@@ -354,6 +374,26 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
         signals.push({ reason: `generic <noun>Coin with phantom value (${value.toFixed(0)} EUR at ${priceEur.toFixed(2)} EUR/unit): "${n}"`, weight: 4 });
       }
     }
+  }
+
+  // 15. Screen pool (cascade DexScreener): price exists but liquidity/volume are
+  // theatrical. Only when ALL conditions hold to protect legit micro-caps.
+  if (priceEur != null && priceEur > 1 && !isKnownToken(s.toUpperCase(), contract)
+      && typeof enrichment?.dexLiquidityUsd === "number"
+      && enrichment.dexLiquidityUsd < 10_000
+      && (enrichment.dexVolume24h ?? 0) < 500
+      && (enrichment.dexBuys24h ?? 0) === 0) {
+    signals.push({ reason: `screen pool (liq $${enrichment.dexLiquidityUsd}, vol $${enrichment.dexVolume24h ?? 0}, 0 buys) at ${priceEur.toFixed(2)} EUR/unit`, weight: 2 });
+  }
+
+  // 16. GoPlus security verdict (weights halved per design §3.5).
+  if (!isKnownToken(s.toUpperCase(), contract) && enrichment?.goPlus?.available) {
+    const g = enrichment.goPlus;
+    if (g.isHoneypot) signals.push({ reason: "goplus: honeypot", weight: 2 });
+    if (g.isBlacklisted) signals.push({ reason: "goplus: blacklist anti-sell", weight: 1 });
+    if (g.canTakeBackOwnership) signals.push({ reason: "goplus: take-back ownership", weight: 1 });
+    if (g.slippageModifiable) signals.push({ reason: "goplus: slippage modifiable", weight: 1 });
+    if ((g.ownerPercent ?? 0) > 50) signals.push({ reason: `goplus: owner holds ${g.ownerPercent}% supply`, weight: 2 });
   }
 
   const totalScore = signals.reduce((sum, sig) => sum + sig.weight, 0);

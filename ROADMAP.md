@@ -1,6 +1,6 @@
 # WCORE - Roadmap
 
-> Index cross-runtime et priorites communes. Etat recroise avec le code et le contre-audit le 2026-08-09. Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
+> Index cross-runtime et priorites communes. Etat recroise avec le code et la production le 2026-08-11. Les details d'implementation et l'historique vivent dans les documents propres a chaque runtime.
 
 ## Sources de verite
 
@@ -37,6 +37,7 @@
 - [x] Corriger la conversion USD vers EUR dans les deux chemins pricing CEX Web. Verifie le 2026-07-10 (29/29 tests API CEX/normalizers).
 - [x] Conserver les derniers avoirs CEX sains lors d'une panne transitoire. Verifie le 2026-07-10 (28/28 tests Web CEX state/display).
 - [x] Aligner stablecoins batch et Cosmos staking avec les chemins canoniques. Le batch reutilise le registre stablecoins partage; Cosmos expose les composantes staking, leur completude et preserve le dernier total GSheet sain sur erreur partielle. Verifie le 2026-08-10 (core, API et adaptateur GSheet). TON utilise la cascade FX commune sans taux fixe et l'identite `TON` / `Toncoin`.
+- [x] Resoudre et pricer les actifs IBC Cosmos a partir du denom trace canonique plutot que du hash `ibc/<hash>`. Commit `4009d23c` deploye sur l'API le 2026-08-11; smoke Cosmos Hub valide avec ATOM et 10 actifs IBC, dont NTRN, STRD et USDC.
 - [x] Corriger la propagation des arguments Cosmos GSheet. Verifie le 2026-07-16 (v4.16.30).
 
 ### Securite et disponibilite
@@ -151,6 +152,8 @@ Chaque retrait doit couvrir GSheet, package genere, core Web, API, filtres scan,
 - **A1 - Documentation non archivee**: 19 specs/plans termines cohabitent avec les documents actifs.
 
 ## Baseline de verification
+
+Derniere validation ciblee du 2026-08-11: typechecks core/API, 9 tests IBC, 25 tests Cosmos et 56 tests API scan passants. Le healthcheck production annonce 162 chaines. La suite core globale n'est pas consideree verte tant que l'assertion locale de registre `182 !== 162` n'est pas reconciliee avec les configurations generees.
 
 ```powershell
 # Depuis la racine

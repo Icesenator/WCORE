@@ -22,6 +22,20 @@
         "set GOOGLE_APPLICATION_CREDENTIALS=C:\\Users\\strau\\.config\\gsheets-mcp\\service-account.json&&set GOOGLE_PROJECT_ID=wcore-mcp&&node K:\\ProjetIA\\WCORE\\node_modules\\mcp-gsheets\\dist\\index.js"
       ],
       "enabled": true
+    },
+    "playwright": {
+      "type": "local",
+      "command": [
+        "C:\\Program Files\\nodejs\\node.exe",
+        "K:\\ProjetIA\\WCORE\\node_modules\\tsx\\dist\\cli.mjs",
+        "K:\\ProjetIA\\WCORE\\src\\playwright-mcp.ts"
+      ],
+      "environment": {
+        "WCORE_CDP_PORT": "9416",
+        "WCORE_PROFILE_DIR": "data/chrome-profile"
+      },
+      "enabled": true,
+      "timeout": 60000
     }
   }
 }

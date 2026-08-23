@@ -4,6 +4,7 @@ import { getApiUrl } from "@/lib/api";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePreferences } from "@/components/PreferencesProvider";
+import { processFunnelEvents, formatFunnelRate, type FunnelEventRow, type FunnelStats } from "@/lib/admin-funnel-stats";
 
 const API_URL = getApiUrl();
 
@@ -97,7 +98,11 @@ function HistoryBarRaw({ data, label, color }: { data: Array<{ v: number; t: str
 
 export function AdminClient() {
   const { t } = usePreferences();
-  const [tab, setTab] = useState<"overview" | "pricing">("overview");
+  const [tab, setTab] = useState<"overview" | "pricing" | "funnel">("overview");
+  const [funnelRows, setFunnelRows] = useState<FunnelEventRow[] | null>(null);
+  const [funnelLoading, setFunnelLoading] = useState(false);
+  const [funnelError, setFunnelError] = useState("");
+  const [funnelRange, setFunnelRange] = useState<"7d" | "30d" | "all">("7d");
   const [data, setData] = useState<HealthDetail | null>(null);
   const [history, setHistory] = useState<MetricHistory | null>(null);
   const [events, setEvents] = useState<OpsEventItem[]>([]);
@@ -160,6 +165,36 @@ export function AdminClient() {
     return () => clearInterval(interval);
   }, [fetchAuth]);
 
+  useEffect(() => {
+    if (tab !== "funnel" || !adminToken) return;
+    let cancelled = false;
+    (async () => {
+      setFunnelLoading(true);
+      setFunnelError("");
+      try {
+        const params = new URLSearchParams({ campaign: "one_portfolio" });
+        if (funnelRange !== "all") {
+          const days = funnelRange === "7d" ? 7 : 30;
+          params.set("from", new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
+        }
+        const res = await fetchAuth(`${API_URL}/api/admin/analytics/funnel?${params}`);
+        if (cancelled) return;
+        if (!res.ok) {
+          if (res.status === 401) setNeedsAuth(true);
+          else setFunnelError(`Funnel API error ${res.status}`);
+          return;
+        }
+        const body = await res.json() as { rows: FunnelEventRow[] };
+        setFunnelRows(body.rows ?? []);
+      } catch (e) {
+        if (!cancelled) setFunnelError((e as Error).message);
+      } finally {
+        if (!cancelled) setFunnelLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tab, funnelRange, adminToken, fetchAuth]);
+
   if (loading) return <p className="text-muted">Loading...</p>;
   if (error) return <p className="text-red-400">{error}</p>;
 
@@ -197,9 +232,12 @@ export function AdminClient() {
       <div className="flex gap-4 mb-6 border-b border-border">
         <button onClick={() => setTab("overview")} className={`pb-2 text-sm font-medium border-b-2 transition ${tab === "overview" ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}>Overview</button>
         <button onClick={() => setTab("pricing")} className={`pb-2 text-sm font-medium border-b-2 transition ${tab === "pricing" ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}>Pricing</button>
+        <button onClick={() => setTab("funnel")} className={`pb-2 text-sm font-medium border-b-2 transition ${tab === "funnel" ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}>Funnel</button>
       </div>
 
-      {tab === "pricing" ? (
+      {tab === "funnel" ? (
+        <FunnelTab rows={funnelRows} loading={funnelLoading} error={funnelError} range={funnelRange} onRangeChange={setFunnelRange} />
+      ) : tab === "pricing" ? (
         <div>
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Priced Ratio" value={`${pricing?.globalRatio ?? "?"}%`} color={Number(pricing?.globalRatio ?? 100) >= 80 ? "text-green-400" : Number(pricing?.globalRatio ?? 0) >= 50 ? "text-yellow-400" : "text-red-400"} />
@@ -387,5 +425,84 @@ export function AdminClient() {
         </div>
       )}
     </>
+  );
+}
+
+function FunnelTab({ rows, loading, error, range, onRangeChange }: {
+  rows: FunnelEventRow[] | null;
+  loading: boolean;
+  error: string;
+  range: "7d" | "30d" | "all";
+  onRangeChange: (range: "7d" | "30d" | "all") => void;
+}) {
+  const stats: FunnelStats | null = rows ? processFunnelEvents(rows) : null;
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted">Period</label>
+          <select value={range} onChange={(e) => onRangeChange(e.target.value as "7d" | "30d" | "all")} className="rounded border border-border bg-bg px-2 py-1.5 text-xs text-fg">
+            <option value="7d">7 days</option>
+            <option value="30d">30 days</option>
+            <option value="all">All time</option>
+          </select>
+          <span className="text-xs text-muted">Campaign: One portfolio</span>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-muted">Loading funnel...</p>
+      ) : error ? (
+        <p className="text-red-400">{error}</p>
+      ) : !stats ? (
+        <p className="text-muted">No data available.</p>
+      ) : (
+        <>
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Stat label="Landing events" value={String(stats.landingEvents)} />
+            <Stat label="Scan starts" value={String(stats.scanStarts)} />
+            <Stat label="Scan outcomes" value={String(stats.scanOutcomes)} />
+            <Stat label="Start rate" value={formatFunnelRate(stats.startRate)} />
+            <Stat label="Outcome rate" value={formatFunnelRate(stats.outcomeRate)} />
+            <Stat label="Success rate" value={formatFunnelRate(stats.successRate)} color={(stats.successRate ?? 0) >= 0.8 ? "text-green-400" : (stats.successRate ?? 0) >= 0.5 ? "text-yellow-400" : "text-red-400"} />
+          </div>
+
+          <div className="mb-6 rounded-lg border border-border bg-card p-4">
+            <h2 className="text-sm font-semibold mb-3">Event counts</h2>
+            {Object.keys(stats.eventCounts).length === 0 ? (
+              <p className="text-xs text-muted">No events in this period.</p>
+            ) : (
+              <div className="space-y-1">
+                {Object.entries(stats.eventCounts).sort(([, a], [, b]) => b - a).map(([event, count]) => (
+                  <div key={event} className="flex items-center justify-between text-xs rounded border border-border/60 bg-bg/30 px-3 py-1.5">
+                    <span className="font-mono">{event}</span>
+                    <span className="font-semibold">{count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mb-6 rounded-lg border border-border bg-card p-4">
+            <h2 className="text-sm font-semibold mb-3">Portfolio actions</h2>
+            {Object.keys(stats.portfolioActions).length === 0 ? (
+              <p className="text-xs text-muted">No portfolio actions yet.</p>
+            ) : (
+              <div className="space-y-1">
+                {Object.entries(stats.portfolioActions).sort(([, a], [, b]) => b - a).map(([action, count]) => (
+                  <div key={action} className="flex items-center justify-between text-xs rounded border border-border/60 bg-bg/30 px-3 py-1.5">
+                    <span className="capitalize font-mono">{action.replace(/_/g, " ")}</span>
+                    <span className="font-semibold">{count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <p className="text-[10px] text-muted mt-4">Aggregated events, not unique users. Groups below 5 are suppressed for privacy.</p>
+    </div>
   );
 }

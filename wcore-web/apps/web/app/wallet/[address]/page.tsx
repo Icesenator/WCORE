@@ -1,14 +1,15 @@
 import { WalletContent } from "@/components/WalletContent";
+import { normalizeCampaign } from "@/lib/funnel-analytics";
 
 export default async function WalletPage({
   params,
   searchParams,
 }: {
   params: Promise<{ address: string }>;
-  searchParams: Promise<{ chains?: string; deep?: string; ct?: string; linked?: string; labels?: string }>;
+  searchParams: Promise<{ chains?: string; deep?: string; ct?: string; linked?: string; labels?: string; campaign?: string }>;
 }) {
   const { address } = await params;
-  const { chains: chainsParam, deep: deepParam, ct: customTokens, linked: linkedParam, labels: labelsParam } = await searchParams;
+  const { chains: chainsParam, deep: deepParam, ct: customTokens, linked: linkedParam, labels: labelsParam, campaign: campaignParam } = await searchParams;
 
   const addresses = decodeURIComponent(address).split(",").map((a) => a.trim()).filter(Boolean);
   const linked = linkedParam ? decodeURIComponent(linkedParam).split(",").map((a) => a.trim()).filter(Boolean) : [];
@@ -25,5 +26,5 @@ export default async function WalletPage({
     }
   }
 
-  return <WalletContent addresses={addresses} linkedAddresses={linked} chains={chains} deepScan={deepScan} customTokens={customTokens} walletLabels={walletLabels} />;
+  return <WalletContent addresses={addresses} linkedAddresses={linked} chains={chains} deepScan={deepScan} customTokens={customTokens} walletLabels={walletLabels} campaign={normalizeCampaign(campaignParam)} />;
 }

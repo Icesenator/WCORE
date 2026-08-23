@@ -156,6 +156,34 @@ export const AdminEventsQuerySchema = z.object({
   type: z.string().min(1).max(100).optional(),
 });
 
+const FunnelDimensionsSchema = z.object({
+  walletCount: z.enum(["1", "2_3", "4_plus"]).optional(),
+  chainCount: z.enum(["1_5", "6_20", "21_50", "51_plus"]).optional(),
+  duration: z.enum(["lt_5s", "5_15s", "15_60s", "60s_plus"]).optional(),
+  authState: z.enum(["anonymous", "ready", "authenticated"]).optional(),
+  scanMode: z.enum(["standard", "deep"]).optional(),
+  result: z.enum(["success", "partial", "failed"]).optional(),
+  action: z.enum(["add", "refresh", "export", "tab_overview", "tab_wallets", "tab_tokens"]).optional(),
+}).strict();
+
+export const FunnelEventSchema = z.object({
+  event: z.enum(["campaign_landing_viewed", "scan_started", "scan_completed", "scan_failed", "portfolio_action"]),
+  campaign: z.enum(["one_portfolio", "unknown"]),
+  surface: z.enum(["home", "wallet"]),
+  variant: z.literal("control"),
+  dimensions: FunnelDimensionsSchema,
+}).strict();
+
+export const FunnelEventsBodySchema = z.object({
+  events: z.array(FunnelEventSchema).min(1).max(5),
+}).strict();
+
+export const AdminFunnelQuerySchema = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  campaign: z.enum(["one_portfolio", "unknown"]).optional(),
+}).strict();
+
 /** GET /api/price/native */
 export const NativePriceQuerySchema = z.object({
   chain: z.string().min(1).max(50).optional(),

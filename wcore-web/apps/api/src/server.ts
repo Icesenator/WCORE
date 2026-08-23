@@ -21,6 +21,7 @@ import { walletPlugin } from "./plugins/wallet.js";
 import { cexPlugin } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
 import { metricsPlugin } from "./plugins/metrics-plugin.js";
+import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
@@ -241,6 +242,7 @@ async function snapshotMetrics() {
     await prisma.systemMetricSnapshot.create({ data: { status, dbOk, redisOk, openCircuits, rpcErrors, pricingErrors, scanCount: snap.scans.total, gm24h, gm7d, gm30d } });
     await prisma.systemMetricSnapshot.deleteMany({ where: { createdAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } } });
     await prisma.opsEvent.deleteMany({ where: { createdAt: { lt: new Date(now - 7 * 24 * 60 * 60 * 1000) } } });
+    await prisma.funnelEventAggregate.deleteMany({ where: { bucketDate: { lt: new Date(now - 180 * 24 * 60 * 60 * 1000) } } });
   } catch (e) { console.error("snapshotMetrics DB error:", (e).message || String(e)); }
 }
 
@@ -372,6 +374,7 @@ await walletPlugin(app, { prisma, validateCustomToken });
 await cexPlugin(app, { prisma, sharedCache });
 await chainsPlugin(app, { circuitBreakers, cache: sharedCache });
 await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized, cacheBackend });
+await analyticsPlugin(app, { store: createPrismaAnalyticsStore(prisma), isAdminAuthorized });
 
 // Gsheet bridge: expose /api/gsheet/cache/get to GAS for delegated reads of
 // the shared cache (Redis or in-memory). Gated by GSHEET_API_TOKEN so envs

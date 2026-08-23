@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Logo } from "@/components/Logo";
 import { HomePageClient } from "./HomePageClient";
 
@@ -37,7 +38,9 @@ export default function HomePage() {
         </div>
       </section>
 
-      <HomePageClient />
+      <Suspense fallback={null}>
+        <HomePageClient />
+      </Suspense>
     </main>
   );
 }

@@ -10,5 +10,6 @@ describe("coverage stats", () => {
     assert.equal(stats.gmEnabledChainCount, Object.keys(GM_FACTORIES).length);
     assert.equal(stats.cexProviderCount, 7);
     assert.equal(stats.chainConfigCount, 162);
+    assert.notEqual(stats.chainConfigCount, 325);
   });
 });

@@ -122,27 +122,42 @@ export function AdminClient() {
   useEffect(() => {
     (async () => {
       try {
-        const [hRes, mRes, eRes, pRes] = await Promise.all([
-          fetchAuth(`${API_URL}/api/health/detailed`),
-          fetchAuth(`${API_URL}/api/admin/metrics/history?range=24h`),
-          fetchAuth(`${API_URL}/api/admin/events?limit=100`),
-          fetchAuth(`${API_URL}/api/admin/pricing/accuracy`),
-        ]);
-        if (hRes.status === 401 || mRes.status === 401) {
+        const hRes = await fetchAuth(`${API_URL}/api/health/detailed`);
+        if (hRes.status === 401) {
           setLoading(false);
           return;
         }
         setData(await hRes.json() as HealthDetail);
-        setHistory(await mRes.json() as MetricHistory);
-        const eData = await eRes.json() as { events: OpsEventItem[] };
-        setEvents(eData.events || []);
-        setPricing(await pRes.json() as PricingAccuracy);
       } catch (e) {
         setError((e as Error).message);
       }
       setLoading(false);
     })();
   }, [fetchAuth]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (tab === "overview") return; // overview data loaded via health/detailed above
+    if (tab !== "pricing") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [mRes, eRes, pRes] = await Promise.all([
+          fetchAuth(`${API_URL}/api/admin/metrics/history?range=24h`),
+          fetchAuth(`${API_URL}/api/admin/events?limit=100`),
+          fetchAuth(`${API_URL}/api/admin/pricing/accuracy`),
+        ]);
+        if (cancelled) return;
+        setHistory(await mRes.json() as MetricHistory);
+        const eData = await eRes.json() as { events: OpsEventItem[] };
+        setEvents(eData.events || []);
+        setPricing(await pRes.json() as PricingAccuracy);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tab, isAdmin, fetchAuth]);
 
   useEffect(() => {
     const interval = setInterval(async () => {

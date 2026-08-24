@@ -1,6 +1,7 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.67 - Never report WEB_SCAN_OK when WalletCache persistence fails; keep the scan retryable.
  * v4.16.66 - Drop the local GSHEET_WEB_SCAN_BLOCKED_CONTRACTS list: the Web API
  *   now reports the hard-blocked contracts it filtered (blockedContracts) and the
  *   adapter purges stale cached assets against that authoritative signal.
@@ -70,7 +71,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.66";
+var GSHEET_WEB_SCAN_VERSION = "4.16.67";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -967,7 +968,11 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
         var mergedCache = _webScanMergeWithExistingCache_(existingCache, cache);
         if (mergedCache) {
           CacheManager.init();
-          WalletCache.save(String(cacheKey || address || "").trim(), mergedCache, config);
+          var mergedSaveResult = WalletCache.save(String(cacheKey || address || "").trim(), mergedCache, config);
+          if (mergedSaveResult && mergedSaveResult.written === false) {
+            _webScanSetLastError_("CACHE_WRITE_FAILED " + chainKey, chainKey);
+            return { ok: true, deferred: false, status: "[WEB_SCAN_ERROR] " + Format.now(), cache: existingCache, degraded: true, error: "CACHE_WRITE_FAILED" };
+          }
           return {
             ok: true,
             deferred: false,
@@ -1005,7 +1010,11 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       }
     }
     CacheManager.init();
-    WalletCache.save(String(cacheKey || address || "").trim(), cache, config);
+    var saveResult = WalletCache.save(String(cacheKey || address || "").trim(), cache, config);
+    if (saveResult && saveResult.written === false) {
+      _webScanSetLastError_("CACHE_WRITE_FAILED " + chainKey, chainKey);
+      return { ok: true, deferred: false, status: "[WEB_SCAN_ERROR] " + Format.now(), cache: null, degraded: true, error: "CACHE_WRITE_FAILED" };
+    }
     return {
       ok: true,
       deferred: false,

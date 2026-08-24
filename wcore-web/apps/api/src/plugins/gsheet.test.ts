@@ -3,6 +3,58 @@ import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors, applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus, setWCTStakeLockStatusFetcher } from "./gsheet.js";
 
+test("scam enrichment receives nested CHAIN.CHAIN_ID and filters PICKLE", async () => {
+  const app = Fastify();
+  let receivedChainId = -1;
+  let loggedChainId = -1;
+  const pickle = "0x9347e04ea939b15f5965dd1adb5e496423d21956";
+  await app.register(gsheetPlugin, {
+    token: "secret",
+    cacheStore: { get: async () => null },
+    scamEnrichment: {
+      loader: async (chainId) => {
+        receivedChainId = chainId;
+        return new Map([[pickle, { goPlus: {
+          available: true,
+          isHoneypot: true,
+          isBlacklisted: true,
+          canTakeBackOwnership: true,
+          slippageModifiable: false,
+          ownerPercent: 62,
+        } }]]);
+      },
+      logDecision: (entry) => { loggedChainId = entry.chainId; },
+    },
+    scanRunner: async () => ({
+      ok: true,
+      chain: "ETHEREUM",
+      chainName: "Ethereum",
+      vm: "EVM",
+      timestamp: new Date().toISOString(),
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [{ contract: pickle, symbol: "PICKLE", name: "Pickle", balance: 1, priceEur: 0.000012, valueEur: 0 }],
+      totalValueEur: 0,
+      errors: [],
+      degraded: false,
+      fxRate: 0.86,
+      scanMs: 1,
+    }),
+  });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/gsheet/scan",
+    headers: { "x-gsheet-token": "secret" },
+    payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "ETHEREUM" },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(receivedChainId, 1);
+  assert.equal(loggedChainId, 1);
+  const body = JSON.parse(res.body);
+  assert.equal(body.tokens.some((t: { contract?: string }) => t.contract?.toLowerCase() === pickle), false);
+  assert.ok(body.blockedContracts.includes(pickle));
+  await app.close();
+});
+
 test("mapWithConcurrencyLimit bounds parallel work", async () => {
   let active = 0;
   let maxActive = 0;

@@ -173,13 +173,14 @@ vm.runInContext(source, context);
     "l'entree fraiche (web scan) doit gagner meme si l'entree stockee a plus d'assets",
   );
 
-  // Cas 2 (protection concurrente preservee) : une entree stockee PLUS RECENTE
-  // que l'entree entrante doit rester gagnante (ecriture concurrente plus tard).
+  // Cas 2 (repro PICKLE 2026-08-24) : un worker concurrent peut re-emballer
+  // un payload STALE apres le web scan. Son enveloppe ts est plus recente, mais
+  // son payload v.u est ancien : il ne doit jamais ecraser la donnee fraiche.
   const concurrentEntry = {
     k: key,
     ts: nowSec + 30,
     j: 1,
-    v: { v: 5, cv: 11, u: (nowSec + 30) * 1000, a: [['native', 9]], pm: {}, fx: null },
+    v: { v: 5, cv: 11, u: staleTs, a: [['native', 9], ['0x9347e04ea939b15f5965dd1adb5e496423d21956', 1]], pm: {}, fx: null },
   };
   const newerStoredBlob = JSON.stringify({ v: 2, m: { [hash]: concurrentEntry } });
   context.CacheManager._props.getProperty = (k) => (k === 'GLOBAL_WALLET_CACHE_V1' ? newerStoredBlob : null);
@@ -188,9 +189,9 @@ vm.runInContext(source, context);
   incomingOlder.m[hash] = freshEntry;
   assert.equal(context.CacheManager._savePackedWalletCache_(incomingOlder), true, 'la seconde sauvegarde doit reussir');
   assert.equal(
-    savedEntryFor(written[written.length - 1]).ts,
-    nowSec + 30,
-    "l'entree stockee plus recente (writer concurrent) doit rester gagnante",
+    savedEntryFor(written[written.length - 1]).v.u,
+    nowSec * 1000,
+    "le payload frais doit gagner meme si un worker concurrent re-emballe un payload stale plus tard",
   );
 }
 

@@ -1,8 +1,9 @@
 /************************************************************
  * 04A_CACHE_CORE.gs - Cache Manager Core
  * 
- * Version: v4.15.102 - safeSetJson propagates the real persistence result.
+ * Version: v4.15.103 - Virtual wallet reads prefer authoritative packed L2 over stale per-key L1.
  *
+ * v4.15.102 - safeSetJson propagates the real persistence result.
  * v4.15.101 - Emergency purge: protect active watchdog and auto-heal leases.
  *
  * v4.15.100 - Emergency purge: add ACTIVITY_RPC_LOOKUP/NONCE_MAP, stale HTTP_CATEGORY_TRACKER, ACTIVITY_NONCE_MAP
@@ -52,7 +53,7 @@
  * DEPENDANCES: 01_INIT.gs, 02_UTILS.gs
  * CHARGE AVANT: 04B, 04C, 04D
  ************************************************************/
-var CACHE_CORE_VERSION = "4.15.102";
+var CACHE_CORE_VERSION = "4.15.103";
 
 // ============================================================
 // DEPENDENCY CHECK (v4.8.0)
@@ -303,14 +304,9 @@ CacheManager.safeGet = CacheManager.safeGet || function(key) {
  CacheManager.init();
  if (!key) return null;
  
- // Try L1 (CacheService) first - fastest
- try {
- var v = CacheManager._cache.get(key);
- if (v !== null && v !== undefined) return v;
- } catch (e) {}
- 
- // v4.12.16 FIX: Route virtualized keys through packed cache
- // This ensures we read from L2 packed cache when L1 has expired
+ // Virtualized wallet keys: packed cache is authoritative. Its GLOBAL_WALLET
+ // blob already has its own L1; a separate per-key L1 can be overwritten by a
+ // stale concurrent worker after a fresh web scan and must never short-circuit L2.
  if (CacheManager._isVirtualKey_ && CacheManager._isVirtualKey_(key)) {
  try {
  if (CacheManager._packedGet_) {
@@ -320,6 +316,12 @@ CacheManager.safeGet = CacheManager.safeGet || function(key) {
  } catch (e2) {}
  return null;
  }
+
+ // Non-virtualized keys: try L1 (CacheService) first.
+ try {
+ var v = CacheManager._cache.get(key);
+ if (v !== null && v !== undefined) return v;
+ } catch (e) {}
  
  // Non-virtualized keys: read directly from ScriptProperties
  try {

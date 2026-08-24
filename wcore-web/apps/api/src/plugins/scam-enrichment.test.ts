@@ -78,6 +78,28 @@ test("missing verdict -> GoPlus fetched + persisted once", async () => {
   } finally { globalThis.fetch = original; }
 });
 
+test("GoPlus omission + anti-sell phantom bytecode -> scam fallback persisted", async () => {
+  setFlag(true);
+  const { prisma, upserts } = makePrisma([]);
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    if (String(url).includes("gopluslabs")) {
+      return new Response(JSON.stringify({ code: 1, message: "OK", result: {} }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  }) as typeof fetch;
+  try {
+    const loader = createScamEnrichmentLoader({
+      prisma,
+      bytecodeFetcher: async () => "ERC20: Blacklisted address cannot sell tokens Invalid phantom amount Exceeds phantom balance",
+    });
+    const m = await loader(1, [ADDR]);
+    assert.equal(m.get(ADDR)?.goPlus?.isHoneypot, true);
+    assert.equal(m.get(ADDR)?.goPlus?.isBlacklisted, true);
+    assert.equal(upserts.length, 1);
+  } finally { globalThis.fetch = original; }
+});
+
 test("GoPlus failure -> no signal AND nothing persisted as clean", async () => {
   setFlag(true);
   const { prisma, upserts } = makePrisma([]);

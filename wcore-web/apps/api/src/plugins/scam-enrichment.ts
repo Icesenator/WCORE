@@ -53,13 +53,56 @@ export function classifyGoPlus(v: GoPlusSignal): "clean" | "suspicious" | "scam"
   return "clean";
 }
 
+export function createRpcBytecodeFetcher(
+  resolveEndpoints: (chainId: number) => string[],
+): (chainId: number, address: string) => Promise<string | null> {
+  return async (chainId, address) => {
+    const endpoints = resolveEndpoints(chainId).slice(0, 2);
+    if (endpoints.length === 0) return null;
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getCode", params: [address, "latest"] });
+    const attempts = endpoints.map(async (url) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4_000);
+      try {
+        const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body, signal: ctrl.signal });
+        if (!res.ok) return null;
+        const hex = String((await res.json() as { result?: unknown }).result ?? "");
+        if (!/^0x[0-9a-fA-F]+$/.test(hex) || hex.length <= 2) return null;
+        const bytes = Buffer.from(hex.slice(2), "hex");
+        return bytes.toString("latin1");
+      } catch { return null; }
+      finally { clearTimeout(timer); }
+    });
+    const results = await Promise.all(attempts);
+    return results.find(Boolean) ?? null;
+  };
+}
+
 export interface ScamEnrichmentDeps {
   prisma: PrismaClient;
   warn?: (msg: string) => void;
+  bytecodeFetcher?: (chainId: number, address: string) => Promise<string | null>;
+}
+
+export function classifyMaliciousBytecode(ascii: string): GoPlusSignal | null {
+  const lower = ascii.toLowerCase();
+  const antiSell = lower.includes("blacklisted address cannot sell")
+    || lower.includes("blacklisted addresses cannot sell");
+  const phantom = lower.includes("invalid phantom amount")
+    || lower.includes("exceeds phantom balance");
+  if (!antiSell || !phantom) return null;
+  return {
+    available: true,
+    isHoneypot: true,
+    isBlacklisted: true,
+    canTakeBackOwnership: true,
+    isOpenSource: false,
+    isInDex: false,
+  };
 }
 
 export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrichmentLoader {
-  const { prisma, warn } = deps;
+  const { prisma, warn, bytecodeFetcher } = deps;
   return async (chainId: number, contracts: string[]): Promise<Map<string, ScamEnrichment>> => {
     const out = new Map<string, ScamEnrichment>();
     try {
@@ -101,14 +144,28 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
       if (missing.length > 0) {
         const { fetchGoPlusVerdicts } = await import("@wcore/core");
         const verdicts = await fetchGoPlusVerdicts(chainId, missing);
-        for (const [addr, v] of verdicts) {
-          if (v.available) fresh.set(addr, { goPlus: v });
-          else continue; // never persist a network-failure as a verdict (would freeze "clean" for 30d)
+        const entries = [...verdicts.entries()];
+        const resolvedEntries: Array<[string, GoPlusSignal, boolean]> = [];
+        for (let i = 0; i < entries.length; i += 8) {
+          const batch = entries.slice(i, i + 8);
+          resolvedEntries.push(...await Promise.all(batch.map(async ([addr, v]) => {
+            if (v.available || !bytecodeFetcher) return [addr, v, v.available] as [string, GoPlusSignal, boolean];
+            try {
+              const ascii = await bytecodeFetcher(chainId, addr);
+              return [addr, ascii ? (classifyMaliciousBytecode(ascii) ?? v) : v, false] as [string, GoPlusSignal, boolean];
+            } catch {
+              return [addr, v, false] as [string, GoPlusSignal, boolean];
+            }
+          })));
+        }
+        for (const [addr, resolved, fromGoPlus] of resolvedEntries) {
+          if (resolved.available) fresh.set(addr, { goPlus: resolved });
+          else continue;
           try {
             await prisma.scamVerdict.upsert({
               where: { chainId_address: { chainId, address: addr } },
-              update: { verdict: classifyGoPlus(v), source: "goplus", payload: v as object },
-              create: { chainId, address: addr, verdict: classifyGoPlus(v), source: "goplus", payload: v as object },
+              update: { verdict: classifyGoPlus(resolved), source: fromGoPlus ? "goplus" : "bytecode", payload: resolved as object },
+              create: { chainId, address: addr, verdict: classifyGoPlus(resolved), source: fromGoPlus ? "goplus" : "bytecode", payload: resolved as object },
             });
           } catch (e) {
             warn?.(`scam-verdict write failed (${addr}): ${(e as Error).message}`);

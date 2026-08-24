@@ -673,7 +673,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
   let enrichments: Map<string, ScamEnrichment> | null = null;
   if (scamEnrichment && vm === "EVM") {
     try {
-      const chainId = Number((chain as { CHAIN_ID?: number | string } | undefined)?.CHAIN_ID ?? 0);
+      const chainId = Number((chain as { CHAIN?: { CHAIN_ID?: number | string } } | undefined)?.CHAIN?.CHAIN_ID ?? 0);
       const evmContracts = (Array.isArray(result.tokens) ? result.tokens : [])
         .map((t) => tokenStringField(t, "contract") || tokenStringField(t, "address"))
         .filter((v): v is string => Boolean(v));
@@ -726,7 +726,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     if (scamEnrichment && scamCheck && (scamCheck.level === "suspicious" || scamCheck.level === "scam") && evmContract && /^0x[0-9a-fA-F]{40}$/.test(evmContract)) {
       try {
         scamEnrichment.logDecision({
-          chainId: Number((chain as { CHAIN_ID?: number | string } | undefined)?.CHAIN_ID ?? 0),
+          chainId: Number((chain as { CHAIN?: { CHAIN_ID?: number | string } } | undefined)?.CHAIN?.CHAIN_ID ?? 0),
           address: evmContract.toLowerCase(),
           symbol: tokenStringField(token, "symbol") || "?",
           heuristicScore: Math.max(0, (scamCheck.score ?? 0) - (enrichment?.goPlus ? goPlusWeight(enrichment.goPlus) : 0)),

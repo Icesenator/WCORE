@@ -1,7 +1,9 @@
 /************************************************************
  * 04A_CACHE_CORE.gs - Cache Manager Core
  * 
- * Version: v4.15.101 - Emergency purge: protect active watchdog and auto-heal leases.
+ * Version: v4.15.102 - safeSetJson propagates the real persistence result.
+ *
+ * v4.15.101 - Emergency purge: protect active watchdog and auto-heal leases.
  *
  * v4.15.100 - Emergency purge: add ACTIVITY_RPC_LOOKUP/NONCE_MAP, stale HTTP_CATEGORY_TRACKER, ACTIVITY_NONCE_MAP
  * 
@@ -50,7 +52,7 @@
  * DEPENDANCES: 01_INIT.gs, 02_UTILS.gs
  * CHARGE AVANT: 04B, 04C, 04D
  ************************************************************/
-var CACHE_CORE_VERSION = "4.15.101";
+var CACHE_CORE_VERSION = "4.15.102";
 
 // ============================================================
 // DEPENDENCY CHECK (v4.8.0)
@@ -415,8 +417,8 @@ CacheManager.safeGetJson = CacheManager.safeGetJson || function(key) {
 
 CacheManager.safeSetJson = CacheManager.safeSetJson || function(key, obj, _config, ttlSeconds) {
  try {
- CacheManager.safeSet(key, JSON.stringify(obj || null), ttlSeconds);
- } catch (e) {}
+ return CacheManager.safeSet(key, JSON.stringify(obj || null), ttlSeconds) === true;
+ } catch (e) { return false; }
 };
 
 CacheManager.delete = CacheManager.delete || function(key) {

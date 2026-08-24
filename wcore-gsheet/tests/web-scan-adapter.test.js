@@ -11,7 +11,7 @@ const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EV
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
 
-assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.66["']/, 'web scan adapter version must advance to 4.16.66');
+assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.67["']/, 'web scan adapter version must advance to 4.16.67');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
@@ -138,7 +138,10 @@ function makeContext(props, fetchBody) {
     Session: { getScriptTimeZone: () => 'Europe/Paris' },
     CacheManager: { init: () => {} },
     WalletCache: {
-      save: (address, cache, config) => saved.push({ address, cache, config }),
+      save: (address, cache, config) => {
+        saved.push({ address, cache, config });
+        return Object.prototype.hasOwnProperty.call(props, '__saveResult') ? props.__saveResult : { preserved: false, written: true };
+      },
       load: (_address, _timer, config) => {
         if (props.__walletCacheError) throw new Error('cache unavailable');
         return config ? (props.__walletCache || null) : null;
@@ -161,6 +164,36 @@ function makeContext(props, fetchBody) {
   vm.createContext(context);
   vm.runInContext(source, context);
   return context;
+}
+
+{
+  const failedWritePayload = JSON.stringify({
+    ok: true,
+    chain: 'ETHEREUM',
+    chainName: 'Ethereum',
+    vm: 'EVM',
+    timestamp: '2026-08-24T07:37:23.000Z',
+    native: { symbol: 'ETH', balance: 0.001, priceEur: 2100, valueEur: 2.1 },
+    tokens: [{ symbol: 'USDC', name: 'USD Coin', contract: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', balance: 1, decimals: 6, priceEur: 0.86, valueEur: 0.86 }],
+    blockedContracts: ['0x9347e04ea939b15f5965dd1adb5e496423d21956'],
+    totalValueEur: 2.96,
+    errors: [],
+    degraded: false,
+    fxRate: 0.86,
+    scanMs: 1000,
+  });
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __saveResult: { preserved: false, written: false, reason: 'packed_lock_miss' },
+  }, failedWritePayload);
+  const res = ctx._webScanWallet_('0x17d518736Ee9341dcDc0A2498e013D33CFCDD080', [], true, { CHAIN: { KEY: 'ETHEREUM', NAME: 'Ethereum', NATIVE_SYMBOL: 'ETH' } }, 'eth_cache_key');
+  assert.equal(res.ok, true);
+  assert.doesNotMatch(res.status, /^WEB_SCAN_OK/, 'failed cache persistence must never be reported as WEB_SCAN_OK');
+  assert.match(res.status, /WEB_SCAN_ERROR|WEB_SCAN_DEGRADED/, 'failed persistence must stay retryable/visible');
+  assert.equal(res.error, 'CACHE_WRITE_FAILED');
 }
 
 const samplePayload = JSON.stringify({

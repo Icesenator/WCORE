@@ -44,7 +44,7 @@ test("scam enrichment receives nested CHAIN.CHAIN_ID and filters PICKLE", async 
     method: "POST",
     url: "/api/gsheet/scan",
     headers: { "x-gsheet-token": "secret" },
-    payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "ETHEREUM" },
+    payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "ETHEREUM", customTokens: [pickle] },
   });
   assert.equal(res.statusCode, 200);
   assert.equal(receivedChainId, 1);

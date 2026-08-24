@@ -744,7 +744,11 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
     // isAbsurdGsheetPrice instead of dropping the token (e.g. BONSAI).
     const isProtected = Boolean(id && protectedContracts.has(id));
     const isBlockedContract = scamCheck?.reasons?.some((reason) => reason === "blocked contract" || reason === "admin blocked contract") === true;
-    if (scamCheck?.level === "scam" && (!isProtected || isBlockedContract)) {
+    const hasStrongEnrichedProof = enrichment?.goPlus?.available === true && (
+      enrichment.goPlus.isHoneypot === true
+      || (enrichment.goPlus.isBlacklisted === true && enrichment.goPlus.canTakeBackOwnership === true)
+    );
+    if (scamCheck?.level === "scam" && (!isProtected || isBlockedContract || hasStrongEnrichedProof)) {
       const symbol = tokenStringField(token, "symbol");
       if (symbol) filteredSymbols.add(symbol);
       if (id) blockedContracts.add(id);

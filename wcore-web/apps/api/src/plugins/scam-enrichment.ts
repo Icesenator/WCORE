@@ -86,8 +86,10 @@ export interface ScamEnrichmentDeps {
 
 export function classifyMaliciousBytecode(ascii: string): GoPlusSignal | null {
   const lower = ascii.toLowerCase();
-  const antiSell = lower.includes("blacklisted address cannot sell")
-    || lower.includes("blacklisted addresses cannot sell");
+  const blacklistAt = lower.indexOf("blacklisted address");
+  const blacklistPluralAt = lower.indexOf("blacklisted addresses");
+  const antiSellAt = Math.max(blacklistAt, blacklistPluralAt);
+  const antiSell = antiSellAt >= 0 && lower.slice(antiSellAt, antiSellAt + 160).includes("sell tokens");
   const phantom = lower.includes("invalid phantom amount")
     || lower.includes("exceeds phantom balance");
   if (!antiSell || !phantom) return null;

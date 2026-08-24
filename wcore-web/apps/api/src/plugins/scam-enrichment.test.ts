@@ -78,6 +78,14 @@ test("missing verdict -> GoPlus fetched + persisted once", async () => {
   } finally { globalThis.fetch = original; }
 });
 
+test("classifyMaliciousBytecode handles Solidity string split by opcode padding", async () => {
+  const split = "Blacklisted address canno_\u0000\u0012t sell tokens ... Invalid phantom amount";
+  const { classifyMaliciousBytecode } = await import("./scam-enrichment.js");
+  const verdict = classifyMaliciousBytecode(split);
+  assert.equal(verdict?.isHoneypot, true);
+  assert.equal(verdict?.isBlacklisted, true);
+});
+
 test("GoPlus omission + anti-sell phantom bytecode -> scam fallback persisted", async () => {
   setFlag(true);
   const { prisma, upserts } = makePrisma([]);

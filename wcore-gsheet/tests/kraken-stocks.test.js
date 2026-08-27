@@ -75,4 +75,15 @@ assert.ok(
   'INSTALL_KRAKEN_SYNC_TRIGGER doit créer UPDATE_KRAKEN_STOCKS_FIAT'
 );
 
+// Consolidation Portefeuille Action
+const stockSource = fs.readFileSync(path.join(root, 'src/42_STOCK_PORTFOLIO.gs'), 'utf8');
+assert.ok(
+  /_stockPortfolioSpotQtyFormula_\(sheetRow\)/.test(stockSource),
+  'la formule Spot doit appeler le helper _stockPortfolioSpotQtyFormula_'
+);
+assert.ok(
+  /'CEX - Kraken Stocks'!A:B/.test(stockSource),
+  'le helper doit inclure un VLOOKUP vers CEX - Kraken Stocks'
+);
+
 console.log('kraken rename OK');

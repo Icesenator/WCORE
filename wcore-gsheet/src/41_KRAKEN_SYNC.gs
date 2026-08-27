@@ -2,7 +2,7 @@
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
 // Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.34";
+var KRAKEN_SYNC_VERSION = "4.16.35";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",

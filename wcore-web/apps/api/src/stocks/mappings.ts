@@ -191,3 +191,27 @@ export function getBitpandaAliases(canonicalTicker: string): string[] {
 export function normalizeSupply(sourceTicker: string, supply: number): number {
   return supply * (mapTopMarketCapTicker(sourceTicker).supplyMultiplier ?? 1);
 }
+
+/**
+ * Normalise un symbole xStock Kraken (ex. "JPMx") vers le symbole canonique du
+ * pipeline WCORE (ex. "JPM"). Réutilise BITPANDA_SECURITIES pour les
+ * sous-jacents identiques ; tout ce qui est inconnu ou déjà canonique passe tel
+ * quel, hors suffixe "x" retiré des xStocks non mappés (ex. "AAPLx" -> "AAPL").
+ */
+export function krakenStockCanonicalSymbol(symbol: string): string {
+  const raw = String(symbol ?? "").trim();
+  if (!raw) return "";
+  const upper = raw.toUpperCase();
+  // Résolution inverse: trouver le mapping dont un yahooTickers/alias correspond.
+  for (const mapping of Object.values(BITPANDA_SECURITIES)) {
+    const candidates = [...(mapping.yahooTickers ?? []), ...(mapping.bitpandaAliases ?? [])];
+    for (const c of candidates) {
+      const cu = c.toUpperCase();
+      if (upper === cu || upper === `${cu}X` || upper === `${cu}-US`) {
+        return mapping.canonicalTicker;
+      }
+    }
+  }
+  if (upper.endsWith("X")) return raw.slice(0, -1);
+  return raw;
+}

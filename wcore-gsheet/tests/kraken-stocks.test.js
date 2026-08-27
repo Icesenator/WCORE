@@ -74,6 +74,11 @@ assert.ok(
   /newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)/.test(krakenSource),
   'INSTALL_KRAKEN_SYNC_TRIGGER doit créer UPDATE_KRAKEN_STOCKS_FIAT'
 );
+// _wcoreAutoHealCreateManagedTriggers_ crée le trigger hourly
+assert.ok(
+  /newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)/.test(healSource),
+  '_wcoreAutoHealCreateManagedTriggers_ doit créer UPDATE_KRAKEN_STOCKS_FIAT'
+);
 
 // Consolidation Portefeuille Action
 const stockSource = fs.readFileSync(path.join(root, 'src/42_STOCK_PORTFOLIO.gs'), 'utf8');

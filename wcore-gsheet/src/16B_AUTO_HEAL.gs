@@ -103,6 +103,10 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   stats.timeTriggers++;
   ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
   stats.timeTriggers++;
+  if (typeof UPDATE_KRAKEN_STOCKS_FIAT === "function") {
+    ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyHours(1).create();
+    stats.timeTriggers++;
+  }
   if (typeof STOCK_PORTFOLIO_HOURLY_REFRESH === "function") {
     ScriptApp.newTrigger("STOCK_PORTFOLIO_HOURLY_REFRESH").timeBased().everyHours(1).create();
     stats.timeTriggers++;

@@ -293,10 +293,11 @@ function INSTALL_KRAKEN_SYNC_TRIGGER() {
   var trs = ScriptApp.getProjectTriggers();
   for (var i = 0; i < trs.length; i++) {
     var fn = trs[i].getHandlerFunction();
-    if (fn === "UPDATE_KRAKEN_SPOT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
+    if (fn === "UPDATE_KRAKEN_SPOT" || fn === "UPDATE_KRAKEN_STOCKS_FIAT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
   ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
-  return "Trigger installed: UPDATE_KRAKEN_SPOT (1h)";
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyHours(1).create();
+  return "Triggers installed: UPDATE_KRAKEN_SPOT (1h) + UPDATE_KRAKEN_STOCKS_FIAT (1h)";
 }
 
 // Stub fail-safe: Kraken Securities (actions) n'expose pas d'API publique stable

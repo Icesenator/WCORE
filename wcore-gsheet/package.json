@@ -22,6 +22,7 @@
     "test:cache-status-timestamp": "node tests/cache-status-timestamp.test.js",
     "test:chain-disabled-status": "node tests/chain-disabled-status.test.js",
     "test:dynamic-rpc-trigger": "node tests/dynamic-rpc-trigger.test.js",
+    "test:dynamic-rpc-validation": "node tests/dynamic-rpc-validation.test.js",
     "validate:static": "node tools/validate-static.js",
     "test:phase3-chains": "node tools/test-phase3-chain-port.cjs",
     "test:watchdog-quota": "node tests/watchdog-quota-guard.test.js",

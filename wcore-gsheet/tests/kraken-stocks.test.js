@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
+const vm = require('vm');
 
 const root = path.resolve(__dirname, '..');
 const krakenSource = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
@@ -34,5 +35,34 @@ assert.ok(
   /"CEX - Kraken Crypto"/.test(bitpandaSource),
   'REPAIR_CEX_SHEETS_STRUCTURE doit lister "CEX - Kraken Crypto"'
 );
+
+// --- Stub fail-safe ---
+let warnCount = 0;
+const krakenCtx = {
+  console,
+  JSON,
+  Math,
+  Date,
+  String,
+  Number,
+  Array,
+  Object,
+  isFinite,
+  Logger: { log: () => { warnCount++; } },
+  HttpCallCounter: { setTrigger: () => {} },
+  PropertiesService: {
+    getScriptProperties: () => ({ getProperty: () => null, setProperty: () => {} }),
+    getUserProperties: () => ({ getProperty: () => null, setProperty: () => {} }),
+  },
+  ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyHours: () => ({ create: () => {} }) }) }) },
+  Utilities: { formatDate: () => '2026-08-27 00:00:00' },
+};
+vm.createContext(krakenCtx);
+vm.runInContext(krakenSource, krakenCtx);
+
+assert.equal(typeof krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT, 'function', 'UPDATE_KRAKEN_STOCKS_FIAT doit exister');
+const result = krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT();
+assert.match(String(result), /SKIP|UNAVAILABLE|STUB|DISABLED/i, 'stub doit indiquer une indisponibilité');
+assert.doesNotThrow(() => krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT(), 'stub ne doit jamais lever');
 
 console.log('kraken rename OK');

@@ -4,7 +4,7 @@ import type { ScamEnrichment } from "@wcore/shared";
 import { safeEq } from "../admin-auth.js";
 import { apiConfig } from "../config.js";
 import { hasDegradingErrors } from "../server-helpers.js";
-import { goPlusWeight, type ScamEnrichmentLoader, type ScamScanLogEntry, type GoPlusSignal } from "./scam-enrichment.js";
+import { goPlusWeight, type ScamEnrichmentLoader, type ScamScanLogEntry } from "./scam-enrichment.js";
 
 export interface GsheetScamEnrichment {
   loader: ScamEnrichmentLoader;

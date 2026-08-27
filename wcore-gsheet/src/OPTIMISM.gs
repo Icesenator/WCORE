@@ -26,6 +26,10 @@ function GET_WALLET_ASSETS_OPTIMISM(a,r,t,f,g){return _OPTIMISM.getWalletAssets(
 function CACHED_WALLET_ASSETS_OPTIMISM(a){return _OPTIMISM.getCachedWalletAssets(a);}
 function OPTIMISM_REFRESH_STATUS(a,r,t,f,g){return _OPTIMISM.getRefreshStatus(a,r,t,f,g);}
 function OPTIMISM_STATS(a,t){return _OPTIMISM.getStats(a,t);}
+function CACHED_WALLET_ASSETS_OPTIMISM_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("OPTIMISM");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_OPTIMISM_ACTION(a){var cfg=_rwaViewsConfigByKey_("OPTIMISM");return _rwaProjectActionByCfg_(cfg,a);}
+function OPTIMISM_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function OPTIMISM_STATS_ACTION(a,t){return OPTIMISM_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_OPTIMISM_TOKEN(w,t,r){return _OPTIMISM.diag.tokenBalance(w,t,r);}

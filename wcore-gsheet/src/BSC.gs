@@ -32,6 +32,10 @@ function GET_WALLET_ASSETS_BSC(a,r,t,f,g){return _BSC.getWalletAssets(a,r,t,f,g)
 function CACHED_WALLET_ASSETS_BSC(a){return _BSC.getCachedWalletAssets(a);}
 function BSC_REFRESH_STATUS(a,r,t,f,g){return _BSC.getRefreshStatus(a,r,t,f,g);}
 function BSC_STATS(a,t){return _BSC.getStats(a,t);}
+function CACHED_WALLET_ASSETS_BSC_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("BSC");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_BSC_ACTION(a){var cfg=_rwaViewsConfigByKey_("BSC");return _rwaProjectActionByCfg_(cfg,a);}
+function BSC_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function BSC_STATS_ACTION(a,t){return BSC_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_BSC_TOKEN(w,t,r){return _BSC.diag.tokenBalance(w,t,r);}

@@ -25,6 +25,10 @@ function GET_WALLET_ASSETS_INK(a,r,t,f,g){return _INK.getWalletAssets(a,r,t,f,g)
 function CACHED_WALLET_ASSETS_INK(a){return _INK.getCachedWalletAssets(a);}
 function INK_REFRESH_STATUS(a,r,t,f,g){return _INK.getRefreshStatus(a,r,t,f,g);}
 function INK_STATS(a,t){return _INK.getStats(a,t);}
+function CACHED_WALLET_ASSETS_INK_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("INK");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_INK_ACTION(a){var cfg=_rwaViewsConfigByKey_("INK");return _rwaProjectActionByCfg_(cfg,a);}
+function INK_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function INK_STATS_ACTION(a,t){return INK_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_INK_TOKEN(w,t,r){return _INK.diag.tokenBalance(w,t,r);}

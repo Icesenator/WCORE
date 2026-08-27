@@ -299,7 +299,7 @@ function _webScanAssetFromToken_(tokenObj) {
     var expectedValue = priceEur != null ? balance * priceEur : null;
     if (priceEur == null || Math.abs(expectedValue - valueEur) > 0.005) priceEur = derivedPrice;
   }
-  return {
+  var asset = {
     contract: contract,
     symbol: String(tokenObj.symbol || ""),
     name: String(tokenObj.name || tokenObj.symbol || ""),
@@ -308,6 +308,32 @@ function _webScanAssetFromToken_(tokenObj) {
     price_eur: priceEur,
     value_eur: valueEur
   };
+  var xstock = tokenObj.xstock;
+  if (xstock && typeof xstock === "object") {
+    var underlyingSymbol = typeof xstock.underlyingSymbol === "string" ? xstock.underlyingSymbol.trim() : "";
+    var multiplier = Number(xstock.multiplier);
+    if (underlyingSymbol && isFinite(multiplier) && multiplier > 0) {
+      var rawBalance = Number(xstock.rawBalance);
+      if (!isFinite(rawBalance)) rawBalance = Number(asset.balance);
+      var adjustedBalance = null;
+      if (xstock.adjustedBalance !== null && xstock.adjustedBalance !== undefined) {
+        var metadataAdjustedBalance = Number(xstock.adjustedBalance);
+        if (isFinite(metadataAdjustedBalance)) adjustedBalance = metadataAdjustedBalance;
+      }
+      if (adjustedBalance === null) {
+        var fallbackAdjustedBalance = rawBalance * multiplier;
+        if (isFinite(fallbackAdjustedBalance)) adjustedBalance = fallbackAdjustedBalance;
+      }
+      asset.xstock = {
+        xstockSymbol: typeof xstock.xstockSymbol === "string" ? xstock.xstockSymbol : "",
+        underlyingSymbol: underlyingSymbol,
+        rawBalance: rawBalance,
+        multiplier: multiplier,
+        adjustedBalance: adjustedBalance
+      };
+    }
+  }
+  return asset;
 }
 
 function _webScanIsScamToken_(tokenObj, blockedSet) {

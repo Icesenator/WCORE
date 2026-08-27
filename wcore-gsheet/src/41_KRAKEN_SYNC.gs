@@ -1,6 +1,6 @@
 // v4.16.34 - Dedicated hourly installer and non-mutating legacy watchdog.
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
-// Onglet de sortie: "CEX - Kraken".
+// Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (actions).
 
 var KRAKEN_SYNC_VERSION = "4.16.34";
 
@@ -10,7 +10,8 @@ var KRAKEN_SYNC_CONFIG = {
   PRIVATE_KEY_PROP: "KRAKEN_PRIVATE_KEY",
   STATUS_PROP: "KRAKEN_SYNC_STATUS",
   REFRESH_FLAG_PROP: "KRAKEN_REFRESH_REQUESTED",
-  SHEET: "CEX - Kraken",
+  SHEET: "CEX - Kraken Crypto",
+  SHEET_STOCKS: "CEX - Kraken Stocks",
   SPREADSHEET_ID: "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4"
 };
 

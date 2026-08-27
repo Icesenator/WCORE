@@ -582,6 +582,23 @@ function _stockPortfolioDataRow_(r, sheetRow, includeState) {
   return row;
 }
 
+// Quantité Spot pour une ligne action: cherche d'abord dans CEX - Bitpanda Stocks
+// (avec alias canoniques), puis fallback sur CEX - Kraken Stocks (mêmes alias).
+function _stockPortfolioSpotQtyFormula_(sheetRow) {
+  var a = "A" + sheetRow;
+  var c = "C" + sheetRow;
+  var bp = "'CEX - Bitpanda Stocks'!A:B";
+  var kr = "'CEX - Kraken Stocks'!A:B";
+  var aliasSwitch = "\"GOOG\";\"GOOGL\";\"META\";\"FB\";\"NYSE:BRK.B\";\"BRKB\";\"KRX:005930\";\"SSU\";\"KRX:000660\";\"HYXS\";\"EPA:MC\";\"MC\";\"EPA:OR\";\"OR\";\"NVO\";\"NOVO\";\"CPH:NOVO-B\";\"NOVO\";\"SWX:NESN\";\"NESN\";\"SWX:RO\";\"ROG\";\"TYO:7203\";\"TM\";\"\"";
+  return "=(IFERROR(VLOOKUP(" + a + ";" + bp + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(REGEXREPLACE(" + a + ";\"^.*:\";\"\");" + bp + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(SWITCH(" + a + ";" + aliasSwitch + ");" + bp + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(SWITCH(" + a + ";\"KRX:005930\";\"SMSN\";\"005930\";\"SMSN\";\"\");" + bp + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(" + a + ";" + kr + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(REGEXREPLACE(" + a + ";\"^.*:\";\"\");" + kr + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(SWITCH(" + a + ";" + aliasSwitch + ");" + kr + ";2;FALSE);0))))))))*" + c;
+}
+
 function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   var isCashRow = String(row[0] || "") === "EUR";
   row[5] = "=IFERROR(N" + sheetRow + "/100*$H$1/C" + sheetRow + ";0)";
@@ -589,7 +606,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   // i.e. 25 ordinary shares), so the legacy x25 multiplier must NOT be reapplied.
   row[6] = isCashRow
     ? _stockPortfolioEurSpotFormula_(sheetRow)
-    : "=(IFERROR(VLOOKUP(A" + sheetRow + ";'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(REGEXREPLACE(A" + sheetRow + ";\"^.*:\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(SWITCH(A" + sheetRow + ";\"GOOG\";\"GOOGL\";\"META\";\"FB\";\"NYSE:BRK.B\";\"BRKB\";\"KRX:005930\";\"SSU\";\"KRX:000660\";\"HYXS\";\"EPA:MC\";\"MC\";\"EPA:OR\";\"OR\";\"NVO\";\"NOVO\";\"CPH:NOVO-B\";\"NOVO\";\"SWX:NESN\";\"NESN\";\"SWX:RO\";\"ROG\";\"TYO:7203\";\"TM\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);IFERROR(VLOOKUP(SWITCH(A" + sheetRow + ";\"KRX:005930\";\"SMSN\";\"005930\";\"SMSN\";\"\");'CEX - Bitpanda Stocks'!A:B;2;FALSE);0)))))*C" + sheetRow;
+    : _stockPortfolioSpotQtyFormula_(sheetRow);
   // Exclude: mirror of Portefeuille Crypto!O on the "Stratégie Action" Exclude column.
   row[7] = "=SUMPRODUCT((Rebalancing!F$7:F=A" + sheetRow + ")*1)";
   // Include: gated by Exclude (same pattern as Portefeuille Crypto!P).

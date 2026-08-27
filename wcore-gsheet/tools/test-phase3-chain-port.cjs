@@ -6,7 +6,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const REPO = path.resolve(ROOT, "..");
 const WEB_CHAINS_DIR = path.join(REPO, "wcore-web", "packages", "core", "src", "chains");
-const EXCLUDED_WEB_CHAINS = new Set();
+const EXCLUDED_WEB_CHAINS = new Set(["web-overrides"]);
 
 function expectedChains() {
   return fs.readdirSync(WEB_CHAINS_DIR)

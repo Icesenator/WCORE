@@ -298,3 +298,24 @@ function INSTALL_KRAKEN_SYNC_TRIGGER() {
   ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
   return "Trigger installed: UPDATE_KRAKEN_SPOT (1h)";
 }
+
+// Stub fail-safe: Kraken Securities (actions) n'expose pas d'API publique stable
+// à ce jour. Cette fonction est conçue avec la même signature que
+// UPDATE_BITPANDA_STOCKS_FIAT() afin d'accueillir un vrai fetch plus tard.
+// Elle ne lit ni n'écrit aucune cellule tant que la source n'est pas branchée.
+var KRAKEN_STOCKS_WARN_PROP = "KRAKEN_STOCKS_API_UNAVAILABLE_WARNED";
+
+function UPDATE_KRAKEN_STOCKS_FIAT() {
+  try { HttpCallCounter.setTrigger('UPDATE_KRAKEN_STOCKS_FIAT'); } catch (eCounter) {}
+  var warned = false;
+  try {
+    warned = String(PropertiesService.getScriptProperties().getProperty(KRAKEN_STOCKS_WARN_PROP) || "") === "1";
+  } catch (eProp) {}
+  if (!warned) {
+    Logger.log("WARN: Kraken Stocks API unavailable - skip (read-only stub)");
+    try {
+      PropertiesService.getScriptProperties().setProperty(KRAKEN_STOCKS_WARN_PROP, "1");
+    } catch (eSet) {}
+  }
+  return "SKIP: Kraken Securities API unavailable - onglet 'CEX - Kraken Stocks' en attente de source (stub read-only)";
+}

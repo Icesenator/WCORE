@@ -65,4 +65,14 @@ const result = krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT();
 assert.match(String(result), /SKIP|UNAVAILABLE|STUB|DISABLED/i, 'stub doit indiquer une indisponibilité');
 assert.doesNotThrow(() => krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT(), 'stub ne doit jamais lever');
 
+// Trigger géré + requis
+assert.ok(
+  /"UPDATE_KRAKEN_STOCKS_FIAT"/.test(healSource),
+  'UPDATE_KRAKEN_STOCKS_FIAT doit être dans les listes managed/required de auto-heal'
+);
+assert.ok(
+  /newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)/.test(krakenSource),
+  'INSTALL_KRAKEN_SYNC_TRIGGER doit créer UPDATE_KRAKEN_STOCKS_FIAT'
+);
+
 console.log('kraken rename OK');

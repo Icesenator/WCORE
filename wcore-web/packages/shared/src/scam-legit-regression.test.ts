@@ -1,9 +1,9 @@
 // Regression guard: legit holdings must NEVER flip to scam/suspicious with
 // enrichment data attached. If a case fails here, fix the RULE WEIGHTS in
 // src/scam-detector.ts — never weaken this suite.
-import { test } from "node:test";
-import assert from "node:assert/strict";
+import { test } from "vitest";
 import { detectScam } from "./scam-detector.js";
+import { expect } from "vitest";
 
 const cleanGoPlus = {
   available: true, isHoneypot: false, isBlacklisted: false,
@@ -31,7 +31,7 @@ test("legit regression: no legit holding flips to scam with clean goplus + real 
       goPlus: { ...cleanGoPlus },
       dexLiquidityUsd: t.liq, dexVolume24h: t.vol, dexBuys24h: t.buys,
     });
-    assert.notEqual(r.level, "scam", `${t.sym} flagged scam: ${r.reasons.join("; ")}`);
+    expect(r.level).not.toBe("scam");
   }
 });
 
@@ -41,6 +41,6 @@ test("legit regression: unknown-contract legit tokens stay below suspicious with
       goPlus: { ...cleanGoPlus },
       dexLiquidityUsd: t.liq, dexVolume24h: t.vol, dexBuys24h: t.buys,
     });
-    assert.ok(r.score < 4, `${t.sym} score=${r.score}: ${r.reasons.join("; ")}`);
+    expect(r.score < 4).toBe(true);
   }
 });

@@ -31,7 +31,8 @@ function setFlag(on: boolean) {
 beforeEach(() => { delete process.env.SCAN_ENRICHMENT; });
 
 test("flag disabled -> empty map, no DB access", async () => {
-  const { prisma, _upserts } = makePrisma([]);
+  const { prisma, upserts } = makePrisma([]);
+  void upserts;
   const loader = createScamEnrichmentLoader({ prisma });
   const m = await loader(1, [ADDR]);
   assert.equal(m.size, 0);
@@ -40,7 +41,8 @@ test("flag disabled -> empty map, no DB access", async () => {
 
 test("fresh goplus verdict in DB -> served without network", async () => {
   setFlag(true);
-  const { prisma, _upserts } = makePrisma([{ chainId: 1, address: ADDR, verdict: "suspicious", source: "goplus", payload: HONEYPOT, updatedAt: new Date() }]);
+  const { prisma, upserts } = makePrisma([{ chainId: 1, address: ADDR, verdict: "suspicious", source: "goplus", payload: HONEYPOT, updatedAt: new Date() }]);
+  void upserts;
   let fetched = false;
   const original = globalThis.fetch;
   globalThis.fetch = (async () => { fetched = true; throw new Error("should not fetch"); }) as typeof fetch;
@@ -55,7 +57,8 @@ test("fresh goplus verdict in DB -> served without network", async () => {
 test("admin verdict never expires and never refetches", async () => {
   setFlag(true);
   const old = new Date(Date.now() - 90 * 24 * 3600 * 1000);
-  const { prisma, _upserts } = makePrisma([{ chainId: 1, address: ADDR, verdict: "clean", source: "admin", payload: null, updatedAt: old }]);
+  const { prisma, upserts } = makePrisma([{ chainId: 1, address: ADDR, verdict: "clean", source: "admin", payload: null, updatedAt: old }]);
+  void upserts;
   const loader = createScamEnrichmentLoader({ prisma });
   const m = await loader(1, [ADDR]);
   assert.equal(m.has(ADDR), true); // present (short-circuit happens in detectScam via overrides)

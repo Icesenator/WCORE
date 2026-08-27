@@ -98,10 +98,10 @@ test("le trigger est declare geré, sinon l'auto-heal le supprimerait", () => {
   }
 });
 
-test('le cout reste borne par le skip de fraicheur et le test partiel', () => {
-  // Sans ces deux gardes, un trigger hebdomadaire couterait ~250 appels/semaine.
-  assert.ok(/ageDays < 25/.test(dynamicRpc), 'le skip de fraicheur a 25 jours doit rester');
-  assert.ok(/rotationMod = 3/.test(dynamicRpc), 'le test par rotation (1/3 des chaines) doit rester');
+test('le cout reste borne par un renouvellement hebdomadaire et le test partiel', () => {
+  assert.ok(/ageDays < 7/.test(dynamicRpc), 'le seuil doit etre de 7 jours');
+  assert.ok(!/ageDays < 25/.test(dynamicRpc), 'le seuil historique ne doit plus subsister');
+  assert.ok(/rotationMod = 3/.test(dynamicRpc), 'la rotation 1/3 doit rester');
 });
 
 if (failures.length) {

@@ -25,6 +25,10 @@ function GET_WALLET_ASSETS_MANTLE(a,r,t,f,g){return _MANTLE.getWalletAssets(a,r,
 function CACHED_WALLET_ASSETS_MANTLE(a){return _MANTLE.getCachedWalletAssets(a);}
 function MANTLE_REFRESH_STATUS(a,r,t,f,g){return _MANTLE.getRefreshStatus(a,r,t,f,g);}
 function MANTLE_STATS(a,t){return _MANTLE.getStats(a,t);}
+function CACHED_WALLET_ASSETS_MANTLE_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("MANTLE");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_MANTLE_ACTION(a){var cfg=_rwaViewsConfigByKey_("MANTLE");return _rwaProjectActionByCfg_(cfg,a);}
+function MANTLE_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function MANTLE_STATS_ACTION(a,t){return MANTLE_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_MANTLE_TOKEN(w,t,r){return _MANTLE.diag.tokenBalance(w,t,r);}

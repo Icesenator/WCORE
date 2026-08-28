@@ -1,5 +1,5 @@
 ﻿// v4.16.75 - FIX: EURC net depuis Portefeuille Action G; tri TOP croissant; NOVOÔåÆNVO; headers sur une ligne.
-// v4.16.73 - FEAT: ligne EURC fiat (CEX - Bitpanda Fiat) dans Action Details +
+// v4.16.73 - FEAT: ligne cash EUR Bitpanda dans Action Details +
 // hyperliens colonne E restaur├®s d├¿s la fin du refresh (best effort).
 // v4.16.72 - FIX: Details C align├® sur les symboles canoniques de Portefeuille
 // Action (alias Bitpanda mappings.ts), F garde le ticker brut source.
@@ -250,7 +250,7 @@ var STOCK_PORTFOLIO_DETAILS_CONFIG = {
  SHEET_NAME: "Portefeuille Action Details",
  PORTFOLIO_SHEET_NAME: "Portefeuille Action",
  BITPANDA_SHEET_NAME: "CEX - Bitpanda Stocks",
- EURC_FIAT_SHEET_NAME: "CEX - Bitpanda Fiat",
+  EURC_FIAT_SHEET_NAME: "CEX - Bitpanda Stocks",
  ACTION_LEDGER_SHEET_NAME: "Ledger - Solana Action",
  FIRST_DATA_ROW: 2,
  SOURCE_FIRST_DATA_ROW: 3,
@@ -258,7 +258,7 @@ var STOCK_PORTFOLIO_DETAILS_CONFIG = {
  MAX_ROWS: 1000
 };
 
-var STOCK_PORTFOLIO_DETAILS_HEADERS = ["Top", "Exe", "Symbol", "Price (Ôé¼)", "Position :", "Ticker", "Contract Adress", "Libre", "Flex", "Lock", "Total", "Valorisation"];
+var STOCK_PORTFOLIO_DETAILS_HEADERS = ["Top", "Exe", "Symbol", "Price (€)", "Position :", "Ticker", "Contract Adress", "Libre", "Flex", "Lock", "Total", "Valorisation"];
 
 function _xstocksCollectSolanaActionTitles_(rows) {
  var out = new Array();
@@ -287,24 +287,21 @@ function _xstocksStockDetailsRow_(sheetRow, symbol, source, sourceTicker, mint, 
   var flex = 0;
   var locked = 0;
   if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME) {
-   var bpRef = "'" + source.replace(/'/g, "''") + "'!";
-   libre = "=IFERROR(SUMIFS(" + bpRef + "B:B;" + bpRef + "A:A;F" + sheetRow + ");0)";
-  } else if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.EURC_FIAT_SHEET_NAME) {
-   // v4.16.76: formule Euro cash adaptee de Portefeuille Action vers Details.
-   // Le prix C<row> de PA devient D<row> ici; U1 reste le flag PA explicite.
-   var eurPrice = "D" + sheetRow;
-   var eurParts = [];
-   var eurSheets = ["CEX - Bitpanda Crypto", "CEX - Bitpanda Commodity", "CEX - Bitpanda Fiat", "CEX - Bitpanda Stocks"];
-   var eurSymbols = ["BCPEUR", "EUR"];
-   for (var es = 0; es < eurSymbols.length; es++) {
-    for (var ef = 0; ef < eurSheets.length; ef++) {
-     var eurLookup = "VLOOKUP(\"" + eurSymbols[es] + "\";'" + eurSheets[ef] + "'!A:B;2;FALSE)";
-     eurParts.push("IF(ISNA(" + eurLookup + ");0;" + eurLookup + "*" + eurPrice + ")");
+    var bpRef = "'" + source.replace(/'/g, "''") + "'!";
+    if (String(symbol || "").toUpperCase() === "EUR") {
+     var eurPrice = "D" + sheetRow;
+     var eurParts = [];
+     var eurSymbols = ["BCPEUR", "EUR"];
+     for (var es = 0; es < eurSymbols.length; es++) {
+      var eurLookup = "VLOOKUP(\"" + eurSymbols[es] + "\";" + bpRef + "A:B;2;FALSE)";
+      eurParts.push("IF(ISNA(" + eurLookup + ");0;" + eurLookup + "*" + eurPrice + ")");
+     }
+     libre = "=" + eurParts.join("+") +
+      "-SUMPRODUCT(('Portefeuille Crypto Details'!E:E=\"CEX - Bitpanda Crypto\")*1;('Portefeuille Crypto Details'!C:C=\"EURC\")*1;'Portefeuille Crypto Details'!L:L)" +
+      "-IF('Portefeuille Action'!$U$1=TRUE;HLOOKUP(MAX(Budget!$1:$1)-1;Budget!$1:$133;133);HLOOKUP(MAX(Budget!$1:$1);Budget!$1:$133;133))";
+    } else {
+     libre = "=IFERROR(SUMIFS(" + bpRef + "B:B;" + bpRef + "A:A;F" + sheetRow + ");0)";
     }
-   }
-   libre = "=" + eurParts.join("+") +
-    "-SUMPRODUCT(('Portefeuille Crypto Details'!E:E=\"CEX - Bitpanda Crypto\")*1;('Portefeuille Crypto Details'!C:C=\"EURC\")*1;'Portefeuille Crypto Details'!L:L)" +
-    "-IF('Portefeuille Action'!$U$1=TRUE;HLOOKUP(MAX(Budget!$1:$1)-1;Budget!$1:$133;133);HLOOKUP(MAX(Budget!$1:$1);Budget!$1:$133;133))";
   } else if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.ACTION_LEDGER_SHEET_NAME) {
    var sourceA = "INDIRECT(\"'\"&$E" + sheetRow + "&\"'!A1:A1000\")";
    var sourceC = "INDIRECT(\"'\"&$E" + sheetRow + "&\"'!C1:C1000\")";
@@ -424,10 +421,8 @@ function _xstocksBuildActionDetailsRows_(firstDataRow, bitpandaValues, solanaTit
   if (!isFinite(quantity) || quantity <= 0) continue;
   items.push({ symbol: _xstocksResolveCanonicalSymbol_(symbol, portfolioSymbols), source: STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME, ticker: symbol, mint: "", quantity: quantity, order: items.length });
  }
- var fiatQuantity = Number(eurcFiatQuantity);
- if (isFinite(fiatQuantity) && fiatQuantity > 0) {
-  items.push({ symbol: "EUR", source: STOCK_PORTFOLIO_DETAILS_CONFIG.EURC_FIAT_SHEET_NAME, ticker: "EURC", mint: "", quantity: fiatQuantity, order: items.length });
- }
+  // Le cash EUR arrive désormais directement dans CEX - Bitpanda Stocks et a déjà
+  // été ajouté depuis bitpandaValues. Ne pas créer une seconde ligne synthétique EURC.
  var titles = Array.isArray(solanaTitleRows) ? solanaTitleRows : [];
  for (var j = 0; j < titles.length; j++) {
   var title = titles[j];
@@ -485,9 +480,9 @@ function _stockPortfolioDetailsEnsureLayout_(sh) {
   .setBackground("#111827");
  var dataRows = Math.max(1, STOCK_PORTFOLIO_DETAILS_CONFIG.MAX_ROWS - STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW + 1);
  sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
- sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0.00 \"Ôé¼\"").setHorizontalAlignment("right");
+ sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
  sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 8, dataRows, 4).setNumberFormat("0.########").setHorizontalAlignment("right");
- sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 12, dataRows, 1).setNumberFormat("#,##0.00 \"Ôé¼\"").setHorizontalAlignment("right");
+ sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 12, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
 if (typeof PORTFOLIO_SHARED_COLUMN_WIDTHS !== "undefined" && PORTFOLIO_SHARED_COLUMN_WIDTHS) {
  for (var c = 0; c < STOCK_PORTFOLIO_DETAILS_CONFIG.MANAGED_LAST_COLUMN && c < PORTFOLIO_SHARED_COLUMN_WIDTHS.length; c++) {
   sh.setColumnWidth(c + 1, PORTFOLIO_SHARED_COLUMN_WIDTHS[c]);
@@ -550,22 +545,6 @@ function _refreshStockPortfolioDetailsCore_() {
     missing.push(STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME);
    }
   var eurcFiatQuantity = null;
-  try {
-   var fiatSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.EURC_FIAT_SHEET_NAME);
-   if (fiatSheet) {
-    var fiatAvailableRows = Number(fiatSheet.getMaxRows()) || 0;
-    var fiatRowCount = fiatAvailableRows - STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW + 1;
-    var fiatValues = fiatRowCount > 0 ? fiatSheet.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW, 1, fiatRowCount, 2).getValues() : [];
-    for (var f = 0; f < fiatValues.length; f++) {
-     if (String((fiatValues[f] && fiatValues[f][0]) || "").trim().toUpperCase() !== "EUR") continue;
-     var fiatQuantity = Number(fiatValues[f][1]);
-     if (isFinite(fiatQuantity) && fiatQuantity > 0) eurcFiatQuantity = fiatQuantity;
-     break;
-    }
-   }
-  } catch (eFiat) {
-   try { Logger.log("[XSTOCKS_DETAILS] EURC fiat read failed: " + (eFiat && eFiat.message ? eFiat.message : String(eFiat))); } catch (eLogFiat) {}
-  }
   var ledgerSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.ACTION_LEDGER_SHEET_NAME);
   var address = null;
   if (ledgerSheet) {

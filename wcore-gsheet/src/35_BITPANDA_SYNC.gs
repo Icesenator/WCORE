@@ -1,3 +1,4 @@
+// v4.16.74 - Split Bitpanda legacy security.stock vs equity_security duplicates (-LEG suffix).
 // v4.16.34 - Canonical CEX rotation, legacy watchdog cleanup, and dedicated Bitpanda triggers.
 // v4.15.146 - Clear full CEX managed A:G area before INFO_TOTAL rewrite so stale totals don't remain when row count grows.
 // v4.15.145 - Wrap _bpFetch_ with shared _cexRelayFetchWithRetry_ so direct Bitpanda calls survive transient UrlFetch null responses (same protection as relay connectors + Bitfinex).
@@ -30,7 +31,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.16.34";
+var BITPANDA_SYNC_VERSION = "4.16.74";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -42,8 +43,6 @@ var BITPANDA_SYNC_CONFIG = {
   SPREADSHEET_ID: "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4",
   SHEETS: {
     CRYPTO: "CEX - Bitpanda Crypto",
-    COMMODITY: "CEX - Bitpanda Commodity",
-    FIAT: "CEX - Bitpanda Fiat",
     STOCKS: "CEX - Bitpanda Stocks"
     // v4.15.68: l'onglet "Bitpanda Spot Action" a ete supprime. Le bucket action
     // de l'API est desormais fusionne dans STOCKS (voir UPDATE_BITPANDA_SPOT).
@@ -586,6 +585,11 @@ function _cexRunManualJob_(job) {
     else if (kind === "OKX") result = typeof UPDATE_OKX_SPOT === "function" ? String(UPDATE_OKX_SPOT()) : "SKIPPED_MISSING_UPDATE_OKX_SPOT";
     else if (kind === "KRAKEN") result = typeof UPDATE_KRAKEN_SPOT === "function" ? String(UPDATE_KRAKEN_SPOT()) : "SKIPPED_MISSING_UPDATE_KRAKEN_SPOT";
     else if (kind === "KRAKEN_STOCKS") result = typeof UPDATE_KRAKEN_STOCKS_FIAT === "function" ? String(UPDATE_KRAKEN_STOCKS_FIAT()) : "SKIPPED_MISSING_UPDATE_KRAKEN_STOCKS_FIAT";
+    // v4.16.x: routage portfolio optionnel — PAS enqueue par T2/U2 (décision :
+    // les clics Portefeuille Action/Crypto ne rafraîchissent pas les portfolios,
+    // seulement les feuilles CEX). Disponible pour usage ponctuel/externe.
+    else if (kind === "STOCK_PORTFOLIO") result = typeof UPDATE_STOCK_PORTFOLIO === "function" ? String(UPDATE_STOCK_PORTFOLIO()) : "SKIPPED_MISSING_UPDATE_STOCK_PORTFOLIO";
+    else if (kind === "CRYPTO_PORTFOLIO") result = typeof UPDATE_CRYPTO_PORTFOLIO_V2 === "function" ? String(UPDATE_CRYPTO_PORTFOLIO_V2()) : "SKIPPED_MISSING_UPDATE_CRYPTO_PORTFOLIO_V2";
     else result = "UNKNOWN_JOB:" + kind;
   } catch (err) {
     result = "THREW:" + (err && err.message ? err.message : err);
@@ -711,12 +715,13 @@ function _bpCanonicalSymbol_(symbol) {
   return BITPANDA_SYMBOL_ALIASES[up] || s;
 }
 
-// v4.15.69: agrege par symbole (somme des balances) au lieu de dedupliquer.
+// v4.16.74: agrege par symbole + suffixe produit (somme des balances) au lieu de dedupliquer.
 // Bitpanda peut renvoyer plusieurs wallets pour un meme symbole (ex: plusieurs
 // sous-comptes / lots). On cumule les soldes pour avoir une seule ligne par actif.
-function _bpPushUniqueRow_(rows, seen, row) {
+// keySuffix distingue les produits: "" = legacy security.stock, "-LEG" = equity_security.
+function _bpPushUniqueRow_(rows, seen, row, keySuffix) {
   if (!row || !row[0]) return;
-  var key = String(row[0]).toUpperCase();
+  var key = String(row[0]).toUpperCase() + String(keySuffix || "");
   var add = _bpParseBalance_(row[1]);
   if (Object.prototype.hasOwnProperty.call(seen, key)) {
     var idx = seen[key];
@@ -724,13 +729,48 @@ function _bpPushUniqueRow_(rows, seen, row) {
     return;
   }
   seen[key] = rows.length;
-  // conserve les colonnes additionnelles eventuelles (ex: unknown path)
   var copy = row.slice();
   copy[1] = add;
   rows.push(copy);
 }
 
-function _bpMergeBuckets_(primary, secondary) {
+// v4.16.74: Bitpanda expose deux produits actions — l'ancien (/asset-wallets
+// security.stock) et le nouveau (equity_security). Quand les deux coexistent
+// pour un meme ticker on garde DEUX lignes: le legacy conserve le ticker nu
+// (GOOGL) et le nouveau recoit "-LEG" (GOOGL-LEG). Un titre present uniquement
+// en equity_security reste nu.
+function _bpMergeStocksWithEquities_(legacyRows, equityRows) {
+  var out = [];
+  var seenLegacy = {};
+  for (var i = 0; i < (legacyRows || []).length; i++) _bpPushUniqueRow_(out, seenLegacy, legacyRows[i]);
+  var equityMerged = [];
+  var seenEquity = {};
+  for (var j = 0; j < (equityRows || []).length; j++) _bpPushUniqueRow_(equityMerged, seenEquity, equityRows[j]);
+  for (var k = 0; k < equityMerged.length; k++) {
+    var sym = String(equityMerged[k][0] || "").toUpperCase();
+    var eqBal = _bpParseBalance_(equityMerged[k][1]);
+    if (!sym) continue;
+    var hasLegacy = Object.prototype.hasOwnProperty.call(seenLegacy, sym);
+    if (hasLegacy && Number(_bpParseBalance_(out[seenLegacy[sym]][1])) > 0 && eqBal > 0) {
+      out.push([sym + BP_NEW_STOCK_SUFFIX, eqBal]);
+    } else if (!hasLegacy) {
+      out.push([sym, eqBal]);
+    } else {
+      out[seenLegacy[sym]][1] = _bpParseBalance_(out[seenLegacy[sym]][1]) + eqBal;
+    }
+  }
+  return out;
+}
+
+function _bpStripNewStockSuffix_(symbol) {
+  var s = String(symbol || "").trim().toUpperCase();
+  if (s.length > BP_NEW_STOCK_SUFFIX.length && s.slice(-BP_NEW_STOCK_SUFFIX.length) === BP_NEW_STOCK_SUFFIX) {
+    return s.slice(0, -BP_NEW_STOCK_SUFFIX.length);
+  }
+  return s;
+}
+
+function _bpMergeBuckets_() {
   var out = [];
   var seen = {};
   function add(list) {
@@ -741,8 +781,7 @@ function _bpMergeBuckets_(primary, secondary) {
       _bpPushUniqueRow_(out, seen, row);
     }
   }
-  add(primary);
-  add(secondary);
+  for (var a = 0; a < arguments.length; a++) add(arguments[a]);
   return out;
 }
 
@@ -772,7 +811,8 @@ function _bpWalkAssetWallets_(node, path, buckets, seen) {
     if (!row) return;
     if (p.indexOf("commodity") >= 0 || p.indexOf("metal") >= 0) _bpPushUniqueRow_(buckets.commodity, seen.commodity, row);
     else if (p.indexOf("action") >= 0) _bpPushUniqueRow_(buckets.action, seen.action, row);
-    else if (p.indexOf("stock") >= 0 || p.indexOf("equity") >= 0 || p.indexOf("security") >= 0 || p.indexOf("etf") >= 0 || p.indexOf("index") >= 0) _bpPushUniqueRow_(buckets.stocks, seen.stocks, row);
+    else if (p.indexOf("equity") >= 0) _bpPushUniqueRow_(buckets.equities, seen.equities, row);
+    else if (p.indexOf("stock") >= 0 || p.indexOf("security") >= 0 || p.indexOf("etf") >= 0 || p.indexOf("index") >= 0) _bpPushUniqueRow_(buckets.stocks, seen.stocks, row);
     // v4.15.77: NE PAS re-ajouter les wallets crypto d'/asset-wallets: ils
     // doublonnent /wallets (deja charge), ce qui doublait les soldes crypto.
     else if (p.indexOf("crypto") >= 0 || p.indexOf("coin") >= 0) { /* skip: deja couvert par /wallets */ }
@@ -792,20 +832,33 @@ var BITPANDA_CASH_LIKE = {
   "BCPEUR": "EUR"
 };
 
+var BP_NEW_STOCK_SUFFIX = "-LEG";
+
 function _bpReclassifyCashLike_(buckets) {
   var moved = [];
   var keptStocks = [];
-  for (var i = 0; i < buckets.stocks.length; i++) {
-    var row = buckets.stocks[i];
-    var sym = String((row && row[0]) || "").toUpperCase();
-    if (Object.prototype.hasOwnProperty.call(BITPANDA_CASH_LIKE, sym)) {
-      moved.push([BITPANDA_CASH_LIKE[sym], _bpParseBalance_(row[1])]);
-    } else {
-      keptStocks.push(row);
+  var sources = [buckets.stocks, buckets.equities || []];
+  for (var sIdx = 0; sIdx < sources.length; sIdx++) {
+    for (var i = 0; i < sources[sIdx].length; i++) {
+      var row = sources[sIdx][i];
+      var sym = String((row && row[0]) || "").toUpperCase();
+      if (Object.prototype.hasOwnProperty.call(BITPANDA_CASH_LIKE, sym)) {
+        moved.push([BITPANDA_CASH_LIKE[sym], _bpParseBalance_(row[1])]);
+      } else if (sIdx === 0) {
+        keptStocks.push(row);
+      }
     }
   }
-  if (!moved.length) return;
   buckets.stocks = keptStocks;
+  if (buckets.equities) {
+    var keptEquities = [];
+    for (var e2 = 0; e2 < buckets.equities.length; e2++) {
+      var symE = String((buckets.equities[e2] && buckets.equities[e2][0]) || "").toUpperCase();
+      if (!Object.prototype.hasOwnProperty.call(BITPANDA_CASH_LIKE, symE)) keptEquities.push(buckets.equities[e2]);
+    }
+    buckets.equities = keptEquities;
+  }
+  if (!moved.length) return;
   // Re-agrege le bucket fiat avec les montants deplaces (cumul par devise).
   var fiatSeen = {};
   var fiatOut = [];
@@ -814,9 +867,21 @@ function _bpReclassifyCashLike_(buckets) {
   buckets.fiat = fiatOut;
 }
 
+function _bpBuildOutputBuckets_(buckets) {
+  buckets = buckets || {};
+  var stocksRows = _bpMergeStocksWithEquities_(
+    _bpMergeBuckets_(buckets.stocks || [], buckets.action || []),
+    buckets.equities || []
+  );
+  return {
+    crypto: _bpMergeBuckets_(buckets.crypto || []),
+    stocks: _bpMergeBuckets_(stocksRows, buckets.fiat || [])
+  };
+}
+
 function _bpFetchBuckets_(apiKey) {
-  var buckets = { crypto: [], commodity: [], fiat: [], stocks: [], action: [], unknown: [] };
-  var seen = { crypto: {}, commodity: {}, fiat: {}, stocks: {}, action: {}, unknown: {} };
+  var buckets = { crypto: [], commodity: [], fiat: [], stocks: [], equities: [], action: [], unknown: [] };
+  var seen = { crypto: {}, commodity: {}, fiat: {}, stocks: {}, equities: {}, action: {}, unknown: {} };
 
   var wallets = _bpFetch_("/wallets", apiKey);
   var cryptoData = wallets.data || [];
@@ -853,8 +918,8 @@ function _bpWriteRows_(ss, sheetName, rows, sourceLabel) {
 }
 
 // v4.15.81: cellules de refresh manuel hors onglets Bitpanda.
-// T2 = Portefeuille Action (Bitpanda Stocks + Fiat only; WCORE supplies market data).
-// Portefeuille Crypto!U2 = Crypto CEX block (all CEX crypto tabs).
+// T2 = Portefeuille Action (CEX - Bitpanda Stocks + CEX - Kraken Stocks).
+// Portefeuille Crypto!U2 = CEX crypto (Binance, Bitfinex, Bitpanda Crypto, Bybit, Coinbase, Kraken Crypto, OKX).
 var BITPANDA_REFRESH_CELLS = {
   "Portefeuille Action": {
     "T2": BITPANDA_SYNC_CONFIG.ACTION_REBALANCING_REFRESH_FLAG_PROP
@@ -909,8 +974,8 @@ function BITPANDA_ON_EDIT(e) {
     } else if (name === "Portefeuille Crypto" && cell === "U2") {
       var cryptoStatusCell = "V2";
       _bpSetExternalRefreshStatus_(sheet, cryptoStatusCell, "QUEUED: " + _bpFmtStamp_());
-      // v4.15.114: single batch enqueue for the 6 CEX jobs. Per-job enqueue redid
-      // getProjectTriggers()+delete+create 6 times -> MASTER_ON_EDIT 50-75s.
+      // v4.15.114: single batch enqueue for the 7 CEX jobs. Per-job enqueue redid
+      // getProjectTriggers()+delete+create for every job -> MASTER_ON_EDIT 50-75s.
       _cexEnqueueManualJobs_([
         { kind: "BITPANDA_CRYPTO", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "BINANCE", sheetName: typeof BINANCE_SYNC_CONFIG !== "undefined" ? BINANCE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
@@ -967,7 +1032,7 @@ function _bpGetManagedSheetRefreshPlan_(sheetName) {
   if (sheetName === BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO) {
     return { label: "BITPANDA_CRYPTO", updateFn: UPDATE_BITPANDA_CRYPTO_FIAT };
   }
-  if (sheetName === BITPANDA_SYNC_CONFIG.SHEETS.FIAT || sheetName === BITPANDA_SYNC_CONFIG.SHEETS.STOCKS) {
+  if (sheetName === BITPANDA_SYNC_CONFIG.SHEETS.STOCKS) {
     return { label: "BITPANDA_STOCKS_FIAT", updateFn: UPDATE_BITPANDA_STOCKS_FIAT };
   }
   return { label: "BITPANDA", updateFn: UPDATE_BITPANDA_SPOT };
@@ -1149,6 +1214,7 @@ function DIAG_BITPANDA_API() {
     "commodity=" + buckets.commodity.length,
     "fiat=" + buckets.fiat.length,
     "stocks=" + buckets.stocks.length,
+    "equities=" + (buckets.equities ? buckets.equities.length : 0),
     "action=" + buckets.action.length,
     "unknown=" + buckets.unknown.length,
     "crypto sample=" + JSON.stringify(buckets.crypto.slice(0, 5)),
@@ -1171,12 +1237,12 @@ function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
     var buckets = _bpFetchBuckets_(apiKey);
 
     // v4.15.68: fusionner le bucket "action" dans "stocks" (onglet Action supprime).
-    var stocksRows = _bpMergeBuckets_(buckets.stocks, buckets.action);
+    // v4.16.x: les fiats Bitpanda rejoignent Stocks; EURC/EURCV vivent en Crypto;
+    // les commodities sont exclus. La sortie ne produit que Crypto et Stocks.
+    var output = _bpBuildOutputBuckets_(buckets);
 
-    if (writeMap.crypto) _bpWriteRows_(ss, BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, buckets.crypto, sourceLabel);
-    if (writeMap.commodity) _bpWriteRows_(ss, BITPANDA_SYNC_CONFIG.SHEETS.COMMODITY, buckets.commodity, sourceLabel);
-    if (writeMap.fiat) _bpWriteRows_(ss, BITPANDA_SYNC_CONFIG.SHEETS.FIAT, buckets.fiat, sourceLabel);
-    if (writeMap.stocks) _bpWriteRows_(ss, BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, stocksRows, sourceLabel);
+    if (writeMap.crypto) _bpWriteRows_(ss, BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, output.crypto, sourceLabel);
+    if (writeMap.stocks) _bpWriteRows_(ss, BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, output.stocks, sourceLabel);
 
     var status = {
       ok: true,
@@ -1184,14 +1250,12 @@ function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
       mode: sourceLabel,
       wrote: {
         crypto: !!writeMap.crypto,
-        commodity: !!writeMap.commodity,
-        fiat: !!writeMap.fiat,
         stocks: !!writeMap.stocks
       },
-      crypto: buckets.crypto.length,
+      crypto: output.crypto.length,
       commodity: buckets.commodity.length,
       fiat: buckets.fiat.length,
-      stocks: stocksRows.length,
+      stocks: output.stocks.length,
       action: buckets.action.length,
       unknown: buckets.unknown.length
     };
@@ -1209,9 +1273,10 @@ function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
 
 function UPDATE_BITPANDA_SPOT() {
   try { HttpCallCounter.setTrigger('UPDATE_BITPANDA_SPOT'); } catch(e){}
-  // Auto trigger path: keep the regular Bitpanda spot job bounded. Stocks are
-  // priced/written by UPDATE_BITPANDA_STOCKS_FIAT in a separate trigger.
-  return _bpUpdateSelectedBuckets_({ crypto: true, commodity: true, fiat: true, stocks: false }, "bitpanda-api");
+  // Auto trigger path: keep the regular Bitpanda spot job bounded. Stocks (incl.
+  // fiats) are priced/written by UPDATE_BITPANDA_STOCKS_FIAT in a separate trigger.
+  // v4.16.x: commodities exclus - aucune feuille Commodity n'est plus alimentee.
+  return _bpUpdateSelectedBuckets_({ crypto: true, stocks: false }, "bitpanda-api");
 }
 
 function UPDATE_BITPANDA_STOCKS_FIAT() {
@@ -1219,12 +1284,14 @@ function UPDATE_BITPANDA_STOCKS_FIAT() {
   return _bpUpdateSelectedBuckets_({ fiat: true, stocks: true }, "bitpanda-api-action-rebalancing");
 }
 
+// v4.16.x: LEGACY — nom historique trompeur. N'ecrit plus AUCUNE fiat depuis la
+// consolidation Fiat→Stocks (les fiats vivent dans CEX - Bitpanda Stocks).
+// Conservee comme alias de UPDATE_BITPANDA_CRYPTO (crypto only) pour compat.
 function UPDATE_BITPANDA_CRYPTO_FIAT() {
-  return _bpUpdateSelectedBuckets_({ crypto: true, fiat: true }, "bitpanda-api-crypto-cex");
+  return _bpUpdateSelectedBuckets_({ crypto: true }, "bitpanda-api-crypto-cex");
 }
 
-// v4.15.115: crypto uniquement — le bloc CEX de Portefeuille Crypto!AC2 n'a pas
-// besoin de rafraichir CEX - Bitpanda Fiat (la fiat n'est pas trackee la-bas).
+// Crypto uniquement : les fiats sont consolides dans CEX - Bitpanda Stocks.
 function UPDATE_BITPANDA_CRYPTO() {
   return _bpUpdateSelectedBuckets_({ crypto: true }, "bitpanda-api-crypto-only");
 }
@@ -1601,6 +1668,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   for (var i = 0; i < nb; i++) {
     var row = balances[i] || [];
     var symbol = String(row[0] || "").trim().toUpperCase();
+    var priceSymbol = isStocks ? _bpStripNewStockSuffix_(symbol) : symbol;
     var balance = Number(row[1] || 0);
     var priceEur = null;
     var directValueEur = null;
@@ -1618,20 +1686,20 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       }
       // Stocks: Portefeuille Action FIRST (WCORE source of truth), then web API
       // (Yahoo relay) as fallback. Keeps CEX - Bitpanda Stocks consistent with PA.
-      if (directValueEur == null && isStocks && stockPriceMap[symbol] != null) priceEur = stockPriceMap[symbol];
-      if (priceEur == null && webPrices && webPrices.hasOwnProperty(symbol)) {
-        if (webPrices[symbol] != null && webPrices[symbol] > 0) priceEur = Number(webPrices[symbol]);
+      if (directValueEur == null && isStocks && stockPriceMap[priceSymbol] != null) priceEur = stockPriceMap[priceSymbol];
+      if (priceEur == null && webPrices && webPrices.hasOwnProperty(priceSymbol)) {
+        if (webPrices[priceSymbol] != null && webPrices[priceSymbol] > 0) priceEur = Number(webPrices[priceSymbol]);
       }
-      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol))) {
+      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol))) {
         var t = null;
-        if (symbol === "EUR") t = "EUR";
-        if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) t = WCORE_STABLECOINS.getType(symbol);
-        if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t = ChainFactory.STABLECOINS.getType(symbol);
-        if (t === "EUR" || t === "USD" || symbol === "EUR") priceEur = 1.0;
+        if (priceSymbol === "EUR") t = "EUR";
+        if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) t = WCORE_STABLECOINS.getType(priceSymbol);
+        if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t = ChainFactory.STABLECOINS.getType(priceSymbol);
+        if (t === "EUR" || t === "USD" || priceSymbol === "EUR") priceEur = 1.0;
       }
-      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol)) && _cexSymbolToGeckoId_(symbol)) {
+      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol)) && _cexSymbolToGeckoId_(priceSymbol)) {
         try {
-          var geckoId = _cexSymbolToGeckoId_(symbol);
+          var geckoId = _cexSymbolToGeckoId_(priceSymbol);
           var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
           if (isFinite(Number(usd)) && Number(usd) > 0) {
             var fx = null;
@@ -1639,9 +1707,9 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
             if (isFinite(Number(fx)) && Number(fx) > 0) priceEur = Number(usd) * Number(fx);
           }
         } catch (eLlama) {}
-        if (priceEur == null && priceMap[symbol] != null) priceEur = priceMap[symbol];
-      } else if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(symbol)) && priceMap[symbol] != null) {
-        priceEur = priceMap[symbol];
+        if (priceEur == null && priceMap[priceSymbol] != null) priceEur = priceMap[priceSymbol];
+      } else if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol)) && priceMap[priceSymbol] != null) {
+        priceEur = priceMap[priceSymbol];
       }
     }
 
@@ -1731,7 +1799,8 @@ function _cexFetchWebPrices_(balances, sheetName, isStocks, providerSlug) {
       var allSymbols = [];
       for (var bi = 0; bi < (balances || []).length; bi++) {
         var bs = String((balances[bi] || [])[0] || "").trim().toUpperCase();
-        if (bs && Number((balances[bi] || [])[1] || 0) > 0) allSymbols.push(bs);
+        if (isStocks) bs = _bpStripNewStockSuffix_(bs);
+        if (bs && Number((balances[bi] || [])[1] || 0) > 0 && allSymbols.indexOf(bs) < 0) allSymbols.push(bs);
       }
       if (allSymbols.length > 0) {
         // For stocks, also try the original (pre-normalization) ticker
@@ -1792,7 +1861,7 @@ function _cexBuildVerifFormula_(sheetName) {
   if (!isFiatOrStocks) return cryptoDetailsV2Formula;
   if (isFiatOrStocks) {
     var escapedSheetName = String(sheetName || "").replace(/"/g, '""');
-    return '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Action Details\'!$E:$E;"' + escapedSheetName + '";\'Portefeuille Action Details\'!$C:$C;s)>0;"V";"X")))))';
+    return '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";LET(t;REGEXREPLACE(s;"-LEG$";"");IF(COUNTIFS(\'Portefeuille Action Details\'!$E:$E;"' + escapedSheetName + '";\'Portefeuille Action Details\'!$C:$C;t)>0;"V";"X"))))))';
   }
 }
 
@@ -1833,9 +1902,7 @@ function REPAIR_CEX_SHEETS_STRUCTURE() {
   var names = [
     "CEX - Binance",
     "CEX - Bitfinex",
-    "CEX - Bitpanda Commodity",
     "CEX - Bitpanda Crypto",
-    "CEX - Bitpanda Fiat",
     "CEX - Bitpanda Stocks",
     "CEX - Bybit",
     "CEX - Coinbase",

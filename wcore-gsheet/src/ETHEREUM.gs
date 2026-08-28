@@ -121,6 +121,10 @@ function GET_WALLET_ASSETS_ETHEREUM(a,r,t,f,g){return _ETHEREUM.getWalletAssets(
 function CACHED_WALLET_ASSETS_ETHEREUM(a){return _ETHEREUM.getCachedWalletAssets(a);}
 function ETHEREUM_REFRESH_STATUS(a,r,t,f,g){return _ETHEREUM.getRefreshStatus(a,r,t,f,g);}
 function ETHEREUM_STATS(a,t){return _ETHEREUM.getStats(a,t);}
+function CACHED_WALLET_ASSETS_ETHEREUM_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("ETHEREUM");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_ETHEREUM_ACTION(a){var cfg=_rwaViewsConfigByKey_("ETHEREUM");return _rwaProjectActionByCfg_(cfg,a);}
+function ETHEREUM_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function ETHEREUM_STATS_ACTION(a,t){return ETHEREUM_STATS(a,t);}
 
 // ============================================================
 // DIAGNOSTIC FUNCTIONS

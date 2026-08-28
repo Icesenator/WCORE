@@ -1,0 +1,51 @@
+﻿// v4.16.76 - FEAT: coeur generique vues Ledger PRIMARY/SECONDARY (Crypto/Action).
+var LedgerViewRegistry_ = { pairs: {} };
+
+function LedgerViewRegistry_register(pair) {
+  var secondary = String(pair && pair.secondary || "").trim();
+  var primary = String(pair && pair.primary || "").trim();
+  if (!secondary || !primary || secondary === primary) throw new Error("LedgerViewRegistry_register: secondary/primary invalides");
+  LedgerViewRegistry_.pairs[secondary] = primary;
+}
+
+function LedgerViewRegistry_resolvePrimary_(sheetName) {
+  var seen = {};
+  var current = String(sheetName || "").trim();
+  var primary = null;
+  while (Object.prototype.hasOwnProperty.call(LedgerViewRegistry_.pairs, current)) {
+    if (seen[current]) throw new Error("LedgerViewRegistry: cycle detecte " + current);
+    seen[current] = true;
+    primary = LedgerViewRegistry_.pairs[current];
+    current = primary;
+  }
+  return primary;
+}
+
+function LedgerView_isSecondary_(sheetName) {
+  return Boolean(LedgerViewRegistry_resolvePrimary_(sheetName));
+}
+
+function _ledgerViewClone_(value) {
+  if (Array.isArray(value)) {
+    var arr = [];
+    for (var i = 0; i < value.length; i++) arr.push(_ledgerViewClone_(value[i]));
+    return arr;
+  }
+  if (value && typeof value === "object" && Object.prototype.toString.call(value) === "[object Object]") {
+    var out = {};
+    for (var key in value) if (Object.prototype.hasOwnProperty.call(value, key)) out[key] = _ledgerViewClone_(value[key]);
+    return out;
+  }
+  return value;
+}
+
+function LedgerView_projectCached_(chainApi, walletArg, projector) {
+  if (!chainApi || typeof chainApi.getCachedWalletAssets !== "function") throw new Error("LedgerView_projectCached_: chainApi.getCachedWalletAssets requis");
+  if (typeof projector !== "function") throw new Error("LedgerView_projectCached_: projector requis");
+  var rows = chainApi.getCachedWalletAssets(walletArg);
+  return projector(_ledgerViewClone_(Array.isArray(rows) ? rows : []));
+}
+
+function LedgerView_relayStatus_(primaryStatus) {
+  return primaryStatus === null || primaryStatus === undefined || String(primaryStatus) === "" ? "N/A" : primaryStatus;
+}

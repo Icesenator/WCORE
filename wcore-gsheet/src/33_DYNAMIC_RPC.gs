@@ -1,6 +1,10 @@
 /************************************************************
  * 33_DYNAMIC_RPC.gs - Dynamic RPC Endpoint Discovery
  *
+ * v4.15.38 - FORCE_UPDATE_DYNAMIC_RPCS (bypass staleness gate, no wallet cache purge) + diagnostic counters
+ * v4.15.37 - replaceTested for latency-tested chains (no 2-miss grace)
+ * v4.15.36 - Strict endpoint validation (eth_chainId + eth_blockNumber)
+ * v4.15.35 - Weekly staleness 25d -> 7d
  * v4.15.34 - Lazy testing: rotation-based sampling (1/3 chains per cycle, ~80 HTTP calls vs ~250)
  * v4.15.6 - instrumentation HttpCallCounter per-trigger
  * v4.15.5 - Individual fetch for accurate per-RPC latency measurement
@@ -11,13 +15,13 @@
  * RpcSelector merges these with hardcoded config.RPC.ENDPOINTS.
  *
  * Storage: ~5-10 KB in ScriptProperties (key: DYNAMIC_RPC_MAP)
- * HTTP cost: 1 call per ~30 days (weekly trigger with 25-day staleness check)
+ * HTTP cost: 1 call per ~7 days (weekly trigger with 7-day staleness check)
  * TTL: 30 days (auto-expires if trigger stops running)
  *
  * IMPORTANT: Chainlist RPCs are PRIMARY (community-maintained, up-to-date).
  * Hardcoded RPCs are FALLBACK (stable baseline). Both filtered by RpcHealth.
  ************************************************************/
-var DYNAMIC_RPC_VERSION = "4.15.34";
+var DYNAMIC_RPC_VERSION = "4.15.38";
 
 function _dynamicRpcCanFetch_(reason) {
   try {
@@ -114,6 +118,33 @@ var DynamicRpcStore = (function() {
       _cache[key] = entry;
 
       return { added: result.added, removed: result.removed };
+    },
+
+    /**
+     * v4.15.37: Replace the dynamic RPC list for a chain that was just
+     * latency-tested. The validated RPCs become the authoritative set;
+     * any endpoint not in the list is removed without 2-miss grace.
+     *
+     * @param {number} chainId
+     * @param {Array<string>} validatedRpcs
+     * @returns {{added: number, removed: number}}
+     */
+    replaceTested: function(chainId, validatedRpcs) {
+      _load();
+      var key = String(chainId);
+      var previous = _cache[key] || { rpcs: [], absent: {} };
+      var oldList = previous.rpcs || [];
+      var next = (validatedRpcs || []).slice();
+      var oldSet = {};
+      var nextSet = {};
+      for (var i = 0; i < oldList.length; i++) oldSet[oldList[i]] = true;
+      for (var j = 0; j < next.length; j++) nextSet[next[j]] = true;
+      var added = 0;
+      var removed = 0;
+      for (var a = 0; a < next.length; a++) if (!oldSet[next[a]]) added++;
+      for (var r = 0; r < oldList.length; r++) if (!nextSet[oldList[r]]) removed++;
+      _cache[key] = { rpcs: next, absent: {} };
+      return { added: added, removed: removed };
     },
 
     /**
@@ -542,77 +573,139 @@ function _dynamicRpcGetOurChainIds() {
 // ============================================================
 
 /**
- * Test RPC latency using eth_chainId (lightest possible call).
+ * Validate a single RPC endpoint with strict two-call check:
+ *   1. eth_chainId must match the expected chainId.
+ *   2. eth_blockNumber must be strictly positive.
+ *
+ * v4.15.36 - Strict endpoint validation (chainId + blockNumber).
+ * Replaces the lightweight eth_chainId-only check that was hiding
+ * endpoints returning the wrong chain (Degen served by Polygon) and
+ * HTTP-200 endpoints with empty / non-JRPC bodies.
+ *
+ * @param {string} url - RPC URL to test
+ * @param {number} expectedChainId - EVM chain ID we expect this RPC to serve
+ * @param {number} deadlineMs - Optional per-call deadline in ms (default 3000)
+ * @returns {{ok: boolean, reason: string, latency: number, blockNumber: number}}
+ *          reason values: "ok" | "http_error" | "chain_id_mismatch"
+ *                        | "invalid_block_number" | "fetch_error" | "quota_blocked"
+ */
+function _dynamicRpcValidateEndpoint_(url, expectedChainId, deadlineMs) {
+  var deadlineS = Math.max(1, Math.ceil(Number(deadlineMs || 3000) / 1000));
+  var startedAt = Date.now();
+  if (!_dynamicRpcCanFetch_("dynamic-rpc-latency")) {
+    return { ok: false, reason: "quota_blocked", latency: 0, blockNumber: 0 };
+  }
+  try {
+    var chainResp = UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }),
+      muteHttpExceptions: true,
+      deadline: deadlineS
+    });
+    if (!chainResp || chainResp.getResponseCode() !== 200) {
+      return { ok: false, reason: "http_error", latency: Date.now() - startedAt, blockNumber: 0 };
+    }
+    var chainBody = JSON.parse(chainResp.getContentText());
+    var chainResult = chainBody && chainBody.result;
+    var parsedChainId = parseInt(String(chainResult || ""), 16);
+    if (!isFinite(parsedChainId) || parsedChainId !== Number(expectedChainId)) {
+      return { ok: false, reason: "chain_id_mismatch", latency: Date.now() - startedAt, blockNumber: 0 };
+    }
+    var blockResp = UrlFetchApp.fetch(url, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "eth_blockNumber", params: [] }),
+      muteHttpExceptions: true,
+      deadline: deadlineS
+    });
+    if (!blockResp || blockResp.getResponseCode() !== 200) {
+      return { ok: false, reason: "http_error", latency: Date.now() - startedAt, blockNumber: 0 };
+    }
+    var blockBody = JSON.parse(blockResp.getContentText());
+    var blockResult = blockBody && blockBody.result;
+    var blockNumber = parseInt(String(blockResult || ""), 16);
+    if (!isFinite(blockNumber) || blockNumber <= 0) {
+      return { ok: false, reason: "invalid_block_number", latency: Date.now() - startedAt, blockNumber: 0 };
+    }
+    return { ok: true, reason: "ok", latency: Date.now() - startedAt, blockNumber: blockNumber };
+  } catch (e) {
+    return { ok: false, reason: "fetch_error", latency: Date.now() - startedAt, blockNumber: 0 };
+  }
+}
+
+/**
+ * Test RPC latency using eth_chainId + eth_blockNumber (strict validation).
  * v4.15.5: Individual fetch for accurate per-RPC latency measurement.
+ * v4.15.36: Structured result { valid, rejected, reasons } + quota preservation.
  * Max 6 RPCs tested per chain to stay within quota.
  *
  * @param {Array<string>} rpcs - RPC URLs to test
  * @param {number} expectedChainId - Expected chain ID for validation
- * @returns {Array<string>} Responsive RPCs sorted by latency (fastest first)
+ * @returns {{valid: Array<string>, rejected: Array<string>, reasons: Object, quotaBlocked?: boolean}}
+ *          valid: responsive + chainId-matching RPCs sorted by latency
+ *          rejected: explicitly invalid endpoints with a reason
+ *          reasons: cumulative counts per rejection reason
+ *          quotaBlocked: true si le quota a interrompu le test (non entier)
  */
 function _testRpcLatency(rpcs, expectedChainId) {
-  if (!rpcs || !rpcs.length) return [];
+  if (!rpcs || !rpcs.length) {
+    return { valid: [], rejected: [], reasons: {} };
+  }
 
   var MAX_TEST = 6; // Max RPCs to test per chain (quota protection)
-  var DEADLINE_S = 3; // 3 second timeout per RPC
+  var DEADLINE_MS = 3000;
 
   var toTest = rpcs.slice(0, MAX_TEST);
-  var payload = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] });
   var results = []; // { url, latency }
+  var rejected = [];
+  var reasons = {};
+
+  function countReason(reason) {
+    reasons[reason] = (reasons[reason] || 0) + 1;
+  }
 
   for (var i = 0; i < toTest.length; i++) {
-    if (!_dynamicRpcCanFetch_("dynamic-rpc-latency")) break;
-    var t0 = Date.now();
-    try {
-      var resp = UrlFetchApp.fetch(toTest[i], {
-        method: "post",
-        contentType: "application/json",
-        payload: payload,
-        muteHttpExceptions: true,
-        deadline: DEADLINE_S
-      });
-      var latency = Date.now() - t0;
-
-      if (!resp || resp.getResponseCode() !== 200) continue;
-
-      var body = JSON.parse(resp.getContentText());
-      if (!body || !body.result) continue;
-
-      // Validate chain ID matches
-      var returnedId = body.result;
-      if (typeof returnedId === "string" && returnedId.indexOf("0x") === 0) {
-        if (parseInt(returnedId, 16) !== expectedChainId) continue; // Wrong chain!
-      }
-
-      results.push({ url: toTest[i], latency: latency });
-    } catch (e) {
-      // Timeout, DNS error, parse error — skip this RPC
+    var v = _dynamicRpcValidateEndpoint_(toTest[i], expectedChainId, DEADLINE_MS);
+    if (v.reason === "quota_blocked") {
+      // Quota épuisé : on arrête de tester mais on NE rejette PAS les
+      // endpoints restants. Le flag quotaBlocked informe l'appelant que
+      // cette chaîne n'a pas été entièrement testée, afin qu'il utilise
+      // merge() (2-miss) au lieu de replaceTested().
+      return { valid: [], rejected: [], reasons: {}, quotaBlocked: true };
+    }
+    if (v.ok) {
+      results.push({ url: toTest[i], latency: v.latency });
+    } else {
+      rejected.push(toTest[i]);
+      countReason(v.reason);
     }
   }
 
-  // Sort by latency (fastest first)
-  results.sort(function(a, b) { return a.latency - b.latency; });
+  results.sort(function (a, b) { return a.latency - b.latency; });
 
-  var sorted = [];
+  var valid = [];
   for (var k = 0; k < results.length; k++) {
-    sorted.push(results[k].url);
+    valid.push(results[k].url);
   }
 
-  return sorted;
+  return { valid: valid, rejected: rejected, reasons: reasons };
 }
 
-function UPDATE_DYNAMIC_RPCS() {
+function UPDATE_DYNAMIC_RPCS(force) {
+  force = force === true;
   try { HttpCallCounter.setTrigger('UPDATE_DYNAMIC_RPCS'); } catch(e){}
   var t0 = Date.now();
 
   try {
-    // 0. Staleness check — skip if data is fresh (< 25 days old)
+    // 0. Staleness check — skip if data is fresh (< 7 days old)
+    //    v4.15.38: force=true bypasses the staleness gate (manual admin run).
     var lastUpdate = DynamicRpcStore.getUpdatedAt();
     if (lastUpdate > 0) {
       var ageMs = Date.now() - lastUpdate;
       var ageDays = ageMs / 86400000;
-      if (ageDays < 25) {
-        var msg = "SKIP | Data is " + ageDays.toFixed(1) + "d old (threshold: 25d). Next update in ~" + (25 - ageDays).toFixed(0) + "d";
+      if (!force && ageDays < 7) {
+        var msg = "SKIP | Data is " + ageDays.toFixed(1) + "d old (threshold: 7d). Next update in ~" + (7 - ageDays).toFixed(0) + "d";
         console.log("[DYNAMIC_RPC] " + msg);
         return msg;
       }
@@ -643,14 +736,22 @@ function UPDATE_DYNAMIC_RPCS() {
     // 2b. Phase 2: Latency test — only keep RPCs that respond, sorted by speed
     // v4.15.5: Budget 4 min (240s) — GAS limit is 6 min for non-@customfunction
     // v4.15.34: Lazy testing — only test 1/3 of chains per cycle (~80 HTTP calls vs ~250)
+    // v4.15.37: Track testedCids explicitly so section 3 replaces only genuinely
+    //           tested chains (budget-skip stays merge-safe).
     var rotationIndex = DynamicRpcStore.getRotationIndex();
     var rotationMod = 3; // test every Nth chain per cycle
     var testBudgetMs = 240000;
     var testStart = Date.now();
     var testedCount = 0;
-    var droppedCount = 0;
+    var validCount = 0;
+    var rejectedCount = 0;
+    var quotaBlockedCount = 0;
+    var chainIdMismatchCount = 0;
+    var noHealthyChainCount = 0;
     var skippedChains = 0;
     var rotatedChains = 0;
+    var reasons = {};
+    var testedCids = {};
     for (var cid in chainlistData) {
       if (cid.charAt(0) === '_') continue;
       if (!chainlistData.hasOwnProperty(cid)) continue;
@@ -671,20 +772,56 @@ function UPDATE_DYNAMIC_RPCS() {
 
       var tested = _testRpcLatency(rpcs, Number(cid));
       testedCount += rpcs.length;
-      droppedCount += (rpcs.length - tested.length);
-      chainlistData[cid] = tested; // Replace with tested+sorted list
+      if (tested.quotaBlocked) {
+        // Quota épuisé : cette chaîne n'a PAS été réellement testée.
+        // On la laisse hors de testedCids → section 3 utilisera merge()
+        // (2-miss grace), préservant les endpoints existants.
+        // chainlistData[cid] reste la liste chainlist brute.
+        quotaBlockedCount++;
+        continue;
+      }
+      rejectedCount += tested.rejected.length;
+      validCount += tested.valid.length;
+      if (tested.reasons && tested.reasons.chain_id_mismatch) {
+        chainIdMismatchCount += tested.reasons.chain_id_mismatch;
+      }
+      if (tested.valid.length === 0) noHealthyChainCount++;
+      for (var rr in tested.reasons) {
+        if (tested.reasons.hasOwnProperty(rr)) {
+          reasons[rr] = (reasons[rr] || 0) + tested.reasons[rr];
+        }
+      }
+      chainlistData[cid] = tested.valid; // Replace with validated list
+      testedCids[cid] = true; // Track that this chain was actually tested
     }
     DynamicRpcStore.advanceRotation();
-    var testMsg = "Latency test: " + testedCount + " RPCs tested, " + droppedCount + " dropped";
+    var rejectSummary = "";
+    for (var rr2 in reasons) if (reasons.hasOwnProperty(rr2)) rejectSummary += rr2 + "=" + reasons[rr2] + " ";
+    var testMsg = "Latency test: " + testedCount + " RPCs tested, " + rejectedCount + " rejected";
+    if (rejectSummary) testMsg += " (" + rejectSummary.trim() + ")";
     if (rotatedChains > 0) testMsg += ", " + rotatedChains + " chains deferred (bucket #" + rotationIndex + ")";
     if (skippedChains > 0) testMsg += ", " + skippedChains + " chains skipped (budget)";
+    if (quotaBlockedCount > 0) testMsg += ", " + quotaBlockedCount + " chains quota-blocked (kept merge-safe)";
     console.log("[DYNAMIC_RPC] " + testMsg);
 
-    // 3. Merge EVM RPCs into DynamicRpcStore
+    // 3. Persist EVM RPCs into DynamicRpcStore.
+    //    v4.15.37: replaceTested only for chains that were truly latency-tested
+    //    in this cycle (tracked via testedCids). Chains skipped by budget or
+    //    deferred by rotation keep the 2-miss protection of merge().
+    var replacedCount = 0;
+    var mergedCount = 0;
     for (var cid in chainlistData) {
       if (cid.charAt(0) === '_') continue;
       if (!chainlistData.hasOwnProperty(cid)) continue;
-      var evmStats = DynamicRpcStore.merge(Number(cid), chainlistData[cid]);
+      var cidNum = Number(cid);
+      var evmStats;
+      if (testedCids[cid]) {
+        evmStats = DynamicRpcStore.replaceTested(cidNum, chainlistData[cid]);
+        replacedCount++;
+      } else {
+        evmStats = DynamicRpcStore.merge(cidNum, chainlistData[cid]);
+        mergedCount++;
+      }
       chainCount++;
       totalAdded += evmStats.added;
       totalRemoved += evmStats.removed;
@@ -738,7 +875,9 @@ function UPDATE_DYNAMIC_RPCS() {
 
     var result = "OK | " + chainCount + " EVM + " + cosmosCount + " Cosmos, " + totalRpcs + " endpoints"
          + " | +" + totalAdded + " new, -" + totalRemoved + " removed"
-         + " | latency: " + testedCount + " tested, " + droppedCount + " dropped"
+         + " | " + replacedCount + " replaced, " + mergedCount + " merged"
+         + " | latency: " + testedCount + " tested, " + validCount + " valid, " + rejectedCount + " rejected"
+         + " | chainIdMismatch: " + chainIdMismatchCount + ", noHealthy: " + noHealthyChainCount
          + " | " + (size / 1024).toFixed(1) + " KB | " + elapsed + "ms"
          + " | L1: " + l1Count + " chains";
     console.log("[DYNAMIC_RPC] " + result);
@@ -749,6 +888,19 @@ function UPDATE_DYNAMIC_RPCS() {
   } finally {
     try { HttpCallCounter.clearTrigger(); } catch(e){}
   }
+}
+
+/**
+ * FORCE_UPDATE_DYNAMIC_RPCS() - Admin-only manual trigger.
+ *
+ * Runs the full dynamic RPC refresh even if the 7-day staleness gate
+ * would skip it. Does NOT touch WalletCache / GlobalPriceCache: only
+ * the dynamic RPC store is refreshed. Safe to run any time.
+ *
+ * @returns {string} Status message (same as UPDATE_DYNAMIC_RPCS)
+ */
+function FORCE_UPDATE_DYNAMIC_RPCS() {
+  return UPDATE_DYNAMIC_RPCS(true);
 }
 
 /**

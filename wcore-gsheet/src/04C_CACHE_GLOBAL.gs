@@ -1,7 +1,9 @@
 ﻿/************************************************************
  * 04C_CACHE_GLOBAL.gs - Global Caches (Price, FX, Meta)
  *
- * Version: v4.15.51
+ * Version: v4.15.52
+ *
+ * v4.15.52 - WalletCache.save exposes written=false when persistence fails.
  *
  * v4.15.51 - WALLET_CACHE: preserved partial scans merge positive incoming prices.
  *   When the last-line guard keeps a fuller previous cache (partial_less_assets),
@@ -117,7 +119,7 @@
  * 
  * DEPENDANCES: 04A_CACHE_CORE.gs, 04B_CACHE_WALLET.gs
  ************************************************************/
-var CACHE_GLOBAL_VERSION = "4.15.51";
+var CACHE_GLOBAL_VERSION = "4.15.52";
 
 // ============================================================
 // AUTO-REGISTRATION (v4.13.0)
@@ -1493,15 +1495,16 @@ WalletCache = (function(existing) {
    var preserve = _shouldPreserveWalletCacheWrite(existingCache, cacheObj, config);
    if (preserve && preserve.preserve) {
    var mergedPrices = _mergePositivePricesIntoPreservedCache(existingCache, cacheObj);
-   if (mergedPrices > 0) {
-   try {
-   CacheManager.safeSetJson(key, _migrate(existingCache, config) || _empty(config), config, ttlSeconds);
-   } catch (eMergeSave) {}
-   }
+    var preservedWritten = true;
+    if (mergedPrices > 0) {
+    try {
+    preservedWritten = CacheManager.safeSetJson(key, _migrate(existingCache, config) || _empty(config), config, ttlSeconds) !== false;
+    } catch (eMergeSave) { preservedWritten = false; }
+    }
    try {
    Logger.log("[WalletCache.save] PRESERVED " + String(walletAddr).substring(0, 10) + "... reason=" + preserve.reason + (mergedPrices > 0 ? " mergedPrices=" + mergedPrices : ""));
    } catch (eLog) {}
-   return { preserved: true, reason: preserve.reason, prevAssetsCount: preserve.prevAssetsCount || 0, newAssetsCount: preserve.newAssetsCount || 0, mergedPrices: mergedPrices };
+    return { preserved: true, written: preservedWritten, reason: preserve.reason, prevAssetsCount: preserve.prevAssetsCount || 0, newAssetsCount: preserve.newAssetsCount || 0, mergedPrices: mergedPrices };
    }
    // v4.15.33: Pre-check storage before save — if above 85%, purge expired/stale entries
    // to prevent silent ScriptProperties write failures that cause "No cache available"
@@ -1517,8 +1520,8 @@ WalletCache = (function(existing) {
    // v4.15.22: per-token merge before persisting â€” keep cached tokens the new scan did not report.
   try { cacheObj = _mergeAssetsPreservingCached(existingCache, cacheObj, config); } catch (eMerge) {}
   var compact = _migrate(cacheObj, config);
-  CacheManager.safeSetJson(key, compact || _empty(config), config, ttlSeconds);
-  return { preserved: false };
+   var written = CacheManager.safeSetJson(key, compact || _empty(config), config, ttlSeconds) !== false;
+   return { preserved: false, written: written, reason: written ? "" : "cache_write_failed" };
   } catch (e) {}
   };
 

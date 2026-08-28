@@ -106,7 +106,6 @@ const BITPANDA_SECURITIES: Readonly<Record<string, CanonicalStockMapping>> = {
 
 const TOP_MARKET_CAP_OVERRIDES: Readonly<Record<string, CanonicalStockMapping>> = {
   "BRK-B": BITPANDA_SECURITIES["BRK-B"]!,
-  "BRK-A": stock("NYSE:BRK.A", ["BRK-A"], [], "USD"),
   TM: BITPANDA_SECURITIES.TM!,
   GOOG: stock("GOOG", ["GOOG"], ["GOOGL"], "USD"),
   GOOGL: BITPANDA_SECURITIES.GOOGL!,

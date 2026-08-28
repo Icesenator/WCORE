@@ -240,4 +240,16 @@ vm.runInContext(globalSource, context);
   assert.ok(saved.assets.find((asset) => asset.contract === liveToken), 'strict live token should remain');
 }
 
+{
+  const originalSafeSetJson = context.CacheManager.safeSetJson;
+  context.CacheManager.safeSetJson = () => false;
+  const failed = context.WalletCache.save('0xwritefail', {
+    updatedAt: 3000,
+    assets: [{ contract: 'native', balance: 1, symbol: 'ETH', name: 'Ether', decimals: 18 }],
+    scanStats: { source: 'wcore-web', fullCycleComplete: true },
+  }, {});
+  assert.equal(failed.written, false, 'WalletCache.save must expose a failed packed/property write');
+  context.CacheManager.safeSetJson = originalSafeSetJson;
+}
+
 console.log('wallet cache preserve prices OK');

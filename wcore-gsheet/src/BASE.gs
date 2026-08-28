@@ -52,6 +52,10 @@ function GET_WALLET_ASSETS_BASE(a,r,t,f,g){return _BASE.getWalletAssets(a,r,t,f,
 function CACHED_WALLET_ASSETS_BASE(a){return _BASE.getCachedWalletAssets(a);}
 function BASE_REFRESH_STATUS(a,r,t,f,g){return _BASE.getRefreshStatus(a,r,t,f,g);}
 function BASE_STATS(a,t){return _BASE.getStats(a,t);}
+function CACHED_WALLET_ASSETS_BASE_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("BASE");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_BASE_ACTION(a){var cfg=_rwaViewsConfigByKey_("BASE");return _rwaProjectActionByCfg_(cfg,a);}
+function BASE_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function BASE_STATS_ACTION(a,t){return BASE_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_BASE_TOKEN(w,t,r){return _BASE.diag.tokenBalance(w,t,r);}

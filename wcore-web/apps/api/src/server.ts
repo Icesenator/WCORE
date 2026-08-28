@@ -24,7 +24,7 @@ import { metricsPlugin } from "./plugins/metrics-plugin.js";
 import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics.js";
 import { sharePlugin } from "./plugins/share.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
-import { createScamEnrichmentLoader, createScamDecisionLogger } from "./plugins/scam-enrichment.js";
+import { createRpcBytecodeFetcher, createScamEnrichmentLoader, createScamDecisionLogger } from "./plugins/scam-enrichment.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
@@ -481,6 +481,10 @@ if (gsheetApiToken) {
       loader: createScamEnrichmentLoader({
         prisma,
         warn: (msg) => app.log.warn(`[scam-enrichment] ${msg}`),
+        bytecodeFetcher: createRpcBytecodeFetcher((chainId) => {
+          const chain = chainList.find((c) => Number(c.CHAIN?.CHAIN_ID ?? 0) === chainId);
+          return Array.isArray(chain?.RPC?.ENDPOINTS) ? chain.RPC.ENDPOINTS : [];
+        }),
       }),
       logDecision: createScamDecisionLogger(prisma),
     },

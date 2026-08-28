@@ -32,6 +32,7 @@ beforeEach(() => { delete process.env.SCAN_ENRICHMENT; });
 
 test("flag disabled -> empty map, no DB access", async () => {
   const { prisma, upserts } = makePrisma([]);
+  void upserts;
   const loader = createScamEnrichmentLoader({ prisma });
   const m = await loader(1, [ADDR]);
   assert.equal(m.size, 0);
@@ -41,6 +42,7 @@ test("flag disabled -> empty map, no DB access", async () => {
 test("fresh goplus verdict in DB -> served without network", async () => {
   setFlag(true);
   const { prisma, upserts } = makePrisma([{ chainId: 1, address: ADDR, verdict: "suspicious", source: "goplus", payload: HONEYPOT, updatedAt: new Date() }]);
+  void upserts;
   let fetched = false;
   const original = globalThis.fetch;
   globalThis.fetch = (async () => { fetched = true; throw new Error("should not fetch"); }) as typeof fetch;
@@ -56,6 +58,7 @@ test("admin verdict never expires and never refetches", async () => {
   setFlag(true);
   const old = new Date(Date.now() - 90 * 24 * 3600 * 1000);
   const { prisma, upserts } = makePrisma([{ chainId: 1, address: ADDR, verdict: "clean", source: "admin", payload: null, updatedAt: old }]);
+  void upserts;
   const loader = createScamEnrichmentLoader({ prisma });
   const m = await loader(1, [ADDR]);
   assert.equal(m.has(ADDR), true); // present (short-circuit happens in detectScam via overrides)
@@ -74,6 +77,36 @@ test("missing verdict -> GoPlus fetched + persisted once", async () => {
     const loader = createScamEnrichmentLoader({ prisma });
     const m = await loader(1, [ADDR]);
     assert.equal(m.get(ADDR)?.goPlus?.isHoneypot, true);
+    assert.equal(upserts.length, 1);
+  } finally { globalThis.fetch = original; }
+});
+
+test("classifyMaliciousBytecode handles Solidity string split by opcode padding", async () => {
+  const split = "Blacklisted address canno_\u0000\u0012t sell tokens ... Invalid phantom amount";
+  const { classifyMaliciousBytecode } = await import("./scam-enrichment.js");
+  const verdict = classifyMaliciousBytecode(split);
+  assert.equal(verdict?.isHoneypot, true);
+  assert.equal(verdict?.isBlacklisted, true);
+});
+
+test("GoPlus omission + anti-sell phantom bytecode -> scam fallback persisted", async () => {
+  setFlag(true);
+  const { prisma, upserts } = makePrisma([]);
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL) => {
+    if (String(url).includes("gopluslabs")) {
+      return new Response(JSON.stringify({ code: 1, message: "OK", result: {} }), { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  }) as typeof fetch;
+  try {
+    const loader = createScamEnrichmentLoader({
+      prisma,
+      bytecodeFetcher: async () => "ERC20: Blacklisted address cannot sell tokens Invalid phantom amount Exceeds phantom balance",
+    });
+    const m = await loader(1, [ADDR]);
+    assert.equal(m.get(ADDR)?.goPlus?.isHoneypot, true);
+    assert.equal(m.get(ADDR)?.goPlus?.isBlacklisted, true);
     assert.equal(upserts.length, 1);
   } finally { globalThis.fetch = original; }
 });

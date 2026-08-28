@@ -1,8 +1,8 @@
 // v4.16.34 - Dedicated hourly installer and non-mutating legacy watchdog.
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
-// Onglet de sortie: "CEX - Kraken".
+// Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.34";
+var KRAKEN_SYNC_VERSION = "4.16.35";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
@@ -10,7 +10,8 @@ var KRAKEN_SYNC_CONFIG = {
   PRIVATE_KEY_PROP: "KRAKEN_PRIVATE_KEY",
   STATUS_PROP: "KRAKEN_SYNC_STATUS",
   REFRESH_FLAG_PROP: "KRAKEN_REFRESH_REQUESTED",
-  SHEET: "CEX - Kraken",
+  SHEET: "CEX - Kraken Crypto",
+  SHEET_STOCKS: "CEX - Kraken Stocks",
   SPREADSHEET_ID: "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4"
 };
 
@@ -292,8 +293,30 @@ function INSTALL_KRAKEN_SYNC_TRIGGER() {
   var trs = ScriptApp.getProjectTriggers();
   for (var i = 0; i < trs.length; i++) {
     var fn = trs[i].getHandlerFunction();
-    if (fn === "UPDATE_KRAKEN_SPOT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
+    if (fn === "UPDATE_KRAKEN_SPOT" || fn === "UPDATE_KRAKEN_STOCKS_FIAT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
   ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
-  return "Trigger installed: UPDATE_KRAKEN_SPOT (1h)";
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyHours(1).create();
+  return "Triggers installed: UPDATE_KRAKEN_SPOT (1h) + UPDATE_KRAKEN_STOCKS_FIAT (1h)";
+}
+
+// Stub fail-safe: Kraken Securities (actions) n'expose pas d'API publique stable
+// à ce jour. Cette fonction est conçue avec la même signature que
+// UPDATE_BITPANDA_STOCKS_FIAT() afin d'accueillir un vrai fetch plus tard.
+// Elle ne lit ni n'écrit aucune cellule tant que la source n'est pas branchée.
+var KRAKEN_STOCKS_WARN_PROP = "KRAKEN_STOCKS_API_UNAVAILABLE_WARNED";
+
+function UPDATE_KRAKEN_STOCKS_FIAT() {
+  try { HttpCallCounter.setTrigger('UPDATE_KRAKEN_STOCKS_FIAT'); } catch (eCounter) {}
+  var warned = false;
+  try {
+    warned = String(PropertiesService.getScriptProperties().getProperty(KRAKEN_STOCKS_WARN_PROP) || "") === "1";
+  } catch (eProp) {}
+  if (!warned) {
+    Logger.log("WARN: Kraken Stocks API unavailable - skip (read-only stub)");
+    try {
+      PropertiesService.getScriptProperties().setProperty(KRAKEN_STOCKS_WARN_PROP, "1");
+    } catch (eSet) {}
+  }
+  return "SKIP: Kraken Securities API unavailable - onglet 'CEX - Kraken Stocks' en attente de source (stub read-only)";
 }

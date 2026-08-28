@@ -38,6 +38,10 @@ function GET_WALLET_ASSETS_HYPEREVM(a,r,t,f,g){return _HYPEREVM.getWalletAssets(
 function CACHED_WALLET_ASSETS_HYPEREVM(a){return _HYPEREVM.getCachedWalletAssets(a);}
 function HYPEREVM_REFRESH_STATUS(a,r,t,f,g){return _HYPEREVM.getRefreshStatus(a,r,t,f,g);}
 function HYPEREVM_STATS(a,t){return _HYPEREVM.getStats(a,t);}
+function CACHED_WALLET_ASSETS_HYPEREVM_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("HYPEREVM");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_HYPEREVM_ACTION(a){var cfg=_rwaViewsConfigByKey_("HYPEREVM");return _rwaProjectActionByCfg_(cfg,a);}
+function HYPEREVM_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function HYPEREVM_STATS_ACTION(a,t){return HYPEREVM_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_HYPEREVM_TOKEN(w,t,r){return _HYPEREVM.diag.tokenBalance(w,t,r);}

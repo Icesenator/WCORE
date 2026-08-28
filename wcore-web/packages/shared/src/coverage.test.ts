@@ -1,10 +1,9 @@
-import { describe, test } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from "vitest";
 import { CEX_PROVIDERS } from "./coverage";
 
 describe("CEX provider registry", () => {
-  test("exposes the seven live CEX providers in a single tuple", () => {
-    assert.deepEqual(CEX_PROVIDERS, ["binance", "bitpanda", "bitfinex", "bybit", "coinbase", "okx", "kraken"]);
-    assert.equal(CEX_PROVIDERS.length, 7);
+  it("exposes the seven live CEX providers in a single tuple", () => {
+    expect(CEX_PROVIDERS).toEqual(["binance", "bitpanda", "bitfinex", "bybit", "coinbase", "okx", "kraken"]);
+    expect(CEX_PROVIDERS.length).toBe(7);
   });
 });

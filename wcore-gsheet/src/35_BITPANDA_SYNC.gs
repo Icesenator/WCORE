@@ -1836,7 +1836,7 @@ function REPAIR_CEX_SHEETS_STRUCTURE() {
     "CEX - Bitpanda Stocks",
     "CEX - Bybit",
     "CEX - Coinbase",
-    "CEX - Kraken",
+    "CEX - Kraken Crypto",
     "CEX - OKX"
   ];
   var out = [];

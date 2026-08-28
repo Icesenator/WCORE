@@ -25,6 +25,10 @@ function GET_WALLET_ASSETS_X_LAYER(a,r,t,f,g){return _X_LAYER.getWalletAssets(a,
 function CACHED_WALLET_ASSETS_X_LAYER(a){return _X_LAYER.getCachedWalletAssets(a);}
 function X_LAYER_REFRESH_STATUS(a,r,t,f,g){return _X_LAYER.getRefreshStatus(a,r,t,f,g);}
 function X_LAYER_STATS(a,t){return _X_LAYER.getStats(a,t);}
+function CACHED_WALLET_ASSETS_X_LAYER_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("X_LAYER");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_X_LAYER_ACTION(a){var cfg=_rwaViewsConfigByKey_("X_LAYER");return _rwaProjectActionByCfg_(cfg,a);}
+function X_LAYER_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function X_LAYER_STATS_ACTION(a,t){return X_LAYER_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_X_LAYER_TOKEN(w,t,r){return _X_LAYER.diag.tokenBalance(w,t,r);}

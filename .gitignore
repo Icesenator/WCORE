@@ -45,3 +45,6 @@ graphify-out/20*/
 
 # Nested runtime data created when tools run from wcore-web
 /wcore-web/data/
+
+# Isolated git worktrees
+.worktrees/

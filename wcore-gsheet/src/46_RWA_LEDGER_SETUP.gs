@@ -1,0 +1,188 @@
+﻿// v4.16.76 - FEAT: setup idempotent onglets Crypto/Action RWA multichain.
+function _rwaSetupBaseCacheFn_(cfg) {
+  return String(cfg.cacheFn || "").replace(/_RWA_VIEW$/, "");
+}
+
+function _rwaSafeWalletArgument_(formula) {
+  formula = String(formula || "");
+  var names = [];
+  for (var i = 0; i < RWA_CHAIN_VIEWS_CONFIG.length; i++) {
+    var base = _rwaSetupBaseCacheFn_(RWA_CHAIN_VIEWS_CONFIG[i]);
+    names.push(base, base + "_CRYPTO", base + "_ACTION", RWA_CHAIN_VIEWS_CONFIG[i].cacheFn, RWA_CHAIN_VIEWS_CONFIG[i].key + "_REFRESH_STATUS");
+  }
+  names.sort(function (a, b) { return b.length - a.length; });
+  var match = formula.match(new RegExp("^\\s*=\\s*(" + names.join("|") + ")\\s*\\(", "i"));
+  if (!match) return null;
+  var open = match[0].lastIndexOf("(");
+  var depth = 0;
+  var singleQuoted = false;
+  var doubleQuoted = false;
+  var firstEnd = -1;
+  for (var p = open + 1; p < formula.length; p++) {
+    var ch = formula.charAt(p);
+    var next = formula.charAt(p + 1);
+    if (singleQuoted) {
+      if (ch === "'" && next === "'") {
+        p++;
+      } else if (ch === "'") {
+        singleQuoted = false;
+      }
+      continue;
+    }
+    if (doubleQuoted) {
+      if (ch === '"' && next === '"') {
+        p++;
+      } else if (ch === '"') {
+        doubleQuoted = false;
+      }
+      continue;
+    }
+    if (ch === "'") {
+      singleQuoted = true;
+      continue;
+    }
+    if (ch === '"') {
+      doubleQuoted = true;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+      continue;
+    }
+    if (ch === ")") {
+      if (depth > 0) {
+        depth--;
+        continue;
+      }
+      if (String(formula.substring(p + 1) || "").trim()) return null;
+      var end = firstEnd >= 0 ? firstEnd : p;
+      var argument = formula.substring(open + 1, end).trim();
+      return argument || null;
+    }
+    if ((ch === ";" || ch === ",") && depth === 0 && firstEnd < 0) firstEnd = p;
+  }
+  return null;
+}
+
+function _rwaEscapeRegex_(text) {
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function _rwaCanonicalVerifFormula_(actionSheetName) {
+  return "=MAP(A3:A;E3:E;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(COUNTIFS('Portefeuille Action Details'!$E:$E;\"" + actionSheetName + "\";'Portefeuille Action Details'!$C:$C;s)>0;\"V\";\"X\")))))";
+}
+
+function _rwaAdaptVerifFormula_(cryptoH3Formula, cfg) {
+  var adapted = String(cryptoH3Formula || "").replace(/Portefeuille Crypto Details/g, "Portefeuille Action Details");
+  var literals = [String(cfg.crypto || "")];
+  for (var i = 0; i < (cfg.legacy || []).length; i++) literals.push(String(cfg.legacy[i] || ""));
+  literals.sort(function (a, b) { return b.length - a.length; });
+  for (var j = 0; j < literals.length; j++) {
+    if (!literals[j]) continue;
+    adapted = adapted.replace(new RegExp(_rwaEscapeRegex_(literals[j]) + "(?! (?:Crypto|Action))", "g"), cfg.action);
+  }
+  adapted = adapted
+    .replace(/!E:E=A\d+/g, "!E:E=\"" + cfg.action + "\"")
+    .replace(/!E:E="?[^";)]+"?(?=[;)])/g, "!E:E=\"" + cfg.action + "\"");
+  if (adapted.indexOf("Portefeuille Action Details") >= 0 && adapted.indexOf("COUNTIFS") >= 0 && adapted.indexOf("\"" + cfg.action + "\"") >= 0) return adapted;
+  return _rwaCanonicalVerifFormula_(cfg.action);
+}
+
+function _rwaRemoveStrayStatsFormulasGeneric_(sheet, key) {
+  if (!sheet || !sheet.getDataRange) return;
+  var range = sheet.getDataRange();
+  if (!range || !range.getFormulas) return;
+  var statsPattern = new RegExp("^=\\s*" + key + "_STATS(?:_ACTION)?\\s*\\(", "i");
+  var formulas = range.getFormulas();
+  for (var row = 0; row < formulas.length; row++) {
+    for (var col = 0; col < formulas[row].length; col++) {
+      if (!statsPattern.test(String(formulas[row][col] || ""))) continue;
+      sheet.getRange(row + 1, col + 1).clearContent();
+    }
+  }
+}
+
+function _rwaPrepareActionSheetGeneric_(sheet) {
+  if (!sheet || typeof sheet.getRange !== "function" || typeof sheet.getMaxRows !== "function" || typeof sheet.getMaxColumns !== "function") throw new Error("SETUP_RWA_LEDGER_SHEETS: existing Action sheet is incompatible");
+  var rows = sheet.getMaxRows();
+  var columns = sheet.getMaxColumns();
+  if (rows < 1000 && typeof sheet.insertRowsAfter !== "function") throw new Error("SETUP_RWA_LEDGER_SHEETS: existing Action sheet cannot be expanded to 1000 rows");
+  if (columns < 12 && typeof sheet.insertColumnsAfter !== "function") throw new Error("SETUP_RWA_LEDGER_SHEETS: existing Action sheet cannot be expanded to 12 columns");
+  var probe = sheet.getRange("A1");
+  if (!probe || typeof probe.clearContent !== "function") throw new Error("SETUP_RWA_LEDGER_SHEETS: existing Action sheet cannot clear managed output");
+  if (rows < 1000) sheet.insertRowsAfter(rows, 1000 - rows);
+  if (columns < 12) sheet.insertColumnsAfter(columns, 12 - columns);
+  var managed = ["A2:I1000", "J3:J1000", "K2:L1000"];
+  for (var i = 0; i < managed.length; i++) {
+    var range = sheet.getRange(managed[i]);
+    if (!range || typeof range.clearContent !== "function") throw new Error("SETUP_RWA_LEDGER_SHEETS: existing Action sheet cannot clear managed output " + managed[i]);
+  }
+}
+
+function SETUP_RWA_LEDGER_SHEETS(onlyKeys) {
+  var lock = LockService.getDocumentLock();
+  var locked = false;
+  var results = [["Chain", "Crypto", "Action", "Status"]];
+  try {
+    locked = lock.tryLock(10000);
+    if (!locked) throw new Error("SETUP_RWA_LEDGER_SHEETS: document lock busy");
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) throw new Error("SETUP_RWA_LEDGER_SHEETS: active spreadsheet unavailable");
+    var wanted = Array.isArray(onlyKeys) && onlyKeys.length ? onlyKeys : null;
+    for (var i = 0; i < RWA_CHAIN_VIEWS_CONFIG.length; i++) {
+      var cfg = RWA_CHAIN_VIEWS_CONFIG[i];
+      if (wanted && wanted.indexOf(cfg.key) < 0) continue;
+      try {
+        results.push(_rwaSetupChainSheets_(ss, cfg));
+      } catch (eChain) {
+        results.push([cfg.key, "", "", "ERREUR: " + String((eChain && (eChain.message || eChain)) || eChain)]);
+      }
+    }
+    return results;
+  } finally {
+    if (locked) {
+      try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+}
+
+function _rwaSetupChainSheets_(ss, cfg) {
+  var crypto = ss.getSheetByName(cfg.crypto);
+  var legacy = null;
+  if (!crypto) {
+    for (var l = 0; l < cfg.legacy.length; l++) {
+      legacy = ss.getSheetByName(cfg.legacy[l]);
+      if (legacy) break;
+    }
+  }
+  if (!crypto && !legacy) throw new Error("SETUP_RWA_LEDGER_SHEETS: onglet source introuvable pour " + cfg.key + " (" + cfg.legacy.join(" / ") + ")");
+  var source = crypto || legacy;
+  var address = _rwaSafeWalletArgument_(source.getRange("A2").getFormula()) || _rwaSafeWalletArgument_(source.getRange("I1").getFormula());
+  if (!address) throw new Error("SETUP_RWA_LEDGER_SHEETS: formule wallet introuvable en A2/I1 pour " + cfg.key);
+  var verif = _rwaAdaptVerifFormula_(source.getRange("H3").getFormula(), cfg);
+  var action = ss.getSheetByName(cfg.action);
+  if (action) _rwaPrepareActionSheetGeneric_(action);
+  if (!crypto) {
+    legacy.setName(cfg.crypto);
+    crypto = legacy;
+  }
+  var baseCacheFn = _rwaSetupBaseCacheFn_(cfg);
+  crypto.getRange("A2").setFormula("=" + baseCacheFn + "_CRYPTO(" + address + ";J1)");
+  if (!action) {
+    action = crypto.copyTo(ss).setName(cfg.action);
+    _rwaPrepareActionSheetGeneric_(action);
+  }
+  action.getRange("A2:I1000").clearContent();
+  action.getRange("J3:J1000").clearContent();
+  action.getRange("K2:L1000").clearContent();
+  _rwaRemoveStrayStatsFormulasGeneric_(action, cfg.key);
+  action.getRange("A2").setFormula("=" + baseCacheFn + "_ACTION(" + address + ";'" + cfg.crypto + "'!J1)");
+  action.getRange("J2").setValue("V├®rif");
+  action.getRange("J3").setFormula(verif);
+  action.getRange("I1").setFormula("=" + cfg.key + "_REFRESH_STATUS_ACTION(" + address + ";'" + cfg.crypto + "'!I1)");
+  action.getRange("J1").setFormula("='" + cfg.crypto + "'!J1");
+  action.getRange("K2").setFormula("=" + cfg.key + "_STATS_ACTION(" + address + ";'" + cfg.crypto + "'!J1)");
+  action.getRange("E:G").setNumberFormat("0.########");
+  action.getRange("H:I").setNumberFormat("0.########");
+  return [cfg.key, crypto.getName(), action.getName(), "ok"];
+}

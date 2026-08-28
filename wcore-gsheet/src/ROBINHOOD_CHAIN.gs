@@ -24,6 +24,10 @@ function GET_WALLET_ASSETS_ROBINHOOD_CHAIN(a,r,t,f,g){return _ROBINHOOD_CHAIN.ge
 function CACHED_WALLET_ASSETS_ROBINHOOD_CHAIN(a){return _ROBINHOOD_CHAIN.getCachedWalletAssets(a);}
 function ROBINHOOD_CHAIN_REFRESH_STATUS(a,r,t,f,g){return _ROBINHOOD_CHAIN.getRefreshStatus(a,r,t,f,g);}
 function ROBINHOOD_CHAIN_STATS(a,t){return _ROBINHOOD_CHAIN.getStats(a,t);}
+function CACHED_WALLET_ASSETS_ROBINHOOD_CHAIN_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("ROBINHOOD_CHAIN");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_ROBINHOOD_CHAIN_ACTION(a){var cfg=_rwaViewsConfigByKey_("ROBINHOOD_CHAIN");return _rwaProjectActionByCfg_(cfg,a);}
+function ROBINHOOD_CHAIN_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function ROBINHOOD_CHAIN_STATS_ACTION(a,t){return ROBINHOOD_CHAIN_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_ROBINHOOD_CHAIN_TOKEN(w,t,r){return _ROBINHOOD_CHAIN.diag.tokenBalance(w,t,r);}

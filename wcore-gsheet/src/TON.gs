@@ -179,16 +179,17 @@ function _tonLoadLive_(address, timer) {
   return assets;
 }
 
-function _tonBuildOutput_(cache, timer) {
+function _tonBuildOutputWithFx_(cache, timer, fx) {
   var out = [OutputBuilder.headerRow()];
   var chainName = _tonDisplayName_();
   var assets = (cache && cache.assets && Array.isArray(cache.assets)) ? cache.assets : [];
   var priceMap = (cache && cache.priceMap) || {};
+  var validFx = isFinite(Number(fx)) && Number(fx) > 0;
   var total = 0;
   for (var i = 0; i < assets.length; i++) {
     var a = assets[i];
     if (!a) continue;
-    var price = priceMap[a.contract] || priceMap[String(a.symbol || "").toUpperCase()] || "";
+    var price = validFx ? (priceMap[a.contract] || priceMap[String(a.symbol || "").toUpperCase()] || "") : "";
     var row = OutputBuilder.assetRow(chainName, a, price);
     if (Num.isValidPositive(row[6])) total += Number(row[6]);
     out.push(row);
@@ -196,13 +197,17 @@ function _tonBuildOutput_(cache, timer) {
   out = OutputBuilder._sortAssetRows(out);
   out.push(OutputBuilder.infoRow(chainName, "INFO_ROT", "chain=Space - TON; rot=OFF; profile=STATIC; dynamic=NO; pricing=EXPLICIT_MAP_ONLY"));
   out.push(OutputBuilder.infoRow(chainName, "INFO_NATIVE", "tonapi"));
-  out.push(OutputBuilder.infoRow(chainName, "INFO_FX", "USD->EUR=" + _tonGetFx_().toFixed(4)));
+  out.push(OutputBuilder.infoRow(chainName, "INFO_FX", validFx ? ("USD->EUR=" + Number(fx).toFixed(4)) : "USD->EUR=N/A"));
   out.push(OutputBuilder.infoRow(chainName, "INFO_TOTAL", "Total portefeuille (sum value_eur).", total));
   out.push(OutputBuilder.metaRow("last_update", _tonNow_()));
   out.push(OutputBuilder.metaRow("exec_ms", String(timer ? timer.elapsed() : 0)));
   out.push(OutputBuilder.metaRow("last_cache_update", WalletCache.getLastUpdateStr ? WalletCache.getLastUpdateStr(cache) : ""));
   out.push(OutputBuilder.metaRow("script_version", TON_CONFIG.VERSION));
   return out;
+}
+
+function _tonBuildOutput_(cache, timer) {
+  return _tonBuildOutputWithFx_(cache, timer, _tonGetFx_());
 }
 
 function _tonNoCacheOutput_(timer) {
@@ -344,7 +349,6 @@ function TON_STATS(a,t){
   }
   return [["Metric","Value"],["Chain","Space - TON"],["Wallet",addr],["Cache",c?"FOUND":"MISSING"],["Assets",c&&c.assets?c.assets.length:0],["Version",TON_CONFIG.VERSION]];
 }
-
 function DIAG_TON_WALLET(a){ return GET_WALLET_ASSETS_TON(a,"","",true,"diag"); }
 function DIAG_TON_CACHE(a){ var c=WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG); return [["Key","Value"],["Status",c?"FOUND":"MISSING"],["Assets",c&&c.assets?c.assets.length:0],["Updated",WalletCache.getLastUpdateStr(c)]]; }
 function DIAG_TON_API(a){ var assets=_tonLoadLive_(_tonNormalizeAddress_(a), _tonTimer_()); return [["metric","value"],["assets",assets.length],["native",assets.length?assets[0].balance:0]]; }

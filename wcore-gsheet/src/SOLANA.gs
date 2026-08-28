@@ -51,8 +51,13 @@ var _SOLANA = ChainFactory.createSvmChain("SOLANA", {
 
 function GET_WALLET_ASSETS_SOLANA(a,r,t,f,g){return _SOLANA.getWalletAssets(a,r,t,f,g);}
 function CACHED_WALLET_ASSETS_SOLANA(a){return _SOLANA.getCachedWalletAssets(a);}
+function CACHED_WALLET_ASSETS_SOLANA_CRYPTO(a){return LedgerView_projectCached_(_SOLANA,a,function(rows){return _xstocksProjectCryptoRows_(rows);});}
+function CACHED_WALLET_ASSETS_SOLANA_ACTION(a){return LedgerView_projectCached_(_SOLANA,a,function(rows){return _xstocksProjectActionRows_(rows);});}
+function CACHED_WALLET_ASSETS_SOLANA_ACTION_META(a){return LedgerView_projectCached_(_SOLANA,a,function(rows){return _xstocksProjectActionMeta_(rows);});}
 function SOLANA_REFRESH_STATUS(a,r,t,f,g){return _SOLANA.getRefreshStatus(a,r,t,f,g);}
+function SOLANA_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
 function SOLANA_STATS(a,t){return _SOLANA.getStats(a,t);}
+function SOLANA_STATS_ACTION(a,t){return _SOLANA.getStats(a,t);}
 
 // ============================================================
 // DIAGNOSTIC FUNCTIONS (using SvmDiagStubs)

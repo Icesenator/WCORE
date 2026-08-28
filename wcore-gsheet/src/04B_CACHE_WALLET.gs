@@ -1,8 +1,10 @@
 /************************************************************
  * 04B_CACHE_WALLET.gs - Packed Wallet Cache System
  *
- * Version: v4.16.66
+ * Version: v4.16.67
  *
+ * v4.16.67 - Packed merge compares payload data timestamp (v.u) before wrapper ts;
+ *   prevents a later worker from re-wrapping stale cache and overwriting a fresh web scan.
  * v4.16.66 - FIX: _mergePackedWalletCache_ privilegie la fraicheur (ts) sur le
  *   nombre d'assets. L'ancienne regle "plus d'assets gagne" faisait ecraser le
  *   resultat web-scan (filtre scam/zero-balance, donc moins d'assets) par un
@@ -128,7 +130,7 @@
  * 
  * DEPENDANCES: 04A_CACHE_CORE.gs
  ************************************************************/
-var CACHE_WALLET_VERSION = "4.16.66";
+var CACHE_WALLET_VERSION = "4.16.67";
 
 // ============================================================
 // STORAGE VIRTUALIZATION LAYER
@@ -670,6 +672,16 @@ CacheManager._packedEntryAssetCount_ = function(e) {
  }
 };
 
+CacheManager._packedEntryDataTs_ = function(e) {
+ try {
+  if (!e || typeof e !== "object") return 0;
+  var payload = e.v || e;
+  var raw = Number(payload && (payload.u || payload.updatedAt || payload.updated_at) || 0);
+  if (!isFinite(raw) || raw <= 0) return 0;
+  return raw > 100000000000 ? Math.floor(raw / 1000) : Math.floor(raw);
+ } catch (err) { return 0; }
+};
+
 CacheManager._mergePackedWalletCache_ = function(incoming) {
  try {
   if (!incoming || !incoming.m) incoming = { v: 2, m: {} };
@@ -701,8 +713,10 @@ CacheManager._mergePackedWalletCache_ = function(incoming) {
     if (arrKey !== key) continue;
     var aCur = CacheManager._packedEntryAssetCount_(arr[i]);
     var aNew = CacheManager._packedEntryAssetCount_(ent);
-    var tCur = Number((arr[i] && (arr[i].ts || arr[i].t)) || 0);
-    var tNew = Number((ent && (ent.ts || ent.t)) || 0);
+    var dataCur = CacheManager._packedEntryDataTs_(arr[i]);
+    var dataNew = CacheManager._packedEntryDataTs_(ent);
+    var tCur = dataCur || Number((arr[i] && (arr[i].ts || arr[i].t)) || 0);
+    var tNew = dataNew || Number((ent && (ent.ts || ent.t)) || 0);
     // v4.16.66: la fraicheur gagne d'abord. L'ancienne regle "plus d'assets
     // gagne" faisait ecraser le resultat web-scan (filtre scam/zero-balance,
     // donc moins d'assets) par un cache direct-RPC vieux de plusieurs semaines

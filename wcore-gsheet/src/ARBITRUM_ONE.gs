@@ -26,6 +26,10 @@ function GET_WALLET_ASSETS_ARBITRUM_ONE(a,r,t,f,g){return _ARBITRUM_ONE.getWalle
 function CACHED_WALLET_ASSETS_ARBITRUM_ONE(a){return _ARBITRUM_ONE.getCachedWalletAssets(a);}
 function ARBITRUM_ONE_REFRESH_STATUS(a,r,t,f,g){return _ARBITRUM_ONE.getRefreshStatus(a,r,t,f,g);}
 function ARBITRUM_ONE_STATS(a,t){return _ARBITRUM_ONE.getStats(a,t);}
+function CACHED_WALLET_ASSETS_ARBITRUM_ONE_CRYPTO(a){var cfg=_rwaViewsConfigByKey_("ARBITRUM_ONE");return _rwaProjectCryptoByCfg_(cfg,a);}
+function CACHED_WALLET_ASSETS_ARBITRUM_ONE_ACTION(a){var cfg=_rwaViewsConfigByKey_("ARBITRUM_ONE");return _rwaProjectActionByCfg_(cfg,a);}
+function ARBITRUM_ONE_REFRESH_STATUS_ACTION(a,cryptoStatus){return LedgerView_relayStatus_(cryptoStatus);}
+function ARBITRUM_ONE_STATS_ACTION(a,t){return ARBITRUM_ONE_STATS(a,t);}
 
 // Diagnostic functions
 function DIAG_ARBITRUM_ONE_TOKEN(w,t,r){return _ARBITRUM_ONE.diag.tokenBalance(w,t,r);}

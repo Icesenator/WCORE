@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, '..');
 const krakenSource = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
 const healSource = fs.readFileSync(path.join(root, 'src/16B_AUTO_HEAL.gs'), 'utf8');
 const bitpandaSource = fs.readFileSync(path.join(root, 'src/35_BITPANDA_SYNC.gs'), 'utf8');
+const stockSource = fs.readFileSync(path.join(root, 'src/42_STOCK_PORTFOLIO.gs'), 'utf8');
 
 // Renommage: plus aucune référence à l'ancien nom "CEX - Kraken" seul
 assert.ok(
@@ -36,7 +37,7 @@ assert.ok(
   'REPAIR_CEX_SHEETS_STRUCTURE doit lister "CEX - Kraken Crypto"'
 );
 
-// --- Stub fail-safe ---
+// --- Contexte VM ---
 let warnCount = 0;
 const krakenCtx = {
   console,
@@ -53,6 +54,7 @@ const krakenCtx = {
   PropertiesService: {
     getScriptProperties: () => ({ getProperty: () => null, setProperty: () => {} }),
     getUserProperties: () => ({ getProperty: () => null, setProperty: () => {} }),
+    getDocumentProperties: () => ({ getProperty: () => null, setProperty: () => {} }),
   },
   ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyHours: () => ({ create: () => {} }) }) }) },
   Utilities: { formatDate: () => '2026-08-27 00:00:00' },
@@ -60,12 +62,46 @@ const krakenCtx = {
 vm.createContext(krakenCtx);
 vm.runInContext(krakenSource, krakenCtx);
 
+// --- UPDATE_KRAKEN_STOCKS_FIAT existe et reste sûre ---
 assert.equal(typeof krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT, 'function', 'UPDATE_KRAKEN_STOCKS_FIAT doit exister');
-const result = krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT();
-assert.match(String(result), /SKIP|UNAVAILABLE|STUB|DISABLED/i, 'stub doit indiquer une indisponibilité');
-assert.doesNotThrow(() => krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT(), 'stub ne doit jamais lever');
 
-// Trigger géré + requis
+// --- Classification fiat / xStocks / crypto ---
+krakenCtx._krakenPrivatePost_ = function () {
+  return {
+    ZEUR: '100.5',      // EUR fiat -> bucket fiat
+    'NVDAx': '1.5',     // xStock -> bucket xstocks (normalisé -> NVDA)
+    'SKHYx': '2',       // xStock SK Hynix -> SKHY
+    'SKHY': '3',        // forme sans x -> SKHY (agrégé)
+    XXBT: '0.1',        // BTC crypto
+    XXRP: '25',         // XRP crypto
+  };
+};
+const buckets = krakenCtx._krakenFetchBuckets_({});
+assert.deepEqual(
+  buckets.fiat.map((r) => r[0]),
+  ['EUR'],
+  'le fiat EUR doit être isolé'
+);
+assert.equal(buckets.fiat[0][1], 100.5, 'solde EUR conservé');
+assert.deepEqual(
+  buckets.xstocks,
+  [['NVDA', 1.5], ['SKHY', 5]],
+  'xStocks normalisés (NVDAx -> NVDA, SKHYx+SKHY -> SKHY agrégés)'
+);
+assert.deepEqual(
+  buckets.crypto.map((r) => r[0]),
+  ['BTC', 'XRP'],
+  'les cryptos restent dans le bucket crypto'
+);
+
+// --- Conversion canonique xStocks ---
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SKHYx'), 'SKHY');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SKHY'), 'SKHY');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('NVDAx'), 'NVDA');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SOMETHING_ELSE'), 'SOMETHING_ELSE');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_(''), '');
+
+// --- Déclencheurs gérés + requis ---
 assert.ok(
   /"UPDATE_KRAKEN_STOCKS_FIAT"/.test(healSource),
   'UPDATE_KRAKEN_STOCKS_FIAT doit être dans les listes managed/required de auto-heal'
@@ -74,14 +110,12 @@ assert.ok(
   /newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)/.test(krakenSource),
   'INSTALL_KRAKEN_SYNC_TRIGGER doit créer UPDATE_KRAKEN_STOCKS_FIAT'
 );
-// _wcoreAutoHealCreateManagedTriggers_ crée le trigger hourly
 assert.ok(
   /newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)/.test(healSource),
   '_wcoreAutoHealCreateManagedTriggers_ doit créer UPDATE_KRAKEN_STOCKS_FIAT'
 );
 
-// Consolidation Portefeuille Action
-const stockSource = fs.readFileSync(path.join(root, 'src/42_STOCK_PORTFOLIO.gs'), 'utf8');
+// --- Consolidation Portefeuille Action ---
 assert.ok(
   /_stockPortfolioSpotQtyFormula_\(sheetRow\)/.test(stockSource),
   'la formule Spot doit appeler le helper _stockPortfolioSpotQtyFormula_'
@@ -91,4 +125,11 @@ assert.ok(
   'le helper doit inclure un VLOOKUP vers CEX - Kraken Stocks'
 );
 
-console.log('kraken rename OK');
+// La ligne Euro cash doit lire le fiat EUR de CEX - Kraken Stocks
+assert.ok(
+  /'CEX - Kraken Stocks'/.test(stockSource) &&
+    /_stockPortfolioEurSpotFormula_/.test(stockSource),
+  'la formule Euro cash doit référencer CEX - Kraken Stocks'
+);
+
+console.log('kraken fiat/xstocks routing OK');

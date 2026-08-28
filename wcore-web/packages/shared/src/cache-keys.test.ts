@@ -29,8 +29,8 @@ describe("cacheKey", () => {
   });
 
   it("builds canonical stock keys", () => {
-    expect(cacheKey("stockPriceFresh", { ticker: "KRX:005930" })).toBe("stock:price:KRX:005930:fresh");
-    expect(cacheKey("stockPriceLastGood", { ticker: "KRX:005930" })).toBe("stock:price:KRX:005930:last-good");
+    expect(cacheKey("stockPriceFresh", { ticker: "SMSN" })).toBe("stock:price:SMSN:fresh");
+    expect(cacheKey("stockPriceLastGood", { ticker: "SMSN" })).toBe("stock:price:SMSN:last-good");
     expect(cacheKey("stockTopMarketCapFresh", {})).toBe("stock:top-market-cap:fresh");
     expect(cacheKey("stockTopMarketCapLastGood", {})).toBe("stock:top-market-cap:last-good");
     expect(cacheKey("stockTopMarketCapLock", {})).toBe("stock:top-market-cap:lock");

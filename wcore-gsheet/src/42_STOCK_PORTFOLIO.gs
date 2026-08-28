@@ -589,7 +589,7 @@ function _stockPortfolioSpotQtyFormula_(sheetRow) {
   var c = "C" + sheetRow;
   var bp = "'CEX - Bitpanda Stocks'!A:B";
   var kr = "'CEX - Kraken Stocks'!A:B";
-  var aliasSwitch = "\"GOOG\";\"GOOGL\";\"META\";\"FB\";\"NYSE:BRK.B\";\"BRKB\";\"KRX:005930\";\"SSU\";\"KRX:000660\";\"HYXS\";\"EPA:MC\";\"MC\";\"EPA:OR\";\"OR\";\"NVO\";\"NOVO\";\"CPH:NOVO-B\";\"NOVO\";\"SWX:NESN\";\"NESN\";\"SWX:RO\";\"ROG\";\"TYO:7203\";\"TM\";\"\"";
+  var aliasSwitch = "\"GOOG\";\"GOOGL\";\"META\";\"FB\";\"NYSE:BRK.B\";\"BRKB\";\"KRX:005930\";\"SSU\";\"SKHY\";\"HYXS\";\"EPA:MC\";\"MC\";\"EPA:OR\";\"OR\";\"NVO\";\"NOVO\";\"CPH:NOVO-B\";\"NOVO\";\"SWX:NESN\";\"NESN\";\"SWX:RO\";\"ROG\";\"TYO:7203\";\"TM\";\"\"";
   return "=(IFERROR(VLOOKUP(" + a + ";" + bp + ";2;FALSE);" +
     "IFERROR(VLOOKUP(REGEXREPLACE(" + a + ";\"^.*:\";\"\");" + bp + ";2;FALSE);" +
     "IFERROR(VLOOKUP(SWITCH(" + a + ";" + aliasSwitch + ");" + bp + ";2;FALSE);" +
@@ -630,7 +630,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
 // reserve (U1 = securisation flag; row-1 controls are shifted right by A1/B1 refresh cells).
 function _stockPortfolioEurSpotFormula_(sheetRow) {
   var priceRef = "C" + sheetRow;
-  var sheets = ["CEX - Bitpanda Crypto", "CEX - Bitpanda Commodity", "CEX - Bitpanda Fiat", "CEX - Bitpanda Stocks"];
+  var sheets = ["CEX - Bitpanda Crypto", "CEX - Bitpanda Commodity", "CEX - Bitpanda Fiat", "CEX - Bitpanda Stocks", "CEX - Kraken Stocks"];
   var parts = [];
   ["BCPEUR", "EUR"].forEach(function (symbol) {
     sheets.forEach(function (sheetName) {

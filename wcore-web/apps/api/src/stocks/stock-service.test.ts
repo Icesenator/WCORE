@@ -195,8 +195,8 @@ test("overlaps quote batches up to four while covering every symbol exactly once
 
 test("batch-reads row caches once, prefers valid fresh values, and avoids per-key gets", async () => {
   const cache = new BatchRecordingCache();
-  await cache.set("stock:price:KRX:000660:fresh", cachedPrice(1_269));
-  await cache.set("stock:price:KRX:000660:last-good", cachedPrice(1_100));
+  await cache.set("stock:price:SKHY:fresh", cachedPrice(1_269));
+  await cache.set("stock:price:SKHY:last-good", cachedPrice(1_100));
   await cache.set("stock:price:TYO:7203:last-good", cachedPrice(180));
   const service = new CanonicalStockService({
     cache,

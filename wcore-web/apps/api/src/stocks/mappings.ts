@@ -48,10 +48,10 @@ const BITPANDA_SECURITIES: Readonly<Record<string, CanonicalStockMapping>> = {
   "JPM-US": stock("JPM", ["JPM"], ["JPM-US"], "USD"),
   "LLYC-US": stock("LLY", ["LLY"], ["LLYC-US"], "USD"),
   "WMT-US": stock("WMT", ["WMT"], ["WMT-US"], "USD"),
-  BRK: stock("NYSE:BRK.B", ["BRK-B"], ["BRKB", "BRK.B", "BRK-B", "BRK"], "USD"),
-  BRKB: stock("NYSE:BRK.B", ["BRK-B"], ["BRKB", "BRK.B", "BRK-B", "BRK"], "USD"),
-  "BRK.B": stock("NYSE:BRK.B", ["BRK-B"], ["BRKB", "BRK.B", "BRK-B", "BRK"], "USD"),
-  "BRK-B": stock("NYSE:BRK.B", ["BRK-B"], ["BRKB", "BRK.B", "BRK-B", "BRK"], "USD"),
+  BRK: stock("BRKB", ["BRK-B", "NYSE:BRK.B"], ["BRKB", "BRK.B", "BRK-B", "BRK", "NYSE:BRK.B"], "USD"),
+  BRKB: stock("BRKB", ["BRK-B", "NYSE:BRK.B"], ["BRKB", "BRK.B", "BRK-B", "BRK", "NYSE:BRK.B"], "USD"),
+  "BRK.B": stock("BRKB", ["BRK-B", "NYSE:BRK.B"], ["BRKB", "BRK.B", "BRK-B", "BRK", "NYSE:BRK.B"], "USD"),
+  "BRK-B": stock("BRKB", ["BRK-B", "NYSE:BRK.B"], ["BRKB", "BRK.B", "BRK-B", "BRK", "NYSE:BRK.B"], "USD"),
   GOOGL: stock("GOOG", ["GOOG"], ["GOOGL"], "USD"),
   FB: stock("META", ["META"], ["FB"], "USD"),
   MRKUS: stock("MRK", ["MRK"], ["MRKUS"], "USD"),
@@ -62,9 +62,9 @@ const BITPANDA_SECURITIES: Readonly<Record<string, CanonicalStockMapping>> = {
   "NOVO-B": stock("CPH:NOVO-B", ["NVO", "NOVO-B.CO"], ["NOVO", "NOVO-B"], "DKK"),
   BROA: stock("AVGO", ["AVGO"], ["BROA"], "USD"),
   TM: stock("TYO:7203", ["7203.T"], ["TM"], "JPY", { supplyMultiplier: 10 }),
-  SSU: stock("KRX:005930", ["005930.KS"], ["SSU", "SMSN"], "KRW", { unitsPerReceipt: 25 }),
-  SMSN: stock("KRX:005930", ["005930.KS"], ["SSU", "SMSN"], "KRW", { unitsPerReceipt: 25 }),
-  HYXS: stock("KRX:000660", ["000660.KS"], ["HYXS"], "KRW"),
+  SSU: stock("SMSN", ["005930.KS"], ["SSU", "SMSN"], "KRW", { unitsPerReceipt: 25 }),
+  SMSN: stock("SMSN", ["005930.KS"], ["SSU", "SMSN"], "KRW", { unitsPerReceipt: 25 }),
+  HYXS: stock("SKHY", ["000660.KS"], ["HYXS", "SKHY", "SKHYx"], "KRW"),
   ADS: stock("ETR:ADS", ["ADS.DE"], ["ADS"], "EUR"),
   AIR: stock("EPA:AIR", ["AIR.PA"], ["AIR"], "EUR"),
   ALV: stock("ETR:ALV", ["ALV.DE"], ["ALV"], "EUR"),
@@ -110,6 +110,13 @@ const TOP_MARKET_CAP_OVERRIDES: Readonly<Record<string, CanonicalStockMapping>> 
   TM: BITPANDA_SECURITIES.TM!,
   GOOG: stock("GOOG", ["GOOG"], ["GOOGL"], "USD"),
   GOOGL: BITPANDA_SECURITIES.GOOGL!,
+  // SK Hynix: la cotation coréenne (000660.KS/KRW) est le canonique SKHY ; Bitpanda
+  // l'expose sous HYXS et Kraken sous SKHYx/SKHY (même société, instruments distincts).
+  "000660.KS": BITPANDA_SECURITIES.HYXS!,
+  // Samsung: le canonique est SMSN (ex-KRX:005930), alias SSU/SMSN conservés pour Bitpanda.
+  "005930.KS": BITPANDA_SECURITIES.SSU!,
+  // Berkshire Hathaway: le canonique est BRKB (ex-NYSE:BRK.B), aliases BRK/BRK.B/BRK-B conservés.
+  "BRK-A": stock("BRKA", ["BRK-A"], [], "USD"),
   // Shell: CompaniesMarketCap liste "SHEL" au cours ADR US (1 ADR = 2 actions Londres).
   // Sans override, mapTopMarketCapTicker traiterait SHEL comme un ticker US (yahoo:["SHEL"],
   // USD). On force le mapping Londres (SHEL.L/GBp) + supplyMultiplier:2 pour aligner le

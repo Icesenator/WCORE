@@ -10,12 +10,12 @@ import { parseTopMarketCapCsv } from "./top-market-cap.js";
 
 test("maps CompaniesMarketCap exchange suffixes and explicit overrides", () => {
   assert.deepEqual(mapTopMarketCapTicker("000660.KS"), {
-    canonicalTicker: "KRX:000660",
+    canonicalTicker: "SKHY",
     yahooTickers: ["000660.KS"],
-    bitpandaAliases: ["HYXS"],
+    bitpandaAliases: ["HYXS", "SKHY", "SKHYx"],
     expectedCurrency: "KRW",
   });
-  assert.equal(mapTopMarketCapTicker("BRK-B").canonicalTicker, "NYSE:BRK.B");
+  assert.equal(mapTopMarketCapTicker("BRK-B").canonicalTicker, "BRKB");
   assert.equal(mapTopMarketCapTicker("TM").canonicalTicker, "TYO:7203");
   assert.equal(mapTopMarketCapTicker("TM").supplyMultiplier, 10);
   assert.deepEqual(mapTopMarketCapTicker("SHEL"), {
@@ -30,7 +30,7 @@ test("maps CompaniesMarketCap exchange suffixes and explicit overrides", () => {
 });
 
 test("consolidates Bitpanda aliases without ambiguous stock substitutions", () => {
-  assert.deepEqual(getBitpandaAliases("KRX:000660"), ["HYXS"]);
+  assert.deepEqual(getBitpandaAliases("SKHY"), ["HYXS", "SKHY", "SKHYx"]);
   assert.equal(getBitpandaSecurity("GOOGL").canonicalTicker, "GOOG");
   assert.deepEqual(getBitpandaAliases("GOOG"), ["GOOGL"]);
 
@@ -51,15 +51,15 @@ test("consolidates Bitpanda aliases without ambiguous stock substitutions", () =
 
 test("unions and deduplicates aliases from every mapping of one canonical ticker", () => {
   assert.deepEqual(getBitpandaAliases("SHEL"), ["RDSA", "SHEL"]);
-  assert.deepEqual(getBitpandaAliases("NYSE:BRK.B"), ["BRKB", "BRK.B", "BRK-B", "BRK"]);
+  assert.deepEqual(getBitpandaAliases("BRKB"), ["BRKB", "BRK.B", "BRK-B", "BRK", "NYSE:BRK.B"]);
 });
 
 test("records receipt metadata without changing canonical ordinary-share prices", () => {
   const samsung = getBitpandaSecurity("SMSN");
-  assert.equal(samsung.canonicalTicker, "KRX:005930");
+  assert.equal(samsung.canonicalTicker, "SMSN");
   assert.equal(samsung.unitsPerReceipt, 25);
   assert.equal(samsung.supplyMultiplier, undefined);
-  assert.deepEqual(getBitpandaAliases("KRX:005930"), ["SSU", "SMSN"]);
+  assert.deepEqual(getBitpandaAliases("SMSN"), ["SSU", "SMSN"]);
 
   assert.equal(normalizeSupply("TM", 100), 1_000);
   assert.equal(normalizeSupply("005930.KS", 100), 100);

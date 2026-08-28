@@ -685,13 +685,13 @@ var BITPANDA_SYMBOL_ALIASES = {
 // AR uses GOOGLEFINANCE exchange-prefixed tickers for non-US securities.
 // Without this map, the stockPriceMap lookup misses 12 positions (~301 EUR).
 var BP_AR_ALIASES = {
-  "GOOGL": "GOOG", "FB": "META", "BRKB": "NYSE:BRK.B", "TM": "TYO:7203",
+  "GOOGL": "GOOG", "FB": "META", "BRKB": "BRKB", "TM": "TYO:7203",
   "MC": "EPA:MC", "NESN": "SWX:NESN", "OR": "EPA:OR", "ROG": "SWX:RO",
-  "HYXS": "KRX:000660", "SSU": "KRX:005930",
+  "HYXS": "SKHY", "SSU": "SMSN",
   "NOVO": "CPH:NOVO-B", "RMS": "EPA:RMS",
   "TSFA": "TSM", "BROA": "AVGO", "LLYC-US": "LLY", "WMT-US": "WMT",
   "JPM-US": "JPM", "AMD-US": "AMD", "MRKUS": "MRK", "RDSA": "SHEL",
-  "TCTZF": "TCEHY", "NOVN": "NVS", "SMSN": "KRX:005930"
+  "TCTZF": "TCEHY", "NOVN": "NVS", "SMSN": "SMSN"
 };
 
 // Reverse map for web API pricing: normalized symbol -> original ticker(s)
@@ -1336,15 +1336,15 @@ function _cexClearPriceMapCache_() {
 // ============================================================
 var CEX_STOCK_ALIASES = [
   ["FB", "META"],
-  ["BRKB", "NYSE:BRK.B"],
+  ["BRKB", "BRKB"],
   ["GOOGL", "GOOG"],
   ["BROA", "AVGO"],
   ["TSFA", "TSLA"],
   ["RDSA", "SHEL"],
   ["MRKUS", "MRK"],
-  ["SSU", "KRX:005930"],
-  ["SMSN", "KRX:005930"],
-  ["HYXS", "KRX:000660"],
+  ["SSU", "SMSN"],
+  ["SMSN", "SMSN"],
+  ["HYXS", "SKHY"],
   ["MC", "EPA:MC"],
   ["OR", "EPA:OR"],
   ["RMS", "EPA:RMS"],
@@ -1582,7 +1582,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
             if (aSym && isFinite(aPrc) && aPrc > 0) {
               stockPriceMap[aSym] = aPrc;
               // v4.15.139: also index by CEX symbol so the pricing loop finds
-              // GOOGL→GOOG, FB→META, BRKB→NYSE:BRK.B, etc.
+              // GOOGL→GOOG, FB→META, BRKB→BRKB, SSU/SMSN→SMSN, etc.
               for (var bk in BP_AR_ALIASES) {
                 if (BP_AR_ALIASES[bk].toUpperCase() === aSym) stockPriceMap[bk] = aPrc;
               }

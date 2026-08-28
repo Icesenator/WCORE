@@ -208,15 +208,15 @@ function _topMcBitpandaAlias1Formula_(row) {
   // symbole canonique Bitpanda (suffixes marche EPA:/SWX:/TYO:/NYSE: + Samsung).
   return "SWITCH(A" + row + ";" +
     "\"GOOG\";\"GOOGL\";\"META\";\"FB\";" +
-    "\"NYSE:BRK.B\";\"BRKB\";\"KRX:005930\";\"SSU\";" +
-    "\"KRX:000660\";\"HYXS\";\"EPA:MC\";\"MC\";" +
+    "\"BRKB\";\"BRKB\";\"SMSN\";\"SSU\";" +
+    "\"SKHY\";\"HYXS\";\"EPA:MC\";\"MC\";" +
     "\"EPA:OR\";\"OR\";" +
     "\"NVO\";\"NOVO\";\"CPH:NOVO-B\";\"NOVO\";" +
     "\"SWX:NESN\";\"NESN\";\"SWX:RO\";\"ROG\";\"TYO:7203\";\"TM\";\"\")";
 }
 
 function _topMcBitpandaAlias2Formula_(row) {
-  return "SWITCH(A" + row + ";\"KRX:005930\";\"SMSN\";\"005930\";\"SMSN\";\"\")";
+  return "SWITCH(A" + row + ";\"SMSN\";\"SSU\";\"005930\";\"SSU\";\"\")";
 }
 
 function _topMcBitpandaLookupFormula_(sheetName, row) {

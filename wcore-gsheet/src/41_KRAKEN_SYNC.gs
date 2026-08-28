@@ -1,8 +1,9 @@
+// v4.16.36 - Routage fiat + xStocks vers CEX - Kraken Stocks (EUR en Stocks, crypto en Crypto).
 // v4.16.34 - Dedicated hourly installer and non-mutating legacy watchdog.
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
-// Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (actions).
+// Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (fiat + actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.35";
+var KRAKEN_SYNC_VERSION = "4.16.36";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
@@ -24,15 +25,29 @@ var KRAKEN_SYMBOL_ALIASES = {
   "XXDG": "DOGE",
   "XETC": "ETC",
   "XMLN": "MLN",
-  "ZEUR": "EURC",
-  "EUR": "EURC",
-  "ZUSD": "USDT",
-  "USD": "USDT",
+  "ZEUR": "EUR",
+  "EUR": "EUR",
+  "ZUSD": "USD",
+  "USD": "USD",
   "USDC": "USDT",
   "USDT": "USDT",
   "TUSD": "USDT",
   "EURT": "EURC",
   "EURI": "EURC"
+};
+
+// Devises fiat gérées côté Stocks (routées hors de l'onglet Crypto). EUR attendu
+// principalement ; pas d'USD prévu sur ce compte mais la liste reste extensible.
+var KRAKEN_FIAT_SYMBOLS = ["EUR", "USD"];
+
+// Conversions de sous-jacent pour les xStocks Kraken vers le symbole canonique
+// WCORE (Portefeuille Action). SK Hynix: le xStock Kraken SKHYx suit SKHY (Nasdaq,
+// USD) tandis que le canonique est SKHY (ex-cotation coréenne KRX:000660). La forme
+// avec et sans "x" est couverte. Les xStocks sans entrée sont normalisés en
+// retirant le suffixe "x" (ex. NVDAx -> NVDA).
+var KRAKEN_XSTOCK_CANONICAL = {
+  "SKHY": "SKHY",
+  "SKHYX": "SKHY"
 };
 
 function SET_KRAKEN_API_KEYS(apiKey, privateKey) {
@@ -161,20 +176,52 @@ function _krakenCanonicalSymbol_(symbol) {
   return s;
 }
 
+function _krakenIsFiat_(symbol) {
+  var s = String(symbol || "").trim().toUpperCase();
+  return KRAKEN_FIAT_SYMBOLS.indexOf(s) >= 0;
+}
+
+function _krakenIsXStock_(symbol) {
+  var s = String(symbol || "").trim().toUpperCase();
+  if (KRAKEN_XSTOCK_CANONICAL[s]) return true;
+  // xStock Kraken: nom se terminant par "x" (ex. NVDAX, AAPLX) après normalisation.
+  // Garde-fou de longueur pour éviter de capturer des tokens crypto courts.
+  return s.length > 3 && /X$/.test(s);
+}
+
+// Normalise un xStock Kraken vers le symbole canonique WCORE (Portefeuille Action):
+// applique KRAKEN_XSTOCK_CANONICAL puis retire le suffixe "x" final.
+function _krakenCanonicalStockSymbol_(symbol) {
+  var s = String(symbol || "").trim();
+  if (!s) return "";
+  var up = s.toUpperCase();
+  if (KRAKEN_XSTOCK_CANONICAL[up]) return KRAKEN_XSTOCK_CANONICAL[up];
+  if (/X$/.test(up)) return up.slice(0, -1);
+  return s;
+}
+
+function _krakenPushBucket_(bucket, seen, sym, amount) {
+  var key = String(sym || "").toUpperCase();
+  if (!key) return;
+  if (Object.prototype.hasOwnProperty.call(seen, key)) bucket[seen[key]][1] += amount;
+  else { seen[key] = bucket.length; bucket.push([sym, amount]); }
+}
+
 function _krakenFetchBuckets_(creds) {
   var balances = _krakenPrivatePost_("/0/private/Balance", {}, creds);
-  var rows = [];
-  var seen = {};
+  var buckets = { crypto: [], fiat: [], xstocks: [] };
+  var seen = { crypto: {}, fiat: {}, xstocks: {} };
   for (var raw in balances) {
     if (!Object.prototype.hasOwnProperty.call(balances, raw)) continue;
     var amount = _krakenParseAmount_(balances[raw]);
     if (amount <= 0) continue;
     var sym = _krakenCanonicalSymbol_(raw);
     if (!sym) continue;
-    if (Object.prototype.hasOwnProperty.call(seen, sym)) rows[seen[sym]][1] += amount;
-    else { seen[sym] = rows.length; rows.push([sym, amount]); }
+    if (_krakenIsFiat_(sym)) _krakenPushBucket_(buckets.fiat, seen.fiat, sym, amount);
+    else if (_krakenIsXStock_(sym)) _krakenPushBucket_(buckets.xstocks, seen.xstocks, _krakenCanonicalStockSymbol_(sym), amount);
+    else _krakenPushBucket_(buckets.crypto, seen.crypto, sym, amount);
   }
-  return { spot: rows };
+  return buckets;
 }
 
 function DIAG_KRAKEN_API() {
@@ -182,8 +229,12 @@ function DIAG_KRAKEN_API() {
     var buckets = _krakenFetchBuckets_(_krakenGetCreds_());
     var msg = [
       "Kraken API diag " + KRAKEN_SYNC_VERSION,
-      "spot=" + buckets.spot.length,
-      "spot sample=" + JSON.stringify(buckets.spot.slice(0, 12))
+      "crypto=" + buckets.crypto.length,
+      "fiat=" + buckets.fiat.length,
+      "xstocks=" + buckets.xstocks.length,
+      "crypto sample=" + JSON.stringify(buckets.crypto.slice(0, 12)),
+      "fiat sample=" + JSON.stringify(buckets.fiat.slice(0, 6)),
+      "xstocks sample=" + JSON.stringify(buckets.xstocks.slice(0, 12))
     ].join("\n");
     Logger.log(msg);
     return msg;
@@ -205,22 +256,21 @@ function SETUP_KRAKEN_SHEET() {
   return "OK_KRAKEN_SHEET_READY";
 }
 
-function _krakenBuildValues_(buckets, stamp) {
+function _krakenBuildValues_(rows, stamp) {
   var values = [];
-  var list = (buckets && buckets.spot) || [];
-  for (var i = 0; i < list.length; i++) values.push([list[i][0], _krakenParseAmount_(list[i][1]), "spot", stamp]);
+  for (var i = 0; i < rows.length; i++) values.push([rows[i][0], _krakenParseAmount_(rows[i][1]), "spot", stamp]);
   return values;
 }
 
-function _krakenWriteSheet_(ss, buckets) {
-  var sh = ss.getSheetByName(KRAKEN_SYNC_CONFIG.SHEET);
-  if (!sh) sh = ss.insertSheet(KRAKEN_SYNC_CONFIG.SHEET);
+function _krakenWriteSheet_(ss, sheetName, rows) {
+  var sh = ss.getSheetByName(sheetName);
+  if (!sh) sh = ss.insertSheet(sheetName);
   if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-  var dataRows = _krakenBuildValues_(buckets, stamp);
+  var dataRows = _krakenBuildValues_(rows, stamp);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
   // v4.15.121: append INFO_TOTAL row.
-  _cexComputeAndAppendTotal_(ss, KRAKEN_SYNC_CONFIG.SHEET, dataRows, "kraken", values);
+  _cexComputeAndAppendTotal_(ss, sheetName, dataRows, "kraken", values);
   return dataRows.length;
 }
 
@@ -230,8 +280,8 @@ function UPDATE_KRAKEN_SPOT() {
   try {
     var ss = SpreadsheetApp.openById(KRAKEN_SYNC_CONFIG.SPREADSHEET_ID);
     var buckets = _cexRelayFetchWithRetry_(function() { return _krakenFetchBuckets_(_krakenGetCreds_()); }, "KRAKEN");
-    var written = _krakenWriteSheet_(ss, buckets);
-    var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written };
+    var written = _krakenWriteSheet_(ss, KRAKEN_SYNC_CONFIG.SHEET, buckets.crypto);
+    var status = { ok: true, ts: new Date().toISOString(), spot: buckets.crypto.length, rows: written };
     _krakenSetStatus_(status);
     return JSON.stringify(status);
   } catch (err) {
@@ -300,23 +350,27 @@ function INSTALL_KRAKEN_SYNC_TRIGGER() {
   return "Triggers installed: UPDATE_KRAKEN_SPOT (1h) + UPDATE_KRAKEN_STOCKS_FIAT (1h)";
 }
 
-// Stub fail-safe: Kraken Securities (actions) n'expose pas d'API publique stable
-// à ce jour. Cette fonction est conçue avec la même signature que
-// UPDATE_BITPANDA_STOCKS_FIAT() afin d'accueillir un vrai fetch plus tard.
-// Elle ne lit ni n'écrit aucune cellule tant que la source n'est pas branchée.
-var KRAKEN_STOCKS_WARN_PROP = "KRAKEN_STOCKS_API_UNAVAILABLE_WARNED";
-
+// v4.16.36: écrit le fiat (EUR) + les xStocks Kraken (normalisés vers le canonique
+// WCORE, ex. SKHYx -> SKHY) dans l'onglet CEX - Kraken Stocks, via le même pipeline
+// que Bitpanda Stocks (INFO_TOTAL + Vérif). Les cryptos restent sur
+// UPDATE_KRAKEN_SPOT -> CEX - Kraken Crypto.
 function UPDATE_KRAKEN_STOCKS_FIAT() {
   try { HttpCallCounter.setTrigger('UPDATE_KRAKEN_STOCKS_FIAT'); } catch (eCounter) {}
-  var warned = false;
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("KRAKEN_STOCKS")) return "BUSY";
   try {
-    warned = String(PropertiesService.getScriptProperties().getProperty(KRAKEN_STOCKS_WARN_PROP) || "") === "1";
-  } catch (eProp) {}
-  if (!warned) {
-    Logger.log("WARN: Kraken Stocks API unavailable - skip (read-only stub)");
-    try {
-      PropertiesService.getScriptProperties().setProperty(KRAKEN_STOCKS_WARN_PROP, "1");
-    } catch (eSet) {}
+    var ss = SpreadsheetApp.openById(KRAKEN_SYNC_CONFIG.SPREADSHEET_ID);
+    var buckets = _cexRelayFetchWithRetry_(function() { return _krakenFetchBuckets_(_krakenGetCreds_()); }, "KRAKEN_STOCKS");
+    var rows = buckets.fiat.concat(buckets.xstocks);
+    var written = _krakenWriteSheet_(ss, KRAKEN_SYNC_CONFIG.SHEET_STOCKS, rows);
+    var status = { ok: true, ts: new Date().toISOString(), fiat: buckets.fiat.length, xstocks: buckets.xstocks.length, rows: written };
+    _krakenSetStatus_(status);
+    return JSON.stringify(status);
+  } catch (err) {
+    var statusErr = { ok: false, ts: new Date().toISOString(), error: String(err) };
+    _krakenSetStatus_(statusErr);
+    Logger.log("UPDATE_KRAKEN_STOCKS_FIAT ERROR: " + err);
+    return JSON.stringify(statusErr);
+  } finally {
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("KRAKEN_STOCKS");
   }
-  return "SKIP: Kraken Securities API unavailable - onglet 'CEX - Kraken Stocks' en attente de source (stub read-only)";
 }

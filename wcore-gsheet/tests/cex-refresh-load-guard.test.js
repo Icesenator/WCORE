@@ -78,6 +78,9 @@ const updateBitpandaStocksBody = extractFunction(bitpanda, 'UPDATE_BITPANDA_STOC
 if (!/stocks\s*:\s*true/.test(updateBitpandaStocksBody) || !/fiat\s*:\s*true/.test(updateBitpandaStocksBody)) {
   throw new Error('UPDATE_BITPANDA_STOCKS_FIAT must refresh Bitpanda stocks and fiat together');
 }
+if (/SHEETS\.FIAT|SHEETS\.COMMODITY/.test(extractFunction(bitpanda, '_bpUpdateSelectedBuckets_'))) {
+  throw new Error('Bitpanda sync must not write dedicated Fiat or Commodity sheets');
+}
 if (autoHeal.includes('ScriptApp.newTrigger("CEX_HOURLY_REFRESH").timeBased().everyHours(4).create()')) {
   throw new Error('CEX auto refresh must not depend only on the central 4h trigger');
 }
@@ -205,11 +208,11 @@ if (!runJobBody.includes('_cexIsTransientResult_') || !runJobBody.includes('_cex
 if (!runJobBody.includes('UPDATE_KRAKEN_SPOT')) {
   throw new Error('_cexRunManualJob_ must route KRAKEN jobs to UPDATE_KRAKEN_SPOT');
 }
-if (!bpOnEditBody.includes('kind: "KRAKEN_STOCKS"')) {
-  throw new Error('Portefeuille Action!T2 must enqueue KRAKEN_STOCKS with Bitpanda stocks/fiat');
-}
 if (!runJobBody.includes('UPDATE_KRAKEN_STOCKS_FIAT')) {
   throw new Error('_cexRunManualJob_ must route KRAKEN_STOCKS jobs to UPDATE_KRAKEN_STOCKS_FIAT');
+}
+if (!bpOnEditBody.includes('kind: "KRAKEN_STOCKS"')) {
+  throw new Error('Portefeuille Action!T2 must enqueue KRAKEN_STOCKS with Bitpanda Stocks');
 }
 if (!runJobBody.includes('_CEX_MANUAL_JOB_MAX_RETRIES')) {
   throw new Error('Transient CEX job retries must be bounded by _CEX_MANUAL_JOB_MAX_RETRIES');

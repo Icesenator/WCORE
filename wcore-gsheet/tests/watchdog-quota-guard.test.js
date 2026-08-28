@@ -43,6 +43,7 @@ function loadWatchdogHelpers() {
     '_wd_collectGlobalRefreshActions_',
     '_wd_shouldSyncJ1_',
     '_wd_j1LatchValue_',
+    '_wd_readDirectB1_',
     '_wd_needsRefresh_',
     '_wd_isSystemBlocked_',
     '_wd_tryUnblock_'

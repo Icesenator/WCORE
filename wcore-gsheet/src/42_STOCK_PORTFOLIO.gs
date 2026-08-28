@@ -630,7 +630,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
 // reserve (U1 = securisation flag; row-1 controls are shifted right by A1/B1 refresh cells).
 function _stockPortfolioEurSpotFormula_(sheetRow) {
   var priceRef = "C" + sheetRow;
-  var sheets = ["CEX - Bitpanda Crypto", "CEX - Bitpanda Commodity", "CEX - Bitpanda Fiat", "CEX - Bitpanda Stocks", "CEX - Kraken Stocks"];
+  var sheets = ["CEX - Bitpanda Stocks", "CEX - Kraken Stocks"];
   var parts = [];
   ["BCPEUR", "EUR"].forEach(function (symbol) {
     sheets.forEach(function (sheetName) {

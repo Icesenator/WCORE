@@ -74,7 +74,7 @@ if (!source.includes('function _bpSetExternalRefreshStatus_(') || !onEditBody.in
 }
 
 // v4.15.115+: U2 refreshes Bitpanda CRYPTO only (no CEX - Bitpanda Fiat update needed).
-for (const kind of ['BITPANDA_CRYPTO', 'BINANCE', 'BITFINEX', 'BYBIT', 'COINBASE', 'OKX']) {
+for (const kind of ['BITPANDA_CRYPTO', 'BINANCE', 'BITFINEX', 'BYBIT', 'COINBASE', 'OKX', 'KRAKEN']) {
   if (!onEditBody.includes(`kind: "${kind}"`)) {
     throw new Error(`Portefeuille Crypto!U2 must queue ${kind} instead of running it inside onEdit`);
   }
@@ -117,6 +117,9 @@ const paT2BranchEnd = onEditBody.indexOf('} else if (name === "Portefeuille Cryp
 const paT2Branch = onEditBody.slice(paT2BranchStart, paT2BranchEnd);
 if (!paT2Branch.includes('kind: "BITPANDA_STOCKS_FIAT"')) {
   throw new Error('Portefeuille Action!T2 must queue BITPANDA_STOCKS_FIAT');
+}
+if (!paT2Branch.includes('kind: "KRAKEN_STOCKS"')) {
+  throw new Error('Portefeuille Action!T2 must queue KRAKEN_STOCKS (CEX - Kraken Stocks)');
 }
 if (paT2Branch.includes('kind: "TOP_MARKETCAP"')) {
   throw new Error('Portefeuille Action!T2 must not queue TOP_MARKETCAP');

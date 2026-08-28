@@ -162,7 +162,7 @@ var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse
 var P_WD_J1_CURSOR = "WD_J1_CURSOR";
 var P_SYNC_J1_CURSOR = "SYNC_J1_CURSOR";
 
-var REFRESH_VERSION = "4.16.68";
+var REFRESH_VERSION = "4.16.70";
 
 function _wcoreAcquireLease_(key, ttlMs, owner) {
   var lock = null;
@@ -278,6 +278,27 @@ function WCORE_ON_EDIT(e) {
    if (typeof _bpDetailsAutoLink_ === "function") {
     try { _bpDetailsAutoLink_(e); } catch (eAuto) {}
    }
+    // v4.16.70: secondary views (e.g. "Ledger - Base Action") mirror their
+    // primary ("Ledger - Base Crypto"). Cocher A1 sur une vue secondaire doit
+    // aussi pulser B1 sur la vue primaire pour declencher le scan du wallet.
+    if (a1 === "A1" && String(name || "").indexOf(" - ") >= 0) {
+      var secondaryValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
+      if (String(secondaryValue).toUpperCase() === "TRUE" && typeof LedgerViewRegistry_resolvePrimary_ === "function") {
+        var primaryName = LedgerViewRegistry_resolvePrimary_(name);
+        if (primaryName && primaryName !== name && sheet && typeof sheet.getParent === "function") {
+          try {
+            var primarySheet = sheet.getParent().getSheetByName(primaryName);
+            if (primarySheet) {
+              var nowStrSecondary = _wd_fmtDate_(new Date());
+              primarySheet.getRange("B1").setValue(nowStrSecondary);
+              primarySheet.getRange("B1").setNumberFormat("@");
+            }
+          } catch (ePrimaryPulse) {
+            try { Logger.log("[WCORE_ON_EDIT] primary pulse failed for " + primaryName + ": " + (ePrimaryPulse && ePrimaryPulse.message)); } catch (eLog) {}
+          }
+        }
+      }
+    }
     if (range.getA1Notation && range.getA1Notation() !== "A1") return;
     if (!sheet) return;
     if (String(name || "").indexOf(" - ") < 0) return;
@@ -1385,7 +1406,15 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     var actualI1 = refreshCheck.actualTimestamp || _wd_extractTimestamp_(d.vI1 || "");
     // v4.16.68: le latch J1 passe par le helper partage — pour [CACHE_ONLY] il
     // vaut B1 (la tentative) et non la date de la donnee (voir _wd_j1LatchValue_).
-    var j1SyncValue = _wd_j1LatchValue_(d.vI1 || "", d.vB1 || "");
+    // v4.16.69: B1 lu directement depuis la feuille quand I1 est [CACHE_ONLY] —
+    // le Recap INDIRECT(B1) peut retourner un pulse perime (pas de recalcul
+    // volatile visible par l'API apres batchUpdate), ce qui faisait osciller J1.
+    var latchB1 = d.vB1 || "";
+    if (_wd_norm_(d.vI1 || "").indexOf("[CACHE_ONLY]") === 0) {
+      var directB1 = _wd_readDirectB1_(sheetName);
+      if (directB1 != null) latchB1 = directB1;
+    }
+    var j1SyncValue = _wd_j1LatchValue_(d.vI1 || "", latchB1);
     var j1SyncReason = "";
     if (_wd_norm_(d.vI1 || "").indexOf("[CACHE_ONLY]") === 0 && j1SyncValue !== actualI1) {
       j1SyncReason = "cache_only_attempt";
@@ -1521,6 +1550,28 @@ function _wd_j1LatchValue_(vI1, vB1) {
     if (pulseTs && _wd_isLastUpdateFormat_(pulseTs)) return pulseTs;
   }
   return extracted;
+}
+
+/**
+ * v4.16.69: lecture directe de B1 sur la feuille wallet pour le latch J1
+ * [CACHE_ONLY]. Le Recap porte B1 via INDIRECT, mais les ecritures API
+ * (batchUpdate) ne declenchent pas le recalcul des formules volatiles visible
+ * par Values.get : le latch peut alors recevoir le B1 d'une TENTE ANCIENNE
+ * (ex: Date du 27/08 affichee en format FR) au lieu du pulse courant, et J1
+ * oscille entre la date du cache et un timestamp perime. La lecture directe
+ * contourne le cache de recalcul du Recap.
+ * @param {string} sheetName nom de la feuille wallet
+ * @returns {string|null} valeur B1 brute, ou null si indisponible
+ */
+function _wd_readDirectB1_(sheetName) {
+  try {
+    if (typeof Sheets === "undefined" || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) return null;
+    var resp = Sheets.Spreadsheets.Values.get(WCORE_SPREADSHEET_ID, _wd_quoteA1Sheet_(sheetName) + "!B1");
+    var vals = (resp && resp.values) || [];
+    return (vals[0] && vals[0][0] != null) ? String(vals[0][0]) : "";
+  } catch (eRead) {
+    return null;
+  }
 }
 
 function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
@@ -2492,7 +2543,20 @@ function SYNC_J1_ALL_SHEETS() {
       // v4.16.68: latch J1 via helper partage — [CACHE_ONLY] sync sur B1
       // (la tentative), pas sur la date du cache. Sans cela ce pass rapide
       // (toutes les 2 min) faisait reculer J1 a la derniere reussite.
+      // v4.16.69: B1 relu directement sur la feuille pour [CACHE_ONLY] — le
+      // Recap INDIRECT(B1) peut etre stale (pas de recalcul volatile visible
+      // par l'API apres batchUpdate). getValue() retourne un Date JS exploitable.
       var rawB1 = (valsB1[i] && valsB1[i][0]);
+      var i1NormLatch = _wd_norm_(i1);
+      if (i1NormLatch.indexOf("[CACHE_ONLY]") === 0) {
+        var sheetNameProbe = String((names[i] && names[i][0]) || "").trim();
+        if (sheetNameProbe && !_wd_isCexSheet_(sheetNameProbe)) {
+          try {
+            var probeSheet = ss.getSheetByName(sheetNameProbe);
+            if (probeSheet) rawB1 = probeSheet.getRange("B1").getValue();
+          } catch (eProbeB1) {}
+        }
+      }
       var cleanI1 = _wd_j1LatchValue_(i1, rawB1);
       if (_wd_isUnsafeLatchSource_(i1)) continue;
       if (!_wd_isLastUpdateFormat_(cleanI1)) continue;

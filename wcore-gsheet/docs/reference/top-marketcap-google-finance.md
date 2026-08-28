@@ -62,7 +62,7 @@ Ne pas chercher dans Crypto/Commodity/Fiat pour les actions : certains tickers e
 
 L'ancien onglet `Bitpanda Spot Action` a ete supprime. Les lignes `action` exposees par l'API Bitpanda sont fusionnees dans `CEX - Bitpanda Stocks` par `UPDATE_BITPANDA_SPOT()` / `UPDATE_BITPANDA_STOCKS_FIAT()`.
 
-Refresh manuel lie a cet onglet : `Action Rebalancing!Z1` met a jour seulement `CEX - Bitpanda Stocks` et `CEX - Bitpanda Fiat`.
+Refresh manuel lie a cet onglet : `Portefeuille Action!T2` met a jour `CEX - Bitpanda Stocks` et `CEX - Kraken Stocks`. `Action Rebalancing!Z1` a ete retire du flux manuel.
 
 Aliases maintenus pour les anciens symboles Bitpanda :
 
@@ -84,7 +84,7 @@ Aliases maintenus pour les anciens symboles Bitpanda :
 Ces instruments Bitpanda ne correspondent pas toujours a une action ordinaire 1:1.
 
 - Toyota : CompaniesMarketCap expose `TM` comme ADR NYSE. Le script mappe vers `TYO:7203` et multiplie la supply par 10 pour conserver la market cap. Bitpanda `TM` est mappe vers `TYO:7203`.
-- Samsung : Bitpanda `SSU`/`SMSN` represente environ 25 actions ordinaires Samsung. Le spot multiplie donc la quantite par 25 pour `KRX:005930`.
+- Samsung : le prix WCORE de `SSU`/`SMSN` correspond deja a l'unite Bitpanda (produit representant environ 25 actions ordinaires). Le spot ne reapplique donc aucun multiplicateur x25.
 
 ## Verification Rapide
 
@@ -93,4 +93,4 @@ Couverture Bitpanda attendue apres update : toutes les positions `CEX - Bitpanda
 Exemples deja valides :
 
 - Toyota : `0.39280479 * ~15.12 EUR = ~5.94 EUR`.
-- Samsung : `0.01244396 * 25 * ~183.64 EUR = ~57.13 EUR`.
+- Samsung : la quantite Bitpanda est multipliee directement par le prix WCORE de l'unite `SSU`/`SMSN`, sans second multiplicateur x25.

@@ -1,6 +1,6 @@
 {
   "name": "wcore-web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "WCORE web - wallet analytics dashboard. Chain configs from @wcore/chains (gsheet). Web platform in apps/ and packages/.",
   "scripts": {

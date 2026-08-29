@@ -124,6 +124,57 @@ function _ensureLedgerCache_(force) {
   _setDetailsChainHyperlinks_(ss, map);
 }
 
+// ============================================================
+// v4.16.x — Recap Portfolio column CA (Vérif)
+// MAP formula that surfaces verification state per ledger/CEX row.
+// Three branches, one per on-sheet convention:
+//   - CEX   ("CEX - ..."): F:F, surface X errors only. 0 V is a legitimate
+//     empty CEX, never an error.
+//   - Action on-chain (sheet name ends with "Action"): H:H, surface X
+//     errors only. Action tabs do not use V marks.
+//   - Crypto on-chain (everything else): H:H, surface X errors AND the
+//     "Erreur (0 V)" branch when no V entry is present (previous MAP
+//     stopped at COUNTIF and left a bare 0 in that case).
+// Each branch is exposed separately so the test harness can assert the
+// contract without a Sheets runtime.
+// Called from _setRecapHyperlinks_ so the formula is restored whenever
+// the ledger cache is rebuilt.
+// ============================================================
+function _recapVerifBranchFormula_(kind) {
+  if (kind === "cex") {
+    return 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!F:F");"X")>0;"Erreur (X présent)";COUNTIF(INDIRECT("\'"&sheet&"\'!F:F");"V"))';
+  }
+  if (kind === "action") {
+    return 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"X")>0;"Erreur (X présent)";COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"V"))';
+  }
+  // kind === "crypto" (default) — only branch that surfaces "Erreur (0 V)".
+  return 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"X")>0;"Erreur (X présent)";'
+    + 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"V")=0;"Erreur (0 V)";COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"V")))';
+}
+
+function _recapPortfolioVerifFormula_() {
+  var cexBranch = _recapVerifBranchFormula_("cex");
+  var actionBranch = _recapVerifBranchFormula_("action");
+  var cryptoBranch = _recapVerifBranchFormula_("crypto");
+  return '=MAP(A2:A;LAMBDA(sheet;IF(sheet="";"";'
+    + 'IF(LEFT(sheet;6)="CEX - ";' + cexBranch + ';'
+    + 'IF(RIGHT(sheet;7)=" Action";' + actionBranch + ';' + cryptoBranch + ')'
+    + ')))';
+}
+
+function _repairRecapPortfolioVerif_(ss) {
+  var recap = ss && ss.getSheetByName("Recap Portfolio");
+  if (!recap) return false;
+  recap.getRange("CA1").setValue("Vérif");
+  recap.getRange("CA2").setFormula(_recapPortfolioVerifFormula_());
+  return true;
+}
+
+function REPAIR_RECAP_PORTFOLIO_VERIF() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return _repairRecapPortfolioVerif_(ss) ? "Recap Portfolio!CA1:CA2 repaired" : "Recap Portfolio absent";
+}
+
 /**
  * Set hyperlinks in Recap Chain column A using RichTextValue
  * Called after cache rebuild — no dependency on @customfunction inside formulas
@@ -177,6 +228,10 @@ function _setRecapHyperlinks_(ss, names, map) {
   if (lastRow > newLastRow) {
    recap.getRange(newLastRow + 1, 1, lastRow - newLastRow, 10).clearContent();
   }
+
+  // v4.16.x: re-emit the Vérif MAP so the column keeps surfacing
+  // "Erreur (0 V)" / "Erreur (X présent)" for every Recap row.
+  _repairRecapPortfolioVerif_(ss);
 
   Logger.log("[17_LISTING] Set " + richTexts.length + " hyperlinks in Recap Chain column A");
  } catch (e) {

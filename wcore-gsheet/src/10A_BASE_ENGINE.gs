@@ -511,12 +511,25 @@ BaseEngine.cexBusyStatus = function(walletKey, config) {
     var raw = PropertiesService.getScriptProperties().getProperty("CEX_MANUAL_ACTIVE_UNTIL_MS") || "";
     var until = parseInt(raw, 10);
     if (!isFinite(until) || until <= Date.now()) return "";
+    // v4.16.x: When a manual CEX refresh is in flight, we still want the
+    // on-chain wallet to surface its cached data instead of a bare
+    // [BUSY:CEX] N/A. Three cases:
+    //   - cache with assets  → [CACHE_ONLY] <updatedAt> (data wins, BUSY is a side note)
+    //   - cache, no assets   → [BUSY:CEX] <updatedAt>
+    //   - no cache at all    → [BUSY:CEX] N/A
     var ts = "";
+    var hasCacheAssets = false;
     try {
       CacheManager.init();
       var cache = WalletCache.load(walletKey, null, config);
-      if (cache && cache.updatedAt) ts = Format.datetime(cache.updatedAt);
+      if (cache) {
+        if (cache.updatedAt) ts = Format.datetime(cache.updatedAt);
+        if (cache.assets && cache.assets.length) hasCacheAssets = true;
+      }
     } catch (eCache) {}
+    if (hasCacheAssets) {
+      return BaseEngine.wrapCacheOnlyMarker(ts || Format.now());
+    }
     return "[BUSY:CEX] " + (ts || Format.now());
   } catch (e) {
     return "";

@@ -1087,7 +1087,7 @@ const STOCK_YAHOO_SYMBOLS = {
   // (TM ADR = 10 ordinary shares). Yahoo "TM" would misprice by ~10x.
   TM: ["7203.T"],
   // Korean tickers (Yahoo .KS, priced in KRW). SSU/SMSN = Samsung receipt.
-  SSU: ["005930.KS"], SMSN: ["005930.KS"], HYXS: ["000660.KS"],
+  SSU: ["005930.KS"], SMSN: ["005930.KS"], HYXS: ["SKHY"],
   ADS: ["ADS.DE"], AIR: ["AIR.PA"], ALV: ["ALV.DE"], BAS: ["BAS.DE"],
   BAYN: ["BAYN.DE"], BMW: ["BMW.DE"], CBK: ["CBK.DE"], DBK: ["DBK.DE"],
   DTE: ["DTE.DE"], ENR: ["ENR.DE"], HEN3: ["HEN3.DE"], IFX: ["IFX.DE"],

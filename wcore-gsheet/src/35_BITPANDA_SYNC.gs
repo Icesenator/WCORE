@@ -1861,7 +1861,7 @@ function _cexBuildVerifFormula_(sheetName) {
   if (!isFiatOrStocks) return cryptoDetailsV2Formula;
   if (isFiatOrStocks) {
     var escapedSheetName = String(sheetName || "").replace(/"/g, '""');
-    return '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";LET(t;REGEXREPLACE(s;"-LEG$";"");IF(COUNTIFS(\'Portefeuille Action Details\'!$E:$E;"' + escapedSheetName + '";\'Portefeuille Action Details\'!$C:$C;t)>0;"V";"X"))))))';
+    return '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Action Details\'!$E:$E;"' + escapedSheetName + '";\'Portefeuille Action Details\'!$F:$F;s)>0;"V";"X")))))';
   }
 }
 

@@ -183,11 +183,14 @@ function _krakenIsFiat_(symbol) {
 }
 
 function _krakenIsXStock_(symbol) {
-  var s = String(symbol || "").trim().toUpperCase();
-  if (KRAKEN_XSTOCK_CANONICAL[s]) return true;
-  // xStock Kraken: nom se terminant par "x" (ex. NVDAX, AAPLX) après normalisation.
-  // Garde-fou de longueur pour éviter de capturer des tokens crypto courts.
-  return s.length > 3 && /X$/.test(s);
+  var raw = String(symbol || "").trim();
+  if (!raw) return false;
+  var up = raw.toUpperCase();
+  if (KRAKEN_XSTOCK_CANONICAL[up]) return true;
+  // Suffixe xStock Kraken: "AAPLx", "NVDAx", "MUx" (x minuscule).
+  // Ne pas confondre avec un crypto tout en majuscules (PAX, UNI).
+  if (/x$/.test(raw) && raw.length >= 3) return true;
+  return up.length > 3 && /X$/.test(up) && /x$/.test(raw);
 }
 
 // Normalise un xStock Kraken vers le symbole canonique WCORE (Portefeuille Action):
@@ -216,10 +219,14 @@ function _krakenFetchBuckets_(creds) {
     if (!Object.prototype.hasOwnProperty.call(balances, raw)) continue;
     var amount = _krakenParseAmount_(balances[raw]);
     if (amount <= 0) continue;
+    if (_krakenIsXStock_(raw)) {
+      var stockSym = _krakenCanonicalStockSymbol_(_krakenCanonicalSymbol_(raw));
+      if (stockSym) _krakenPushBucket_(buckets.xstocks, seen.xstocks, stockSym, amount);
+      continue;
+    }
     var sym = _krakenCanonicalSymbol_(raw);
     if (!sym) continue;
     if (_krakenIsFiat_(sym)) _krakenPushBucket_(buckets.fiat, seen.fiat, sym, amount);
-    else if (_krakenIsXStock_(sym)) _krakenPushBucket_(buckets.xstocks, seen.xstocks, _krakenCanonicalStockSymbol_(sym), amount);
     else _krakenPushBucket_(buckets.crypto, seen.crypto, sym, amount);
   }
   return buckets;

@@ -14,6 +14,7 @@ test("maps CompaniesMarketCap exchange suffixes and explicit overrides", () => {
     yahooTickers: ["SKHY", "000660.KS"],
     bitpandaAliases: ["HYXS", "SKHY", "SKHYx"],
     expectedCurrency: "USD",
+    companiesMarketCapFallback: false,
   });
   assert.equal(mapTopMarketCapTicker("BRK-B").canonicalTicker, "BRKB");
   assert.equal(mapTopMarketCapTicker("TM").canonicalTicker, "TYO:7203");

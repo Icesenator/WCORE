@@ -1,5 +1,12 @@
 # GSheet Changelog
 
+## 2026-08-31 — v4.16.66 : plus jamais de statut horodaté "N/A"
+
+- `BaseEngine.cexBusyStatus` accepte un `cache.updatedAt` déjà formaté (chaîne) au lieu de le re-formater en `N/A` : en fenêtre BUSY:CEX, les onglets affichent l'heure de tentative ou la date du cache, jamais `[BUSY:CEX] N/A`.
+- `WalletCache.getLastUpdateStr` conserve également les chaînes déjà formatées (chemins SVM/Cosmos).
+- `WalletCache.getLastRunUpdateStr` ignore une ligne META `last_update` = `N/A` persistée par l'ancien code et retombe sur `updatedAt` ; les statuts `[CACHE_ONLY] [FRESH]` perdent leur `N/A` résiduel (Fogo, Solana, Cosmos Hub, Terra).
+- Gardes TDD dans `cex-busy-status-cache.test.js` et `cache-status-timestamp.test.js` (7 contrats). Suite GSheet 62/62, validate:static 3126. Déployé live via safe-push, Recap Portfolio vérifié 0 `N/A` sur 142 lignes.
+
 ## 2026-08-28 — v4.16.75 : consolidation Bitpanda, produits `-LEG` et refresh CEX
 
 - Bitpanda n'alimente plus que deux feuilles : `CEX - Bitpanda Crypto` et `CEX - Bitpanda Stocks`. Tous les fiats rejoignent Stocks, `EURC`/`EURCV` sont fusionnés en `EURC` côté Crypto et les commodities sont exclues. Les anciennes feuilles Fiat/Commodity ont été supprimées et ne doivent pas être recréées.

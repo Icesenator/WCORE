@@ -132,6 +132,13 @@ runTest(
   }
 );
 
+runTest(
+  'BUSY active + string cache.updatedAt → [BUSY:CEX] <ts>',
+  Date.now() + 60000,
+  makeMockWalletCache(null, '2026-08-31 18:17:20'),
+  '[BUSY:CEX] 2026-08-31 18:17:20'
+);
+
 // ─── BUSY active, cache with assets → [CACHE_ONLY] <ts> (amélioration) ──────
 runTest(
   'BUSY active + cache with assets → [CACHE_ONLY] <ts> (new behavior)',

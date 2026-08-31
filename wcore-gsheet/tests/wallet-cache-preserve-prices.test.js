@@ -149,6 +149,39 @@ vm.runInContext(globalSource, context);
 }
 
 {
+  const wallet = '0xwcorewebscampurge';
+  const blockedToken = '0xce10920aabc17ab91e33119108bb1bcfa0940011';
+
+  context.WalletCache.save(wallet, {
+    updatedAt: 1000,
+    assets: [
+      { contract: 'native', balance: 1, symbol: 'ETH', name: 'Ether', decimals: 18 },
+      { contract: blockedToken, balance: 10, symbol: 'Burger', name: 'BurgerCoin', decimals: 18 },
+    ],
+    priceMap: { native: 2000, [blockedToken]: 0.0000013 },
+    priceTsMap: { native: 1000, [blockedToken]: 1000 },
+    scanStats: { fullCycleComplete: true },
+  }, {});
+
+  const result = context.WalletCache.save(wallet, {
+    updatedAt: 2000,
+    assets: [
+      { contract: 'native', balance: 1, symbol: 'ETH', name: 'Ether', decimals: 18 },
+      { contract: '0xb1e80387ebe53ff75a89736097d34dc8d9e9045b', balance: 1, symbol: 'Re7USDC', name: 'Re7 USDC', decimals: 6 },
+    ],
+    priceMap: { native: 2100 },
+    priceTsMap: { native: 2000 },
+    _webScanBlockedContractSet: { [blockedToken]: true },
+    scanStats: { source: 'wcore-web', fullCycleComplete: false },
+  }, {});
+
+  const saved = context.WalletCache.load(wallet, null, {});
+  assert.equal(result.written, true, 'web scan purge must persist successfully');
+  assert.equal(saved.assets.some((asset) => asset.contract === blockedToken), false,
+    'WalletCache consensus merge must never resurrect a contract blocked by the API');
+}
+
+{
   const wallet = '0xwcorewebdebt';
   const debtToken = '0xe36a30d249f7761327fd973001a32010b521b6fd';
 

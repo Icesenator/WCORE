@@ -523,7 +523,12 @@ BaseEngine.cexBusyStatus = function(walletKey, config) {
       CacheManager.init();
       var cache = WalletCache.load(walletKey, null, config);
       if (cache) {
-        if (cache.updatedAt) ts = Format.datetime(cache.updatedAt);
+        if (cache.updatedAt) {
+          ts = typeof cache.updatedAt === "string"
+            ? String(cache.updatedAt).trim()
+            : Format.datetime(cache.updatedAt);
+          if (ts === "N/A") ts = "";
+        }
         if (cache.assets && cache.assets.length) hasCacheAssets = true;
       }
     } catch (eCache) {}

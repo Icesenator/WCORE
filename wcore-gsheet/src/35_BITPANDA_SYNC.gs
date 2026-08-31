@@ -1669,6 +1669,9 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     var row = balances[i] || [];
     var symbol = String(row[0] || "").trim().toUpperCase();
     var priceSymbol = isStocks ? _bpStripNewStockSuffix_(symbol) : symbol;
+    if (isStocks && String(provider || "").toLowerCase() === "kraken" && typeof _krakenCanonicalStockSymbol_ === "function") {
+      priceSymbol = _krakenCanonicalStockSymbol_(row[0]);
+    }
     var balance = Number(row[1] || 0);
     var priceEur = null;
     var directValueEur = null;
@@ -1798,8 +1801,12 @@ function _cexFetchWebPrices_(balances, sheetName, isStocks, providerSlug) {
     if (apiUrl && apiToken) {
       var allSymbols = [];
       for (var bi = 0; bi < (balances || []).length; bi++) {
-        var bs = String((balances[bi] || [])[0] || "").trim().toUpperCase();
+        var rawBalanceSymbol = String((balances[bi] || [])[0] || "").trim();
+        var bs = rawBalanceSymbol.toUpperCase();
         if (isStocks) bs = _bpStripNewStockSuffix_(bs);
+        if (isStocks && String(providerSlug || "").toLowerCase() === "kraken" && typeof _krakenCanonicalStockSymbol_ === "function") {
+          bs = _krakenCanonicalStockSymbol_(rawBalanceSymbol);
+        }
         if (bs && Number((balances[bi] || [])[1] || 0) > 0 && allSymbols.indexOf(bs) < 0) allSymbols.push(bs);
       }
       if (allSymbols.length > 0) {

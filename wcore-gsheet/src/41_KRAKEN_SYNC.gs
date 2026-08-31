@@ -1,10 +1,11 @@
+// v4.16.39 - tickers xStocks Kraken affichés avec x minuscule + prix Kraken direct.
 // v4.16.38 - xStocks Kraken courts (MUX) whitelistes + routage fiat/xstocks v2`n// v4.16.37 - A1 de CEX - Kraken Stocks rafraîchit fiat + xStocks (KRAKEN_ON_EDIT).
 // v4.16.36 - Routage fiat + xStocks vers CEX - Kraken Stocks (EUR en Stocks, crypto en Crypto).
 // v4.16.34 - Dedicated hourly installer and non-mutating legacy watchdog.
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
 // Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (fiat + actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.38";
+var KRAKEN_SYNC_VERSION = "4.16.39";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
@@ -50,7 +51,9 @@ var KRAKEN_XSTOCK_CANONICAL = {
   "SKHY": "SKHY",
   "SKHYX": "SKHY",
   "MUX": "MU",
-  "MUXUSD": "MU"
+  "MUXUSD": "MU",
+  "BRK.BX": "BRKB",
+  "XOMX": "XOM"
 };
 
 function SET_KRAKEN_API_KEYS(apiKey, privateKey) {
@@ -198,16 +201,28 @@ function _krakenIsXStock_(symbol) {
   return false;
 }
 
-// Normalise une clé xStock Kraken ("AAPLx.T", "MUx.T") vers le symbole
-// canonique WCORE: retire le suffixe boursier (.T), applique
-// KRAKEN_XSTOCK_CANONICAL puis retire le suffixe "x" final.
-function _krakenCanonicalStockSymbol_(symbol) {
+function _krakenDisplayStockSymbol_(symbol) {
   var s = String(symbol || "").trim();
   if (!s) return "";
-  s = s.replace(/\.[A-Z]+$/i, "");
+  s = s.replace(/\.T$/i, "");
   var up = s.toUpperCase();
+  if (/x$/i.test(s)) return s.slice(0, -1).toUpperCase() + "x";
+  if (KRAKEN_XSTOCK_CANONICAL[up]) {
+    var canonical = KRAKEN_XSTOCK_CANONICAL[up];
+    return canonical === "BRKB" ? "BRK.Bx" : canonical + "x";
+  }
+  return up;
+}
+
+// Normalise une clé xStock Kraken ("AAPLx.T", "MUx.T") vers le symbole
+// canonique WCORE pour le pricing et le portefeuille.
+function _krakenCanonicalStockSymbol_(symbol) {
+  var display = _krakenDisplayStockSymbol_(symbol);
+  if (!display) return "";
+  var up = display.toUpperCase();
   if (KRAKEN_XSTOCK_CANONICAL[up]) return KRAKEN_XSTOCK_CANONICAL[up];
-  if (/x$/.test(s) || /X$/.test(up)) return up.slice(0, -1);
+  if (/X$/.test(up)) up = up.slice(0, -1);
+  if (up === "BRK.B") return "BRKB";
   return up;
 }
 
@@ -227,7 +242,7 @@ function _krakenFetchBuckets_(creds) {
     var amount = _krakenParseAmount_(balances[raw]);
     if (amount <= 0) continue;
     if (_krakenIsXStock_(raw)) {
-      var stockSym = _krakenCanonicalStockSymbol_(_krakenCanonicalSymbol_(raw));
+      var stockSym = _krakenDisplayStockSymbol_(raw);
       if (stockSym) _krakenPushBucket_(buckets.xstocks, seen.xstocks, stockSym, amount);
       continue;
     }
@@ -271,9 +286,41 @@ function SETUP_KRAKEN_SHEET() {
   return "OK_KRAKEN_SHEET_READY";
 }
 
-function _krakenBuildValues_(rows, stamp) {
+function _krakenFetchXStockPricesUsd_(rows) {
+  var out = {};
+  var pairs = [];
+  for (var i = 0; i < (rows || []).length; i++) {
+    var symbol = _krakenDisplayStockSymbol_(rows[i] && rows[i][0]);
+    if (!symbol || !/x$/.test(symbol)) continue;
+    var pair = symbol + "/USD";
+    if (pairs.indexOf(pair) < 0) pairs.push(pair);
+  }
+  if (!pairs.length) return out;
+  var url = KRAKEN_SYNC_CONFIG.BASE_URL + "/0/public/Ticker?pair=" + encodeURIComponent(pairs.join(",")) + "&asset_class=tokenized_asset&assetVersion=1";
+  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  if (!resp || resp.getResponseCode() !== 200) return out;
+  var data = JSON.parse(resp.getContentText() || "{}");
+  var result = data && data.result ? data.result : {};
+  for (var key in result) {
+    if (!Object.prototype.hasOwnProperty.call(result, key)) continue;
+    var ticker = result[key];
+    var priceUsd = _krakenParseAmount_(ticker && ticker.c && ticker.c[0]);
+    var slash = String(key).indexOf("/");
+    var display = _krakenDisplayStockSymbol_(slash >= 0 ? String(key).slice(0, slash) : key);
+    if (display && priceUsd > 0) out[display.toUpperCase()] = priceUsd;
+  }
+  return out;
+}
+
+function _krakenBuildValues_(rows, stamp, opt_pricesUsd) {
   var values = [];
-  for (var i = 0; i < rows.length; i++) values.push([rows[i][0], _krakenParseAmount_(rows[i][1]), "spot", stamp]);
+  var pricesUsd = opt_pricesUsd || {};
+  for (var i = 0; i < rows.length; i++) {
+    var symbol = String(rows[i][0] || "");
+    var amount = _krakenParseAmount_(rows[i][1]);
+    var priceUsd = Number(pricesUsd[symbol.toUpperCase()] || 0);
+    values.push([symbol, amount, "spot", stamp, priceUsd > 0 ? amount * priceUsd : "", priceUsd > 0 ? priceUsd : ""]);
+  }
   return values;
 }
 
@@ -282,7 +329,8 @@ function _krakenWriteSheet_(ss, sheetName, rows) {
   if (!sh) sh = ss.insertSheet(sheetName);
   if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
-  var dataRows = _krakenBuildValues_(rows, stamp);
+  var pricesUsd = sheetName === KRAKEN_SYNC_CONFIG.SHEET_STOCKS ? _krakenFetchXStockPricesUsd_(rows) : {};
+  var dataRows = _krakenBuildValues_(rows, stamp, pricesUsd);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
   // v4.15.121: append INFO_TOTAL row.
   _cexComputeAndAppendTotal_(ss, sheetName, dataRows, "kraken", values);
@@ -415,6 +463,15 @@ function DIAG_KRAKEN_TICKERS() {
     ].join("\n");
     Logger.log(lines);
     return lines;
+  } catch (err) {
+    return "ERROR: " + (err && err.message ? err.message : err);
+  }
+}
+
+function DIAG_KRAKEN_XSTOCK_PRICES() {
+  try {
+    var buckets = _krakenFetchBuckets_(_krakenGetCreds_());
+    return JSON.stringify({ rows: buckets.xstocks, pricesUsd: _krakenFetchXStockPricesUsd_(buckets.xstocks) });
   } catch (err) {
     return "ERROR: " + (err && err.message ? err.message : err);
   }

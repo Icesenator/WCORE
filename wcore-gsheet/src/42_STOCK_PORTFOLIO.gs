@@ -596,7 +596,9 @@ function _stockPortfolioSpotQtyFormula_(sheetRow) {
     "IFERROR(VLOOKUP(SWITCH(" + a + ";\"KRX:005930\";\"SMSN\";\"005930\";\"SMSN\";\"\");" + bp + ";2;FALSE);" +
     "IFERROR(VLOOKUP(" + a + ";" + kr + ";2;FALSE);" +
     "IFERROR(VLOOKUP(REGEXREPLACE(" + a + ";\"^.*:\";\"\");" + kr + ";2;FALSE);" +
-    "IFERROR(VLOOKUP(SWITCH(" + a + ";" + aliasSwitch + ");" + kr + ";2;FALSE);0))))))))*" + c;
+    "IFERROR(VLOOKUP(SWITCH(" + a + ";" + aliasSwitch + ");" + kr + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(" + a + "&\"x\";" + kr + ";2;FALSE);" +
+    "IFERROR(VLOOKUP(SWITCH(" + a + ";\"BRKB\";\"BRK.Bx\";\"\");" + kr + ";2;FALSE);0))))))))))*" + c;
 }
 
 function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {

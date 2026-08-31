@@ -1270,6 +1270,14 @@ WalletCache = (function(existing) {
   for (var ic = 0; ic < newCompact.length; ic++) _registerContract(newCompact[ic]);
   }
 
+  // v4.15.53: the web API already proved these contracts are scams. They must
+  // never be resurrected by the generic consensus-miss preservation below.
+  // The adapter attaches this transient set before WalletCache.save; it is not
+  // part of the persisted cache schema and is consumed only during this merge.
+  var blockedSet = (cacheObj._webScanBlockedContractSet && typeof cacheObj._webScanBlockedContractSet === "object")
+    ? cacheObj._webScanBlockedContractSet
+    : {};
+
   var zeroSet = {};
   var zeroTs = cacheObj.balanceTsMap || cacheObj.bt || {};
   try {
@@ -1357,6 +1365,7 @@ WalletCache = (function(existing) {
   }
 
    if (!oc || oc === "native" || oc === "n") continue;
+  if (blockedSet[oc]) continue;                                // API-confirmed scam, never resurrect cache
   if (newSet[oc]) continue;                                    // scan covered it, respect new value
   if (zeroSet[oc]) continue;                                   // scan confirmed zero, do not resurrect cache
   if (strictTokenSet && !strictTokenSet[oc]) continue;          // user removed it from I2:I whitelist
@@ -1529,7 +1538,7 @@ WalletCache = (function(existing) {
  if (!cacheObj) return "";
  if (cacheObj.last_cache_update) return String(cacheObj.last_cache_update);
  if (cacheObj.lcu) return String(cacheObj.lcu);
- if (cacheObj.updatedAt) return Format.datetime(cacheObj.updatedAt);
+ if (cacheObj.updatedAt) return typeof cacheObj.updatedAt === "string" ? String(cacheObj.updatedAt).trim() : Format.datetime(cacheObj.updatedAt);
  if (cacheObj.u) return Format.datetime(cacheObj.u);
  return "";
  };
@@ -1544,8 +1553,8 @@ WalletCache = (function(existing) {
  var r = rows[i];
  if (!r || r.length < 3) continue;
  if (String(r[0] || "") === "META" && String(r[1] || "") === "last_update") {
- var v = String(r[2] || "").trim();
- if (v) return v;
+        var v = String(r[2] || "").trim();
+        if (v && v !== "N/A") return v;
  }
  }
  }

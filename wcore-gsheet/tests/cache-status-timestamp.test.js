@@ -17,6 +17,7 @@ const path = require('path');
 const vm = require('vm');
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EVM_ENGINE.gs'), 'utf8');
+const cacheSrc = fs.readFileSync(path.join(__dirname, '..', 'src', '04C_CACHE_GLOBAL.gs'), 'utf8');
 
 const failures = [];
 function test(name, fn) {
@@ -105,6 +106,24 @@ test('le statut construit ne contient jamais "N/A" quand le cache porte une date
   const ctx = makeContext(realWebScanTimestamp);
   const status = '[FRESH] ' + ctx._evmCacheStatusDatetime_({ updatedAt: '2026-08-04T00:01:02Z' }, '2026-08-04T00:01:02Z');
   assert.ok(!/N\/A/.test(status), `statut degrade: "${status}"`);
+});
+
+test('WalletCache.getLastUpdateStr conserve un updatedAt deja formate', () => {
+  assert.match(
+    cacheSrc,
+    /if \(cacheObj\.updatedAt\) return typeof cacheObj\.updatedAt === ["']string["']\s*\? String\(cacheObj\.updatedAt\)\.trim\(\)\s*:\s*Format\.datetime\(cacheObj\.updatedAt\);/,
+    'SVM et Cosmos utilisent WalletCache.getLastUpdateStr: une chaine ne doit pas devenir N/A'
+  );
+});
+
+test('WalletCache.getLastRunUpdateStr rejette un meta last_update "N/A"', () => {
+  // Les caches ecrits avant le fix contiennent META last_update = "N/A":
+  // getLastRunUpdateStr doit l'ignorer et retomber sur updatedAt.
+  assert.match(
+    cacheSrc,
+    /var v = String\(r\[2\] \|\| ""\)\.trim\(\);\s*\n\s*if \(v && v !== ["']N\/A["']\) return v;/,
+    'un meta "N/A" persiste ne doit pas servir d\'horodatage'
+  );
 });
 
 if (failures.length) {

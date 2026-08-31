@@ -1,5 +1,14 @@
 # GSheet Changelog
 
+## 2026-08-28 — v4.16.75 : consolidation Bitpanda, produits `-LEG` et refresh CEX
+
+- Bitpanda n'alimente plus que deux feuilles : `CEX - Bitpanda Crypto` et `CEX - Bitpanda Stocks`. Tous les fiats rejoignent Stocks, `EURC`/`EURCV` sont fusionnés en `EURC` côté Crypto et les commodities sont exclues. Les anciennes feuilles Fiat/Commodity ont été supprimées et ne doivent pas être recréées.
+- Le split entre l'ancien produit `security.stock` et `equity_security` est restauré : les doublons conservent deux lignes (`GOOGL` et `GOOGL-LEG`), tandis qu'un produit equity-only garde le ticker nu. Pricing, Vérif et `Portefeuille Action Details` résolvent le canonique sans perdre le ticker source `-LEG`.
+- `Portefeuille Action!T2` enqueue `CEX - Bitpanda Stocks` et `CEX - Kraken Stocks`. `Portefeuille Crypto!U2` enqueue uniquement les sept CEX crypto.
+- `Portefeuille Action Details` affiche à nouveau correctement le symbole `€` dans l'en-tête et les formats des colonnes Price/Valorisation.
+- Le pulse Action d'une vue Ledger secondaire est relayé vers sa vue Crypto primaire et le latch J1 `[CACHE_ONLY]` lit directement B1 au lieu du Recap potentiellement stale.
+- Gardes ajoutées pour la consolidation Bitpanda, le split `-LEG`, le pulse des vues secondaires et la lecture J1 directe. Suite GSheet : 61 tests.
+
 ## 2026-08-13 — v4.16.34 : retry proxy 502/503 du portefeuille Action
 
 - Le fetch du portefeuille Action retente désormais les réponses HTTP 502/503 de l'API WCORE (`upstream error` du proxy Railway) avant de remonter une erreur en B1, laissant le temps au rebuild du snapshot de se terminer.

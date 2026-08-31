@@ -207,9 +207,7 @@ function _wcoreAutoHealCexStatus_(props) {
   var names = [
     "CEX - Binance",
     "CEX - Bitfinex",
-    "CEX - Bitpanda Commodity",
     "CEX - Bitpanda Crypto",
-    "CEX - Bitpanda Fiat",
     "CEX - Bitpanda Stocks",
     "CEX - Bybit",
     "CEX - Coinbase",

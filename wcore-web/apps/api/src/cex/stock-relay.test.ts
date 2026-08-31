@@ -51,7 +51,7 @@ test("fetchStockQuotesViaRelay normalizes and deduplicates symbols", async () =>
       json: async () => ({
         ok: true,
         quotes: {
-          " hyxs ": { priceNative: 2180000, currency: " krw ", yahooTicker: " 000660.KS ", source: " yahoo:relay " },
+          " hyxs ": { priceNative: 143.5, currency: " usd ", yahooTicker: " SKHY ", source: " yahoo:relay " },
           EXTRA: { priceNative: 1, currency: "USD", yahooTicker: "EXTRA", source: "yahoo:relay" },
         },
       }),
@@ -67,9 +67,9 @@ test("fetchStockQuotesViaRelay normalizes and deduplicates symbols", async () =>
   assert.deepEqual((captured!.body as { symbols: string[] }).symbols, ["HYXS", "SSU"]);
   assert.equal(captured!.url, "https://relay.example/stock/quotes");
   assert.deepEqual(quotes.HYXS, {
-    priceNative: 2180000,
-    currency: "KRW",
-    yahooTicker: "000660.KS",
+    priceNative: 143.5,
+    currency: "USD",
+    yahooTicker: "SKHY",
     source: "yahoo:relay",
   });
   assert.equal(quotes.EXTRA, undefined);
@@ -124,7 +124,7 @@ test("fetchStockQuotesViaRelay accepts only mapped candidates and canonical GBX"
   assert.equal(quotes.HYXS, undefined);
 });
 
-test("fetchStockQuotesViaRelay correlates HYXS with its expected KRW currency", async () => {
+test("fetchStockQuotesViaRelay correlates HYXS with its expected USD currency", async () => {
   const fetchQuote = async (currency: string) => fetchStockQuotesViaRelay(["HYXS"], {
     relayUrl: "https://relay.example",
     relayToken: "secret",
@@ -133,17 +133,17 @@ test("fetchStockQuotesViaRelay correlates HYXS with its expected KRW currency", 
       json: async () => ({
         ok: true,
         quotes: {
-          HYXS: { priceNative: 2180000, currency, yahooTicker: "000660.KS", source: "yahoo:relay" },
+          HYXS: { priceNative: 143.5, currency, yahooTicker: "SKHY", source: "yahoo:relay" },
         },
       }),
     } as Response),
   });
 
-  assert.deepEqual(await fetchQuote("USD"), {});
-  assert.deepEqual((await fetchQuote("KRW")).HYXS, {
-    priceNative: 2180000,
-    currency: "KRW",
-    yahooTicker: "000660.KS",
+  assert.deepEqual(await fetchQuote("KRW"), {});
+  assert.deepEqual((await fetchQuote("USD")).HYXS, {
+    priceNative: 143.5,
+    currency: "USD",
+    yahooTicker: "SKHY",
     source: "yahoo:relay",
   });
 });

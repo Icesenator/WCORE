@@ -87,10 +87,9 @@ Sequence quand l'utilisateur coche `A1` sur un onglet CEX :
 
 Cellules de refresh groupe (batch enqueue) :
 
-- `Portefeuille Action!T2` -> jobs `BITPANDA_STOCKS_FIAT` (`CEX - Bitpanda Stocks` + `CEX - Bitpanda Fiat`), statut dans `U2`.
-- `Portefeuille Crypto!U2` -> jobs `BITPANDA_CRYPTO` (crypto seul — pas de
-  refresh `CEX - Bitpanda Fiat` depuis v4.15.115) + `BINANCE` + `BITFINEX` +
-  `BYBIT` + `COINBASE` + `OKX` + `KRAKEN`, statut dans `V2`.
+- `Portefeuille Action!T2` -> jobs `BITPANDA_STOCKS_FIAT` (`CEX - Bitpanda Stocks`) **+** `KRAKEN_STOCKS` (`CEX - Kraken Stocks`), statut dans `U2`.
+- `Portefeuille Crypto!U2` -> jobs `BITPANDA_CRYPTO` (crypto seul) + `BINANCE` +
+  `BITFINEX` + `BYBIT` + `COINBASE` + `OKX` + `KRAKEN`, statut dans `V2`.
 
 Verrous : chaque connecteur a son lock logique `CEX_ACQUIRE_LOCK(name)` /
 `CEX_RELEASE_LOCK(name)` (lease ScriptProperties 10 min, couvrant la limite GAS

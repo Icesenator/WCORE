@@ -39,9 +39,29 @@ Le diagnostic retourne les counts et samples pour :
 - commodity
 - fiat
 - stocks
+- equities
+- action
 - unknown
 
 Important : l'API Bitpanda `/asset-wallets` peut exposer les stocks/actions dans des sous-buckets variables selon le compte. Le bucket `action` est fusionne dans `CEX - Bitpanda Stocks`; l'ancien onglet `Bitpanda Spot Action` n'est plus utilise.
+
+## Onglets (v4.16.x — consolidation)
+
+Depuis la consolidation Fiat/Stocks, Bitpanda n'alimente plus que **deux** feuilles CEX :
+
+- `CEX - Bitpanda Crypto` — crypto + stablecoins euro normalises : `EURC`/`EURCV` → `EURC` (ligne unique).
+- `CEX - Bitpanda Stocks` — actions + **tous les fiats** (EUR, USD, CHF, GBP, TRY, PLN, HUF, CZK, NOK, SEK, DKK, RON, BGN).
+
+Les feuilles `CEX - Bitpanda Fiat` et `CEX - Bitpanda Commodity` ont ete **supprimees** et ne doivent pas etre recreees. Les commodities sont exclues du flux.
+
+### Produits actions : legacy vs equity_security (`-LEG`)
+
+`/asset-wallets` expose deux produits actions : l'ancien `security.stock` (ticker nu, ex `GOOGL`) et le nouveau `equity_security`. Quand les deux coexistent pour un meme titre, on garde **deux lignes** dans `CEX - Bitpanda Stocks` :
+
+- legacy → ticker nu (`GOOGL`)
+- `equity_security` → suffixe `-LEG` (`GOOGL-LEG`)
+
+Un titre present uniquement en `equity_security` garde le ticker nu (ex `BRKB`). Le pricing et la formule `Vérif` resolvent sur le ticker de base (suffixe retire).
 
 ## Mise a jour
 
@@ -51,24 +71,17 @@ Fonction principale :
 UPDATE_BITPANDA_SPOT()
 ```
 
-Elle ecrit les onglets existants :
-
-- `CEX - Bitpanda Crypto`
-- `CEX - Bitpanda Commodity`
-- `CEX - Bitpanda Fiat`
-- `CEX - Bitpanda Stocks`
-
-L'utilisateur a un seul compte Bitpanda. Il n'y a pas de `BITPANDA_ACTION_API_KEY` et plus d'onglet `Bitpanda Spot Action`; les lignes `action` exposees par l'API sont fusionnees dans `CEX - Bitpanda Stocks`.
+Elle ecrit uniquement `CEX - Bitpanda Crypto` (les stocks/fiats sont geres par `UPDATE_BITPANDA_STOCKS_FIAT`).
 
 Fonctions de refresh ciblees :
 
 ```javascript
 UPDATE_BITPANDA_STOCKS_FIAT()
-UPDATE_BITPANDA_CRYPTO_FIAT()
+UPDATE_BITPANDA_CRYPTO()
 ```
 
-- `UPDATE_BITPANDA_STOCKS_FIAT()` ecrit seulement `CEX - Bitpanda Stocks` et `CEX - Bitpanda Fiat`.
-- `UPDATE_BITPANDA_CRYPTO_FIAT()` ecrit seulement `CEX - Bitpanda Crypto` et `CEX - Bitpanda Fiat`.
+- `UPDATE_BITPANDA_STOCKS_FIAT()` ecrit seulement `CEX - Bitpanda Stocks` (stocks + equities `-LEG` + fiats).
+- `UPDATE_BITPANDA_CRYPTO()` ecrit seulement `CEX - Bitpanda Crypto` (crypto + EURC/EURCV → EURC).
 - Ces fonctions fetchent l'API Bitpanda une fois, mais evitent de reecrire les onglets non concernes.
 
 ## Checkboxes manuelles
@@ -78,11 +91,11 @@ v4.15.112). L'installable `MASTER_ON_EDIT` decoche, ecrit `QUEUED: ...` et
 pousse un job dans la queue one-shot; `CEX_MANUAL_REFRESH_WORKER` execute ~1s
 plus tard (voir [l'architecture CEX](cex-sync.md)).
 
-- `Portefeuille Action!T2` -> jobs `BITPANDA_STOCKS_FIAT` (`CEX - Bitpanda Stocks` + `CEX - Bitpanda Fiat`). Statut en `U2`.
-- `Portefeuille Crypto!U2` -> jobs `BITPANDA_CRYPTO` (crypto SEUL depuis v4.15.115 — pas de refresh `CEX - Bitpanda Fiat`), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`, `KRAKEN`. Statut en `V2`.
-- `A1` de `CEX - Bitpanda Crypto` -> `UPDATE_BITPANDA_CRYPTO_FIAT()` (crypto + fiat); `A1` de `CEX - Bitpanda Stocks`/`Fiat` -> `UPDATE_BITPANDA_STOCKS_FIAT()`.
+- `Portefeuille Action!T2` -> jobs `BITPANDA_STOCKS_FIAT` (`CEX - Bitpanda Stocks`) **+** `KRAKEN_STOCKS` (`CEX - Kraken Stocks`). Statut en `U2`.
+- `Portefeuille Crypto!U2` -> bloc crypto CEX : `BITPANDA_CRYPTO` (crypto seul), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`, `KRAKEN`. Statut en `V2`.
+- `A1` de `CEX - Bitpanda Crypto` -> `UPDATE_BITPANDA_CRYPTO()` (crypto seul); `A1` de `CEX - Bitpanda Stocks` -> `UPDATE_BITPANDA_STOCKS_FIAT()`.
 
-`CEX - Bitpanda Commodity` n'est touche que par le refresh global `UPDATE_BITPANDA_SPOT()`.
+Aucun onglet Fiat/Commodity n'est plus ecrit par les refresh manuels ni globaux.
 
 ## Triggers
 

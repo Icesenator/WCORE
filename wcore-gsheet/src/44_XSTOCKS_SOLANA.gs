@@ -1,5 +1,5 @@
 ﻿// v4.16.75 - FIX: EURC net depuis Portefeuille Action G; tri TOP croissant; NOVOÔåÆNVO; headers sur une ligne.
-// v4.16.73 - FEAT: ligne EURC fiat (CEX - Bitpanda Fiat) dans Action Details +
+// v4.16.73 - FEAT: ligne cash EUR Bitpanda dans Action Details +
 // hyperliens colonne E restaur├®s d├¿s la fin du refresh (best effort).
 // v4.16.72 - FIX: Details C align├® sur les symboles canoniques de Portefeuille
 // Action (alias Bitpanda mappings.ts), F garde le ticker brut source.
@@ -249,16 +249,17 @@ function SETUP_XSTOCKS_SOLANA_SHEETS() {
 var STOCK_PORTFOLIO_DETAILS_CONFIG = {
  SHEET_NAME: "Portefeuille Action Details",
  PORTFOLIO_SHEET_NAME: "Portefeuille Action",
- BITPANDA_SHEET_NAME: "CEX - Bitpanda Stocks",
- EURC_FIAT_SHEET_NAME: "CEX - Bitpanda Fiat",
- ACTION_LEDGER_SHEET_NAME: "Ledger - Solana Action",
+  BITPANDA_SHEET_NAME: "CEX - Bitpanda Stocks",
+   EURC_FIAT_SHEET_NAME: "CEX - Bitpanda Stocks",
+  KRAKEN_STOCKS_SHEET_NAME: "CEX - Kraken Stocks",
+  ACTION_LEDGER_SHEET_NAME: "Ledger - Solana Action",
  FIRST_DATA_ROW: 2,
  SOURCE_FIRST_DATA_ROW: 3,
  MANAGED_LAST_COLUMN: 12, // L
  MAX_ROWS: 1000
 };
 
-var STOCK_PORTFOLIO_DETAILS_HEADERS = ["Top", "Exe", "Symbol", "Price (Ôé¼)", "Position :", "Ticker", "Contract Adress", "Libre", "Flex", "Lock", "Total", "Valorisation"];
+var STOCK_PORTFOLIO_DETAILS_HEADERS = ["Top", "Exe", "Symbol", "Price (€)", "Position :", "Ticker", "Contract Adress", "Libre", "Flex", "Lock", "Total", "Valorisation"];
 
 function _xstocksCollectSolanaActionTitles_(rows) {
  var out = new Array();
@@ -286,25 +287,22 @@ function _xstocksStockDetailsRow_(sheetRow, symbol, source, sourceTicker, mint, 
   var libre = quantity;
   var flex = 0;
   var locked = 0;
-  if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME) {
-   var bpRef = "'" + source.replace(/'/g, "''") + "'!";
-   libre = "=IFERROR(SUMIFS(" + bpRef + "B:B;" + bpRef + "A:A;F" + sheetRow + ");0)";
-  } else if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.EURC_FIAT_SHEET_NAME) {
-   // v4.16.76: formule Euro cash adaptee de Portefeuille Action vers Details.
-   // Le prix C<row> de PA devient D<row> ici; U1 reste le flag PA explicite.
-   var eurPrice = "D" + sheetRow;
-   var eurParts = [];
-   var eurSheets = ["CEX - Bitpanda Crypto", "CEX - Bitpanda Commodity", "CEX - Bitpanda Fiat", "CEX - Bitpanda Stocks"];
-   var eurSymbols = ["BCPEUR", "EUR"];
-   for (var es = 0; es < eurSymbols.length; es++) {
-    for (var ef = 0; ef < eurSheets.length; ef++) {
-     var eurLookup = "VLOOKUP(\"" + eurSymbols[es] + "\";'" + eurSheets[ef] + "'!A:B;2;FALSE)";
-     eurParts.push("IF(ISNA(" + eurLookup + ");0;" + eurLookup + "*" + eurPrice + ")");
+   if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME || source === STOCK_PORTFOLIO_DETAILS_CONFIG.KRAKEN_STOCKS_SHEET_NAME) {
+    var bpRef = "'" + source.replace(/'/g, "''") + "'!";
+    if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME && String(symbol || "").toUpperCase() === "EUR") {
+     var eurPrice = "D" + sheetRow;
+     var eurParts = [];
+     var eurSymbols = ["BCPEUR", "EUR"];
+     for (var es = 0; es < eurSymbols.length; es++) {
+      var eurLookup = "VLOOKUP(\"" + eurSymbols[es] + "\";" + bpRef + "A:B;2;FALSE)";
+      eurParts.push("IF(ISNA(" + eurLookup + ");0;" + eurLookup + "*" + eurPrice + ")");
+     }
+     libre = "=" + eurParts.join("+") +
+      "-SUMPRODUCT(('Portefeuille Crypto Details'!E:E=\"CEX - Bitpanda Crypto\")*1;('Portefeuille Crypto Details'!C:C=\"EURC\")*1;'Portefeuille Crypto Details'!L:L)" +
+      "-IF('Portefeuille Action'!$U$1=TRUE;HLOOKUP(MAX(Budget!$1:$1)-1;Budget!$1:$133;133);HLOOKUP(MAX(Budget!$1:$1);Budget!$1:$133;133))";
+    } else {
+     libre = "=IFERROR(SUMIFS(" + bpRef + "B:B;" + bpRef + "A:A;F" + sheetRow + ");0)";
     }
-   }
-   libre = "=" + eurParts.join("+") +
-    "-SUMPRODUCT(('Portefeuille Crypto Details'!E:E=\"CEX - Bitpanda Crypto\")*1;('Portefeuille Crypto Details'!C:C=\"EURC\")*1;'Portefeuille Crypto Details'!L:L)" +
-    "-IF('Portefeuille Action'!$U$1=TRUE;HLOOKUP(MAX(Budget!$1:$1)-1;Budget!$1:$133;133);HLOOKUP(MAX(Budget!$1:$1);Budget!$1:$133;133))";
   } else if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.ACTION_LEDGER_SHEET_NAME) {
    var sourceA = "INDIRECT(\"'\"&$E" + sheetRow + "&\"'!A1:A1000\")";
    var sourceC = "INDIRECT(\"'\"&$E" + sheetRow + "&\"'!C1:C1000\")";
@@ -412,7 +410,27 @@ function _xstocksResolveCanonicalSymbol_(rawTicker, portfolioSymbols) {
   return mapped || raw;
 }
 
-function _xstocksBuildActionDetailsRows_(firstDataRow, bitpandaValues, solanaTitleRows, portfolioSymbols, eurcFiatQuantity, rankBySymbol) {
+function _xstocksCollectManualDetailRows_(existingRows) {
+  var out = new Array();
+  var rows = Array.isArray(existingRows) ? existingRows : [];
+  var krakenSource = STOCK_PORTFOLIO_DETAILS_CONFIG.KRAKEN_STOCKS_SHEET_NAME;
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (!row) continue;
+    var source = String(row[4] || "").trim();
+    if (source !== krakenSource) continue;
+    var symbol = String(row[2] || "").trim().toUpperCase();
+    if (!symbol) continue;
+    var ticker = String(row[5] || "").trim();
+    var mint = String(row[6] || "").trim();
+    var quantity = Number(row[7]);
+    if (!isFinite(quantity) || quantity < 0) quantity = 0;
+    out.push({ symbol: symbol, source: krakenSource, ticker: ticker || symbol, mint: mint, quantity: quantity, order: out.length });
+  }
+  return out;
+}
+
+function _xstocksBuildActionDetailsRows_(firstDataRow, bitpandaValues, solanaTitleRows, portfolioSymbols, eurcFiatQuantity, rankBySymbol, existingRows) {
  var items = new Array();
  var values = Array.isArray(bitpandaValues) ? bitpandaValues : [];
  for (var i = 0; i < values.length; i++) {
@@ -424,16 +442,26 @@ function _xstocksBuildActionDetailsRows_(firstDataRow, bitpandaValues, solanaTit
   if (!isFinite(quantity) || quantity <= 0) continue;
   items.push({ symbol: _xstocksResolveCanonicalSymbol_(symbol, portfolioSymbols), source: STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME, ticker: symbol, mint: "", quantity: quantity, order: items.length });
  }
- var fiatQuantity = Number(eurcFiatQuantity);
- if (isFinite(fiatQuantity) && fiatQuantity > 0) {
-  items.push({ symbol: "EUR", source: STOCK_PORTFOLIO_DETAILS_CONFIG.EURC_FIAT_SHEET_NAME, ticker: "EURC", mint: "", quantity: fiatQuantity, order: items.length });
- }
+  // Le cash EUR arrive désormais directement dans CEX - Bitpanda Stocks et a déjà
+  // été ajouté depuis bitpandaValues. Ne pas créer une seconde ligne synthétique EURC.
  var titles = Array.isArray(solanaTitleRows) ? solanaTitleRows : [];
  for (var j = 0; j < titles.length; j++) {
   var title = titles[j];
   if (!title) continue;
   items.push({ symbol: _xstocksResolveCanonicalSymbol_(String(title[0] || "").toUpperCase(), portfolioSymbols), source: STOCK_PORTFOLIO_DETAILS_CONFIG.ACTION_LEDGER_SHEET_NAME, ticker: String(title[1] || ""), mint: String(title[2] || ""), quantity: title[3], order: items.length });
  }
+  var manualRows = _xstocksCollectManualDetailRows_(existingRows);
+  for (var m = 0; m < manualRows.length; m++) {
+    var manual = manualRows[m];
+    items.push({
+      symbol: _xstocksResolveCanonicalSymbol_(manual.symbol, portfolioSymbols),
+      source: manual.source,
+      ticker: manual.ticker,
+      mint: manual.mint,
+      quantity: manual.quantity,
+      order: items.length
+    });
+  }
  var ranks = rankBySymbol && typeof rankBySymbol === "object" ? rankBySymbol : null;
  if (ranks) {
   items.sort(function (a, b) {
@@ -485,9 +513,9 @@ function _stockPortfolioDetailsEnsureLayout_(sh) {
   .setBackground("#111827");
  var dataRows = Math.max(1, STOCK_PORTFOLIO_DETAILS_CONFIG.MAX_ROWS - STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW + 1);
  sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 3, dataRows, 1).setNumberFormat("@").setHorizontalAlignment("left");
- sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0.00 \"Ôé¼\"").setHorizontalAlignment("right");
+ sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 4, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
  sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 8, dataRows, 4).setNumberFormat("0.########").setHorizontalAlignment("right");
- sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 12, dataRows, 1).setNumberFormat("#,##0.00 \"Ôé¼\"").setHorizontalAlignment("right");
+ sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 12, dataRows, 1).setNumberFormat("#,##0.00 \"€\"").setHorizontalAlignment("right");
 if (typeof PORTFOLIO_SHARED_COLUMN_WIDTHS !== "undefined" && PORTFOLIO_SHARED_COLUMN_WIDTHS) {
  for (var c = 0; c < STOCK_PORTFOLIO_DETAILS_CONFIG.MANAGED_LAST_COLUMN && c < PORTFOLIO_SHARED_COLUMN_WIDTHS.length; c++) {
   sh.setColumnWidth(c + 1, PORTFOLIO_SHARED_COLUMN_WIDTHS[c]);
@@ -550,22 +578,6 @@ function _refreshStockPortfolioDetailsCore_() {
     missing.push(STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME);
    }
   var eurcFiatQuantity = null;
-  try {
-   var fiatSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.EURC_FIAT_SHEET_NAME);
-   if (fiatSheet) {
-    var fiatAvailableRows = Number(fiatSheet.getMaxRows()) || 0;
-    var fiatRowCount = fiatAvailableRows - STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW + 1;
-    var fiatValues = fiatRowCount > 0 ? fiatSheet.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW, 1, fiatRowCount, 2).getValues() : [];
-    for (var f = 0; f < fiatValues.length; f++) {
-     if (String((fiatValues[f] && fiatValues[f][0]) || "").trim().toUpperCase() !== "EUR") continue;
-     var fiatQuantity = Number(fiatValues[f][1]);
-     if (isFinite(fiatQuantity) && fiatQuantity > 0) eurcFiatQuantity = fiatQuantity;
-     break;
-    }
-   }
-  } catch (eFiat) {
-   try { Logger.log("[XSTOCKS_DETAILS] EURC fiat read failed: " + (eFiat && eFiat.message ? eFiat.message : String(eFiat))); } catch (eLogFiat) {}
-  }
   var ledgerSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.ACTION_LEDGER_SHEET_NAME);
   var address = null;
   if (ledgerSheet) {
@@ -605,8 +617,16 @@ try {
    }
   }
  }
-} catch (ePortfolio) {}
-var rows = _xstocksBuildActionDetailsRows_(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, bitpandaValues || [], _xstocksCollectSolanaActionTitles_(walletRows), portfolioSymbols, eurcFiatQuantity, rankBySymbol);
+ } catch (ePortfolio) {}
+  var existingRows = [];
+  try {
+    var existingLastRow = Number(sh.getLastRow()) || 0;
+    var existingCount = existingLastRow - STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW + 1;
+    if (existingCount > 0) {
+      existingRows = sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 1, existingCount, STOCK_PORTFOLIO_DETAILS_CONFIG.MANAGED_LAST_COLUMN).getValues();
+    }
+  } catch (eExisting) {}
+var rows = _xstocksBuildActionDetailsRows_(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, bitpandaValues || [], _xstocksCollectSolanaActionTitles_(walletRows), portfolioSymbols, eurcFiatQuantity, rankBySymbol, existingRows);
   _stockPortfolioDetailsEnsureLayout_(sh);
   var spreadsheetId = ss.getId();
   var batchData = [];

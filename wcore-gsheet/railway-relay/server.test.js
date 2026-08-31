@@ -223,17 +223,17 @@ test("OKX earn fetches are timeout guarded so /okx never hangs on finance endpoi
   assert.match(SERVER_SRC, /Promise\.allSettled\(/);
 });
 
-test("collectStockNativeQuotes returns HYXS in native KRW without FX conversion", async () => {
+test("collectStockNativeQuotes returns HYXS from SKHY Nasdaq in native USD", async () => {
   const quotes = await collectStockNativeQuotes(["HYXS"], {
-    fetchQuote: async (candidate) => candidate === "000660.KS"
-      ? { price: 2180000, currency: "KRW", currencyRaw: "KRW" }
+    fetchQuote: async (candidate) => candidate === "SKHY"
+      ? { price: 143.5, currency: "USD", currencyRaw: "USD" }
       : null,
   });
 
   assert.deepEqual(quotes.HYXS, {
-    priceNative: 2180000,
-    currency: "KRW",
-    yahooTicker: "000660.KS",
+    priceNative: 143.5,
+    currency: "USD",
+    yahooTicker: "SKHY",
     source: "yahoo:relay",
   });
 });
@@ -411,7 +411,7 @@ test("POST /stock/quotes returns only the native quote contract", async () => {
   global.fetch = async () => ({
     ok: true,
     json: async () => ({
-      chart: { result: [{ meta: { regularMarketPrice: 2180000, currency: "KRW" } }] },
+      chart: { result: [{ meta: { regularMarketPrice: 143.5, currency: "USD" } }] },
     }),
   });
   try {
@@ -426,9 +426,9 @@ test("POST /stock/quotes returns only the native quote contract", async () => {
         ok: true,
         quotes: {
           HYXS: {
-            priceNative: 2180000,
-            currency: "KRW",
-            yahooTicker: "000660.KS",
+            priceNative: 143.5,
+            currency: "USD",
+            yahooTicker: "SKHY",
             source: "yahoo:relay",
           },
         },

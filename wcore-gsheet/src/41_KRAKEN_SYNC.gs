@@ -1,9 +1,10 @@
+// v4.16.37 - A1 de CEX - Kraken Stocks rafraîchit fiat + xStocks (KRAKEN_ON_EDIT).
 // v4.16.36 - Routage fiat + xStocks vers CEX - Kraken Stocks (EUR en Stocks, crypto en Crypto).
 // v4.16.34 - Dedicated hourly installer and non-mutating legacy watchdog.
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
 // Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (fiat + actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.36";
+var KRAKEN_SYNC_VERSION = "4.16.37";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
@@ -301,7 +302,14 @@ function KRAKEN_ON_EDIT(e) {
     var cell = range.getA1Notation ? range.getA1Notation() : "";
     if (cell !== "A1") return false;
     var sheet = range.getSheet ? range.getSheet() : null;
-    if (!sheet || sheet.getName() !== KRAKEN_SYNC_CONFIG.SHEET) return false;
+    if (!sheet) return false;
+    var name = sheet.getName();
+    // v4.16.37: A1 de l'onglet Stocks (fiat + xStocks) est aussi un refresh
+    // manuel -> job KRAKEN_STOCKS via UPDATE_KRAKEN_STOCKS_FIAT.
+    var isStocksTab = name === KRAKEN_SYNC_CONFIG.SHEET_STOCKS;
+    if (name !== KRAKEN_SYNC_CONFIG.SHEET && !isStocksTab) return false;
+    var updateFn = isStocksTab ? UPDATE_KRAKEN_STOCKS_FIAT : UPDATE_KRAKEN_SPOT;
+    var label = isStocksTab ? "KRAKEN_STOCKS" : "KRAKEN";
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
     if (!e.triggerUid) {
@@ -309,8 +317,8 @@ function KRAKEN_ON_EDIT(e) {
       return true;
     }
     try { range.setValue(false); } catch (eResetEarly) {}
-    if (typeof CEX_QUEUE_OR_MARK_MANUAL_JOB === "function") CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, KRAKEN_SYNC_CONFIG.REFRESH_FLAG_PROP, "KRAKEN", UPDATE_KRAKEN_SPOT, e);
-    else if (typeof CEX_RUN_DIRECT_OR_QUEUE === "function") CEX_RUN_DIRECT_OR_QUEUE(sheet, KRAKEN_SYNC_CONFIG.REFRESH_FLAG_PROP, "KRAKEN", UPDATE_KRAKEN_SPOT, e);
+    if (typeof CEX_QUEUE_OR_MARK_MANUAL_JOB === "function") CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, KRAKEN_SYNC_CONFIG.REFRESH_FLAG_PROP, label, updateFn, e);
+    else if (typeof CEX_RUN_DIRECT_OR_QUEUE === "function") CEX_RUN_DIRECT_OR_QUEUE(sheet, KRAKEN_SYNC_CONFIG.REFRESH_FLAG_PROP, label, updateFn, e);
     else if (typeof CEX_SET_MANUAL_REQUEST === "function") CEX_SET_MANUAL_REQUEST(sheet, KRAKEN_SYNC_CONFIG.REFRESH_FLAG_PROP);
     else {
       _krakenSetRefreshFlag_();

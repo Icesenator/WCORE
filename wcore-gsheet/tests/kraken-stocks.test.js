@@ -65,7 +65,31 @@ vm.runInContext(krakenSource, krakenCtx);
 // --- UPDATE_KRAKEN_STOCKS_FIAT existe et reste sûre ---
 assert.equal(typeof krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT, 'function', 'UPDATE_KRAKEN_STOCKS_FIAT doit exister');
 
-// --- Classification fiat / xStocks / crypto ---
+// --- A1 de CEX - Kraken Stocks lance le refresh fiat + xStocks ---
+let queuedStocksRefresh = null;
+krakenCtx.CEX_QUEUE_OR_MARK_MANUAL_JOB = function (sheet, flag, label, updateFn) {
+  queuedStocksRefresh = { sheet, flag, label, updateFn };
+};
+const stocksSheet = {
+  getName: () => 'CEX - Kraken Stocks',
+  getRange: () => ({ setValue: () => ({ setNumberFormat: () => {} }) }),
+};
+const stocksRange = {
+  getA1Notation: () => 'A1',
+  getSheet: () => stocksSheet,
+  getValue: () => true,
+  setValue: () => {},
+};
+assert.equal(
+  krakenCtx.KRAKEN_ON_EDIT({ range: stocksRange, value: 'TRUE', triggerUid: 'installed-trigger' }),
+  true,
+  'A1 de CEX - Kraken Stocks doit être géré par KRAKEN_ON_EDIT'
+);
+assert.equal(queuedStocksRefresh && queuedStocksRefresh.label, 'KRAKEN_STOCKS');
+assert.equal(queuedStocksRefresh && queuedStocksRefresh.updateFn, krakenCtx.UPDATE_KRAKEN_STOCKS_FIAT);
+
+// --- Classification fiat / xStocks / crypto --- deployment test
+
 krakenCtx._krakenPrivatePost_ = function () {
   return {
     ZEUR: '100.5',      // EUR fiat -> bucket fiat

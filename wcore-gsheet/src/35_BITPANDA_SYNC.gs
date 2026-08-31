@@ -585,6 +585,7 @@ function _cexRunManualJob_(job) {
     else if (kind === "COINBASE") result = typeof UPDATE_COINBASE_SPOT === "function" ? String(UPDATE_COINBASE_SPOT()) : "SKIPPED_MISSING_UPDATE_COINBASE_SPOT";
     else if (kind === "OKX") result = typeof UPDATE_OKX_SPOT === "function" ? String(UPDATE_OKX_SPOT()) : "SKIPPED_MISSING_UPDATE_OKX_SPOT";
     else if (kind === "KRAKEN") result = typeof UPDATE_KRAKEN_SPOT === "function" ? String(UPDATE_KRAKEN_SPOT()) : "SKIPPED_MISSING_UPDATE_KRAKEN_SPOT";
+    else if (kind === "KRAKEN_STOCKS") result = typeof UPDATE_KRAKEN_STOCKS_FIAT === "function" ? String(UPDATE_KRAKEN_STOCKS_FIAT()) : "SKIPPED_MISSING_UPDATE_KRAKEN_STOCKS_FIAT";
     else result = "UNKNOWN_JOB:" + kind;
   } catch (err) {
     result = "THREW:" + (err && err.message ? err.message : err);
@@ -902,7 +903,8 @@ function BITPANDA_ON_EDIT(e) {
     } else if (isStockPortfolioT2) {
       _bpSetExternalRefreshStatus_(sheet, "U2", "QUEUED: " + _bpFmtStamp_());
       _cexEnqueueManualJobs_([
-        { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
+        { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" },
+        { kind: "KRAKEN_STOCKS", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
       ]);
     } else if (name === "Portefeuille Crypto" && cell === "U2") {
       var cryptoStatusCell = "V2";

@@ -205,6 +205,12 @@ if (!runJobBody.includes('_cexIsTransientResult_') || !runJobBody.includes('_cex
 if (!runJobBody.includes('UPDATE_KRAKEN_SPOT')) {
   throw new Error('_cexRunManualJob_ must route KRAKEN jobs to UPDATE_KRAKEN_SPOT');
 }
+if (!bpOnEditBody.includes('kind: "KRAKEN_STOCKS"')) {
+  throw new Error('Portefeuille Action!T2 must enqueue KRAKEN_STOCKS with Bitpanda stocks/fiat');
+}
+if (!runJobBody.includes('UPDATE_KRAKEN_STOCKS_FIAT')) {
+  throw new Error('_cexRunManualJob_ must route KRAKEN_STOCKS jobs to UPDATE_KRAKEN_STOCKS_FIAT');
+}
 if (!runJobBody.includes('_CEX_MANUAL_JOB_MAX_RETRIES')) {
   throw new Error('Transient CEX job retries must be bounded by _CEX_MANUAL_JOB_MAX_RETRIES');
 }

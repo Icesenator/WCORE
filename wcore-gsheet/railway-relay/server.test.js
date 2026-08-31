@@ -240,7 +240,7 @@ test("collectStockNativeQuotes returns HYXS from SKHY Nasdaq in native USD", asy
 
 test("collectStockNativeQuotes uses exact raw Yahoo tickers only when no explicit alias exists", async () => {
   const rawCandidates = [];
-  const rawQuotes = await collectStockNativeQuotes(["AAPL", "000660.KS"], {
+  const rawQuotes = await collectStockNativeQuotes(["AAPL"], {
     fetchQuote: async (candidate) => {
       rawCandidates.push(candidate);
       return null;
@@ -255,9 +255,27 @@ test("collectStockNativeQuotes uses exact raw Yahoo tickers only when no explici
   });
 
   assert.deepEqual(rawQuotes, {});
-  assert.deepEqual(rawCandidates, ["AAPL", "000660.KS"]);
+  assert.deepEqual(rawCandidates, ["AAPL"]);
   assert.equal(aliasQuotes.SHEL.yahooTicker, "SHEL.L");
   assert.deepEqual(aliasCandidates, ["SHEL.L"]);
+});
+
+test("collectStockNativeQuotes maps the CompaniesMarketCap SK Hynix ticker to SKHY Nasdaq", async () => {
+  const candidates = [];
+  const quotes = await collectStockNativeQuotes(["000660.KS"], {
+    fetchQuote: async (candidate) => {
+      candidates.push(candidate);
+      return { price: 143.5, currency: "USD", currencyRaw: "USD" };
+    },
+  });
+
+  assert.deepEqual(candidates, ["SKHY"]);
+  assert.deepEqual(quotes["000660.KS"], {
+    priceNative: 143.5,
+    currency: "USD",
+    yahooTicker: "SKHY",
+    source: "yahoo:relay",
+  });
 });
 
 test("collectStockFxQuotes returns KRW units per EUR and canonicalizes GBX to GBP", async () => {

@@ -92,14 +92,16 @@ assert.equal(queuedStocksRefresh && queuedStocksRefresh.updateFn, krakenCtx.UPDA
 
 krakenCtx._krakenPrivatePost_ = function () {
   return {
-    ZEUR: '100.5',      // EUR fiat -> bucket fiat
-    'NVDAx': '1.5',     // xStock -> bucket xstocks (normalisé -> NVDA)
-    'SKHYx': '2',       // xStock SK Hynix -> SKHY
-    'SKHY': '3',        // forme sans x -> SKHY (agrégé)
-    'MUx': '0.4',       // xStock 3 lettres (Micron) -> MU, pas crypto
-    PAX: '8',           // crypto se terminant par X, sans suffixe xStock
     XXBT: '0.1',        // BTC crypto
     XXRP: '25',         // XRP crypto
+    ZEUR: '100.5',      // EUR fiat
+    'NVDAx.T': '1.5',   // clé brute Balance API xStock -> NVDA
+    'SKHYx.T': '2',     // xStock SK Hynix -> SKHY
+    'SKHY': '3',        // forme sans suffixe -> SKHY (agrégé)
+    'MUx.T': '0.4',     // xStock 3 lettres (Micron) -> MU, pas crypto
+    'NVDAx': '0.1',     // variante sans suffixe .T -> NVDA (agrégé)
+    PAX: '8',           // crypto se terminant par X majuscule, pas un xStock
+    'ZEUR.HOLD': '0',   // clé fiat à montant nul, ignorée
   };
 };
 const buckets = krakenCtx._krakenFetchBuckets_({});
@@ -111,20 +113,21 @@ assert.deepEqual(
 assert.equal(buckets.fiat[0][1], 100.5, 'solde EUR conservé');
 assert.deepEqual(
   buckets.xstocks,
-  [['NVDA', 1.5], ['SKHY', 5], ['MU', 0.4]],
-  'xStocks normalisés (NVDAx -> NVDA, SKHYx+SKHY -> SKHY, MUx -> MU)'
+  [['NVDA', 1.6], ['SKHY', 5], ['MU', 0.4]],
+  'xStocks normalisés (NVDAx+NVDAX -> NVDA agrégé, SKHYx+SKHY -> SKHY, MUx -> MU)'
 );
 assert.deepEqual(
   buckets.crypto.map((r) => r[0]),
-  ['PAX', 'BTC', 'XRP'],
+  ['BTC', 'XRP', 'PAX'],
   'les cryptos restent dans le bucket crypto, y compris PAX'
 );
-assert.equal(krakenCtx._krakenIsXStock_('MUx'), true, 'MUx brut est un xStock');
-assert.equal(krakenCtx._krakenCanonicalStockSymbol_('MUx'), 'MU');
+assert.equal(krakenCtx._krakenIsXStock_('MUx.T'), true, 'MUx.T (clé brute Balance API) est un xStock');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('MUx.T'), 'MU');
 assert.equal(krakenCtx._krakenIsXStock_('PAX'), false, 'PAX crypto ne doit pas être un xStock');
+assert.equal(krakenCtx._krakenIsXStock_('AAPLx.T'), true, 'AAPLx.T (clé brute) est un xStock');
 
 // --- Conversion canonique xStocks ---
-assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SKHYx'), 'SKHY');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SKHYx.T'), 'SKHY');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SKHY'), 'SKHY');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_('NVDAx'), 'NVDA');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SOMETHING_ELSE'), 'SOMETHING_ELSE');

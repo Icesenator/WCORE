@@ -5,6 +5,7 @@ export interface CanonicalStockMapping {
   expectedCurrency?: string;
   unitsPerReceipt?: number;
   supplyMultiplier?: number;
+  companiesMarketCapFallback?: boolean;
 }
 
 interface ExchangeMapping {
@@ -111,7 +112,7 @@ const TOP_MARKET_CAP_OVERRIDES: Readonly<Record<string, CanonicalStockMapping>> 
   GOOGL: BITPANDA_SECURITIES.GOOGL!,
   // SK Hynix: les xStocks Bitpanda (HYXS) et Kraken (SKHYx/SKHY) suivent la cotation
   // Nasdaq (SKHY) ; la cotation KRX 000660.KS reste en fallback pour le top market cap.
-  "000660.KS": stock("SKHY", ["SKHY", "000660.KS"], ["HYXS", "SKHY", "SKHYx"], "USD"),
+  "000660.KS": stock("SKHY", ["SKHY", "000660.KS"], ["HYXS", "SKHY", "SKHYx"], "USD", { companiesMarketCapFallback: false }),
   // Samsung: le canonique est SMSN (ex-KRX:005930), alias SSU/SMSN conservés pour Bitpanda.
   "005930.KS": BITPANDA_SECURITIES.SSU!,
   // Berkshire Hathaway: le canonique est BRKB (ex-NYSE:BRK.B), aliases BRK/BRK.B/BRK-B conservés.
@@ -137,7 +138,7 @@ function stock(
   yahooTickers: string[],
   bitpandaAliases: string[],
   expectedCurrency?: string,
-  ratios: Pick<CanonicalStockMapping, "unitsPerReceipt" | "supplyMultiplier"> = {},
+  ratios: Pick<CanonicalStockMapping, "unitsPerReceipt" | "supplyMultiplier" | "companiesMarketCapFallback"> = {},
 ): CanonicalStockMapping {
   return {
     canonicalTicker,
@@ -146,6 +147,7 @@ function stock(
     ...(expectedCurrency ? { expectedCurrency } : {}),
     ...(ratios.unitsPerReceipt ? { unitsPerReceipt: ratios.unitsPerReceipt } : {}),
     ...(ratios.supplyMultiplier ? { supplyMultiplier: ratios.supplyMultiplier } : {}),
+    ...(ratios.companiesMarketCapFallback === false ? { companiesMarketCapFallback: false } : {}),
   };
 }
 

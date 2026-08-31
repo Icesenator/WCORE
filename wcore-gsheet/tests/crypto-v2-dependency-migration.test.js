@@ -51,15 +51,17 @@ assert.doesNotMatch(cryptoCexFormula, /Portefeuille Crypto Details V2/,
 const krakenStocksFormula = cexContext._cexBuildVerifFormula_('CEX - Kraken Stocks');
 assert.match(krakenStocksFormula, /'Portefeuille Action Details'!\$E:\$E;"CEX - Kraken Stocks"/,
   'Kraken Stocks verification must match the exact Action Details source sheet');
-assert.match(krakenStocksFormula, /'Portefeuille Action Details'!\$C:\$C;t/,
-  'Kraken Stocks verification must match the normalized symbol in Action Details');
+assert.match(krakenStocksFormula, /'Portefeuille Action Details'!\$F:\$F;s/,
+  'Kraken Stocks verification must match the ticker column in Action Details');
 assert.doesNotMatch(krakenStocksFormula, /COUNTIFS\('Portefeuille Action'!\$A:\$A/,
   'stock verification must not accept a symbol merely because it exists in Portefeuille Action');
+assert.doesNotMatch(krakenStocksFormula, /\$C:\$C/,
+  'stock verification must not use the canonical symbol column');
 const bitpandaStocksFormula = cexContext._cexBuildVerifFormula_('CEX - Bitpanda Stocks');
 assert.match(bitpandaStocksFormula, /'Portefeuille Action Details'!\$E:\$E;"CEX - Bitpanda Stocks"/,
   'Bitpanda Stocks verification must match the exact Action Details source sheet');
-assert.match(bitpandaStocksFormula, /'Portefeuille Action Details'!\$C:\$C;t/,
-  'Bitpanda Stocks verification must match the normalized symbol in Action Details');
+assert.match(bitpandaStocksFormula, /'Portefeuille Action Details'!\$F:\$F;s/,
+  'Bitpanda Stocks verification must match the ticker column in Action Details, including -LEG');
 
 assert.doesNotMatch(stock, /Portefeuille Crypto Details V2/,
   'Portefeuille Action EUR cash formula must not target the old V2 Details tab');

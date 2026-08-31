@@ -107,6 +107,29 @@ test('Action Details builder keeps -LEG tickers distinct in the ticker column', 
     'Bitpanda row in Action Details must keep the raw ticker (incl. -LEG) in column F');
 });
 
+test('Action Details refresh must preserve manually added Kraken Stocks rows', () => {
+  const detailsSource = fs.readFileSync(path.join(SRC, '44_XSTOCKS_SOLANA.gs'), 'utf8');
+  const context = {
+    console, Date, JSON, Math, Number, String, Array, Object, isFinite,
+    Logger: { log: () => {} },
+    SpreadsheetApp: {}, Sheets: {}, LockService: {}, Format: {},
+  };
+  vm.createContext(context);
+  vm.runInContext(detailsSource, context);
+  const preserved = context._xstocksCollectManualDetailRows_([
+    ['', '', 'NVDA', '', 'CEX - Bitpanda Stocks', 'NVDA-LEG', '', 0.2],
+    ['', '', 'SPCX', '', 'CEX - Kraken Stocks', 'SPCX', '', 0.485801],
+    ['', '', 'EUR', '', 'CEX - Kraken Stocks', 'EUR', '', 727.73],
+  ]);
+  assert.strictEqual(preserved.length, 2, 'only Kraken Stocks rows must be preserved as manual');
+  assert.strictEqual(preserved[0].ticker, 'SPCX');
+  assert.strictEqual(preserved[1].ticker, 'EUR');
+  assert.match(detailsSource, /existingRows = sh\.getRange/,
+    'refresh core must read existing Action Details rows before rebuilding');
+  assert.match(detailsSource, /_xstocksCollectManualDetailRows_\(existingRows\)/,
+    'builder must re-emit the preserved Kraken Stocks rows');
+});
+
 function test(name, fn) {
   try {
     fn();

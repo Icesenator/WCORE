@@ -225,7 +225,9 @@ export class CanonicalStockService {
       const quote = quotes[source.sourceTicker];
       const lastGood = lastGoods[index];
       const supplyMultiplier = mapping.supplyMultiplier ?? 1;
-      const fallbackPriceEur = (source.priceUsd / supplyMultiplier) * usdToEur;
+      const fallbackPriceEur = mapping.companiesMarketCapFallback === false
+        ? null
+        : (source.priceUsd / supplyMultiplier) * usdToEur;
       const resolved = resolveStockPrice({
         quote,
         nativeToEur: rateFor(quote?.currency, usdToEur, fx),

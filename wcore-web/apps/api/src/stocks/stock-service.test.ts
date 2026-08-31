@@ -202,7 +202,7 @@ test("batch-reads row caches once, prefers valid fresh values, and avoids per-ke
     cache,
     fetchImpl: async () => new Response(csv(320)),
     fetchStockQuotes: async () => ({
-      "000660.KS": { priceNative: 20_000_000, currency: "KRW", yahooTicker: "000660.KS", source: "yahoo:relay" },
+      "000660.KS": { priceNative: 2_180_000, currency: "KRW", yahooTicker: "000660.KS", source: "yahoo:relay" },
       TM: { priceNative: 2_000, currency: "USD", yahooTicker: "7203.T", source: "yahoo:relay" },
     }),
     fetchStockFxQuotes: async () => ({
@@ -218,7 +218,7 @@ test("batch-reads row caches once, prefers valid fresh values, and avoids per-ke
   assert.equal(cache.mgetKeys[0]!.length, 640);
   assert.equal(new Set(cache.mgetKeys[0]).size, 640);
   assert.equal(cache.rowGetCalls, 0);
-  assert.equal(snapshot.rows[0]!.priceEur, 1_269);
+  assert.equal(snapshot.rows[0]!.priceEur, 2_180_000 / 1717.17);
   assert.equal(snapshot.rows[1]!.priceEur, 180);
 });
 
@@ -602,9 +602,24 @@ test("uses CompaniesMarketCap fallback when Yahoo is unavailable", async () => {
     fetchStockFxQuotes: async () => ({}),
     getUsdToEur: async () => 0.9,
   });
+  const rows = (await service.getTopMarketCapSnapshot()).rows;
+  const toyota = rows.find((row) => row.canonicalTicker === "TYO:7203")!;
+  assert.equal(toyota.priceEur, 20 * 0.9);
+  assert.equal(toyota.priceSource, "companiesmarketcap");
+});
+
+test("ignores the CompaniesMarketCap fallback when the CMC listing is a different instrument", async () => {
+  const service = new CanonicalStockService({
+    cache: new MemoryCacheStore(),
+    fetchImpl: async () => new Response(csv()),
+    fetchStockQuotes: async () => ({}),
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+  });
   const row = (await service.getTopMarketCapSnapshot()).rows[0]!;
-  assert.equal(row.priceEur, 1411 * 0.9);
-  assert.equal(row.priceSource, "companiesmarketcap");
+  assert.equal(row.canonicalTicker, "SKHY");
+  assert.equal(row.priceEur, null);
+  assert.equal(row.priceSource, null);
 });
 
 test("converts GBX quotes as pence at service level", async () => {
@@ -634,7 +649,9 @@ test("uses a stale per-row last-good price when a refreshed source drifts", asyn
     cache,
     fetchImpl: async () => new Response(csv()),
     fetchStockQuotes: async () => ({
-      "000660.KS": { priceNative: 20_000_000, currency: "KRW", yahooTicker: "000660.KS", source: "yahoo:relay" },
+      "000660.KS": { priceNative: 2_180_000, currency: "KRW", yahooTicker: "000660.KS", source: "yahoo:relay" },
+      TM: { priceNative: 20, currency: "USD", yahooTicker: "7203.T", source: "yahoo:relay" },
+      "005930.KS": { priceNative: 20_000_000, currency: "KRW", yahooTicker: "005930.KS", source: "yahoo:relay" },
     }),
     fetchStockFxQuotes: async () => ({
       KRW: { unitsPerEur: 1717.17, currency: "KRW", yahooTicker: "EURKRW=X", source: "yahoo:relay" },
@@ -643,9 +660,11 @@ test("uses a stale per-row last-good price when a refreshed source drifts", asyn
     now: () => new Date("2026-07-11T10:00:00.000Z"),
   });
   const refreshed = await drifting.getTopMarketCapSnapshot();
-  assert.equal(refreshed.rows[0]!.priceEur, healthy.rows[0]!.priceEur);
-  assert.equal(refreshed.rows[0]!.stale, true);
-  assert.equal(refreshed.rows[0]!.errors.at(-1)?.code, "source_drift");
+  const driftingRow = refreshed.rows.find((row) => row.canonicalTicker === "SMSN")!;
+  const healthyRow = healthy.rows.find((row) => row.canonicalTicker === "SMSN")!;
+  assert.equal(driftingRow.priceEur, healthyRow.priceEur);
+  assert.equal(driftingRow.stale, true);
+  assert.equal(driftingRow.errors.at(-1)?.code, "source_drift");
   assert.equal(refreshed.stats.pricedStale, 1);
 });
 

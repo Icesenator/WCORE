@@ -185,40 +185,43 @@ function _setRecapHyperlinks_(ss, names, map) {
 }
 
 /**
- * Set hyperlinks in Portefeuille Crypto Details column E for values that
- * exactly match an existing managed sheet name. Text is preserved as-is.
+ * Set hyperlinks in Portefeuille Crypto Details and Portefeuille Action Details
+ * column E for values that exactly match an existing sheet name. Text is preserved as-is.
  * @param {Spreadsheet} ss - Active spreadsheet
  * @param {Object} map - sheet name -> gid mapping
  */
 function _setDetailsChainHyperlinks_(ss, map) {
  try {
   if (!ss || !map) return;
-  var details = ss.getSheetByName("Portefeuille Crypto Details");
-  if (!details) return;
-  var lastRow = details.getLastRow();
-  if (lastRow < 2) return;
-
-  var range = details.getRange(2, 5, lastRow - 1, 1);
-  var values = range.getDisplayValues();
+  var detailSheetNames = ["Portefeuille Crypto Details", "Portefeuille Action Details"];
   var baseUrl = ss.getUrl();
-  var richTexts = [];
+  for (var d = 0; d < detailSheetNames.length; d++) {
+   var details = ss.getSheetByName(detailSheetNames[d]);
+   if (!details) continue;
+   var lastRow = details.getLastRow();
+   if (lastRow < 2) continue;
 
-  for (var i = 0; i < values.length; i++) {
-   var text = String((values[i] && values[i][0]) || "");
-   var gid = map[text];
-   var builder = SpreadsheetApp.newRichTextValue().setText(text);
-   if (text && gid != null) builder.setLinkUrl(baseUrl + "#gid=" + gid);
-   richTexts.push([builder.build()]);
+   var range = details.getRange(2, 5, lastRow - 1, 1);
+   var values = range.getDisplayValues();
+   var richTexts = [];
+
+   for (var i = 0; i < values.length; i++) {
+    var text = String((values[i] && values[i][0]) || "");
+    var gid = map[text];
+    var builder = SpreadsheetApp.newRichTextValue().setText(text);
+    if (text && gid != null) builder.setLinkUrl(baseUrl + "#gid=" + gid);
+    richTexts.push([builder.build()]);
+   }
+
+   range.setRichTextValues(richTexts);
+   Logger.log("[17_LISTING] Set " + detailSheetNames[d] + " E:E hyperlinks");
   }
-
-  range.setRichTextValues(richTexts);
-  Logger.log("[17_LISTING] Set Portefeuille Crypto Details E:E hyperlinks");
  } catch (e) {
   Logger.log("[17_LISTING] Error setting Details hyperlinks: " + e.message);
  }
 }
 
-// v4.15.104: per-cell auto-link on user edit of Portefeuille Crypto Details column E.
+// v4.16.78: per-cell auto-link on user edit of Crypto/Action Details column E.
 // Bridges the gap between _setDetailsChainHyperlinks_ (which only runs on watchdog pulses,
 // every 5-30 min) and new rows added by the CEX or ledger watchdogs in between.
 // Called from WCORE_ON_EDIT in 16_REFRESH.gs.
@@ -227,7 +230,9 @@ function _bpDetailsAutoLink_(e) {
   if (!e || !e.range) return;
   var range = e.range;
   var sheet = range.getSheet();
-  if (!sheet || sheet.getName() !== "Portefeuille Crypto Details") return;
+  if (!sheet) return;
+  var sheetName = sheet.getName();
+  if (sheetName !== "Portefeuille Crypto Details" && sheetName !== "Portefeuille Action Details") return;
   if (range.getColumn() !== 5) return; // column E only
   var row = range.getRow();
   if (row < 2) return; // skip header

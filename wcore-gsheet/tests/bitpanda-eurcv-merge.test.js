@@ -69,6 +69,27 @@ test('EURCV alone still reports as EURC', () => {
   assert.ok(Math.abs(rows[0][1] - 0.22) < 1e-9);
 });
 
+test('fiat rows are consolidated into the Stocks output and commodities are excluded', () => {
+  const buckets = {
+    crypto: [['BTC', 1]],
+    fiat: [['EUR', 42], ['USD', 3]],
+    stocks: [['NVDA', 0.5]],
+    action: [['AAPL', 0.2]],
+    commodity: [['GOLD', 1]],
+  };
+  const outputs = ctx._bpBuildOutputBuckets_(buckets);
+
+  assert.deepStrictEqual(Array.from(outputs.crypto, (row) => Array.from(row)), [['BTC', 1]]);
+  assert.deepStrictEqual(Array.from(outputs.stocks, (row) => Array.from(row)), [
+    ['NVDA', 0.5],
+    ['AAPL', 0.2],
+    ['EUR', 42],
+    ['USD', 3],
+  ]);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(outputs, 'commodity'), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(outputs, 'fiat'), false);
+});
+
 // Minimal harness so this file stays a plain node script like its neighbours.
 function test(name, fn) {
   try {

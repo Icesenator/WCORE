@@ -91,12 +91,9 @@ for (const f of cexSyncFiles) {
   );
 }
 
-// --- 5. Bitpanda sync calls the helper from all 4 buckets --------------
-// Bitpanda uses a generic _bpWriteRows_(ss, sheetName, rows, sourceLabel) helper
-// that internally calls _cexComputeAndAppendTotal_ at the end. We check that
-// _bpWriteRows_ is invoked with each of the 4 Bitpanda bucket keys (CRYPTO, FIAT,
-// STOCKS, COMMODITY) which resolve via BITPANDA_SYNC_CONFIG.SHEETS.
-const bpBuckets = ["CRYPTO", "FIAT", "STOCKS", "COMMODITY"];
+// --- 5. Bitpanda sync calls the helper from both consolidated outputs ---
+// Fiat is merged into STOCKS, EURC remains in CRYPTO and commodities are excluded.
+const bpBuckets = ["CRYPTO", "STOCKS"];
 for (const tag of bpBuckets) {
   const re = new RegExp(`_bpWriteRows_\\([^)]*BITPANDA_SYNC_CONFIG\\.SHEETS\\.${tag}`);
   assert.ok(
@@ -139,9 +136,7 @@ assert.ok(
 for (const sheet of [
   'CEX - Binance',
   'CEX - Bitfinex',
-  'CEX - Bitpanda Commodity',
   'CEX - Bitpanda Crypto',
-  'CEX - Bitpanda Fiat',
   'CEX - Bitpanda Stocks',
   'CEX - Bybit',
   'CEX - Coinbase',
@@ -150,6 +145,10 @@ for (const sheet of [
 ]) {
   assert.ok(CEX_REPAIR_BODY.includes(`"${sheet}"`), `REPAIR_CEX_SHEETS_STRUCTURE must cover ${sheet}`);
 }
+assert.ok(
+  !CEX_REPAIR_BODY.includes('CEX - Bitpanda Fiat') && !CEX_REPAIR_BODY.includes('CEX - Bitpanda Commodity'),
+  "CEX repair must not recreate deleted Bitpanda Fiat or Commodity sheets"
+);
 assert.ok(
   /setValue\("value_eur"\)/.test(BITPANDA_SRC) && /_cexWriteVerifMap_\(sh, sheetName\)/.test(BITPANDA_SRC),
   "CEX repair must restore value_eur and Vérif headers/formula"

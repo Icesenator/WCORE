@@ -11,9 +11,9 @@ import { parseTopMarketCapCsv } from "./top-market-cap.js";
 test("maps CompaniesMarketCap exchange suffixes and explicit overrides", () => {
   assert.deepEqual(mapTopMarketCapTicker("000660.KS"), {
     canonicalTicker: "SKHY",
-    yahooTickers: ["000660.KS"],
+    yahooTickers: ["SKHY", "000660.KS"],
     bitpandaAliases: ["HYXS", "SKHY", "SKHYx"],
-    expectedCurrency: "KRW",
+    expectedCurrency: "USD",
   });
   assert.equal(mapTopMarketCapTicker("BRK-B").canonicalTicker, "BRKB");
   assert.equal(mapTopMarketCapTicker("TM").canonicalTicker, "TYO:7203");

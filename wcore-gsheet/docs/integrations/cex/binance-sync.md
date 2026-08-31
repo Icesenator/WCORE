@@ -54,7 +54,7 @@ Le relais normalise les stablecoins :
   `CEX_MANUAL_REFRESH_WORKER` l'execute ~1s plus tard.
 - Au succes, `B1` devient le timestamp final et les rows sont reecrites avec le meme timestamp.
 - Transitoire (timeout Spreadsheets / quota / `BUSY`) : `B1 = RETRY n/2: ...`; le job est requeue dans le meme worker apres `Utilities.sleep(2000)`. Si la queue reste non vide a la sortie du worker, `_cexEnsureManualWorkerTrigger_(5000)` le reprogramme a +5s.
-- `Portefeuille Crypto!U2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO` (crypto seul depuis v4.15.115, pas `CEX - Bitpanda Fiat`), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`, `KRAKEN`. Statut visible en `V2`.
+- `Portefeuille Crypto!U2` batch-enqueue le bloc CEX crypto : `BITPANDA_CRYPTO` (crypto seul), `BINANCE`, `BITFINEX`, `BYBIT`, `COINBASE`, `OKX`, `KRAKEN`. Statut visible en `V2`.
 
 Utiliser uniquement `Portefeuille Crypto!U2` pour le refresh groupe CEX crypto.
 

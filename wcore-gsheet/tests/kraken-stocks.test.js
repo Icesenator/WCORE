@@ -58,6 +58,18 @@ const krakenCtx = {
   },
   ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ timeBased: () => ({ everyHours: () => ({ create: () => {} }) }) }) },
   Utilities: { formatDate: () => '2026-08-27 00:00:00' },
+  UrlFetchApp: {
+    fetch: (url) => ({
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({
+        error: ['EQuery:Unknown asset pair'],
+        result: {
+          'XOMx/USD': { c: ['159.24', '1'] },
+          'BRK.Bx/USD': { c: ['500.00', '1'] },
+        },
+      }),
+    }),
+  },
 };
 vm.createContext(krakenCtx);
 vm.runInContext(krakenSource, krakenCtx);
@@ -100,6 +112,8 @@ krakenCtx._krakenPrivatePost_ = function () {
     'SKHY': '3',        // forme sans suffixe -> SKHY (agrégé)
     'MUx.T': '0.4',     // xStock 3 lettres (Micron) -> MU, pas crypto
     'NVDAx': '0.1',     // variante sans suffixe .T -> NVDA (agrégé)
+    'XOMx.T': '0.2',
+    'BRK.Bx.T': '0.3',
     PAX: '8',           // crypto se terminant par X majuscule, pas un xStock
     'ZEUR.HOLD': '0',   // clé fiat à montant nul, ignorée
   };
@@ -113,8 +127,8 @@ assert.deepEqual(
 assert.equal(buckets.fiat[0][1], 100.5, 'solde EUR conservé');
 assert.deepEqual(
   buckets.xstocks,
-  [['NVDA', 1.6], ['SKHY', 5], ['MU', 0.4]],
-  'xStocks normalisés (NVDAx+NVDAX -> NVDA agrégé, SKHYx+SKHY -> SKHY, MUx -> MU)'
+  [['NVDAx', 1.6], ['SKHYx', 5], ['MUx', 0.4], ['XOMx', 0.2], ['BRK.Bx', 0.3]],
+  'les xStocks conservent le ticker Kraken affiché et le x final minuscule'
 );
 assert.deepEqual(
   buckets.crypto.map((r) => r[0]),
@@ -126,12 +140,23 @@ assert.equal(krakenCtx._krakenCanonicalStockSymbol_('MUx.T'), 'MU');
 assert.equal(krakenCtx._krakenIsXStock_('PAX'), false, 'PAX crypto ne doit pas être un xStock');
 assert.equal(krakenCtx._krakenIsXStock_('AAPLx.T'), true, 'AAPLx.T (clé brute) est un xStock');
 
-// --- Conversion canonique xStocks ---
+// --- Ticker affiché et conversion canonique xStocks ---
+assert.equal(krakenCtx._krakenDisplayStockSymbol_('SKHYx.T'), 'SKHYx');
+assert.equal(krakenCtx._krakenDisplayStockSymbol_('XOMx.T'), 'XOMx');
+assert.equal(krakenCtx._krakenDisplayStockSymbol_('BRK.Bx.T'), 'BRK.Bx');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SKHYx.T'), 'SKHY');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SKHY'), 'SKHY');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_('NVDAx'), 'NVDA');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('XOMx.T'), 'XOM');
+assert.equal(krakenCtx._krakenCanonicalStockSymbol_('BRK.Bx.T'), 'BRKB');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_('SOMETHING_ELSE'), 'SOMETHING_ELSE');
 assert.equal(krakenCtx._krakenCanonicalStockSymbol_(''), '');
+const krakenPrices = krakenCtx._krakenFetchXStockPricesUsd_([['XOMx', 0.180866], ['BRK.Bx', 0.1]]);
+assert.equal(krakenPrices.XOMX, 159.24);
+assert.equal(krakenPrices['BRK.BX'], 500);
+const pricedRows = krakenCtx._krakenBuildValues_([['XOMx', 0.180866]], '2026-08-31', krakenPrices);
+assert.equal(pricedRows[0][5], 159.24);
+assert.ok(Math.abs(pricedRows[0][4] - 0.180866 * 159.24) < 1e-9);
 
 // --- Déclencheurs gérés + requis ---
 assert.ok(

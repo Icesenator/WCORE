@@ -23,10 +23,14 @@ vm.runInContext(read('src/35_BITPANDA_SYNC.gs'), cexContext);
 
 assert.doesNotMatch(listing, /Portefeuille Crypto Details V2/,
   'details hyperlink maintenance must not target the old V2 tab name');
-assert.match(listing, /getSheetByName\("Portefeuille Crypto Details"\)/,
-  'details hyperlink maintenance should target the canonical Details tab');
-assert.match(listing, /getName\(\) !== "Portefeuille Crypto Details"/,
-  'details per-cell autolink should target the canonical Details tab');
+assert.match(listing, /"Portefeuille Crypto Details"/,
+  'details hyperlink maintenance should target the canonical Crypto Details tab');
+assert.match(listing, /"Portefeuille Action Details"/,
+  'details hyperlink maintenance should target the canonical Action Details tab');
+assert.match(listing, /sheetName !== "Portefeuille Crypto Details"/,
+  'details per-cell autolink should preserve the canonical Crypto Details tab');
+assert.match(listing, /sheetName !== "Portefeuille Action Details"/,
+  'details per-cell autolink should target the canonical Action Details tab');
 
 assert.doesNotMatch(topMarketcap, /Portefeuille Crypto V2/,
   'Action rebalancing fallback market-cap lookup must not target the old V2 tab name');

@@ -36,6 +36,24 @@ function normalizePayload(payload: unknown): GoPlusSignal | undefined {
   return p as unknown as GoPlusSignal;
 }
 
+function normalizeCachedEnrichment(payload: unknown): ScamEnrichment | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const p = payload as Record<string, unknown>;
+  // v33+ combined payload.
+  if ("goPlus" in p || "gt" in p) {
+    const goPlus = normalizePayload(p.goPlus);
+    const rawGt = p.gt;
+    const gt = rawGt && typeof rawGt === "object" && (rawGt as Record<string, unknown>).available === true
+      ? rawGt as ScamEnrichment["gt"]
+      : undefined;
+    if (!goPlus && !gt) return undefined;
+    return { ...(goPlus ? { goPlus } : {}), ...(gt ? { gt } : {}) };
+  }
+  // Legacy v26-v32 payload: flat GoPlus object.
+  const goPlus = normalizePayload(payload);
+  return goPlus ? { goPlus } : undefined;
+}
+
 export function goPlusWeight(v: GoPlusSignal): number {
   let score = 0;
   if (v.isHoneypot) score += 2;
@@ -102,7 +120,6 @@ export function classifyMaliciousBytecode(ascii: string): GoPlusSignal | null {
     isInDex: false,
   };
 }
-
 export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrichmentLoader {
   const { prisma, warn, bytecodeFetcher } = deps;
   return async (chainId: number, contracts: string[]): Promise<Map<string, ScamEnrichment>> => {
@@ -122,30 +139,61 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
       } catch (e) {
         warn?.(`scam-verdicts read failed: ${(e as Error).message}`);
       }
+
       const known = new Map(rows.map((r) => [r.address.toLowerCase(), r]));
 
       const now = Date.now();
       const fresh = new Map<string, ScamEnrichment>();
-      const missing: string[] = [];
+      const missingAll: string[] = [];
+      const missingGt: string[] = [];
       for (const a of addrs) {
         const row = known.get(a);
-        if (!row) { missing.push(a); continue; }
+        if (!row) { missingAll.push(a); continue; }
         // Admin verdicts are deliberate: they never expire and are applied as-is.
         if (row.source === "admin") {
           fresh.set(a, row.verdict === "clean" ? {} : {});
           continue;
         }
         if (now - new Date(row.updatedAt).getTime() < VERDICT_TTL_MS) {
-          const gp = normalizePayload(row.payload);
-          if (gp) fresh.set(a, { goPlus: gp });
+          const cached = normalizeCachedEnrichment(row.payload);
+          if (cached) {
+            fresh.set(a, cached);
+            if (!cached.gt) missingGt.push(a);
+          } else {
+            missingAll.push(a);
+          }
         } else {
-          missing.push(a);
+          missingAll.push(a);
         }
       }
 
-      if (missing.length > 0) {
-        const { fetchGoPlusVerdicts } = await import("@wcore/core");
-        const verdicts = await fetchGoPlusVerdicts(chainId, missing);
+      if (missingGt.length > 0) {
+        const { fetchGtVerdicts } = await import("@wcore/core");
+        const gtVerdicts = await fetchGtVerdicts(chainId, missingGt);
+        for (const addr of missingGt) {
+          const current = fresh.get(addr) ?? {};
+          const gt = gtVerdicts.get(addr);
+          if (!gt?.available) continue;
+          const combined: ScamEnrichment = { ...current, gt };
+          fresh.set(addr, combined);
+          try {
+            await prisma.scamVerdict.upsert({
+              where: { chainId_address: { chainId, address: addr } },
+              update: { source: "goplus+gt", payload: combined as object },
+              create: { chainId, address: addr, verdict: "clean", source: "goplus+gt", payload: combined as object },
+            });
+          } catch (e) {
+            warn?.(`scam-verdict GT backfill failed (${addr}): ${(e as Error).message}`);
+          }
+        }
+      }
+
+      if (missingAll.length > 0) {
+        const { fetchGoPlusVerdicts, fetchGtVerdicts } = await import("@wcore/core");
+        const [verdicts, gtVerdicts] = await Promise.all([
+          fetchGoPlusVerdicts(chainId, missingAll),
+          fetchGtVerdicts(chainId, missingAll),
+        ]);
         const entries = [...verdicts.entries()];
         const resolvedEntries: Array<[string, GoPlusSignal, boolean]> = [];
         for (let i = 0; i < entries.length; i += 8) {
@@ -161,16 +209,33 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
           })));
         }
         for (const [addr, resolved, fromGoPlus] of resolvedEntries) {
-          if (resolved.available) fresh.set(addr, { goPlus: resolved });
-          else continue;
-          try {
-            await prisma.scamVerdict.upsert({
-              where: { chainId_address: { chainId, address: addr } },
-              update: { verdict: classifyGoPlus(resolved), source: fromGoPlus ? "goplus" : "bytecode", payload: resolved as object },
-              create: { chainId, address: addr, verdict: classifyGoPlus(resolved), source: fromGoPlus ? "goplus" : "bytecode", payload: resolved as object },
-            });
-          } catch (e) {
-            warn?.(`scam-verdict write failed (${addr}): ${(e as Error).message}`);
+          const enrichment: ScamEnrichment = {};
+          if (resolved.available) enrichment.goPlus = resolved;
+          const gt = gtVerdicts.get(addr);
+          if (gt?.available) enrichment.gt = gt;
+          if (enrichment.goPlus || enrichment.gt) {
+            fresh.set(addr, enrichment);
+          }
+          if (enrichment.goPlus || enrichment.gt) {
+            try {
+              await prisma.scamVerdict.upsert({
+                where: { chainId_address: { chainId, address: addr } },
+                update: {
+                  verdict: resolved.available ? classifyGoPlus(resolved) : "clean",
+                  source: enrichment.goPlus && enrichment.gt ? "goplus+gt" : enrichment.goPlus ? (fromGoPlus ? "goplus" : "bytecode") : "gt",
+                  payload: enrichment as object,
+                },
+                create: {
+                  chainId,
+                  address: addr,
+                  verdict: resolved.available ? classifyGoPlus(resolved) : "clean",
+                  source: enrichment.goPlus && enrichment.gt ? "goplus+gt" : enrichment.goPlus ? (fromGoPlus ? "goplus" : "bytecode") : "gt",
+                  payload: enrichment as object,
+                },
+              });
+            } catch (e) {
+              warn?.(`scam-verdict write failed (${addr}): ${(e as Error).message}`);
+            }
           }
         }
       }

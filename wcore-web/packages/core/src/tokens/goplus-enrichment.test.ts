@@ -48,6 +48,22 @@ test("fetchGoPlusVerdicts batches <=30 addresses per call", async () => {
   } finally { restore(); }
 });
 
+test("fetchGoPlusVerdicts falls back to api.gopluslabs.io when .com fails", async () => {
+  const urls: string[] = [];
+  const restore = withFetch(((url: string | URL | Request) => {
+    urls.push(String(url));
+    if (String(url).includes("api.gopluslabs.com")) return Promise.reject(new Error("TLS failed"));
+    return Promise.resolve(new Response(JSON.stringify(SAMPLE), { status: 200 }));
+  }) as typeof fetch);
+  try {
+    const addr = "0xaaa0000000000000000000000000000000000001";
+    const m = await fetchGoPlusVerdicts(480, [addr]);
+    assert.equal(m.get(addr)?.isHoneypot, true);
+    assert.equal(urls.length, 2);
+    assert.match(urls[1] ?? "", /api\.gopluslabs\.io/);
+  } finally { restore(); }
+});
+
 test("fetchGoPlusVerdicts tolerates network failure (fail-graceful)", async () => {
   const restore = withFetch((() => Promise.reject(new Error("SSL/TLS dead"))) as typeof fetch);
   try {

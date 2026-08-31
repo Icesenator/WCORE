@@ -1,4 +1,4 @@
-import { describe, test } from "node:test";
+﻿import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors, applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus, setWCTStakeLockStatusFetcher } from "./gsheet.js";
@@ -52,6 +52,49 @@ test("scam enrichment receives nested CHAIN.CHAIN_ID and filters PICKLE", async 
   const body = JSON.parse(res.body);
   assert.equal(body.tokens.some((t: { contract?: string }) => t.contract?.toLowerCase() === pickle), false);
   assert.ok(body.blockedContracts.includes(pickle));
+  await app.close();
+});
+
+test("gsheet scan filters a GoPlus-confirmed honeypot without a manual blocklist", async () => {
+  const app = Fastify();
+  const moon = "0xd418f9fe0052856558b88f3f530130e0dd306a82";
+  await app.register(gsheetPlugin, {
+    token: "secret",
+    cacheStore: { get: async () => null },
+    scamEnrichment: {
+      loader: async () => new Map([[moon, { goPlus: {
+        available: true,
+        isHoneypot: true,
+        isBlacklisted: true,
+        canTakeBackOwnership: false,
+      } }]]),
+      logDecision: () => {},
+    },
+    scanRunner: async () => ({
+      ok: true,
+      chain: "WORLDCHAIN",
+      chainName: "World Chain",
+      vm: "EVM",
+      timestamp: new Date().toISOString(),
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [{ contract: moon, symbol: "Moon", name: "MoonCoin", balance: 70, priceEur: 0.01, valueEur: 0.7 }],
+      totalValueEur: 0.7,
+      errors: [],
+      degraded: false,
+      fxRate: 0.86,
+      scanMs: 1,
+    }),
+  });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/gsheet/scan",
+    headers: { "x-gsheet-token": "secret" },
+    payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "WORLDCHAIN", customTokens: [moon] },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.tokens.some((t: { contract?: string }) => t.contract?.toLowerCase() === moon), false);
+  assert.ok(body.blockedContracts.includes(moon));
   await app.close();
 });
 
@@ -202,6 +245,22 @@ describe("gsheetPlugin", () => {
     });
     assert.equal(res.statusCode, 400);
     assert.deepEqual(JSON.parse(res.body), { error: "unexpected_query" });
+    await app.close();
+  });
+
+  test("accepts symbols query parameter (ignored on this build)", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      stockPortfolioProvider: async () => ({ ok: true, generatedAt: "", ownerAddress: "", dynamicLimit: 300, holdingsStale: false, rows: [], stats: { ranked: 0, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 } }),
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/gsheet/stocks/portfolio?fresh=true&symbols=TSM%2CAAPL",
+      headers: { "x-gsheet-token": "secret" },
+    });
+    assert.equal(res.statusCode, 200);
     await app.close();
   });
 
@@ -1003,6 +1062,86 @@ describe("gsheetPlugin", () => {
     const body = JSON.parse(res.body);
     assert.equal(body.tokens.length, 0, "blocked scam custom token must be filtered out");
     assert.deepEqual(body.blockedContracts, ["0x2937489455711b275e854fb8e2238d0b7cc5fa7b"], "blocked contract must be reported for gsheet cache purge");
+    await app.close();
+  });
+
+  test("filters a heuristic scam verdict even when the contract is protected via customTokens", async () => {
+    const app = Fastify();
+    // Real BSC dusting case: vanity factory address (ÔÇª4444) + dust value.
+    // The GSheet re-injects every cached contract into customTokens, so this
+    // contract arrives "protected" ÔÇö a heuristic scam verdict must still win.
+    const vanity = "0x192d50c369192e492df0aaecdf79d95172fd4444";
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Ethereum",
+        vm: "EVM",
+        timestamp: "2026-08-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "MCNUGGETS", name: "McNuggets", contract: vanity, balance: 1000, decimals: 18, priceEur: 0.0000024, valueEur: 0.0024 },
+        ],
+        totalValueEur: 21,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "ethereum", strictTokens: true, customTokens: [vanity] },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.tokens.length, 0, "heuristic scam must be filtered despite customTokens protection");
+    assert.deepEqual(body.blockedContracts, [vanity], "contract must be reported for gsheet cache purge");
+    await app.close();
+  });
+
+  test("filters a GT-confirmed scam even when protected via customTokens", async () => {
+    const app = Fastify();
+    const vbtc = "0x992d55321d3e8f5778b11a3789467c4711fe580c";
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scamEnrichment: {
+        loader: async () => new Map([[vbtc, {
+          goPlus: { available: true, isHoneypot: false, isBlacklisted: false },
+          gt: { available: true, gtScore: 38.8, holderCount: 296160, holderDistribution: { top_10: 100, rest: 0 } },
+        }]]),
+        logDecision: () => {},
+      },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "BNB Chain",
+        vm: "EVM",
+        timestamp: "2026-08-27T01:00:00.000Z",
+        native: { symbol: "BNB", balance: 0.01, priceEur: 600, valueEur: 6 },
+        tokens: [{ symbol: "vBTC", name: "vBTC", contract: vbtc, balance: 3226, decimals: 18, priceEur: 0.000004822, valueEur: 0.0156 }],
+        totalValueEur: 6.0156,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "bsc", strictTokens: true, customTokens: [vbtc] },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.tokens.length, 0, "GT structural scam must override customTokens protection");
+    assert.deepEqual(body.blockedContracts, [vbtc]);
     await app.close();
   });
 

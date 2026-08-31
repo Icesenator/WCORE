@@ -738,17 +738,43 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
         });
       } catch { /* audit must never break the scan */ }
     }
-    // Only hard-scam verdicts (blocked/admin-blocked contracts, weight >= 4)
-    // override the protected-contracts short-circuit. Heuristic "suspicious"
-    // (score 2-3) may be an absurd-but-real price that is later neutralized by
-    // isAbsurdGsheetPrice instead of dropping the token (e.g. BONSAI).
+    // Any hard-scam verdict (score >= 4) overrides the protected-contracts
+    // short-circuit: hard-blocked/admin-blocked contracts, strong GoPlus proof,
+    // AND heuristic combinations (vanity factory address, dead screen pool…).
+    // Restricting the override to blocklist/GoPlus made dynamic verdicts inert
+    // for every contract the GSheet re-injects from its WalletCache into
+    // customTokens (41_GSHEET_WEB_SCAN.gs), i.e. every token already displayed —
+    // scams stayed visible forever (incident BSC batch 2026-08-26).
+    // Heuristic "suspicious" (score 2-3) stays protected: it may be an
+    // absurd-but-real price later neutralized by isAbsurdGsheetPrice (BONSAI).
+    // False-positive escape hatch: admin-approved contracts short-circuit
+    // detectScam to "clean" before this point.
     const isProtected = Boolean(id && protectedContracts.has(id));
-    const isBlockedContract = scamCheck?.reasons?.some((reason) => reason === "blocked contract" || reason === "admin blocked contract") === true;
-    const hasStrongEnrichedProof = enrichment?.goPlus?.available === true && (
+    // Structural evidence = the token cannot be a legitimate holding whatever the
+    // user declared: hard blocklist, or market/deployment facts (vanity factory
+    // address, dead screen pool). Value-based heuristics (inflated price, generic
+    // name) stay protected — they may be an absurd-but-real price neutralized by
+    // isAbsurdGsheetPrice instead (BONSAI, long-tail tokens).
+    const isStructuralScam = scamCheck?.reasons?.some((reason) =>
+      reason === "blocked contract"
+      || reason === "admin blocked contract"
+      || reason.startsWith("vanity factory address")
+      || reason.startsWith("dead screen pool")) === true;
+    const hasStrongGoPlusProof = enrichment?.goPlus?.available === true && (
       enrichment.goPlus.isHoneypot === true
       || (enrichment.goPlus.isBlacklisted === true && enrichment.goPlus.canTakeBackOwnership === true)
     );
-    if (scamCheck?.level === "scam" && (!isProtected || isBlockedContract || hasStrongEnrichedProof)) {
+    const gtScore = enrichment?.gt?.gtScore;
+    const gtTop10 = enrichment?.gt?.holderDistribution?.top_10;
+    // gtScore === 0 is "unrated" (GT lacks data), never structural proof.
+    const hasStrongGtProof = enrichment?.gt?.available === true && (
+      enrichment.gt.isHoneypot === true
+      || (typeof gtScore === "number" && gtScore > 0 && (
+        gtScore < 35
+        || (gtScore < 40 && typeof gtTop10 === "number" && gtTop10 >= 80)
+      ))
+    );
+    if (scamCheck?.level === "scam" && (!isProtected || isStructuralScam || hasStrongGoPlusProof || hasStrongGtProof)) {
       const symbol = tokenStringField(token, "symbol");
       if (symbol) filteredSymbols.add(symbol);
       if (id) blockedContracts.add(id);
@@ -962,8 +988,11 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
 
   app.get("/api/gsheet/stocks/portfolio", async (req, reply) => {
     const query = req.query as Record<string, unknown>;
-    if (Object.keys(query).some((key) => key !== "fresh")) return reply.code(400).send({ error: "unexpected_query" });
+    if (Object.keys(query).some((key) => key !== "fresh" && key !== "symbols")) return reply.code(400).send({ error: "unexpected_query" });
     const fresh = String(query.fresh || "") === "true";
+    if (typeof query.symbols === "string" && query.symbols.length > 0) {
+      app.log.warn({ symbols: query.symbols.slice(0, 200) }, "gsheet stock portfolio: symbols query param is ignored on this build (consolidation done client-side via _stockPortfolioRefreshDetails_)");
+    }
     if (!opts.stockPortfolioProvider) return reply.code(503).send({ error: "stock_portfolio_unavailable" });
     try {
       return await opts.stockPortfolioProvider({ fresh });

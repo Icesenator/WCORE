@@ -54,21 +54,30 @@ export async function fetchGoPlusVerdicts(
   const merged = new Map<string, GoPlusVerdict>();
   for (let i = 0; i < contracts.length; i += BATCH_SIZE) {
     const batch = contracts.slice(i, i + BATCH_SIZE).map((a) => a.toLowerCase());
-    const url = `https://api.gopluslabs.com/api/v1/token_security/${chainId}?contract_addresses=${batch.join(",")}`;
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 5_000);
+    const path = `/api/v1/token_security/${chainId}?contract_addresses=${batch.join(",")}`;
+    let fetched = false;
+    for (const host of ["api.gopluslabs.com", "api.gopluslabs.io"]) {
       try {
-        const res = await fetch(url, { signal: ctrl.signal });
-        if (!res.ok) throw new Error(`goplus http ${res.status}`);
-        for (const [k, v] of parseGoPlusResponse(await res.json())) merged.set(k, v);
-        for (const a of batch) if (!merged.has(a)) merged.set(a, UNAVAILABLE());
-      } finally {
-        clearTimeout(timer);
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 5_000);
+        try {
+          const res = await fetch(`https://${host}${path}`, { signal: ctrl.signal });
+          if (!res.ok) throw new Error(`goplus http ${res.status}`);
+          for (const [k, v] of parseGoPlusResponse(await res.json())) merged.set(k, v);
+          fetched = true;
+          break;
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch {
+        continue;
       }
-    } catch {
+    }
+    if (!fetched) {
       // Fail-graceful: no signal added, scan continues unchanged (design §2.5).
       for (const a of batch) merged.set(a, UNAVAILABLE());
+    } else {
+      for (const a of batch) if (!merged.has(a)) merged.set(a, UNAVAILABLE());
     }
   }
   return merged;

@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 26;
+export const SCAM_RULES_VERSION = 33;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -66,8 +66,20 @@ export interface GoPlusSignal {
   isInDex?: boolean;
 }
 
+export interface GtSignal {
+  available: boolean;
+  gtScore?: number; // 0-100 GT Security Score (higher = safer)
+  gtScoreDetails?: { pool?: number; transaction?: number; creation?: number; info?: number; holders?: number };
+  gtVerified?: boolean;
+  holderCount?: number;
+  holderDistribution?: { top_10?: number; "11_30"?: number; "31_50"?: number; rest?: number };
+  isHoneypot?: boolean;
+  categories?: string[];
+}
+
 export interface ScamEnrichment {
   goPlus?: GoPlusSignal;
+  gt?: GtSignal;
   dexLiquidityUsd?: number;
   dexVolume24h?: number;
   dexBuys24h?: number;
@@ -155,6 +167,11 @@ const _BLOCKED_CONTRACTS = new Set([
   // template Vyper généré en masse (jumeau 0xE6D352e9...), fonctions calculatrice absurdes,
   // hook externe owner-control à chaque transfer, zéro paire DEX, 5 930 holders dusting
   "0x4623aa7087a1004d12afa717d7bf5e77981174f7", // Ethereum: CTR "Citrea" impersonation dusting scam
+  // 2026-08-25 — Ethos - Base dusting (SKYAI, unverified honeypot : honeypot.is
+  // critical "high_fail_rate" — users cannot sell, buy simulation revert
+  // "HP: BUY_FAILED", liquidité ~$0.05 Uniswap V2 WETH-SKYAI, 230k holders,
+  // BaseScan réputation UNKNOWN, DexScreener 0 paire)
+  "0xce014b9c1ac69e01792e9db7393075146a1d4055", // BASE: SKYAI honeypot dusting scam
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([
@@ -312,11 +329,16 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
     }
   }
 
-  // 10. Unknown token with absurdly high total value (>1000 EUR) and massive supply
+  // 10. Unknown token with absurdly high total value (>1000 EUR) and massive supply.
+  // Exclude when GT score >= 50 (GT considers the project borderline or better) —
+  // protects legitimate micro-caps like XCLAW (score 53.1, real $149k liquidity).
   if (priceEur != null && priceEur > 0 && !isKnownToken(s.toUpperCase(), contract)) {
     const value = balance * priceEur;
     if (value > 1000 && balance > 100_000) {
-      signals.push({ reason: `unknown token with inflated value: ${value.toFixed(0)} EUR from ${formatBig(balance)} tokens`, weight: 3 });
+      const gtOk = typeof enrichment?.gt?.gtScore === "number" && enrichment.gt.gtScore >= 50;
+      if (!gtOk) {
+        signals.push({ reason: `unknown token with inflated value: ${value.toFixed(0)} EUR from ${formatBig(balance)} tokens`, weight: 3 });
+      }
     }
   }
 
@@ -376,24 +398,106 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
     }
   }
 
-  // 15. Screen pool (cascade DexScreener): price exists but liquidity/volume are
-  // theatrical. Only when ALL conditions hold to protect legit micro-caps.
-  if (priceEur != null && priceEur > 1 && !isKnownToken(s.toUpperCase(), contract)
-      && typeof enrichment?.dexLiquidityUsd === "number"
-      && enrichment.dexLiquidityUsd < 10_000
-      && (enrichment.dexVolume24h ?? 0) < 500
-      && (enrichment.dexBuys24h ?? 0) === 0) {
-    signals.push({ reason: `screen pool (liq $${enrichment.dexLiquidityUsd}, vol $${enrichment.dexVolume24h ?? 0}, 0 buys) at ${priceEur.toFixed(2)} EUR/unit`, weight: 2 });
+  // 14b. Vanity factory address: contract address ends with repeated digits
+  // (4444, 3333, 5555, etc.) — hallmark of mass-deployed scam factories on
+  // BSC/Base/World Chain. Weight 3 alone; not absolute (legit tokens can have
+  // vanity addresses by chance) so the old zero-enrichment guard was removed
+  // and the rule requires no enrichment data. Short-circuit: excluded when
+  // enrichment data shows real market activity (liq > $50k).
+  if (contract && !isKnownToken(s.toUpperCase(), contract)) {
+    const body = contract.toLowerCase().replace(/^0x/, "");
+    const tailRun = body.match(/([0-9])\1{3,}$/);
+    // Placeholder addresses (0x1111…1111) carry no entropy and are never real
+    // deployments — a factory vanity suffix sits at the end of a normal address.
+    const isVanity = Boolean(tailRun) && new Set(body).size >= 6 && (tailRun?.[0].length ?? 0) <= 8;
+    if (isVanity) {
+      const hasRealMarket = typeof enrichment?.dexLiquidityUsd === "number" && enrichment.dexLiquidityUsd > 50_000;
+      if (!hasRealMarket) {
+        signals.push({ reason: `vanity factory address (${contract.slice(-4)})`, weight: 3 });
+      }
+    }
   }
 
-  // 16. GoPlus security verdict (weights halved per design §3.5).
+  // 14c. Non-latin ticker/name with no price: dust airdrop using CJK/emoji
+  // names that bypass Anglo-centric generic-name heuristics.
+  if (priceEur == null && !isKnownToken(s.toUpperCase(), contract)) {
+    const nonLatin = /[^\x00-\x7F]/;
+    if (nonLatin.test(s) || nonLatin.test(n)) {
+      signals.push({ reason: `non-latin ticker/name ("${s}"/"${n}") with no price`, weight: 1 });
+    }
+  }
+
+  // 15. Screen pool (cascade DexScreener): liquidity/volume are theatrical.
+  // Two tiers, both requiring enrichment data, to protect legit micro-caps:
+  // - dead screen pool (weight 4): liquidity < $100 with zero buys in 24h is
+  //   incompatible with any real market regardless of unit price. Catches
+  //   phantom-price dust (SKYAI: $0.05 pool at ~1e-7 EUR/unit) that the old
+  //   price-floor rule ignored.
+  // - theatrical high-price pool (weight 2): liq < $10k, vol < $500, 0 buys,
+  //   price > EUR 1 (AnimeCoin/RamenCoin-style fake unit price).
+  if (!isKnownToken(s.toUpperCase(), contract) && typeof enrichment?.dexLiquidityUsd === "number") {
+    const liq = enrichment.dexLiquidityUsd;
+    const vol = enrichment.dexVolume24h ?? 0;
+    const buys = enrichment.dexBuys24h ?? 0;
+    if (liq < 100 && vol < 500 && buys === 0) {
+      signals.push({ reason: `dead screen pool (liq $${liq}, vol $${vol}, 0 buys) at ${priceEur != null ? priceEur.toExponential(1) : "?"} EUR/unit`, weight: 4 });
+    } else if (priceEur != null && priceEur > 1 && liq < 10_000 && vol < 500 && buys === 0) {
+      signals.push({ reason: `screen pool (liq $${liq}, vol $${vol}, 0 buys) at ${priceEur.toFixed(2)} EUR/unit`, weight: 2 });
+    }
+  }
+
+  // 16. GoPlus security verdict.
   if (!isKnownToken(s.toUpperCase(), contract) && enrichment?.goPlus?.available) {
     const g = enrichment.goPlus;
-    if (g.isHoneypot) signals.push({ reason: "goplus: honeypot", weight: 2 });
+    if (g.isHoneypot) signals.push({ reason: "goplus: honeypot", weight: 4 });
     if (g.isBlacklisted) signals.push({ reason: "goplus: blacklist anti-sell", weight: 1 });
     if (g.canTakeBackOwnership) signals.push({ reason: "goplus: take-back ownership", weight: 1 });
     if (g.slippageModifiable) signals.push({ reason: "goplus: slippage modifiable", weight: 1 });
     if ((g.ownerPercent ?? 0) > 50) signals.push({ reason: `goplus: owner holds ${g.ownerPercent}% supply`, weight: 2 });
+  }
+
+  // 17. GeckoTerminal Security Score + holder distribution. Distinct from GoPlus
+  // (which only reports contract-level risks): GT analyses pool health, holder
+  // concentration, and project metadata. Critical for tokens that pass GoPlus
+  // (e.g. XCLAW/xBTC: contract is clean but the market is rigged).
+  // Tiered weights match GT's own bucket boundaries and our empirical evidence:
+  // < 35 = hard scam (xBTC 38.8, SKYAI 31.0, MCNUGGETS 44.8 still need other
+  // signals); < 40 alone is suspicious not scam (XCLAW 53.1 is legit).
+  // Top-10 concentration is the strongest individual signal (XCLAW 99% is
+  // fine because it's a burn address, so we cross-check holder count).
+  if (!isKnownToken(s.toUpperCase(), contract) && enrichment?.gt?.available) {
+    const gt = enrichment.gt;
+    const score = typeof gt.gtScore === "number" ? gt.gtScore : null;
+    const top10 = gt.holderDistribution?.top_10;
+    const holders = typeof gt.holderCount === "number" ? gt.holderCount : null;
+
+    if (score != null && score > 0) {
+      // gtScore === 0 means GT has not enough data to rate the token (observed:
+      // World Chain dust with pool/holders components partially populated but
+      // total 0) — it is "unrated", not "worst score". Only explicit nonzero
+      // scores feed the tiers; the isHoneypot flag below stays authoritative.
+      if (score < 35) {
+        signals.push({ reason: `gt score ${score.toFixed(1)}/100 (high risk)`, weight: 4 });
+      } else if (score < 40) {
+        signals.push({ reason: `gt score ${score.toFixed(1)}/100 (sub scam)`, weight: 3 });
+      } else if (score < 50) {
+        signals.push({ reason: `gt score ${score.toFixed(1)}/100 (borderline)`, weight: 1 });
+      }
+    }
+
+    // Holder concentration: top-10 controls >= 80% while GT score < 50 is a
+    // rug-pull/dusting profile regardless of holder count. Mass-airdrop scams
+    // deliberately manufacture hundreds of thousands of holders (vBTC: 296k,
+    // top10=100%, score=38.8; xBTC: 382k, top10=88.7%, score=38.8).
+    // Exclude GT >= 50 so a known burn-address concentration stays safe
+    // (XCLAW: top10=99.4%, score=53.1).
+    if (top10 != null && top10 >= 80 && holders != null && score != null && score > 0 && score < 50) {
+      signals.push({ reason: `top 10 holders own ${top10.toFixed(1)}% (${holders} holders)`, weight: 2 });
+    }
+
+    if (gt.isHoneypot === true) {
+      signals.push({ reason: "gt: flagged as honeypot", weight: 4 });
+    }
   }
 
   const totalScore = signals.reduce((sum, sig) => sum + sig.weight, 0);

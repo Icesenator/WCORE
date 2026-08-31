@@ -1776,9 +1776,10 @@ function _cexWriteVerifMap_(sh, sheetName) {
   try {
     var existingLabel = String(sh.getRange(2, 6).getValue() || "");
     var existingFormula = String(sh.getRange(3, 6).getFormula() || "");
-    if (existingLabel === "Vérif" && existingFormula.indexOf("MAP(") >= 0) return;
+    var expectedFormula = _cexBuildVerifFormula_(sheetName);
+    if (existingLabel === "Vérif" && existingFormula === expectedFormula) return;
     sh.getRange(2, 6, 1, 1).setValue("Vérif");
-    sh.getRange(3, 6, 1, 1).setFormula(_cexBuildVerifFormula_(sheetName));
+    sh.getRange(3, 6, 1, 1).setFormula(expectedFormula);
   } catch (e) {
     Logger.log("[CEX_VERIF] Failed to write Vérif MAP for " + sheetName + ": " + (e && e.message ? e.message : e));
   }
@@ -1790,8 +1791,8 @@ function _cexBuildVerifFormula_(sheetName) {
   var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
   if (!isFiatOrStocks) return cryptoDetailsV2Formula;
   if (isFiatOrStocks) {
-    var sw = _cexStockAliasSwitch_();
-    return '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s=\"\";\"\";IF(N(b)<=0;\"\";IF(OR(COUNTIFS(\'Portefeuille Action\'!$A:$A;s)>0;COUNTIFS(\'Portefeuille Action\'!$A:$A;' + sw + ')>0);\"V\";\"X\")))))';
+    var escapedSheetName = String(sheetName || "").replace(/"/g, '""');
+    return '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Action Details\'!$E:$E;"' + escapedSheetName + '";\'Portefeuille Action Details\'!$C:$C;s)>0;"V";"X")))))';
   }
 }
 

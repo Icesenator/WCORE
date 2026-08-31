@@ -48,6 +48,13 @@ assert.match(cryptoCexFormula, /'Portefeuille Crypto Details'!\$E:\$E/,
   'CEX verification formulas should target canonical Details');
 assert.doesNotMatch(cryptoCexFormula, /Portefeuille Crypto Details V2/,
   'CEX verification formulas must not target the old V2 Details tab');
+const krakenStocksFormula = cexContext._cexBuildVerifFormula_('CEX - Kraken Stocks');
+assert.match(krakenStocksFormula, /'Portefeuille Action Details'!\$E:\$E;"CEX - Kraken Stocks"/,
+  'Kraken Stocks verification must match the exact Action Details source sheet');
+assert.match(krakenStocksFormula, /'Portefeuille Action Details'!\$C:\$C;s/,
+  'Kraken Stocks verification must match the same symbol in Action Details');
+assert.doesNotMatch(krakenStocksFormula, /COUNTIFS\('Portefeuille Action'!\$A:\$A/,
+  'stock verification must not accept a symbol merely because it exists in Portefeuille Action');
 
 assert.doesNotMatch(stock, /Portefeuille Crypto Details V2/,
   'Portefeuille Action EUR cash formula must not target the old V2 Details tab');

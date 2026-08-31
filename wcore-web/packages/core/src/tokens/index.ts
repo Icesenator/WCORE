@@ -9,3 +9,4 @@ export * from "./scam-detector.js";
 export * from "./token-logos.js";
 export * from "./token-logo-resolver.js";
 export * from "./goplus-enrichment.js";
+export * from "./gt-enrichment.js";

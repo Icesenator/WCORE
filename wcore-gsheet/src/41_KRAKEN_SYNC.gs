@@ -1,10 +1,10 @@
-// v4.16.37 - A1 de CEX - Kraken Stocks rafraîchit fiat + xStocks (KRAKEN_ON_EDIT).
+// v4.16.38 - xStocks Kraken courts (MUX) whitelistes + routage fiat/xstocks v2`n// v4.16.37 - A1 de CEX - Kraken Stocks rafraîchit fiat + xStocks (KRAKEN_ON_EDIT).
 // v4.16.36 - Routage fiat + xStocks vers CEX - Kraken Stocks (EUR en Stocks, crypto en Crypto).
 // v4.16.34 - Dedicated hourly installer and non-mutating legacy watchdog.
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
 // Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (fiat + actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.37";
+var KRAKEN_SYNC_VERSION = "4.16.38";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
@@ -48,7 +48,9 @@ var KRAKEN_FIAT_SYMBOLS = ["EUR", "USD"];
 // retirant le suffixe "x" (ex. NVDAx -> NVDA).
 var KRAKEN_XSTOCK_CANONICAL = {
   "SKHY": "SKHY",
-  "SKHYX": "SKHY"
+  "SKHYX": "SKHY",
+  "MUX": "MU",
+  "MUXUSD": "MU"
 };
 
 function SET_KRAKEN_API_KEYS(apiKey, privateKey) {
@@ -187,21 +189,26 @@ function _krakenIsXStock_(symbol) {
   if (!raw) return false;
   var up = raw.toUpperCase();
   if (KRAKEN_XSTOCK_CANONICAL[up]) return true;
-  // Suffixe xStock Kraken: "AAPLx", "NVDAx", "MUx" (x minuscule).
-  // Ne pas confondre avec un crypto tout en majuscules (PAX, UNI).
-  if (/x$/.test(raw) && raw.length >= 3) return true;
-  return up.length > 3 && /X$/.test(up) && /x$/.test(raw);
+  // Suffixe xStock Kraken sur la cle brute de la Balance API: "AAPLx.T",
+  // "MUx.T", "SPCXx.T" (x minuscule, suffixe boursier .T). Le test se fait
+  // AVANT toute normalisation de casse. Les tickers 100% majuscules finissant
+  // par X (PAX, BGB) restent des cryptos: on exige le x minuscule ou le
+  // passage par la whitelist KRAKEN_XSTOCK_CANONICAL.
+  if (/x(\.[A-Z]+)?$/.test(raw)) return true;
+  return false;
 }
 
-// Normalise un xStock Kraken vers le symbole canonique WCORE (Portefeuille Action):
-// applique KRAKEN_XSTOCK_CANONICAL puis retire le suffixe "x" final.
+// Normalise une clé xStock Kraken ("AAPLx.T", "MUx.T") vers le symbole
+// canonique WCORE: retire le suffixe boursier (.T), applique
+// KRAKEN_XSTOCK_CANONICAL puis retire le suffixe "x" final.
 function _krakenCanonicalStockSymbol_(symbol) {
   var s = String(symbol || "").trim();
   if (!s) return "";
+  s = s.replace(/\.[A-Z]+$/i, "");
   var up = s.toUpperCase();
   if (KRAKEN_XSTOCK_CANONICAL[up]) return KRAKEN_XSTOCK_CANONICAL[up];
-  if (/X$/.test(up)) return up.slice(0, -1);
-  return s;
+  if (/x$/.test(s) || /X$/.test(up)) return up.slice(0, -1);
+  return up;
 }
 
 function _krakenPushBucket_(bucket, seen, sym, amount) {
@@ -387,5 +394,45 @@ function UPDATE_KRAKEN_STOCKS_FIAT() {
     return JSON.stringify(statusErr);
   } finally {
     if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("KRAKEN_STOCKS");
+  }
+}
+
+function DIAG_KRAKEN_TICKERS() {
+  try {
+    var buckets = _krakenFetchBuckets_(_krakenGetCreds_());
+    var lines = [
+      "DIAG_KRAKEN_TICKERS " + KRAKEN_SYNC_VERSION,
+      "isXStock(AAPLX)=" + _krakenIsXStock_("AAPLX"),
+      "isXStock(MUX)=" + _krakenIsXStock_("MUX"),
+      "isXStock(PAX)=" + _krakenIsXStock_("PAX"),
+      "canonStock(MUX)=" + _krakenCanonicalStockSymbol_("MUX"),
+      "canonStock(AAPLX)=" + _krakenCanonicalStockSymbol_("AAPLX"),
+      "canon(AAPLX)=" + _krakenCanonicalSymbol_("AAPLX"),
+      "canon(MUX)=" + _krakenCanonicalSymbol_("MUX"),
+      "xstocks=" + JSON.stringify(buckets.xstocks),
+      "crypto=" + JSON.stringify(buckets.crypto),
+      "fiat=" + JSON.stringify(buckets.fiat)
+    ].join("\n");
+    Logger.log(lines);
+    return lines;
+  } catch (err) {
+    return "ERROR: " + (err && err.message ? err.message : err);
+  }
+}
+
+function DIAG_KRAKEN_LOOP() {
+  try {
+    var balances = _krakenPrivatePost_("/0/private/Balance", {}, _krakenGetCreds_());
+    var lines = ["DIAG_KRAKEN_LOOP " + KRAKEN_SYNC_VERSION];
+    for (var raw in balances) {
+      if (!Object.prototype.hasOwnProperty.call(balances, raw)) continue;
+      var amount = _krakenParseAmount_(balances[raw]);
+      if (amount <= 0) continue;
+      lines.push(raw + " amt=" + amount + " xstock=" + _krakenIsXStock_(raw) + " canon=" + _krakenCanonicalSymbol_(raw));
+    }
+    Logger.log(lines.join("\n"));
+    return lines.join("\n");
+  } catch (err) {
+    return "ERROR: " + (err && err.message ? err.message : err);
   }
 }

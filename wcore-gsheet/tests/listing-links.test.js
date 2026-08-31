@@ -36,38 +36,55 @@ function makeContext() {
 
 {
   const ctx = makeContext();
-  const written = [];
-  const sheet = {
-    getLastRow: () => 5,
-    getRange: (row, col, numRows, numCols) => {
-      assert.equal(row, 2);
-      assert.equal(col, 5);
-      assert.equal(numRows, 4);
-      assert.equal(numCols, 1);
-      return {
-        getDisplayValues: () => [
-          ['UniSwap - Base'],
-          ['CEX - Binance'],
-          ['Unknown Source'],
-          [''],
-        ],
-        setRichTextValues: (values) => written.push(values),
-      };
-    },
+  const written = {};
+  function makeDetailsSheet(sheetName, values) {
+    return {
+      getLastRow: () => values.length + 1,
+      getRange: (row, col, numRows, numCols) => {
+        assert.equal(row, 2);
+        assert.equal(col, 5);
+        assert.equal(numRows, values.length);
+        assert.equal(numCols, 1);
+        return {
+          getDisplayValues: () => values.map((value) => [value]),
+          setRichTextValues: (richTexts) => { written[sheetName] = richTexts; },
+        };
+      },
+    };
+  }
+  const sheets = {
+    'Portefeuille Crypto Details': makeDetailsSheet('Portefeuille Crypto Details', [
+      'UniSwap - Base',
+      'CEX - Binance',
+      'Unknown Source',
+      '',
+    ]),
+    'Portefeuille Action Details': makeDetailsSheet('Portefeuille Action Details', [
+      'CEX - Kraken Stocks',
+      'Ledger - Solana Action',
+    ]),
   };
   const ss = {
     getUrl: () => 'https://docs.google.com/spreadsheets/d/test',
-    getSheetByName: (name) => name === 'Portefeuille Crypto Details' ? sheet : null,
+    getSheetByName: (name) => sheets[name] || null,
   };
 
-  ctx._setDetailsChainHyperlinks_(ss, { 'UniSwap - Base': 123, 'CEX - Binance': 456 });
+  ctx._setDetailsChainHyperlinks_(ss, {
+    'UniSwap - Base': 123,
+    'CEX - Binance': 456,
+    'CEX - Kraken Stocks': 789,
+    'Ledger - Solana Action': 987,
+  });
 
-  assert.equal(written.length, 1);
-  assert.deepEqual(written[0], [
+  assert.deepEqual(written['Portefeuille Crypto Details'], [
     [{ text: 'UniSwap - Base', link: 'https://docs.google.com/spreadsheets/d/test#gid=123' }],
     [{ text: 'CEX - Binance', link: 'https://docs.google.com/spreadsheets/d/test#gid=456' }],
     [{ text: 'Unknown Source', link: null }],
     [{ text: '', link: null }],
+  ]);
+  assert.deepEqual(written['Portefeuille Action Details'], [
+    [{ text: 'CEX - Kraken Stocks', link: 'https://docs.google.com/spreadsheets/d/test#gid=789' }],
+    [{ text: 'Ledger - Solana Action', link: 'https://docs.google.com/spreadsheets/d/test#gid=987' }],
   ]);
 }
 

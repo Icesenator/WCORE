@@ -64,7 +64,7 @@ const BITPANDA_SECURITIES: Readonly<Record<string, CanonicalStockMapping>> = {
   TM: stock("TYO:7203", ["7203.T"], ["TM"], "JPY", { supplyMultiplier: 10 }),
   SSU: stock("SMSN", ["005930.KS"], ["SSU", "SMSN"], "KRW", { unitsPerReceipt: 25 }),
   SMSN: stock("SMSN", ["005930.KS"], ["SSU", "SMSN"], "KRW", { unitsPerReceipt: 25 }),
-  HYXS: stock("SKHY", ["000660.KS"], ["HYXS", "SKHY", "SKHYx"], "KRW"),
+  HYXS: stock("SKHY", ["SKHY"], ["HYXS", "SKHY", "SKHYx"], "USD"),
   ADS: stock("ETR:ADS", ["ADS.DE"], ["ADS"], "EUR"),
   AIR: stock("EPA:AIR", ["AIR.PA"], ["AIR"], "EUR"),
   ALV: stock("ETR:ALV", ["ALV.DE"], ["ALV"], "EUR"),
@@ -109,9 +109,9 @@ const TOP_MARKET_CAP_OVERRIDES: Readonly<Record<string, CanonicalStockMapping>> 
   TM: BITPANDA_SECURITIES.TM!,
   GOOG: stock("GOOG", ["GOOG"], ["GOOGL"], "USD"),
   GOOGL: BITPANDA_SECURITIES.GOOGL!,
-  // SK Hynix: la cotation coréenne (000660.KS/KRW) est le canonique SKHY ; Bitpanda
-  // l'expose sous HYXS et Kraken sous SKHYx/SKHY (même société, instruments distincts).
-  "000660.KS": BITPANDA_SECURITIES.HYXS!,
+  // SK Hynix: les xStocks Bitpanda (HYXS) et Kraken (SKHYx/SKHY) suivent la cotation
+  // Nasdaq (SKHY) ; la cotation KRX 000660.KS reste en fallback pour le top market cap.
+  "000660.KS": stock("SKHY", ["SKHY", "000660.KS"], ["HYXS", "SKHY", "SKHYx"], "USD"),
   // Samsung: le canonique est SMSN (ex-KRX:005930), alias SSU/SMSN conservés pour Bitpanda.
   "005930.KS": BITPANDA_SECURITIES.SSU!,
   // Berkshire Hathaway: le canonique est BRKB (ex-NYSE:BRK.B), aliases BRK/BRK.B/BRK-B conservés.

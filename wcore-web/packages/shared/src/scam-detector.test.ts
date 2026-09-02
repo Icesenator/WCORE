@@ -1,5 +1,5 @@
-// Run: node --import tsx --test packages/shared/src/scam-detector.test.ts
-import { test } from "node:test";
+// Run: pnpm --filter @wcore/shared test
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { detectScam, SCAM_RULES_VERSION } from "./scam-detector.js";
 

@@ -9,8 +9,7 @@ node_modules/
 backups/
 /invest-gas/
 nul
-opencode.json
-!.opencode/opencode.json
+!opencode.json
 .obsidian/workspace*.json
 
 # Graphify local inputs and Obsidian export
@@ -48,3 +47,6 @@ graphify-out/20*/
 
 # Isolated git worktrees
 .worktrees/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

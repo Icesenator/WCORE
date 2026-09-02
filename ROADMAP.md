@@ -94,6 +94,11 @@
 
 ## Programmes data et execution
 
+### Signaux utilisateurs issus du Community Management
+
+- [ ] Actions tokenisees : distinguer le cours spot de l'action et la valeur executable du claim on-chain. Afficher au minimum la source/venue, la liquidite du pool ou carnet, la prime/decote, les frais et conditions de redemption, avec statut stale si ces donnees manquent. Signal valide le 2026-08-25 par une discussion builder sur X : le mark spot rend le PnL plus propre que la valeur reelle du claim.
+- [ ] Maintenir une boucle CM → produit verifiable : n'ajouter une evolution Web que lorsqu'une demande, objection ou incomprehension est explicite ou repetee; conserver la publication X source dans le journal avant priorisation.
+
 ### Portfolio Intelligence multi-provider
 
 - [ ] Construire un cadre serveur optionnel commun pour les enrichissements portfolio, avec cache provider separe, single-flight par wallet, budget, timeout et circuit breaker independant des chaines.

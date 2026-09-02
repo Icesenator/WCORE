@@ -9,6 +9,7 @@ import type { Page } from "@playwright/test";
 
 export type ChromeConfig = {
   targetUrl: string;
+  headless: boolean;
   chromePath: string;
   cdpPort: number;
   cdpEndpoint: string;
@@ -90,7 +91,8 @@ export function resolveChromeConfig(env: Environment, cwd: string): ChromeConfig
   }
 
   return {
-    targetUrl: env.WCORE_URL ?? "http://localhost:3000",
+    targetUrl: env.WCORE_URL ?? "about:blank",
+    headless: env.WCORE_CHROME_HEADLESS === "true",
     chromePath: env.WCORE_CHROME_PATH ?? defaultChromePath(env),
     cdpPort,
     cdpEndpoint: `http://127.0.0.1:${cdpPort}`,
@@ -105,6 +107,7 @@ export function buildChromeArgs(config: ChromeConfig, ownerNonce?: string): stri
     "--remote-debugging-address=127.0.0.1",
     `--remote-debugging-port=${config.cdpPort}`,
     `--user-data-dir=${config.profileDir}`,
+    ...(config.headless ? ["--headless=new"] : []),
     ...(ownerNonce ? [`--wcore-owner=${ownerNonce}`] : []),
     config.targetUrl,
   ];

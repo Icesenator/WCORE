@@ -1,11 +1,38 @@
 param(
   [ValidateSet("api","web","cex-relay")]
-  [string]$Service = "web"
+  [string]$Service = "web",
+  [switch]$SkipRemoteCheck
 )
 
 $jsonPath = Join-Path $PSScriptRoot "..\..\railway.json"
 $lockPath = Join-Path $PSScriptRoot "..\.deploy.lock"
 $ignorePath = Join-Path $PSScriptRoot "..\..\.railwayignore"
+
+# Incident 2026-09-02 : un deploy depuis un master local 19 commits behind origin a
+# re-remis en prod une regression SKHY (retour au pricing KRX) deja corrigee sur
+# origin/master. Garde : exiger que HEAD soit base sur origin/master a jour.
+# -SkipRemoteCheck existe pour les deploys hors repo git (CI) et ne doit pas etre
+# utilise en local pour contourner une divergence reelle.
+if (-not $SkipRemoteCheck) {
+  git fetch origin master 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "git fetch origin master a echoue - impossible de verifier que HEAD est a jour. Corrige le depot ou passe -SkipRemoteCheck explicitement."
+    exit 1
+  }
+  $aheadBehind = git rev-list --left-right --count "origin/master...HEAD" 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $aheadBehind) {
+    Write-Error "HEAD n'est pas ratache a origin/master (detached/worktree?). Verifie la branche avant de deployer."
+    exit 1
+  }
+  $parts = $aheadBehind.Trim() -split '\s+'
+  $behind = [int]$parts[0]
+  $ahead  = [int]$parts[1]
+  if ($behind -gt 0) {
+    Write-Error "master local est $behind commits DERRIERE origin/master (et $ahead devant). Deployer ecraserait les fixes deja en prod. Faire d'abord: git pull --rebase (ou merge), re-tester, puis re-deployer."
+    exit 1
+  }
+  Write-Host "Remote check OK: HEAD = origin/master +$ahead commits locaux."
+}
 
 # Prevent concurrent deploys from racing on railway.json (documented incident 2026-05-19).
 if (Test-Path $lockPath) {

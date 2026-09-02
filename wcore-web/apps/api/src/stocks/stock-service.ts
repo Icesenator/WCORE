@@ -1,6 +1,7 @@
 import { getEurUsdRate, type CacheStore } from "@wcore/core";
 import { cacheKey } from "@wcore/shared";
 import { resolveRelayBaseUrl, resolveRelayToken } from "../config.js";
+import { resolveVerifiedMarketCapUsd } from "./verified-shares.js";
 import {
   fetchStockFxQuotesViaRelay,
   fetchStockQuotesViaRelay,
@@ -36,6 +37,7 @@ export interface StockSnapshotRow extends ResolvedStockPrice {
   marketCapUsd: number;
   marketCapEur: number;
   supply: number;
+  capCorrected: boolean;
 }
 
 export interface TopMarketCapSnapshot {
@@ -48,6 +50,7 @@ export interface TopMarketCapSnapshot {
     pricedFresh: number;
     pricedStale: number;
     unpriced: number;
+    capCorrections: number;
   };
   stale: boolean;
 }
@@ -235,6 +238,13 @@ export class CanonicalStockService {
         lastGood,
         now: generatedAt,
       });
+      // Contre-verifie la cap CompaniesMarketCap avec le registre de shares
+      // verifiees (verified-shares.ts) : CompaniesMarketCap double-compte Tencent
+      // (TCEHY, incident 2026-09-02). Auto-desengageant : si le CSV converge avec
+      // le registre (ecart <= 20%), la valeur CSV est reprise telle quelle.
+      const verified = resolveVerifiedMarketCapUsd(mapping.canonicalTicker, source.marketCapUsd, source.priceUsd);
+      const marketCapUsd = verified ? verified.marketCapUsd : source.marketCapUsd;
+      const capCorrected = verified?.corrected === true;
       const row: StockSnapshotRow = {
         rank: source.rank,
         company: source.company,
@@ -244,13 +254,18 @@ export class CanonicalStockService {
         yahooTicker: quote?.yahooTicker ?? mapping.yahooTickers[0] ?? null,
         bitpandaAliases: [...mapping.bitpandaAliases],
         ...resolved,
-        marketCapUsd: source.marketCapUsd,
-        marketCapEur: source.marketCapUsd * usdToEur,
-        supply: (source.marketCapUsd / source.priceUsd) * supplyMultiplier,
+        marketCapUsd,
+        marketCapEur: marketCapUsd * usdToEur,
+        supply: (marketCapUsd / source.priceUsd) * supplyMultiplier,
+        capCorrected,
       };
       rows.push(row);
     }
-    return makeSnapshot(rows, generatedAt, false);
+    const correctedTickers = rows.filter((row) => row.capCorrected).map((row) => row.sourceTicker);
+    if (correctedTickers.length) {
+      console.warn(`[stock-service] verified-shares corrected CompaniesMarketCap for ${correctedTickers.join(", ")}`);
+    }
+    return makeSnapshot(rerankCorrectedCaps(rows), generatedAt, false);
   }
 
   private async persistRows(rows: StockSnapshotRow[]): Promise<void> {
@@ -436,9 +451,28 @@ function makeSnapshot(rows: StockSnapshotRow[], generatedAt: string, stale: bool
       pricedFresh: rows.filter((row) => row.priceEur !== null && !row.stale).length,
       pricedStale: rows.filter((row) => row.priceEur !== null && row.stale).length,
       unpriced: rows.filter((row) => row.priceEur === null).length,
+      capCorrections: rows.filter((row) => row.capCorrected === true).length,
     },
     stale,
   };
+}
+
+// Re-rang conditionnel : une fois la cap corrigee par le registre verified-shares,
+// le rang CompaniesMarketCap (derive de la cap fausse) n'est plus coherent avec
+// l'ordre par cap. Les seules lignes corrigees sont re-inserrees a leur place par
+// cap dans la sequence (l'ordre relatif des lignes saines, donc leurs rangs, est
+// preserve), puis les rangs sont renumerotes. Sans correction aucune, l'ordre et
+// les rangs CompaniesMarketCap sont reproduits a l'identique (auto-desengagement).
+function rerankCorrectedCaps(rows: StockSnapshotRow[]): StockSnapshotRow[] {
+  if (!rows.some((row) => row.capCorrected === true)) return rows;
+  const corrected = rows.filter((row) => row.capCorrected === true);
+  const ordered = rows.filter((row) => row.capCorrected !== true);
+  for (const row of corrected) {
+    let insertAt = ordered.findIndex((other) => other.marketCapUsd < row.marketCapUsd);
+    if (insertAt === -1) insertAt = ordered.length;
+    ordered.splice(insertAt, 0, row);
+  }
+  return ordered.map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
 function isCompleteSnapshot(value: unknown, now: Date, maxAgeMs: number): value is TopMarketCapSnapshot {

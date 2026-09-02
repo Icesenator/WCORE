@@ -1,9 +1,12 @@
 # ============================================================================
-# WCORE Safe-Push v3.1 - Windows PowerShell
+# WCORE Safe-Push v3.2 - Windows PowerShell
 # Push les fichiers .gs de src/ vers le projet
 # NE SUPPRIME PAS les fichiers presents uniquement sur le projet distant
 # v3.1: rootDir fixe ".temp_push" dans clasp.json avant pull pour eviter
 #        les artefacts .js en racine. Restore rootDir="src" apres push.
+# v3.2: verrou de deploiement atomique (.push.lock, handle OS) pour
+#        serialiser les pushs concurrents (agents multiples). Un push
+#        concurrent echoue proprement au lieu d'ecraser le projet distant.
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -13,11 +16,52 @@ $TempDir = Join-Path $ProjectDir ".temp_push"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmm"
 $BackupDir = Join-Path $ProjectDir ".backups"
 $BackupFolder = Join-Path $BackupDir "backup_$Timestamp"
+$PushLockPath = Join-Path $ProjectDir ".push.lock"
+
+# ============================================================================
+# ETAPE 0: Verrou de deploiement (serialise les pushs concurrents)
+# ============================================================================
+# Le verrou repose sur un handle OS (FileMode.CreateNew + FileShare.None):
+# l'acquisition est atomique et le handle est libere par l'OS meme si le
+# processus est tue. Un agent concurrent recoit une erreur claire au lieu
+# d'ecraser le projet distant avec une version perimee.
+Write-Host ""
+Write-Host "[0/7] Verrou de deploiement..." -ForegroundColor Yellow
+$lockStream = $null
+$lockAcquired = $false
+$lockAttempts = 6
+$lockDelayMs = 5000
+for ($attempt = 1; $attempt -le $lockAttempts; $attempt++) {
+    try {
+        $lockStream = [System.IO.FileStream]::new($PushLockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $lockAcquired = $true
+        break
+    } catch [System.IO.IOException] {
+        if ($attempt -lt $lockAttempts) {
+            Write-Host "  [WAIT] Push en cours par un autre agent (tentative $attempt/$lockAttempts)..." -ForegroundColor Yellow
+            Start-Sleep -Milliseconds $lockDelayMs
+        }
+    }
+}
+if (-not $lockAcquired) {
+    $lockOwner = ""
+    try { $lockOwner = (Get-Content $PushLockPath -Raw -ErrorAction SilentlyContinue).Trim() } catch {}
+    Write-Host "[ERREUR] Verrou .push.lock pris par un autre deploiement: $lockOwner" -ForegroundColor Red
+    Write-Host "  Attends la fin du push concurrent puis relance. Aucune modification effectuee." -ForegroundColor Red
+    exit 1
+}
+try {
+    [System.IO.File]::WriteAllText($PushLockPath, "pid=$PID machine=$env:COMPUTERNAME started=$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+} catch {}
+$lockStream.Flush()
+Write-Host "  [OK] Verrou acquis (PID $PID)" -ForegroundColor Green
+
+try {
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   WCORE Safe-Push v3.0                    " -ForegroundColor Cyan
-Write-Host "   Push src/ sans supprimer distant        " -ForegroundColor Cyan
+Write-Host "   WCORE Safe-Push v3.2                    " -ForegroundColor Cyan
+Write-Host "   Push src/ sans supprimer distant         " -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -349,3 +393,12 @@ Write-Host "  Fichiers push: $($gsFiles.Count)"
 Write-Host "  Taille: $([math]::Round($totalSize, 1)) KB"
 Write-Host "  Backup: $BackupFolder"
 Write-Host ""
+
+} finally {
+    # Liberer le verrou: fermer le stream supprime le fichier si vide, sinon
+    # on l'efface explicitement. Le handle OS garantit l'exclusivite jusqu'ici.
+    if ($lockStream) {
+        try { $lockStream.Dispose() } catch {}
+    }
+    try { Remove-Item $PushLockPath -Force -ErrorAction SilentlyContinue } catch {}
+}

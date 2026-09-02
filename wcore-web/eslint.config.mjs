@@ -15,6 +15,7 @@ export default tseslint.config(
       "**/.tmp/**",
       "**/tmp/**",
       "**/.worktrees/**",
+      "**/data/**",
       ".mcp/**",
       "docs/archive/cm-scripts/**",
       "scripts/**",

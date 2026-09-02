@@ -32,6 +32,7 @@ beforeEach(() => { delete process.env.SCAN_ENRICHMENT; });
 
 test("flag disabled -> empty map, no DB access", async () => {
   const { prisma, upserts } = makePrisma([]);
+  void upserts;
   const loader = createScamEnrichmentLoader({ prisma });
   const m = await loader(1, [ADDR]);
   assert.equal(m.size, 0);
@@ -93,6 +94,7 @@ test("admin verdict never expires and never refetches", async () => {
   setFlag(true);
   const old = new Date(Date.now() - 90 * 24 * 3600 * 1000);
   const { prisma, upserts } = makePrisma([{ chainId: 1, address: ADDR, verdict: "clean", source: "admin", payload: null, updatedAt: old }]);
+  void upserts;
   const loader = createScamEnrichmentLoader({ prisma });
   const m = await loader(1, [ADDR]);
   assert.equal(m.has(ADDR), true); // present (short-circuit happens in detectScam via overrides)

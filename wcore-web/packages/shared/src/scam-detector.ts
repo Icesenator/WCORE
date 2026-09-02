@@ -421,7 +421,7 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
   // 14c. Non-latin ticker/name with no price: dust airdrop using CJK/emoji
   // names that bypass Anglo-centric generic-name heuristics.
   if (priceEur == null && !isKnownToken(s.toUpperCase(), contract)) {
-    const nonLatin = /[^\x00-\x7F]/;
+    const nonLatin = /[^ -~]/;
     if (nonLatin.test(s) || nonLatin.test(n)) {
       signals.push({ reason: `non-latin ticker/name ("${s}"/"${n}") with no price`, weight: 1 });
     }

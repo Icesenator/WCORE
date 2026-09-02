@@ -333,6 +333,52 @@ async function priceSymbolEur(symbol: string, fxCache?: CacheStore): Promise<{ p
 
 const STOCK_PRICE_TTL_MS = 6 * 60 * 60 * 1000;
 
+// Ticker public Bitpanda (sans clé). Toutes devises par symbole.
+// Cache 60 s : le GAS l'interroge à chaque sync CEX (7 onglets × hourly).
+let bitpandaTickerCache: { at: number; data: Record<string, { EUR?: string }> } | null = null;
+
+export function resetBitpandaTickerCacheForTest(): void {
+  bitpandaTickerCache = null;
+}
+
+async function fetchBitpandaTicker(): Promise<Record<string, { EUR?: string }>> {
+  if (bitpandaTickerCache && Date.now() - bitpandaTickerCache.at < 60_000) return bitpandaTickerCache.data;
+  const res = await fetch("https://api.bitpanda.com/v1/ticker", { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`bitpanda ticker HTTP ${res.status}`);
+  const data = (await res.json()) as Record<string, { EUR?: string }>;
+  if (!data || typeof data !== "object") throw new Error("bitpanda ticker invalid body");
+  bitpandaTickerCache = { at: Date.now(), data };
+  return data;
+}
+
+/**
+ * v4.16.35: provider ticker-first for Bitpanda crypto CEX sheets (fix dcdeb923, lost in refactors).
+ * The public ticker is THE Bitpanda quote: for delisted/micro-cap assets it lists the symbol
+ * with EUR "0.0000". That zero is authoritative — returning it as null with source
+ * "bitpanda-ticker" lets the GSheet skip every fallback (DefiLlama, priceMap) and write 0,
+ * breaking the rank-5002 price feedback loop (Details!D -> Portfolio C -> priceMap -> CEX E).
+ * Symbols absent from the ticker are NOT authoritative: they fall back to DefiLlama
+ * (matches dcdeb923 `if (bp)` semantics). Only the crypto bucket: stocks keep the
+ * dedicated relay branch (Yahoo, homonym-safe).
+ */
+export async function priceSymbolsViaBitpandaTicker(symbols: string[]): Promise<Record<string, CexPriceResult>> {
+  const out: Record<string, CexPriceResult> = {};
+  try {
+    const ticker = await fetchBitpandaTicker();
+    for (const symbol of symbols) {
+      if (!Object.prototype.hasOwnProperty.call(ticker, symbol)) continue;
+      const eur = Number(String(ticker[symbol]?.EUR ?? "").replace(",", "."));
+      out[symbol] = Number.isFinite(eur) && eur > 0
+        ? { priceEur: eur, source: "bitpanda-ticker" }
+        : { priceEur: null, source: "bitpanda-ticker" };
+    }
+  } catch (e) {
+    console.error("cex bitpanda ticker error:", (e as Error).message);
+    return {};
+  }
+  return out;
+}
+
 async function priceStockSymbolEur(symbol: string, cache?: StockPriceCache): Promise<{ priceEur: number | null; source: string | null }> {
   const key = `stockprice:${symbol.trim().toUpperCase()}`;
   if (cache) {
@@ -476,6 +522,20 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
         await Promise.all(Object.entries(fresh).map(async ([symbol, price]) => {
           prices[symbol] = price;
           await stockPriceCache?.set(`stockprice:${symbol}`, price, STOCK_PRICE_TTL_MS).catch(() => {});
+        }));
+      }
+      return { prices };
+    }
+
+    // v4.16.35: Bitpanda ticker-first (authoritative null for delisted assets like APP).
+    // Symbols listed on the public ticker resolve there; the rest keep DefiLlama fallback.
+    if (String(query.provider ?? "").toLowerCase() === "bitpanda") {
+      const tickerPrices = await priceSymbolsViaBitpandaTicker(symbols);
+      const missing = symbols.filter((symbol) => tickerPrices[symbol] == null);
+      for (const [symbol, price] of Object.entries(tickerPrices)) prices[symbol] = price;
+      if (missing.length > 0) {
+        await Promise.all(missing.map(async (symbol) => {
+          prices[symbol] = await priceSymbolEur(symbol, deps.sharedCache);
         }));
       }
       return { prices };

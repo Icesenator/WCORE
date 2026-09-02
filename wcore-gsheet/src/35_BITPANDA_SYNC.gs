@@ -875,8 +875,43 @@ function _bpBuildOutputBuckets_(buckets) {
   );
   return {
     crypto: _bpMergeBuckets_(buckets.crypto || []),
-    stocks: _bpMergeBuckets_(stocksRows, buckets.fiat || [])
+    stocks: _bpApplyStockConversions_(_bpMergeBuckets_(stocksRows, buckets.fiat || []))
   };
+}
+
+// v4.16.78: conversions d'unites Bitpanda avant ecriture dans CEX - Bitpanda Stocks.
+// HYXS (xStock SK Hynix) est emis par Bitpanda en 1/10 de SKHY : la balance brute est
+// exprimee en HYXS, il faut multiplier par 10 et re-symboer en SKHY pour matcher
+// le ticker Action Rebalancing et agreger avec les autres sources (Kraken SKHYx).
+// Toute autre entree passe a ratio=1 (pas de conversion).
+var BP_STOCK_UNIT_CONVERSIONS = {
+  "HYXS": { symbol: "SKHY", ratio: 10 }
+};
+
+function _bpApplyStockConversions_(rows) {
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < (rows || []).length; i++) {
+    var row = rows[i] || [];
+    var symbol = String(row[0] || "").trim().toUpperCase();
+    if (!symbol) continue;
+    var suffix = "";
+    if (typeof BP_NEW_STOCK_SUFFIX === "string" && BP_NEW_STOCK_SUFFIX && symbol.length > BP_NEW_STOCK_SUFFIX.length && symbol.slice(-BP_NEW_STOCK_SUFFIX.length) === BP_NEW_STOCK_SUFFIX) {
+      symbol = symbol.slice(0, -BP_NEW_STOCK_SUFFIX.length);
+      suffix = BP_NEW_STOCK_SUFFIX;
+    }
+    var conversion = BP_STOCK_UNIT_CONVERSIONS[symbol];
+    var converted = conversion ? conversion.symbol : symbol;
+    var balance = _bpParseBalance_(row[1]) * (conversion ? conversion.ratio : 1);
+    var key = converted + suffix;
+    if (Object.prototype.hasOwnProperty.call(seen, key)) {
+      out[seen[key]][1] = _bpParseBalance_(out[seen[key]][1]) + balance;
+    } else {
+      seen[key] = out.length;
+      out.push([key, balance]);
+    }
+  }
+  return out;
 }
 
 function _bpFetchBuckets_(apiKey) {
@@ -1664,6 +1699,11 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
 
   var total = 0, valued = 0, skipped = 0;
   var eValues = [["value_eur"]];
+  // v4.16.35: authoritative-zero set. When the web API returned an explicit
+  // null for a symbol with source "bitpanda-ticker" (ticker lists the asset at
+  // EUR 0.0000 = delisted/micro-cap), write 0 and do NOT fall back to the
+  // last-known price (prevVal): that value feeds Details!D -> Portfolio C ->
+  // priceMap and re-inflates the price forever (APP rank-5002 loop).
 
   for (var i = 0; i < nb; i++) {
     var row = balances[i] || [];
@@ -1716,11 +1756,19 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       }
     }
 
+    // v4.16.35: ticker says EUR 0.0000 (delisted) -> explicit webPrices[sym] = null.
+    // Authoritative: write 0, never resurrect via last-known (prevVal) — that value
+    // feeds Details!D -> Portfolio C (rank-5002 formula) -> priceMap -> back here.
+    var authoritativeZero = webPrices && webPrices.hasOwnProperty(priceSymbol) && webPrices[priceSymbol] == null;
+
     if (directValueEur != null && isFinite(directValueEur) && directValueEur > 0) {
       total += directValueEur; eValues.push([directValueEur]); valued++;
     } else if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
       var val = Math.round(balance * priceEur * 100) / 100;
       total += val; eValues.push([val]); valued++;
+    } else if (authoritativeZero) {
+      Logger.log("[CEX_TOTAL] authoritative-zero: " + symbol + " (bitpanda-ticker EUR 0) in " + sheetName);
+      eValues.push([0]); skipped++;
     } else {
       if (symbol && balance > 0) {
         var prevVal = 0;

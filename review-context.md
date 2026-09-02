@@ -74,3 +74,25 @@
 - Ne JAMAIS faire tomber APP ou un micro-cap delisté dans la branche ticker (re-test possible en supprimant la mémoire de la mémoire Mem0 et en observant le retour à 268 €).
 - API deploy = `-SkipRemoteCheck` tant que la réconciliation git n'est pas faite (garde `deploy.ps1`).
 - 1 HYXS = 10 SKHY, SKHY Nasdaq, HYXS=KRX:000660 (fix SKHY restauré ce matin, ne pas toucher).
+
+## Append " Session reconciliation git + CI (WCORE, 2026-09-02 19:50)
+
+### Etat
+- Reconciliation git master terminee et poussee : master = origin/master (0/0), CI verte sur cf95b909 (5/5 jobs). 14 commits au-dessus du dernier push d'avant (b8277fd6).
+- 6 commits thematiques crees puis poussee : verified-shares TCEHY (ce0a2389), ticker-first Bitpanda + authoritative zero + HYXS x10 (483ea98a), DAYS v4.16.33 (5032c970), verrous deploy safe-push v3.2 + deploy.ps1 -SkipRemoteCheck (7ac3cdcd), CHANGELOG (ad5ce569), configs/docs (9837ad14). Puis 2 commits CI fix : lint+audit (91474d08), vitest scam-detector (cf95b909).
+
+### Termine
+- CI verte sur les 5 jobs (typecheck-test-build, security, api-integration, migrations, e2e).
+- Audit pnpm : browserslist >=4.28.7 (GHSA-c83g-rgw3-j3cx) + fast-uri ^3.1.6 (4 GHSA SSRF) via overrides pnpm-workspace.yaml.
+- Tests verts localement avant chaque push : 74/74 shared vitest, 41/41 scam+cex, 62/62 GAS, typecheck/lint/build/audit exit 0.
+
+### En cours / bloque
+- Stash wip-patch-master-stock-portfolio-symbols conserve (autre session, a coordonner) -- il contient une famille scam proche de bd8c3dbb mais aussi des modifs non absorbees.
+- Configs personnelles non commitees volontairement (opencode.json racine, .gemini, GEMINI.md, copilot-instructions, .ignore) -- chemins locaux, jamais commits tant que non demande.
+
+### Invariants a preserver
+- La garde deploy.ps1 (behind=0) est maintenant DESACTIVEE -- les deploys API/GAS normaux refonctionnent sans -SkipRemoteCheck.
+- La conversion HYXS x10 (BP_STOCK_UNIT_CONVERSIONS) est maintenant COMMITEE (483ea98a) -- le canari Select-String BP_STOCK_UNIT_CONVERSIONS reste valable mais la source de perte (checkout divergent) est close.
+- La garde anti-regression deploy.ps1 exige HEAD base sur origin/master a jour -- tout push doit suivre rebase + tests.
+- Overrides pnpm 11 dans pnpm-workspace.yaml (package.json.pnpm ignore silencieusement) ; toujours lancer les tests via pnpm --filter, pas node --test direct ; eslint ignore **/data/**.
+- Stash wip-patch-master-stock-portfolio-symbols : ne pas toucher sans coordination inter-sessions.

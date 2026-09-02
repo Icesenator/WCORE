@@ -109,15 +109,14 @@ no API key, $0).
 <!-- graft:end -->
 
 ---
-
 ## 9bis. Contexte de revue GPT (obligatoire)
 
-Avant chaque fin de tâche (ou au minimum à chaque passage en idle), mettre à jour eview-context.md à la racine du projet — c'est LA source que le superviseur envoie à GPT pour la revue de cycle :
+Avant chaque fin de tâche (ou au minimum à chaque passage en idle), mettre à jour `review-context.md` à la racine du projet — c'est LA source que le superviseur envoie à GPT pour la revue de cycle :
 
-- ## État actuel : objectif courant, mode actif, invariants (5-10 lignes)
-- ## Terminé depuis la dernière revue : commits, tests verts, décisions
-- ## En cours / bloqué : tâche active, blocages
-- ## Questions pour la revue : ce que GPT doit vérifier/arbitrer
-- ## Invariants à préserver : ce qui ne doit jamais être cassé
+- `## État actuel` : objectif courant, mode actif, invariants (5-10 lignes)
+- `## Terminé depuis la dernière revue` : commits, tests verts, décisions
+- `## En cours / bloqué` : tâche active, blocages
+- `## Questions pour la revue` : ce que GPT doit vérifier/arbitrer
+- `## Invariants à préserver` : ce qui ne doit jamais être cassé
 
 Synthétique (≤ 60 lignes), factuel, sans secrets ni credentials. Si le fichier est obsolète, la revue GPT travaille sur de mauvaises bases.

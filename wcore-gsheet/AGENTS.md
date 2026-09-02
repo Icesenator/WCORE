@@ -1,4 +1,4 @@
-﻿# WCORE â€” Wallet CORE
+﻿﻿# WCORE â€” Wallet CORE
 
 SystÃ¨me de suivi de portefeuilles crypto multi-chaÃ®nes sur **Google Sheets + Apps Script**.
 - **162 chaÃ®nes** (EVM, SVM/Solana, Cosmos SDK, TON) â€” **120 combinaisons wallet-chaÃ®ne**
@@ -127,13 +127,18 @@ AprÃ¨s plusieurs `clasp push` rapprochÃ©s, les triggers tournent sous autori
 ## DÃ©ploiement
 
 ```powershell
-# rootDir .clasp.json doit Ãªtre "src" pour push, "." aprÃ¨s
-powershell -File safe-push.ps1      # GÃ¨re rootDir automatiquement
-# OU manuel :
-# 1. Modifier .clasp.json: rootDir "." â†’ "src"
-# 2. npx @google/clasp push
-# 3. Modifier .clasp.json: rootDir "src" â†’ "."
-```
+# rootDir .clasp.json doit etre "src" pour push, "." apres
+powershell -File safe-push.ps1      # gere rootDir auto + verrou anti-concurrence
+# NE PAS lancer manuellement :
+# npx @google/clasp push           # pas de verrou -> un push concurrent ecrase le distant
+# npx @google/clasp push --force   # idem
+
+
+**Comportement verrou** : si un autre agent pousse au meme moment, `safe-push.ps1` retente 6x5 s puis echoue proprement avec un message explicite. Le push courant ne modifie rien, l'agent doit attendre. Le verrou est libere automatiquement meme si le script crashe (handle OS).
+
+**Pourquoi cette regle (incident 2026-09-01)** : un push concurrent non verrouille a ecrase le fix `v4.16.33` de Portefeuille Crypto par l'ancienne `v4.16.32`, faisant retomber `DAYS` a 0 EUR alors que le code local etait correct. Aucun avertissement, aucune erreur, simple regression silencieuse des triggers horaires.
+
+**Procedure manuelle (uniquement si `safe-push.ps1` casse)** : modifier `.clasp.json` (`rootDir` `"src"` vers `"."`), `npx @google/clasp push --force`, restaurer `.clasp.json`. Toujours s'assurer qu'aucun autre `safe-push.ps1` n'est en cours.
 
 AprÃ¨s dÃ©ploiement : `WCORE_AUTO_HEAL_FORCE()` depuis l'Ã©diteur Apps Script pour rÃ©autoriser les triggers.
 

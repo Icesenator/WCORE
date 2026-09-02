@@ -152,7 +152,7 @@ test('rank 5002 manual rows are appended after API rows', () => {
   assert.deepStrictEqual(Array.from(matrix[2].slice(0, 5)), [
     'WCORE',
     5002,
-    '=IFERROR(N(INDEX(FILTER(\'Portefeuille Crypto Details\'!D:D;UPPER(\'Portefeuille Crypto Details\'!C:C)=A5;\'Portefeuille Crypto Details\'!A:A=5002);1));0)',
+    '=IFERROR(N(INDEX(FILTER(\'Portefeuille Crypto Details\'!D:D;UPPER(\'Portefeuille Crypto Details\'!C:C)=A5;\'Portefeuille Crypto Details\'!A:A=5002;IFERROR(N(\'Portefeuille Crypto Details\'!D:D);0)>0);1));0)',
     420000,
     'WCORE Manual',
   ]);
@@ -162,14 +162,16 @@ test('source rows are built without formula columns for fast refresh', () => {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sourceRows)), [
     ['BTC', 1, 55000, 1100000000000, 'Bitcoin'],
     ['ETH', 2, 3200, 390000000000, 'Ethereum'],
-    ['WCORE', 5002, '=IFERROR(N(INDEX(FILTER(\'Portefeuille Crypto Details\'!D:D;UPPER(\'Portefeuille Crypto Details\'!C:C)=A5;\'Portefeuille Crypto Details\'!A:A=5002);1));0)', 420000, 'WCORE Manual'],
+    ['WCORE', 5002, '=IFERROR(N(INDEX(FILTER(\'Portefeuille Crypto Details\'!D:D;UPPER(\'Portefeuille Crypto Details\'!C:C)=A5;\'Portefeuille Crypto Details\'!A:A=5002;IFERROR(N(\'Portefeuille Crypto Details\'!D:D);0)>0);1));0)', 420000, 'WCORE Manual'],
   ]);
 });
 
-test('rank 5002 source rows keep price linked to Details', () => {
+test('rank 5002 source rows keep price linked to the first valid positive Details price', () => {
   assert.match(sourceRows[2][2], /^=IFERROR\(N\(INDEX\(FILTER\('Portefeuille Crypto Details'!D:D;/);
   assert.match(sourceRows[2][2], /UPPER\('Portefeuille Crypto Details'!C:C\)=A5/);
   assert.match(sourceRows[2][2], /'Portefeuille Crypto Details'!A:A=5002/);
+  assert.match(sourceRows[2][2], /IFERROR\(N\('Portefeuille Crypto Details'!D:D\);0\)>0/,
+    'manual price must skip stale #N/A or blank Details rows when another contract has a valid price');
 });
 
 test('portfolio formulas reference Portefeuille Crypto Details', () => {

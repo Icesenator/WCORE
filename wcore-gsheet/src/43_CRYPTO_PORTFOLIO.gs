@@ -1,3 +1,4 @@
+// v4.16.33 - Rank 5002 manual price skips stale #N/A/blank Details rows and uses the first valid positive price.
 // v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
 // v4.15.206 - Retry HTTP 200 responses with empty or truncated JSON bodies.
 // v4.15.205 - Use patched UrlFetchApp.fetch (respects quota breaker) instead of _WCORE_ORIG_FETCH bypass.
@@ -6,7 +7,7 @@
 // v4.15.201 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.200 - Portefeuille Crypto (source WCORE API, sans SyncWith).
 
-var CRYPTO_PORTFOLIO_VERSION = "4.16.32";
+var CRYPTO_PORTFOLIO_VERSION = "4.16.33";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -523,7 +524,8 @@ function _cryptoPortfolioManualRow_(r, sheetRow) {
 
 function _cryptoPortfolioManualPriceFormula_(sheetRow) {
   var detailsSheetName = CRYPTO_PORTFOLIO_CONFIG.DETAILS_SHEET_NAME;
-  return "=IFERROR(N(INDEX(FILTER('" + detailsSheetName + "'!D:D;UPPER('" + detailsSheetName + "'!C:C)=A" + sheetRow + ";'" + detailsSheetName + "'!A:A=5002);1));0)";
+  // v4.16.33: Rank 5002 manual price skips stale #N/A/blank Details rows and uses the first valid positive price.
+  return "=IFERROR(N(INDEX(FILTER('" + detailsSheetName + "'!D:D;UPPER('" + detailsSheetName + "'!C:C)=A" + sheetRow + ";'" + detailsSheetName + "'!A:A=5002;IFERROR(N('" + detailsSheetName + "'!D:D);0)>0);1));0)";
 }
 
 function _cryptoPortfolioApplyFormulasToRow_(row, sheetRow) {

@@ -24,6 +24,7 @@ function row(rank: number, canonicalTicker: string, aliases: string[] = []): Sto
     marketCapUsd: 1_000_000_000 / rank,
     marketCapEur: 900_000_000 / rank,
     supply: 10_000_000,
+    capCorrected: false,
   };
 }
 

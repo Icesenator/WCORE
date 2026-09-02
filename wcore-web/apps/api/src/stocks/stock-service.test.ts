@@ -756,3 +756,98 @@ test("waitForRebuild falls back to last-good when the in-flight rebuild fails", 
   assert.equal(stale.stale, true);
   assert.equal(stale.rows.length, lastGood.rows.length);
 });
+
+test("recomputes the doubled CompaniesMarketCap cap for Tencent from verified shares", async () => {
+  // CMC publie une cap x2 pour Tencent (supply implicite ~18,1 Mds actions au lieu
+  // de ~9,17 Mds verifiees, registre verified-shares T1-2026) : la cap est recalculee
+  // shares x prix, le rang est re-insere par cap corrigee, le prix est intact
+  // (1 ADR TCEHY = 1 action 0700.HK). SKHY n'est pas au registre : prix/fallback
+  // Nasdaq USD (companiesMarketCapFallback:false) restent exactement ceux d'origine.
+  const rows = [
+    "rank,name,symbol,marketcap,price,country",
+    "1,Tencent,TCEHY,1016968052736,56.14,China",
+    ...Array.from({ length: 299 }, (_, i) => `${i + 2},Company ${i + 2},TEST${i + 2},1000000000,10,US`),
+  ].join("\n");
+  const service = new CanonicalStockService({
+    cache: new MemoryCacheStore(),
+    fetchImpl: async () => new Response(rows),
+    fetchStockQuotes: async () => ({
+      TCEHY: { priceNative: 56.09, currency: "USD", yahooTicker: "TCEHY", source: "yahoo:relay" },
+    }),
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getTopMarketCapSnapshot();
+
+  assert.equal(snapshot.stats.capCorrections, 1);
+  const tencent = snapshot.rows[0]!;
+  assert.equal(tencent.canonicalTicker, "TCEHY");
+  assert.equal(tencent.capCorrected, true);
+  assert.equal(tencent.marketCapUsd, 9_173_000_000 * 56.14);
+  assert.equal(tencent.marketCapEur, 9_173_000_000 * 56.14 * 0.9);
+  assert.equal(tencent.priceEur, 56.09 * 0.9);
+  assert.equal(tencent.supply, 9_173_000_000);
+  assert.equal(tencent.rank, 1);
+})
+
+test("re-ranks a corrected cap across healthy rows when it crosses them", async () => {
+  // Tencent corrige (515 Mds) doit passer sous NVDA (600 Mds) et sous Apple
+  // (550 Mds) mais rester au-dessus de TEST : rang 3 attendu.
+  const rows = [
+    "rank,name,symbol,marketcap,price,country",
+    "1,Tencent,TCEHY,1016968052736,56.14,China",
+    "2,NVIDIA,NVDA,600000000000,100,US",
+    "3,Apple,AAPL,550000000000,100,US",
+    ...Array.from({ length: 297 }, (_, i) => `${i + 4},Company ${i + 4},TEST${i + 4},1000000000,10,US`),
+  ].join("\n");
+  const service = new CanonicalStockService({
+    cache: new MemoryCacheStore(),
+    fetchImpl: async () => new Response(rows),
+    fetchStockQuotes: async () => ({
+      TCEHY: { priceNative: 56.09, currency: "USD", yahooTicker: "TCEHY", source: "yahoo:relay" },
+    }),
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getTopMarketCapSnapshot();
+
+  assert.equal(snapshot.stats.capCorrections, 1);
+  assert.deepEqual(snapshot.rows.slice(0, 3).map((row) => row.canonicalTicker), ["NVDA", "AAPL", "TCEHY"]);
+  assert.equal(snapshot.rows[2]!.rank, 3);
+  assert.equal(snapshot.rows[0]!.rank, 1);
+})
+
+test("leaves CompaniesMarketCap caps untouched once the source converges with the register", async () => {
+  // Auto-desengagement : le jour ou CMC corrige sa donnee (cap ~9,17 Mds x prix),
+  // l'ecart avec le registre passe sous le seuil de 20% et le CSV est repris tel
+  // quel — aucune correction, aucune renumerotation, rang CMC preserve.
+  const verifiedCap = Math.round(9_173_000_000 * 56.14);
+  const rows = [
+    "rank,name,symbol,marketcap,price,country",
+    `1,Tencent,TCEHY,${verifiedCap},56.14,China`,
+    ...Array.from({ length: 299 }, (_, i) => `${i + 2},Company ${i + 2},TEST${i + 2},1000000000,10,US`),
+  ].join("\n");
+  const service = new CanonicalStockService({
+    cache: new MemoryCacheStore(),
+    fetchImpl: async () => new Response(rows),
+    fetchStockQuotes: async () => ({
+      TCEHY: { priceNative: 56.09, currency: "USD", yahooTicker: "TCEHY", source: "yahoo:relay" },
+    }),
+    fetchStockFxQuotes: async () => ({}),
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getTopMarketCapSnapshot();
+
+  assert.equal(snapshot.stats.capCorrections, 0);
+  const tencent = snapshot.rows[0]!;
+  assert.equal(tencent.canonicalTicker, "TCEHY");
+  assert.equal(tencent.capCorrected, false);
+  assert.equal(tencent.marketCapUsd, verifiedCap);
+  assert.equal(tencent.rank, 1);
+})

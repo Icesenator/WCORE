@@ -1,5 +1,28 @@
 ﻿# Changelog
 
+## 2026-09-02 - CEX crypto: prix ticker-first Bitpanda (authoritative null pour APP/GODL/etc)
+
+Incident boucle : `CEX - Bitpanda Crypto` valorisait APP (26,18 × ~268 € = ~7 022 €) sur le cours AppLovin (Nasdaq) alors que Bitpanda a deliste APP (ticker public EUR 0.0000). Le prix n'etait pas "frais de la journee" : c'etait une boucle de feedback structurelle — `priceMap[APP] = Portefeuille Crypto!C (formule rank 5002) = Details!D (formule SUMIFS E/B) = balance × priceMap[APP]`. Sans cle explicite `{priceEur:null, source:"bitpanda-ticker"}` dans la reponse API, le fallback priceMap etait toujours actif.
+
+- **apps/api/src/plugins/cex.ts** : `priceSymbolsViaBitpandaTicker(symbols)` (cache 60 s du ticker public) ; dans GET /api/cex/prices, si `provider=bitpanda`, chaque symbole present dans le ticker resout la-bas : EUR>0 → `{priceEur, source:"bitpanda-ticker"}`, EUR=0 (micro-cap delistee) → `{priceEur:null, source:"bitpanda-ticker"}` (authoritative null). Symbole absent du ticker → DefiLlama inchange.
+- **wcore-gsheet/src/35_BITPANDA_SYNC.gs `_cexComputeAndAppendTotal_`** : branche `authoritativeZero` (v4.16.35) — si `webPrices[sym] == null` avec `hasOwnProperty` (cle presente, valeur null = ticker a 0), ecrit `eValues.push([0])` et **bypasse** le last-known `prevVal` (qui re-inflait le prix fantome).
+- **wcore-gsheet/src/35_BITPANDA_SYNC.gs `_cexFetchWebPrices_`** : la moitie GAS du fix dcdeb923 (L1838-1840) etait preservee mais inoperante cote API ; elle redevient le chainon determinant.
+- Tests : `cex-ticker-first.test.ts` 4/4 (listed-priced, listed-zero authoritative null, absent-not-authoritative, failure empty map) ; typecheck API OK ; validate:static GAS OK ; 61/62 tests GAS (kraken-stocks.test.js fail preexistant d'une autre session sur xStocks Kraken).
+- Deploiement : Railway API 13:49 UTC, safe-push GAS 13:50 UTC, `clasp run UPDATE_BITPANDA_CRYPTO_FIAT` 11:59:49 UTC → CEX - Bitpanda Crypto E(APP) = 0,00 € (ligne 130), Portefeuille Crypto C(APP) = 0,00 € (rank 5002), total crypto bornes retombe sous 7 k€.
+
+## 2026-09-02 - Stocks: correction auto-desengante de la cap CompaniesMarketCap doublee (Tencent)
+
+Incident : Portefeuille Action affichait pour TCEHY (Tencent) une Market Cap EUR de 877,9 Mds (rang CMC 16) alors que la cap reelle verifiee est ~515 Mds USD (~445 Mds EUR). CompaniesMarketCap double-compte les actions Tencent (18,1 Mds implicites dans le CSV vs ~9,17 Mds declares aux filings T1-2026 ; prix ADR correct ~56 $). Yahoo propage la meme erreur (sharesOutstanding 18,115 B via v7/v8), donc aucune source distante ne sert de contre-verification : un registre local verifie s'impose (regle "data property d'abord").
+
+- **apps/api/src/stocks/verified-shares.ts** (nouveau) : registre versionne (v1) de shares outstanding verifiees avec date + source. Entree TCEHY : 9 173 000 000 shares (MacroTrends/Zacks 2026-03-31, cap reelle corroboree StockAnalysis 506,57 Md$ / Business Insider 505,8 Md$). Semantique : shares denombrées dans l'unite du prix CSV (TCEHY : 1 ADR = 1 action 0700.HK).
+- **stock-service.ts buildSnapshot** : porte a deviation ±20% — si les shares implicites du CSV (marketCapUsd/priceUsd) s'ecartent du registre, la cap est recalculee shares x prix CSV (marketCapUsd/Eur + supply coherent), flag `capCorrected` par ligne + `stats.capCorrections` + warn log Railway a chaque rebuild concerne. **Auto-desengagement** : le jour ou CMC corrige sa donnee, l'ecart retombe sous le seuil et le CSV est repris tel quel ; le ratio implicite cap/price est invariant par split, donc un split non repercute ne declenche pas de correction fausse (un capCorrected persistant = signal d'audit du registre).
+- **Re-rang conditionnel** (`rerankCorrectedCaps`) : le rang CMC etant derive de la cap fausse, les seules lignes corrigees sont re-inserees a leur place par cap (ordre relatif et rangs des lignes saines preserves, renumerotation 1..N) ; sans correction aucune, l'ordre et les rangs CMC sont reproduits a l'identique. Tencent repasse du rang 16 (cap 1 017 Md$) a sa vraie zone (~rang 22).
+- **mappings.ts** : abandon du `capDivisor: 2` en dur pose plus tot dans la journee (correction statique qui aurait divise une cap redevenue correcte le jour ou CMC fixe sa page) ; l'override TCEHY est conserve pour les yahooTickers ADR (TCEHY+TCTZF).
+- Audit top 300 du CSV (2026-09-02) : TCEHY est la SEULE ligne doublee (BABA x1,04, PDD x1,02, banques CN/TSM ~x1,0). Le registre ne contient donc que TCEHY ; le mecanisme est generique (ajout d'une entree = 1 ligne avec source).
+- Tests : verified-shares.test.ts (correction x2, desengagement, derive rachats -15% dans la bande, correction basse, frontieres 1,2 exactes, entrees invalides), stock-service.test.ts (recalcul + re-rang inter-lignes + desengagement end-to-end via fixture CSV), 75/75 stocks verts, typecheck API/web/core OK.
+- Deploiement : Railway API `api-production-b5bf.up.railway.app` 2026-09-02 06:58 UTC — `/api/cmc/stocks?fresh=true` confirme TCEHY au rang 25 / 445 Md€ (vs 16 / 877,9 Md€ avant). Le GSheet Portefeuille Action ramassera la valeur corrigee au prochain refresh horaire (cache fresh 1h).
+- Le `capDivisor: 2` en dur pose plus tot dans la journee par une autre session a ete **rejete et retire** (exigence : aucune correction statique qui resterait fausse si CMC corrige).
+
 ## 2026-08-23 - Scam-detector v26: auto-blocking dynamique (GoPlus cache + liquidite ecran)
 
 Implementation du design docs/superpowers/specs/2026-08-23-scam-detector-auto-blocking-design.md - fin des ajouts manuels systematiques pour les campagnes dusting/honeypot.

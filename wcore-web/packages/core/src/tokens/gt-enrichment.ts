@@ -112,6 +112,14 @@ export async function fetchGtVerdict(network: string, address: string, timeoutMs
 const GT_MAX_RETRIES = 4;
 const GT_BACKOFF_BASE_MS = 400;
 const GT_BACKOFF_MAX_MS = 4_000;
+// Cumulative wall-clock budget for one enrichment pass. When the GT quota is
+// exhausted (429 on every attempt), sequential retries alone can cost
+// ~3.6s-28s per contract — hundreds of seconds on wallets with many missing
+// verdicts, which blows the GSheet custom-function 30s deadline and freezes
+// the whole chain scan (incident 2026-09-03). Unprocessed addresses degrade
+// to UNAVAILABLE and are retried on a later scan (verdicts are persisted
+// with a 30d TTL, so the backlog drains progressively).
+const GT_TIME_BUDGET_MS = 6_000;
 
 async function fetchGtVerdictWithRetry(
   network: string,
@@ -121,7 +129,6 @@ async function fetchGtVerdictWithRetry(
   backoffBaseMs: number,
   backoffMaxMs: number,
 ): Promise<GtVerdict> {
-  let lastFallback: GtVerdict = UNAVAILABLE();
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -138,8 +145,7 @@ async function fetchGtVerdictWithRetry(
       if (!res.ok) return UNAVAILABLE();
       return parseGtTokenInfo(await res.json()) ?? UNAVAILABLE();
     } catch {
-      lastFallback = await fetchGtVerdict(network, address, timeoutMs);
-      return lastFallback;
+      return fetchGtVerdict(network, address, timeoutMs);
     } finally {
       clearTimeout(timer);
     }
@@ -151,7 +157,7 @@ export async function fetchGtVerdicts(
   chainId: number,
   addresses: string[],
   timeoutMs = 5_000,
-  retry: { maxRetries?: number; backoffBaseMs?: number; backoffMaxMs?: number } = {},
+  retry: { maxRetries?: number; backoffBaseMs?: number; backoffMaxMs?: number; timeBudgetMs?: number } = {},
 ): Promise<Map<string, GtVerdict>> {
   const out = new Map<string, GtVerdict>();
   const network = gtNetworkForChain(chainId);
@@ -167,8 +173,14 @@ export async function fetchGtVerdicts(
   const maxRetries = retry.maxRetries ?? GT_MAX_RETRIES;
   const backoffBaseMs = retry.backoffBaseMs ?? GT_BACKOFF_BASE_MS;
   const backoffMaxMs = retry.backoffMaxMs ?? GT_BACKOFF_MAX_MS;
+  const timeBudgetMs = retry.timeBudgetMs ?? GT_TIME_BUDGET_MS;
+  const deadline = timeBudgetMs > 0 ? Date.now() + timeBudgetMs : 0;
   for (const batch of chunk(addresses, 4)) {
     for (const addr of batch) {
+      if (deadline > 0 && out.size > 0 && Date.now() >= deadline) {
+        out.set(addr.toLowerCase(), UNAVAILABLE());
+        continue;
+      }
       const v = await fetchGtVerdictWithRetry(network, addr, timeoutMs, maxRetries, backoffBaseMs, backoffMaxMs);
       out.set(addr.toLowerCase(), v);
     }

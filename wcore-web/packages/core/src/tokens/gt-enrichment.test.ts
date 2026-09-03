@@ -39,15 +39,14 @@ test("fetchGtVerdicts retries 429s and resolves every verdict despite rate limit
       { status: 200, body: gtInfoPayload(26.3) },
     ]);
   }
-  const BACKOFF_MS = 200;
   const attemptsPerAddr = new Map<string, number>();
   const restore = withFetch(((url: string | URL | Request) => {
     const m = String(url).match(/tokens\/(0x[0-9a-f]+)\/info/);
     const addr = m ? m[1] : "";
     const n = (attemptsPerAddr.get(addr) ?? 0) + 1;
     attemptsPerAddr.set(addr, n);
-    const plan = responsesByAddr.get(addr);
-    const next = plan && plan[n - 1] ? plan[n - 1] : plan?.[plan.length - 1]!;
+    const plan = responsesByAddr.get(addr) ?? [];
+    const next = plan[n - 1] ?? plan[plan.length - 1] ?? { status: 500, body: "" };
     return Promise.resolve(new Response(next.body, { status: next.status }));
   }) as typeof fetch);
   try {
@@ -76,5 +75,35 @@ test("fetchGtVerdicts gives up after bounded retries and stays fail-graceful", a
     assert.ok(v);
     assert.equal(v.available, false, "persistent 429 must degrade to UNAVAILABLE, not hang");
     assert.ok(calls <= 3, `bounded retry budget respected (calls=${calls})`);
+  } finally { restore(); }
+}, { timeout: 20000 });
+
+test("fetchGtVerdicts respects the cumulative time budget and leaves unprocessed addresses UNAVAILABLE", async () => {
+  const served = new Set<string>();
+  let index = 0;
+  const addrs = Array.from({ length: 8 }, () => `0x${(++index).toString().padStart(40, "0")}`);
+  const restore = withFetch(((url: string | URL | Request) => {
+    const m = String(url).match(/tokens\/(0x[0-9a-f]+)\/info/);
+    const addr = m ? m[1] : "";
+    served.add(addr);
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(new Response(gtInfoPayload(30), { status: 200 })), 300);
+    });
+  }) as typeof fetch);
+  try {
+    const BUDGET_MS = 1_000;
+    const t0 = Date.now();
+    const m = await fetchGtVerdicts(8453, addrs, 200, { maxRetries: 1, timeBudgetMs: BUDGET_MS });
+    const elapsed = Date.now() - t0;
+    assert.equal(m.size, addrs.length, "every address must have a verdict entry");
+    const resolved = addrs.filter((a) => m.get(a)?.available);
+    const unresolved = addrs.filter((a) => !m.get(a)?.available);
+    assert.ok(resolved.length > 0, "at least one address must resolve within the budget");
+    assert.ok(unresolved.length > 0, "budget must cut the sequential queue before the last address");
+    assert.ok(elapsed < BUDGET_MS + 2_000, `elapsed=${elapsed}ms must stay near the budget, not scale with queue length`);
+    for (const a of unresolved) {
+      assert.equal(served.has(a), false, `${a} must not be fetched after the budget expired`);
+      assert.equal(m.get(a)?.available, false, `${a} must be UNAVAILABLE`);
+    }
   } finally { restore(); }
 }, { timeout: 20000 });

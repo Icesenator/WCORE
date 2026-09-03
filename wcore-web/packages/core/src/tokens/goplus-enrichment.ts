@@ -46,12 +46,19 @@ export function parseGoPlusResponse(payload: unknown): Map<string, GoPlusVerdict
 
 export interface FetchOpts { timeoutMs?: number; }
 
+// Distinguishes "GoPlus answered but does not know this token" (legitimate
+// miss, safe to tombstone) from "GoPlus unreachable" (retry every scan —
+// an outage must not open a 24h scam-detection blind spot).
+export interface GoPlusFetchResult extends Map<string, GoPlusVerdict> {
+  anyBatchSucceeded: boolean;
+}
+
 export async function fetchGoPlusVerdicts(
   chainId: number,
   contracts: string[],
   opts: FetchOpts = {},
-): Promise<Map<string, GoPlusVerdict>> {
-  const merged = new Map<string, GoPlusVerdict>();
+): Promise<GoPlusFetchResult> {
+  const merged: GoPlusFetchResult = Object.assign(new Map<string, GoPlusVerdict>(), { anyBatchSucceeded: false });
   for (let i = 0; i < contracts.length; i += BATCH_SIZE) {
     const batch = contracts.slice(i, i + BATCH_SIZE).map((a) => a.toLowerCase());
     const path = `/api/v1/token_security/${chainId}?contract_addresses=${batch.join(",")}`;
@@ -77,6 +84,7 @@ export async function fetchGoPlusVerdicts(
       // Fail-graceful: no signal added, scan continues unchanged (design §2.5).
       for (const a of batch) merged.set(a, UNAVAILABLE());
     } else {
+      merged.anyBatchSucceeded = true;
       for (const a of batch) if (!merged.has(a)) merged.set(a, UNAVAILABLE());
     }
   }

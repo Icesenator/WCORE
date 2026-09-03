@@ -8,6 +8,11 @@ import type { ScamEnrichment, GoPlusSignal } from "@wcore/shared";
 export type { GoPlusSignal };
 
 const VERDICT_TTL_MS = 30 * 24 * 3600 * 1000; // 30d per spec §2.3
+// Short TTL for "both providers had nothing" rows: retried daily so a token
+// that later lists on GT/GoPlus (or a provider outage ends) is re-enriched,
+// without re-querying every missing contract on every scan (quota exhaustion
+// loop — incident 2026-09-03).
+const MISS_TTL_MS = 24 * 3600 * 1000;
 const MAX_CONTRACTS_PER_SCAN = 200;
 
 export type ScamEnrichmentLoader =
@@ -154,6 +159,9 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
           fresh.set(a, row.verdict === "clean" ? {} : {});
           continue;
         }
+        if (row.source === "miss" && now - new Date(row.updatedAt).getTime() < MISS_TTL_MS) {
+          continue; // recent total miss: skip silently, retry after MISS_TTL
+        }
         if (now - new Date(row.updatedAt).getTime() < VERDICT_TTL_MS) {
           const cached = normalizeCachedEnrichment(row.payload);
           if (cached) {
@@ -194,6 +202,9 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
           fetchGoPlusVerdicts(chainId, missingAll),
           fetchGtVerdicts(chainId, missingAll),
         ]);
+        // Tombstone misses ONLY when GoPlus actually answered: a GoPlus outage
+        // must not open a 24h scam-detection blind spot (retry every scan).
+        const canTombstone = verdicts.anyBatchSucceeded === true;
         const entries = [...verdicts.entries()];
         const resolvedEntries: Array<[string, GoPlusSignal, boolean]> = [];
         for (let i = 0; i < entries.length; i += 8) {
@@ -235,6 +246,21 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
               });
             } catch (e) {
               warn?.(`scam-verdict write failed (${addr}): ${(e as Error).message}`);
+            }
+          } else if (canTombstone) {
+            // Total miss with GoPlus reachable: persist a short-TTL "miss"
+            // tombstone so the next scan does not re-query this contract
+            // (quota exhaustion loop, incident 2026-09-03). Not persisted when
+            // GoPlus itself was unreachable — retry then, security first.
+            // Fail-graceful: write errors ignored.
+            try {
+              await prisma.scamVerdict.upsert({
+                where: { chainId_address: { chainId, address: addr } },
+                update: { verdict: "clean", source: "miss", payload: {} },
+                create: { chainId, address: addr, verdict: "clean", source: "miss", payload: {} },
+              });
+            } catch (e) {
+              warn?.(`scam-miss write failed (${addr}): ${(e as Error).message}`);
             }
           }
         }

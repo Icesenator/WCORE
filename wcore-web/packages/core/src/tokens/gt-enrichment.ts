@@ -109,10 +109,49 @@ export async function fetchGtVerdict(network: string, address: string, timeoutMs
   }
 }
 
+const GT_MAX_RETRIES = 4;
+const GT_BACKOFF_BASE_MS = 400;
+const GT_BACKOFF_MAX_MS = 4_000;
+
+async function fetchGtVerdictWithRetry(
+  network: string,
+  address: string,
+  timeoutMs: number,
+  maxRetries: number,
+  backoffBaseMs: number,
+  backoffMaxMs: number,
+): Promise<GtVerdict> {
+  let lastFallback: GtVerdict = UNAVAILABLE();
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(`https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${address.toLowerCase()}/info`, {
+        signal: ctrl.signal,
+        headers: { accept: "application/json" },
+      });
+      if (res.status === 429 && attempt < maxRetries - 1) {
+        const backoff = Math.min(backoffBaseMs * 2 ** attempt, backoffMaxMs);
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+      if (!res.ok) return UNAVAILABLE();
+      return parseGtTokenInfo(await res.json()) ?? UNAVAILABLE();
+    } catch {
+      lastFallback = await fetchGtVerdict(network, address, timeoutMs);
+      return lastFallback;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return UNAVAILABLE();
+}
+
 export async function fetchGtVerdicts(
   chainId: number,
   addresses: string[],
   timeoutMs = 5_000,
+  retry: { maxRetries?: number; backoffBaseMs?: number; backoffMaxMs?: number } = {},
 ): Promise<Map<string, GtVerdict>> {
   const out = new Map<string, GtVerdict>();
   const network = gtNetworkForChain(chainId);
@@ -120,18 +159,25 @@ export async function fetchGtVerdicts(
     for (const a of addresses) out.set(a, UNAVAILABLE());
     return out;
   }
-  for (const batch of chunk(addresses, 8)) {
-    const results = await Promise.all(batch.map(async (addr) => {
-      const v = await fetchGtVerdict(network, addr, timeoutMs);
-      return [addr.toLowerCase(), v] as [string, GtVerdict];
-    }));
-    for (const [k, v] of results) out.set(k, v);
+  // GT's public free tier is rate-limited (~30 calls/min) and returns 429s
+  // under burst load. Fetch sequentially with bounded 429 retries + backoff so
+  // every contract in the scan gets a structural verdict instead of the first
+  // few. Verdicts are persisted by the loader, so the cost is one-time per
+  // contract per 30d TTL window.
+  const maxRetries = retry.maxRetries ?? GT_MAX_RETRIES;
+  const backoffBaseMs = retry.backoffBaseMs ?? GT_BACKOFF_BASE_MS;
+  const backoffMaxMs = retry.backoffMaxMs ?? GT_BACKOFF_MAX_MS;
+  for (const batch of chunk(addresses, 4)) {
+    for (const addr of batch) {
+      const v = await fetchGtVerdictWithRetry(network, addr, timeoutMs, maxRetries, backoffBaseMs, backoffMaxMs);
+      out.set(addr.toLowerCase(), v);
+    }
   }
   return out;
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, size));
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }

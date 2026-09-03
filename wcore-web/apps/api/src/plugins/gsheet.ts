@@ -1043,19 +1043,39 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   app.post("/api/gsheet/scan", async (req, reply) => {
     const parsed = normalizeGsheetScanRequest(req.body);
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    const startedAt = Date.now();
     try {
       const resolvedChain = await resolveGsheetScanChain(parsed.input.chain);
       const priceBatcher = opts.priceBatcher || ((input: GsheetPriceBatchInput) => defaultPriceBatcher(input, opts.cache));
+      const scanStartedAt = Date.now();
       const result = opts.scanRunner
         ? await opts.scanRunner(parsed.input)
         : await defaultScanRunner(parsed.input, opts.cache, resolvedChain);
+      const scanMs = Date.now() - scanStartedAt;
+      const repairStartedAt = Date.now();
       const repaired = await repairMissingGsheetScanPrices(result, parsed.input, priceBatcher);
+      const repairMs = Date.now() - repairStartedAt;
       // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.
       await precomputeWCTStakeLockStatus(parsed.input.chain, parsed.input.address);
       const mirrored = applyStakedPriceMirrors(repaired);
+      const sanitizeStartedAt = Date.now();
       const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens, opts.scamEnrichment);
+      const sanitizeMs = Date.now() - sanitizeStartedAt;
       const labeled = labelGsheetWalletScan(sanitized, parsed.input.address);
-      return injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);
+      const out = await injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);
+      // Phase timings: the GSheet custom function that consumes this route dies
+      // at 30s, so a slow phase here freezes a whole chain tab (incident
+      // 2026-09-03). Keep this observable in production.
+      const phases = (result as { phases?: Record<string, number> }).phases;
+      app.log.info({
+        chain: parsed.input.chain,
+        totalMs: Date.now() - startedAt,
+        scanMs,
+        repairMs,
+        sanitizeMs,
+        ...(phases ? { discoveryMs: phases.discoveryMs, balancesMs: phases.balancesMs, pricingMs: phases.pricingMs } : {}),
+      }, "gsheet scan timing");
+      return out;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (message === "chain_not_found") return reply.code(404).send({ error: "chain_not_found" });

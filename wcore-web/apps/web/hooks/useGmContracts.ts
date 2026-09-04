@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { encodeFunctionData } from "viem";
-import { useSendTransaction, useAccount } from "wagmi";
+import { useSendTransaction, useAccount, useConfig } from "wagmi";
 import { getFactory } from "@wcore/shared";
 import { gmOnChainAbi } from "@/lib/gm-abi";
 import { apiFetch } from "@/lib/api";
@@ -82,6 +82,7 @@ export function useGmContracts(address: string | undefined | null) {
   const safeSwitchChain = useSafeSwitchChain();
   const { isConnected } = useAccount();
   const { rawProvider } = useWallet();
+  const wagmiConfig = useConfig();
 
   // Keep the selected EIP-6963 provider authoritative; otherwise use wagmi.
   // The wallet picker connects via the raw
@@ -95,8 +96,21 @@ export function useGmContracts(address: string | undefined | null) {
       wagmiSwitch: (chainId: number) => safeSwitchChain(chainId),
       rawProvider: rawProvider ?? undefined,
       from: cacheKey || null,
+      // Chains missing from the user's wallet (e.g. Merlin 4200) fail
+      // wallet_switchEthereumChain with 4902. Feed the wagmi-config chain
+      // metadata so switchChainAny can add the chain instead of throwing.
+      lookupAddChain: (id: number) => {
+        const chain = wagmiConfig.chains.find((c) => c.id === id);
+        if (!chain) return null;
+        return {
+          chainId: "0x" + id.toString(16),
+          chainName: chain.name,
+          nativeCurrency: chain.nativeCurrency,
+          rpcUrls: [...chain.rpcUrls.default.http],
+        };
+      },
     };
-  }, [isConnected, sendTransactionAsync, safeSwitchChain, rawProvider, cacheKey]);
+  }, [isConnected, sendTransactionAsync, safeSwitchChain, rawProvider, cacheKey, wagmiConfig]);
 
   const refreshContracts = useCallback(async (signal?: AbortSignal) => {
     if (!address) {

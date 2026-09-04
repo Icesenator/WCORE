@@ -163,6 +163,8 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    # Without this a hung npm audit request would pin the job for the 6h default.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
         with:
@@ -179,8 +181,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The npm audit endpoint regularly socket-timeouts on GH runners at pnpm's
+      # default 60s fetch timeout (2 failures 2026-09-04, each attempt dying at
+      # exactly ~60s while status.npmjs.org stayed green). Raise the fetch
+      # timeout and retry the whole audit once before failing the job.
       - name: pnpm audit (prod, high+)
-        run: pnpm audit --prod --audit-level=high
+        env:
+          npm_config_fetch_timeout: "180000"
+          npm_config_fetch_retries: "3"
+        run: |
+          if ! pnpm audit --prod --audit-level=high; then
+            echo "::warning::pnpm audit failed once (likely registry timeout), retrying in 60s"
+            sleep 60
+            pnpm audit --prod --audit-level=high
+          fi
 
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v3

@@ -271,10 +271,18 @@ async function fetchBitfinexRows(creds: BitfinexCredentials): Promise<RawCexRow[
 // Use microsecond precision (Date.now() * 1000) like Bitfinex, plus a
 // module-level counter to ensure uniqueness within the same microsecond tick.
 let _krakenNonceCounter = 0;
+let _krakenLastNonce = 0;
 async function krakenAuthPost(path: string, creds: KrakenCredentials): Promise<unknown> {
-  const nonce = String(Date.now() * 1000 + (++_krakenNonceCounter % 1000));
-  const body = "nonce=" + nonce;
-  const hash = createHash("sha256").update(nonce + body).digest();
+  // Nonce strictement croissant par cle : combine horloge microseconde + compteur,
+  // puis force la croissance meme si l'horloge recule ou si deux syncs partent dans
+  // la meme microseconde. Ne protege pas contre 2 instances partageant la meme cle
+  // (utiliser une cle API dediee par client : GSheet vs web).
+  let nonce = Date.now() * 1000 + (++_krakenNonceCounter % 1000);
+  if (nonce <= _krakenLastNonce) nonce = _krakenLastNonce + 1;
+  _krakenLastNonce = nonce;
+  const nonceStr = String(nonce);
+  const body = "nonce=" + nonceStr;
+  const hash = createHash("sha256").update(nonceStr + body).digest();
   const hmac = createHmac("sha512", Buffer.from(creds.apiSecret, "base64")).update(Buffer.from(path)).update(hash).digest("base64");
   const res = await fetch(`https://api.kraken.com${path}`, {
     method: "POST",
@@ -469,6 +477,12 @@ export function describeCexSyncFailure(raw: string): string {
     return "credentials_rejected";
   }
   if (/\b429\b|rate limit|too many requests/i.test(raw)) return "rate_limited_by_exchange";
+  // Kraken: EGeneral:Temporary lockout (ban temporaire IP/cle, ~15-60 min) et
+  // EGeneral:Invalid nonce (deux clients partagent la meme cle API). Les deux
+  // exigent d'ATTENDRE sans retry, pas une reconnexion des credentials.
+  if (/temporary lockout|egeneral|invalid nonce|nonce.*(too small|too low|invalid|expired|not increasing)/i.test(raw)) {
+    return "rate_limited_by_exchange";
+  }
   if (/timeout|timed out|aborted|etimedout|econnreset|enotfound|fetch failed/i.test(raw)) {
     return "exchange_unreachable";
   }

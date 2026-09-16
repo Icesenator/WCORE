@@ -1,3 +1,4 @@
+// v4.16.35 - UPDATE_CEX_RELAY_ROTATION flush HttpCounter en sortie (telemetrie budget pas perdue).
 // v4.16.34 - Rotate relay providers every 15 minutes; bulk stays manual-only.
 //            Manual bulk status is globally successful only when every provider succeeds.
 // v4.16.31 - Bulk write now applies per-provider symbol canonicalizers (OKSOL->SOL, Bybit aliases)
@@ -11,7 +12,7 @@
 // Non-relay CEXs (Bitpanda direct API, Bitfinex direct API, Kraken direct API) keep
 // their own hourly triggers — they don't use the relay.
 
-var CEX_BULK_VERSION = "4.16.34";
+var CEX_BULK_VERSION = "4.16.35";
 
 // Per-provider symbol canonicalizers. Binance/Coinbase are normalized server-side
 // by the relay; OKX (OKSOL->SOL) and Bybit (aliases) normalize GAS-side, so the
@@ -78,17 +79,22 @@ function _cexRelayRotationClaim_() {
 
 function UPDATE_CEX_RELAY_ROTATION() {
   try { HttpCallCounter.setTrigger("UPDATE_CEX_RELAY_ROTATION"); } catch (eCounter) {}
-  var provider = _cexRelayRotationClaim_();
-  if (!provider) return "BUSY";
+  try {
+    var provider = _cexRelayRotationClaim_();
+    if (!provider) return "BUSY";
 
-  var updateFn = null;
-  if (provider === "BINANCE" && typeof UPDATE_BINANCE_SPOT === "function") updateFn = UPDATE_BINANCE_SPOT;
-  else if (provider === "BYBIT" && typeof UPDATE_BYBIT_SPOT === "function") updateFn = UPDATE_BYBIT_SPOT;
-  else if (provider === "COINBASE" && typeof UPDATE_COINBASE_SPOT === "function") updateFn = UPDATE_COINBASE_SPOT;
-  else if (provider === "OKX" && typeof UPDATE_OKX_SPOT === "function") updateFn = UPDATE_OKX_SPOT;
+    var updateFn = null;
+    if (provider === "BINANCE" && typeof UPDATE_BINANCE_SPOT === "function") updateFn = UPDATE_BINANCE_SPOT;
+    else if (provider === "BYBIT" && typeof UPDATE_BYBIT_SPOT === "function") updateFn = UPDATE_BYBIT_SPOT;
+    else if (provider === "COINBASE" && typeof UPDATE_COINBASE_SPOT === "function") updateFn = UPDATE_COINBASE_SPOT;
+    else if (provider === "OKX" && typeof UPDATE_OKX_SPOT === "function") updateFn = UPDATE_OKX_SPOT;
 
-  if (!updateFn) return JSON.stringify({ ok: false, provider: provider, error: "provider function missing" });
-  return updateFn();
+    if (!updateFn) return JSON.stringify({ ok: false, provider: provider, error: "provider function missing" });
+    return updateFn();
+  } finally {
+    try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
+  }
 }
 
 function _cexBulkGetRelayUrl_() {

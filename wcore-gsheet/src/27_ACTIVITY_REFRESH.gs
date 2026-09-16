@@ -2567,6 +2567,7 @@ function ACTIVITY_WATCHDOG() {
     Logger.log("[ACTIVITY_WATCHDOG] Error: " + e);
   } finally {
     try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 

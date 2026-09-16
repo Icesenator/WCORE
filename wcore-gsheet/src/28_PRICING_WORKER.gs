@@ -974,6 +974,7 @@ function _runPricingWorker(force) {
     stats.durationMs = Date.now() - startedMs;
     _pricingWorkerSaveStats_(stats);
     try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 
   try { Logger.log("[PRICING_WORKER] " + JSON.stringify(stats)); } catch (eLog) {}

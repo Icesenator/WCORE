@@ -4,6 +4,8 @@
  * FICHIER DE PATCH SIMPLE - Modifie les constantes au chargement
  * pour reduire les appels HTTP de 30-40%.
  *
+ * v4.16.76 — clearTrigger() flush les deux compteurs (buffers execution-local)
+ *            en sortie de trigger: plus d'increment retenu perdu en fin d'execution.
  * v4.15.57 — Remove misleading GET_HTTP_COUNTER_STATS public diagnostic
  * v4.15.34 — R15 FIX: GT throttle 50 -> 80/run (GT-only tokens coverage)
  * v4.15.15 — budget guard: forceFull rétrogradé si HTTP >70% (_forceFullAllowed_, _normalizeForceWithBudgetGuard)
@@ -49,7 +51,7 @@
  * 
  * ROLLBACK: Supprimer ce fichier pour revenir aux valeurs par defaut.
  ************************************************************/
-var HTTP_SAVINGS_VERSION = "4.15.58";
+var HTTP_SAVINGS_VERSION = "4.16.76";
 
 // ============================================================
 // PATCH 1: FX RATE - Cache plus long (1h Ã¢â€ â€™ 6h)
@@ -551,6 +553,9 @@ var HttpCallCounter = (function(){
 
  /**
   * Retirer le trigger actif (fin de fonction trigger).
+  * v4.16.76: persiste aussi les deux compteurs — leurs buffers sont
+  * execution-local, donc sans flush en sortie tout increment retenu sous
+  * contention est perdu a la fin de l'execution (telemsurie budget aveugle).
   */
  function clearTrigger() {
   try {
@@ -558,6 +563,8 @@ var HttpCallCounter = (function(){
    _currentTrigger = 'customfunction';
    _triggerCacheMs = Date.now();
   } catch(e) {}
+  try { flush(); } catch(eFlush) {}
+  try { if (typeof HttpCounter !== 'undefined' && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush2) {}
  }
 
  function reset() {

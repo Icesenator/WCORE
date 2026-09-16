@@ -1,6 +1,11 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.68 - Post-trip scan hold: after an authoritative Google quota trip
+ *   (BudgetHTTP.noteAuthoritativeTrip, armed by QuotaCircuitBreaker._trip),
+ *   AUTO web scans degrade to cached output for 3h so the recovery sweep's
+ *   re-pulse wave cannot re-exhaust the sliding 24h window. Manual forceFull
+ *   scans and LIVE_PROBE_WEB_SCAN_CHAIN always win.
  * v4.16.67 - Never report WEB_SCAN_OK when WalletCache persistence fails; keep the scan retryable.
  * v4.16.66 - Drop the local GSHEET_WEB_SCAN_BLOCKED_CONTRACTS list: the Web API
  *   now reports the hard-blocked contracts it filtered (blockedContracts) and the
@@ -71,7 +76,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.67";
+var GSHEET_WEB_SCAN_VERSION = "4.16.68";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -744,6 +749,29 @@ function _webScanForce_(forceFull) {
   return forceFull === true || String(forceFull || '').toUpperCase() === 'TRUE';
 }
 
+/**
+ * v4.16.39: after an authoritative Google quota trip, hold AUTO web scans for 3h
+ * so the sliding 24h window can refill. Without this, QUOTA_RECOVERY_SWEEP
+ * resets the breaker as soon as its httpbin probe passes and re-pulses every
+ * blocked sheet; that wave spends the credit the window just returned and
+ * re-trips immediately (4 trips in 2h on 2026-09-09).
+ *
+ * Web scans are gated here rather than through Http.canFetchNow because they
+ * fetch via _originalUrlFetch and bypass the mode/budget admission entirely.
+ * A manual forceFull refresh always wins: it is an explicit operator decision.
+ *
+ * @returns {boolean} true when this AUTO scan must stand down
+ */
+function _webScanPostTripFloorDeferred_(forceFull) {
+  if (_webScanForce_(forceFull)) return false;
+  try {
+    if (typeof BudgetHTTP !== "undefined" && BudgetHTTP.isPostTripFloorActive) {
+      return BudgetHTTP.isPostTripFloorActive() === true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 function _webScanHttpClass_(code) {
   code = Number(code || 0);
   if (code >= 200 && code < 300) return 'success';
@@ -894,6 +922,11 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     var chainKey = _webScanChainKey_(config);
     if (!chainKey || !_webScanAllowed_(chainKey)) return null;
     if (_webScanQuotaTripped_()) return _webScanBlockedQuotaResult_(chainKey);
+    // v4.16.39: post-trip hold — degrade to cached output instead of joining the
+    // recovery wave that re-exhausts the sliding quota window.
+    if (_webScanPostTripFloorDeferred_(forceFull)) {
+      return _webScanDeferredResult_(address, cacheKey, config, "POST_TRIP_FLOOR");
+    }
     var admission = _webScanAcquireAdmissionV2_(address, chainKey, forceFull);
     if (admission.reason === "ADMISSION_ERROR") {
       admission = _webScanAcquireAdmission_(address, chainKey, forceFull);
@@ -1081,7 +1114,9 @@ function DIAG_WEB_SCAN_STATUS() {
 
 function LIVE_PROBE_WEB_SCAN_CHAIN(chain, address) {
   var cfg = { CHAIN: { NAME: String(chain || "") }, CACHE_VERSION: null };
-  var res = _webScanWallet_(address, [], false, cfg);
+  // v4.16.68: a live probe is an explicit diagnostic — bypass the post-trip scan
+  // hold (forceFull=true) so it keeps returning real probe data during a hold.
+  var res = _webScanWallet_(address, [], true, cfg);
   if (!res) return [["status", "NO_RESULT"]];
   if (res.ok === false) return [["status", res.status || "ERROR"], ["error", res.error || ""]];
   return [["status", res.status], ["assets", res.cache && res.cache.assets ? res.cache.assets.length : 0]];

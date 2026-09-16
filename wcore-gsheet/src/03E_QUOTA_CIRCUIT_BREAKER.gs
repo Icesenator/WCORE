@@ -1,6 +1,13 @@
 /************************************************************
  * 03E_QUOTA_CIRCUIT_BREAKER.gs - Instant Quota Detection
  *
+ * v4.16.37 - TRIP EVIDENCE PERSISTENCE
+ *   The sweep's QuotaCircuitBreaker.reset() wiped the CacheService trip
+ *   payload before anyone could read the raw Google error, making root
+ *   cause analysis of recurring BLOCKED:QUOTA impossible. _trip() now
+ *   also appends the raw error + trigger context to a 5-entry ring in
+ *   ScriptProperties (survives reset, read via GET_QUOTA_TRIP_HISTORY).
+ *
  * v4.16.34 - Do not turn telemetry read contention into synthetic quota exhaustion.
  *
  * v4.13.8 - CACHE WRITE GUARD: expose BudgetHTTP.remaining()
@@ -83,8 +90,54 @@
  * - Zero-latency blocking once quota detected
  ************************************************************/
 
-var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.34";
+var QUOTA_CIRCUIT_BREAKER_VERSION = "4.16.79";
 
+// v4.16.79 - BOUNDED PORTFOLIO QUOTA EXEMPTION (P0-PROD-PORTFOLIO-QUOTA-BLOCK)
+//   Google's UrlFetch quota is USER-scoped (20 000/day, "Quotas are per user",
+//   developers.google.com/apps-script/guides/services/quotas), so another Apps
+//   Script project on the same account can drain it while WCORE is nearly idle:
+//   measured 2026-09-14 18:53 CEST — 132 observed WCORE calls, 19 868 of the
+//   WCORE budget left, yet Google answered "Service invoked too many times for
+//   one day: urlfetch" to the recovery probe (trip ring 09-11..09-14, daily
+//   ~18:00-19:20 CEST). Both UrlFetch gates then return null BEFORE asking
+//   Google, which froze "Portefeuille Crypto" on an undated
+//   "ERROR: BLOCKED:QUOTA" for hours after the real window had reopened (live
+//   probe OK at 19:05 CEST while the breaker was still tripped).
+//   ExemptHttp gives ONLY the two portfolio snapshots (1 request/hour each,
+//   ~48/day = 0.24 % of the quota) a strictly metered fallback: it is used only
+//   when the patched fetch returned null, it can never spend more than
+//   QUOTA_EXEMPT_DAILY_LIMIT attempts per slot per 09h-UTC day, it re-records
+//   each attempt in both counters (category PORTFOLIO_EXEMPT so it stays
+//   visible), and a genuine Google rejection still reaches handleError so the
+//   breaker stays honest. Web scans, RPC and CEX fan-out are NOT exempt.
+
+// v4.16.39 - POST-TRIP SCAN HOLD (recurring BLOCKED:QUOTA)
+//   The Google UrlFetch quota is user-scoped, so HttpCounter (WCORE-only) is a
+//   lower bound: on 2026-09-09/10 Google reported the window exhausted while
+//   WCORE had counted ~3k calls. The only authoritative signal is a real Google
+//   trip. But QUOTA_RECOVERY_SWEEP resets the breaker as soon as its httpbin
+//   probe passes and re-pulses every blocked sheet; that wave spends the credit
+//   the sliding window just returned and re-trips at once (4 trips in 2h).
+//   _trip() now calls BudgetHTTP.noteAuthoritativeTrip(), which persists a 3h
+//   deadline read by _webScanWallet_: AUTO web scans (the dominant consumer and
+//   the only bulk re-pulse path) degrade to cached output while the sliding
+//   window refills. Manual forceFull scans always win.
+//   ADVISORY BY DESIGN: it must never clamp remaining() nor change the global
+//   WcoreHttpMode — every UrlFetchApp.fetch flows through the generic 26B patch
+//   as category "other", which RECOVERY denies, so clamping would block the
+//   Action/Crypto portfolios, i.e. cause the very failure being fixed.
+//
+// v4.16.38 - RETAINED TELEMETRY (no more lost increments)
+//   Under UserLock contention or ScriptProperties failure, HttpCounter.record()
+//   used to reclassify the increment as "dropped telemetry" (2934 drops observed
+//   on 2026-09-09 vs 120 counted). record() now RETAINS the increment in an
+//   execution-local buffer and merges it into the persisted maps on the next
+//   successful locked pass (next record or explicit HttpCounter.flush()). The
+//   dropped metric remains reserved for genuine external losses reported via
+//   noteDropped() (legacy counter contention), which still persists on the next
+//   flush pass. Rolling reads (count/byTrigger/byHost/buckets/snapshot) include
+//   retained increments so telemetry reflects live calls before persistence.
+//
 // v4.12.31: Store reference to ORIGINAL UrlFetchApp.fetch BEFORE any patching
 // Needed by testOnce() to bypass the global quota patch for real testing
 var _originalUrlFetch = UrlFetchApp.fetch;
@@ -147,6 +200,12 @@ var QUOTA_BREAKER_CONFIG = {
   // This ceiling only exists to prevent a sticky block if testOnce() never
   // runs (e.g. no refresh cycles for >24h). It is NOT a promised reset time.
   TRIP_MAX_LOCKOUT_MS: 24 * 60 * 60 * 1000,
+
+  // v4.16.37: Trip evidence ring in ScriptProperties (survives the sweep's
+  // CacheService reset, so the raw Google error of each trip stays readable).
+  // 5 entries x ~300 bytes max: negligible vs the 500 KB properties budget.
+  TRIP_EVIDENCE_KEY: "WCORE_QCB_TRIP_EVIDENCE_v1",
+  TRIP_EVIDENCE_MAX_ENTRIES: 5,
 
   // Log when circuit breaker triggers
   LOG_TRIGGERS: true
@@ -246,6 +305,37 @@ var QuotaCircuitBreaker = (function() {
   }
   
   /**
+   * v4.16.37: Append trip evidence to a ScriptProperties ring so the raw
+   * Google error survives QuotaCircuitBreaker.reset() (the sweep wipes the
+   * CacheService payload before a human can read it). Best-effort: any
+   * failure is swallowed, evidence must never break tripping.
+   */
+  function _appendTripEvidence(errorMessage, nowMs) {
+    try {
+      var props = PropertiesService.getScriptProperties();
+      var raw = props.getProperty(QUOTA_BREAKER_CONFIG.TRIP_EVIDENCE_KEY);
+      var arr = [];
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) arr = parsed;
+      }
+      var trigger = "unknown";
+      try { trigger = props.getProperty("WCORE_CURRENT_TRIGGER") || "unknown"; } catch (eTrig) {}
+      arr.push({
+        ts: nowMs,
+        trigger: trigger,
+        error: String(errorMessage || "Unknown quota error").substring(0, 200)
+      });
+      if (arr.length > QUOTA_BREAKER_CONFIG.TRIP_EVIDENCE_MAX_ENTRIES) {
+        arr = arr.slice(-QUOTA_BREAKER_CONFIG.TRIP_EVIDENCE_MAX_ENTRIES);
+      }
+      props.setProperty(QUOTA_BREAKER_CONFIG.TRIP_EVIDENCE_KEY, JSON.stringify(arr));
+    } catch (eEvidence) {
+      Logger.log("[QUOTA_BREAKER] Trip evidence append failed: " + eEvidence.message);
+    }
+  }
+
+  /**
    * Trip the circuit breaker
    */
   function _trip(errorMessage) {
@@ -256,6 +346,16 @@ var QuotaCircuitBreaker = (function() {
     var nowMs = Date.now();
     _trippedMs = nowMs;
     _tripTime = new Date(nowMs).toISOString();
+    _appendTripEvidence(errorMessage, nowMs);
+    // v4.16.39: reserve budget for 3h so the recovery sweep's re-pulse wave
+    // cannot immediately re-exhaust the sliding window. Best effort by design.
+    try {
+      if (typeof BudgetHTTP !== "undefined" && BudgetHTTP.noteAuthoritativeTrip) {
+        BudgetHTTP.noteAuthoritativeTrip(nowMs);
+      }
+    } catch (eFloor) {
+      Logger.log("[QUOTA_BREAKER] post-trip budget floor failed: " + eFloor.message);
+    }
 
     var data = {
       date: _getTodayUTC(),          // informational (for diagnostics)
@@ -665,10 +765,18 @@ var HttpCounter = (function() {
   var LOCK_WAIT_MS = 100;
   var BUCKET_MS = 60 * 60 * 1000;  // 1h granularity
   var WINDOWS = 24;                // last 24 buckets = rolling 24h
+  // v4.16.38: execution-local RETAINED buffer for contended/failed increments
+  // (shape declared at _bufferAdd). The happy path still persists immediately;
+  // retained increments are merged into the persisted maps by the next locked
+  // pass instead of being reclassified as permanently-dropped telemetry.
+  var _buffer = {};
+  var _bufferedCount = 0;
   // Contention cannot safely persist without the lock, so the observed dropped total is a lower bound.
   var _droppedPending = 0;
   var _lastValidCount = 0;
   var _telemetryDegraded = false;
+  // Set by the tolerant breakdown reader when it repairs a corrupt map during a snapshot.
+  var _snapshotBreakdownCorrupt = false;
 
   function _loadRaw(props, key) {
     var raw = props.getProperty(key);
@@ -694,6 +802,21 @@ var HttpCounter = (function() {
       invalid.telemetryCorrupt = true;
       throw invalid;
     }
+    return obj;
+  }
+
+  // 2026-09-16 (P1-OBS-GSHEET-HTTP-ATTRIBUTION) : lecteur TOLERANT reserve aux CARTES
+  // d'attribution (hosts/triggers). Le TOTAL garde le lecteur fail-closed ci-dessus :
+  // une valeur de total corrompue ne doit JAMAIS etre presentee comme fiable. En revanche
+  // un BREAKDOWN corrompu ne doit pas vider tout le snapshot (c'etait la cause de
+  // "byHost total = 0 alors que le total = 132" : _snapshotLoadRaw levait et le catch
+  // renvoyait categories:{} / hosts:{}). Une reparation de breakdown marque la telemetrie degradee.
+  function _snapshotLoadRawLenient(props, key) {
+    var raw = props.getProperty(key);
+    if (raw == null) return {};
+    var obj;
+    try { obj = JSON.parse(raw); } catch (eParse) { _telemetryDegraded = true; _snapshotBreakdownCorrupt = true; return {}; }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) { _telemetryDegraded = true; _snapshotBreakdownCorrupt = true; return {}; }
     return obj;
   }
 
@@ -732,6 +855,137 @@ var HttpCounter = (function() {
   function _host(url) {
     var match = String(url || "").match(/^https?:\/\/(?:[^\/@?#]*@)?([^\/:?#]+)(?::[0-9]+)?(?:[\/?#]|$)/i);
     return match ? match[1].toLowerCase() : "unknown";
+  }
+
+  // v4.16.38: execution-local RETAINED buffer. Only contended/failed increments
+  // land here (the happy path still persists immediately, so a different runtime
+  // sees them at once). A later successful flush merges them into the persisted
+  // maps instead of turning them into permanent drops.
+  // Shape: { "<bucket>": { total: n, byExplicit: { "<explicitKey>": { hosts: {}, total: n } } } }
+  // "<explicitKey>" is the raw (trimmed/uppercased) explicit category, or "~legacy~"
+  // for records that must be attributed to WCORE_CURRENT_TRIGGER (resolved under lock).
+  function _bufferAdd(inc, explicitCategory, host) {
+    var bucket = String(Math.floor(Date.now() / BUCKET_MS));
+    var explicit = String(explicitCategory || "").trim().toUpperCase();
+    var key = explicit || "~legacy~";
+    var b = _buffer[bucket];
+    if (!b) { b = { total: 0, byExplicit: {} }; _buffer[bucket] = b; }
+    var e = b.byExplicit[key];
+    if (!e) { e = { total: 0, hosts: {} }; b.byExplicit[key] = e; }
+    e.total += inc;
+    e.hosts[host] = (parseInt(e.hosts[host], 10) || 0) + inc;
+    b.total += inc;
+    _bufferedCount += inc;
+  }
+
+  function _bufferSum() {
+    return _bufferedCount;
+  }
+
+  // Resolve final category names for the retained buffer. The legacy path needs
+  // WCORE_CURRENT_TRIGGER, which must be read under the UserLock.
+  function _categoryForExplicit(explicitKey, props) {
+    return explicitKey === "~legacy~" ? ("approx:" + _currentTrigger(props)) : explicitKey;
+  }
+
+  // v4.16.38: merge the retained buffer into the loaded persisted maps. Must run
+  // under the UserLock. Clears the buffer only on success (called after the
+  // matching _save() calls by the caller).
+  function _mergeBufferInto(counts, triggers, hosts, props) {
+    for (var bucket in _buffer) {
+      if (!_buffer.hasOwnProperty(bucket)) continue;
+      var b = _buffer[bucket];
+      counts[bucket] = (parseInt(counts[bucket], 10) || 0) + b.total;
+      if (!triggers[bucket]) triggers[bucket] = {};
+      if (!hosts[bucket]) hosts[bucket] = {};
+      for (var explicitKey in b.byExplicit) {
+        if (!b.byExplicit.hasOwnProperty(explicitKey)) continue;
+        var e = b.byExplicit[explicitKey];
+        var cat = _categoryForExplicit(explicitKey, props);
+        triggers[bucket][cat] = (parseInt(triggers[bucket][cat], 10) || 0) + e.total;
+        for (var h in e.hosts) {
+          if (!e.hosts.hasOwnProperty(h)) continue;
+          hosts[bucket][h] = (parseInt(hosts[bucket][h], 10) || 0) + e.hosts[h];
+        }
+      }
+    }
+  }
+
+  function _clearBuffer() {
+    _buffer = {};
+    _bufferedCount = 0;
+  }
+
+  // v4.16.38: flush retained buffer independently (best effort). Returns true if
+  // there was nothing to flush or it persisted; false if the buffer is retained.
+  function _flushBuffer() {
+    if (_bufferedCount <= 0) return true;
+    var lock = null;
+    var acquired = false;
+    try {
+      lock = LockService.getUserLock();
+      if (!lock || !lock.tryLock(LOCK_WAIT_MS)) return false;
+      acquired = true;
+      var props = PropertiesService.getScriptProperties();
+      var nowMs = Date.now();
+      var counts = _purge(_loadRaw(props, KEY), nowMs);
+      var triggers = _purge(_loadRaw(props, TRIGGER_KEY), nowMs);
+      var hosts = _purge(_loadRaw(props, HOST_KEY), nowMs);
+      var dropped = _purge(_loadRaw(props, DROPPED_KEY), nowMs);
+      _mergeBufferInto(counts, triggers, hosts, props);
+      if (_droppedPending > 0) {
+        var bucket = String(Math.floor(nowMs / BUCKET_MS));
+        dropped[bucket] = (parseInt(dropped[bucket], 10) || 0) + _droppedPending;
+      }
+      _save(props, counts, KEY);
+      _save(props, triggers, TRIGGER_KEY);
+      _save(props, hosts, HOST_KEY);
+      _save(props, dropped, DROPPED_KEY);
+      _lastValidCount = _sum(counts);
+      _clearBuffer();
+      _droppedPending = 0;
+      _telemetryDegraded = false;
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+
+  // v4.16.38: retained-buffer helpers shared by every rolling read. Adds the
+  // execution-local retained increments to a persisted window so counts reflect
+  // live calls even before a flush lands.
+  function _bufferedTotalsFlat() {
+    var out = {};
+    for (var bucket in _buffer) {
+      if (!_buffer.hasOwnProperty(bucket)) continue;
+      for (var explicitKey in _buffer[bucket].byExplicit) {
+        if (!_buffer[bucket].byExplicit.hasOwnProperty(explicitKey)) continue;
+        // Category is only finalized at flush (legacy needs the locked trigger
+        // read); reads report it under the explicit key when present, which is
+        // identical except for legacy approx:* attribution.
+        var cat = explicitKey === "~legacy~" ? null : explicitKey;
+        if (cat) out[cat] = (out[cat] || 0) + _buffer[bucket].byExplicit[explicitKey].total;
+      }
+    }
+    return out;
+  }
+
+  function _bufferedHostsFlat() {
+    var out = {};
+    for (var bucket in _buffer) {
+      if (!_buffer.hasOwnProperty(bucket)) continue;
+      for (var explicitKey in _buffer[bucket].byExplicit) {
+        if (!_buffer[bucket].byExplicit.hasOwnProperty(explicitKey)) continue;
+        var hosts = _buffer[bucket].byExplicit[explicitKey].hosts;
+        for (var h in hosts) {
+          if (!hosts.hasOwnProperty(h)) continue;
+          out[h] = (out[h] || 0) + hosts[h];
+        }
+      }
+    }
+    return out;
   }
 
   function _readLocked(fallback, reader) {
@@ -780,12 +1034,15 @@ var HttpCounter = (function() {
     record: function(n, explicitCategory, url) {
       var inc = parseInt(n, 10) || 0;
       if (inc < 1) return;
+      var host = _host(url);
       var lock = null;
       var acquired = false;
       try {
         lock = LockService.getUserLock();
         if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
-          _droppedPending += inc;
+          // v4.16.38: retain instead of drop — merged by the next successful
+          // flush (this record, a later record, or an explicit flush()).
+          _bufferAdd(inc, explicitCategory, host);
           return;
         }
         acquired = true;
@@ -797,13 +1054,15 @@ var HttpCounter = (function() {
         var hosts = _purge(_loadRaw(props, HOST_KEY), nowMs);
         var dropped = _purge(_loadRaw(props, DROPPED_KEY), nowMs);
         var category = _category(explicitCategory, props);
-        var host = _host(url);
 
         counts[bucket] = (parseInt(counts[bucket], 10) || 0) + inc;
         if (!triggers[bucket]) triggers[bucket] = {};
         triggers[bucket][category] = (parseInt(triggers[bucket][category], 10) || 0) + inc;
         if (!hosts[bucket]) hosts[bucket] = {};
         hosts[bucket][host] = (parseInt(hosts[bucket][host], 10) || 0) + inc;
+
+        // v4.16.38: merge previously retained increments in the same locked pass.
+        _mergeBufferInto(counts, triggers, hosts, props);
         if (_droppedPending > 0) dropped[bucket] = (parseInt(dropped[bucket], 10) || 0) + _droppedPending;
 
         _save(props, counts, KEY);
@@ -815,11 +1074,19 @@ var HttpCounter = (function() {
         if (_droppedPending > 0) {
           _droppedPending = 0;
         }
+        _clearBuffer();
       } catch (e) {
-        _droppedPending += inc;
+        // v4.16.38: retain on property failure too — no increment is lost.
+        _bufferAdd(inc, explicitCategory, host);
       } finally {
         if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
       }
+    },
+
+    // v4.16.38: explicit flush of retained increments (best effort). Wire it at
+    // the end of trigger functions alongside HttpCallCounter.flush().
+    flush: function() {
+      return _flushBuffer();
     },
 
     count: function() {
@@ -828,10 +1095,10 @@ var HttpCounter = (function() {
         var obj = _purge(_loadRaw(props, KEY), nowMs);
         return _sum(obj);
       });
-      if (measured == null) return _fallbackCount();
+      if (measured == null) return _fallbackCount() + _bufferSum();
       _lastValidCount = measured;
       _telemetryDegraded = false;
-      return measured;
+      return measured + _bufferSum();
     },
 
     isDegraded: function() {
@@ -839,17 +1106,27 @@ var HttpCounter = (function() {
     },
 
     byTrigger: function() {
-      return _readLocked({}, function(props) {
+      var out = _readLocked({}, function(props) {
         var nowMs = Date.now();
         return _flatten(_purge(_loadRaw(props, TRIGGER_KEY), nowMs));
       });
+      var buffered = _bufferedTotalsFlat();
+      for (var cat in buffered) {
+        if (buffered.hasOwnProperty(cat)) out[cat] = (out[cat] || 0) + buffered[cat];
+      }
+      return out;
     },
 
     byHost: function() {
-      return _readLocked({}, function(props) {
+      var out = _readLocked({}, function(props) {
         var nowMs = Date.now();
         return _flatten(_purge(_loadRaw(props, HOST_KEY), nowMs));
       });
+      var buffered = _bufferedHostsFlat();
+      for (var h in buffered) {
+        if (buffered.hasOwnProperty(h)) out[h] = (out[h] || 0) + buffered[h];
+      }
+      return out;
     },
 
     noteDropped: function(n) {
@@ -858,16 +1135,17 @@ var HttpCounter = (function() {
     },
 
     dropped: function() {
-      return _readLocked(_droppedPending, function(props) {
+      var persisted = _readLocked(-1, function(props) {
         var nowMs = Date.now();
-        return _sum(_purge(_loadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending;
+        return _sum(_purge(_loadRaw(props, DROPPED_KEY), nowMs));
       });
+      return (persisted < 0 ? 0 : persisted) + _droppedPending;
     },
 
     snapshot: function() {
       var unavailable = {
         available: false,
-        total: _lastValidCount,
+        total: _lastValidCount + _bufferSum(),
         categories: {},
         hosts: {},
         dropped: _droppedPending
@@ -877,25 +1155,41 @@ var HttpCounter = (function() {
       try {
         lock = LockService.getUserLock();
         if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
-          unavailable.total = _fallbackCount();
+          unavailable.total = _fallbackCount() + _bufferSum();
           return unavailable;
         }
         acquired = true;
         var props = PropertiesService.getScriptProperties();
         var nowMs = Date.now();
+        _snapshotBreakdownCorrupt = false;
         var total = _sum(_purge(_snapshotLoadRaw(props, KEY), nowMs));
-        _lastValidCount = total;
+        var categories = _flatten(_purge(_snapshotLoadRawLenient(props, TRIGGER_KEY), nowMs));
+        var hosts = _flatten(_purge(_snapshotLoadRawLenient(props, HOST_KEY), nowMs));
+        // Merge retained increments so the snapshot reflects live calls.
+        total += _bufferSum();
+        var bufferedCats = _bufferedTotalsFlat();
+        for (var cat in bufferedCats) {
+          if (bufferedCats.hasOwnProperty(cat)) categories[cat] = (categories[cat] || 0) + bufferedCats[cat];
+        }
+        var bufferedHosts = _bufferedHostsFlat();
+        for (var bh in bufferedHosts) {
+          if (bufferedHosts.hasOwnProperty(bh)) hosts[bh] = (hosts[bh] || 0) + bufferedHosts[bh];
+        }
+        _lastValidCount = total - _bufferSum();
+        if (_lastValidCount < 0) _lastValidCount = 0;
         _telemetryDegraded = false;
-        return {
+        var snapshotOut = {
           available: true,
           total: total,
-          categories: _flatten(_purge(_snapshotLoadRaw(props, TRIGGER_KEY), nowMs)),
-          hosts: _flatten(_purge(_snapshotLoadRaw(props, HOST_KEY), nowMs)),
+          categories: categories,
+          hosts: hosts,
           dropped: _sum(_purge(_snapshotLoadRaw(props, DROPPED_KEY), nowMs)) + _droppedPending
         };
+        if (_snapshotBreakdownCorrupt) snapshotOut.corrupt = true;
+        return snapshotOut;
       } catch (e) {
         if (e && e.telemetryCorrupt) unavailable.corrupt = true;
-        unavailable.total = _fallbackCount();
+        unavailable.total = _fallbackCount() + _bufferSum();
         return unavailable;
       } finally {
         if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
@@ -903,22 +1197,31 @@ var HttpCounter = (function() {
     },
 
     reset: function() {
-      return _readLocked(false, function(props) {
+      var resetOk = _readLocked(false, function(props) {
         props.deleteProperty(KEY);
         props.deleteProperty(TRIGGER_KEY);
         props.deleteProperty(HOST_KEY);
         props.deleteProperty(DROPPED_KEY);
-        _droppedPending = 0;
-        _lastValidCount = 0;
-        _telemetryDegraded = false;
         return true;
       });
+      // Always clear execution-local state: a retained buffer must never
+      // resurrect deleted counters after a confirmed reset.
+      _droppedPending = 0;
+      _clearBuffer();
+      _lastValidCount = 0;
+      _telemetryDegraded = false;
+      return resetOk;
     },
 
     buckets: function() {
-      return _readLocked({}, function(props) {
+      var out = _readLocked({}, function(props) {
         return _purge(_loadRaw(props, KEY), Date.now());
       });
+      for (var bucket in _buffer) {
+        if (!_buffer.hasOwnProperty(bucket)) continue;
+        out[bucket] = (parseInt(out[bucket], 10) || 0) + _buffer[bucket].total;
+      }
+      return out;
     }
   };
 })();
@@ -937,6 +1240,82 @@ var BudgetHTTP = BudgetHTTP || (function() {
   };
   var adminMinRemaining = CATEGORY_MIN_REMAINING.admin;
   var telemetryDegraded = false;
+
+  // v4.16.39 — POST-TRIP SCAN FLOOR (recurring BLOCKED:QUOTA)
+  //
+  // The Google UrlFetch quota is USER-scoped: other scripts on the account draw
+  // from the same 20k window, so HttpCounter (WCORE-only) is a lower bound and
+  // cannot be the sole admission signal — observed 2026-09-09/10, ~3k counted
+  // calls while Google reported the window exhausted.
+  //
+  // The only authoritative proof is Google itself ("Service invoked too many
+  // times"). But QUOTA_RECOVERY_SWEEP resets the breaker as soon as its httpbin
+  // probe passes and immediately re-pulses every blocked sheet; that wave eats
+  // the few calls the sliding window just returned and re-trips at once (4 trips
+  // in 2h on 2026-09-09). After an authoritative trip we therefore hold AUTO web
+  // scans — the dominant consumer, and the only caller that re-pulses in bulk —
+  // for 3h so the sliding window can actually refill.
+  //
+  // DELIBERATELY ADVISORY: this flag must NEVER clamp remaining() nor change the
+  // global WcoreHttpMode. Every UrlFetchApp.fetch flows through the generic
+  // 26B_HTTP_SAVINGS patch under reason "26B.fetch" -> category "other", which
+  // RECOVERY mode denies; clamping would block the Action/Crypto portfolios,
+  // i.e. cause the very failure this fix targets. Only _webScanWallet_ reads it,
+  // and only for AUTO scans (a manual forceFull stays the operator's decision).
+  //
+  // The deadline lives in ScriptProperties so it outlives both the execution and
+  // the sweep's CacheService reset.
+  var TRIP_FLOOR_KEY = "WCORE_HTTP_TRIP_FLOOR_UNTIL_v1";
+  var TRIP_FLOOR_MS = 3 * 60 * 60 * 1000;
+  var TRIP_FLOOR_LOCK_WAIT_MS = 100;
+  // Execution-local memo: the deadline cannot change mid-execution (only a trip
+  // writes it), so one properties read per execution is enough. The READ is
+  // lock-free on purpose: getProperty is atomic, and a UserLock read is exactly
+  // the contended path (100ms tryLock) this design must avoid — failing open
+  // during contention would disable the hold precisely during a quota crisis.
+  // Only the WRITE keeps the UserLock discipline of the file.
+  var _floorUntilMemo = null;
+
+  function _floorWrite(writer) {
+    var lock = null;
+    var acquired = false;
+    try {
+      lock = LockService.getUserLock();
+      if (!lock || !lock.tryLock(TRIP_FLOOR_LOCK_WAIT_MS)) return false;
+      acquired = true;
+      writer(PropertiesService.getScriptProperties());
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+    }
+  }
+
+  function _floorUntil() {
+    if (_floorUntilMemo != null) return _floorUntilMemo;
+    var until = 0;
+    try {
+      // Atomic read — no lock needed (see memo comment above).
+      var raw = PropertiesService.getScriptProperties().getProperty(TRIP_FLOOR_KEY);
+      if (raw) {
+        var parsed = parseInt(raw, 10);
+        if (isFinite(parsed)) until = parsed;
+      }
+    } catch (e) {
+      until = 0;
+    }
+    // A deadline further out than the maximum window cannot have been written by
+    // a real trip (clock skew, corruption, manual edit): treat it as absent so a
+    // bad value can never wedge WCORE into a permanent hold.
+    if (until > Date.now() + TRIP_FLOOR_MS) until = 0;
+    _floorUntilMemo = until;
+    return until;
+  }
+
+  function _floorActive() {
+    return _floorUntil() > Date.now();
+  }
 
   function _count() {
     try {
@@ -965,6 +1344,48 @@ var BudgetHTTP = BudgetHTTP || (function() {
   return {
     categoryForReason: categoryForReason,
     adminMinRemaining: adminMinRemaining,
+
+    /**
+     * v4.16.39: called by QuotaCircuitBreaker._trip() on a Google quota trip.
+     * Holds AUTO web scans for 3h so the recovery sweep's re-pulse wave cannot
+     * spend the sliding window back to zero. Best effort: a properties failure
+     * must never break tripping.
+     * @param {number} trippedMs Trip timestamp (defaults to now)
+     */
+    noteAuthoritativeTrip: function(trippedMs) {
+      var now = Date.now();
+      var anchor = (trippedMs != null && isFinite(trippedMs)) ? Number(trippedMs) : now;
+      // Never let a future-dated or absurd anchor extend the hold past the window.
+      if (!(anchor < now)) anchor = now;
+      var until = anchor + TRIP_FLOOR_MS;
+      var persisted = _floorWrite(function(props) {
+        props.setProperty(TRIP_FLOOR_KEY, String(until));
+      });
+      if (persisted) _floorUntilMemo = until;
+      else try { Logger.log("[BUDGET_HTTP] post-trip scan floor not armed (telemetry lock/properties unavailable)"); } catch (eLog) {}
+      return persisted;
+    },
+
+    /**
+     * v4.16.39: true while AUTO web scans should stand down after a quota trip.
+     * Advisory only — read by _webScanWallet_, never by budget admission.
+     * @returns {boolean}
+     */
+    isPostTripFloorActive: function() {
+      return _floorActive();
+    },
+
+    /**
+     * v4.16.39: operator release of the post-trip scan hold.
+     * @returns {boolean} true when the deadline was cleared
+     */
+    clearPostTripFloor: function() {
+      var cleared = _floorWrite(function(props) {
+        props.deleteProperty(TRIP_FLOOR_KEY);
+      });
+      _floorUntilMemo = cleared ? 0 : null;
+      return cleared;
+    },
 
     limit: function() {
       return DAILY_LIMIT;
@@ -1000,8 +1421,125 @@ var BudgetHTTP = BudgetHTTP || (function() {
         criticalThreshold: CRITICAL_REMAINING,
         critical: remaining < CRITICAL_REMAINING,
         telemetryDegraded: telemetryDegraded,
-        adminMinRemaining: adminMinRemaining
+        adminMinRemaining: adminMinRemaining,
+        // Advisory post-trip scan hold (does not affect the budget numbers above).
+        tripFloorActive: _floorActive(),
+        tripFloorUntil: _floorUntil() || null
       };
+    }
+  };
+})();
+
+// v4.16.79 — hard ceiling of exempt attempts per slot per 09h-UTC day. The two
+// portfolios need 24 requests/day each; 96 leaves room for the 3x transient
+// retry window while staying far below the shared 20 000/day account budget.
+var QUOTA_EXEMPT_DAILY_LIMIT = 96;
+
+/**
+ * v4.16.79: metered escape hatch for the two portfolio snapshots ONLY.
+ *
+ * Read the call site before reusing this: it bypasses the global UrlFetch gates,
+ * so an accidental bulk caller would defeat every quota protection in the file.
+ * It exists because the account quota is user-scoped and third-party burn must
+ * not freeze a tab that costs one request per hour.
+ *
+ * @param {string} slot        Metered identity, also the telemetry category.
+ * @param {string} url         Request to send.
+ * @param {Object} options     UrlFetch options.
+ * @param {number=} dailyLimit Optional override of QUOTA_EXEMPT_DAILY_LIMIT.
+ * @returns {Object|null} HTTPResponse, or null when the slot's allowance is spent.
+ */
+var ExemptHttp = (function() {
+  var KEY_PREFIX = "WCORE_EXEMPT_HTTP_";
+  var LOCK_WAIT_MS = 100;
+  var _memo = {};
+
+  function _dayStamp() {
+    // Same 09h UTC rollover as the other HTTP counters (26B_HTTP_SAVINGS).
+    var d = new Date(Date.now() - 9 * 3600000);
+    return d.getUTCFullYear() + "-" + (d.getUTCMonth() + 1) + "-" + d.getUTCDate();
+  }
+
+  function _readUsed(key) {
+    var memo = _memo[key];
+    if (memo && memo.day === _dayStamp()) return memo.n;
+    var used = 0;
+    try {
+      var raw = PropertiesService.getScriptProperties().getProperty(key);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.d === _dayStamp() && typeof parsed.n === "number") used = parsed.n;
+      }
+    } catch (e) {}
+    return used;
+  }
+
+  function _reserve(slot, limit) {
+    var key = KEY_PREFIX + String(slot || "default");
+    var lock = null;
+    var acquired = false;
+    try {
+      try { lock = LockService.getUserLock(); } catch (eLock) { lock = null; }
+      if (lock && lock.tryLock) acquired = !!lock.tryLock(LOCK_WAIT_MS);
+      var props = PropertiesService.getScriptProperties();
+      var used = _readUsed(key);
+      if (used >= limit) return false;
+      used += 1;
+      _memo[key] = { day: _dayStamp(), n: used };
+      try { props.setProperty(key, JSON.stringify({ d: _dayStamp(), n: used })); } catch (eWrite) {}
+      return true;
+    } catch (e) {
+      // Telemetry/properties outage must not block the portfolio, but it also
+      // must not open an unlimited hole: fall back to the execution-local memo.
+      var memoKey = KEY_PREFIX + String(slot || "default");
+      var memoUsed = (_memo[memoKey] && _memo[memoKey].day === _dayStamp()) ? _memo[memoKey].n : 0;
+      if (memoUsed >= limit) return false;
+      _memo[memoKey] = { day: _dayStamp(), n: memoUsed + 1 };
+      return true;
+    } finally {
+      if (acquired) { try { lock.releaseLock(); } catch (eRelease) {} }
+    }
+  }
+
+  function _note(slot, url) {
+    try {
+      if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, slot, url);
+    } catch (e) {}
+    try {
+      if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment(url, slot);
+    } catch (e2) {}
+  }
+
+  return {
+    used: function(slot) {
+      return _readUsed(KEY_PREFIX + String(slot || "default"));
+    },
+
+    /**
+     * One metered attempt. Never throws on the gate: a real Google rejection
+     * propagates so the caller classifies it and the breaker stays accurate.
+     */
+    attempt: function(slot, url, options, dailyLimit) {
+      var limit = parseInt(dailyLimit, 10);
+      if (!(limit > 0)) limit = parseInt(QUOTA_EXEMPT_DAILY_LIMIT, 10);
+      if (!(limit > 0)) limit = 96;
+      if (!_reserve(slot, limit)) {
+        try { Logger.log("[EXEMPT_HTTP] allowance spent: " + slot); } catch (eLog) {}
+        return null;
+      }
+      var transport = (typeof _httpTelemetryTransport_ === "function")
+        ? _httpTelemetryTransport_()
+        : { fetch: (typeof _originalUrlFetch === "function" ? _originalUrlFetch : UrlFetchApp.fetch) };
+      var send = (transport && typeof transport.fetch === "function") ? transport.fetch : UrlFetchApp.fetch;
+      _note(slot, url);
+      try {
+        return send.call(UrlFetchApp, url, options);
+      } catch (e) {
+        try {
+          if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.handleError) QuotaCircuitBreaker.handleError(e);
+        } catch (eHandle) {}
+        throw e;
+      }
     }
   };
 })();
@@ -1111,7 +1649,12 @@ function WCORE_HTTP_MODE_STATUS() {
     ["HTTP used", budget.used || ""],
     ["Auto recovery below", st.autoRecoveryRemaining],
     ["Auto cache-only below", st.autoCacheOnlyRemaining],
-    ["Admin min remaining", budget.adminMinRemaining || ""]
+    ["Admin min remaining", budget.adminMinRemaining || ""],
+    // v4.16.39: post-trip scan hold visibility — explains deferred AUTO web
+    // scans that have no matching observed count (the count is not authoritative).
+    // _fmtLocal is private to the QuotaCircuitBreaker closure, so format here.
+    ["Post-trip scan hold", budget.tripFloorActive ? "ACTIVE (AUTO web scans deferred)" : "inactive"],
+    ["Post-trip hold until", budget.tripFloorActive && budget.tripFloorUntil ? new Date(budget.tripFloorUntil).toISOString() : ""]
   ];
 }
 
@@ -1373,6 +1916,31 @@ function GET_QUOTA_BREAKER_STATUS() {
 }
 
 /**
+ * v4.16.37: Read-only trip evidence ring. Each row: timestamp, trigger,
+ * raw Google error. Survives QuotaCircuitBreaker.reset() — this is the
+ * evidence source for recurring BLOCKED:QUOTA root-cause analysis.
+ * @returns {Array} 2D array, newest last
+ * @customfunction
+ */
+function GET_QUOTA_TRIP_HISTORY() {
+  var rows = [["Trip (UTC ms)", "Trigger", "Raw Google error"]];
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(QUOTA_BREAKER_CONFIG.TRIP_EVIDENCE_KEY);
+    if (raw) {
+      var arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (var i = 0; i < arr.length; i++) {
+          rows.push([arr[i].ts || "", String(arr[i].trigger || "unknown"), String(arr[i].error || "")]);
+        }
+      }
+    }
+  } catch (e) {
+    rows.push(["", "ERROR", String(e && e.message ? e.message : e)]);
+  }
+  return rows;
+}
+
+/**
  * Read-only summary of WCORE quota protection telemetry and policy.
  * Observed counters are project-local and do not represent Google's quota.
  * @param {*} refreshToken Optional caller-supplied changing cell; only its
@@ -1406,7 +1974,7 @@ function GET_QUOTA_PROTECTION_STATUS(refreshToken) {
   rows.push(["Web error backoff", "30m,2h,6h,24h"]);
   rows.push(["Scope", "WCORE project only"]);
   rows.push(["Authority", "Observed counts are not the authoritative Google account quota"]);
-  if (!snapshot.available) {
+  if (!snapshot.available || snapshot.corrupt) {
     rows.push(["Warning telemetry snapshot", snapshot.corrupt
       ? "CORRUPT - displayed count is a non-authoritative safe fallback"
       : "UNAVAILABLE - displayed count is a non-authoritative safe fallback"]);
@@ -1451,6 +2019,11 @@ function RESET_QUOTA_BREAKER(confirm) {
   }
   
   QuotaCircuitBreaker.reset();
+  // v4.16.39: an explicit operator reset also releases the post-trip scan hold
+  // (otherwise TRIP_QUOTA_BREAKER(TRUE) tests would freeze AUTO scans for 3h).
+  try {
+    if (typeof BudgetHTTP !== "undefined" && BudgetHTTP.clearPostTripFloor) BudgetHTTP.clearPostTripFloor();
+  } catch (eFloor) {}
   
   return "Quota circuit breaker reset OK. HTTP calls are now allowed.";
 }
@@ -1466,7 +2039,11 @@ function TRIP_QUOTA_BREAKER(confirm) {
   }
   
   QuotaCircuitBreaker.trip("Manual trip for testing");
-  return "Circuit breaker tripped. All HTTP calls will return null.";
+  // v4.16.39: a manual test trip must not silently freeze AUTO web scans for 3h.
+  try {
+    if (typeof BudgetHTTP !== "undefined" && BudgetHTTP.clearPostTripFloor) BudgetHTTP.clearPostTripFloor();
+  } catch (eFloor) {}
+  return "Circuit breaker tripped. All HTTP calls will return null. (post-trip scan hold NOT armed for a manual test trip)";
 }
 
 /**

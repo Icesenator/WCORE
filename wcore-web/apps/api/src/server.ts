@@ -15,6 +15,7 @@ import { authPlugin } from "./auth.js";
 import { gamificationPlugin, seedGmContracts } from "./gamification/index.js";
 import { supportPlugin } from "./support.js";
 import { scanPlugin } from "./plugins/scan.js";
+import { createEnrichmentScanStepIfConfigured } from "./integrations/portfolio-enrichment/scan-enrichment.js";
 import { adminPlugin, DependencyTransitionTracker, dependencyHealthStatus } from "./plugins/admin.js";
 import { healthPlugin } from "./plugins/health.js";
 import { walletPlugin } from "./plugins/wallet.js";
@@ -370,7 +371,13 @@ async function resolveCustomTokens(userId: string | undefined, requestTokens: un
 
 // --- Feature Plugins ---
 
-await scanPlugin(app, { prisma, sharedCache, getCircuitBreaker, validateChains, resolveCustomTokens, buildChainScan, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN });
+// WC-11: enrichment stays fully disabled (byte-identical scan) unless the existing
+// config already authorizes it (enabled + non-blank Zerion credential).
+const enrichmentStep = createEnrichmentScanStepIfConfigured({
+  zerion: apiConfig.portfolioEnrichment.zerion,
+  store: sharedCache,
+});
+await scanPlugin(app, { prisma, sharedCache, getCircuitBreaker, validateChains, resolveCustomTokens, buildChainScan, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN, ...(enrichmentStep ? { enrichment: { enabled: true, step: enrichmentStep } } : {}) });
 await adminPlugin(app, { prisma, checkRedis, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION });
 await walletPlugin(app, { prisma, validateCustomToken });
 await cexPlugin(app, { prisma, sharedCache });

@@ -1,6 +1,7 @@
 import type { GsheetStockPortfolioSnapshot, GsheetStockPortfolioRow } from "../plugins/gsheet.js";
 import { getBitpandaSecurity } from "./mappings.js";
 import type { ResolvedStockPrice } from "./stock-pricing.js";
+import { deriveStockValuation } from "./stock-valuation.js";
 import type { StockSnapshotRow } from "./stock-service.js";
 
 export interface StockPortfolioHoldingInput {
@@ -150,6 +151,13 @@ function rowFromRanked(row: StockSnapshotRow, holding: NormalizedHolding | null,
     holdingStale,
     updatedAt: row.updatedAt,
     errors: row.errors.map((error) => ({ ...error })),
+    // WC-10: priceEur is a reference/spot; the executable claim value is UNKNOWN unless a
+    // verifiable venue source is supplied (none exists today). Never mirrors the reference.
+    valuation: deriveStockValuation({
+      referencePriceEur: effectivePriceEur,
+      referenceSource: row.priceSource ?? row.fallbackSource,
+      referenceStale: row.stale,
+    }),
   };
 }
 
@@ -183,5 +191,10 @@ function rowFromUnrankedHolding(
     holdingStale,
     updatedAt: price?.updatedAt ?? generatedAt,
     errors: price?.errors.map((error) => ({ ...error })) ?? [{ code: "price_unavailable", message: "No valid stock price is available" }],
+    valuation: deriveStockValuation({
+      referencePriceEur: price?.priceEur ?? null,
+      referenceSource: price?.priceSource ?? price?.fallbackSource ?? null,
+      referenceStale: price?.stale ?? false,
+    }),
   };
 }

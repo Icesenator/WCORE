@@ -83,5 +83,18 @@ if (graph && Array.isArray(graph.links) && Array.isArray(graph.nodes)) {
   check("SIZE", "graphe non vide", graph.nodes.length > 0 && graph.links.length > 0, `nodes=${graph.nodes.length} links=${graph.links.length}`);
 }
 
-console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAIL"}  (JSON/GIT/LOCAL/ABS/TRACKED/LINKS/SIZE)`);
+// Le corpus d'extraction est aussi nettoye a la source par .graphify-exclude, lu par
+// le stager partage (K:\ProjetIA\scripts\graphify-project.ps1). Si un dossier local
+// disparait de ce fichier, il revient dans .tmp/graphify-input puis dans le graphe au
+// prochain rebuild : le garder aligne avec les dossiers locaux connus.
+const EXCLUDE_FILE = path.join(ROOT, ".graphify-exclude");
+const SHARED_STAGER_LOCAL_DIRS = ["data", ".generated", "graft", "_vault", "invest-gas", ".worktrees", ".claude"];
+const excludeText = fs.existsSync(EXCLUDE_FILE) ? fs.readFileSync(EXCLUDE_FILE, "utf8") : "";
+const fragments = excludeText.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+check("EXCL", ".graphify-exclude present (corpus propre a la source)", fragments.length > 0, `${fragments.length} fragment(s)`);
+const flatExclude = fragments.join(" ").replace(/\\/g, "");
+const missingExclude = SHARED_STAGER_LOCAL_DIRS.filter((dir) => !flatExclude.includes(dir));
+check("EXCL-DIRS", ".graphify-exclude couvre les dossiers locaux du stager", missingExclude.length === 0, `manquants: ${missingExclude.join(", ")}`);
+
+console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAIL"}  (JSON/GIT/LOCAL/ABS/TRACKED/LINKS/SIZE/EXCL)`);
 process.exit(failed === 0 ? 0 : 1);

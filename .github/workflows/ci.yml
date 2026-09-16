@@ -20,6 +20,25 @@ defaults:
     working-directory: wcore-web
 
 jobs:
+  # graphify-out/graph.json est un artefact suivi par git : il ne doit referencer que
+  # des sources suivies (le stager partage ne lit pas le .gitignore du projet, d'ou
+  # des noeuds issus de data/chrome-profile, .generated, graft, _vault...). Meme
+  # garde que `npm run graphify:sync`, qui prune apres extraction. Job separe car il
+  # travaille a la racine du depot, pas dans wcore-web.
+  graph-artifact-guard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Graph artifact guard (sources suivies uniquement)
+        run: node scripts/graph-artifact-guard.test.cjs
+
   typecheck-test-build:
     runs-on: ubuntu-latest
     steps:

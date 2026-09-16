@@ -15,6 +15,7 @@ Rules:
 - Code-only AST extraction needs no provider extras or API keys. Never request or expose provider keys for it.
 - Never run `graphify extract` or `graphify update` directly from the repository root, and never extract `K:\ProjetIA\WCORE` or `.`. `K:\ProjetIA\WCORE\.tmp\graphify-input` is the only extraction corpus.
 - Rebuild or refresh only with `npm run graphify:sync`, which becomes available after repository setup in Task 2.
+- Never call the shared stager (`K:\ProjetIA\scripts\graphify-project.ps1`) directly for WCORE. It does not read this project's `.gitignore`, so local trees (`data/chrome-profile`, `.generated`, `graft`, `_vault`, `invest-gas`, `.worktrees`, `.claude`) leak into `.tmp/graphify-input`. Two WCORE-owned guards keep the published artifact clean: `scripts/graphify-prune-local-nodes.cjs` (chained after `graphify:sync`, keeps only nodes whose source is tracked by git) and `scripts/graph-artifact-guard.test.cjs` (run by `npm run test:scripts` and by the `graph-artifact-guard` CI job). The source is excluded too, via `.graphify-exclude` (read by the shared stager when present).
 - A manual Obsidian export must use `rtk graphify export obsidian --graph "K:\ProjetIA\WCORE\graphify-out\graph.json" --dir "K:\ProjetIA\WCORE\.generated\graphify"`.
 
 ## Session journaling (reflex, not optional)

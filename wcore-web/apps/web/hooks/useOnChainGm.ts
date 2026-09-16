@@ -10,6 +10,8 @@ import { getApiUrl, apiFetch } from "@/lib/api";
 import { lsContractDeployed, lsSetContractDeployed, lsSetGmDone } from "@/lib/gm-storage";
 import { useSafeSwitchChain } from "./useSafeSwitchChain";
 import { switchChainAny, sendTransactionAny, waitForTransactionReceiptAny } from "@/lib/onchain-tx";
+import { resolveHasDeployed } from "@/lib/gm-deploy-status";
+import { computeGmTipWei } from "@/lib/gm-tip";
 import { useWallet } from "@/components/ConnectButton";
 
 export { getFactoryAddress };
@@ -119,10 +121,15 @@ export function useOnChainGm(config: GmConfig) {
       // Only a successful answer is evidence. Reporting "not deployed" when the request
       // failed offered a Deploy button to someone who already has a contract; null is
       // the unknown state both callers already render as still loading.
-      if (!depRes.ok) return null;
-      const depData = (await depRes.json()) as { hasDeployed?: boolean };
-      if (depData.hasDeployed) { lsSetContractDeployed(chain, "1"); return true; }
-      return false;
+      const depData = depRes.ok ? ((await depRes.json()) as { hasDeployed?: boolean }) : {};
+      const result = resolveHasDeployed({
+        chainPresent: true,
+        lsDeployed: false,
+        ok: depRes.ok,
+        hasDeployed: depData.hasDeployed,
+      });
+      if (result === true) lsSetContractDeployed(chain, "1");
+      return result;
     } catch (e) {
       console.error("checkHasDeployed failed:", e);
       return null;
@@ -193,8 +200,7 @@ export function useOnChainGm(config: GmConfig) {
 
       const ethPrice = await fetchNativePrice(chainKey);
       if (!ethPrice || ethPrice <= 0) throw new Error("ETH price unavailable");
-      const tipUsd = 0.05;
-      const tipWei = BigInt(Math.ceil(tipUsd / ethPrice * 1e18 * 1.02));
+      const tipWei = computeGmTipWei(ethPrice);
 
       const data = encodeFunctionData({
         abi: gmOnChainAbi,

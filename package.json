@@ -20,6 +20,7 @@
     "graphify:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.ps1 sync",
     "graphify:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.ps1 status",
     "test:graphify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.test.ps1",
+    "test:scripts": "node --test \"scripts/**/*.test.cjs\"",
     "bootstrap": "pnpm --dir wcore-web install"
   },
   "keywords": [],

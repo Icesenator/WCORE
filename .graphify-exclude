@@ -1,0 +1,17 @@
+# Dossiers locaux/gitignores de WCORE : jamais dans le corpus d'extraction Graphify.
+#
+# Lu par K:\ProjetIA\scripts\graphify-project.ps1 (fichier optionnel, un fragment de
+# regex par ligne, lignes vides et commentaires # ignores) et applique aux deux
+# passes de staging (code + markdown) en plus des exclusions generiques.
+#
+# Sans ce fichier, le stager partage copiait dans .tmp/graphify-input les dossiers
+# que le .gitignore du projet exclut (il ne le lit pas), d'ou 9906 noeuds sur 15190
+# dans graphify-out/graph.json sans source suivie par git (ticket
+# P1-DATA-GRAPH-CHROME-PROFILE-NODES, 2026-09-16).
+\\data\\
+\\\.generated\\
+\\graft\\
+\\_vault\\
+\\invest-gas\\
+\\\.worktrees\\
+\\\.claude\\

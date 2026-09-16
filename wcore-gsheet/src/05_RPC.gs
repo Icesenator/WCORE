@@ -873,23 +873,24 @@ batchCallChunked: function(rpc, calls, maxBatchSize, timer, config) {
  // But we CAN skip remaining RPCs once we have a successful result,
  // and track elapsed time to abort before hitting GAS 30s limit.
  var responses = [];
- var maxElapsedMs = timer ? 12000 : 8000; // 8s budget without timer (leaves room for other ops)
- var gotSuccess = false;
- for (var r = 0; r < rpcList.length; r++) {
- var elapsed = Date.now() - _t1;
- // Skip remaining RPCs if we already have a success or exceeded budget
- if (gotSuccess || elapsed > maxElapsedMs) {
- responses.push(null);
- continue;
- }
- try {
- var opts = Http._defaultOptions({ url: rpcList[r], method: "post", contentType: "application/json", payload: body, muteHttpExceptions: true }, config);
- var resp = UrlFetchApp.fetch(rpcList[r], opts);
- responses.push(resp);
- if (resp && resp.getResponseCode() === 200) {
- gotSuccess = true;
- RpcHealth.recordSuccess(rpcList[r]);
- }
+  var maxElapsedMs = timer ? 12000 : 8000; // 8s budget without timer (leaves room for other ops)
+  // v4.16.78 (WC-03): query the WHOLE consensus set — no first-success short-circuit.
+  // The elapsed budget below still guards against GAS deadline hangs; only the
+  // "stop after one 200 OK" early-abort is removed so consensus can compare votes.
+  for (var r = 0; r < rpcList.length; r++) {
+  var elapsed = Date.now() - _t1;
+  // Skip remaining RPCs only when the time budget is already exceeded
+  if (elapsed > maxElapsedMs) {
+  responses.push(null);
+  continue;
+  }
+  try {
+  var opts = Http._defaultOptions({ url: rpcList[r], method: "post", contentType: "application/json", payload: body, muteHttpExceptions: true }, config);
+  var resp = UrlFetchApp.fetch(rpcList[r], opts);
+  responses.push(resp);
+  if (resp && resp.getResponseCode() === 200) {
+  RpcHealth.recordSuccess(rpcList[r]);
+  }
  } catch (e) {
  responses.push(null);
  RpcHealth.recordFailure(rpcList[r], config);
@@ -953,18 +954,17 @@ batchCallChunked: function(rpc, calls, maxBatchSize, timer, config) {
  }
  }
  
- // v4.15.1: True strict majority — bestCount must be > half of total votes
- if (bestCount * 2 > values.length) {
- out[m] = { error: null, result: bestVal };
- } else if (values.length === 1) {
- // Only 1 RPC responded - use it but mark as uncertain
- out[m] = { error: null, result: values[0] };
- } else {
- // No majority - RPCs disagree
- out[m] = { error: { message: "consensus: no majority (" + values.length + " votes, best=" + bestCount + ")" }, result: null };
- }
- }
- return out;
+  // v4.16.78 (WC-03): strict majority over the QUERIED consensus set (rpcList.length),
+  // failures included — not over the responder count. A lone responding RPC
+  // (first-success) must never be published as "consensus".
+  var totalQueried = rpcList.length;
+  if (bestCount * 2 > totalQueried) {
+  out[m] = { error: null, result: bestVal };
+  } else {
+  out[m] = { error: { message: "consensus: no majority (" + values.length + "/" + totalQueried + " agree, best=" + bestCount + ")" }, result: null };
+  }
+  }
+  return out;
  },
  
  /**

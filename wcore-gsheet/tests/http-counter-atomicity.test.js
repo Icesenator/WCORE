@@ -10,8 +10,8 @@ const savingsSource = fs.readFileSync(path.join(root, 'src/26B_HTTP_SAVINGS.gs')
 const webSource = fs.readFileSync(path.join(root, 'src/41_GSHEET_WEB_SCAN.gs'), 'utf8');
 const refreshSource = fs.readFileSync(path.join(root, 'src/16_REFRESH.gs'), 'utf8');
 
-assert.match(quotaSource, /var\s+QUOTA_CIRCUIT_BREAKER_VERSION\s*=\s*["']4\.16\.34["']\s*;/,
-  'QUOTA_CIRCUIT_BREAKER_VERSION must match the 4.16.34 source header');
+assert.match(quotaSource, /var\s+QUOTA_CIRCUIT_BREAKER_VERSION\s*=\s*["']4\.16\.79["']\s*;/,
+  'QUOTA_CIRCUIT_BREAKER_VERSION must match the 4.16.79 source header');
 
 function extractIife(source, name) {
   const marker = `var ${name} =`;
@@ -107,6 +107,11 @@ const watchdogConstantsCode = [
 ].join('\n');
 const webBreakerConstantsCode = extractVar(webSource, 'GSHEET_WEB_BREAKER_THRESHOLD');
 
+// v4.16.39: the post-trip hold READ is deliberately lock-free (atomic
+// getProperty) so it stays reliable during UserLock contention; only the WRITE
+// keeps the locked discipline.
+const FLOOR_UNLOCKED = { allowUnlockedReads: true };
+
 function makeShared(options = {}) {
   const values = new Map();
   const writes = { set: 0, delete: 0 };
@@ -185,6 +190,10 @@ function loadCounter(shared) {
       httpDroppedTelemetry: 'CANONICAL_HTTP_DROPPED',
       webApiFailureState: 'WSCAN_BREAKER:v1',
     }[name] || name),
+    // v4.16.39: the post-trip hold READ is deliberately lock-free (atomic
+    // getProperty) so it stays reliable during UserLock contention; only the
+    // WRITE keeps the locked discipline.
+    allowUnlockedReads: true,
     PropertiesService: { getScriptProperties: () => shared.props },
     LockService: { getUserLock: () => shared.lock },
   };
@@ -216,11 +225,68 @@ function loadCounter(shared) {
 
   shared.lock.available = false;
   assert.doesNotThrow(() => first.HttpCounter.record(1, 'WEB_SCAN', 'https://ignored.example/test'), 'telemetry contention never suppresses HTTP');
-  assert.equal(first.HttpCounter.dropped(), 1, 'contended telemetry remains visible in memory');
+  // v4.16.38: contention now RETAINS the increment in the execution-local buffer
+  // instead of reclassifying it as permanently-dropped telemetry. Persisted so
+  // far: first 2 + second 1; retained: 1.
+  assert.equal(first.HttpCounter.dropped(), 0, 'contended telemetry is retained, not dropped');
+  assert.equal(first.HttpCounter.count(), 5, 'retained increments remain visible to rolling reads before flush');
+  // Under contention the persisted maps are unreadable (as before v4.16.38), so
+  // byTrigger/byHost expose only the retained contributions until the next flush.
+  assert.deepEqual(JSON.parse(JSON.stringify(first.HttpCounter.byTrigger())), {
+    WEB_SCAN: 1,
+  }, 'retained explicit-category increments stay visible under contention');
+  assert.deepEqual(JSON.parse(JSON.stringify(first.HttpCounter.byHost())), {
+    'ignored.example': 1,
+  }, 'retained host contributions stay visible under contention');
   shared.lock.available = true;
   first.HttpCounter.record(1, 'WEB_SCAN', 'https://api-production-b5bf.up.railway.app/api/gsheet/scan');
-  assert.ok(third.HttpCounter.dropped() >= 1, 'next successful record persists dropped telemetry');
-  assert.ok(shared.values.has('CANONICAL_HTTP_DROPPED'), 'dropped telemetry uses the canonical key');
+  assert.equal(first.HttpCounter.dropped(), 0, 'retained increments persist on the next successful record without becoming dropped');
+  assert.equal(third.HttpCounter.count(), 6, 'the next successful record merges retained increments into the persisted count');
+  assert.equal(third.HttpCounter.byTrigger().WEB_SCAN, 4, 'retained increments persist under their original category');
+  assert.equal(third.HttpCounter.dropped(), 0, 'no dropped telemetry: contention retains instead of dropping');
+
+  {
+    // v4.16.38: explicit flush() drains retained increments even without a record.
+    const sharedFlush = makeShared();
+    const a = loadCounter(sharedFlush);
+    const b = loadCounter(sharedFlush);
+    sharedFlush.lock.available = false;
+    a.HttpCounter.record(2, 'QUOTA_PROBE', 'https://httpbin.org/status/200');
+    assert.equal(a.HttpCounter.count(), 2, 'retained increments are counted in-memory before flush');
+    sharedFlush.lock.available = true;
+    assert.equal(a.HttpCounter.flush(), true, 'flush() reports success when the lock frees');
+    assert.equal(b.HttpCounter.count(), 2, 'flush() persists retained increments to the shared properties');
+    assert.equal(a.HttpCounter.count(), 2, 'retained buffer is cleared after a successful flush');
+  }
+
+  {
+    // v4.16.38: reset() clears the retained buffer — stale memory must never
+    // resurrect deleted counters.
+    const sharedReset = makeShared();
+    const a = loadCounter(sharedReset);
+    const b = loadCounter(sharedReset);
+    sharedReset.lock.available = false;
+    a.HttpCounter.record(5, 'WEB_SCAN', 'https://api.example.test/scan');
+    sharedReset.lock.available = true;
+    assert.equal(a.HttpCounter.reset(), true, 'reset succeeds when the lock is available');
+    assert.equal(a.HttpCounter.count(), 0, 'reset clears the retained buffer');
+    assert.equal(b.HttpCounter.count(), 0, 'reset clears persisted buckets');
+    assert.equal(a.HttpCounter.snapshot().total, 0, 'snapshot shows a fully reset counter');
+  }
+
+  {
+    // v4.16.38: noteDropped() from the legacy counter still persists on the next
+    // successful record, separately from retained increments.
+    const sharedDropped = makeShared();
+    const a = loadCounter(sharedDropped);
+    const b = loadCounter(sharedDropped);
+    a.HttpCounter.noteDropped(3);
+    assert.equal(a.HttpCounter.dropped(), 3, 'noted drops are visible in memory before persistence');
+    a.HttpCounter.record(1, 'WEB_SCAN', 'https://api.example.test/scan');
+    assert.equal(b.HttpCounter.dropped(), 3, 'the next successful record persists noted drops');
+    assert.ok(sharedDropped.values.has('CANONICAL_HTTP_DROPPED'), 'dropped telemetry uses the canonical key');
+  }
+
 }
 
 {
@@ -339,7 +405,7 @@ function loadCounter(shared) {
   assert.deepEqual(shared.writes, { set: 0, delete: 0 }, 'empty snapshot remains read-only');
 }
 
-for (const key of ['WCORE_HTTP_BUCKETS_v1', 'WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTTP_HOSTS_v1', 'CANONICAL_HTTP_DROPPED']) {
+for (const key of ['WCORE_HTTP_BUCKETS_v1', 'CANONICAL_HTTP_DROPPED']) {
   for (const badCase of [
     { value: '{malformed', kind: 'malformed' },
     { value: '42', kind: 'non-object' },
@@ -357,6 +423,29 @@ for (const key of ['WCORE_HTTP_BUCKETS_v1', 'WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTT
       hosts: {},
       dropped: 0,
     }, `${key} present ${badCase.kind} JSON fails closed`);
+    assert.equal(shared.values.get(key), badValue, 'snapshot must not repair corrupt telemetry');
+    assert.deepEqual(shared.writes, { set: 0, delete: 0 }, 'corrupt snapshot must not write or delete properties');
+  }
+}
+
+for (const key of ['WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTTP_HOSTS_v1']) {
+  for (const badCase of [
+    { value: '{malformed', kind: 'malformed' },
+    { value: '42', kind: 'non-object' },
+    { value: '[]', kind: 'array' },
+  ]) {
+    const badValue = badCase.value;
+    const shared = makeShared();
+    shared.values.set(key, badValue);
+    const runtime = loadCounter(shared);
+    assert.deepEqual(JSON.parse(JSON.stringify(runtime.HttpCounter.snapshot())), {
+      available: true,
+      corrupt: true,
+      total: 0,
+      categories: {},
+      hosts: {},
+      dropped: 0,
+    }, `${key} present ${badCase.kind} JSON keeps the authoritative total and reports the repaired breakdown`);
     assert.equal(shared.values.get(key), badValue, 'snapshot must not repair corrupt telemetry');
     assert.deepEqual(shared.writes, { set: 0, delete: 0 }, 'corrupt snapshot must not write or delete properties');
   }
@@ -739,10 +828,228 @@ assert.match(quotaSource, /transport\.explicitTelemetry[\s\S]*HttpCounter\.recor
   'quota breaker exact probe path is explicitly counted by both counters');
 assert.match(recoveryProbe, /transport\.explicitTelemetry[\s\S]*HttpCounter\.record\(1,\s*["']QUOTA_PROBE["'],\s*probeUrl\)[\s\S]*HttpCallCounter\.increment\(probeUrl,\s*["']QUOTA_PROBE["']\)[\s\S]*transport\.fetch\.call/,
   'quota recovery exact probe path is explicitly counted by both counters');
+// v4.16.39 — post-trip scan hold (piste 2, anti-récurrence BLOCKED:QUOTA).
+// Google's UrlFetch quota is user-scoped: other scripts on the account consume
+// the same 20k window, so WCORE's observed count is a lower bound and cannot be
+// the only admission signal. An authoritative Google trip ("Service invoked too
+// many times") is the ONLY proof the account window is really exhausted. After
+// such a trip, QUOTA_RECOVERY_SWEEP resets the breaker as soon as httpbin passes
+// and re-pulses every blocked sheet — the resulting wave re-exhausts the sliding
+// window and re-trips immediately (observed 2026-09-09: 4 trips in 2h).
+// The hold defers AUTO web scans (the dominant consumer) to cached output for 3h
+// so the sliding window can refill. It is ADVISORY: budgets and modes are left
+// untouched (see the CRITICAL INVARIANT below for why clamping would have
+// blocked the portfolios through the generic 26B patch).
+{
+  const shared = makeShared(FLOOR_UNLOCKED);
+  const runtime = loadCounter(shared);
+  const TRIP_FLOOR_KEY = 'WCORE_HTTP_TRIP_FLOOR_UNTIL_v1';
+
+  assert.equal(typeof runtime.BudgetHTTP.noteAuthoritativeTrip, 'function',
+    'BudgetHTTP must expose the authoritative-trip hook the breaker calls on a real Google trip');
+
+  assert.equal(runtime.BudgetHTTP.remaining(), 20000, 'no floor armed: the full budget is available');
+  assert.equal(runtime.WcoreHttpMode.getEffectiveMode(), 'NORMAL', 'no floor armed: WCORE runs in NORMAL mode');
+
+  runtime.BudgetHTTP.noteAuthoritativeTrip(Date.now());
+
+  const floorRaw = shared.values.get(TRIP_FLOOR_KEY);
+  assert.ok(floorRaw, 'an authoritative trip persists the floor deadline so it survives the execution');
+  const floorUntil = parseInt(floorRaw, 10);
+  assert.ok(Math.abs(floorUntil - (Date.now() + 3 * 60 * 60 * 1000)) < 5000,
+    'the post-trip floor lasts exactly 3h after the authoritative trip');
+
+  const status = JSON.parse(JSON.stringify(runtime.BudgetHTTP.status()));
+  assert.equal(status.tripFloorActive, true, 'status reports the active post-trip floor');
+  assert.equal(status.tripFloorUntil, floorUntil, 'status exposes the floor deadline for diagnostics');
+
+  // CRITICAL INVARIANT (QA finding, 2026-09-10): the floor must NOT change the
+  // global HTTP mode. Every UrlFetchApp.fetch goes through the generic
+  // 26B_HTTP_SAVINGS patch, whose reason "26B.fetch" maps to category "other" —
+  // which RECOVERY mode denies. Clamping remaining() would therefore have
+  // blocked the Action/Crypto portfolios: exactly the failure being fixed.
+  // The floor is an advisory signal read by the AUTO web-scan admission only.
+  assert.equal(runtime.BudgetHTTP.remaining(), 20000,
+    'the floor must NOT clamp the global budget: that would deny the portfolios through the generic 26B patch');
+  assert.equal(runtime.WcoreHttpMode.getEffectiveMode(), 'NORMAL',
+    'the floor must NOT force a global mode change — portfolios and balances keep their normal admission');
+  assert.equal(runtime.BudgetHTTP.allow('26B.fetch'), true, 'the generic patched-fetch path stays admitted under the floor');
+  assert.equal(runtime.WcoreHttpMode.isAllowed('26B.fetch'), true, 'the real portfolio call path is never denied by the floor');
+}
+
+{
+  // The hold is anchored to the trip and must OUTLIVE the breaker reset — the
+  // sweep resets the breaker within minutes, which is exactly when the wave used
+  // to start. It is released by its own 3h expiry, by clearPostTripFloor(), or
+  // by RESET_QUOTA_BREAKER(TRUE) (operator action) — NOT by the sweep's
+  // automatic breaker reset, which is the whole point.
+  const shared = makeShared(FLOOR_UNLOCKED);
+  const runtime = loadCounter(shared);
+  const TRIP_FLOOR_KEY = 'WCORE_HTTP_TRIP_FLOOR_UNTIL_v1';
+
+  runtime.BudgetHTTP.noteAuthoritativeTrip(Date.now() - 60 * 60 * 1000); // tripped 1h ago
+  assert.equal(runtime.BudgetHTTP.isPostTripFloorActive(), true, 'a 1h-old trip keeps the hold armed');
+
+  // A fresh runtime (new execution, breaker already reset by the sweep) must
+  // still observe the hold through the persisted deadline.
+  const laterExecution = loadCounter(shared);
+  assert.equal(laterExecution.BudgetHTTP.isPostTripFloorActive(), true,
+    'a later execution reads the persisted hold: the sweep reset must not release the scan guard');
+
+  // Once the 3h window elapses, normal scanning resumes on its own.
+  shared.values.set(TRIP_FLOOR_KEY, String(Date.now() - 1000));
+  const afterWindow = loadCounter(shared);
+  assert.equal(afterWindow.BudgetHTTP.isPostTripFloorActive(), false, 'an elapsed hold is reported inactive');
+  assert.equal(afterWindow.BudgetHTTP.remaining(), 20000, 'an elapsed hold leaves the budget untouched');
+
+  // Corrupt / absurd deadlines must never wedge WCORE into a permanent guard.
+  shared.values.set(TRIP_FLOOR_KEY, String(Date.now() + 999 * 60 * 60 * 1000));
+  const corrupted = loadCounter(shared);
+  assert.equal(corrupted.BudgetHTTP.isPostTripFloorActive(), false,
+    'a deadline beyond the maximum hold window is treated as corrupt, not as a permanent guard');
+
+  shared.values.set(TRIP_FLOOR_KEY, 'not-a-number');
+  const garbage = loadCounter(shared);
+  assert.equal(garbage.BudgetHTTP.isPostTripFloorActive(), false, 'a malformed deadline never arms the guard');
+}
+
+{
+  // An operator must always be able to release the guard (clearPostTripFloor,
+  // also wired into RESET_QUOTA_BREAKER(TRUE) and neutralized after a manual
+  // TRIP_QUOTA_BREAKER test).
+  const shared = makeShared(FLOOR_UNLOCKED);
+  const runtime = loadCounter(shared);
+  runtime.BudgetHTTP.noteAuthoritativeTrip(Date.now());
+  assert.equal(runtime.BudgetHTTP.isPostTripFloorActive(), true, 'hold armed before the manual release');
+  assert.equal(typeof runtime.BudgetHTTP.clearPostTripFloor, 'function', 'BudgetHTTP must expose a manual release');
+  runtime.BudgetHTTP.clearPostTripFloor();
+  assert.equal(runtime.BudgetHTTP.isPostTripFloorActive(), false, 'the manual release clears the hold immediately');
+  assert.equal(shared.values.has('WCORE_HTTP_TRIP_FLOOR_UNTIL_v1'), false, 'the manual release deletes the persisted deadline');
+}
+
+{
+  // A future-dated trip anchor must not extend the guard beyond the window.
+  const shared = makeShared(FLOOR_UNLOCKED);
+  const runtime = loadCounter(shared);
+  runtime.BudgetHTTP.noteAuthoritativeTrip(Date.now() + 48 * 60 * 60 * 1000);
+  const until = parseInt(shared.values.get('WCORE_HTTP_TRIP_FLOOR_UNTIL_v1'), 10);
+  assert.ok(until <= Date.now() + 3 * 60 * 60 * 1000 + 5000,
+    'a future-dated anchor is clamped: the guard can never exceed the 3h window');
+}
+
+{
+  // A real saturated measurement is untouched: the floor is orthogonal to the
+  // existing budget semantics.
+  const shared = makeShared();
+  const runtime = loadCounter(shared);
+  const bucket = String(Math.floor(Date.now() / (60 * 60 * 1000)));
+  shared.values.set('WCORE_HTTP_BUCKETS_v1', JSON.stringify({ [bucket]: 20000 }));
+  runtime.BudgetHTTP.noteAuthoritativeTrip(Date.now());
+  assert.equal(runtime.BudgetHTTP.used(), 20000, 'the floor never alters the observed count');
+  assert.equal(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'real saturation still forces CACHE_ONLY on its own');
+}
+
+{
+  // Persistence failures must never break admission: the floor is a safety
+  // improvement, not a new failure mode.
+  const shared = makeShared();
+  const runtime = loadCounter(shared);
+  shared.failSetOnce.add('WCORE_HTTP_TRIP_FLOOR_UNTIL_v1');
+  assert.doesNotThrow(() => runtime.BudgetHTTP.noteAuthoritativeTrip(Date.now()),
+    'a properties failure while arming the floor must never throw into the breaker trip path');
+  shared.failGetOnce.add('WCORE_HTTP_TRIP_FLOOR_UNTIL_v1');
+  assert.doesNotThrow(() => runtime.BudgetHTTP.remaining(), 'a properties read failure must not break budget reads');
+}
+
+// The breaker must arm the floor on every authoritative trip, next to the
+// evidence ring (both are trip-time, best-effort side effects).
+assert.match(quotaSource, /function\s+_trip\s*\(errorMessage\)[\s\S]*BudgetHTTP\.noteAuthoritativeTrip/,
+  '_trip must arm the post-trip budget floor on every authoritative Google trip');
+
+// The guard must act where the quota is actually burned. AUTO web scans bypass
+// Http.canFetchNow entirely (they fetch through _originalUrlFetch), so the floor
+// has to be consulted at web-scan admission — and only for AUTO scans: a manual
+// forceFull refresh stays the operator's explicit decision.
+const floorGateCode = extractFunction(webSource, '_webScanPostTripFloorDeferred_');
+{
+  const admission = extractFunction(webSource, '_webScanWallet_');
+  assert.match(admission, /_webScanPostTripFloorDeferred_/,
+    'the AUTO web-scan path must consult the post-trip floor before scanning');
+  const floorGate = extractFunction(webSource, '_webScanPostTripFloorDeferred_');
+  assert.match(floorGate, /_webScanForce_/,
+    'a manual forceFull scan must bypass the post-trip floor');
+  assert.match(floorGate, /BudgetHTTP[\s\S]*isPostTripFloorActive/,
+    'the gate reads the shared post-trip floor state');
+  assert.doesNotMatch(floorGate, /throw|BLOCKED:QUOTA/,
+    'a floor-deferred scan degrades to cached output, it never surfaces an error');
+
+  // Runtime check of the gate itself, not just its wiring.
+  const gateContext = {
+    _webScanForce_: (f) => f === true,
+    BudgetHTTP: { isPostTripFloorActive: () => true },
+  };
+  vm.createContext(gateContext);
+  vm.runInContext(floorGateCode, gateContext);
+  assert.equal(gateContext._webScanPostTripFloorDeferred_(false), true, 'an AUTO scan is deferred while the hold is active');
+  assert.equal(gateContext._webScanPostTripFloorDeferred_(true), false, 'a manual forceFull scan bypasses the hold');
+  gateContext.BudgetHTTP = { isPostTripFloorActive: () => false };
+  assert.equal(gateContext._webScanPostTripFloorDeferred_(false), false, 'an AUTO scan proceeds once the hold expires');
+  gateContext.BudgetHTTP = {};
+  assert.equal(gateContext._webScanPostTripFloorDeferred_(false), false, 'a missing BudgetHTTP leaves scans admitted (fail-open)');
+}
+
 assert.doesNotMatch(counterCode + legacyCode, /getScriptLock/, 'HTTP counters must never use ScriptLock');
 assert.match(counterCode + legacyCode, /user-scoped UrlFetch quota[\s\S]*observational WCORE telemetry/i,
   'counter source documents why UserLock is intentional and cross-user totals are not authoritative');
 assert.match(counterCode, /dropped[^\n]*lower bound/i,
   'counter source documents the execution-local dropped telemetry limitation');
+
+// v4.16.76: every CEX connector exit must flush HttpCounter (the rolling-24h
+// budget counter). HttpCounter.record() retains contended increments in an
+// execution-local buffer; if the execution ends without a flush those counts are
+// lost, which made the budget blind to CEX burn even though UPDATE_KRAKEN_SPOT /
+// UPDATE_BITFINEX_SPOT re-tripped Google's per-user UrlFetch quota (2026-09-10/11).
+// Same exit contract as the watchdog / recovery / portfolio wrappers wired in v4.16.71.
+const bitpandaSource = fs.readFileSync(path.join(root, 'src/35_BITPANDA_SYNC.gs'), 'utf8');
+const bitfinexSource = fs.readFileSync(path.join(root, 'src/37_BITFINEX_SYNC.gs'), 'utf8');
+const krakenSource = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
+const cexBulkSource = fs.readFileSync(path.join(root, 'src/44_CEX_BULK.gs'), 'utf8');
+
+assert.match(bitpandaSource, /var\s+BITPANDA_SYNC_VERSION\s*=\s*["']4\.16\.75["']\s*;/,
+  'BITPANDA_SYNC_VERSION must be bumped to 4.16.75 (CEX exit flush)');
+assert.match(bitfinexSource, /var\s+BITFINEX_SYNC_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
+  'BITFINEX_SYNC_VERSION must be bumped to 4.16.35 (CEX exit flush)');
+assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.41["']\s*;/,
+  'KRAKEN_SYNC_VERSION must be bumped to 4.16.41 (nonce persistant + lock partage anti lockout)');
+assert.match(cexBulkSource, /var\s+CEX_BULK_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
+  'CEX_BULK_VERSION must be bumped to 4.16.35 (CEX exit flush)');
+
+const cexExitFns = [
+  [bitpandaSource, 'UPDATE_BITPANDA_SPOT'],
+  [bitpandaSource, 'UPDATE_BITPANDA_STOCKS_FIAT'],
+  [bitfinexSource, 'UPDATE_BITFINEX_SPOT'],
+  [krakenSource, 'UPDATE_KRAKEN_SPOT'],
+  [krakenSource, 'UPDATE_KRAKEN_STOCKS_FIAT'],
+  [cexBulkSource, 'UPDATE_CEX_RELAY_ROTATION'],
+];
+for (const [source, name] of cexExitFns) {
+  const body = extractFunction(source, name);
+  assert.match(body, /finally\s*\{[\s\S]*HttpCounter\.flush/,
+    `${name} must flush HttpCounter on exit so retained CEX burn reaches the budget`);
+  assert.match(body, /finally\s*\{[\s\S]*HttpCallCounter\.clearTrigger/,
+    `${name} must clear the trigger label on exit`);
+}
+
+// v4.16.76: the central exit hook must persist BOTH counters. HttpCallCounter's
+// legacy daily breakdown and HttpCounter's rolling budget both keep
+// execution-local buffers; clearTrigger() is the one exit point every trigger
+// wrapper calls, so it is where both must be drained.
+assert.match(savingsSource, /var\s+HTTP_SAVINGS_VERSION\s*=\s*["']4\.16\.76["']\s*;/,
+  'HTTP_SAVINGS_VERSION must be bumped to 4.16.76 (clearTrigger exit flush)');
+const clearTriggerCode = extractFunction(savingsSource, 'clearTrigger');
+assert.match(clearTriggerCode, /try\s*\{\s*flush\(\)\s*;?\s*\}\s*catch/,
+  'clearTrigger must flush the legacy HttpCallCounter buffer');
+assert.match(clearTriggerCode, /HttpCounter\.flush/,
+  'clearTrigger must flush the rolling HttpCounter budget buffer');
 
 console.log('HTTP counter atomicity OK');

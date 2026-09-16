@@ -887,6 +887,7 @@ function UPDATE_DYNAMIC_RPCS(force) {
     return "ERROR: " + String(e.message || e);
   } finally {
     try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 

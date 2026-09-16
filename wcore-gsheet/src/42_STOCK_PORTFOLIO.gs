@@ -1,3 +1,5 @@
+// v4.16.79 - Metered quota-exempt fallback + timestamped BLOCKED:QUOTA status, so a third-party drain of the user-scoped UrlFetch quota no longer freezes B1 for hours.
+// v4.16.77 - Bounded document-lock wait when the Stock/Crypto hourly triggers fire at the same minute; the loser no longer returns BUSY leaving a stale B1.
 // v4.16.34 - Retry HTTP 502/503 from the WCORE API proxy before surfacing an error.
 // v4.16.33 - Retry incomplete HTTP 200 JSON responses before surfacing an error.
 // v4.16.32 - Serialize portfolio writes; quota recovery is combined in 16_REFRESH.
@@ -9,7 +11,7 @@
 // v4.15.160 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.159 - Repair Action formats with filters suspended so hidden rows are formatted too.
 
-var STOCK_PORTFOLIO_VERSION = "4.16.34";
+var STOCK_PORTFOLIO_VERSION = "4.16.79";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -97,7 +99,12 @@ function SETUP_STOCK_PORTFOLIO() {
 
 function UPDATE_STOCK_PORTFOLIO() {
   var portfolioLock = LockService.getDocumentLock();
-  if (!portfolioLock.tryLock(1000)) return "BUSY: another portfolio refresh is running";
+  var portfolioLocked = portfolioLock.tryLock(1000);
+  for (var lockAttempt = 1; !portfolioLocked && lockAttempt <= 5; lockAttempt++) {
+    try { Utilities.sleep(5000); } catch (eLockSleep) {}
+    portfolioLocked = portfolioLock.tryLock(20000);
+  }
+  if (!portfolioLocked) return "BUSY: another portfolio refresh is running";
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
     var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
@@ -228,7 +235,10 @@ function _stockPortfolioBuildRow1_(existingRow1) {
 function STOCK_PORTFOLIO_HOURLY_REFRESH() {
   try { HttpCallCounter.setTrigger('STOCK_PORTFOLIO_HOURLY_REFRESH'); } catch(e){}
   try { return UPDATE_STOCK_PORTFOLIO(); }
-  finally { try { HttpCallCounter.clearTrigger(); } catch(e){} }
+  finally {
+    try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
+  }
 }
 
 function INSTALL_STOCK_PORTFOLIO_HOURLY_REFRESH() {
@@ -417,12 +427,22 @@ function _stockPortfolioFetchSnapshot_() {
   if (!baseUrl) throw new Error("Missing ScriptProperty WCORE_WEB_API_URL");
   if (!token) throw new Error("Missing ScriptProperty GSHEET_API_TOKEN");
   var result = _stockPortfolioFetchWithRetry_(function () {
-    var fetchResult = UrlFetchApp.fetch(baseUrl.replace(/\/$/, "") + STOCK_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true", {
+    var url = baseUrl.replace(/\/$/, "") + STOCK_PORTFOLIO_CONFIG.ENDPOINT + "?fresh=true";
+    var options = {
       method: "get",
       muteHttpExceptions: true,
       headers: { "x-gsheet-token": token, accept: "application/json" }
-    });
-    if (!fetchResult) throw new Error("BLOCKED:QUOTA - WCORE stock portfolio HTTP blocked or empty response");
+    };
+    var fetchResult = UrlFetchApp.fetch(url, options);
+    // v4.16.79: the account's UrlFetch budget is user-scoped, so another Apps
+    // Script can drain it while WCORE is idle; both gates then return null
+    // before Google is ever asked. Spend one metered exempt attempt so that
+    // third-party burn cannot freeze this tab — a real Google rejection still
+    // propagates and is reported honestly.
+    if (!fetchResult && typeof ExemptHttp !== "undefined" && ExemptHttp.attempt) {
+      fetchResult = ExemptHttp.attempt("PORTFOLIO_STOCK", url, options);
+    }
+    if (!fetchResult) throw new Error("BLOCKED:QUOTA - WCORE stock portfolio HTTP blocked or empty response " + _stockPortfolioCurrentRunTimestamp_());
     if (typeof fetchResult.getResponseCode !== "function") {
       throw new Error("WCORE stock portfolio HTTP blocked or empty response");
     }

@@ -80,6 +80,7 @@ function createSharedQuotaRuntimeState() {
     trippedMs: Date.now(),
     error: 'Service invoked too many times for one day: urlfetch'
   })]]);
+  const propsMap = new Map();
   const metrics = { lockAttempts: 0, lockHeld: false, puts: [], removals: [] };
   const cache = {
     get(key) {
@@ -108,7 +109,12 @@ function createSharedQuotaRuntimeState() {
     },
     releaseLock() { metrics.lockHeld = false; }
   };
-  return { values, cache, lock, metrics };
+  const propsApi = {
+    get: (key) => propsMap.get(key) || null,
+    set: (key, value) => { propsMap.set(key, value); },
+    delete: (key) => { propsMap.delete(key); }
+  };
+  return { values, cache, lock, metrics, propsMap, propsApi };
 }
 
 function loadQuotaCircuitBreakerRuntime(fetchImpl, shared = createSharedQuotaRuntimeState()) {
@@ -121,6 +127,13 @@ function loadQuotaCircuitBreakerRuntime(fetchImpl, shared = createSharedQuotaRun
     Date,
     LockService: { getScriptLock: () => shared.lock },
     Logger: { log() {} },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (key) => shared.propsApi.get(key),
+        setProperty: (key, value) => shared.propsApi.set(key, value),
+        deleteProperty: (key) => shared.propsApi.delete(key)
+      })
+    },
     Session: { getScriptTimeZone: () => 'UTC' },
     Utilities: { formatDate: () => '' },
     UrlFetchApp: {},
@@ -158,6 +171,57 @@ nearMissQuotaErrors.forEach((error) => assert.strictEqual(qcb.isQuotaError(error
   const staleQcb = loadQuotaCircuitBreakerRuntime(() => { throw new Error('Address unavailable: httpbin.org'); });
   assert.strictEqual(staleQcb.testOnce(), false, 'an inconclusive non-quota probe must not report recovery');
   assert.strictEqual(staleQcb.isTripped(), true, 'an inconclusive non-quota probe must preserve the stale breaker');
+}
+
+{
+  // v4.16.37: trip evidence must survive reset and cap at 5 entries.
+  const shared = createSharedQuotaRuntimeState();
+  const tripping = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+  const first = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+  const second = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+  const third = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+
+  first.trip('Service invoked too many times for one day: urlfetch');
+  second.trip('Service invoked too many times: urlfetch');
+  third.trip('Service invoked too many times for one day: urlfetch');
+
+  const rawEvidence = shared.propsMap.get('WCORE_QCB_TRIP_EVIDENCE_v1');
+  assert.ok(rawEvidence, 'trips must persist evidence to ScriptProperties');
+  const evidence = JSON.parse(rawEvidence);
+  assert.strictEqual(evidence.length, 3, 'every trip appends one evidence entry');
+  assert.match(evidence[0].error, /for one day/, 'raw Google error text is preserved verbatim');
+  assert.strictEqual(typeof evidence[0].ts, 'number', 'evidence carries a numeric trip timestamp');
+
+  // reset() (run by the sweep) must NOT destroy the evidence ring.
+  tripping.reset();
+  const evidenceAfterReset = JSON.parse(shared.propsMap.get('WCORE_QCB_TRIP_EVIDENCE_v1'));
+  assert.strictEqual(evidenceAfterReset.length, 3, 'reset must preserve trip evidence — the sweep must not erase root-cause data');
+
+  // Ring cap: a 6th entry evicts the oldest, keeping the newest 5.
+  const fourth = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+  const fifth = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+  const sixth = loadQuotaCircuitBreakerRuntime(() => {}, shared);
+  fourth.trip('Quota exceeded for quota metric URL Fetch calls and limit URL Fetch calls per day');
+  fifth.trip('Service invoked too many times: urlfetch');
+  sixth.trip('Service invoked too many times for one day: urlfetch');
+  const capped = JSON.parse(shared.propsMap.get('WCORE_QCB_TRIP_EVIDENCE_v1'));
+  assert.strictEqual(capped.length, 5, 'evidence ring is capped at 5 entries');
+  assert.match(capped[0].error, /Service invoked too many times: urlfetch/, 'the oldest entry is evicted first');
+  assert.match(capped[2].error, /Quota exceeded for quota metric/, 'newer entries keep their original order');
+
+  // Properties failure must never break tripping itself.
+  const failingShared = createSharedQuotaRuntimeState();
+  failingShared.propsApi.set = () => { throw new Error('properties unavailable'); };
+  failingShared.propsApi.get = () => { throw new Error('properties unavailable'); };
+  const failing = loadQuotaCircuitBreakerRuntime(() => {}, failingShared);
+  let threw = null;
+  try {
+    failing.trip('Service invoked too many times: urlfetch');
+  } catch (e) {
+    threw = e;
+  }
+  assert.strictEqual(threw, null, 'trip evidence failure must never break tripping');
+  assert.strictEqual(failing.isTripped(), true, 'breaker still trips when evidence persistence fails');
 }
 
 {
@@ -456,6 +520,9 @@ function runMainSweep({ probeOk, qcbBlocked = false, guardBlocked = false, quota
     _recoverySchedulePortfolioRefresh_: () => { scheduled++; },
     _recoveryIsPortfolioRefreshPending_: () => pending,
     _recoveryCollectBlocked_: () => ({ quota: quotaRows, timeout: [], all: quotaRows }),
+    _recoverySelectPulseList_: (list) => ({ pulse: (list || []).slice(0, 5), deferred: (list || []).slice(5) }),
+    _recoveryPulseBatches_: () => ({ pulsed: 0, batches: 0, skippedFromIdx: -1 }),
+    _recoverySetSkipped_() {},
     _recoveryClearSkipped_() {},
     _recoveryClearFollowupPending_() {},
     _wcoreGetSpreadsheet_: () => ({ getSheetByName: () => ({}) }),
@@ -510,6 +577,9 @@ function runFollowup({ qcbBlocked = false, guardBlocked = false, quotaRows = [],
     _recoveryIsPortfolioRefreshPending_: () => pending,
     _recoveryGetSkipped_: () => ({ sheets: skippedRows }),
     _recoveryCollectBlocked_: () => ({ quota: quotaRows, timeout: [], all: quotaRows }),
+    _recoverySelectPulseList_: (list) => ({ pulse: (list || []).slice(0, 5), deferred: (list || []).slice(5) }),
+    _recoveryPulseBatches_: () => ({ pulsed: 0, batches: 0, skippedFromIdx: -1 }),
+    _recoverySetSkipped_() {},
     _recoveryClearSkipped_() {},
     _wcoreGetSpreadsheet_: () => ({ getSheetByName: () => ({}) }),
     RECAP_SHEET_NAME: 'Recap Portfolio'
@@ -524,6 +594,63 @@ assert.strictEqual(runFollowup({}), 0, 'healthy followup with no recovery state 
 assert.strictEqual(runFollowup({ skippedRows: ['Ledger - Skipped'] }), 1, 'followup skipped recovery state must queue portfolio work');
 assert.strictEqual(runFollowup({ guardBlocked: true }), 1, 'followup tripped quota guard must queue portfolio work');
 assert.strictEqual(runFollowup({ pending: true }), 1, 'followup pending marker must queue portfolio work');
+
+// v4.16.71 — piste 3: hold-aware recovery sweep.
+// After an authoritative Google trip, BudgetHTTP holds AUTO web scans for 3h.
+// Pulsing on-chain wallets during that window only writes B1 (the scan returns
+// cached output) and burns watchdog pulse budget. The sweep must therefore:
+//   1. still schedule portfolio recovery (Action/Crypto are 1 fetch each and
+//      bypass the hold);
+//   2. skip on-chain wallet pulses while the hold is active, persisting them
+//      as skipped so FOLLOWUP retries after the hold;
+//   3. cap the first-pass pulse list at 5 even when the hold is inactive, so
+//      a 100-wallet herd cannot re-exhaust the sliding window in one run.
+{
+  const helper = extractFunction(recoverySource, '_recoverySelectPulseList_');
+  assert.match(helper, /isPostTripFloorActive/,
+    'the sweep must consult the post-trip scan hold before pulsing on-chain wallets');
+  assert.match(helper, /RECOVERY_FIRST_PASS_CAP/,
+    'the first-pass pulse list must be hard-capped');
+  const context = { BudgetHTTP: { isPostTripFloorActive: () => false } };
+  vm.createContext(context);
+  vm.runInContext(
+    'var RECOVERY_FIRST_PASS_CAP = 5;\n' + helper,
+    context
+  );
+
+  const wallets = [];
+  for (let i = 1; i <= 12; i++) wallets.push('Ledger - W' + i);
+  const uncapped = JSON.parse(JSON.stringify(context._recoverySelectPulseList_(wallets, false)));
+  assert.deepStrictEqual(uncapped.pulse, wallets.slice(0, 5),
+    'first pass pulses at most 5 on-chain wallets even with a healthy quota');
+  assert.deepStrictEqual(uncapped.deferred, wallets.slice(5),
+    'overflow wallets are deferred to FOLLOWUP, not dropped');
+
+  context.BudgetHTTP = { isPostTripFloorActive: () => true };
+  const held = JSON.parse(JSON.stringify(context._recoverySelectPulseList_(wallets, true)));
+  assert.deepStrictEqual(held.pulse, [],
+    'while the post-trip hold is active the sweep must not pulse on-chain wallets');
+  assert.deepStrictEqual(held.deferred, wallets,
+    'held wallets are persisted as skipped so FOLLOWUP retries after the hold');
+
+  // Production call site omits the second arg and reads BudgetHTTP.
+  const heldViaBudget = JSON.parse(JSON.stringify(context._recoverySelectPulseList_(wallets)));
+  assert.deepStrictEqual(heldViaBudget.pulse, [],
+    'omitted holdActive still defers every wallet when BudgetHTTP reports the hold');
+  assert.deepStrictEqual(heldViaBudget.deferred, wallets,
+    'omitted holdActive still persists the full list for FOLLOWUP');
+}
+
+{
+  const sweep = extractFunction(recoverySource, 'QUOTA_RECOVERY_SWEEP');
+  const followup = extractFunction(recoverySource, 'QUOTA_RECOVERY_SWEEP_FOLLOWUP');
+  assert.match(sweep, /_recoverySelectPulseList_/,
+    'the main sweep must filter its pulse list through the hold-aware selector');
+  assert.match(followup, /_recoverySelectPulseList_/,
+    'FOLLOWUP must also honor the hold — it must not become the wave the hold just blocked');
+  assert.match(sweep, /_recoverySchedulePortfolioRefresh_/,
+    'portfolio recovery stays scheduled independently of the on-chain pulse skip');
+}
 
 for (const [sheetName, updateName] of [
   ['Portefeuille Action', 'UPDATE_STOCK_PORTFOLIO'],

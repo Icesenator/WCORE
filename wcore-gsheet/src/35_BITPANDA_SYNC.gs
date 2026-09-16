@@ -1,3 +1,4 @@
+// v4.16.75 - UPDATE_BITPANDA_SPOT/STOCKS_FIAT flush HttpCounter en sortie (telemetrie budget pas perdue).
 // v4.16.74 - Split Bitpanda legacy security.stock vs equity_security duplicates (-LEG suffix).
 // v4.16.34 - Canonical CEX rotation, legacy watchdog cleanup, and dedicated Bitpanda triggers.
 // v4.15.146 - Clear full CEX managed A:G area before INFO_TOTAL rewrite so stale totals don't remain when row count grows.
@@ -31,7 +32,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.16.74";
+var BITPANDA_SYNC_VERSION = "4.16.75";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -1308,15 +1309,25 @@ function _bpUpdateSelectedBuckets_(writeMap, sourceLabel) {
 
 function UPDATE_BITPANDA_SPOT() {
   try { HttpCallCounter.setTrigger('UPDATE_BITPANDA_SPOT'); } catch(e){}
-  // Auto trigger path: keep the regular Bitpanda spot job bounded. Stocks (incl.
-  // fiats) are priced/written by UPDATE_BITPANDA_STOCKS_FIAT in a separate trigger.
-  // v4.16.x: commodities exclus - aucune feuille Commodity n'est plus alimentee.
-  return _bpUpdateSelectedBuckets_({ crypto: true, stocks: false }, "bitpanda-api");
+  try {
+    // Auto trigger path: keep the regular Bitpanda spot job bounded. Stocks (incl.
+    // fiats) are priced/written by UPDATE_BITPANDA_STOCKS_FIAT in a separate trigger.
+    // v4.16.x: commodities exclus - aucune feuille Commodity n'est plus alimentee.
+    return _bpUpdateSelectedBuckets_({ crypto: true, stocks: false }, "bitpanda-api");
+  } finally {
+    try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
+  }
 }
 
 function UPDATE_BITPANDA_STOCKS_FIAT() {
   try { HttpCallCounter.setTrigger('UPDATE_BITPANDA_STOCKS_FIAT'); } catch(e){}
-  return _bpUpdateSelectedBuckets_({ fiat: true, stocks: true }, "bitpanda-api-action-rebalancing");
+  try {
+    return _bpUpdateSelectedBuckets_({ fiat: true, stocks: true }, "bitpanda-api-action-rebalancing");
+  } finally {
+    try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
+  }
 }
 
 // v4.16.x: LEGACY — nom historique trompeur. N'ecrit plus AUCUNE fiat depuis la

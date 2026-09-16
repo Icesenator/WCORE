@@ -1,3 +1,4 @@
+// v4.16.35 - UPDATE_BITFINEX_SPOT flush HttpCounter en sortie (telemsurie budget pas perdue).
 // v4.16.34 - Keep dedicated hourly sync; disable legacy watchdog installation.
 // v4.15.103 - PERMANENT FIX: re-install dead CEX time-based triggers on A1 click (per "triggers présents mais mal autorisés" v4.15.61).
 // v4.15.89 - Use shared CEX manual-refresh helpers.
@@ -24,7 +25,7 @@
 // NOTE: contrairement a Binance (HTTP 451 sur IP datacenter Google), Bitfinex
 // ne bloque PAS l'IP Apps Script. On appelle l'API directement, sans relais.
 
-var BITFINEX_SYNC_VERSION = "4.16.34";
+var BITFINEX_SYNC_VERSION = "4.16.35";
 
 var BITFINEX_SYNC_CONFIG = {
   BASE_URL: "https://api.bitfinex.com",
@@ -358,6 +359,8 @@ function UPDATE_BITFINEX_SPOT() {
     return JSON.stringify(statusErr);
   } finally {
     if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("BITFINEX");
+    try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 

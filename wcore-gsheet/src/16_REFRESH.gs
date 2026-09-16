@@ -1,7 +1,14 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.16.68
+ * Version: v4.16.71
+ *
+ * v4.16.71: hold-aware recovery sweep (piste 3). Pendant le post-trip scan
+ *   hold 3h, QUOTA_RECOVERY_SWEEP ne pulse plus les wallets on-chain (les
+ *   scans AUTO iraient en cache de toute façon et brûleraient le cap
+ *   watchdog). Les portefeuilles Action/Crypto restent programmés. Hors hold,
+ *   le 1er passage est capé à 5 sheets ; le surplus est persisté pour
+ *   FOLLOWUP. FOLLOWUP honore le même hold.
  *
  * v4.16.68: le correctif J1/[CACHE_ONLY] (v4.16.67) ne couvrait que la boucle
  *   watchdog (_wd_collectGlobalRefreshActions_). SYNC_J1_ALL_SHEETS — pass
@@ -162,7 +169,7 @@ var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse
 var P_WD_J1_CURSOR = "WD_J1_CURSOR";
 var P_SYNC_J1_CURSOR = "SYNC_J1_CURSOR";
 
-var REFRESH_VERSION = "4.16.70";
+var REFRESH_VERSION = "4.16.71";
 
 function _wcoreAcquireLease_(key, ttlMs, owner) {
   var lock = null;
@@ -1761,6 +1768,7 @@ function WATCHDOG_FROM_RECAP() {
   if (!leaseOwner) {
     Logger.log("[WATCHDOG] Lease busy");
     try { HttpCallCounter.clearTrigger(); } catch(eClear){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
     return;
   }
 
@@ -1952,6 +1960,7 @@ function WATCHDOG_FROM_RECAP() {
   } finally {
     _wcoreReleaseLease_(WCORE_WATCHDOG_LEASE_KEY, leaseOwner);
     try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 
@@ -2024,6 +2033,46 @@ function _recoveryCollectBlocked_(recap) {
   }
   out.all = out.quota.concat(out.timeout);
   return out;
+}
+
+/**
+ * v4.16.71: first-pass hard cap. Even with a healthy quota, pulsing every
+ * blocked wallet in one sweep re-exhausts the sliding 24h window (observed
+ * 2026-09-09: 4 trips in 2h). Overflow is persisted for FOLLOWUP.
+ */
+var RECOVERY_FIRST_PASS_CAP = 5;
+
+/**
+ * v4.16.71: split a blocked-sheet list into "pulse now" vs "defer to FOLLOWUP".
+ * While the post-trip scan hold is active, on-chain pulses are HTTP-neutral
+ * (AUTO scans return cached output) and only burn watchdog pulse budget, so
+ * they are all deferred. Portfolio recovery is scheduled independently.
+ *
+ * @param {string[]} sheetList
+ * @param {boolean} holdActive
+ * @returns {{ pulse: string[], deferred: string[] }}
+ */
+function _recoverySelectPulseList_(sheetList, holdActive) {
+  var list = [];
+  if (sheetList && sheetList.length) {
+    for (var i = 0; i < sheetList.length; i++) {
+      if (sheetList[i]) list.push(sheetList[i]);
+    }
+  }
+  var active = holdActive === true;
+  if (!active) {
+    try {
+      if (typeof BudgetHTTP !== "undefined" && BudgetHTTP.isPostTripFloorActive) {
+        active = BudgetHTTP.isPostTripFloorActive() === true;
+      }
+    } catch (eHold) {}
+  }
+  if (active) return { pulse: [], deferred: list };
+  if (list.length <= RECOVERY_FIRST_PASS_CAP) return { pulse: list, deferred: [] };
+  return {
+    pulse: list.slice(0, RECOVERY_FIRST_PASS_CAP),
+    deferred: list.slice(RECOVERY_FIRST_PASS_CAP)
+  };
 }
 
 /**
@@ -2252,6 +2301,7 @@ function PORTFOLIO_RECOVERY_REFRESH(e) {
     return "INCOMPLETE: portfolio recovery retry scheduled=" + retryScheduled;
   } finally {
     try { HttpCallCounter.clearTrigger(); } catch (eClear) {}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 
@@ -2317,14 +2367,21 @@ function QUOTA_RECOVERY_SWEEP() {
         return;
       }
 
-      Logger.log("[RECOVERY] Found " + cat.quota.length + " BLOCKED:QUOTA + " + cat.timeout.length + " BLOCKED:TIMEOUT/#ERROR — pulsing in batches of " + RECOVERY_BATCH_SIZE);
+      var selected = _recoverySelectPulseList_(cat.all);
+      Logger.log("[RECOVERY] Found " + cat.quota.length + " BLOCKED:QUOTA + " + cat.timeout.length + " BLOCKED:TIMEOUT/#ERROR — pulsing " + selected.pulse.length + "/" + cat.all.length + " (cap " + RECOVERY_FIRST_PASS_CAP + ")");
 
-      var r = _recoveryPulseBatches_(ss, cat.all, RECOVERY_BATCH_SIZE, RECOVERY_DELAY_MS, MAX_RUNTIME_MS, t0, "RECOVERY");
+      var r = { pulsed: 0, batches: 0, skippedFromIdx: -1 };
+      if (selected.pulse.length > 0) {
+        r = _recoveryPulseBatches_(ss, selected.pulse, RECOVERY_BATCH_SIZE, RECOVERY_DELAY_MS, MAX_RUNTIME_MS, t0, "RECOVERY");
+      }
       stats.pulsed = r.pulsed;
       stats.batches = r.batches;
 
+      var skippedList = selected.deferred.slice();
       if (r.skippedFromIdx >= 0) {
-        var skippedList = cat.all.slice(r.skippedFromIdx);
+        skippedList = selected.pulse.slice(r.skippedFromIdx).concat(skippedList);
+      }
+      if (skippedList.length > 0) {
         stats.skipped = skippedList.length;
         _recoverySetSkipped_(skippedList);
         // R16 guard: do not schedule duplicate FOLLOWUP
@@ -2355,6 +2412,7 @@ function QUOTA_RECOVERY_SWEEP() {
   } finally {
     if (acquired) _recoveryReleaseLock_(P_RECOVERY_SWEEP_LOCK);
     try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 
@@ -2449,12 +2507,18 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
 
       Logger.log("[RECOVERY_FU] Retrying " + merged.length + " (" + skippedSheets.length + " skipped + " + cat.all.length + " still blocked, deduped)");
 
-      var r = _recoveryPulseBatches_(ss, merged, RECOVERY_BATCH_SIZE, RECOVERY_DELAY_MS, MAX_RUNTIME_MS, t0, "RECOVERY_FU");
+      var selectedFu = _recoverySelectPulseList_(merged);
+      var r = { pulsed: 0, batches: 0, skippedFromIdx: -1 };
+      if (selectedFu.pulse.length > 0) {
+        r = _recoveryPulseBatches_(ss, selectedFu.pulse, RECOVERY_BATCH_SIZE, RECOVERY_DELAY_MS, MAX_RUNTIME_MS, t0, "RECOVERY_FU");
+      }
       stats.pulsed = r.pulsed;
       stats.batches = r.batches;
-      stats.skipped = (r.skippedFromIdx >= 0) ? (merged.length - r.skippedFromIdx) : 0;
-
-      _recoveryClearSkipped_();
+      var leftover = selectedFu.deferred.slice();
+      if (r.skippedFromIdx >= 0) leftover = selectedFu.pulse.slice(r.skippedFromIdx).concat(leftover);
+      stats.skipped = leftover.length;
+      if (leftover.length > 0) _recoverySetSkipped_(leftover);
+      else _recoveryClearSkipped_();
 
     } catch (e) {
       Logger.log("[RECOVERY_FU] Error: " + e.message);
@@ -2466,6 +2530,7 @@ function QUOTA_RECOVERY_SWEEP_FOLLOWUP() {
     try { INSTALL_QUOTA_RECOVERY(); } catch (e) { Logger.log("[RECOVERY_FU] Auto-reinstall failed: " + e.message); }
   } finally {
     try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 

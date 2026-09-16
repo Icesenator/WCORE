@@ -1,3 +1,5 @@
+// v4.16.41 - nonce persistant strictement croissant + lock KRAKEN partage (anti Temporary lockout).
+// v4.16.40 - UPDATE_KRAKEN_SPOT/STOCKS_FIAT flush HttpCounter en sortie (telemetrie budget pas perdue).
 // v4.16.39 - tickers xStocks Kraken affichés avec x minuscule + prix Kraken direct.
 // v4.16.38 - xStocks Kraken courts (MUX) whitelistes + routage fiat/xstocks v2`n// v4.16.37 - A1 de CEX - Kraken Stocks rafraîchit fiat + xStocks (KRAKEN_ON_EDIT).
 // v4.16.36 - Routage fiat + xStocks vers CEX - Kraken Stocks (EUR en Stocks, crypto en Crypto).
@@ -5,12 +7,13 @@
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
 // Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (fiat + actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.39";
+var KRAKEN_SYNC_VERSION = "4.16.41";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
   API_KEY_PROP: "KRAKEN_API_KEY",
   PRIVATE_KEY_PROP: "KRAKEN_PRIVATE_KEY",
+  NONCE_PROP: "KRAKEN_LAST_NONCE",
   STATUS_PROP: "KRAKEN_SYNC_STATUS",
   REFRESH_FLAG_PROP: "KRAKEN_REFRESH_REQUESTED",
   SHEET: "CEX - Kraken Crypto",
@@ -135,9 +138,29 @@ function _krakenSign_(path, nonce, postData, privateKey) {
   return Utilities.base64Encode(hmac);
 }
 
+function _krakenNextNonce_() {
+  // Kraken exige un nonce STRICTEMENT croissant par cle API, tous clients
+  // confondus. Deux executions GAS concurrentes (SPOT + STOCKS_FIAT horaires,
+  // ou trigger + refresh manuel A1) avec Date.now()*1000 pouvaient generer un
+  // nonce identique ou decroissant -> EGeneral:Invalid nonce, puis apres
+  // repetitions -> EGeneral:Temporary lockout (ban IP ~15-60 min).
+  // On persiste le dernier nonce en ScriptProperties pour garantir la croissance
+  // meme entre executions (le lock CEX_ACQUIRE_LOCK serialise, ceci protege des
+  // recouvrements residuels).
+  var candidate = Date.now() * 1000;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty(KRAKEN_SYNC_CONFIG.NONCE_PROP);
+    var last = raw ? parseInt(raw, 10) : 0;
+    if (isFinite(last) && candidate <= last) candidate = last + 1;
+    props.setProperty(KRAKEN_SYNC_CONFIG.NONCE_PROP, String(candidate));
+  } catch (eNonce) {}
+  return String(candidate);
+}
+
 function _krakenPrivatePost_(path, params, creds) {
   params = params || {};
-  params.nonce = String(Date.now() * 1000);
+  params.nonce = _krakenNextNonce_();
   var parts = [];
   for (var k in params) {
     if (Object.prototype.hasOwnProperty.call(params, k)) {
@@ -160,7 +183,16 @@ function _krakenPrivatePost_(path, params, creds) {
   var text = resp.getContentText();
   if (code < 200 || code >= 300) throw new Error("Kraken " + path + " HTTP " + code + ": " + text.substring(0, 300));
   var data = JSON.parse(text);
-  if (data && data.error && data.error.length) throw new Error("Kraken API error: " + data.error.join(", ").substring(0, 300));
+  if (data && data.error && data.error.length) {
+    var krakenErr = data.error.join(", ").substring(0, 300);
+    // EGeneral:Temporary lockout = ban temporaire cote Kraken (trop d'appels ou
+    // nonces invalides repetes). Ne JAMAIS retry en boucle : attendre 15-60 min
+    // sans aucun appel, sinon le ban est prolonge.
+    if (/temporary lockout/i.test(krakenErr)) {
+      throw new Error("Kraken API error: EGeneral:Temporary lockout (ban temporaire Kraken ~15-60 min : ne pas relancer, attendre puis reessayer une seule fois)");
+    }
+    throw new Error("Kraken API error: " + krakenErr);
+  }
   return data.result || {};
 }
 
@@ -354,6 +386,8 @@ function UPDATE_KRAKEN_SPOT() {
     return JSON.stringify(statusErr);
   } finally {
     if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("KRAKEN");
+    try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 
@@ -426,7 +460,10 @@ function INSTALL_KRAKEN_SYNC_TRIGGER() {
 // UPDATE_KRAKEN_SPOT -> CEX - Kraken Crypto.
 function UPDATE_KRAKEN_STOCKS_FIAT() {
   try { HttpCallCounter.setTrigger('UPDATE_KRAKEN_STOCKS_FIAT'); } catch (eCounter) {}
-  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("KRAKEN_STOCKS")) return "BUSY";
+  // Lock partage "KRAKEN" (et non un lock dedie) : les deux jobs horaires SPOT et
+  // STOCKS_FIAT appellent /0/private/Balance avec la MEME cle API. En parallele,
+  // leurs nonces se collisionnent -> Invalid nonce -> Temporary lockout.
+  if (typeof CEX_ACQUIRE_LOCK === "function" && !CEX_ACQUIRE_LOCK("KRAKEN")) return "BUSY";
   try {
     var ss = SpreadsheetApp.openById(KRAKEN_SYNC_CONFIG.SPREADSHEET_ID);
     var buckets = _cexRelayFetchWithRetry_(function() { return _krakenFetchBuckets_(_krakenGetCreds_()); }, "KRAKEN_STOCKS");
@@ -441,7 +478,9 @@ function UPDATE_KRAKEN_STOCKS_FIAT() {
     Logger.log("UPDATE_KRAKEN_STOCKS_FIAT ERROR: " + err);
     return JSON.stringify(statusErr);
   } finally {
-    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("KRAKEN_STOCKS");
+    if (typeof CEX_RELEASE_LOCK === "function") CEX_RELEASE_LOCK("KRAKEN");
+    try { HttpCallCounter.clearTrigger(); } catch(e){}
+    try { if (typeof HttpCounter !== "undefined" && HttpCounter.flush) HttpCounter.flush(); } catch(eFlush){}
   }
 }
 

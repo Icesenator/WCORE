@@ -3,6 +3,13 @@ node_modules/
 .tmp/
 .backups/
 .claude/
+
+# Configs locales d'autres agents (personnelles, hors projet ; meme regle que .claude/)
+.gemini/
+/GEMINI.md
+
+# Lockfile pnpm orphelin dans wcore-gsheet (npm/package-lock.json reste canonique)
+/wcore-gsheet/pnpm-lock.yaml
 .playwright-mcp/
 .mcp.json
 .env*

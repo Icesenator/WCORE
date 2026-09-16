@@ -5,6 +5,7 @@ import { safeEq } from "../admin-auth.js";
 import { apiConfig } from "../config.js";
 import { hasDegradingErrors } from "../server-helpers.js";
 import { goPlusWeight, type ScamEnrichmentLoader, type ScamScanLogEntry } from "./scam-enrichment.js";
+import type { StockValuation } from "../stocks/stock-valuation.js";
 
 export interface GsheetScamEnrichment {
   loader: ScamEnrichmentLoader;
@@ -120,6 +121,13 @@ export interface GsheetStockPortfolioRow {
   holdingStale: boolean;
   updatedAt: string;
   errors: Array<{ code: string; message: string }>;
+  /**
+   * WC-10: explicit distinction between the reference/spot price (`priceEur`) and the
+   * executable claim value. `priceEur` above stays the compatible reference; `valuation`
+   * adds the executable side (UNKNOWN unless a verifiable venue source exists) and the
+   * guarded premium/discount. Optional/additive — never required by existing callers.
+   */
+  valuation?: StockValuation;
 }
 
 export interface GsheetStockPortfolioSnapshot {

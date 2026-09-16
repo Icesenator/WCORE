@@ -57,3 +57,8 @@ graphify-out/20*/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# CM = sous-projet a identite Git/OpenCode INDEPENDANTE.
+# Depot Git imbrique volontaire (PAS un submodule) : ROOT ne piste plus CM.
+# Voir CM/review/opencode-project-identity-2026-09-16.md
+/CM/

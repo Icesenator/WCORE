@@ -23,7 +23,7 @@ WCORE/
 
 ## What WCORE Tracks
 
-- 183 generated chain configs across EVM, Solana/SVM, Cosmos SDK, and TON. The active/scannable count is dynamic.
+- 162 active chain configs across EVM, Solana/SVM, Cosmos SDK, and TON. The active/scannable count is dynamic.
 - Read-only wallet scans, multi-wallet portfolio views, and public share reports.
 - Multi-source pricing cascade: stablecoin fast-path, cache, DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko fallback.
 - Scam-token filtering and clean-total calculations.

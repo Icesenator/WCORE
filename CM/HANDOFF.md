@@ -59,11 +59,18 @@ Canari : `node scripts/cold-start-canary.cjs`.
 `HANDOFF_PREPARED` signifie **dossier prêt** (prérequis de cold-start satisfaits), **pas** handoff déjà
 commencé. Aucune conversation WCORE/CM n'existe à ce stade.
 
+**Blocage de cutover (2026-09-16)** : `OPENCODE_ROOT_CM_PROJECT_SEPARATION=FAIL` — ouvrir
+`K:\ProjetIA\WCORE` **et** `K:\ProjetIA\WCORE\CM` résout le **même** `project_id` OpenCode (nom « WCORE CM »).
+Handoff **suspendu** (pas annulé) jusqu'à séparation d'identité. Diagnostic :
+`review/opencode-project-identity-2026-09-16.md`.
+
 ```
 HANDOFF_PREPARED=TRUE_FOR_OPERATOR_COLD_START
 HANDOFF_ACCEPTED=FALSE
 NEW_WCORE_CM_CONVERSATION_EXISTS=FALSE
 LEGACY_CM_EXECUTION_RETIRED=FALSE
+CUTOVER_BLOCKER=OPENCODE_PROJECT_IDENTITY_COLLISION
+OPENCODE_ROOT_CM_PROJECT_SEPARATION=FAIL
 ```
 
 ## 6. Inventaire
@@ -75,6 +82,7 @@ LEGACY_CM_EXECUTION_RETIRED=FALSE
 ### DONE
 - `P2-CM-DISCOVERY-RESULT-VALIDATION` — voir `ROADMAP.md` + `review/p2-cm-acceptance-2026-09-16.md`.
 - `P1-CM-TURNEND-CHECKPOINT-SEMANTICS` — voir `ROADMAP.md`.
+- `P1-GOV-CM-SHELL-HARMONIZATION` — voir `ROADMAP.md` (dashboard `WCORE-CM`, tickets, RAW→Wiki, Mem0).
 
 ### LOCAL_BLOCKED
 - Arc asset tooling — voir `editorial/arc-candidate-2026-09-16.md` §3 (`BLOCKED_BY_ASSET_TOOLING`).

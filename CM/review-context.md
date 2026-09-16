@@ -23,7 +23,7 @@ CM_SHELL_HARMONIZED=TRUE (contrat `docs/PROJECT-FILESYSTEM-CONTRACT.md`)
 
 - Objectif courant : boucle CM autonome X `@WCORExyz` (workstream permanent `WC-01`), sans franchir la frontière ROOT/CM.
 - Mode : `NON_STOP`, lane CM (`SENSOR_MODE=SENSOR_ONLY`) ; `PUBLICATION=NONE` ; `ASSET_STATUS=BLOCKED_BY_ASSET_TOOLING`.
-- File canonique `CM/ROADMAP.md` : 5 items (`2 DONE`, `3 IN_PROGRESS`) ; `CM_ROOT_PRODUCT_SELECTION_COUNT=0`.
+- File canonique `CM/ROADMAP.md` : 5 items (`3 DONE`, `2 IN_PROGRESS`) ; `CM_ROOT_PRODUCT_SELECTION_COUNT=0`.
 - Dernière observation X (heartbeat) : `2026-09-16T09:51:53.336Z` ; `coverage_breach=false` ; `agent_lease_status=RELEASED`.
 - Capteur : `wake-request.json` `2026-09-16T10:07:55.117Z` (raison fraîcheur soft 12 / hard 15 min), `injected_message=false`, `SENSOR_CAN_WAKE_MODEL=FALSE`.
 - Résident : `decision_mode=CONTINUE_NOW`, `action=GATED_OFF_OPT_IN_REQUIRED` (pas de cycle auto prouvé).
@@ -33,15 +33,18 @@ CM_SHELL_HARMONIZED=TRUE (contrat `docs/PROJECT-FILESYSTEM-CONTRACT.md`)
 - `P2-CM-DISCOVERY-RESULT-VALIDATION` : **DONE** (2026-09-16) — `CM/review/p2-cm-acceptance-2026-09-16.md` 7/7 PASS ; validateur + consommateur fail-closed câblés dans `cm-x-search.cjs`.
 - `P1-CM-TURNEND-CHECKPOINT-SEMANTICS` : **DONE (V2)** (2026-09-16) — `NEXT_ACTION_START_IS_NOT_TURN_CONTINUITY=TRUE`, `START_THEN_FINAL_IS_FORBIDDEN=TRUE`.
 - Gardes CM re-exécutées (2026-09-16) : `cm-boundary.test.cjs` 11/11, `cm-discovery-validate.test.cjs` 8/8, `cm-discovery-qualify.test.cjs` 8/8, `cm-turn-end-guard.test.cjs` 21/21, `cm-checkpoint-c2.test.cjs` 9/9 — ALL PASS.
+- `P1-GOV-CM-SHELL-HARMONIZATION` : **DONE** (2026-09-16) — dashboard `WCORE-CM` = `OK` ; `Vault` supporté (`monthly-audit` OK) ; `CM/tickets/` + `CM/RAW/` ; `user_id=projet:WCORE-CM` (5 mémoires sourcées) ; aucune tâche planifiée CM.
 - Editorial Arc : QA interne terminée, claims non prouvées retirées ; revalidation HTTP indépendante **re-confirmée live** (`/health` 200 `chainCount=163` ; `/api/chains` 200 `count=163` ; `ARC` `chainId=5042` `nativeSymbol=USDC` `explorerUrl=null`).
-- Harmonisation shell CM (points 1-6) : dérive `OWNERSHIP-MANIFEST` corrigée, `review-context` rafraîchi, `CM/tickets/` + `CM/RAW/` créés, entrée dashboard `WCORE-CM`, `user_id Mem0=projet:WCORE-CM`.
+- Conformité cold-start CM : canari `CM_COLD_START_CANARY=PASS` ; chemins `CM_COLD_START_PATHS_RESOLVE=PASS` ; frontière `CM_ROOT_PRODUCT_QUEUE_LEAK_COUNT=0` ; `CM_DUPLICATE_STATE_COUNT=0`.
 
 ## En cours / bloqué
 
 - `WC-01` (boucle CM) : IN_PROGRESS permanent.
 - `P1-GOV-CM-PERSISTENT-OWNER` : IN_PROGRESS (resident présent ; `AUTOMATIC_RECHECK=NOT_YET_PROVEN`).
-- `P1-GOV-CM-SHELL-HARMONIZATION` : IN_PROGRESS (enregistrement dashboard à re-générer ; `status.md` racine sera régénéré au prochain run).
 - Bloqué : asset graphique CM (`BLOCKING_CONDITION=NO_CM_OWNED_GRAPHICAL_PIPELINE`, aucune image finale prétendue).
+- Bloqué (cutover) : `OPENCODE_PROJECT_IDENTITY_COLLISION=PROVEN` — `K:\ProjetIA\WCORE` et `K:\ProjetIA\WCORE\CM`
+  partagent le même `project_id` OpenCode (nom « WCORE CM »). Séparation d'identité requise avant création de
+  conversation (`review/opencode-project-identity-2026-09-16.md`).
 
 ## Questions pour la revue
 
@@ -86,7 +89,11 @@ HANDOFF_PREPARED_MEANS_FOLDER_READY_ONLY=TRUE
 
 CONFORMITY_AGENT_STATUS=DONE_PASS
 WCORE_CM_FOLDER_CONFORMITY=PASS
-WCORE_CM_READY_FOR_COLD_START=TRUE
+WCORE_CM_READY_FOR_COLD_START=FALSE
+OPENCODE_ROOT_CM_PROJECT_SEPARATION=FAIL
+OPENCODE_PROJECT_IDENTITY_COLLISION=PROVEN
+CUTOVER_BLOCKER=OPENCODE_PROJECT_IDENTITY_COLLISION
+HANDOFF_SUSPENDED_NOT_CANCELLED=TRUE
 
 WC01_STATUS=IN_PROGRESS
 P1_GOV_CM_PERSISTENT_OWNER_STATUS=IN_PROGRESS

@@ -82,4 +82,29 @@ test("Monad canonical, generated, and runtime configs cap log ranges at 1000", (
   }
 });
 
+test("Arc is registered as native-USDC with its ERC-20 alias excluded from discovery", () => {
+  // Arc (chainId 5042) pays gas in USDC: the native balance is 18-dec and the
+  // 6-dec ERC-20 interface at 0x3600…0000 reports the very same balance, so it
+  // must never be scanned as a second token (double count). The EIP-7708 system
+  // emitter logs native transfers and is not an ERC-20 either.
+  const expectedExcluded = [
+    "0x3600000000000000000000000000000000000000",
+    "0xfffffffffffffffffffffffffffffffffffffffe",
+  ];
+  for (const [label, read] of [["canonical", readCanonicalConfig], ["generated", (k) => readConfig(GENERATED_DIR, k)]]) {
+    const arc = read("ARC");
+    assert.equal(arc.vm ?? "EVM", "EVM", `${label} vm`);
+    assert.equal(arc.CHAIN.NAME, "Arc", `${label} name`);
+    assert.equal(arc.CHAIN.CHAIN_ID, 5042, `${label} chainId`);
+    assert.equal(arc.CHAIN.NATIVE_SYMBOL, "USDC", `${label} native symbol`);
+    assert.equal(arc.CHAIN.NATIVE_DECIMALS, 18, `${label} native decimals`);
+    assert.equal(arc.CHAIN.NATIVE_LLAMA_ID, "coingecko:usd-coin", `${label} native llama id`);
+    assert.deepEqual(arc.FLAGS.EXCLUDE_CONTRACTS, expectedExcluded, `${label} excluded contracts`);
+    for (const endpoint of arc.RPC.ENDPOINTS) {
+      assert.match(endpoint, /^https:\/\//, `${label} endpoint must be https: ${endpoint}`);
+    }
+    assert.ok(arc.RPC.ENDPOINTS.length >= 2, `${label} needs at least two endpoints for consensus`);
+  }
+});
+
 

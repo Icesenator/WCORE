@@ -371,11 +371,21 @@ export async function getEvmWalletAssets(
 
   const tokens: EvmWalletToken[] = [];
   const seenContracts = new Map<string, DiscoveredToken>();
-  // Skip native precompile addresses that duplicate the native balance
+  // Skip native precompile addresses that duplicate the native balance, plus any
+  // contract the chain declares as a native alias (FLAGS.EXCLUDE_CONTRACTS —
+  // e.g. Arc: the 6-dec ERC-20 USDC interface shares the 18-dec native balance,
+  // and the EIP-7708 system emitter logs native transfers without being an ERC-20).
   const SKIP_NATIVE_PRECOMPILES = new Set([
     "0x0000000000000000000000000000000000001010", // POL/MATIC precompile (Polygon)
     "0x471ece3750da237f93b8e339c536989b8978a438", // CELO native token (Celo)
   ]);
+  const chainNativeAliases = chain.FLAGS?.EXCLUDE_CONTRACTS;
+  if (Array.isArray(chainNativeAliases)) {
+    for (const alias of chainNativeAliases) {
+      const normalized = alias ? normalizeEvmAddress(String(alias)) : null;
+      if (normalized) SKIP_NATIVE_PRECOMPILES.add(normalized);
+    }
+  }
   const strictTokenSet = opts.strictTokens && opts.customTokens?.length
     ? new Set(opts.customTokens.map((ct) => ct.trim().toLowerCase()).filter((ct) => /^0x[0-9a-f]{40}$/.test(ct)))
     : null;

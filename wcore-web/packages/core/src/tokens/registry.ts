@@ -10,6 +10,14 @@ import { makeToken as T } from "./types.js";
 const LOGO = (_symbol: string): string | undefined => undefined;
 
 export const TOKEN_REGISTRY: Record<string, DiscoveredToken[]> = {
+  // Arc: USDC is the native gas token (18 dec). Its ERC-20 interface
+  // (0x3600…0000, 6 dec) aliases the same balance, so it is intentionally NOT
+  // listed here and is excluded from discovery via FLAGS.EXCLUDE_CONTRACTS.
+  ARC: [
+    T("0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1", "EURC", "EURC", 6),
+    T("0x8a5D989Bbb96929F689B0200f435f53dA42bF490", "USYC", "USYC", 6),
+  ],
+
   BASE: [
     T("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", "USDC", "USDC", 6, LOGO("usdc")),
     T("0xfde4c96c8593536e31f229ea8f37b2ada2699bb2", "USDT", "Tether USD", 6, LOGO("usdt")),

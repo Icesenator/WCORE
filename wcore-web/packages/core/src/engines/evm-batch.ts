@@ -124,6 +124,16 @@ export async function getEvmWalletsAssets(
   const t0 = Date.now();
   const cacheStats: CacheStats = { hits: 0, misses: 0, stale: 0, skipped: 0 };
   const disableNative = chain.FLAGS?.DISABLE_NATIVE_BALANCE === true;
+  // Chain-declared native aliases (FLAGS.EXCLUDE_CONTRACTS) extend the historical
+  // precompile list: they duplicate the native row and must not be priced as tokens.
+  const excludedContracts = new Set<string>(SKIP_NATIVE_PRECOMPILES);
+  const chainNativeAliases = chain.FLAGS?.EXCLUDE_CONTRACTS;
+  if (Array.isArray(chainNativeAliases)) {
+    for (const alias of chainNativeAliases) {
+      const normalized = alias ? normalizeEvmAddress(String(alias)) : null;
+      if (normalized) excludedContracts.add(normalized);
+    }
+  }
 
   // Compute log range respecting chain's MAX_LOG_RANGE (e.g. BASE=2000 blocks).
   // Called once per chain ÔÇö the block number is cached for 30s across wallets.
@@ -355,7 +365,7 @@ export async function getEvmWalletsAssets(
     activeAddresses.push(addr);
     for (const t of res.tokens) {
       const c = t.contract.toLowerCase();
-      if (SKIP_NATIVE_PRECOMPILES.has(c)) continue;
+      if (excludedContracts.has(c)) continue;
       const tokenKey = tokenVariantKey(t);
       if (!activeTokenMap.has(tokenKey)) activeTokenMap.set(tokenKey, t);
     }
@@ -368,7 +378,7 @@ export async function getEvmWalletsAssets(
     const tokenRegistry = await getKnownTokensForChain(key);
     for (const t of tokenRegistry) {
       const c = t.contract.toLowerCase();
-      if (SKIP_NATIVE_PRECOMPILES.has(c)) continue;
+      if (excludedContracts.has(c)) continue;
       const tokenKey = tokenVariantKey(t);
       if (!activeTokenMap.has(tokenKey)) {
         activeTokenMap.set(tokenKey, { ...t, contract: c });
@@ -378,7 +388,7 @@ export async function getEvmWalletsAssets(
   if (opts.customTokens?.length) {
     for (const c of opts.customTokens) {
       const contract = c.toLowerCase();
-      if (SKIP_NATIVE_PRECOMPILES.has(contract)) continue;
+      if (excludedContracts.has(contract)) continue;
       const existing = activeTokenMap.get(contract);
       if (!existing || !existing.symbol || !existing.name) {
         const meta = await getErc20Metadata({

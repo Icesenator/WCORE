@@ -371,6 +371,35 @@ var EvmEngine = {
  }
  }
 
+ // v4.16.80: chain-declared excluded contracts (FLAGS.EXCLUDE_CONTRACTS).
+ // Arc: the ERC-20 USDC interface (0x3600…0000) shares the native 18-dec
+ // balance (same asset), and the EIP-7708 system emitter (0xffff…fE) logs
+ // native transfers without being an ERC-20. Both must never be counted as
+ // separate token rows, or the total double-counts USDC.
+ if (config && config.FLAGS && config.FLAGS.EXCLUDE_CONTRACTS && config.FLAGS.EXCLUDE_CONTRACTS.length) {
+ var _exSet = {};
+ for (var _exi = 0; _exi < config.FLAGS.EXCLUDE_CONTRACTS.length; _exi++) {
+ var _exAddr = Addr.normalize(config.FLAGS.EXCLUDE_CONTRACTS[_exi]);
+ if (_exAddr) _exSet[_exAddr] = true;
+ }
+ for (var _exk in state.assetByKey) {
+ if (state.assetByKey.hasOwnProperty(_exk) && _exSet[Addr.normalize(_exk)]) delete state.assetByKey[_exk];
+ }
+ if (state.balanceTsMap) {
+ for (var _exb in state.balanceTsMap) {
+ if (state.balanceTsMap.hasOwnProperty(_exb) && _exSet[Addr.normalize(_exb)]) delete state.balanceTsMap[_exb];
+ }
+ }
+ if (cache && cache.balanceTsMap) {
+ for (var _excb in cache.balanceTsMap) {
+ if (cache.balanceTsMap.hasOwnProperty(_excb) && _exSet[Addr.normalize(_excb)]) delete cache.balanceTsMap[_excb];
+ }
+ }
+ if (cache && cache.assets && Array.isArray(cache.assets)) {
+ cache.assets = cache.assets.filter(function(a) { return !(a && _exSet[Addr.normalize(a.contract)]); });
+ }
+ }
+
  // === v4.13.6: Evict stale prices to prevent wrong prices from persisting ===
  BaseEngine.evictStalePrices(state, config);
 

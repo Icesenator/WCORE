@@ -1636,6 +1636,55 @@ test("getEvmWalletsAssets: skips native precompile tokens", async () => {
   }
 });
 
+test("getEvmWalletAssets: skips chain-declared native aliases (Arc ERC-20 USDC / EIP-7708 emitter)", async () => {
+  // Arc's native gas token is USDC (18 dec). The 6-dec ERC-20 USDC interface
+  // shares the same balance and the EIP-7708 system emitter logs native
+  // transfers: shown as tokens, both would double-count the native USDC row.
+  const arcUsdcErc20 = "0x3600000000000000000000000000000000000000";
+  const arcSystemEmitter = "0xfffffffffffffffffffffffffffffffffffffffe";
+  const legit = CUSTOM;
+  const discovery: TokenDiscovery = {
+    async discoverTokensForWallet(): Promise<DiscoveredToken[]> {
+      return [
+        { contract: arcUsdcErc20, symbol: "USDC", name: "USDC", decimals: 6 },
+        { contract: arcSystemEmitter, symbol: "USDC", name: "USDC", decimals: 18 },
+        { contract: legit, symbol: "EURC", name: "EURC", decimals: 6 },
+      ];
+    },
+  };
+  const dispatcher = {
+    async run<T>(_endpoints: ReadonlyArray<string>, call: (endpoint: string, opts: RpcCallOptions) => Promise<T>) {
+      const value = await call("https://rpc.example", {});
+      return { consensus: true, value, votes: 1, total: 1, attempts: [] };
+    },
+  };
+  const rpc = {
+    async getBalance(): Promise<bigint> { return 0n; },
+    async ethCall(): Promise<string> { return "0x" + 5_000_000n.toString(16).padStart(64, "0"); },
+  };
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: { getTokenPriceUsd: async () => 2 },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+
+  const result = await getEvmWalletAssets(OWNER, "arc", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources,
+    tokenDiscovery: discovery,
+    fxRate: 1,
+  });
+
+  const contracts = result.tokens.map((t) => t.contract.toLowerCase());
+  assert.equal(contracts.includes(arcUsdcErc20), false, "the ERC-20 USDC interface must not duplicate the native USDC row");
+  assert.equal(contracts.includes(arcSystemEmitter), false, "the EIP-7708 system emitter is not an ERC-20");
+  assert.ok(contracts.includes(legit), "non-alias tokens must still surface");
+});
+
 // ÔöÇÔöÇÔöÇ P0-4/P0-5 regression tests ÔÇö batch native-only + bal_cache v2 ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 test("getEvmWalletsAssets: batch EVM native-only ÔÇö wallet without tokens still reads native balance", async () => {

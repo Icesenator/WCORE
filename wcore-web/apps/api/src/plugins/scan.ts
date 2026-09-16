@@ -12,6 +12,8 @@ import { getPostgresScanJobQueue, jobPrincipal, type ScanJobProgress, type ScanJ
 import { classifyScanError, consumeScanBudget, isUnreachableScan, scanRequestCost } from "../server-helpers.js";
 import { apiConfig } from "../config.js";
 import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
+import { runEnrichmentDiagnostics } from "../integrations/portfolio-enrichment/scan-enrichment.js";
+import type { PortfolioEnrichmentScanStep } from "../integrations/portfolio-enrichment/scan-step.js";
 
 const SCAN_CONCURRENCY = apiConfig.scan.scanConcurrency;
 const NON_EVM_SCAN_CONCURRENCY = apiConfig.scan.nonEvmScanConcurrency;
@@ -58,6 +60,11 @@ export interface ScanPluginDeps {
   MAX_CHAINS_PER_SCAN: number;
   ANONYMOUS_MAX_CHAINS_PER_SCAN: number;
   scanJobQueue?: ScanJobQueue;
+  /**
+   * WC-11 portfolio-enrichment seam. When omitted (default), enrichment is fully
+   * disabled: no provider call, no RPC verification, byte-identical scan behavior.
+   */
+  enrichment?: { enabled: boolean; step: PortfolioEnrichmentScanStep };
 }
 
 export async function resolveScanChainLimit(
@@ -220,6 +227,17 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     }
 
     rawChains.push(...cachedChains, ...finalizedRawResults);
+
+    // WC-11: flag-gated enrichment diagnostics. Never mutates rawChains and never
+    // affects scan status/degraded (runEnrichmentDiagnostics cannot throw).
+    await runEnrichmentDiagnostics({
+      enabled: deps.enrichment?.enabled === true,
+      step: deps.enrichment?.step,
+      address: parsedAddress.data,
+      chains: requestedChains,
+      chainAssets: new Map(rawChains.map((c) => [c.chain, c] as const)),
+      log: (message, data) => console.log(message, data),
+    });
 
     for (const c of rawChains) {
       applyChainCircuitOutcome(getCircuitBreaker(c.chain), c);
@@ -548,6 +566,16 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
           chains.push({ chainKey: chain, chainName: chain, vm: "EVM", native: null, tokens: [], errors: [{ stage: "init", message: "circuit_open" }], degraded: true, fxRate, scanMs: 0, totals: { valueEur: 0, tokenCount: 0, pricedCount: 0 }, cachedAt: null, scriptVersion: "" });
         }
       }
+
+      // WC-11: flag-gated enrichment diagnostics per wallet (never mutates, never throws).
+      await runEnrichmentDiagnostics({
+        enabled: deps.enrichment?.enabled === true,
+        step: deps.enrichment?.step,
+        address: addr,
+        chains: requestedChains,
+        chainAssets: chainResults,
+        log: (message, data) => console.log(message, data),
+      });
 
       walletResults.push({
         address: addr,

@@ -11,7 +11,7 @@ test("every published chain satisfies the runtime schema", () => {
       : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
   });
 
-  assert.equal(chainList.length, 162, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(chainList.length, 163, "registry count changed: update the verified roadmaps with the same commit");
 
   assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
   assert.deepEqual(failures, []);
@@ -66,6 +66,26 @@ test("Robinhood Chain is registered with verified mainnet metadata", () => {
   assert.equal(chain.CHAIN?.NATIVE_LLAMA_ID, "coingecko:ethereum");
   assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, "ethereum");
   assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://rpc.mainnet.chain.robinhood.com"]);
+});
+
+test("Arc is registered with native USDC and the ERC-20 interface excluded", () => {
+  const chain = getChain("ARC");
+
+  assert.ok(chain, "ARC chain should be registered");
+  assert.equal(chain.vm, "EVM");
+  assert.equal(chain.CHAIN?.NAME, "Arc");
+  assert.equal(chain.CHAIN?.CHAIN_ID, 5042);
+  // USDC is the native gas token on Arc (18 decimals), not ETH.
+  assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "USDC");
+  assert.equal(chain.CHAIN?.NATIVE_DECIMALS, 18);
+  assert.equal(chain.CHAIN?.NATIVE_LLAMA_ID, "coingecko:usd-coin");
+  assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, "usd-coin");
+  // The 6-dec ERC-20 USDC interface shares the native balance and the EIP-7708
+  // system emitter logs native transfers: both would double-count USDC.
+  assert.deepEqual(chain.FLAGS?.EXCLUDE_CONTRACTS, [
+    "0x3600000000000000000000000000000000000000",
+    "0xfffffffffffffffffffffffffffffffffffffffe",
+  ]);
 });
 
 test("Somnia keeps the chainId its RPC endpoints actually serve", () => {

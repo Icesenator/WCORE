@@ -9,6 +9,7 @@ import { APECHAIN } from "./APECHAIN.js";
 import { APPCHAIN } from "./APPCHAIN.js";
 import { ARBITRUM_NOVA } from "./ARBITRUM_NOVA.js";
 import { ARBITRUM_ONE } from "./ARBITRUM_ONE.js";
+import { ARC } from "./ARC.js";
 import { ASTAR } from "./ASTAR.js";
 import { AURORA } from "./AURORA.js";
 import { AVALANCHE } from "./AVALANCHE.js";
@@ -173,6 +174,7 @@ export const chains = {
   APPCHAIN,
   ARBITRUM_NOVA,
   ARBITRUM_ONE,
+  ARC,
   ASTAR,
   AURORA,
   AVALANCHE,

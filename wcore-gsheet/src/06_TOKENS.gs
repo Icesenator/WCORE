@@ -384,6 +384,19 @@ var ContractListBuilder = {
  var out = [];
  var seen = {};
  
+ // v4.16.80: chain-declared excluded contracts (FLAGS.EXCLUDE_CONTRACTS).
+ // Arc: the ERC-20 USDC interface aliases the native 18-dec balance and the
+ // EIP-7708 system emitter is not an ERC-20 — both must never be scanned as
+ // separate tokens (they would duplicate the native USDC row).
+ var exclude = {};
+ try {
+  var exList = (config && config.FLAGS && config.FLAGS.EXCLUDE_CONTRACTS) || [];
+  for (var ex = 0; ex < exList.length; ex++) {
+   var exAddr = Addr.normalize(exList[ex]);
+   if (exAddr) exclude[exAddr] = true;
+  }
+ } catch (eEx) {}
+
   // 1. Parse tokensRange (user-specified watchlist)
   var strictRange = !!(config && config.FLAGS && config.FLAGS.STRICT_TOKEN_RANGE);
   var hasTokenRange = false;
@@ -393,7 +406,7 @@ var ContractListBuilder = {
   hasTokenRange = true;
   for (var i = 0; i < fromRange.length; i++) {
   var addr = Addr.normalize(fromRange[i]);
- if (addr && addr !== "native" && !seen[addr]) {
+ if (addr && addr !== "native" && !exclude[addr] && !seen[addr]) {
  seen[addr] = true;
  out.push(addr);
  }
@@ -411,7 +424,7 @@ var ContractListBuilder = {
  var key = keys[j];
  if (!key || key === "native") continue;
  var addr2 = Addr.normalize(key);
- if (addr2 && !seen[addr2]) {
+ if (addr2 && !exclude[addr2] && !seen[addr2]) {
  seen[addr2] = true;
  out.push(addr2);
  }
@@ -427,7 +440,7 @@ var ContractListBuilder = {
  var knownKeys = Object.keys(config.KNOWN_TOKENS);
  for (var kt = 0; kt < knownKeys.length; kt++) {
  var kAddr = Addr.normalize(knownKeys[kt]);
- if (kAddr && kAddr !== "native" && !seen[kAddr]) {
+ if (kAddr && kAddr !== "native" && !exclude[kAddr] && !seen[kAddr]) {
  seen[kAddr] = true;
  out.push(kAddr);
  }

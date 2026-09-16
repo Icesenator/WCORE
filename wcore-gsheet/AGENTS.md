@@ -1,7 +1,7 @@
-﻿﻿# WCORE â€” Wallet CORE
+﻿# WCORE â€” Wallet CORE
 
 SystÃ¨me de suivi de portefeuilles crypto multi-chaÃ®nes sur **Google Sheets + Apps Script**.
-- **162 chaÃ®nes** (EVM, SVM/Solana, Cosmos SDK, TON) â€” **120 combinaisons wallet-chaÃ®ne**
+- **163 chaÃ®nes** (EVM, SVM/Solana, Cosmos SDK, TON) â€” **120 combinaisons wallet-chaÃ®ne**
 - **Stack** : Apps Script (.gs), clasp (dÃ©ploiement), Google Sheets (frontend)
 - **Langue** : franÃ§ais
 - **Spreadsheet ID** : `1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4`

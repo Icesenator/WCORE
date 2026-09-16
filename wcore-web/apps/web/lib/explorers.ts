@@ -10,7 +10,6 @@ const EXPLORERS: Record<string, string> = {
   zksync_era: "https://era.zksync.network",
   linea: "https://lineascan.build",
   solana: "https://solscan.io",
-  polygon_zkevm: "https://zkevm.polygonscan.com",
   scroll: "https://scrollscan.com",
   mantle: "https://mantlescan.xyz",
   mode: "https://modescan.io",

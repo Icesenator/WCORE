@@ -96,6 +96,9 @@ const EXPLORERS: Record<string, string> = {
   kcc: "https://scan.kcc.io",
   vana: "https://vanascan.io",
   story: "https://www.storyscan.io",
+  // Arc mainnet (USDC-native L2, chainId 5042). URL from the official Arc docs
+  // (docs.arc.io → Connect to Arc → Network details).
+  arc: "https://explorer.arc.io",
 };
 
 export function getExplorerUrl(chainKey: string, contract: string): string | null {

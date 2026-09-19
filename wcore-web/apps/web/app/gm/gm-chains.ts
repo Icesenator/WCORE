@@ -60,6 +60,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   doma: "Doma",
   b2: "B2",
   katana: "Katana",
+  arc: "Arc",
 };
 
 const SOON_CHAIN_CANDIDATES: GmChain[] = [
@@ -112,6 +113,7 @@ const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "geb", name: "GEB" },
   { key: "bitlayer", name: "Bitlayer" },
   { key: "flow", name: "Flow EVM" },
+  { key: "arc", name: "Arc" },
 ];
 
 export function getGmChains(): GmChain[] {

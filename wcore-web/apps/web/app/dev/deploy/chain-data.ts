@@ -208,6 +208,12 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.appchain.xyz", "https://466.rpc.thirdweb.com"],
   },
+  CAMP: {
+    chainId: "0x1e4",
+    chainName: "Camp",
+    nativeCurrency: { name: "Camp", symbol: "CAMP", decimals: 18 },
+    rpcUrls: ["https://rpc-mainnet.campnetwork.xyz"],
+  },
   DUCKCHAIN: {
     chainId: "0x15a9",
     chainName: "DuckChain",
@@ -590,7 +596,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x2ced",
     chainName: "GEB",
     nativeCurrency: { name: "Bitcoin", symbol: "BTC", decimals: 18 },
-    rpcUrls: ["https://rpc-mainnet-1.bevm.io", "https://rpc-mainnet-2.bevm.io"],
+    rpcUrls: ["https://rpc-mainnet-1.geb.network/", "https://rpc-mainnet-2.geb.network/"],
   },
   BITLAYER: {
     chainId: "0x310c5",
@@ -603,6 +609,12 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainName: "Flow EVM",
     nativeCurrency: { name: "Flow", symbol: "FLOW", decimals: 18 },
     rpcUrls: ["https://mainnet.evm.nodes.onflow.org", "https://flow-mainnet.gateway.tatum.io"],
+  },
+  ARC: {
+    chainId: "0x13b2",
+    chainName: "Arc",
+    nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+    rpcUrls: ["https://rpc.mainnet.arc.io", "https://rpc.blockdaemon.mainnet.arc.io", "https://rpc.drpc.mainnet.arc.io", "https://rpc.quicknode.mainnet.arc.io"],
   },
 };
 
@@ -708,4 +720,5 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   11501, // GEB
   200901, // BITLAYER
   747, // FLOW
+  5042, // ARC
 ]);

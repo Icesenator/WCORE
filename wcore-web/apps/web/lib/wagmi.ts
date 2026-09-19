@@ -480,6 +480,23 @@ const hyperevm: Chain = {
   blockExplorers: { default: { name: "HyperEVM Scan", url: "https://hyperevmscan.io" } },
 };
 
+// Arc (Circle) mainnet, chainId 5042, where USDC is the native gas token (18 dec).
+// viem still ships only `arcTestnet`, so mainnet is defined locally. Values match
+// the canonical registry (wcore-gsheet/src/ARC.gs) and docs.arc.io: all four RPCs
+// answer `eth_chainId = 0x13b2`, explorer https://explorer.arc.io. MetaMask will
+// show the gas token as "ETH" unless it supports custom gas tokens — the underlying
+// asset is USDC either way.
+const arc: Chain = {
+  id: 5042,
+  name: "Arc",
+  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.mainnet.arc.io", "https://rpc.blockdaemon.mainnet.arc.io", "https://rpc.drpc.mainnet.arc.io", "https://rpc.quicknode.mainnet.arc.io"] },
+    public: { http: ["https://rpc.mainnet.arc.io", "https://rpc.blockdaemon.mainnet.arc.io", "https://rpc.drpc.mainnet.arc.io", "https://rpc.quicknode.mainnet.arc.io"] },
+  },
+  blockExplorers: { default: { name: "Arc Explorer", url: "https://explorer.arc.io" } },
+};
+
 declare module "wagmi" {
   interface Register {
     config: typeof config;
@@ -508,7 +525,7 @@ export const config = createConfig({
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
     mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
-    immutableZkEvm, morph, mezo, swellchain, swan, vana, story],
+    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc],
   // as any needed — wagmi connector types mismatch with custom chain list
   connectors: wagmiConnectors as any,
   transports: {
@@ -605,6 +622,7 @@ export const config = createConfig({
     [swan.id]: http(),
     [vana.id]: http(),
     [story.id]: http(),
+    [arc.id]: http(),
   },
   ssr: false,
 });

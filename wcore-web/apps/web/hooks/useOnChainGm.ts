@@ -11,6 +11,7 @@ import { lsContractDeployed, lsSetContractDeployed, lsSetGmDone } from "@/lib/gm
 import { useSafeSwitchChain } from "./useSafeSwitchChain";
 import { switchChainAny, sendTransactionAny, waitForTransactionReceiptAny } from "@/lib/onchain-tx";
 import { resolveHasDeployed } from "@/lib/gm-deploy-status";
+import { describeGmSwitchError } from "@/lib/gm-switch-error";
 import { computeGmTipWei } from "@/lib/gm-tip";
 import { useWallet } from "@/components/ConnectButton";
 
@@ -177,8 +178,8 @@ export function useOnChainGm(config: GmConfig) {
       const expectedChainId = getGmChainId(chainKey);
       try {
         await switchChainAny(senders, expectedChainId);
-      } catch {
-        throw new Error(`Could not switch to ${chainKey.replace(/_/g, " ")}. Check your wallet and try again.`);
+      } catch (e) {
+        throw new Error(describeGmSwitchError(chainKey.replace(/_/g, " "), e), { cause: e });
       }
       // Some wallets silently no-op on switchChain, and wagmi React state may be stale.
       // Poll the wallet directly for up to 3s until it confirms the switch.
@@ -267,7 +268,11 @@ export function useOnChainGm(config: GmConfig) {
 
       const senders = buildSenders();
       const expectedChainId = getGmChainId(config.chainKey);
-      await switchChainAny(senders, expectedChainId);
+      try {
+        await switchChainAny(senders, expectedChainId);
+      } catch (e) {
+        throw new Error(describeGmSwitchError(config.chainKey.replace(/_/g, " "), e), { cause: e });
+      }
       const switchDeadline = Date.now() + 3000;
       let providerConfirmed = false;
       while (Date.now() < switchDeadline) {

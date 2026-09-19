@@ -3,6 +3,7 @@ import { advanceAuthGeneration, getApiUrl, apiFetch, getAuthGeneration } from "@
 import { classifyWalletSignError, walletErrorLabel } from "@/lib/wallet-errors";
 import { resolveRehydratedAuth, shouldHandleAuthExpired, type AuthStep } from "@/lib/auth-state";
 import { useEip6963Providers, type Eip6963ProviderEntry, type Eip6963Provider } from "@/hooks/useEip6963Providers";
+import { findProviderForAddress } from "@/lib/wallet-provider-rehydrate";
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useAccount, useConnect, useDisconnect, useSignMessage, useConnectors } from "wagmi";
@@ -124,6 +125,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       prevAuthStepRef.current = authStep;
     }
   }, [isConnected, wagmiAddress, authStep, rawProvider, setAuthStep]);
+
+  // Re-adopt the EIP-6963 provider that owns the rehydrated session. The picker
+  // connects directly to the provider (never through a wagmi connector), so on a
+  // reload wagmi cannot restore it and `rawProvider` resets to null while the JWT
+  // session survives — leaving an authenticated user whose every on-chain action
+  // throws "No wallet provider available". `eth_accounts` is silent, so matching
+  // the announced providers against the known address is safe on mount.
+  useEffect(() => {
+    if (rawProvider || isConnected) return;
+    if (!address || eip6963Wallets.length === 0) return;
+    let cancelled = false;
+    findProviderForAddress(eip6963Wallets, address)
+      .then((entry) => {
+        if (!cancelled && entry) setRawProvider(entry.provider);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [rawProvider, isConnected, address, eip6963Wallets]);
 
   // Declared before signAndLogin/signAndLoginRaw which call it (avoids TDZ-style
   // use-before-declaration and lets the hooks list it as a dependency).

@@ -166,6 +166,11 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   doma: { address: "0x405376616102772a6045b5ad61f877fb31bafb93", chainId: 97477 },
   b2: { address: "0x4a36400e6717d4201e22baf66832f06d8ad54bb1", chainId: 223 },
   katana: { address: "0x79113a6c0517a2e748b87bab6e4058ad75eb4352", chainId: 747474 },
+  // Arc mainnet (chainId 5042). Native USDC (18 decimals). Shanghai-capable
+  // (factory bytecode identical to Cronos/Robinhood deploy: same CREATE nonce,
+  // 3394 chars, implementation() → 0x4d90e914871921f0443bda53f70def868d9f2960).
+  // Standard build, no Paris fallback needed.
+  arc: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 5042 },
 };
 
 export function getFactoryChainIds(): number[] {

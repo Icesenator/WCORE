@@ -1,3 +1,4 @@
+// v4.16.81 - Statut manuel CEX (Portefeuille Crypto!V2): un echec porte un horodatage lisible en tete (P2-OBS-CEX-STATUS-STALE-LABEL).
 // v4.16.75 - UPDATE_BITPANDA_SPOT/STOCKS_FIAT flush HttpCounter en sortie (telemetrie budget pas perdue).
 // v4.16.74 - Split Bitpanda legacy security.stock vs equity_security duplicates (-LEG suffix).
 // v4.16.34 - Canonical CEX rotation, legacy watchdog cleanup, and dedicated Bitpanda triggers.
@@ -32,7 +33,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.16.75";
+var BITPANDA_SYNC_VERSION = "4.16.81";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -616,7 +617,12 @@ function _cexWriteManualJobStatus_(job, result) {
     if (job.statusSheetName && job.statusCell) {
       var statusSheet = ss.getSheetByName(job.statusSheetName);
       if (statusSheet) {
-        var display = isSuccess ? String(job.kind || "") + " OK: " + _bpFmtStamp_() : status;
+        // P2-OBS-CEX-STATUS-STALE-LABEL: un echec porte un horodatage lisible en
+        // tete pour qu'un echec fige ne puisse plus passer pour un etat courant.
+        // Le corps brut reste exact (aucune donnee inventee, aucun succes fabrique).
+        var display = isSuccess
+          ? String(job.kind || "") + " OK: " + _bpFmtStamp_()
+          : "ERROR " + _bpFmtStamp_() + " " + String(job.kind || "") + ": " + status;
         statusSheet.getRange(job.statusCell).setValue(display).setNumberFormat("@");
       }
     }

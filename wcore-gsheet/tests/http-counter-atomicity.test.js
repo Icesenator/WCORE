@@ -1015,8 +1015,8 @@ const bitfinexSource = fs.readFileSync(path.join(root, 'src/37_BITFINEX_SYNC.gs'
 const krakenSource = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
 const cexBulkSource = fs.readFileSync(path.join(root, 'src/44_CEX_BULK.gs'), 'utf8');
 
-assert.match(bitpandaSource, /var\s+BITPANDA_SYNC_VERSION\s*=\s*["']4\.16\.75["']\s*;/,
-  'BITPANDA_SYNC_VERSION must be bumped to 4.16.75 (CEX exit flush)');
+assert.match(bitpandaSource, /var\s+BITPANDA_SYNC_VERSION\s*=\s*["']4\.16\.81["']\s*;/,
+  'BITPANDA_SYNC_VERSION must be bumped to 4.16.81 (manual CEX status timestamp)');
 assert.match(bitfinexSource, /var\s+BITFINEX_SYNC_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
   'BITFINEX_SYNC_VERSION must be bumped to 4.16.35 (CEX exit flush)');
 assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.41["']\s*;/,

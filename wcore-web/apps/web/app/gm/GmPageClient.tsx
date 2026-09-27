@@ -11,6 +11,7 @@ import { useGmContracts, type GmContractWithBalance } from "@/hooks/useGmContrac
 import { getFactoryAddress, GM_PLATFORM_OWNER } from "@wcore/shared";
 import { lsGmDone } from "@/lib/gm-storage";
 import { getGmChains, getSoonChains, type GmChain } from "./gm-chains";
+import { filterGmChains } from "./filter-gm-chains";
 import { buildChainStatusesFromApi, type ApiGmStatus } from "@/lib/gm-status-reconcile";
 
 const GM_CHAINS = getGmChains();
@@ -22,6 +23,9 @@ export function GmPageClient() {
   const { address, authStep } = useWallet();
   const isAuthenticated = authStep === "authenticated";
   const [chainStatuses, setChainStatuses] = useState<Record<string, { deployed: boolean | null; gmDone: boolean }>>({});
+  const [search, setSearch] = useState("");
+  const availableChains = filterGmChains(GM_CHAINS.filter(c => getFactoryAddress(c.key)), search);
+  const soonChains = filterGmChains(SOON_CHAINS, search);
   const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(isAuthenticated ? address : null);
 
   useEffect(() => {
@@ -37,11 +41,24 @@ export function GmPageClient() {
       .catch(() => {});
   }, [address, isAuthenticated]);
 
+  const searchField = (
+    <input
+      type="search"
+      aria-label="Search chains"
+      placeholder="Search chains..."
+      value={search}
+      onChange={e => setSearch(e.target.value)}
+      className="mb-4 w-full max-w-sm rounded-lg border border-border bg-card px-3 py-2 text-sm text-fg outline-none focus:border-accent"
+    />
+  );
+
   if (!isAuthenticated) {
     return (
       <div>
-    <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8">
-          {GM_CHAINS.filter(c => getFactoryAddress(c.key)).map((chain) => (
+        {searchField}
+        {availableChains.length === 0 && soonChains.length === 0 && <p className="text-sm text-muted">No chains found</p>}
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8">
+          {availableChains.map((chain) => (
             <div key={chain.key} className="rounded-xl border border-border bg-card p-5 opacity-50">
               <div className="flex h-9 items-center gap-3 mb-4">
                 <ChainIcon chainKey={chain.key.toUpperCase()} />
@@ -55,7 +72,7 @@ export function GmPageClient() {
               </div>
             </div>
           ))}
-          {SOON_CHAINS.map((chain) => (
+          {soonChains.map((chain) => (
             <div key={chain.key} className="rounded-xl border border-border bg-card p-5 opacity-40">
               <div className="flex h-9 items-center gap-3 mb-4">
                 <ChainIcon chainKey={chain.key.toUpperCase()} />
@@ -75,8 +92,11 @@ export function GmPageClient() {
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8">
-      {GM_CHAINS.filter(c => getFactoryAddress(c.key)).map((chain) => (
+    <div>
+      {searchField}
+      {availableChains.length === 0 && soonChains.length === 0 && <p className="text-sm text-muted">No chains found</p>}
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8">
+      {availableChains.map((chain) => (
         <GmChainCard
           key={chain.key}
           chain={chain}
@@ -89,7 +109,7 @@ export function GmPageClient() {
           connectedAddress={address ?? ""}
         />
       ))}
-      {SOON_CHAINS.map((chain) => (
+      {soonChains.map((chain) => (
         <div key={chain.key} className="rounded-xl border border-border bg-card p-5 opacity-50">
           <div className="flex h-9 items-center gap-3 mb-4">
             <ChainIcon chainKey={chain.key.toUpperCase()} />
@@ -103,6 +123,7 @@ export function GmPageClient() {
           </div>
         </div>
       ))}
+      </div>
     </div>
   );
 }

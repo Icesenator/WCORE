@@ -160,7 +160,7 @@ test("GoPlus failure -> no signal AND nothing persisted as clean", async () => {
   } finally { globalThis.fetch = original; }
 });
 
-test("total enrichment miss (GoPlus+GT unavailable) -> short-TTL miss row persisted, not refetched next scan", async () => {
+test("GT outage cannot cache a clean miss for 24h on a supported chain", async () => {
   setFlag(true);
   // First scan: empty DB, GT quota exhausted -> GT 429, GoPlus empty result.
   {
@@ -179,39 +179,27 @@ test("total enrichment miss (GoPlus+GT unavailable) -> short-TTL miss row persis
       const m = await loader(8453, [ADDR]);
       assert.equal(m.size, 0, "no enrichment when both providers miss");
       const miss = upserts.find((u) => (u as any).create?.source === "miss");
-      assert.ok(miss, "a short-TTL miss row must be persisted to stop the retry loop");
+      assert.equal(miss, undefined, "GT 429 must not persist a fake-clean miss for a supported chain");
+      assert.ok(upserts.some((u) => (u as any).create?.source === "gt-miss"), "quota backoff remains bounded");
     } finally { globalThis.fetch = original; }
     assert.ok(gtCalls >= 1);
   }
-  // Second scan moments later: the fresh miss row must prevent any network call.
+  // A legacy fresh miss from before the fix must retry GT rather than hide a honeypot.
   {
-    let calls = 0;
-    const { prisma, upserts } = makePrisma([{ chainId: 8453, address: ADDR, verdict: "clean", source: "miss", payload: null, updatedAt: new Date() }]);
-    const original = globalThis.fetch;
-    globalThis.fetch = (async () => { calls += 1; throw new Error("must not refetch a fresh miss"); }) as typeof fetch;
-    try {
-      const loader = createScamEnrichmentLoader({ prisma });
-      const m = await loader(8453, [ADDR]);
-      assert.equal(calls, 0, "fresh miss must not hit GoPlus or GT");
-      assert.equal(m.size, 0, "fresh miss yields no enrichment");
-      assert.equal(upserts.length, 0, "no upsert churn on a fresh miss");
-    } finally { globalThis.fetch = original; }
-  }
-  // Third scan after the miss TTL expired: retried (fail-open, no permanent freeze).
-  {
-    let calls = 0;
-    const stale = new Date(Date.now() - 25 * 3600 * 1000);
-    const { prisma } = makePrisma([{ chainId: 8453, address: ADDR, verdict: "clean", source: "miss", payload: null, updatedAt: stale }]);
+    const { prisma, upserts } = makePrisma([{ chainId: 480, address: ADDR, verdict: "clean", source: "miss", payload: null, updatedAt: new Date() }]);
     const original = globalThis.fetch;
     globalThis.fetch = (async (url: string | URL) => {
-      calls += 1;
-      if (String(url).includes("geckoterminal")) return new Response("", { status: 429 });
-      return new Response(JSON.stringify({ code: 1, message: "OK", result: {} }), { status: 200 });
+      if (String(url).includes("geckoterminal")) {
+        return new Response(JSON.stringify({ data: { attributes: { gt_score: 0, is_honeypot: true } } }), { status: 200 });
+      }
+      throw new Error(`GoPlus must not refetch a fresh miss: ${url}`);
     }) as typeof fetch;
     try {
       const loader = createScamEnrichmentLoader({ prisma });
-      await loader(8453, [ADDR]);
-      assert.ok(calls >= 1, "expired miss must be retried, not frozen forever");
+      const m = await loader(480, [ADDR]);
+      assert.equal(m.get(ADDR)?.gt?.isHoneypot, true);
+      assert.equal(upserts.length, 1);
+      assert.equal((upserts[0] as any).update.source, "gt");
     } finally { globalThis.fetch = original; }
   }
 });

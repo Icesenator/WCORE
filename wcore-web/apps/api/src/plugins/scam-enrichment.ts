@@ -133,6 +133,8 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
       if (!isScamEnrichmentEnabled() || !Number.isFinite(chainId) || chainId <= 0 || contracts.length === 0) {
         return out;
       }
+      const { gtNetworkForChain } = await import("@wcore/core");
+      const gtSupported = Boolean(gtNetworkForChain(chainId));
       const addrs = [...new Set(contracts.map((c) => c.toLowerCase()))]
         .filter(isEvmAddress)
         .slice(0, MAX_CONTRACTS_PER_SCAN);
@@ -159,8 +161,12 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
           fresh.set(a, row.verdict === "clean" ? {} : {});
           continue;
         }
-        if (row.source === "miss" && now - new Date(row.updatedAt).getTime() < MISS_TTL_MS) {
-          continue; // recent total miss: skip silently, retry after MISS_TTL
+        if ((row.source === "miss" || row.source === "gt-miss") && now - new Date(row.updatedAt).getTime() < MISS_TTL_MS) {
+          // A total miss only proves GoPlus omitted the token; GT may have been
+          // rate-limited. Back off GoPlus, but retry GT on supported chains.
+          if (row.source === "miss" && !gtSupported) continue;
+          missingGt.push(a);
+          continue;
         }
         if (now - new Date(row.updatedAt).getTime() < VERDICT_TTL_MS) {
           const cached = normalizeCachedEnrichment(row.payload);
@@ -187,8 +193,8 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
           try {
             await prisma.scamVerdict.upsert({
               where: { chainId_address: { chainId, address: addr } },
-              update: { source: "goplus+gt", payload: combined as object },
-              create: { chainId, address: addr, verdict: "clean", source: "goplus+gt", payload: combined as object },
+              update: { source: current.goPlus ? "goplus+gt" : "gt", payload: combined as object },
+              create: { chainId, address: addr, verdict: "clean", source: current.goPlus ? "goplus+gt" : "gt", payload: combined as object },
             });
           } catch (e) {
             warn?.(`scam-verdict GT backfill failed (${addr}): ${(e as Error).message}`);
@@ -248,16 +254,15 @@ export function createScamEnrichmentLoader(deps: ScamEnrichmentDeps): ScamEnrich
               warn?.(`scam-verdict write failed (${addr}): ${(e as Error).message}`);
             }
           } else if (canTombstone) {
-            // Total miss with GoPlus reachable: persist a short-TTL "miss"
-            // tombstone so the next scan does not re-query this contract
-            // (quota exhaustion loop, incident 2026-09-03). Not persisted when
-            // GoPlus itself was unreachable — retry then, security first.
+            // GoPlus omission is not proof that GT has no signal: GT may have
+            // timed out or hit its quota. Back off GoPlus, retry GT next scan.
             // Fail-graceful: write errors ignored.
             try {
+              const source = gtSupported ? "gt-miss" : "miss";
               await prisma.scamVerdict.upsert({
                 where: { chainId_address: { chainId, address: addr } },
-                update: { verdict: "clean", source: "miss", payload: {} },
-                create: { chainId, address: addr, verdict: "clean", source: "miss", payload: {} },
+                update: { verdict: "clean", source, payload: {} },
+                create: { chainId, address: addr, verdict: "clean", source, payload: {} },
               });
             } catch (e) {
               warn?.(`scam-miss write failed (${addr}): ${(e as Error).message}`);

@@ -41,7 +41,7 @@ export async function registerGmOnchainRoutes(
     GM_EVENT_SIG: string;
   },
 ) {
-  const { startOfUtcDay, getChainRpc, getChainRpcs, checkStreakBadges, GM_EVENT_SIG, getChainMaxLogRange } = deps;
+  const { startOfUtcDay, getChainRpc, getChainRpcs, checkStreakBadges, GM_EVENT_SIG } = deps;
   const { rpcJson } = createGmHelpers(deps);
 
   // On-chain GM (multi-chain, once per day general + per-chain tracking)
@@ -448,46 +448,30 @@ export async function registerGmOnchainRoutes(
         return { chainGmDone: false };
       }
 
-      // Check GmCheckedIn events from ALL contracts for this address today
-      const gmEventSig = GM_EVENT_SIG;
+      // Ask every contract for `lastGmTimestamp(address)` — the exact value the
+      // contract's own once-a-day guard reads — and keep the newest.
+      //
+      // This replaces an eth_getLogs scan of the last 10k blocks. That window is
+      // not a day on fast chains (Arc ~0.5s blocks → barely an hour), and some
+      // RPCs reject the 10k span outright (Arc: "requested range too large",
+      // erc-39000 / -32012), so the on-chain reconcile always returned false
+      // there and the GM button could stay enabled after a GM was already done.
+      // O(contracts) eth_calls is exact and chain-independent.
       const paddedUser = "0x000000000000000000000000" + address.slice(2);
+      const lastGmCallData = "0xadb28e69" + paddedUser.slice(2); // lastGmTimestamp(address)
       const todayStart = Math.floor(new Date().setUTCHours(0, 0, 0, 0) / 1000);
 
-      // Get recent blocks (last 10k covers ~1 day on most chains), chunked by
-      // RPC.MAX_LOG_RANGE. Moonriver/Moonbeam official RPCs reject 10k-block
-      // eth_getLogs queries with -32603 "block range is too wide".
-      const bnData2 = await rpcJson<{ result?: string }>(rpcs, { jsonrpc: "2.0", id: 2, method: "eth_blockNumber" });
-      const latestBlock = parseInt(bnData2?.result || "0x0", 16);
-      const targetFromBlock = Math.max(0, latestBlock - 10000);
-      const rangeLimit = getChainMaxLogRange?.(chainQuery);
-      const chunkSize = rangeLimit && rangeLimit > 0 ? Math.min(rangeLimit, 10000) : 10000;
-      const logs: Array<{ data: string }> = [];
-
-      for (let to = latestBlock; to > targetFromBlock; to -= chunkSize) {
-        const from = Math.max(targetFromBlock, to - chunkSize);
-        const logsData = await rpcJson<{ result?: Array<{ data: string }> }>(rpcs, {
-          jsonrpc: "2.0", id: 1, method: "eth_getLogs",
-          params: [{
-            address: contracts,
-            fromBlock: "0x" + from.toString(16),
-            toBlock: "0x" + to.toString(16),
-            topics: [gmEventSig, paddedUser],
-          }],
-        });
-        if (logsData?.result?.length) logs.push(...logsData.result);
-        if (logs.length > 0) break;
-      }
-      if (logs.length === 0) {
-        setStatusOnchainCache(cacheKey, false);
-        return { chainGmDone: false };
-      }
-
-      // Check if any event has timestamp >= today
       let gmDone = false;
-      for (const log of logs) {
-        const tsHex = log.data.slice(0, 66); // first 32 bytes = timestamp
-        const eventTs = parseInt(tsHex, 16);
-        if (eventTs >= todayStart) { gmDone = true; break; }
+      for (const contract of contracts) {
+        const tsData = await rpcJson<{ result?: string }>(rpcs, {
+          jsonrpc: "2.0", id: 1, method: "eth_call",
+          params: [{ to: contract, data: lastGmCallData }, "latest"],
+        });
+        if (typeof tsData?.result !== "string" || tsData.result === "0x") continue;
+        try {
+          // lastGmTimestamp is a uint256 but always a unix seconds value.
+          if (Number(BigInt(tsData.result)) >= todayStart) { gmDone = true; break; }
+        } catch { /* malformed result — treat as no GM */ }
       }
 
       setStatusOnchainCache(cacheKey, gmDone);

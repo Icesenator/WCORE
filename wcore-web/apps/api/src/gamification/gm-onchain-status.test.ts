@@ -47,9 +47,10 @@ async function registerRoutes(app: FastifyInstance) {
   });
 }
 
-test("status-onchain respects chain MAX_LOG_RANGE when scanning GM logs", async () => {
+test("status-onchain reads lastGmTimestamp per contract instead of scanning logs", async () => {
   const originalFetch = globalThis.fetch;
-  const logRanges: Array<{ from: number; to: number }> = [];
+  const lastGmCalls: string[] = [];
+  let getLogsCalls = 0;
 
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string; params?: unknown[] };
@@ -61,20 +62,20 @@ test("status-onchain respects chain MAX_LOG_RANGE when scanning GM logs", async 
       if (call.data?.startsWith("0x474da79a")) {
         return Response.json({ jsonrpc: "2.0", id: 1, result: topicAddress(CONTRACT) });
       }
-    }
-    if (body.method === "eth_blockNumber") {
-      return Response.json({ jsonrpc: "2.0", id: 2, result: "0x10000" });
+      if (call.data?.startsWith("0xadb28e69")) {
+        lastGmCalls.push(call.data);
+        return Response.json({ jsonrpc: "2.0", id: 1, result: `0x${"0".repeat(64)}` });
+      }
     }
     if (body.method === "eth_getLogs") {
-      const filter = (body.params?.[0] ?? {}) as { fromBlock: string; toBlock: string };
-      logRanges.push({ from: parseInt(filter.fromBlock, 16), to: parseInt(filter.toBlock, 16) });
+      getLogsCalls++;
       return Response.json({ jsonrpc: "2.0", id: 1, result: [] });
     }
     return Response.json({ jsonrpc: "2.0", id: 1, result: null });
   }) as typeof fetch;
 
   try {
-    const app = buildApp({ user: { id: "u1", address: USER } });
+    const app = buildApp({ user: { id: "u-lastgm", address: USER } });
     await registerRoutes(app);
 
     const res = await app.inject({
@@ -83,10 +84,14 @@ test("status-onchain respects chain MAX_LOG_RANGE when scanning GM logs", async 
     });
 
     assert.equal(res.statusCode, 200);
-    assert.ok(logRanges.length > 0, "expected an eth_getLogs call");
-    for (const range of logRanges) {
-      assert.ok(range.to - range.from <= 1024, `range ${range.from}..${range.to} exceeds 1024`);
-    }
+    assert.deepEqual(res.json(), { chainGmDone: false });
+    assert.equal(getLogsCalls, 0, "status-onchain must not scan eth_getLogs anymore");
+    assert.ok(lastGmCalls.length >= 1, "expected a lastGmTimestamp read");
+    // lastGmTimestamp(address): selector + the address padded to a 32-byte word.
+    assert.ok(
+      lastGmCalls[0]!.startsWith("0xadb28e69" + "0".repeat(24) + USER.slice(2).toLowerCase()),
+      `unexpected lastGmTimestamp calldata: ${lastGmCalls[0]}`,
+    );
     await app.close();
   } finally {
     globalThis.fetch = originalFetch;
@@ -95,9 +100,9 @@ test("status-onchain respects chain MAX_LOG_RANGE when scanning GM logs", async 
 
 test("status-onchain caches same chain and address for the current UTC day", async () => {
   const originalFetch = globalThis.fetch;
-  let logCalls = 0;
-  const todayTs = Math.floor(Date.now() / 1000);
-  const eventData = `0x${todayTs.toString(16).padStart(64, "0")}`;
+  let lastGmCalls = 0;
+  const todayTs = BigInt(Math.floor(Date.now() / 1000));
+  const tsData = `0x${todayTs.toString(16).padStart(64, "0")}`;
 
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}")) as { method?: string; params?: unknown[] };
@@ -105,11 +110,10 @@ test("status-onchain caches same chain and address for the current UTC day", asy
       const call = (body.params?.[0] ?? {}) as { data?: string };
       if (call.data === "0x9399869d") return Response.json({ jsonrpc: "2.0", id: 1, result: "0x1" });
       if (call.data?.startsWith("0x474da79a")) return Response.json({ jsonrpc: "2.0", id: 1, result: topicAddress(CONTRACT) });
-    }
-    if (body.method === "eth_blockNumber") return Response.json({ jsonrpc: "2.0", id: 2, result: "0x10000" });
-    if (body.method === "eth_getLogs") {
-      logCalls++;
-      return Response.json({ jsonrpc: "2.0", id: 1, result: [{ data: eventData }] });
+      if (call.data?.startsWith("0xadb28e69")) {
+        lastGmCalls++;
+        return Response.json({ jsonrpc: "2.0", id: 1, result: tsData });
+      }
     }
     return Response.json({ jsonrpc: "2.0", id: 1, result: null });
   }) as typeof fetch;
@@ -126,7 +130,7 @@ test("status-onchain caches same chain and address for the current UTC day", asy
     assert.equal(second.statusCode, 200);
     assert.deepEqual(first.json(), { chainGmDone: true });
     assert.deepEqual(second.json(), { chainGmDone: true });
-    assert.equal(logCalls, 1, "second status check should be served from cache");
+    assert.equal(lastGmCalls, 1, "second status check should be served from cache");
     await app.close();
   } finally {
     globalThis.fetch = originalFetch;

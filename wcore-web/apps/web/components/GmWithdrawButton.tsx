@@ -6,10 +6,56 @@ import { type GmContractWithBalance, getNativeSymbol, hasWithdrawableBalance, we
 import { usePreferences } from "./PreferencesProvider";
 import { getApiUrl } from "@/lib/api";
 import { getFactory } from "@wcore/shared";
-import { lsGetBalance, lsSetBalance } from "@/lib/gm-storage";
+import { lsGetBalance, lsSetBalance, lsClearBalance } from "@/lib/gm-storage";
+import { resolveGmBalance } from "@/lib/gm-withdraw-balance";
 
 const _nativePriceCache = new Map<string, number>();
 const _nativePricePromises = new Map<string, Promise<number | null>>();
+
+const CREATOR_BALANCE_SELECTOR = "0xaf55ec73";
+const PLATFORM_BALANCE_SELECTOR = "0x62a5dbbc";
+
+interface EthereumLike {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+}
+
+/**
+ * Read a contract's withdrawable balance straight from the wallet RPC.
+ *
+ * Only a read taken on the contract's own chain is trusted: the same address on
+ * a different chain is unrelated code and can return arbitrary data. Returns
+ * null (never throws) when the chain, the wallet or the read is unavailable, so
+ * the caller can fall back to the server value instead of showing a wrong one.
+ */
+async function readBalanceFromWallet(
+  ethereum: EthereumLike,
+  chainKey: string,
+  contractAddress: string,
+  balanceKind: "creator" | "platform",
+): Promise<string | null> {
+  const factory = getFactory(chainKey);
+  if (!factory) return null;
+  try {
+    const chainIdHex = await ethereum.request({ method: "eth_chainId" }) as string;
+    if (Number(chainIdHex) !== factory.chainId) return null;
+  } catch {
+    return null;
+  }
+  const selector = balanceKind === "platform" ? PLATFORM_BALANCE_SELECTOR : CREATOR_BALANCE_SELECTOR;
+  try {
+    const raw = await ethereum.request({ method: "eth_call", params: [{ to: contractAddress, data: selector }, "latest"] });
+    if (typeof raw !== "string" || raw === "0x") return null;
+    return BigInt(raw).toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Persist an authoritative balance; a confirmed zero clears the stale cache. */
+function persistBalance(chainKey: string, contractAddress: string, kind: "creator" | "platform", value: string): void {
+  if (BigInt(value) > 0n) lsSetBalance(chainKey, contractAddress, kind, value);
+  else lsClearBalance(chainKey, contractAddress, kind);
+}
 
 interface GmWithdrawButtonProps {
   contract: GmContractWithBalance | undefined;
@@ -33,13 +79,17 @@ export function GmWithdrawButton({
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [fetchedPrice, setFetchedPrice] = useState<number | null>(null);
-  const [directBalance, setDirectBalance] = useState<string | null>(() => {
+  // Optimistic value from a previous session, shown only until a fresh read
+  // lands. It must never win over a confirmed zero — see resolveGmBalance.
+  const [cachedBalance] = useState<string | null>(() => {
     if (!contract) return null;
     return lsGetBalance(contract.chainKey, contract.contractAddress, balanceKind);
   });
+  // Authoritative balance read from the wallet RPC (any value, including 0).
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const { formatValue } = usePreferences();
   const backendBalance = balanceKind === "platform" ? contract?.platformBalance : contract?.creatorBalance;
-  const balance = (backendBalance && BigInt(backendBalance || "0") > 0n) ? backendBalance : (directBalance || backendBalance || "0");
+  const balance = resolveGmBalance({ walletBalance, backendBalance, cachedBalance });
 
   useEffect(() => {
     if (nativePriceEurProp != null || !contract) return;
@@ -56,45 +106,47 @@ export function GmWithdrawButton({
   }, [contract, contract?.chainKey, nativePriceEurProp]);
 
   useEffect(() => {
-    if (!contract || (backendBalance && BigInt(backendBalance || "0") > 0n)) return;
+    if (!contract) return;
+    // A positive server balance is already authoritative and fresh — skip the
+    // extra wallet RPC. A zero (or an unreadable server value) is re-checked
+    // on-chain so a value that has since been withdrawn to 0 cannot linger.
+    if (backendBalance && BigInt(backendBalance || "0") > 0n) return;
     const ethereum = window.ethereum;
     if (!ethereum) return;
-    const selector = balanceKind === "platform" ? "0x62a5dbbc" : "0xaf55ec73";
-    ethereum.request({ method: "eth_call", params: [{ to: contract.contractAddress, data: selector }, "latest"] })
-      .then((raw: unknown) => {
-        const result = typeof raw === "string" ? raw : "";
-        if (result && result !== "0x" && parseInt(result, 16) > 0) {
-          const bal = BigInt(result).toString();
-          setDirectBalance(bal);
-          lsSetBalance(contract.chainKey, contract.contractAddress, balanceKind, bal);
-        }
-      }).catch(() => {});
+    let cancelled = false;
+    (async () => {
+      const value = await readBalanceFromWallet(ethereum, contract.chainKey, contract.contractAddress, balanceKind);
+      if (cancelled || value == null) return;
+      setWalletBalance(value);
+      persistBalance(contract.chainKey, contract.contractAddress, balanceKind, value);
+    })();
+    return () => { cancelled = true; };
   }, [contract, contract?.contractAddress, contract?.chainKey, backendBalance, balanceKind]);
 
-  // Returns the balance actually read on-chain, so the caller can decide whether a
-  // withdrawal is worth submitting. Returning nothing made every refresh look successful.
+  // Switches to the contract's chain, then reads the balance on-chain. Returns
+  // the exact value read (including 0), or null when no trustworthy read was
+  // possible — so the caller can stop instead of submitting a reverting tx.
   const refreshBalanceViaMetaMask = useCallback(async (): Promise<string | null> => {
     const ethereum = window.ethereum;
     if (!ethereum || !contract) return null;
     setRefreshing(true);
-    let refreshed: string | null = null;
     try {
       const factory = getFactory(contract.chainKey);
-      if (factory) {
-        const hexChainId = "0x" + factory.chainId.toString(16);
-        try { await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hexChainId }] }); } catch { /* wallet may already be on the target chain */ }
-        const selector = balanceKind === "platform" ? "0x62a5dbbc" : "0xaf55ec73";
-        const result = await ethereum.request({ method: "eth_call", params: [{ to: contract.contractAddress, data: selector }, "latest"] }) as string;
-        if (result && result !== "0x" && parseInt(result, 16) > 0) {
-          const bal = BigInt(result).toString();
-          refreshed = bal;
-          setDirectBalance(bal);
-          lsSetBalance(contract.chainKey, contract.contractAddress, balanceKind, bal);
-        }
+      if (!factory) return null;
+      const hexChainId = "0x" + factory.chainId.toString(16);
+      try { await ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hexChainId }] }); } catch { /* wallet may already be on the target chain */ }
+      const value = await readBalanceFromWallet(ethereum, contract.chainKey, contract.contractAddress, balanceKind);
+      if (value != null) {
+        setWalletBalance(value);
+        persistBalance(contract.chainKey, contract.contractAddress, balanceKind, value);
       }
-    } catch (e) { setError((e as Error).message || "Failed to refresh"); }
-    setRefreshing(false);
-    return refreshed;
+      return value;
+    } catch (e) {
+      setError((e as Error).message || "Failed to refresh");
+      return null;
+    } finally {
+      setRefreshing(false);
+    }
   }, [contract, balanceKind]);
 
   if (!contract || !balance) return null;
@@ -118,12 +170,22 @@ export function GmWithdrawButton({
         onClick={async () => {
           setError("");
           if (isBalanceUnavailable) {
-            // Submitting a withdrawal against a confirmed zero balance only burns gas
-            // on a revert. Refresh first and stop unless funds actually showed up.
+            // A zero label means either a confirmed empty contract or a server
+            // read that could not be trusted. Only a fresh on-chain read from the
+            // wallet can tell them apart — and submitting against an empty
+            // contract just burns gas on a "nothing to withdraw" revert.
             const refreshed = await refreshBalanceViaMetaMask();
-            if (!refreshed || !hasWithdrawableBalance(refreshed)) return;
+            if (refreshed == null || !hasWithdrawableBalance(refreshed)) return;
           }
-          void onWithdraw(contract!).catch((e) => setError((e as Error).message));
+          try {
+            await onWithdraw(contract!);
+            // The balance is now spent (or the tx failed). Drop the cached read so
+            // the next render/click re-verifies instead of trusting a stale amount.
+            setWalletBalance(null);
+            lsClearBalance(contract!.chainKey, contract!.contractAddress, balanceKind);
+          } catch (e) {
+            setError((e as Error).message);
+          }
         }}
         disabled={withdrawing || refreshing}
         className={`${compact ? "rounded border px-2 py-0.5 text-[10px]" : "rounded border px-3 py-1 text-xs"} font-semibold disabled:opacity-50 transition ${colorClass} ${className}`}

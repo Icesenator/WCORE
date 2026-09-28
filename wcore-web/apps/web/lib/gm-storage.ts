@@ -60,3 +60,10 @@ export function lsSetBalance(chainKey: string, contractAddress: string, kind: "c
     window.localStorage.setItem(`gm_bal_${chainKey.toLowerCase()}_${contractAddress}_${kind}`, balance);
   } catch { /* quota exceeded */ }
 }
+
+export function lsClearBalance(chainKey: string, contractAddress: string, kind: "creator" | "platform"): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(`gm_bal_${chainKey.toLowerCase()}_${contractAddress}_${kind}`);
+  } catch { /* ignore */ }
+}

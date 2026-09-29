@@ -226,18 +226,21 @@ function harness(opts) {
     'les DEUX installeurs d auto-heal doivent deleguer au helper de cadence');
 }
 
-// 16. Le helper de cadence utilise la forme everyDays(1).atHour().atMinute() qui,
-// elle, fonctionne : atHour/atMinute seuls ne sont PAS chainables en Apps Script
-// (verifie par erreur runtime : atMinute is not a function).
+// 16. Le helper de cadence utilise la forme .everyDays(1).atTime(h, m, s).create()
+// qui, elle, fonctionne. atHour()/atMinute() sont TERMINAUX (retournent void) :
+// les chainer leve TypeError. Erreur runtime observee deux fois le 2026-09-29
+// ('atMinute is not a function'), d'ou cette assertion.
 {
   const src = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
-  assert.ok(!/timeBased\(\)\.atHour\(/.test(src),
-    'atHour ne doit pas etre appele sans everyDays(1) prealable');
-  const clockCalls = src.match(/timeBased\(\)\.everyDays\(1\)\.atHour\(0\)\.atMinute\(\d+\)\.create\(\)/g) || [];
+  const codeOnly = src.split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  // atHour() et atMinute() sont TERMINAUX (retournent void) : les chainer leve
+  // TypeError. atTime(h, m, s) est la seule forme qui fixe les trois.
+  assert.ok(!/\.atHour\(/.test(codeOnly), 'atHour() est terminal : ne doit pas etre utilise ici');
+  assert.ok(!/\.atMinute\(/.test(codeOnly), 'atMinute() est terminal : ne doit pas etre utilise ici');
+  const clockCalls = codeOnly.match(/timeBased\(\)\.everyDays\(1\)\.atTime\(0,\s*\d+,\s*0\)\.create\(\)/g) || [];
   assert.equal(clockCalls.length, 4, 'quatre triggers horloge : SPOT h:00 et h:30, STOCKS h:15 et h:45');
   // everyMinutes(30) est rejete par Apps Script : on verifie qu il n apparait
   // dans aucune CHAINE DE CODE (les commentaires qui l expliquent sont exclus).
-  const codeOnly = src.split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join('\n');
   assert.ok(!/everyMinutes\(30\)/.test(codeOnly), 'everyMinutes(30) est rejete par Apps Script');
 }
 

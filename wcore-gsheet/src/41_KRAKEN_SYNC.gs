@@ -605,10 +605,12 @@ function KRAKEN_REFRESH_WATCHDOG() {
 // et annulerait silencieusement la cadence 30 min.
 //
 // SEMANTIQUE Apps Script (verifiee par erreur runtime, pas supposee) :
-// atHour()/atMinute() ne sont pas chainables seuls. La sequence qui fonctionne
-// est .everyDays(1).atHour(0).atMinute(N).create() ; le everyDays(1) est requis
-// pour que le builder accepte l'heure. everyMinutes(30) est REJETE, d'ou les
-// deux triggers horloge decales pour simuler une cadence de 30 min.
+// atHour() et atMinute() sont des methodes TERMINALES qui retournent void :
+//   .atHour(0).atMinute(30)  -> TypeError: atMinute is not a function
+// C'est atTime(hour, minute, second) qui fixe les trois d'un coup. Forme valide :
+//   .everyDays(1).atTime(0, 30, 0).create()
+// everyMinutes(30) est REJETE par l'API, d'ou les deux triggers horloge decales
+// (h:00 et h:30) pour simuler une cadence de 30 min.
 function _krakenInstallCadenceTriggers_() {
   var trs = ScriptApp.getProjectTriggers();
   for (var i = 0; i < trs.length; i++) {
@@ -617,13 +619,13 @@ function _krakenInstallCadenceTriggers_() {
   }
   // SPOT : minute 0 et minute 30 de chaque heure. Un SEUL appel Balance ecrit
   // les deux onglets (Crypto + Stocks).
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).atMinute(0).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).atMinute(30).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atTime(0, 0, 0).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atTime(0, 30, 0).create();
   // STOCKS : minute 15 et minute 45. Filet de securite : si SPOT echoue (pause
   // post-lockout, budget epuise), KRAKEN_SHARED_BALANCE_OK_MS n'est pas horodate
   // et ce trigger tente sa chance. Sinon il saute (passage partage < 55 min).
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).atMinute(15).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).atMinute(45).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atTime(0, 15, 0).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atTime(0, 45, 0).create();
   return 4;
 }
 

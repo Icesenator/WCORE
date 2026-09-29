@@ -101,12 +101,11 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   stats.timeTriggers++;
   ScriptApp.newTrigger("UPDATE_BITFINEX_SPOT").timeBased().everyHours(1).create();
   stats.timeTriggers++;
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
-  stats.timeTriggers++;
-  if (typeof UPDATE_KRAKEN_STOCKS_FIAT === "function") {
-    ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyHours(1).create();
-    stats.timeTriggers++;
-  }
+  // v4.16.43: Kraken passe par le helper de cadence 30 min (41_KRAKEN_SYNC.gs).
+  // Ne JAMAIS recreer everyHours(1) ici : l auto-heal annulerait silencieusement
+  // la cadence 30 min et rejouerait le debit d appels prives que le budget protege.
+  // Pas de repli : le helper est dans le meme projet, il est toujours resolvable.
+  stats.timeTriggers += _krakenInstallCadenceTriggers_();
   if (typeof STOCK_PORTFOLIO_HOURLY_REFRESH === "function") {
     ScriptApp.newTrigger("STOCK_PORTFOLIO_HOURLY_REFRESH").timeBased().everyHours(1).create();
     stats.timeTriggers++;
@@ -802,8 +801,11 @@ function WCORE_CEX_TRIGGER_CLEANUP_FORCE() {
   installed.push("UPDATE_CEX_RELAY_ROTATION_15MIN");
   ScriptApp.newTrigger("UPDATE_BITFINEX_SPOT").timeBased().everyHours(1).create();
   installed.push("UPDATE_BITFINEX_SPOT_1H");
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
-  installed.push("UPDATE_KRAKEN_SPOT_1H");
+  // v4.16.43: meme correction qu au L104 — le helper de cadence 30 min est la
+  // seule source de verite pour les triggers Kraken (sinon l auto-heal annule
+  // silencieusement la cadence et rejoue le debit d appels prives).
+  var _krakenN = _krakenInstallCadenceTriggers_();
+  for (var _ki = 0; _ki < _krakenN; _ki++) installed.push("KRAKEN_CADENCE_30MIN_" + _ki);
   if (typeof STOCK_PORTFOLIO_HOURLY_REFRESH === "function") {
     ScriptApp.newTrigger("STOCK_PORTFOLIO_HOURLY_REFRESH").timeBased().everyHours(1).create();
     installed.push("STOCK_PORTFOLIO_HOURLY_REFRESH_1H");

@@ -599,19 +599,37 @@ function KRAKEN_REFRESH_WATCHDOG() {
 // Le decalage de 15 min est aussi un filet de securite : si UPDATE_KRAKEN_SPOT
 // echoue (pause, budget), KRAKEN_SHARED_BALANCE_OK_MS n'est pas horodate, donc
 // UPDATE_KRAKEN_STOCKS_FIAT tente sa chance a la place.
-function INSTALL_KRAKEN_SYNC_TRIGGER() {
+// v4.16.43 - helper UNIQUE d installation des triggers Kraken, appele par
+// INSTALL_KRAKEN_SYNC_TRIGGER *et* par _wcoreAutoHealCreateManagedTriggers_.
+// Sans ce partage, un WCORE_AUTO_HEAL_FORCE recreerait les triggers everyHours(1)
+// et annulerait silencieusement la cadence 30 min.
+//
+// SEMANTIQUE Apps Script (verifiee par erreur runtime, pas supposee) :
+// atHour()/atMinute() ne sont pas chainables seuls. La sequence qui fonctionne
+// est .everyDays(1).atHour(0).atMinute(N).create() ; le everyDays(1) est requis
+// pour que le builder accepte l'heure. everyMinutes(30) est REJETE, d'ou les
+// deux triggers horloge decales pour simuler une cadence de 30 min.
+function _krakenInstallCadenceTriggers_() {
   var trs = ScriptApp.getProjectTriggers();
   for (var i = 0; i < trs.length; i++) {
     var fn = trs[i].getHandlerFunction();
     if (fn === "UPDATE_KRAKEN_SPOT" || fn === "UPDATE_KRAKEN_STOCKS_FIAT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
-  // SPOT : minute 0 et minute 30 de chaque heure.
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().atHour(0).atMinute(0).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().atHour(0).atMinute(30).create();
-  // STOCKS : minute 15 et minute 45 (filet si SPOT echoue, sinon saute).
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().atHour(0).atMinute(15).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().atHour(0).atMinute(45).create();
-  return "Triggers installed (cadence 30 min): UPDATE_KRAKEN_SPOT (h:00, h:30) + UPDATE_KRAKEN_STOCKS_FIAT (h:15, h:45, filet de securite)";
+  // SPOT : minute 0 et minute 30 de chaque heure. Un SEUL appel Balance ecrit
+  // les deux onglets (Crypto + Stocks).
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).atMinute(0).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).atMinute(30).create();
+  // STOCKS : minute 15 et minute 45. Filet de securite : si SPOT echoue (pause
+  // post-lockout, budget epuise), KRAKEN_SHARED_BALANCE_OK_MS n'est pas horodate
+  // et ce trigger tente sa chance. Sinon il saute (passage partage < 55 min).
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).atMinute(15).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).atMinute(45).create();
+  return 4;
+}
+
+function INSTALL_KRAKEN_SYNC_TRIGGER() {
+  var n = _krakenInstallCadenceTriggers_();
+  return "Triggers installed (cadence 30 min, " + n + " triggers): UPDATE_KRAKEN_SPOT (h:00, h:30) + UPDATE_KRAKEN_STOCKS_FIAT (h:15, h:45, filet de securite)";
 }
 
 // v4.16.36: écrit le fiat (EUR) + les xStocks Kraken (normalisés vers le canonique

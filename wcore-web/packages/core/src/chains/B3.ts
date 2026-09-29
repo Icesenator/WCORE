@@ -10,8 +10,8 @@ export const B3: ChainConfig = {
   CACHE_VERSION: 64,
   RPC: {
     ENDPOINTS: [
-      "https://b3.rpc.thirdweb.com",
-      "https://8333.rpc.thirdweb.com",
+      "https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-1",
+      "https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-2",
     ],
     MAX_LOG_RANGE: 1000,
   },

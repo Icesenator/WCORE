@@ -15,14 +15,25 @@ var _B3 = ChainFactory.createEvmChain("B3", {
  // Les autres endpoints publics B3 (drpc, blockpi, extrnode, blast, pokt,
  // tenderly, publicnode, subquery, b3.fun) sont tous morts ou hors-chaine.
  RPC: {
- ENDPOINTS: ["https://b3.rpc.thirdweb.com", "https://8333.rpc.thirdweb.com"],
- // v4.16.82 - Deuxieme cause du gel de B3, distincte de l'endpoint mort et
- // seule visible APRES le remplacement des endpoints : eth_getLogs renvoie
- // -32005 "Log response size exceeded" des 1200 blocs, alors que la fenetre
- // par defaut est de 5000. B3 produit ~1 bloc/s, donc 5000 blocs = ~83 min
- // de logs, ce qui depasse la limite thirdweb. Mesure le 2026-09-29 :
- // 1000 blocs OK 5/5, 1200 KO, 1500+ KO. Sans ce bornage la decouverte
- // incrementale de tokens echoue et le scan conserve le cache (PRESERVED).
+ // v4.16.83 - Les endpoints thirdweb directs sont INUTILISABLES depuis nos
+ // runtime : thirdweb throttle son palier gratuit PAR IP, et les IP de sortie
+ // Railway sont des IP datacenter partagees entre tenants, donc structurellement
+ // throttlees. Mesure le 2026-09-29, meme endpoint et meme instant :
+ // 15/15 HTTP 200 depuis une IP residentielle, 0/6 en 429 via Railway sfo
+ // comme via Railway EU. Changer de region ou d'IP ne peut donc pas aider.
+ // On passe par un relais Cloudflare Workers (wcore-gsheet/railway-rpc-relay),
+ // dont l'adresse de sortie n'est pas partagee avec les tenants Railway :
+ // 20/20 HTTP 200, et le solde remonte a l'identique.
+ // Le relais relaie chacun des deux amont -> le consensus `votes*2 > total`
+ // reste fonctionnel sur deux voix independantes.
+ ENDPOINTS: [
+ "https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-1",
+ "https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-2"
+ ],
+ // v4.16.82 - eth_getLogs renvoie -32005 "Log response size exceeded" des
+ // 1200 blocs alors que la fenetre par defaut est de 5000. B3 produit
+ // ~1 bloc/s, donc 5000 blocs = ~83 min de logs, ce qui depasse la limite.
+ // Mesure le 2026-09-29 : 1000 blocs OK 5/5, 1200 KO, 1500+ KO.
  MAX_LOG_RANGE: 1000
  },
  CHAIN: {

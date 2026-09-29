@@ -13,6 +13,7 @@ export const B3: ChainConfig = {
       "https://b3.rpc.thirdweb.com",
       "https://8333.rpc.thirdweb.com",
     ],
+    MAX_LOG_RANGE: 1000,
   },
   CHAIN: {
     NAME: "B3",

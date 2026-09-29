@@ -14,7 +14,17 @@ var _B3 = ChainFactory.createEvmChain("B3", {
  // (chainId 0x208d = 8333, meme hauteur de bloc sur les deux).
  // Les autres endpoints publics B3 (drpc, blockpi, extrnode, blast, pokt,
  // tenderly, publicnode, subquery, b3.fun) sont tous morts ou hors-chaine.
- RPC: { ENDPOINTS: ["https://b3.rpc.thirdweb.com", "https://8333.rpc.thirdweb.com"] },
+ RPC: {
+ ENDPOINTS: ["https://b3.rpc.thirdweb.com", "https://8333.rpc.thirdweb.com"],
+ // v4.16.82 - Deuxieme cause du gel de B3, distincte de l'endpoint mort et
+ // seule visible APRES le remplacement des endpoints : eth_getLogs renvoie
+ // -32005 "Log response size exceeded" des 1200 blocs, alors que la fenetre
+ // par defaut est de 5000. B3 produit ~1 bloc/s, donc 5000 blocs = ~83 min
+ // de logs, ce qui depasse la limite thirdweb. Mesure le 2026-09-29 :
+ // 1000 blocs OK 5/5, 1200 KO, 1500+ KO. Sans ce bornage la decouverte
+ // incrementale de tokens echoue et le scan conserve le cache (PRESERVED).
+ MAX_LOG_RANGE: 1000
+ },
  CHAIN: {
  NAME: "B3",
  CHAIN_ID: 8333,

@@ -112,6 +112,7 @@ import { OPBNB } from "./OPBNB.js";
 import { OPENLEDGER } from "./OPENLEDGER.js";
 import { OPTIMISM } from "./OPTIMISM.js";
 import { OSMOSIS } from "./OSMOSIS.js";
+import { PEAQ } from "./PEAQ.js";
 import { PLASMA } from "./PLASMA.js";
 import { PLAYNANCE_PLAYBLOCK } from "./PLAYNANCE_PLAYBLOCK.js";
 import { PLUME } from "./PLUME.js";
@@ -277,6 +278,7 @@ export const chains = {
   OPENLEDGER,
   OPTIMISM,
   OSMOSIS,
+  PEAQ,
   PLASMA,
   PLAYNANCE_PLAYBLOCK,
   PLUME,

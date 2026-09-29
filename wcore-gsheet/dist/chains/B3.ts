@@ -7,10 +7,11 @@ export const B3: ChainConfig = {
   key: "B3",
   vm: "EVM",
   ...({
-  CACHE_VERSION: 63,
+  CACHE_VERSION: 64,
   RPC: {
     ENDPOINTS: [
-      "https://mainnet-rpc.b3.fun",
+      "https://b3.rpc.thirdweb.com",
+      "https://8333.rpc.thirdweb.com",
     ],
   },
   CHAIN: {

@@ -1,5 +1,5 @@
-// Auto-generated from src/B3.gs by tools/migrate/extract-chains.mjs
-// Do not edit by hand. Re-run: node tools/migrate/extract-chains.mjs
+// Auto-generated from src/B3.gs by tools/extract-chains.mjs
+// Do not edit by hand. Re-run: node tools/extract-chains.mjs
 
 import type { ChainConfig } from "../types.js";
 
@@ -10,7 +10,7 @@ export const B3: ChainConfig = {
   CACHE_VERSION: 64,
   RPC: {
     ENDPOINTS: [
-      "https://mainnet-rpc.b3.fun",
+      "https://b3.rpc.thirdweb.com",
       "https://8333.rpc.thirdweb.com",
     ],
   },

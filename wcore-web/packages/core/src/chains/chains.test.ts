@@ -11,7 +11,7 @@ test("every published chain satisfies the runtime schema", () => {
       : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
   });
 
-  assert.equal(chainList.length, 163, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(chainList.length, 164, "registry count changed: update the verified roadmaps with the same commit");
 
   assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
   assert.deepEqual(failures, []);

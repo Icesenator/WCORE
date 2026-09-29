@@ -1,11 +1,20 @@
 /**
- * B3.gs - B3 (v4.9.5)
+ * B3.gs - B3 (v4.16.82)
  * ChainFactory pattern with explicit function declarations
  */
 
 var _B3 = ChainFactory.createEvmChain("B3", {
- CACHE_VERSION: 63,
- RPC: { ENDPOINTS: ["https://mainnet-rpc.b3.fun"] },
+ CACHE_VERSION: 64,
+ // v4.16.82 - Endpoint officiel `mainnet-rpc.b3.fun` RETIRE: 404 sur toutes
+ // les methodes JSON-RPC (eth_chainId / net_version / web3_clientVersion /
+ // eth_blockNumber), mesure le 2026-09-29. C'etait le SEUL endpoint configure
+ // cote deploy -> rpcCount=1 et scan garanti en echec, car le consensus
+ // `votes*2 > total` ne peut pas aboutir quand l'unique noeud ne repond pas.
+ // Remplace par les deux endpoints thirdweb, mesures UP le 2026-09-29
+ // (chainId 0x208d = 8333, meme hauteur de bloc sur les deux).
+ // Les autres endpoints publics B3 (drpc, blockpi, extrnode, blast, pokt,
+ // tenderly, publicnode, subquery, b3.fun) sont tous morts ou hors-chaine.
+ RPC: { ENDPOINTS: ["https://b3.rpc.thirdweb.com", "https://8333.rpc.thirdweb.com"] },
  CHAIN: {
  NAME: "B3",
  CHAIN_ID: 8333,

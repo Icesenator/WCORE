@@ -604,28 +604,32 @@ function KRAKEN_REFRESH_WATCHDOG() {
 // Sans ce partage, un WCORE_AUTO_HEAL_FORCE recreerait les triggers everyHours(1)
 // et annulerait silencieusement la cadence 30 min.
 //
-// SEMANTIQUE Apps Script (verifiee par erreur runtime, pas supposee) :
-// atHour() et atMinute() sont des methodes TERMINALES qui retournent void :
-//   .atHour(0).atMinute(30)  -> TypeError: atMinute is not a function
-// C'est atTime(hour, minute, second) qui fixe les trois d'un coup. Forme valide :
-//   .everyDays(1).atTime(0, 30, 0).create()
-// everyMinutes(30) est REJETE par l'API, d'ou les deux triggers horloge decales
-// (h:00 et h:30) pour simuler une cadence de 30 min.
+// SEMANTIQUE Apps Script — INTROSPECTEE, pas supposee.
+// PROBE_TRIGGER_API a liste les methodes reelles du builder timeBased() de ce
+// runtime : at, after, atDate, everyWeeks, onWeekDay, atHour, nearMinute,
+// onMonthDay, everyMinutes, everyHours, everyDays, inTimezone, create.
+// Consequence directe, deux fois verifiee par execution :
+//   - atTime() et atMinute() N'EXISTENT PAS  -> TypeError
+//   - atHour() s emaille avec everyDays(1)    -> OK
+// nearMinute() est la primitive de cadence fine : everyDays(1).nearMinute(n)
+// planifie un passage a la minute n de chaque jour, donc deux triggers
+// nearMinute(0) + nearMinute(30) donnent exactement la cadence 30 min voulue.
+// On ne se fie plus a la doc : la liste ci-dessus fait foi.
 function _krakenInstallCadenceTriggers_() {
   var trs = ScriptApp.getProjectTriggers();
   for (var i = 0; i < trs.length; i++) {
     var fn = trs[i].getHandlerFunction();
     if (fn === "UPDATE_KRAKEN_SPOT" || fn === "UPDATE_KRAKEN_STOCKS_FIAT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
-  // SPOT : minute 0 et minute 30 de chaque heure. Un SEUL appel Balance ecrit
-  // les deux onglets (Crypto + Stocks).
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atTime(0, 0, 0).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atTime(0, 30, 0).create();
-  // STOCKS : minute 15 et minute 45. Filet de securite : si SPOT echoue (pause
-  // post-lockout, budget epuise), KRAKEN_SHARED_BALANCE_OK_MS n'est pas horodate
+  // SPOT : minutes 0 et 30 de chaque heure. Un SEUL appel Balance ecrit les
+  // deux onglets (Crypto + Stocks).
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).nearMinute(0).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).nearMinute(30).create();
+  // STOCKS : minutes 15 et 45. Filet de securite : si SPOT echoue (pause
+  // post-lockout, budget epuise), KRAKEN_SHARED_BALANCE_OK_MS n est pas horodate
   // et ce trigger tente sa chance. Sinon il saute (passage partage < 55 min).
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atTime(0, 15, 0).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atTime(0, 45, 0).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).nearMinute(15).create();
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).nearMinute(45).create();
   return 4;
 }
 

@@ -208,4 +208,37 @@ function harness(opts) {
     'le refresh horaire interroge toujours Kraken meme si un diagnostic vient de tourner');
 }
 
+// 15. Garde de cadence : l auto-heal NE DOIT PAS recreer de trigger Kraken horaire.
+// Regression observee le 2026-09-29 : deux installeurs d auto-heal recraient
+// everyHours(1) et annulaient silencieusement la cadence 30 min. Chacun doit
+// now deleguer au helper unique. On verifie que TOUT newTrigger Kraken horaire
+// est confine dans une branche de repli typeof _krakenInstallCadenceTriggers_.
+{
+  const autoHealSource = fs.readFileSync(path.join(root, 'src/16B_AUTO_HEAL.gs'), 'utf8');
+  const lines = autoHealSource.split(/\r?\n/);
+  const hourly = lines
+    .map((l, i) => ({ l, n: i + 1 }))
+    .filter((x) => /newTrigger\("UPDATE_KRAKEN_(SPOT|STOCKS_FIAT)"\)\.timeBased\(\)\.everyHours\(1\)/.test(x.l));
+  assert.equal(hourly.length, 0,
+    'aucun trigger Kraken horaire ne doit rester dans l auto-heal (trouve ligne(s) '
+    + hourly.map((x) => x.n).join(',') + ')');
+  assert.equal((autoHealSource.match(/_krakenInstallCadenceTriggers_\(\)/g) || []).length, 2,
+    'les DEUX installeurs d auto-heal doivent deleguer au helper de cadence');
+}
+
+// 16. Le helper de cadence utilise la forme everyDays(1).atHour().atMinute() qui,
+// elle, fonctionne : atHour/atMinute seuls ne sont PAS chainables en Apps Script
+// (verifie par erreur runtime : atMinute is not a function).
+{
+  const src = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
+  assert.ok(!/timeBased\(\)\.atHour\(/.test(src),
+    'atHour ne doit pas etre appele sans everyDays(1) prealable');
+  const clockCalls = src.match(/timeBased\(\)\.everyDays\(1\)\.atHour\(0\)\.atMinute\(\d+\)\.create\(\)/g) || [];
+  assert.equal(clockCalls.length, 4, 'quatre triggers horloge : SPOT h:00 et h:30, STOCKS h:15 et h:45');
+  // everyMinutes(30) est rejete par Apps Script : on verifie qu il n apparait
+  // dans aucune CHAINE DE CODE (les commentaires qui l expliquent sont exclus).
+  const codeOnly = src.split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  assert.ok(!/everyMinutes\(30\)/.test(codeOnly), 'everyMinutes(30) est rejete par Apps Script');
+}
+
 console.log('kraken lockout cooldown OK');

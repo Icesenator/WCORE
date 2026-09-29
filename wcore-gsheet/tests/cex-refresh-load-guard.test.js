@@ -58,10 +58,17 @@ if (!autoHeal.includes('cexManualQueue')) {
   throw new Error('Auto-heal trigger spec must be bumped for queued manual CEX refreshes');
 }
 
-for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_BITFINEX_SPOT', 'UPDATE_KRAKEN_SPOT']) {
+for (const handler of ['UPDATE_BITPANDA_SPOT', 'UPDATE_BITPANDA_STOCKS_FIAT', 'UPDATE_BITFINEX_SPOT']) {
   if (!autoHeal.includes(`ScriptApp.newTrigger("${handler}").timeBased().everyHours(1).create()`)) {
     throw new Error(`CEX auto refresh must install an hourly per-connector trigger for ${handler}`);
   }
+}
+// v4.16.43 : Kraken n'est PLUS dans cette liste. Ses triggers sont installés par
+// le helper de cadence 30 min _krakenInstallCadenceTriggers_ (41_KRAKEN_SYNC.gs),
+// appelé par l'auto-heal. Exiger everyHours(1) ici annulerait la cadence 30 min
+// et rejouerait le débit d'appels privés que le budget v4.16.43 protège.
+if (!autoHeal.includes('_krakenInstallCadenceTriggers_()')) {
+  throw new Error('CEX auto refresh must delegate Kraken triggers to the shared 30-minute cadence helper');
 }
 if (!autoHeal.includes('ScriptApp.newTrigger("UPDATE_CEX_RELAY_ROTATION").timeBased().everyMinutes(15).create()')) {
   throw new Error('CEX auto refresh must install the 15-minute relay rotation trigger');

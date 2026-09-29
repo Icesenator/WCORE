@@ -159,17 +159,25 @@ assert.equal(pricedRows[0][5], 159.24);
 assert.ok(Math.abs(pricedRows[0][4] - 0.180866 * 159.24) < 1e-9);
 
 // --- Déclencheurs gérés + requis ---
+// v4.16.43 : les déclencheurs Kraken sont installés par le helper unique
+// _krakenInstallCadenceTriggers_ (cadence 30 min). L'auto-heal délègue à ce
+// helper au lieu de recréer ses propres triggers everyHours(1), ce qui
+// annulerait silencieusement la cadence.
 assert.ok(
   /"UPDATE_KRAKEN_STOCKS_FIAT"/.test(healSource),
   'UPDATE_KRAKEN_STOCKS_FIAT doit être dans les listes managed/required de auto-heal'
 );
 assert.ok(
   /newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)/.test(krakenSource),
-  'INSTALL_KRAKEN_SYNC_TRIGGER doit créer UPDATE_KRAKEN_STOCKS_FIAT'
+  'le helper de cadence doit créer UPDATE_KRAKEN_STOCKS_FIAT'
 );
 assert.ok(
-  /newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)/.test(healSource),
-  '_wcoreAutoHealCreateManagedTriggers_ doit créer UPDATE_KRAKEN_STOCKS_FIAT'
+  /_krakenInstallCadenceTriggers_\(\)/.test(healSource),
+  '_wcoreAutoHealCreateManagedTriggers_ doit déléguer au helper de cadence Kraken'
+);
+assert.ok(
+  !/newTrigger\("UPDATE_KRAKEN_STOCKS_FIAT"\)\.timeBased\(\)\.everyHours\(1\)/.test(healSource),
+  'l\'auto-heal ne doit plus recréer de trigger Kraken horaire'
 );
 
 // --- Consolidation Portefeuille Action ---

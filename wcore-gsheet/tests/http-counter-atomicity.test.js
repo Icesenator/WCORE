@@ -1019,8 +1019,8 @@ assert.match(bitpandaSource, /var\s+BITPANDA_SYNC_VERSION\s*=\s*["']4\.16\.81["'
   'BITPANDA_SYNC_VERSION must be bumped to 4.16.81 (manual CEX status timestamp)');
 assert.match(bitfinexSource, /var\s+BITFINEX_SYNC_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
   'BITFINEX_SYNC_VERSION must be bumped to 4.16.35 (CEX exit flush)');
-assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.41["']\s*;/,
-  'KRAKEN_SYNC_VERSION must be bumped to 4.16.41 (nonce persistant + lock partage anti lockout)');
+assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.43["']\s*;/,
+  'KRAKEN_SYNC_VERSION must be bumped to 4.16.43 (budget appels prives + cache diagnostic + cadence 30 min)');
 assert.match(cexBulkSource, /var\s+CEX_BULK_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
   'CEX_BULK_VERSION must be bumped to 4.16.35 (CEX exit flush)');
 

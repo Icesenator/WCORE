@@ -1,0 +1,14 @@
+{
+  "name": "wcore-rpc-relay",
+  "version": "1.0.0",
+  "description": "Relais JSON-RPC allowlist pour WCORE. Contourne les blocages IP datacenter sur les RPC publics (B3/thirdweb).",
+  "type": "commonjs",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"*.test.js\""
+  }
+}

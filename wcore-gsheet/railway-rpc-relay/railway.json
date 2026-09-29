@@ -2,7 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "wcore-gsheet/railway-rpc-relay/Dockerfile"
+    "dockerfilePath": "Dockerfile.local"
   },
   "deploy": {
     "startCommand": "node server.js",

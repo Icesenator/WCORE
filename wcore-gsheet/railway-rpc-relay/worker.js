@@ -14,6 +14,11 @@
 const TARGETS = {
   "b3-1": "https://b3.rpc.thirdweb.com",
   "b3-2": "https://8333.rpc.thirdweb.com",
+  // RACE (6805) a ete TEMPORAIREMENT ajoute puis RETIRE le 2026-09-30 : le
+  // relais rendait bien eth_chainId possible, mais eth_getBalance restait en
+  // -32603 (palier gratuit thirdweb), et surtout les domaines de la chaine
+  // (racemainnet.io, racescan.io) ne resolvent PLUS en DNS : la chaine est
+  // reellement arretee. Le relais n'y pouvait rien. Voir ROADMAP.
 };
 
 const ALLOWED_METHODS = new Set([

@@ -62,3 +62,11 @@ graphify-out/20*/
 # Depot Git imbrique volontaire (PAS un submodule) : ROOT ne piste plus CM.
 # Voir CM/review/opencode-project-identity-2026-09-16.md
 /CM/
+
+# Notes promues depuis _vault (2026-09-16) : non versionnees, comme avant.
+/Reviews/
+/decisions/
+/docs/reference/
+/docs/superpowers/
+/mechanica-0x17d080.png
+tmp-worker-build

@@ -116,7 +116,6 @@ import { PLUME } from "./PLUME.js";
 import { POLYGON } from "./POLYGON.js";
 import { PROOF_OF_PLAY_APEX } from "./PROOF_OF_PLAY_APEX.js";
 import { PULSECHAIN } from "./PULSECHAIN.js";
-import { RACE } from "./RACE.js";
 import { REI_NETWORK } from "./REI_NETWORK.js";
 import { REYA } from "./REYA.js";
 import { ROBINHOOD_CHAIN } from "./ROBINHOOD_CHAIN.js";
@@ -278,7 +277,6 @@ export const chains = {
   POLYGON,
   PROOF_OF_PLAY_APEX,
   PULSECHAIN,
-  RACE,
   REI_NETWORK,
   REYA,
   ROBINHOOD_CHAIN,

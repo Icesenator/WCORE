@@ -2028,7 +2028,7 @@ var CEX_RELAY_RETRY_DELAY_MS = 5000;
 
 /**
  * Call a CEX fetch function (relay or direct) with retries on
- * blocked/null errors. Other errors (5xx, geo-block, auth) bubble up
+ * blocked/null or Address unavailable errors. Other errors (5xx, geo-block, auth) bubble up
  * immediately so they don't get retried pointlessly.
  * @param {Function} fetchFn - function that returns buckets (throws on error)
  * @param {string} name - connector name for logging (e.g. "OKX", "Binance", "Bitpanda /wallets")
@@ -2040,7 +2040,7 @@ function _cexRelayFetchWithRetry_(fetchFn, name) {
       return fetchFn();
     } catch (e) {
       var msg = String(e && e.message ? e.message : e);
-      if (attempt < CEX_RELAY_MAX_RETRIES && msg.indexOf("blocked/null response") >= 0) {
+      if (attempt < CEX_RELAY_MAX_RETRIES && (msg.indexOf("blocked/null response") >= 0 || msg.indexOf("Address unavailable:") >= 0)) {
         Logger.log("[CEX_RELAY] " + name + " attempt " + attempt + "/" + CEX_RELAY_MAX_RETRIES + " failed: " + msg + " — retrying in " + (CEX_RELAY_RETRY_DELAY_MS / 1000) + "s");
         Utilities.sleep(CEX_RELAY_RETRY_DELAY_MS);
       } else {

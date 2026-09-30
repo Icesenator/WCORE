@@ -7,7 +7,7 @@ let chromium;
 try {
   ({ chromium } = require("playwright"));
 } catch (_e) {
-  ({ chromium } = require("K:/ProjetIA/WCORE/node_modules/playwright"));
+  ({ chromium } = require("D:/ProjetIA/WCORE/node_modules/playwright"));
 }
 
 const W = 1200;

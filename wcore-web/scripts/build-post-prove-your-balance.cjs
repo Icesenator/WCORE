@@ -10,7 +10,7 @@ try {
   try {
     ({ chromium } = require(resolve(ROOT, "node_modules/.pnpm/playwright@1.59.1/node_modules/playwright")));
   } catch (_localError) {
-    ({ chromium } = require("K:/ProjetIA/WCORE/wcore-web/node_modules/.pnpm/playwright@1.59.1/node_modules/playwright"));
+    ({ chromium } = require("D:/ProjetIA/WCORE/wcore-web/node_modules/.pnpm/playwright@1.59.1/node_modules/playwright"));
   }
 }
 

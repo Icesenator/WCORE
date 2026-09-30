@@ -240,11 +240,26 @@ test('UPDATE_DYNAMIC_RPCS ignore le skip si force !== true', () => {
   );
 });
 
-test('DuckChain reste desactivee (FLAGS.DISABLE_CHAIN: true)', () => {
-  const duck = fs.readFileSync(path.join(__dirname, '..', 'src', 'DUCKCHAIN.gs'), 'utf8');
+// v4.16.84 - Ce test affirmait « DuckChain doit rester desactivee
+// (FLAGS.DISABLE_CHAIN: true) », en lisant src/DUCKCHAIN.gs. DuckChain a ete
+// RETIREE de WCORE le 2026-09-30 (aucun noeud ne repondait : rpc.duckchain.io
+// en HTTP 521, les autres en 404). La garantie d'origine — « DuckChain ne doit
+// pas etre scannee sans preuve live positive » — tient toujours, mais elle est
+// desormais Vacuellement satisfaite par l'absence totale de la chaine, ce qui
+// est plus fort que « desactivee ». On verifie donc l'absence, y compris dans
+// le registre genere, pour qu'une reintegration accidentelle soit detectee.
+test('DuckChain est absente de WCORE (retiree le 2026-09-30)', () => {
+  const src = path.join(__dirname, '..', 'src', 'DUCKCHAIN.gs');
   assert.ok(
-    /FLAGS:\s*\{\s*DISABLE_CHAIN:\s*true\s*\}/.test(duck),
-    'DuckChain doit rester desactivee sans preuve live positive'
+    !fs.existsSync(src),
+    'src/DUCKCHAIN.gs ne doit plus exister : la chaine est retiree, pas desactivee'
+  );
+  const distIndex = fs.readFileSync(
+    path.join(__dirname, '..', 'dist', 'chains', 'index.ts'), 'utf8'
+  );
+  assert.ok(
+    !/DUCKCHAIN/.test(distIndex),
+    'DUCKCHAIN ne doit plus apparaitre dans le registre genere dist/chains/index.ts'
   );
 });
 

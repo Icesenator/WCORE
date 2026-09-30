@@ -37,7 +37,7 @@ function loadChromium() {
       if (entry.startsWith("playwright@")) candidates.push(resolve(pnpmRoot, entry, "node_modules/playwright"));
     }
   }
-  candidates.push("K:/ProjetIA/WCORE/wcore-web/node_modules/.pnpm/playwright@1.59.1/node_modules/playwright");
+  candidates.push("D:/ProjetIA/WCORE/wcore-web/node_modules/.pnpm/playwright@1.59.1/node_modules/playwright");
 
   for (const candidate of candidates) {
     try {

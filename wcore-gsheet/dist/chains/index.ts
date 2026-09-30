@@ -23,7 +23,6 @@ import { BITLAYER } from "./BITLAYER.js";
 import { BLAST } from "./BLAST.js";
 import { BOB } from "./BOB.js";
 import { BOBA } from "./BOBA.js";
-import { BOTANIX } from "./BOTANIX.js";
 import { BSC } from "./BSC.js";
 import { BXN } from "./BXN.js";
 import { CAMP } from "./CAMP.js";
@@ -38,11 +37,9 @@ import { CROSSBELL } from "./CROSSBELL.js";
 import { CYBER } from "./CYBER.js";
 import { CYSIC } from "./CYSIC.js";
 import { DBK_CHAIN } from "./DBK_CHAIN.js";
-import { DEGEN } from "./DEGEN.js";
 import { DOGECHAIN } from "./DOGECHAIN.js";
 import { DOMA } from "./DOMA.js";
 import { DOS_CHAIN } from "./DOS_CHAIN.js";
-import { DUCKCHAIN } from "./DUCKCHAIN.js";
 import { DYDX } from "./DYDX.js";
 import { EDEN } from "./EDEN.js";
 import { EDGELESS } from "./EDGELESS.js";
@@ -141,7 +138,6 @@ import { STABLE } from "./STABLE.js";
 import { STEP_NETWORK } from "./STEP_NETWORK.js";
 import { STORY } from "./STORY.js";
 import { STRIDE } from "./STRIDE.js";
-import { SUPERPOSITION } from "./SUPERPOSITION.js";
 import { SUPERSEED } from "./SUPERSEED.js";
 import { SWAN } from "./SWAN.js";
 import { SWELLCHAIN } from "./SWELLCHAIN.js";
@@ -189,7 +185,6 @@ export const chains = {
   BLAST,
   BOB,
   BOBA,
-  BOTANIX,
   BSC,
   BXN,
   CAMP,
@@ -204,11 +199,9 @@ export const chains = {
   CYBER,
   CYSIC,
   DBK_CHAIN,
-  DEGEN,
   DOGECHAIN,
   DOMA,
   DOS_CHAIN,
-  DUCKCHAIN,
   DYDX,
   EDEN,
   EDGELESS,
@@ -307,7 +300,6 @@ export const chains = {
   STEP_NETWORK,
   STORY,
   STRIDE,
-  SUPERPOSITION,
   SUPERSEED,
   SWAN,
   SWELLCHAIN,

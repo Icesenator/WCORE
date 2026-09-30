@@ -38,12 +38,14 @@ const USD_STABLES = new Set([
   "GHO",
   "PATHUSD",
   "AZND",
+  "USDG",
 ]);
 
 const EUR_STABLES = new Set(["EURC", "EUROC", "EURS", "AGEUR", "SEUR", "EURA", "EURE", "JEUR", "PAR"]);
 
 const STABLE_CONTRACTS = new Map<string, StablecoinType>([
   ["arbitrum_one:0xd1be1f98991cf69355e468ad15b6d0b6429bcfcb", "USD"], // aRUSDC, Ample Arbitrum USDC
+  ["robinhood_chain:0x5fc5360d0400a0fd4f2af552add042d716f1d168", "USD"], // USDG Global Dollar on Robinhood Chain
 ]);
 
 export function getStablecoinType(symbol?: string | null): StablecoinType | null {

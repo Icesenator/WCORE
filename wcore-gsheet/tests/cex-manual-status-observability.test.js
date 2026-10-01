@@ -111,4 +111,35 @@ function cryptoJob() {
   );
 }
 
+// --- 5. Le B1 de l'onglet porte le MEME libelle horodate (v4.16.82) ---
+// v4.16.81 n'horodatait que la cellule de statut : le B1 de l'onglet recevait
+// "ERROR: BUSY" sans date, donc un echec fige y etait indiscernable d'un etat
+// courant. Observe 2026-10-01 : CEX - Kraken Crypto!B1 = "ERROR: BUSY" alors que
+// les donnees venaient d'etre ecrites avec succes (18:44).
+{
+  const h = makeHarness('2026-10-01 18:45:17');
+  h.context._cexWriteManualJobStatus_(cryptoJob(), 'BUSY');
+  const b1 = h.getSheet('CEX - Kraken Crypto').cells.B1;
+  assert.equal(
+    b1,
+    'ERROR 2026-10-01 18:45:17 KRAKEN: BUSY',
+    'le B1 doit porter un libelle horodate et identique a celui de la cellule de statut',
+  );
+  const v2 = h.getSheet('Portefeuille Crypto').cells.V2;
+  assert.equal(v2, b1, 'les deux cellules doivent porter exactement le meme libelle');
+}
+
+// --- 6. Garde statique : plus aucun libelle B1 non date ---
+{
+  const fn = extractFunction(source, '_cexWriteManualJobStatus_');
+  assert.ok(
+    !/_bpSetSheetStatus_\(ss, job\.sheetName, "ERROR: "/.test(fn),
+    'plus aucun libelle d\'echec non horodate ne doit etre ecrit dans B1',
+  );
+  assert.ok(
+    /_bpSetSheetStatus_\(ss, job\.sheetName, failureLabel\)/.test(fn),
+    'B1 doit reutiliser le libelle horodate commun',
+  );
+}
+
 console.log('cex manual status observability OK');

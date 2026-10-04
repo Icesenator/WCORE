@@ -14,15 +14,22 @@ describe("GM page chain lists", () => {
   });
 
   test("does not advertise removed chains", () => {
+    // Every chainKey that has ever been removed from GM_FACTORIES. `gm_contracts`
+    // rows survive such a removal forever, which is how polygon_zkevm kept being
+    // served by /api/gm/random long after the chain was retired — so the retired
+    // set must stay guarded on the display surface too, not just in the factory map.
     const removedKeys = [
+      "ancient8",
       "arena_z",
       "corn",
+      "duckchain",
       "horizen_eon",
       "inevm",
       "mind",
       "nexi_chain",
       "polygon_zkevm",
       "polynomial",
+      "rari",
       "redstone",
       "rss3",
       "stargaze",

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filterDisabledGmContracts, filterUnusedGmContracts, findVerifiedDeployedContract, pickCreatorContractsFirst, prepareMyContractsResponse } from "./gm-contracts.js";
+import { filterDisabledGmContracts, filterUnusedGmContracts, filterUnsupportedGmChains, findVerifiedDeployedContract, pickCreatorContractsFirst, prepareMyContractsResponse } from "./gm-contracts.js";
 
 const DEPLOYED_EVENT = "0x33c981baba081f8fd2c52ac6ad1ea95b6814b4376640f55689051f6584729688";
 const FACTORY = "0xe7cfd4b041650ddc8861ffe066a2cd2cce0f6ecb";
@@ -78,6 +78,19 @@ test("filterDisabledGmContracts removes the legacy Base contract", () => {
   ]);
 
   assert.deepEqual(contracts.map((contract) => contract.id), ["good-base"]);
+});
+
+test("filterUnsupportedGmChains drops rows of halted chains that left GM_FACTORIES", () => {
+  // WC-13 halted polygon_zkevm on 2026-07-03 but its gm_contracts rows stayed in
+  // the DB, so /api/gm/random kept handing them out and the header GM died with
+  // "GM not supported on polygon_zkevm. Factory not deployed yet."
+  const contracts = filterUnsupportedGmChains([
+    { id: "zkevm-stale", chainKey: "polygon_zkevm", contractAddress: "0x3000000000000000000000000000000000000001" },
+    { id: "zkevm-stale-upper", chainKey: "POLYGON_ZKEVM", contractAddress: "0x3000000000000000000000000000000000000002" },
+    { id: "base-live", chainKey: "BASE", contractAddress: "0xea392000a2ae8045cfe72e538cdfbb809c6c49ea" },
+  ]);
+
+  assert.deepEqual(contracts.map((contract) => contract.id), ["base-live"]);
 });
 
 test("findVerifiedDeployedContract extracts a factory deployment only after strict receipt checks", () => {

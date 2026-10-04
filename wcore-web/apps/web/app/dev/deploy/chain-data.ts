@@ -632,7 +632,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   534352, // SCROLL
   59144, // LINEA
   5000, // MANTLE
-  81457, // BLAST
   146, // SONIC
   42220, // CELO
   252, // FRAXTAL

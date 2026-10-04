@@ -20,7 +20,7 @@ const DEFAULT_IMPLEMENTATIONS: Record<string, string> = {
 // bug class (Ink 0xdef0 stale, Abstract chainId, etc.) that hit us multiple times.
 const DEPLOY_CHAIN_KEYS = [
   "BASE", "ETHEREUM", "ARBITRUM_ONE", "OPTIMISM", "POLYGON", "BSC", "AVALANCHE",
-  "GNOSIS", "ZKSYNC_ERA", "SCROLL", "LINEA", "MANTLE", "BLAST", "SONIC", "CELO",
+  "GNOSIS", "ZKSYNC_ERA", "SCROLL", "LINEA", "MANTLE", "SONIC", "CELO",
   "FRAXTAL", "WORLDCHAIN", "ROBINHOOD_CHAIN", "UNICHAIN", "BERACHAIN", "INK", "ABSTRACT", "SONEIUM",
   "ARBITRUM_NOVA", "ZORA", "MODE", "SEI",
   // L2s / OP Stack / Superchains
@@ -54,7 +54,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   SCROLL: { name: "Scroll", chainId: 534352 },
   LINEA: { name: "Linea", chainId: 59144 },
   MANTLE: { name: "Mantle", chainId: 5000 },
-  BLAST: { name: "Blast", chainId: 81457 },
   SONIC: { name: "Sonic", chainId: 146 },
   CELO: { name: "Celo", chainId: 42220 },
   FRAXTAL: { name: "Fraxtal", chainId: 252 },

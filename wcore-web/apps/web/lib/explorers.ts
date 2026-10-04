@@ -13,7 +13,6 @@ const EXPLORERS: Record<string, string> = {
   scroll: "https://scrollscan.com",
   mantle: "https://mantlescan.xyz",
   mode: "https://modescan.io",
-  blast: "https://blastscan.io",
   celo: "https://celoscan.io",
   fraxtal: "https://fraxscan.com",
   zora: "https://zorascan.xyz",

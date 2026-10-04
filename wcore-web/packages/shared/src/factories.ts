@@ -14,7 +14,6 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   scroll: { address: "0x592948005b31f70b4af1e565bf6105dd8a1f1f5b", chainId: 534352 },
   linea: { address: "0x5b06b9015e6203f0f1d01023b50179c41927fa9c", chainId: 59144 },
   mantle: { address: "0x1050b7e894e37d51fbfcb1c2a2bb29aa628447ce", chainId: 5000 },
-  blast: { address: "0x88ec9eb3489282e10d7964d4a26431518bd7bf2b", chainId: 81457 },
   celo: { address: "0xa71fd1d986cbacfb6a7c4adbb4391641d3bc1b45", chainId: 42220 },
   fraxtal: { address: "0x49b825f0bcb2a1633dff0baff0f4592732943af9", chainId: 252 },
   worldchain: { address: "0x44eef927937c9cc495420f922510d02d60e46498", chainId: 480 },

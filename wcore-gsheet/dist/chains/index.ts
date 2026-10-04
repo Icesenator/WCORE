@@ -20,7 +20,6 @@ import { BASE } from "./BASE.js";
 import { BEAM } from "./BEAM.js";
 import { BERACHAIN } from "./BERACHAIN.js";
 import { BITLAYER } from "./BITLAYER.js";
-import { BLAST } from "./BLAST.js";
 import { BOB } from "./BOB.js";
 import { BOBA } from "./BOBA.js";
 import { BSC } from "./BSC.js";
@@ -181,7 +180,6 @@ export const chains = {
   BEAM,
   BERACHAIN,
   BITLAYER,
-  BLAST,
   BOB,
   BOBA,
   BSC,

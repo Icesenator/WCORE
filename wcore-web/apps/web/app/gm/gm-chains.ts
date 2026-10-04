@@ -10,7 +10,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   optimism: "Optimism", polygon: "Polygon", bsc: "BNB Chain",
   avalanche: "Avalanche", gnosis: "Gnosis", soneium: "Soneium",
   zksync_era: "zkSync Era", scroll: "Scroll", linea: "Linea",
-  mantle: "Mantle", blast: "Blast", celo: "Celo", fraxtal: "Fraxtal",
+  mantle: "Mantle", celo: "Celo", fraxtal: "Fraxtal",
   worldchain: "World Chain", unichain: "Unichain", berachain: "Berachain",
   ink: "Ink", abstract: "Abstract",
   zora: "Zora", mode: "Mode",

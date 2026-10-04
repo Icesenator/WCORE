@@ -115,6 +115,17 @@ export function filterDisabledGmContracts<T extends GmContractAddress>(contracts
   return contracts.filter((contract) => !DISABLED_GM_CONTRACTS.has(`${contract.chainKey.toLowerCase()}:${contract.contractAddress.toLowerCase()}`));
 }
 
+// A chain can be halted (removed from the app, factory retired) while its rows
+// stay in `gm_contracts` forever — nothing cascades a delete. `/api/gm/random`
+// then hands the frontend a chainKey the GM stack cannot act on, and
+// getGmChainId() throws "GM not supported on <chain>. Factory not deployed yet."
+// in the user's face (header GM → On-chain, no chain filter). The DB is the
+// only place that still remembers those chains, so the guard belongs here:
+// GM_FACTORIES is the single source of truth for "GM is possible on this chain".
+export function filterUnsupportedGmChains<T extends GmContractAddress>(contracts: T[]): T[] {
+  return contracts.filter((contract) => Boolean(getFactory(contract.chainKey)));
+}
+
 export function pickCreatorContractsFirst<T extends GmRandomContract>(contracts: T[], userAddress: string): T[] {
   const normalized = userAddress.trim().toLowerCase();
   if (!normalized) return contracts;
@@ -172,10 +183,10 @@ export async function registerGmContractsRoutes(
 
   // List all GM contracts (public — contract addresses are on-chain public data)
   app.get("/api/gm/contracts", async () => {
-    const contracts = filterDisabledGmContracts(await prisma.gmContract.findMany({
+    const contracts = filterUnsupportedGmChains(filterDisabledGmContracts(await prisma.gmContract.findMany({
       select: { chainKey: true, contractAddress: true },
       orderBy: { chainKey: "asc" },
-    }));
+    })));
     return { contracts };
   });
 
@@ -223,7 +234,7 @@ export async function registerGmContractsRoutes(
     const userAddress = (gmRandom.address || "").trim().toLowerCase();
 
     const where: Record<string, unknown> = chain ? { chainKey: { equals: canonicalChainKey(chain), mode: "insensitive" } } : {};
-    const contracts: GmRandomContract[] = filterDisabledGmContracts(await prisma.gmContract.findMany({ where, select: { chainKey: true, contractAddress: true, id: true, creatorAddress: true } }));
+    const contracts: GmRandomContract[] = filterUnsupportedGmChains(filterDisabledGmContracts(await prisma.gmContract.findMany({ where, select: { chainKey: true, contractAddress: true, id: true, creatorAddress: true } })));
     if (contracts.length === 0) return reply.code(404).send({ error: "no_contracts_available" });
 
     const today = new Date();

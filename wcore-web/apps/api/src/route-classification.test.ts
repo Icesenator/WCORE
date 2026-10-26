@@ -12,5 +12,6 @@ test("real application route classification (isolated providers and environment)
   ], { encoding: "utf8", timeout: 60_000, env });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /(?:pass 10|# pass 10)/);
+  assert.match(result.stdout, /^# pass 13$/m);
+  assert.match(result.stdout, /^# fail 0$/m);
 });

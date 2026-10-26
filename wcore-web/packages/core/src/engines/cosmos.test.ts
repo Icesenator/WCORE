@@ -640,8 +640,9 @@ test("getCosmosWalletAssets treats an HTTP 200 gRPC error envelope as a failed r
     assert.equal((await cache.get(`${prefix}:cosmos_hub:${OWNER}`)) ?? null, null, `${prefix} cache must not record an error as an empty list`);
   }
   for (const label of ["balances", "delegations", "unbonding", "rewards"]) {
-    assert.ok(result.errors.some(e => e.startsWith(`${label} `) && e.includes("decoding bech32 failed")), `${label} error should be reported: ${result.errors.join(" | ")}`);
+    assert.ok(result.errors.includes(`${label} error: error envelope (code 2)`), `${label} error should be reported: ${result.errors.join(" | ")}`);
   }
+  assert.ok(!result.errors.some(e => e.includes("bech32")), "the node's own message must not reach the scan errors");
 });
 
 test("getCosmosWalletAssets keeps cached delegations when a relay answers 200 with an error envelope", async () => {

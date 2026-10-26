@@ -38,7 +38,13 @@ node wcore-web\scripts\verify-deployment.mjs --service api --url https://api-pro
 node wcore-web\scripts\verify-deployment.mjs --service web --url https://wcore.xyz --expect-sha <sha>
 ```
 
-It fails on a status other than 200, a non-JSON response (the other app answering), the wrong service name, or another commit. After a rollback, run it with the commit the rollback should have restored. `build.source` is `build-info`, `railway-git`, `unknown` (an image built before this change) or `conflict` (the two sources disagree).
+It fails on a status other than 200, a non-JSON response (the other app answering), the wrong service name, or another commit; for the API it also requires `GET /ready` to answer 200 `ready` (PostgreSQL and Redis reachable).
+
+What each check proves, and what it does not:
+- The Railway healthcheck runs **only while a deployment starts**: Railway routes traffic to the new deployment once the path answers 2xx within the timeout, otherwise the deployment fails and the previous one keeps serving. Railway does **not** probe it afterwards: it is not monitoring.
+- `/health` (API) and `/healthz` (web) prove the process started and name its commit; they deliberately probe no dependency, so a database or Redis outage cannot block a rollback.
+- `/ready` (API) proves PostgreSQL and Redis answer at that moment. It is checked after publication by `verify-deployment.mjs`, not by Railway.
+- None of them proves the application works end to end: run the non-mutating smoke checks of the release plan as well. After a rollback, run it with the commit the rollback should have restored. `build.source` is `build-info`, `railway-git`, `unknown` (an image built before this change) or `conflict` (the two sources disagree).
 
 ```powershell
 # Service status (both services)

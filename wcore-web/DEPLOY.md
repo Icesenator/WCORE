@@ -17,6 +17,10 @@ powershell -File wcore-web\scripts\deploy.ps1 -Service api -Ref origin/master -E
 powershell -File wcore-web\scripts\deploy.ps1 -Service web -Ref origin/master -Environment production -Project <railway project id>
 ```
 
+Concurrent deploys: the deployer takes a lock file per project/environment/service on **this machine** (never expired by age: a deploy that runs for hours keeps it; one left by a crash is cleared only with `--clear-stale-lock`, only on the machine that took it and only once its process has exited), then refuses while `railway deployment list` shows a deployment of that service in `BUILDING`, `DEPLOYING`, `INITIALIZING`, `WAITING` or `QUEUED`, or when that list cannot be read. This is **not** distributed mutual exclusion: two machines can still both pass the Railway check in the seconds before either upload is registered, and Railway offers no lock to close that window. Deploy from one designated machine, one service at a time.
+
+Railway stops reading `railway.json` / `railway.toml` for existing services on **2026-12-01** (Config as Code is deprecated in favour of Infrastructure as Code, `.railway/railway.ts`). Until then the `wcore-web/railway/<service>.json` written into the upload decides the Dockerfile; from that date the deployer refuses to publish (`E_CONFIG_SOURCE`) until the services are migrated, because the upload would no longer control which Dockerfile builds which service.
+
 Uncommitted edits, untracked files and local commits cannot reach an image. The checked-out `railway.json` is no longer rewritten, so two deploys cannot race on it; still deploy `api` before `web`, one after the other. The guards are tested without Railway by `node --test wcore-web/scripts/railway-deploy.test.mjs` (also launched on Windows by `scripts/deploy-ps1.test.ps1`), and the service/Dockerfile/watch-pattern parity by `node --test wcore-web/railway/railway-config.test.mjs`.
 
 For GitHub-triggered deploys, set each service's **config file path** in the Railway dashboard to `wcore-web/railway/<service>.json`. A service left on the default reads the root `railway.json`, which builds the **API** image.

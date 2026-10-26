@@ -14,5 +14,9 @@
       "wcore-web/packages/core/**",
       "wcore-web/apps/web/**"
     ]
+  },
+  "deploy": {
+    "healthcheckPath": "/healthz",
+    "healthcheckTimeout": 120
   }
 }

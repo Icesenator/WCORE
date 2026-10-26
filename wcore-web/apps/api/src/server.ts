@@ -6,7 +6,8 @@ import compress from "@fastify/compress";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@wcore/db";
 import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, warmDynamicRpcEndpoints } from "@wcore/core";
-import { GM_FACTORIES } from "@wcore/shared";
+import { BUILD_INFO_PATH, GM_FACTORIES, resolveBuildIdentity } from "@wcore/shared";
+import { readFileSync } from "node:fs";
 
 // Le cache d'endpoints dynamiques vit 6 h; on le renouvelle avant expiration.
 const RPC_WARM_INTERVAL_MS = 5 * 60 * 60 * 1000;
@@ -335,6 +336,9 @@ await app.register(healthPlugin, {
   checkRedis,
   coreVersion: CORE_VERSION,
   chainCount: chainList.length,
+  build: resolveBuildIdentity((() => {
+    try { return readFileSync(BUILD_INFO_PATH, "utf8"); } catch { return null; }
+  })(), process.env),
 });
 
 app.get("/api/me/plan", async (req, reply) => {

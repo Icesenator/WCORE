@@ -27,6 +27,15 @@ Bare `railway up` deploys the working tree, uncommitted files included, to the c
 
 ### Verification after deploy
 
+A 200 does not prove which code answers. Each image carries the commit it was built from (`wcore-web/build-info.json`, written by the deployer; `RAILWAY_GIT_COMMIT_SHA` for a GitHub-triggered build) and reports it as `build` in `GET /health` (API) and `GET /healthz` (web), which are also the Railway healthcheck paths in `wcore-web/railway/<service>.json`. Check the deployed commit with one GET per service, which changes nothing:
+
+```powershell
+node wcore-web\scripts\verify-deployment.mjs --service api --url https://api-production-b5bf.up.railway.app --expect-sha <sha>
+node wcore-web\scripts\verify-deployment.mjs --service web --url https://wcore.xyz --expect-sha <sha>
+```
+
+It fails on a status other than 200, a non-JSON response (the other app answering), the wrong service name, or another commit. After a rollback, run it with the commit the rollback should have restored. `build.source` is `build-info`, `railway-git`, `unknown` (an image built before this change) or `conflict` (the two sources disagree).
+
 ```powershell
 # Service status (both services)
 railway status

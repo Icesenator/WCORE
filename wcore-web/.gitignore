@@ -56,6 +56,8 @@ scripts/*
 !scripts/validate-static.js
 !scripts/deploy.ps1
 !scripts/deploy-ps1.test.ps1
+!scripts/railway-deploy.mjs
+!scripts/railway-deploy.test.mjs
 !scripts/render-public-svg.mjs
 !scripts/backup-db.js
 !scripts/backup-db.ps1

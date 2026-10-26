@@ -322,11 +322,12 @@ export async function getCosmosWalletAssets(
 // node's error body ({"code":2,"message":"decoding bech32 failed..."} or
 // {"error":"endpoint error: relay send failed"}). Reading the missing list as empty
 // reported zero and overwrote the fallback cache, so such a body is a failed read.
+// The node's own text is not relayed: scan errors are returned to the client as is.
 function cosmosErrorEnvelope(json: unknown, fields: string[]): string | null {
   const body = (json ?? {}) as Record<string, unknown>;
   if (fields.some((field) => Array.isArray(body[field]))) return null;
-  const detail = body.message ?? body.error;
-  return typeof detail === "string" && detail ? detail : "response without " + fields.join("/");
+  if (typeof body.code === "number" && Number.isSafeInteger(body.code)) return `error envelope (code ${body.code})`;
+  return body.error !== undefined ? "relay error envelope" : "response without the expected list";
 }
 
 async function fetchCosmosBalances(

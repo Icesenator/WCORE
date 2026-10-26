@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { BuildIdentity } from "@wcore/shared";
 
 export interface HealthPluginOptions {
   /** Liveness ne l'appelle jamais; seul /ready sonde la base. */
@@ -7,6 +8,8 @@ export interface HealthPluginOptions {
   checkRedis: () => Promise<boolean>;
   coreVersion: string;
   chainCount: number;
+  /** Commit the image was built from: a 200 alone does not prove which code answers. */
+  build: BuildIdentity;
 }
 
 /**
@@ -29,6 +32,7 @@ export async function healthPlugin(app: FastifyInstance, opts: HealthPluginOptio
     coreVersion: opts.coreVersion,
     uptimeSec: Math.round(process.uptime()),
     chainCount: opts.chainCount,
+    build: opts.build,
   }));
 
   app.get("/ready", async (_req, reply) => {

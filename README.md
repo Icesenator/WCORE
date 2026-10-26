@@ -59,9 +59,9 @@ pnpm sync:chains
 
 ## Deployment Safety
 
-- Use `wcore-web/scripts/deploy.ps1 -Service api|web` for Railway deploys.
-- Do not run `railway up` manually from the repo root: `railway.json` is a shared mutable deploy config and defaults to the web Dockerfile.
-- Do not deploy API and web in parallel; the deploy script temporarily rewrites `railway.json`.
+- Use `wcore-web/scripts/deploy.ps1 -Service api|web -Ref <pushed ref> -Environment <env> -Project <id>` for Railway deploys: it uploads `git archive` of one pushed commit, never the working tree (see `wcore-web/DEPLOY.md`).
+- Do not run `railway up` manually: it uploads the working tree, and the root `railway.json` builds the API image.
+- Deploy API then web, one after the other.
 
 For detailed setup, see:
 

@@ -11,10 +11,6 @@ describe("GM_FACTORIES", () => {
       address: "0xc019e086f795661213b11884b52338e8752468d3",
       chainId: 98866,
     });
-    expect(getFactory("superposition")).toEqual({
-      address: "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f",
-      chainId: 55244,
-    });
     expect(getFactory("monad")).toEqual({
       address: "0xd4930a277986021da6db82db18fd26e6c6c4a763",
       chainId: 143,
@@ -35,5 +31,13 @@ describe("GM_FACTORIES", () => {
       address: "0x79113a6c0517a2e748b87bab6e4058ad75eb4352",
       chainId: 747474,
     });
+  });
+
+  test("chains retired on 2026-09-30 expose no GM factory", () => {
+    // No node answers on these networks (wcore-gsheet/docs/chains-retirees.md), so a
+    // GM or a withdrawal there can only fail.
+    for (const key of ["botanix", "degen", "duckchain", "superposition", "race"]) {
+      expect(getFactory(key)).toBeUndefined();
+    }
   });
 });

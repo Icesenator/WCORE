@@ -98,16 +98,12 @@ test("Somnia keeps the chainId its RPC endpoints actually serve", () => {
   assert.equal(chain.CHAIN?.CHAIN_ID, 5031);
 });
 
-test("Degen prefers the measured public Alchemy gateway", () => {
-  const chain = getChain("DEGEN");
-
-  assert.ok(chain, "DEGEN chain should be registered");
-  assert.equal(chain.CHAIN?.CHAIN_ID, 666666666);
-  assert.equal(chain.RPC?.MAX_LOG_RANGE, 99);
-  assert.deepEqual(chain.RPC?.ENDPOINTS, [
-    "https://degen-mainnet.g.alchemy.com/public",
-    "https://rpc.degen.tips",
-  ]);
+test("chains retired on 2026-09-30 stay out of the registry", () => {
+  // Dead networks, recorded in wcore-gsheet/docs/chains-retirees.md. This replaced
+  // a check of the DEGEN endpoints, which no longer exist since its sunset.
+  for (const key of ["BOTANIX", "DEGEN", "DUCKCHAIN", "SUPERPOSITION", "RACE"]) {
+    assert.equal(getChain(key), undefined, `${key} is retired and must not be scanned`);
+  }
 });
 
 test("all active GM chains have native pricing oracle ids", () => {

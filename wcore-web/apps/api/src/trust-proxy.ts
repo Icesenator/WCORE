@@ -47,6 +47,17 @@ export function parseTrustProxy(raw: string | undefined): string {
   return entries.join(",");
 }
 
+// True when the entries trust nothing beyond this host: the same effect as leaving
+// TRUST_PROXY unset, however it is spelled.
+function loopbackOnly(parsed: string): boolean {
+  return parsed.split(",").every((entry) => {
+    if (entry === "loopback") return true;
+    const [address = "", range] = entry.split("/");
+    if (isIP(address) === 6) return address === "::1" && (range === undefined || range === "128");
+    return isIP(address) === 4 && address.startsWith("127.") && (range === undefined || Number(range) >= 8);
+  });
+}
+
 export type TrustProxyAssessment =
   | { ok: true; mode: "loopback-only" }
   | { ok: true; mode: "addresses"; entries: number }
@@ -55,7 +66,7 @@ export type TrustProxyAssessment =
 export function assessTrustProxy(raw: string | undefined): TrustProxyAssessment {
   try {
     const parsed = parseTrustProxy(raw);
-    if (parsed === "loopback" && !raw?.trim().toLowerCase().includes("loopback")) return { ok: true, mode: "loopback-only" };
+    if (loopbackOnly(parsed)) return { ok: true, mode: "loopback-only" };
     return { ok: true, mode: "addresses", entries: parsed.split(",").length };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -66,6 +77,6 @@ export function assessTrustProxy(raw: string | undefined): TrustProxyAssessment 
 // client then shares one rate-limit identity and one scan-job principal. That is safe
 // against spoofing but not what production wants, so it is said once at startup.
 export function trustProxyStartupWarning(parsed: string, isProduction: boolean): string | null {
-  if (!isProduction || parsed !== "loopback") return null;
+  if (!isProduction || !loopbackOnly(parsed)) return null;
   return "TRUST_PROXY is unset: request.ip is the directly connected peer, so behind a proxy all anonymous clients share one rate-limit identity. Set it to the verified proxy addresses (see docs/cloud/TRUST_PROXY_SECURITY.md)";
 }

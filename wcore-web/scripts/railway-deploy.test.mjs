@@ -180,6 +180,20 @@ test("modified, untracked and ignored files never reach the uploaded context", a
   }
 });
 
+test("the upload is byte-identical to the commit even where git would convert line endings", async () => {
+  const f = fixture();
+  try {
+    // What Git for Windows does by default; it used to turn the context's LF into CRLF.
+    sh(f.repo, "config", "core.autocrlf", "true");
+    sh(f.repo, "config", "core.eol", "crlf");
+    assert.equal((await f.run(API_PROD, VALID_PROXY)).status, 0);
+    const [up] = ups(f);
+    assert.equal(up.read["wcore-web/apps/api/src/server.ts"], "committed\n");
+  } finally {
+    f.cleanup();
+  }
+});
+
 test("railway up gets the exact commit, the service's own config and an explicit destination", async () => {
   const f = fixture();
   try {

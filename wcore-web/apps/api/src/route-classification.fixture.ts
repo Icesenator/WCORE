@@ -1,5 +1,6 @@
 import { after, mock, test } from "node:test";
 import assert from "node:assert/strict";
+import net from "node:net";
 import { getApiRateLimitBucket, requiresCsrfOriginCheck } from "./server-helpers.js";
 
 // No dotenv loader: the production application is imported with local-only dependencies.
@@ -76,6 +77,55 @@ test("real app keeps legitimate encoded queries, public endpoints and router err
   assert.equal((await app.inject({ method: "GET", url: "/api/not-a-route" })).statusCode, 404);
   assert.equal((await app.inject({ method: "GET", url: "/api/%ZZ" })).statusCode, 400);
   assert.equal(providerCalls, 0);
+});
+
+// app.inject rewrites the request target through `new URL`, which hides what the
+// router accepts on the wire. These requests go through a real socket.
+async function rawRequest(method: string, target: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
+  const address = app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const lines = [`${method} ${target} HTTP/1.1`, "Host: wcore.local", "Connection: close", ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`)];
+  const body = method === "POST" ? "{}" : "";
+  if (body) lines.push("Content-Type: application/json", `Content-Length: ${body.length}`);
+  return await new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => socket.write(`${lines.join("\r\n")}\r\n\r\n${body}`));
+    let data = "";
+    socket.on("data", (chunk) => { data += chunk; });
+    socket.on("end", () => resolve({ status: Number(data.split(" ")[1]), body: data.split("\r\n\r\n").slice(1).join("") }));
+    socket.on("error", reject);
+  });
+}
+
+test("real socket: absolute-form targets keep CSRF and rate-limit classification", async () => {
+  await app.listen({ port: 0, host: "127.0.0.1" });
+  const hostile = await rawRequest("POST", "http://wcore.local/api/scan", { Origin: "https://hostile.local" });
+  assert.equal(hostile.status, 403, hostile.body);
+  assert.match(hostile.body, /csrf_origin_mismatch/);
+  await sharedCache.set("rate_limit:scan_poll:ip:127.0.0.1", 600, 60_000);
+  const poll = await rawRequest("GET", "http://wcore.local/api/scan/async/missing");
+  assert.equal(poll.status, 429, poll.body);
+  assert.equal(providerCalls, 0);
+});
+
+test("real socket: a fragment cannot move a route into another rate-limit bucket", async () => {
+  await sharedCache.set("rate_limit:gm:ip:127.0.0.1", 1_000_000, 60_000);
+  const gm = await rawRequest("POST", "/api/gm#x", { Origin: "https://wcore.local" });
+  assert.equal(gm.status, 429, gm.body);
+  assert.equal(providerCalls, 0);
+});
+
+test("canonical classification mirrors the router's origin stripping and fragment boundary", () => {
+  assert.equal(getApiRateLimitBucket("POST", "http://wcore.local/api/scan"), "scan");
+  assert.equal(getApiRateLimitBucket("GET", "https://wcore.local/api/scan/async/x"), "scan_poll");
+  assert.equal(requiresCsrfOriginCheck("POST", "http://wcore.local/api/cex/accounts"), true);
+  assert.equal(getApiRateLimitBucket("POST", "/api/gm#x"), "gm");
+  assert.equal(getApiRateLimitBucket("GET", "/api/wallets/nonce#x"), "auth");
+  assert.equal(requiresCsrfOriginCheck("POST", "/api/auth/login#x"), false);
+  // Targets the router cannot route have no trusted classification.
+  for (const path of ["ftp://wcore.local/api/scan", "HTTP://wcore.local/api/scan", "*", "wcore.local/api/scan"]) {
+    assert.equal(requiresCsrfOriginCheck("POST", path), true, path);
+    assert.equal(getApiRateLimitBucket("POST", path), "catch_all", path);
+  }
 });
 
 test("canonical classification does not decode query strings or encoded separators into exemptions", () => {

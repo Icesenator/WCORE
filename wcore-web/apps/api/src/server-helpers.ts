@@ -75,10 +75,15 @@ export function isAllowedCsrfOrigin(
  * decodes static letters like find-my-way, but preserves encoded separators
  * (%2F, %3F, %23): those must not create route boundaries or CSRF exemptions.
  * Do not resolve dot segments or decode twice; neither represents raw routing.
- * Invalid encodings have no trusted classification and guards fail closed.
+ * Like find-my-way, strip the origin of an absolute-form target
+ * (`POST http://host/api/scan`) and end the path at the first `?` or `#`.
+ * Invalid encodings and targets the router cannot route have no trusted
+ * classification and guards fail closed.
  */
 export function canonicalApiPathname(path: string): string | null {
-  const pathname = path.split("?", 1)[0] ?? "";
+  const target = path.startsWith("/") ? path : path.replace(/^https?:\/\/.*?\//, "/");
+  if (!target.startsWith("/")) return null;
+  const pathname = target.split(/[?#]/, 1)[0] ?? "";
   try {
     return decodeURI(pathname);
   } catch {

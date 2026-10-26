@@ -12,8 +12,8 @@
 // any failure exits non-zero without publishing.
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, openSync, closeSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { hostname as osHostname, tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assessTrustProxy } from "../apps/api/src/trust-proxy.ts";
@@ -25,11 +25,16 @@ export class DeployError extends Error {
   }
 }
 
-const LOCK_STALE_MS = 30 * 60_000;
+// Railway stops reading railway.json / railway.toml for existing services on this date
+// (docs.railway.com/config-as-code). After it, the config written into the upload no longer
+// decides which Dockerfile builds the service, so a "config-as-code" manifest is refused.
+export const CONFIG_AS_CODE_CUTOFF = Date.parse("2026-12-01T00:00:00Z");
+// Statuses of a deployment that is still being built or rolled out.
+const ACTIVE_DEPLOYMENT = new Set(["BUILDING", "DEPLOYING", "INITIALIZING", "WAITING", "QUEUED"]);
 const SHA = /^[0-9a-f]{40}$/;
 
 export function parseArgs(argv) {
-  const options = { dryRun: false, acceptSharedClientIp: false };
+  const options = { dryRun: false, acceptSharedClientIp: false, clearStaleLock: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const next = () => {
@@ -44,6 +49,7 @@ export function parseArgs(argv) {
     else if (arg === "--repo") options.repo = next();
     else if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--accept-shared-client-ip") options.acceptSharedClientIp = true;
+    else if (arg === "--clear-stale-lock") options.clearStaleLock = true;
     else throw new DeployError("E_USAGE", `unknown option ${arg}`);
   }
   // No defaults: the old script deployed "web" when -Service was omitted.
@@ -122,21 +128,99 @@ export function loadServicePlan(repo, sha, service) {
     ignore: [...(manifest.commonIgnore ?? []), ...(entry.ignore ?? [])],
     trustProxyPreflight: entry.trustProxyPreflight === true,
     productionEnvironment: manifest.productionEnvironment,
+    configSource: manifest.configSource,
   };
 }
 
-export function acquireLock(lockDir, project, environment, service, now = Date.now()) {
-  mkdirSync(lockDir, { recursive: true });
-  const lockPath = join(lockDir, `wcore-railway-${project}-${environment}-${service}.lock`.replace(/[^\w.-]/g, "_"));
+function processAlive(pid) {
   try {
-    closeSync(openSync(lockPath, "wx"));
-  } catch {
-    const age = now - statSync(lockPath).mtimeMs;
-    if (age < LOCK_STALE_MS) throw new DeployError("E_LOCK", `another deploy of ${service} to ${environment} holds ${lockPath}`);
-    rmSync(lockPath, { force: true });
-    closeSync(openSync(lockPath, "wx"));
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
   }
-  return () => rmSync(lockPath, { force: true });
+}
+
+// Machine-local lock. It never expires by age: a deploy that runs past any timeout keeps
+// it. A lock left by a crash is only cleared on request (--clear-stale-lock), and only
+// when it was taken on this machine by a process that no longer exists. It cannot see a
+// deploy started from another machine: checkRemoteIdle covers that, as far as Railway can.
+export function acquireLock(lockDir, target, { clearStale = false, host = osHostname(), pid = process.pid, isAlive = processAlive, now = Date.now() } = {}) {
+  mkdirSync(lockDir, { recursive: true });
+  const lockPath = join(lockDir, `wcore-railway-${target.project}-${target.environment}-${target.service}.lock`.replace(/[^\w.-]/g, "_"));
+  const owner = { host, pid, startedAt: new Date(now).toISOString(), sha: target.sha };
+  const create = () => {
+    const fd = openSync(lockPath, "wx");
+    try {
+      writeSync(fd, JSON.stringify(owner));
+    } finally {
+      closeSync(fd);
+    }
+  };
+  try {
+    create();
+  } catch (error) {
+    if (error.code !== "EEXIST") throw new DeployError("E_LOCK", `cannot create ${lockPath}: ${error.message}`);
+    let holder;
+    try {
+      holder = JSON.parse(readFileSync(lockPath, "utf8"));
+    } catch {
+      throw new DeployError("E_LOCK", `${lockPath} exists and is unreadable; inspect it before removing it by hand`);
+    }
+    if (holder.host !== host) throw new DeployError("E_LOCK", `${lockPath} was taken on ${holder.host}; its process cannot be checked from here`);
+    if (isAlive(holder.pid)) throw new DeployError("E_LOCK", `deploy of ${target.service} to ${target.environment} still running (pid ${holder.pid} since ${holder.startedAt})`);
+    if (!clearStale) {
+      throw new DeployError("E_LOCK_STALE", `${lockPath} was left by pid ${holder.pid} (since ${holder.startedAt}), which has exited; check Railway for that deploy, then rerun with --clear-stale-lock`);
+    }
+    // Moved aside rather than deleted, so a racing clear cannot remove a fresh lock.
+    renameSync(lockPath, `${lockPath}.stale-${now}`);
+    try {
+      create();
+    } catch {
+      throw new DeployError("E_LOCK", `${lockPath} was taken again while clearing it`);
+    }
+  }
+  return () => {
+    try {
+      const holder = JSON.parse(readFileSync(lockPath, "utf8"));
+      if (holder.host === host && holder.pid === pid && holder.startedAt === owner.startedAt) rmSync(lockPath, { force: true });
+    } catch {
+      // Already gone or replaced: never remove a lock this run does not own.
+    }
+  };
+}
+
+export function checkLinkedProject(project, repo) {
+  const status = capture("railway", ["status", "--json"], repo);
+  if (status.status !== 0 || !status.stdout.includes(project)) {
+    throw new DeployError("E_LINK", `the Railway CLI is not linked to project ${project}; run railway link first`);
+  }
+}
+
+// Refuses while Railway reports a build or rollout in progress for this service, whoever
+// started it. Fails closed when the state cannot be read. There is still a window between
+// this check and `railway up`; Railway itself does not offer a lock.
+export function checkRemoteIdle(service, environment, repo) {
+  const listed = capture("railway", ["deployment", "list", "--service", service, "--environment", environment, "--json", "--limit", "20"], repo);
+  let deployments;
+  try {
+    deployments = listed.status === 0 ? JSON.parse(listed.stdout) : null;
+  } catch {
+    deployments = null;
+  }
+  if (!Array.isArray(deployments) || deployments.some((d) => typeof d?.status !== "string")) {
+    throw new DeployError("E_REMOTE_UNKNOWN", `cannot read the deployments of ${service} in ${environment}; refusing rather than risking a concurrent deploy`);
+  }
+  const active = deployments.filter((d) => ACTIVE_DEPLOYMENT.has(d.status.toUpperCase()));
+  if (active.length > 0) {
+    throw new DeployError("E_REMOTE_BUSY", `${service} in ${environment} has a deployment in progress (${active.map((d) => `${d.id ?? "?"} ${d.status}`).join(", ")})`);
+  }
+}
+
+export function assertConfigSourceUsable(configSource, now = Date.now()) {
+  if (configSource === "config-as-code" && now >= CONFIG_AS_CODE_CUTOFF) {
+    throw new DeployError("E_CONFIG_SOURCE", "Railway no longer reads railway.json since 2026-12-01: the Dockerfile of the service is no longer set by this upload. Migrate to Infrastructure as Code first (docs/cloud/RAILWAY_CONFIG_MIGRATION.md)");
+  }
 }
 
 function listFiles(root) {
@@ -184,12 +268,8 @@ export function writeGenerated(contextDir, plan, { sha, ref, environment }) {
   return buildInfo;
 }
 
-export function checkTrustProxy(plan, { project, environment, acceptSharedClientIp }, repo) {
+export function checkTrustProxy(plan, { environment, acceptSharedClientIp }, repo) {
   if (!plan.trustProxyPreflight) return null;
-  const status = capture("railway", ["status", "--json"], repo);
-  if (status.status !== 0 || !status.stdout.includes(project)) {
-    throw new DeployError("E_LINK", `the Railway CLI is not linked to project ${project}; run railway link first`);
-  }
   const listed = capture("railway", ["variable", "list", "--service", plan.service, "--environment", environment, "--json"], repo);
   if (listed.status !== 0) throw new DeployError("E_VARIABLES", `cannot read ${plan.service} variables in ${environment}`);
   let variables;
@@ -207,16 +287,21 @@ export function checkTrustProxy(plan, { project, environment, acceptSharedClient
   return assessment;
 }
 
-export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log = console.error, inspect } = {}) {
+export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log = console.error, inspect, now = Date.now(), lockOptions = {} } = {}) {
   const options = parseArgs(argv);
   const repo = resolve(options.repo ?? defaultRepo);
   const sha = resolveCommit(repo, options.ref);
   const plan = loadServicePlan(repo, sha, options.service);
   assertEnvironmentAccepts(repo, sha, options.environment, plan.productionEnvironment);
+  assertConfigSourceUsable(plan.configSource, now);
+  checkLinkedProject(options.project, repo);
   const trustProxy = checkTrustProxy(plan, options, repo);
-  const release = acquireLock(lockDir, options.project, options.environment, options.service);
-  const contextDir = mkdtempSync(join(tmpdir(), `wcore-${options.service}-`));
+  const release = acquireLock(lockDir, { ...options, sha }, { clearStale: options.clearStaleLock, now, ...lockOptions });
+  let contextDir;
   try {
+    // After the lock: two runs on this machine cannot both pass this check and upload.
+    checkRemoteIdle(options.service, options.environment, repo);
+    contextDir = mkdtempSync(join(tmpdir(), `wcore-${options.service}-`));
     await exportCommit(repo, sha, contextDir);
     const buildInfo = writeGenerated(contextDir, plan, { sha, ref: options.ref, environment: options.environment });
     inspect?.(contextDir);
@@ -227,7 +312,7 @@ export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log 
     const result = spawnSync(line.command, line.args, { stdio: "inherit", shell: line.shell });
     return { status: result.status ?? 1, sha, buildInfo, published: result.status === 0 };
   } finally {
-    rmSync(contextDir, { recursive: true, force: true });
+    if (contextDir) rmSync(contextDir, { recursive: true, force: true });
     release();
   }
 }

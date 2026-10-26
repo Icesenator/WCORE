@@ -10,7 +10,7 @@ La publication Git n’est pas un déploiement. **Aucun déploiement n’est aut
 
 ## Vérifications locales reproductibles
 
-Prérequis : Node.js 24 et pnpm 10.34.4 (comme le build Docker). Depuis `wcore-web`, utiliser un environnement de test propre, sans charger dotenv ni un fichier `.env` :
+Prérequis : Node.js 24 (version effectivement testée : 24.14.1) et pnpm 10.34.4 (comme le build Docker). Node.js 22.13+ dans la branche 22 satisfait aussi les prérequis de module mocks et du lockfile, mais n’a pas été testé ici ; Node.js 20 n’est pas une cible de reproduction de ces tests. Les preuves de cette session sont obtenues sous Windows uniquement ; Linux n’a pas été exécuté. Depuis `wcore-web`, utiliser un environnement de test propre, sans charger dotenv ni un fichier `.env` :
 
 ```powershell
 $env:NODE_ENV='test'

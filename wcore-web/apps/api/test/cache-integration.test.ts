@@ -19,7 +19,10 @@ let ready = false;
 // Known wallets used for integration testing:
 // - Solana: well-known address with SOL (likely > 0)
 const SOLANA_ADDRESS = "7VNikHWLjS7FN98vjbJhSJFFQzCpF9ycsgQySQzDrkQd";
-// - Cosmos: well-known Cosmos Hub delegator (bech32 cosmos1 prefix)
+// - Cosmos: its bech32 checksum is invalid (the node expects ...6z9h8p), so every read
+//   fails and these tests cover the REST-failure path, not live staking data. Some
+//   rest.cosmos.directory nodes answer that failure with HTTP 200, which the engine
+//   must not cache as an empty list (packages/core/src/engines/cosmos.test.ts).
 const COSMOS_ADDRESS = "cosmos1r5v5srda7xfth3hn2s26txvrc77nt6kj45g3u8";
 
 // Cache writes are fire-and-forget (.catch(() => {}) without await).

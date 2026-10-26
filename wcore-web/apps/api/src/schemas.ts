@@ -259,11 +259,20 @@ export const BatchScanRequestBodySchema = z.object({
   customTokens: z.array(z.unknown()).max(100).optional(),
 }).strict();
 
+// The accepted `expiresAt` format is the one Zod 3 `datetime({ offset: true })`
+// enforced: optional seconds and fraction, then `Z` or an offset with or
+// without a colon. Zod 4 rejects `+0200`, so the regex keeps the public contract.
+const ISO_DATETIME_WITH_OFFSET = new RegExp(
+  "^((\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29"
+  + "|\\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\\d|3[01])|(0[469]|11)-(0[1-9]|[12]\\d|30)|(02)-(0[1-9]|1\\d|2[0-8])))"
+  + "T([01]\\d|2[0-3]):[0-5]\\d(:[0-5]\\d(\\.\\d+)?)?(Z|([+-]\\d{2}:?\\d{2}))$",
+);
+
 /** POST /api/scans/:id/share */
 export const ScanShareBodySchema = z.object({
   expiresAt: z
     .string()
-    .datetime({ offset: true })
+    .regex(ISO_DATETIME_WITH_OFFSET, "Invalid datetime")
     .optional(),
 });
 

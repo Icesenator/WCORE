@@ -20,7 +20,7 @@
     "@wagmi/core": "^3.4.8",
     "@wcore/shared": "workspace:*",
     "bs58": "^6.0.0",
-    "next": "^16.2.11",
+    "next": "^16.4.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "viem": "^2.48.7",

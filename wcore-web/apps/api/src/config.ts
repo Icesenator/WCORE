@@ -28,7 +28,7 @@ export interface ApiConfig {
   server: {
     port: number;
     host: string;
-    trustProxy: number | string;
+    trustProxy: string;
     logLevel: string;
     usePrettyLogger: boolean;
   };
@@ -133,12 +133,16 @@ function readCsv(env: ApiEnv, key: string): string[] {
     .filter(Boolean);
 }
 
-function parseTrustProxy(raw: string | undefined): number | string {
+function parseTrustProxy(raw: string | undefined): string {
   const normalized = raw?.trim().toLowerCase();
-  if (normalized === "true") return 1;
   if (normalized === "false" || !normalized) return "loopback";
-  if (/^\d+$/.test(normalized)) return Number(normalized);
-  return normalized;
+  const entries = normalized.split(",").map((entry) => entry.trim());
+  const hopCount = /^(?:true|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|0x[0-9a-f]+)$/i;
+  if (normalized === "true" || entries.some((entry) => !entry || hopCount.test(entry))) {
+    // Hop counts do not authenticate the connecting peer (GHSA-3m5p-2c4r-xxw2).
+    throw new Error("TRUST_PROXY no longer accepts true or hop counts; configure trusted proxy IP addresses or CIDR ranges");
+  }
+  return entries.join(",");
 }
 
 function readJwtSecret(env: ApiEnv, nodeEnv: string, isDevelopmentLike: boolean): string {

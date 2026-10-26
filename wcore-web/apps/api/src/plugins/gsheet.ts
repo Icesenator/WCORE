@@ -966,9 +966,8 @@ async function defaultScanRunner(
   };
 }
 
-export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptions) {
+async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOptions) {
   app.addHook("onRequest", async (req, reply) => {
-    if (!req.url || !req.url.startsWith("/api/gsheet/")) return;
     const header = req.headers["x-gsheet-token"];
     // Constant time: this hook is the only thing standing in front of /api/gsheet/*.
     if (typeof header !== "string" || !opts.token || !safeEq(header, opts.token)) {
@@ -1134,6 +1133,13 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
     await opts.cacheWriter.set(key, telemetry, FX_TELEMETRY_TTL_MS);
     return { ok: true, key };
   });
+
+}
+
+export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptions) {
+  // Always encapsulate authentication, including when called directly by server.ts.
+  // The router may decode a path that does not share the raw URL prefix.
+  await app.register(gsheetProtectedRoutes, opts);
 
   // Public drift comparison endpoint — no auth, useful for CI smoke tests.
   // Returns 503 if either runtime hasn't reported yet (cold start).

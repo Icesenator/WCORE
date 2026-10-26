@@ -102,12 +102,12 @@ The Fastify API derives `req.ip` from the `trustProxy` setting:
 | `TRUST_PROXY` | Behavior | Use when |
 |---------------|----------|----------|
 | unset / `false` | Trust loopback only (`127.0.0.1`, `::1`) | No proxy, or local docker/nginx co-located on the API host |
-| `true` | Trust *any* upstream — accepts `X-Forwarded-For` from anywhere | Single trusted proxy you control AND the API is not directly reachable |
-| CIDR list (e.g. `10.0.0.0/8`) | Trust only the listed networks | Multi-hop proxy chain |
+| IP/CIDR list (e.g. `10.0.0.0/8`) | Trust only the listed direct proxy networks | Verified proxy topology |
+| `true`, numbers, empty list entries | Startup configuration error | Never |
 
-Setting `TRUST_PROXY=true` while the API is still reachable on a public
-port lets clients spoof their IP via `X-Forwarded-For` and bypass the
-Redis-backed rate limiter. Treat it as a privileged switch.
+`true` and numeric hop counts do not authenticate the connecting peer
+(GHSA-3m5p-2c4r-xxw2) and are rejected. Before enabling a proxy setting,
+verify the exact direct proxy IPs or CIDR ranges for that environment.
 
 ---
 
@@ -413,7 +413,7 @@ docker cp wcore-redis-prod:/data/dump.rdb redis-backup-$(date +%Y%m%d).rdb
 | `ADMIN_TOKEN` | No | unset | Required for the admin routes. While unset they answer 401 and admin operations are unavailable. |
 | `CEX_SECRET` | **Yes in production** | - | Encrypts stored exchange credentials. Production refuses to read or write them without it, rather than falling back to another secret. |
 | `RATE_LIMIT_AUTH` | No | 30 | Auth rate limit |
-| `TRUST_PROXY` | No | loopback | `true`, `false`, or CIDR — see Reverse proxy section |
+| `TRUST_PROXY` | No | loopback | `false`, `loopback`, or IP/CIDR list — see Reverse proxy section |
 | `LOG_LEVEL` | No | info | pino level (`debug` / `info` / `warn` / `error`) |
 | `SCAN_CONCURRENCY` | No | 50 | Per-scan chain concurrency. >50 saturates public RPCs. Single source of truth: `apps/api/src/plugins/scan.ts:13`. |
 | `ADMIN_TOKEN` | No | — | Protects /admin + /api/admin/* |

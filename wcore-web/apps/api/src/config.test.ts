@@ -148,7 +148,7 @@ describe("getApiConfig", () => {
       NODE_ENV: "test",
       PORT: "4100",
       HOST: "0.0.0.0",
-      TRUST_PROXY: "true",
+      TRUST_PROXY: "192.0.2.10",
       LOG_LEVEL: "debug",
       MAX_CHAINS_PER_SCAN: "77",
       ANONYMOUS_MAX_CHAINS_PER_SCAN: "9",
@@ -164,7 +164,7 @@ describe("getApiConfig", () => {
 
     assert.equal(config.server.port, 4100);
     assert.equal(config.server.host, "0.0.0.0");
-    assert.equal(config.server.trustProxy, 1);
+    assert.equal(config.server.trustProxy, "192.0.2.10");
     assert.equal(config.server.logLevel, "debug");
     assert.equal(config.limits.maxChainsPerScan, 77);
     assert.equal(config.limits.anonymousMaxChainsPerScan, 9);

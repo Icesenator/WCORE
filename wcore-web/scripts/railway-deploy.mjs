@@ -12,6 +12,7 @@
 // any failure exits non-zero without publishing.
 
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { hostname as osHostname, tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -239,7 +240,9 @@ function listFiles(root) {
 export async function exportCommit(repo, sha, contextDir) {
   if (readdirSync(contextDir).length > 0) throw new DeployError("E_CONTEXT", `${contextDir} is not empty`);
   await new Promise((resolvePromise, reject) => {
-    const archive = spawn("git", ["archive", "--format=tar", sha], { cwd: repo });
+    // Without these, core.autocrlf=true (Git for Windows' default) makes git archive write
+    // CRLF into every text file, so the image would not match the commit byte for byte.
+    const archive = spawn("git", ["-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar", sha], { cwd: repo });
     const extract = spawn("tar", ["-x", "-f", "-", "-C", contextDir]);
     archive.stdout.pipe(extract.stdin);
     let failed = false;
@@ -252,10 +255,20 @@ export async function exportCommit(repo, sha, contextDir) {
     archive.on("exit", onExit("git archive"));
     extract.on("exit", (code) => (code === 0 ? (failed ? undefined : resolvePromise()) : onExit("tar")(code)));
   });
-  const expected = git(repo, ["ls-tree", "-r", "--name-only", "-z", sha]).split("\0").filter(Boolean).sort();
+  const blobs = new Map(git(repo, ["ls-tree", "-r", "-z", sha]).split("\0").filter(Boolean).map((line) => {
+    const [meta, path] = line.split("\t");
+    return [path, meta.split(" ")[2]];
+  }));
+  const expected = [...blobs.keys()].sort();
   const actual = listFiles(contextDir);
   if (expected.length !== actual.length || expected.some((path, i) => path !== actual[i])) {
     throw new DeployError("E_CONTEXT", `exported context does not match ${sha} (${actual.length} files, expected ${expected.length})`);
+  }
+  // Same bytes as the commit, not only the same names: hash each file as a git blob.
+  for (const path of actual) {
+    const content = readFileSync(join(contextDir, path));
+    const id = createHash("sha1").update(`blob ${content.length}\0`).update(content).digest("hex");
+    if (id !== blobs.get(path)) throw new DeployError("E_CONTEXT", `${path} in the exported context differs from ${sha}`);
   }
 }
 

@@ -29,6 +29,9 @@ COPY wcore-web/apps/web/components apps/web/components
 COPY wcore-web/apps/web/hooks apps/web/hooks
 COPY wcore-web/apps/web/lib apps/web/lib
 COPY wcore-web/apps/web/public apps/web/public
+# Written by scripts/railway-deploy.mjs into the upload; absent from a GitHub-triggered
+# build (package.json keeps the COPY valid when it is). Served by /healthz as `build`.
+COPY wcore-web/package.json wcore-web/build-info.jso[n] /build-info/
 
 RUN echo "BUILD_TS $(date +%s)"
 RUN pnpm --filter "@wcore/shared" build
@@ -46,6 +49,7 @@ ENV HOSTNAME=0.0.0.0
 COPY --chown=node:node --from=builder /app/apps/web/.next/standalone ./
 COPY --chown=node:node --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --chown=node:node --from=builder /app/apps/web/public ./apps/web/public
+COPY --chown=node:node --from=builder /build-info/ /app/build-info/
 
 USER node
 EXPOSE 3000

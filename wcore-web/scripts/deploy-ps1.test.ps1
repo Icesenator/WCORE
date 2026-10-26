@@ -22,17 +22,17 @@ $tmp = Join-Path $root "tmp dir"
 $capture = Join-Path $root "calls.jsonl"
 New-Item -ItemType Directory -Force -Path $bin, $tmp | Out-Null
 
-function Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" } }
+function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" } }
 function Write-File([string]$Path, [string]$Content) {
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
   [IO.File]::WriteAllText($Path, $Content)
 }
 
-Git init --quiet --bare --initial-branch=master $origin
-Git clone --quiet $origin $repo
-Git -C $repo config user.email "test@example.invalid"
-Git -C $repo config user.name "test"
-Git -C $repo checkout --quiet -B master
+Invoke-Git init --quiet --bare --initial-branch=master $origin
+Invoke-Git clone --quiet $origin $repo
+Invoke-Git -C $repo config user.email "test@example.invalid"
+Invoke-Git -C $repo config user.name "test"
+Invoke-Git -C $repo checkout --quiet -B master
 
 # The scripts under test, copied so that deploy.ps1 resolves this repository as its root.
 Copy-Item (Join-Path $scriptsDir "deploy.ps1") (New-Item -ItemType Directory -Force -Path "$repo\wcore-web\scripts")
@@ -45,9 +45,9 @@ Write-File "$repo\wcore-web\railway\deploy-manifest.json" (@{
 } | ConvertTo-Json -Depth 5)
 Write-File "$repo\wcore-web\railway\api.json" '{"build":{"builder":"DOCKERFILE","dockerfilePath":"wcore-web/apps/api/Dockerfile.railway"}}'
 Write-File "$repo\wcore-web\apps\api\Dockerfile.railway" "RUN pnpm --filter `"@wcore/api`" build`n"
-Git -C $repo add -A
-Git -C $repo commit --quiet -m initial
-Git -C $repo push --quiet origin master
+Invoke-Git -C $repo add -A
+Invoke-Git -C $repo commit --quiet -m initial
+Invoke-Git -C $repo push --quiet origin master
 
 Write-File "$bin\fake-railway.cjs" @'
 const fs = require("node:fs");
@@ -116,8 +116,8 @@ try {
   Check ($r.Exit -eq 0 -and $r.Ups.Count -eq 1) "-AcceptSharedClientIp is forwarded"
 
   Write-File "$repo\local.txt" "local commit"
-  Git -C $repo add local.txt
-  Git -C $repo commit --quiet -m local
+  Invoke-Git -C $repo add local.txt
+  Invoke-Git -C $repo commit --quiet -m local
   $r = Invoke-Wrapper @("-Service", "api", "-Ref", "HEAD", "-Environment", "production", "-Project", "proj-1")
   Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_NOT_PUBLISHED") "an unpushed commit is refused with exit 2"
 } finally {

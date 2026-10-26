@@ -266,7 +266,7 @@ jobs:
           count=$(git rev-list --count "$base..$HEAD_SHA")
           echo "gitleaks range: $base..$HEAD_SHA ($count commits, merged branches included, no --first-parent)"
           if [ "$count" -eq 0 ]; then echo "nothing beyond master to scan"; exit 0; fi
-          "$bin" detect --source . --redact --no-banner --exit-code 1 \
+          "$bin" detect --source . --redact --verbose --no-banner --exit-code 1 \
             --config wcore-web/.gitleaks.toml \
             --log-opts="$base..$HEAD_SHA"
 

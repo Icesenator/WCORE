@@ -103,7 +103,7 @@ The Fastify API derives `req.ip` from the `trustProxy` setting:
 |---------------|----------|----------|
 | unset / `false` | Trust loopback only (`127.0.0.1`, `::1`) | No proxy, or local docker/nginx co-located on the API host |
 | IP/CIDR list (e.g. `10.0.0.0/8`) | Trust only the listed direct proxy networks | Verified proxy topology |
-| `true`, numbers, empty list entries | Startup configuration error | Never |
+| `true`, numbers, empty list entries, malformed entries, ranges wider than IPv4 /8 or IPv6 /16, more than 64 entries | Startup configuration error | Never |
 
 `true` and numeric hop counts do not authenticate the connecting peer
 (GHSA-3m5p-2c4r-xxw2) and are rejected. Before enabling a proxy setting,

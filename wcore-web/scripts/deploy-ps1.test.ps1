@@ -126,3 +126,6 @@ try {
 
 if ($failures.Count -gt 0) { Write-Host "`n$($failures.Count) failure(s)"; exit 1 }
 Write-Host "`nall deploy.ps1 checks passed"
+# Explicit: the last wrapper call above exits 2 on purpose, and a pwsh step in GitHub
+# Actions ends with $LASTEXITCODE.
+exit 0

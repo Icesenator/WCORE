@@ -12,7 +12,9 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
 const SERVICES = {
-  api: { path: "/health", name: "wcore-api" },
+  // /health is liveness only (it is also the Railway healthcheck, so a database or Redis
+  // outage cannot block a rollback); /ready is where PostgreSQL and Redis are checked.
+  api: { path: "/health", name: "wcore-api", ready: "/ready" },
   web: { path: "/healthz", name: "wcore-web" },
 };
 
@@ -46,6 +48,19 @@ export async function verifyDeployment({ service, url, expectSha }, fetchImpl = 
   if (body) {
     if (body.service !== target.name) problems.push(`service ${JSON.stringify(body.service)} instead of ${target.name}`);
     if (body.build?.sha !== expectSha) problems.push(`commit ${body.build?.sha ?? "unknown"} (${body.build?.source ?? "no build field"}) instead of ${expectSha}`);
+  }
+  if (target.ready) {
+    const readyEndpoint = new URL(target.ready, url);
+    const ready = await fetchImpl(readyEndpoint, { method: "GET", headers: { accept: "application/json" }, redirect: "error", signal: AbortSignal.timeout(15_000) });
+    let readyBody = null;
+    try {
+      readyBody = await ready.json();
+    } catch {
+      // reported below
+    }
+    if (ready.status !== 200 || readyBody?.status !== "ready") {
+      problems.push(`not ready (${ready.status}${readyBody?.checks ? ` ${JSON.stringify(readyBody.checks)}` : ""}): PostgreSQL or Redis unavailable`);
+    }
   }
   return { ok: problems.length === 0, endpoint: endpoint.href, problems };
 }

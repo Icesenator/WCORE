@@ -20,6 +20,18 @@ import {
   type ProviderPolicy,
 } from "./service.js";
 
+// boundedTimeout unrefs its timer so it never holds the server process open. With a
+// provider that never settles nothing else is left on the event loop here, and
+// node:test cancels the test, then every later test in the file, before it fires.
+async function withEventLoopHeld<T>(work: Promise<T>): Promise<T> {
+  const hold = setInterval(() => {}, 1_000);
+  try {
+    return await work;
+  } finally {
+    clearInterval(hold);
+  }
+}
+
 function makeProvider(id: ProviderId, loadImpl: (ctx: ProviderRequestContext) => Promise<ProviderPortfolioSnapshot>, supportsImpl = (_addr: string) => true): PortfolioEnrichmentProvider {
   return {
     id,
@@ -87,14 +99,14 @@ test("EMPTY: zero positions and zero hints is not SUCCESS and not an error", asy
   assert.equal(o?.stale, false);
 });
 
-test("TIMEOUT: bounded even if provider never settles", async () => {
+test("TIMEOUT: bounded even if provider never settles", { timeout: 10_000 }, async () => {
   const svc = createPortfolioEnrichmentService({
     providers: [makeProvider("zerion", () => new Promise(() => {}))],
     policyFor: () => ({ ...defaultPolicy, timeoutMs: 5, allowStale: false }),
     budget: { tryConsume: () => true },
     breaker: { allow: () => true, recordSuccess: () => {}, recordFailure: () => {} },
   });
-  const [o] = await svc.run(testInput());
+  const [o] = await withEventLoopHeld(svc.run(testInput()));
   assert.equal(o?.status, "TIMEOUT");
   assert.equal(o?.errorKind, "timeout");
 });
@@ -245,7 +257,7 @@ test("provider error never opens a chain breaker and never mutates assetsByChain
   assert.ok(result.diagnostics.enrich_helius);
 });
 
-test("timeout budget for one provider does not block another (independent)", async () => {
+test("timeout budget for one provider does not block another (independent)", { timeout: 10_000 }, async () => {
   const svc = createPortfolioEnrichmentService({
     providers: [
       makeProvider("etherscan", () => new Promise(() => {})), // hangs
@@ -255,7 +267,7 @@ test("timeout budget for one provider does not block another (independent)", asy
     budget: { tryConsume: () => true },
     breaker: { allow: () => true, recordSuccess: () => {}, recordFailure: () => {} },
   });
-  const out = await svc.run(testInput("0x6666666666666666666666666666666666666666"));
+  const out = await withEventLoopHeld(svc.run(testInput("0x6666666666666666666666666666666666666666")));
   const byId = Object.fromEntries(out.map((o) => [o.provider, o]));
   assert.equal(byId.etherscan?.status, "TIMEOUT");
   assert.equal(byId["lifi-earn"]?.status, "SUCCESS", "a hanging provider must not starve another");

@@ -34,6 +34,7 @@ import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
 import { apiConfig } from "./config.js";
+import { trustProxyStartupWarning } from "./trust-proxy.js";
 
 // `true` and numeric hop counts are rejected by configuration. They do not
 // authenticate the connecting peer. Use trusted proxy IPs or CIDR ranges;
@@ -50,6 +51,9 @@ const app = Fastify({
       ? { level: apiConfig.server.logLevel, transport: { target: "pino-pretty" } }
       : { level: apiConfig.server.logLevel }),
 });
+
+const trustProxyWarning = trustProxyStartupWarning(trustProxy, apiConfig.runtime.isProduction);
+if (trustProxyWarning) app.log.warn(trustProxyWarning);
 
 const redisConfig = apiConfig.redis.config;
 const sharedCache = redisConfig

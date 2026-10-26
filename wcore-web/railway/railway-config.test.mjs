@@ -21,6 +21,8 @@ function copySources(dockerfile) {
     .flatMap((line) => line.replace(/^COPY\s+/i, "").split(/\s+/).filter((part) => !part.startsWith("--")).slice(0, -1));
 }
 
+// Generated into the upload by railway-deploy.mjs, never tracked, copied optionally.
+const GENERATED = new Set(["wcore-web/build-info.jso[n]"]);
 const covers = (pattern, path) => pattern === path || (pattern.endsWith("/**") && `${path}/`.startsWith(pattern.slice(0, -2)));
 
 // .railwayignore follows gitignore rules: a pattern without an inner slash matches at any depth.
@@ -44,7 +46,7 @@ for (const [service, entry] of Object.entries(manifest.services)) {
 
   test(`${service}: every path the Dockerfile copies is watched`, () => {
     assert.ok(sources.length > 0);
-    const unwatched = sources.filter((source) => !config.build.watchPatterns.some((pattern) => covers(pattern, source)));
+    const unwatched = sources.filter((source) => !GENERATED.has(source) && !config.build.watchPatterns.some((pattern) => covers(pattern, source)));
     assert.deepEqual(unwatched, []);
     assert.ok(config.build.watchPatterns.includes(entry.config), "a change to the service's own config must trigger it");
   });
@@ -56,6 +58,20 @@ for (const [service, entry] of Object.entries(manifest.services)) {
     assert.deepEqual(lost, []);
   });
 }
+
+for (const service of ["api", "web"]) {
+  test(`${service}: the image carries build-info and Railway gates traffic on a healthcheck`, () => {
+    const config = JSON.parse(read(manifest.services[service].config));
+    const text = read(config.build.dockerfilePath);
+    assert.match(text, /^COPY wcore-web\/package\.json wcore-web\/build-info\.jso\[n\] \/build-info\/$/m);
+    assert.match(text, /^COPY --chown=node:node --from=builder \/build-info\/ \/app\/build-info\/$/m);
+    assert.equal(config.deploy.healthcheckPath, service === "api" ? "/health" : "/healthz");
+  });
+}
+
+test("build-info.json is generated at deploy time and never committed", () => {
+  assert.deepEqual(tracked.filter((path) => path.endsWith("build-info.json")), []);
+});
 
 test("a web-only change cannot trigger the API service, and the reverse", () => {
   const api = JSON.parse(read(manifest.services.api.config)).build;
@@ -74,7 +90,7 @@ test("the default railway.json files build the API image and watch every API sou
     const build = JSON.parse(read(path)).build;
     assert.equal(build.dockerfilePath, "wcore-web/apps/api/Dockerfile.railway", path);
     if (build.watchPatterns) {
-      assert.deepEqual(apiSources.filter((source) => !build.watchPatterns.some((pattern) => covers(pattern, source))), [], path);
+      assert.deepEqual(apiSources.filter((source) => !GENERATED.has(source) && !build.watchPatterns.some((pattern) => covers(pattern, source))), [], path);
     }
   }
 });

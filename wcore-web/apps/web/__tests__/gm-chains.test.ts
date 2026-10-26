@@ -27,6 +27,12 @@ describe("GM page chain lists", () => {
       "rss3",
       "stargaze",
       "tangle",
+      // Retired on 2026-09-30 (wcore-gsheet/docs/chains-retirees.md).
+      "botanix",
+      "degen",
+      "duckchain",
+      "superposition",
+      "race",
     ];
     const visibleKeys = new Set([...getGmChains(), ...getSoonChains()].map((chain) => chain.key));
 

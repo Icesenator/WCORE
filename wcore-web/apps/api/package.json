@@ -28,7 +28,7 @@
     "p-limit": "^7.3.0",
     "sharp": "^0.35.5",
     "viem": "^2.48.7",
-    "zod": "^3.23.8"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.10",

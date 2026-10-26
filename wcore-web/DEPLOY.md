@@ -17,7 +17,7 @@ powershell -File wcore-web\scripts\deploy.ps1 -Service api -Ref origin/master -E
 powershell -File wcore-web\scripts\deploy.ps1 -Service web -Ref origin/master -Environment production -Project <railway project id>
 ```
 
-Uncommitted edits, untracked files and local commits cannot reach an image. The checked-out `railway.json` is no longer rewritten, so two deploys cannot race on it; still deploy `api` before `web`, one after the other. The guards are tested without Railway by `node --test wcore-web/scripts/railway-deploy.test.mjs`, and the service/Dockerfile/watch-pattern parity by `node --test wcore-web/railway/railway-config.test.mjs`.
+Uncommitted edits, untracked files and local commits cannot reach an image. The checked-out `railway.json` is no longer rewritten, so two deploys cannot race on it; still deploy `api` before `web`, one after the other. The guards are tested without Railway by `node --test wcore-web/scripts/railway-deploy.test.mjs` (also launched on Windows by `scripts/deploy-ps1.test.ps1`), and the service/Dockerfile/watch-pattern parity by `node --test wcore-web/railway/railway-config.test.mjs`.
 
 For GitHub-triggered deploys, set each service's **config file path** in the Railway dashboard to `wcore-web/railway/<service>.json`. A service left on the default reads the root `railway.json`, which builds the **API** image.
 

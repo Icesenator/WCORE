@@ -26,6 +26,12 @@ describe("trust proxy configuration", () => {
     });
   }
 
+  for (const value of ["0.0.0.0/1,128.0.0.0/1", "::/1,8000::/1", "railway", "10.0.0.0/33"]) {
+    it(`rejects ${JSON.stringify(value)} in configuration instead of trusting every peer or failing inside Fastify`, () => {
+      assert.throws(() => configFor(value), /TRUST_PROXY/);
+    });
+  }
+
   it("ignores forwarded identity, host and protocol from an untrusted connecting peer", async () => {
     const app = Fastify({ trustProxy: configFor("192.0.2.10").server.trustProxy });
     app.get("/", (request) => ({ ip: request.ip, host: request.host, protocol: request.protocol }));

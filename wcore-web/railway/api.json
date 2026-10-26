@@ -15,5 +15,9 @@
       "wcore-web/packages/db/**",
       "wcore-web/apps/api/**"
     ]
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 120
   }
 }

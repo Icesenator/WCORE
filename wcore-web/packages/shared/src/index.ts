@@ -3,6 +3,7 @@
 // transpilePackages. Both tsc (moduleResolution=bundler) and Node accept
 // bare specifiers here.
 export * from "./address";
+export * from "./build-info";
 export * from "./cache-key-registry";
 export * from "./cache-keys";
 export * from "./chain-config";

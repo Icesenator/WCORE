@@ -5,11 +5,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { deploy } from "./railway-deploy.mjs";
+import { acquireLock, deploy } from "./railway-deploy.mjs";
 
 const PROJECT = "proj-1";
+const BEFORE_CUTOFF = Date.parse("2026-10-27T00:00:00Z");
 const API_DOCKERFILE = 'RUN pnpm --filter "@wcore/api" build\nEXPOSE 4000\n';
 const WEB_DOCKERFILE = 'RUN pnpm --filter "@wcore/web" build\nEXPOSE 3000\n';
 
@@ -33,6 +34,7 @@ function fixture() {
   sh(repo, "checkout", "--quiet", "-B", "master");
   const manifest = {
     productionEnvironment: "production",
+    configSource: "config-as-code",
     commonIgnore: ["docs/"],
     services: {
       api: { config: "wcore-web/railway/api.json", dockerfileMarkers: ['pnpm --filter "@wcore/api" build', "EXPOSE 4000"], ignore: ["wcore-web/apps/web/"], trustProxyPreflight: true },
@@ -63,6 +65,7 @@ const log = fs.existsSync(${JSON.stringify(capture)}) ? JSON.parse(fs.readFileSy
 const entry = { args };
 if (args[0] === "status") process.stdout.write(process.env.FAKE_STATUS ?? JSON.stringify({ project: { id: "${PROJECT}" } }));
 if (args[0] === "variable") process.stdout.write(process.env.FAKE_VARS ?? "{}");
+if (args[0] === "deployment") process.stdout.write(process.env.FAKE_DEPLOYMENTS ?? JSON.stringify([{ id: "d0", status: "SUCCESS" }]));
 if (args[0] === "up") {
   const root = args[1], files = [];
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); e.isDirectory() ? walk(f) : files.push(path.relative(root, f).split(path.sep).join("/")); } };
@@ -75,11 +78,13 @@ fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify(log));
 process.exit(args[0] === "up" ? Number(process.env.FAKE_UP_EXIT ?? 0) : 0);
 `);
   chmodSync(join(bin, "railway"), 0o755);
+  // Windows resolves commands through PATHEXT, so the fake also needs a .cmd shim.
+  write(bin, "railway.cmd", '@node "%~dp0railway" %*\r\n');
   const lockDir = join(base, "locks");
   return {
     base, repo, lockDir,
     calls: () => (existsSync(capture) ? JSON.parse(readFileSync(capture, "utf8")) : []),
-    run: (argv, env = {}) => withEnv({ PATH: `${bin}${delimiter}${process.env.PATH}`, ...env }, () => deploy([...argv, "--repo", repo], { lockDir, log: () => {} })),
+    run: (argv, env = {}, options = {}) => withEnv({ PATH: `${bin}${delimiter}${process.env.PATH}`, ...env }, () => deploy([...argv, "--repo", repo], { lockDir, log: () => {}, now: BEFORE_CUTOFF, ...options })),
     cleanup: () => rmSync(base, { recursive: true, force: true }),
   };
 }
@@ -224,18 +229,105 @@ test("a service config pointing at the other app's Dockerfile is refused", async
   }
 });
 
-test("a concurrent deploy of the same target is refused; a stale lock is reclaimed", async () => {
+const lockFile = (f) => join(f.lockDir, `wcore-railway-${PROJECT}-production-api.lock`);
+function plantLock(f, holder, ageMinutes = 0) {
+  mkdirSync(f.lockDir, { recursive: true });
+  writeFileSync(lockFile(f), typeof holder === "string" ? holder : JSON.stringify(holder));
+  const at = new Date(Date.now() - ageMinutes * 60_000);
+  utimesSync(lockFile(f), at, at);
+}
+const DEAD_PID = 2 ** 22 + 12345; // above Linux pid_max: no such process
+
+test("a deploy still running after 30 minutes keeps its lock", async () => {
   const f = fixture();
   try {
-    mkdirSync(f.lockDir, { recursive: true });
-    const lock = join(f.lockDir, `wcore-railway-${PROJECT}-production-api.lock`);
-    writeFileSync(lock, "");
+    plantLock(f, { host: hostname(), pid: process.pid, startedAt: "2026-10-26T20:00:00.000Z" }, 45);
     await rejectsWith(f.run(API_PROD, VALID_PROXY), "E_LOCK");
+    await rejectsWith(f.run([...API_PROD, "--clear-stale-lock"], VALID_PROXY), "E_LOCK");
+    assert.equal(existsSync(lockFile(f)), true);
     assert.deepEqual(ups(f), []);
-    const old = new Date(Date.now() - 31 * 60_000);
-    utimesSync(lock, old, old);
-    assert.equal((await f.run(API_PROD, VALID_PROXY)).status, 0);
-    assert.equal(existsSync(lock), false, "the lock is released after the deploy");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("two concurrent deploys of one target: exactly one reaches railway up", async () => {
+  const f = fixture();
+  try {
+    const results = await Promise.allSettled([f.run(API_PROD, VALID_PROXY), f.run(API_PROD, VALID_PROXY)]);
+    assert.deepEqual(results.map((r) => r.status).sort(), ["fulfilled", "rejected"]);
+    assert.equal(results.find((r) => r.status === "rejected").reason.code, "E_LOCK");
+    assert.equal(ups(f).length, 1);
+    assert.equal(existsSync(lockFile(f)), false, "the winner releases its lock");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("a lock left by a crashed run is only cleared on request", async () => {
+  const f = fixture();
+  try {
+    plantLock(f, { host: hostname(), pid: DEAD_PID, startedAt: "2026-10-26T20:00:00.000Z" }, 5);
+    await rejectsWith(f.run(API_PROD, VALID_PROXY), "E_LOCK_STALE");
+    assert.deepEqual(ups(f), []);
+    assert.equal((await f.run([...API_PROD, "--clear-stale-lock"], VALID_PROXY)).status, 0);
+    assert.equal(ups(f).length, 1);
+    assert.ok(readdirSync(f.lockDir).some((name) => name.includes(".stale-")), "the stale lock is kept aside for inspection");
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("a lock from another machine or an unreadable lock is never cleared", async () => {
+  const f = fixture();
+  try {
+    plantLock(f, { host: "other-host", pid: DEAD_PID, startedAt: "2026-10-26T20:00:00.000Z" }, 120);
+    await rejectsWith(f.run([...API_PROD, "--clear-stale-lock"], VALID_PROXY), "E_LOCK");
+    plantLock(f, "{not json", 120);
+    await rejectsWith(f.run([...API_PROD, "--clear-stale-lock"], VALID_PROXY), "E_LOCK");
+    assert.deepEqual(ups(f), []);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("releasing never removes a lock this run does not own", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wcore-lock-"));
+  try {
+    const target = { project: PROJECT, environment: "production", service: "api", sha: "a".repeat(40) };
+    const release = acquireLock(dir, target);
+    const path = join(dir, `wcore-railway-${PROJECT}-production-api.lock`);
+    writeFileSync(path, JSON.stringify({ host: hostname(), pid: DEAD_PID, startedAt: "x" }));
+    release();
+    assert.equal(existsSync(path), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a deployment already in progress on Railway, from any machine, stops this one", async () => {
+  const f = fixture();
+  try {
+    for (const status of ["BUILDING", "DEPLOYING", "INITIALIZING", "WAITING", "QUEUED"]) {
+      await rejectsWith(f.run(API_PROD, { ...VALID_PROXY, FAKE_DEPLOYMENTS: JSON.stringify([{ id: "d9", status }, { id: "d8", status: "SUCCESS" }]) }), "E_REMOTE_BUSY");
+    }
+    for (const output of ["not json", JSON.stringify({ error: "unauthorized" }), JSON.stringify([{ id: "d9" }])]) {
+      await rejectsWith(f.run(API_PROD, { ...VALID_PROXY, FAKE_DEPLOYMENTS: output }), "E_REMOTE_UNKNOWN");
+    }
+    assert.deepEqual(ups(f), []);
+    assert.equal(existsSync(lockFile(f)), false, "a refused run releases its lock");
+    const idle = await f.run(API_PROD, { ...VALID_PROXY, FAKE_DEPLOYMENTS: JSON.stringify([{ id: "d1", status: "FAILED" }, { id: "d0", status: "SUCCESS" }]) });
+    assert.equal(idle.status, 0);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("from 2026-12-01 a config-as-code manifest is refused: Railway no longer reads railway.json", async () => {
+  const f = fixture();
+  try {
+    await rejectsWith(f.run(API_PROD, VALID_PROXY, { now: Date.parse("2026-12-01T00:00:00Z") }), "E_CONFIG_SOURCE");
+    assert.deepEqual(f.calls(), []);
   } finally {
     f.cleanup();
   }
@@ -261,6 +353,10 @@ test("an unset TRUST_PROXY needs an explicit acknowledgement", async () => {
   const f = fixture();
   try {
     await rejectsWith(f.run(API_PROD, { FAKE_VARS: "{}" }), "E_TRUST_PROXY");
+    // Spelling loopback out trusts no more than leaving it unset.
+    for (const value of ["loopback", "127.0.0.1", "::1"]) {
+      await rejectsWith(f.run(API_PROD, { FAKE_VARS: JSON.stringify({ TRUST_PROXY: value }) }), "E_TRUST_PROXY");
+    }
     assert.equal((await f.run([...API_PROD, "--accept-shared-client-ip"], { FAKE_VARS: "{}" })).status, 0);
   } finally {
     f.cleanup();

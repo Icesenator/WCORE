@@ -23,9 +23,9 @@ pnpm lint                      # ESLint flat config (eslint.config.mjs)
 pnpm test                      # typecheck + packages tests + web tests
 
 # Deploy (Railway)
-& scripts/deploy.ps1 -Service api    # API deploy
-& scripts/deploy.ps1 -Service web    # Web deploy
-# Never run two deploys in parallel (they race on railway.json)
+& scripts/deploy.ps1 -Service api -Ref origin/master -Environment production -Project <id>   # API deploy
+& scripts/deploy.ps1 -Service web -Ref origin/master -Environment production -Project <id>   # Web deploy
+# Publishes git archive of one pushed commit (see DEPLOY.md); api first, then web
 
 # Staging
 & scripts/deploy-staging.ps1 -AutoStart   # API:4001, Web:3001

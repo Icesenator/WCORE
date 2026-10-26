@@ -20,11 +20,24 @@ async function serve(handler, fn) {
 
 const json = (body, status = 200) => (_req, res) => { res.writeHead(status, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify(body)); };
 
-test("accepts the expected service and commit with a single GET", async () => {
-  await serve(json({ status: "ok", service: "wcore-api", build: { sha: SHA, source: "build-info" } }), async (url, requests) => {
+const api = (ready = { status: "ready", service: "wcore-api", checks: { db: true, redis: true } }, readyStatus = 200) => (req, res) =>
+  req.url === "/ready"
+    ? json(ready, readyStatus)(req, res)
+    : json({ status: "ok", service: "wcore-api", build: { sha: SHA, source: "build-info" } })(req, res);
+
+test("accepts the expected API commit with its dependencies ready, using GETs only", async () => {
+  await serve(api(), async (url, requests) => {
     const result = await verifyDeployment({ service: "api", url, expectSha: SHA });
     assert.equal(result.ok, true, result.problems.join("; "));
-    assert.deepEqual(requests, [{ method: "GET", url: "/health" }]);
+    assert.deepEqual(requests, [{ method: "GET", url: "/health" }, { method: "GET", url: "/ready" }]);
+  });
+});
+
+test("a live API on the right commit is not accepted while PostgreSQL or Redis is down", async () => {
+  await serve(api({ status: "not_ready", service: "wcore-api", checks: { db: true, redis: false } }, 503), async (url) => {
+    const result = await verifyDeployment({ service: "api", url, expectSha: SHA });
+    assert.equal(result.ok, false);
+    assert.match(result.problems.join(), /not ready \(503 \{"db":true,"redis":false\}\)/);
   });
 });
 
@@ -48,7 +61,8 @@ test("rejects a 200 HTML page: the other app answering on this service", async (
 test("rejects an image that cannot name its commit, or the wrong service", async () => {
   await serve(json({ status: "ok", service: "wcore-web", build: { sha: null, source: "unknown" } }), async (url) => {
     const result = await verifyDeployment({ service: "api", url, expectSha: SHA });
-    assert.deepEqual(result.problems.map((p) => p.split(" ")[0]), ["service", "commit"]);
+    // The web app answering on the API host is not ready in the API's sense either.
+    assert.deepEqual(result.problems.map((p) => p.split(" ")[0]), ["service", "commit", "not"]);
   });
 });
 

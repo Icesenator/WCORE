@@ -54,6 +54,15 @@ describe("TRUST_PROXY validation", () => {
     assert.ok(refused.ok === false && !refused.reason.includes("true\""));
   });
 
+  // Naming loopback explicitly trusts nothing more than the default: behind a proxy every
+  // anonymous client still shares one identity, so it must not pass as an address list.
+  for (const value of ["loopback", " LOOPBACK ", "127.0.0.1", "::1", "loopback,127.0.0.0/8,::1"]) {
+    it(`treats ${JSON.stringify(value)} as loopback-only, like an unset value`, () => {
+      assert.deepEqual(assessTrustProxy(value), { ok: true, mode: "loopback-only" });
+      assert.match(trustProxyStartupWarning(parseTrustProxy(value), true) ?? "", /share one rate-limit identity/);
+    });
+  }
+
   it("warns at production startup only when nothing but the direct peer is trusted", () => {
     assert.match(trustProxyStartupWarning("loopback", true) ?? "", /share one rate-limit identity/);
     assert.equal(trustProxyStartupWarning("loopback", false), null);

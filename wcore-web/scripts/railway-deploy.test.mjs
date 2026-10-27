@@ -84,7 +84,21 @@ process.exit(args[0] === "up" ? Number(process.env.FAKE_UP_EXIT ?? 0) : 0);
   return {
     base, repo, lockDir,
     calls: () => (existsSync(capture) ? JSON.parse(readFileSync(capture, "utf8")) : []),
-    run: (argv, env = {}, options = {}) => withEnv({ PATH: `${bin}${delimiter}${process.env.PATH}`, ...env }, () => deploy([...argv, "--repo", repo], { lockDir, log: () => {}, now: BEFORE_CUTOFF, ...options })),
+    run: (argv, env = {}, options = {}) => {
+      // Déclaration synthétique réservée aux fixtures : jamais un artefact opérateur.
+      const ref = argv[argv.indexOf("--ref") + 1];
+      const environment = argv[argv.indexOf("--environment") + 1];
+      const attestation = join(base, "synthetic-attestation.json");
+      if (ref && environment) writeFileSync(attestation, JSON.stringify({
+        schema: "wcore.trust-proxy-attestation", version: 1, project: PROJECT, service: "api", environment,
+        sha: sh(repo, "rev-parse", ref), observedAt: "2026-10-26T23:55:00.000Z",
+        reviewedAt: "2026-10-26T23:56:00.000Z", issuedAt: "2026-10-26T23:57:00.000Z", expiresAt: "2026-10-27T00:20:00.000Z",
+        classification: "VALID_VERIFIED_PROXY", topologyVerified: true, operatorConfirmed: true,
+        validationRules: "wcore.trust-proxy.release/v1", driftAcknowledgement: "wcore.post-observation-drift/v1",
+      }));
+      const declaration = env.OMIT_ATTESTATION ? [] : ["--trust-proxy-attestation", attestation];
+      return withEnv({ PATH: `${bin}${delimiter}${process.env.PATH}`, ...env }, () => deploy([...argv, ...declaration, "--repo", repo], { lockDir, log: () => {}, now: BEFORE_CUTOFF, clock: () => BEFORE_CUTOFF, ...options }));
+    },
     cleanup: () => rmSync(base, { recursive: true, force: true }),
   };
 }
@@ -347,31 +361,24 @@ test("from 2026-12-01 a config-as-code manifest is refused: Railway no longer re
   }
 });
 
-test("an API TRUST_PROXY the new code would reject stops the deploy without printing the value", async () => {
+test("API requires a declaration even in dry-run and never reads bulk variables", async () => {
   const f = fixture();
   try {
-    for (const value of ["true", "2", "0.0.0.0/1,128.0.0.0/1", "10.0.0.0/33"]) {
-      await assert.rejects(f.run(API_PROD, { FAKE_VARS: JSON.stringify({ TRUST_PROXY: value }) }), (error) => {
-        assert.equal(error.code, "E_TRUST_PROXY");
-        assert.ok(!error.message.includes("128.0.0.0") && !error.message.includes("10.0.0.0/33"));
-        return true;
-      });
-    }
-    assert.deepEqual(ups(f), []);
+    await rejectsWith(f.run([...API_PROD, "--dry-run"], { OMIT_ATTESTATION: "1" }), "E_TRUST_PROXY_ATTESTATION");
+    assert.equal((await f.run([...API_PROD, "--dry-run"])).published, false);
+    assert.ok(!f.calls().some((call) => ["variable", "variables", "env", "up"].includes(call.args[0])));
   } finally {
     f.cleanup();
   }
 });
 
-test("an unset TRUST_PROXY needs an explicit acknowledgement", async () => {
+test("shared-client-ip acknowledgement cannot bypass the declaration", async () => {
   const f = fixture();
   try {
-    await rejectsWith(f.run(API_PROD, { FAKE_VARS: "{}" }), "E_TRUST_PROXY");
-    // Spelling loopback out trusts no more than leaving it unset.
-    for (const value of ["loopback", "127.0.0.1", "::1"]) {
-      await rejectsWith(f.run(API_PROD, { FAKE_VARS: JSON.stringify({ TRUST_PROXY: value }) }), "E_TRUST_PROXY");
-    }
-    assert.equal((await f.run([...API_PROD, "--accept-shared-client-ip"], { FAKE_VARS: "{}" })).status, 0);
+    await rejectsWith(f.run([...API_PROD, "--accept-shared-client-ip"], { OMIT_ATTESTATION: "1" }), "E_TRUST_PROXY_ATTESTATION");
+    await rejectsWith(f.run([...API_PROD, "--accept-shared-client-ip"]), "E_TRUST_PROXY_ATTESTATION");
+    assert.deepEqual(ups(f), []);
+    assert.ok(!f.calls().some((call) => call.args[0] === "variable"));
   } finally {
     f.cleanup();
   }

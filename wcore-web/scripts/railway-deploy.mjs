@@ -13,11 +13,10 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { mkdtempSync, mkdirSync, openSync, closeSync, lstatSync, fstatSync, realpathSync, readSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { hostname as osHostname, tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assessTrustProxy } from "../apps/api/src/trust-proxy.ts";
 
 export class DeployError extends Error {
   constructor(code, message) {
@@ -48,6 +47,7 @@ export function parseArgs(argv) {
     else if (arg === "--environment") options.environment = next();
     else if (arg === "--project") options.project = next();
     else if (arg === "--repo") options.repo = next();
+    else if (arg === "--trust-proxy-attestation") options.trustProxyAttestation = next();
     else if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--accept-shared-client-ip") options.acceptSharedClientIp = true;
     else if (arg === "--clear-stale-lock") options.clearStaleLock = true;
@@ -281,26 +281,72 @@ export function writeGenerated(contextDir, plan, { sha, ref, environment }) {
   return buildInfo;
 }
 
-export function checkTrustProxy(plan, { environment, acceptSharedClientIp }, repo) {
-  if (!plan.trustProxyPreflight) return null;
-  const listed = capture("railway", ["variable", "list", "--service", plan.service, "--environment", environment, "--json"], repo);
-  if (listed.status !== 0) throw new DeployError("E_VARIABLES", `cannot read ${plan.service} variables in ${environment}`);
-  let variables;
-  try {
-    variables = JSON.parse(listed.stdout);
-  } catch {
-    throw new DeployError("E_VARIABLES", "railway variable list did not return JSON");
-  }
-  // Only TRUST_PROXY is looked at, and its value is never printed.
-  const assessment = assessTrustProxy(typeof variables?.TRUST_PROXY === "string" ? variables.TRUST_PROXY : undefined);
-  if (!assessment.ok) throw new DeployError("E_TRUST_PROXY", `the API would refuse to start: ${assessment.reason}`);
-  if (assessment.mode === "loopback-only" && !acceptSharedClientIp) {
-    throw new DeployError("E_TRUST_PROXY", "TRUST_PROXY is unset: anonymous clients would share the proxy's rate-limit identity. Set the measured proxy addresses, or pass --accept-shared-client-ip to deploy knowingly");
-  }
-  return assessment;
+// Déclaration humaine locale uniquement : ni identité authentifiée, ni preuve runtime.
+// Aucun appel de variables, aucune génération de déclaration, aucun fallback réseau.
+const ATTESTATION_KEYS = ["schema", "version", "project", "service", "environment", "sha", "observedAt", "reviewedAt", "issuedAt", "expiresAt", "classification", "topologyVerified", "operatorConfirmed", "validationRules", "driftAcknowledgement"];
+function attestationError() {
+  return new DeployError("E_TRUST_PROXY_ATTESTATION", "Déclaration opérateur absente, invalide ou expirée ; aucune vérification technique du runtime n'est revendiquée.");
+}
+function validateAttestation(value, target, now) {
+  const fail = () => { throw attestationError(); };
+  if (!value || Array.isArray(value) || typeof value !== "object" ||
+      Object.keys(value).length !== ATTESTATION_KEYS.length || ATTESTATION_KEYS.some((key) => !Object.hasOwn(value, key))) fail();
+  if (value.schema !== "wcore.trust-proxy-attestation" || value.version !== 1 ||
+      target.service !== "api" || value.service !== target.service ||
+      typeof target.project !== "string" || !target.project || value.project !== target.project ||
+      typeof target.environment !== "string" || !target.environment || value.environment !== target.environment ||
+      !SHA.test(target.sha ?? "") || value.sha !== target.sha ||
+      value.classification !== "VALID_VERIFIED_PROXY" || value.topologyVerified !== true || value.operatorConfirmed !== true ||
+      value.validationRules !== "wcore.trust-proxy.release/v1" || value.driftAcknowledgement !== "wcore.post-observation-drift/v1") fail();
+  const times = ["observedAt", "reviewedAt", "issuedAt", "expiresAt"].map((key) => {
+    const text = value[key];
+    if (typeof text !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(text)) fail();
+    const time = Date.parse(text);
+    if (!Number.isFinite(time) || new Date(time).toISOString() !== text) fail();
+    return time;
+  });
+  const [observed, reviewed, issued, expires] = times;
+  if (!Number.isFinite(now) || !(observed <= reviewed && reviewed <= issued && issued <= now && now < expires) || expires - observed > 30 * 60_000) fail();
 }
 
-export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log = console.error, inspect, now = Date.now(), lockOptions = {} } = {}) {
+export function checkTrustProxy(plan, options, repo, now = Date.now()) {
+  if (!plan.trustProxyPreflight) return null;
+  let value;
+  try {
+    if (options.acceptSharedClientIp || typeof options.trustProxyAttestation !== "string") throw attestationError();
+    const path = resolve(options.trustProxyAttestation);
+    // Refuse les symlinks/jonctions connus dans chaque composant ; pas une garantie
+    // contre un adversaire local capable de remplacer simultanément les parents.
+    for (let current = path; ; current = dirname(current)) {
+      if (lstatSync(current).isSymbolicLink()) throw attestationError();
+      if (dirname(current) === current) break;
+    }
+    const before = lstatSync(path);
+    if (!before.isFile() || before.size > 8192 || realpathSync(path) !== path) throw attestationError();
+    const fd = openSync(path, "r");
+    try {
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || opened.size > 8192 || opened.dev !== before.dev || opened.ino !== before.ino) throw attestationError();
+      const buffer = Buffer.alloc(8193);
+      const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+      if (bytes > 8192) throw attestationError();
+      const text = buffer.subarray(0, bytes).toString("utf8");
+      value = JSON.parse(text);
+      // Schéma plat : chaque clé doit apparaître une seule fois, y compris les clés
+      // échappées. Toute structure imbriquée est ensuite refusée par le schéma.
+      const keys = [...text.matchAll(/"((?:[^"\\]|\\.)*)"\s*:/g)].map((match) => JSON.parse(`"${match[1]}"`));
+      if (keys.length !== ATTESTATION_KEYS.length || new Set(keys).size !== keys.length) throw attestationError();
+    } finally {
+      closeSync(fd);
+    }
+    validateAttestation(value, options, now);
+  } catch {
+    throw attestationError(); // Jamais le contenu, le chemin ou l'erreur système.
+  }
+  return { mode: "OPERATOR_DECLARATIVE_ATTESTATION", revalidate: (time) => validateAttestation(value, options, time) };
+}
+
+export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log = console.error, inspect, now = Date.now(), clock = Date.now, lockOptions = {} } = {}) {
   const options = parseArgs(argv);
   const repo = resolve(options.repo ?? defaultRepo);
   const sha = resolveCommit(repo, options.ref);
@@ -308,7 +354,7 @@ export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log 
   assertEnvironmentAccepts(repo, sha, options.environment, plan.productionEnvironment);
   assertConfigSourceUsable(plan.configSource, now);
   checkLinkedProject(options.project, repo);
-  const trustProxy = checkTrustProxy(plan, options, repo);
+  const trustProxy = checkTrustProxy(plan, { ...options, sha }, repo, now);
   const release = acquireLock(lockDir, { ...options, sha }, { clearStale: options.clearStaleLock, now, ...lockOptions });
   let contextDir;
   try {
@@ -318,7 +364,8 @@ export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log 
     await exportCommit(repo, sha, contextDir);
     const buildInfo = writeGenerated(contextDir, plan, { sha, ref: options.ref, environment: options.environment });
     inspect?.(contextDir);
-    log(`plan: ${options.service} <- ${sha} (${options.ref}) via ${plan.dockerfile} to ${options.environment}${trustProxy ? `, TRUST_PROXY ${trustProxy.mode}` : ""}`);
+    log(`plan: ${options.service} <- ${sha} (${options.ref}) via ${plan.dockerfile} to ${options.environment}${trustProxy ? `, ${trustProxy.mode} (déclaration locale, ni identité ni runtime attestés)` : ""}`);
+    trustProxy?.revalidate(clock());
     if (options.dryRun) return { status: 0, sha, buildInfo, published: false };
     const line = commandLine("railway", ["up", contextDir, "--path-as-root", "--project", options.project, "--environment", options.environment,
       "--service", options.service, "--ci", "--message", `wcore ${options.service} ${sha}`]);

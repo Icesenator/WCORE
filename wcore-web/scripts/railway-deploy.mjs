@@ -191,9 +191,20 @@ export function acquireLock(lockDir, target, { clearStale = false, host = osHost
   };
 }
 
+// `railway status --json` prints the linked project object (id at the top level). The
+// link must be the target by exact id: a status that merely mentions the id elsewhere
+// is refused, as is any shape not recognised. Commands that can take --project do.
 export function checkLinkedProject(project, repo) {
   const status = capture("railway", ["status", "--json"], repo);
-  if (status.status !== 0 || !status.stdout.includes(project)) {
+  let linked;
+  try {
+    const parsed = status.status === 0 ? JSON.parse(status.stdout) : null;
+    const ids = [parsed?.id, parsed?.project?.id].filter((id) => typeof id === "string");
+    linked = ids.length > 0 && ids.every((id) => id === project) ? project : null;
+  } catch {
+    linked = null;
+  }
+  if (linked !== project) {
     throw new DeployError("E_LINK", `the Railway CLI is not linked to project ${project}; run railway link first`);
   }
 }
@@ -201,8 +212,8 @@ export function checkLinkedProject(project, repo) {
 // Refuses while Railway reports a build or rollout in progress for this service, whoever
 // started it. Fails closed when the state cannot be read. There is still a window between
 // this check and `railway up`; Railway itself does not offer a lock.
-export function checkRemoteIdle(service, environment, repo) {
-  const listed = capture("railway", ["deployment", "list", "--service", service, "--environment", environment, "--json", "--limit", "20"], repo);
+export function checkRemoteIdle(project, service, environment, repo) {
+  const listed = capture("railway", ["deployment", "list", "--project", project, "--service", service, "--environment", environment, "--json", "--limit", "20"], repo);
   let deployments;
   try {
     deployments = listed.status === 0 ? JSON.parse(listed.stdout) : null;
@@ -359,7 +370,7 @@ export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log 
   let contextDir;
   try {
     // After the lock: two runs on this machine cannot both pass this check and upload.
-    checkRemoteIdle(options.service, options.environment, repo);
+    checkRemoteIdle(options.project, options.service, options.environment, repo);
     contextDir = mkdtempSync(join(tmpdir(), `wcore-${options.service}-`));
     await exportCommit(repo, sha, contextDir);
     const buildInfo = writeGenerated(contextDir, plan, { sha, ref: options.ref, environment: options.environment });

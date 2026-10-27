@@ -11,11 +11,13 @@ param(
   [Parameter(Mandatory = $true)][string]$Ref,
   [Parameter(Mandatory = $true)][string]$Environment,
   [Parameter(Mandatory = $true)][string]$Project,
+  [string]$TrustProxyAttestation,
   [switch]$DryRun,
   [switch]$AcceptSharedClientIp
 )
 
 $arguments = @((Join-Path $PSScriptRoot "railway-deploy.mjs"), "--service", $Service, "--ref", $Ref, "--environment", $Environment, "--project", $Project)
+if ($TrustProxyAttestation) { $arguments += @("--trust-proxy-attestation", $TrustProxyAttestation) }
 if ($DryRun) { $arguments += "--dry-run" }
 if ($AcceptSharedClientIp) { $arguments += "--accept-shared-client-ip" }
 

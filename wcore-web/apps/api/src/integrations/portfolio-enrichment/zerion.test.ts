@@ -174,6 +174,14 @@ test("bounds declared count, received count, normalized count, and response byte
     expectError("oversize"),
   );
 
+  // An over-limit array is refused before the schema walks its elements: every
+  // invalid element would otherwise allocate a validation issue (GHSA-mrhx-c7xc-m3w5).
+  const hostile = { ...envelope([]), meta: { total: 0 }, data: Array.from({ length: 5000 }, (_, index) => index) };
+  await assert.rejects(
+    provider(async () => new Response(JSON.stringify(hostile)), { maxPositions: 3 }).load(context()),
+    expectError("oversize"),
+  );
+
   let cancelled = false;
   const stream = new ReadableStream({ cancel() { cancelled = true; } });
   await assert.rejects(

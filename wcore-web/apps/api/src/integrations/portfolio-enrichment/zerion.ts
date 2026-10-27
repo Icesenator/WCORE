@@ -361,7 +361,13 @@ export function createZerionProvider(options: CreateZerionProviderOptions): Port
         }
 
         const body = await readBoundedBody(response, options.maxResponseBytes, abortController);
-        const result = envelopeSchema.safeParse(parseJson(body));
+        const json = parseJson(body);
+        // Refuse an over-limit array before the schema walks it: safeParse records one
+        // issue per invalid element, so a hostile array costs memory even when the
+        // length check below would reject it (GHSA-mrhx-c7xc-m3w5).
+        const rawData = (json as { data?: unknown } | null)?.data;
+        if (Array.isArray(rawData) && rawData.length > options.maxPositions) throw new ZerionProviderError("oversize");
+        const result = envelopeSchema.safeParse(json);
         if (!result.success) throw new ZerionProviderError("malformed");
         if (result.data.meta.total > options.maxPositions || result.data.data.length > options.maxPositions) {
           throw new ZerionProviderError("oversize");

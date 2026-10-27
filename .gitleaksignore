@@ -1,0 +1,6 @@
+# Ignore exact des deux détections historiques du commit 1790bf4 (lot initial de #7).
+# Toutes deux sont des URL Postgres locales fictives (hôte 127.0.0.1, port 1),
+# utilisées par un test et par la documentation de session : aucune ne donne accès à une base.
+# Seuls ces fingerprints sont ignorés ; toute autre détection, y compris de même forme, reste bloquante.
+1790bf4aa1075e07f5328a5a476ac8c9a3e8c197:docs/cloud/SESSION_CONTEXT.md:postgres-url-with-credentials:24
+1790bf4aa1075e07f5328a5a476ac8c9a3e8c197:wcore-web/apps/api/src/route-classification.fixture.ts:postgres-url-with-credentials:8

@@ -6,14 +6,14 @@ The Railway project has **three services** (`web`, `api` and `cex-relay`). Since
 
 1. resolves `-Ref` to a commit after `git fetch origin`, refuses it unless it is on a branch of `origin`, and, for the `production` environment, unless it is part of `origin/master`;
 2. reads `wcore-web/railway/deploy-manifest.json` and the service's config file (`wcore-web/railway/<service>.json`) **from that commit**, and checks the Dockerfile it names really builds that service;
-3. for `api`, reads `TRUST_PROXY` from the target environment and refuses a value the API would reject at startup (the value is never printed); an unset value needs `-AcceptSharedClientIp`;
+3. for `api`, requires an operator **TRUST_PROXY attestation** for this exact project, environment and commit (see below); it never reads Railway variables, and `-AcceptSharedClientIp` is refused;
 4. takes a per-target lock, extracts `git archive <sha>` into an empty temporary directory and checks it matches the commit file for file;
 5. writes `railway.json`, `.railwayignore` and `wcore-web/build-info.json` (commit, ref, service, environment) inside that directory only;
 6. runs `railway up <dir> --path-as-root --project <id> --environment <env> --service <name> --ci --message "wcore <service> <sha>"` and returns its exit code.
 
 ```powershell
 # From WCORE. Every parameter is required; -DryRun stops before `railway up`.
-powershell -File wcore-web\scripts\deploy.ps1 -Service api -Ref origin/master -Environment production -Project <railway project id>
+powershell -File wcore-web\scripts\deploy.ps1 -Service api -Ref origin/master -Environment production -Project <railway project id> -TrustProxyAttestation <path to attestation.json>
 powershell -File wcore-web\scripts\deploy.ps1 -Service web -Ref origin/master -Environment production -Project <railway project id>
 ```
 
@@ -24,6 +24,34 @@ Railway stops reading `railway.json` / `railway.toml` for existing services on *
 Uncommitted edits, untracked files and local commits cannot reach an image. The checked-out `railway.json` is no longer rewritten, so two deploys cannot race on it; still deploy `api` before `web`, one after the other. The guards are tested without Railway by `node --test wcore-web/scripts/railway-deploy.test.mjs` (also launched on Windows by `scripts/deploy-ps1.test.ps1`), and the service/Dockerfile/watch-pattern parity by `node --test wcore-web/railway/railway-config.test.mjs`.
 
 For GitHub-triggered deploys, set each service's **config file path** in the Railway dashboard to `wcore-web/railway/<service>.json`. A service left on the default reads the root `railway.json`, which builds the **API** image.
+
+### TRUST_PROXY attestation (API only)
+
+The deployer no longer reads `TRUST_PROXY`: `railway variable list` returns every variable of the service, secrets included. Instead the operator, after checking the value and the proxy topology **privately** (procedure: `docs/cloud/TRUST_PROXY_SECURITY.md`), writes a local JSON file and passes it with `-TrustProxyAttestation`. Never commit it or post it: it holds no value, but it is release material.
+
+```json
+{
+  "schema": "wcore.trust-proxy-attestation",
+  "version": 1,
+  "project": "<railway project id>",
+  "service": "api",
+  "environment": "production",
+  "sha": "<full 40-character commit the deploy resolves -Ref to>",
+  "observedAt": "2026-10-27T10:00:00.000Z",
+  "reviewedAt": "2026-10-27T10:02:00.000Z",
+  "issuedAt": "2026-10-27T10:03:00.000Z",
+  "expiresAt": "2026-10-27T10:25:00.000Z",
+  "classification": "VALID_VERIFIED_PROXY",
+  "topologyVerified": true,
+  "operatorConfirmed": true,
+  "validationRules": "wcore.trust-proxy.release/v1",
+  "driftAcknowledgement": "wcore.post-observation-drift/v1"
+}
+```
+
+Exactly these 15 keys, once each, flat; times in UTC with milliseconds. The deployer refuses (`E_TRUST_PROXY_ATTESTATION`, one message that never shows the file's content or path) when the file is missing, larger than 8 KB, a symlink or behind one, not at its canonical path, for another project, environment, service or commit, classified otherwise than `VALID_VERIFIED_PROXY` (loopback or unset included), or outside `observedAt ≤ reviewedAt ≤ issuedAt ≤ now < expiresAt` with at most 30 minutes from observation to expiry. It re-checks the window just before the dry-run result and just before `railway up`.
+
+**Limits.** This is a declaration, not a proof: anyone who can write the file can forge it, it authenticates nobody, and the value Railway actually runs with can change after `observedAt`. The API itself still refuses to start on an invalid `TRUST_PROXY` (the healthcheck then keeps the previous deployment serving); an unset or loopback value only logs a warning, so check `req.remoteAddress` in the API logs after every deploy.
 
 ### ⚠️ Do not run `railway up` directly
 

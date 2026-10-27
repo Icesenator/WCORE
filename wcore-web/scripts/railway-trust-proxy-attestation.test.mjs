@@ -39,7 +39,7 @@ cp.spawnSync = (cmd, args = []) => {
     else assert.ok(['fetch', 'merge-base'].includes(args[0]), `Git inattendu : ${args[0]}`);
   } else {
     assert.equal(cmd, 'railway');
-    if (args[0] === 'status') stdout = JSON.stringify({ project: target.project });
+    if (args[0] === 'status') stdout = JSON.stringify({ id: target.project, name: 'WCORE' }); // forme réelle de `railway status --json` (CLI 5.71)
     else if (args[0] === 'deployment') stdout = '[]';
     else if (args[0] === 'variable') stdout = JSON.stringify({ TRUST_PROXY: '100.64.0.0/10', SYNTHETIC_SECRET: 'sentinel-never-output' });
     else assert.equal(args[0], 'up');
@@ -147,9 +147,10 @@ test('lecture unique : changement du fichier après observation ne change pas la
 });
 test('wrapper PowerShell transmet chemin avec espaces et DryRun sans invoquer Node réel', () => {
   const script = fileURLToPath(new URL('./deploy.ps1', import.meta.url));
-  const command = `function node { $args | ConvertTo-Json -Compress; $global:LASTEXITCODE = 0 }; & '${script.replaceAll("'", "''")}' -Service api -Ref origin/master -Environment production -Project synthetic -DryRun -TrustProxyAttestation 'C:\synthetic folder\declaration.json'`;
+  const attestationPath = String.raw`C:\synthetic folder\declaration.json`;
+  const command = `function node { $args | ConvertTo-Json -Compress; $global:LASTEXITCODE = 0 }; & '${script.replaceAll("'", "''")}' -Service api -Ref origin/master -Environment production -Project synthetic -DryRun -TrustProxyAttestation '${attestationPath}'`;
   const args = JSON.parse(cp.execFileSync('pwsh', ['-NoProfile','-NonInteractive','-Command',command], { encoding: 'utf8' }));
-  assert.equal(args[args.indexOf('--trust-proxy-attestation') + 1], 'C:\synthetic folder\declaration.json');
+  assert.equal(args[args.indexOf('--trust-proxy-attestation') + 1], attestationPath);
   assert.ok(args.includes('--dry-run'));
 });
 test.after(() => { cp.spawnSync = originalSync; cp.spawn = originalSpawn; syncBuiltinESMExports(); rmSync(root, { recursive: true, force: true }); });

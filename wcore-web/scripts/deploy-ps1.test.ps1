@@ -53,8 +53,7 @@ Write-File "$bin\fake-railway.cjs" @'
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FAKE_CAPTURE, JSON.stringify(args) + "\n");
-if (args[0] === "status") process.stdout.write(JSON.stringify({ project: { id: "proj-1" } }));
-if (args[0] === "variable") process.stdout.write(process.env.FAKE_VARS ?? JSON.stringify({ TRUST_PROXY: "100.64.0.0/10" }));
+if (args[0] === "status") process.stdout.write(JSON.stringify({ id: "proj-1", name: "WCORE" }));
 if (args[0] === "deployment") process.stdout.write(JSON.stringify([{ id: "d0", status: "SUCCESS" }]));
 if (args[0] === "up" && !fs.existsSync(args[1] + "\\wcore-web\\build-info.json")) process.exit(90);
 process.exit(args[0] === "up" ? Number(process.env.FAKE_UP_EXIT ?? 0) : 0);
@@ -70,14 +69,32 @@ $shell = (Get-Process -Id $PID).Path
 
 function Invoke-Wrapper([string[]]$Arguments, [hashtable]$Env = @{}) {
   if (Test-Path $capture) { Remove-Item $capture }
-  foreach ($key in @("FAKE_VARS", "FAKE_UP_EXIT")) { Remove-Item "env:$key" -ErrorAction SilentlyContinue }
+  foreach ($key in @("FAKE_UP_EXIT")) { Remove-Item "env:$key" -ErrorAction SilentlyContinue }
   foreach ($key in $Env.Keys) { Set-Item "env:$key" $Env[$key] }
   $output = & $shell -NoProfile -NonInteractive -File $wrapper @Arguments 2>&1 | Out-String
   $calls = if (Test-Path $capture) { @(Get-Content $capture | ForEach-Object { , ($_ | ConvertFrom-Json) }) } else { @() }
   [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output; Calls = $calls; Ups = @($calls | Where-Object { $_[0] -eq "up" }) }
 }
 
-$target = @("-Service", "api", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1")
+# A synthetic operator attestation for the API, bound to the target; the deployer
+# compares the path with its realpath, so Node canonicalises it (8.3 names, casing).
+function New-Attestation([string]$Name, [int]$ObservedMinutesAgo = 2, [int]$ExpiresInMinutes = 20) {
+  $file = Join-Path $root "attest $Name.json"
+  $at = { param($minutes) [DateTime]::UtcNow.AddMinutes($minutes).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", [Globalization.CultureInfo]::InvariantCulture) }
+  $statement = [ordered]@{
+    schema = "wcore.trust-proxy-attestation"; version = 1; project = "proj-1"; service = "api"; environment = "production"
+    sha = (& git -C $repo rev-parse origin/master).Trim()
+    observedAt = & $at (-$ObservedMinutesAgo); reviewedAt = & $at (-$ObservedMinutesAgo); issuedAt = & $at (-1); expiresAt = & $at $ExpiresInMinutes
+    classification = "VALID_VERIFIED_PROXY"; topologyVerified = $true; operatorConfirmed = $true
+    validationRules = "wcore.trust-proxy.release/v1"; driftAcknowledgement = "wcore.post-observation-drift/v1"
+  }
+  Write-File $file ($statement | ConvertTo-Json)
+  (& node -e "process.stdout.write(require('fs').realpathSync(process.argv[1]))" $file)
+}
+
+$attestation = New-Attestation "valid"
+$target = @("-Service", "api", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1", "-TrustProxyAttestation", $attestation)
+$noVariableRead = { param($r) @($r.Calls | Where-Object { $_[0] -in @("variable", "variables", "env") }).Count -eq 0 }
 
 try {
   $r = Invoke-Wrapper @("-Service", "api", "-Environment", "production", "-Project", "proj-1")
@@ -87,13 +104,15 @@ try {
   Check ($r.Exit -ne 0 -and $r.Calls.Count -eq 0) "an unknown -Service is rejected by the wrapper"
 
   $r = Invoke-Wrapper ($target + "-DryRun")
-  Check ($r.Exit -eq 0) "-DryRun succeeds (exit $($r.Exit))"
+  Check ($r.Exit -eq 0) "-DryRun succeeds with an attestation (exit $($r.Exit); $($r.Output.Trim()))"
+  Check (& $noVariableRead $r) "-DryRun never reads Railway variables"
   Check ($r.Ups.Count -eq 0) "-DryRun never calls railway up"
   Check (@($r.Calls | Where-Object { $_[0] -eq "deployment" }).Count -eq 1) "-DryRun still checks the deployments in progress"
 
   $sha = (& git -C $repo rev-parse origin/master).Trim()
   $r = Invoke-Wrapper $target
   Check ($r.Exit -eq 0) "a full run returns railway up's exit code 0 (exit $($r.Exit); $($r.Output.Trim()))"
+  Check (& $noVariableRead $r) "a full run never reads Railway variables"
   if ($r.Ups.Count -eq 1) {
     $up = $r.Ups[0]
     $flag = { param($name) $up[[array]::IndexOf($up, $name) + 1] }
@@ -107,18 +126,20 @@ try {
   $r = Invoke-Wrapper $target @{ FAKE_UP_EXIT = "7" }
   Check ($r.Exit -eq 7) "railway up's failure code is propagated (exit $($r.Exit))"
 
-  $r = Invoke-Wrapper $target @{ FAKE_VARS = '{"TRUST_PROXY":"0.0.0.0/1,128.0.0.0/1"}' }
-  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_TRUST_PROXY" -and $r.Output -notmatch "128\.0\.0\.0") "an invalid TRUST_PROXY stops the deploy with exit 2, value not printed"
+  $r = Invoke-Wrapper @("-Service", "api", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1")
+  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_TRUST_PROXY_ATTESTATION" -and (& $noVariableRead $r)) "an API deploy without attestation is refused with exit 2, no variable read"
 
-  $r = Invoke-Wrapper $target @{ FAKE_VARS = "{}" }
-  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0) "an unset TRUST_PROXY is refused without -AcceptSharedClientIp"
-  $r = Invoke-Wrapper ($target + "-AcceptSharedClientIp") @{ FAKE_VARS = "{}" }
-  Check ($r.Exit -eq 0 -and $r.Ups.Count -eq 1) "-AcceptSharedClientIp is forwarded"
+  $expired = New-Attestation "expired" -ObservedMinutesAgo 40 -ExpiresInMinutes -15
+  $r = Invoke-Wrapper @("-Service", "api", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1", "-TrustProxyAttestation", $expired)
+  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_TRUST_PROXY_ATTESTATION" -and $r.Output -notmatch [regex]::Escape($root)) "an expired attestation is refused, its path not printed"
+
+  $r = Invoke-Wrapper ($target + "-AcceptSharedClientIp")
+  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0) "-AcceptSharedClientIp is forwarded and refused by the deployer"
 
   Write-File "$repo\local.txt" "local commit"
   Invoke-Git -C $repo add local.txt
   Invoke-Git -C $repo commit --quiet -m local
-  $r = Invoke-Wrapper @("-Service", "api", "-Ref", "HEAD", "-Environment", "production", "-Project", "proj-1")
+  $r = Invoke-Wrapper @("-Service", "api", "-Ref", "HEAD", "-Environment", "production", "-Project", "proj-1", "-TrustProxyAttestation", $attestation)
   Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_NOT_PUBLISHED") "an unpushed commit is refused with exit 2"
 } finally {
   Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue

@@ -60,6 +60,7 @@ scripts/*
 !scripts/deploy-ps1.test.ps1
 !scripts/railway-deploy.mjs
 !scripts/railway-deploy.test.mjs
+!scripts/railway-trust-proxy-attestation.test.mjs
 !scripts/verify-deployment.mjs
 !scripts/verify-deployment.test.mjs
 !scripts/render-public-svg.mjs

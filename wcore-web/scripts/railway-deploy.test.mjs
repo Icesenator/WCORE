@@ -63,7 +63,7 @@ const fs = require("node:fs"), path = require("node:path");
 const args = process.argv.slice(2);
 const log = fs.existsSync(${JSON.stringify(capture)}) ? JSON.parse(fs.readFileSync(${JSON.stringify(capture)}, "utf8")) : [];
 const entry = { args };
-if (args[0] === "status") process.stdout.write(process.env.FAKE_STATUS ?? JSON.stringify({ project: { id: "${PROJECT}" } }));
+if (args[0] === "status") process.stdout.write(process.env.FAKE_STATUS ?? JSON.stringify({ id: "${PROJECT}", name: "WCORE" }));
 if (args[0] === "variable") process.stdout.write(process.env.FAKE_VARS ?? "{}");
 if (args[0] === "deployment") process.stdout.write(process.env.FAKE_DEPLOYMENTS ?? JSON.stringify([{ id: "d0", status: "SUCCESS" }]));
 if (args[0] === "up") {
@@ -382,6 +382,31 @@ test("a CLI linked to another project is refused before variables are read", asy
   try {
     await rejectsWith(f.run(API_PROD, { ...VALID_PROXY, FAKE_STATUS: JSON.stringify({ project: { id: "other" } }) }), "E_LINK");
     assert.ok(!f.calls().some((call) => call.args[0] === "variable" || call.args[0] === "up"));
+  } finally {
+    f.cleanup();
+  }
+});
+
+// The deployment-list check runs against the directory's linked project: a status that
+// only mentions the target id elsewhere (another field, a sibling project) is not a match.
+test("the linked project must be the target by exact id, not by substring", async () => {
+  const f = fixture();
+  try {
+    for (const status of [
+      { project: { id: "other", name: PROJECT } },
+      { project: { id: `${PROJECT}-other` } },
+      { project: { id: "other" }, projects: [{ id: PROJECT }] },
+      { id: PROJECT, project: { id: "other" } },
+      { name: PROJECT },
+    ]) {
+      await rejectsWith(f.run(API_PROD, { ...VALID_PROXY, FAKE_STATUS: JSON.stringify(status) }), "E_LINK");
+    }
+    await rejectsWith(f.run(API_PROD, { ...VALID_PROXY, FAKE_STATUS: "not json" }), "E_LINK");
+    assert.ok(!f.calls().some((call) => ["deployment", "variable", "up"].includes(call.args[0])));
+    // Railway CLI 5.71 prints the project at the top level; `project.id` is accepted too.
+    assert.equal((await f.run([...API_PROD, "--dry-run"], { ...VALID_PROXY, FAKE_STATUS: JSON.stringify({ project: { id: PROJECT } }) })).status, 0);
+    const listed = f.calls().find((call) => call.args[0] === "deployment");
+    assert.equal(listed.args[listed.args.indexOf("--project") + 1], PROJECT, "deployment list must name the project");
   } finally {
     f.cleanup();
   }

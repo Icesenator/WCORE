@@ -35,10 +35,9 @@ import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPos
 import { isAdminAuthorized } from "./admin-auth.js";
 import { apiConfig } from "./config.js";
 
-// `true` would trust any X-Forwarded-For chain hop (IP spoofing surface for rate-limiting).
-// In prod Railway routes through a single proxy, so `1` (single hop) is the correct default
-// when the user opts in via TRUST_PROXY=true. Explicit hop counts (e.g. TRUST_PROXY=2) and
-// loopback fallback are preserved.
+// `true` and numeric hop counts are rejected by configuration. They do not
+// authenticate the connecting peer. Use trusted proxy IPs or CIDR ranges;
+// absent/false keeps the loopback-only fallback.
 const PORT = apiConfig.server.port;
 const HOST = apiConfig.server.host;
 const trustProxy = apiConfig.server.trustProxy;
@@ -145,7 +144,7 @@ function rateLimitIdentity(req: { ip: string; headers: Record<string, string | s
 }
 
 // For pre-auth nonce endpoints, IP-only keying is spoofable via X-Forwarded-For
-// if TRUST_PROXY=true without a CIDR allowlist. Binding to the queried address
+// if the trusted proxy list is wrong. Binding to the queried address
 // adds a second axis: an attacker must rotate addresses to scale a flood, and
 // each address gets its own per-minute bucket.
 function nonceTargetAddress(req: { query?: unknown }): string | null {

@@ -6,52 +6,23 @@ import { HomePageClient } from "./HomePageClient";
 export default function HomePage() {
   const coverage = getCoverageStats();
   return (
-    <main className="mx-auto min-h-screen w-full px-4 py-8 sm:px-6 sm:py-12">
-
-      <section className="relative mb-8 overflow-hidden rounded-2xl border border-border bg-card p-6 sm:p-8">
-        <div className="absolute inset-0 opacity-[0.06] pointer-events-none">
-          <div className="absolute -top-4 -left-4 w-20 h-20 rounded-full bg-[#627EEA]/20 blur-xl" />
-          <div className="absolute top-8 right-12 w-16 h-16 rounded-full bg-[#9945FF]/20 blur-xl" />
-          <div className="absolute bottom-4 left-1/3 w-24 h-24 rounded-full bg-[#14B8A6]/20 blur-xl" />
-          <div className="absolute -bottom-4 -right-4 w-28 h-28 rounded-full bg-accent/10 blur-2xl" />
-        </div>
-
-        <div className="relative flex items-center gap-4 mb-3">
-          <Logo className="h-12 w-12 text-accent/80 shrink-0" />
-          <div>
-            <h2 className="text-2xl font-bold sm:text-3xl text-fg">Your crypto. Every chain. One view.</h2>
-            <p className="text-sm text-muted mt-0.5">{coverage.chainConfigCount} chains. 4 VMs. Selected DeFi positions. Real-time pricing, on-chain GM, {coverage.cexProviderCount} CEX.</p>
-          </div>
-        </div>
-
-        <div className="relative grid gap-1.5 grid-cols-3 lg:grid-cols-6 mt-4">
-          <MiniCard icon="⛓️" label={`${coverage.chainConfigCount} chains`} />
-          <MiniCard icon="🏦" label={`${coverage.cexProviderCount} CEX`} />
-          <MiniCard icon="🌊" label="TON support" />
-          <MiniCard icon="🛡️" label="Read-only" />
-          <MiniCard icon="⚡" label="Live pricing" />
-          <MiniCard icon="⛽" label={`${coverage.gmEnabledChainCount} GM chains`} />
-          <MiniCard icon="🚩" label="Scam detection" />
-          <MiniCard icon="👛" label="Multi-wallet" />
-          <MiniCard icon="🏆" label="Leaderboard" />
-          <MiniCard icon="🪙" label="Custom tokens" />
-          <MiniCard icon="📊" label="CSV Export" />
-          <MiniCard icon="🌐" label="DeFi positions" />
+    <main className="mx-auto min-h-screen w-full px-4 py-6 sm:px-6 sm:py-8">
+      <section className="mb-6 flex items-start gap-4 sm:gap-5" aria-labelledby="home-title">
+        <Logo className="h-10 w-10 shrink-0 text-accent sm:h-12 sm:w-12" />
+        <div className="min-w-0">
+          <h1 id="home-title" className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">Your crypto. Every chain. One view.</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted">Scan a public address. Review your assets across chains, selected DeFi positions and linked exchanges.</p>
+          <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted" aria-label="Portfolio coverage">
+            <li>{coverage.chainConfigCount} configured chains · 4 VMs</li>
+            <li>{coverage.cexProviderCount} supported exchanges</li>
+            <li>Selected DeFi positions</li>
+            <li>Public-address scans are read-only</li>
+          </ul>
         </div>
       </section>
-
       <Suspense fallback={null}>
         <HomePageClient coverage={coverage} />
       </Suspense>
     </main>
-  );
-}
-
-function MiniCard({ icon, label }: { icon: string; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-muted">
-      <span className="text-sm shrink-0">{icon}</span>
-      <span className="truncate">{label}</span>
-    </span>
   );
 }

@@ -28,7 +28,7 @@ export interface ApiConfig {
   server: {
     port: number;
     host: string;
-    trustProxy: number | string;
+    trustProxy: string;
     logLevel: string;
     usePrettyLogger: boolean;
   };
@@ -89,6 +89,10 @@ export interface ApiConfig {
 const DEV_ENVS = new Set(["development", "test"]);
 const DEV_JWT_SECRET = "wcore-dev-secret-change-in-prod";
 const MAX_TIMER_MS = 2_147_483_647;
+// Zerion ceilings equal the defaults: raising them would also widen the pre-parse
+// validation budget (MAX_VALIDATED_ITEMS in zerion.ts is derived from the positions cap).
+export const ZERION_MAX_POSITIONS_CAP = 1000;
+export const ZERION_MAX_RESPONSE_BYTES_CAP = 2_000_000;
 const WEAK_SECRET_PATTERNS = [/change-in-(prod|real-deploy)/i, /placeholder/i, /^wcore-staging-/i, /^test-/i, /^dev-/i];
 
 function readNumber(env: ApiEnv, key: string, fallback: number, options: { min?: number } = {}): number {
@@ -133,12 +137,16 @@ function readCsv(env: ApiEnv, key: string): string[] {
     .filter(Boolean);
 }
 
-function parseTrustProxy(raw: string | undefined): number | string {
+function parseTrustProxy(raw: string | undefined): string {
   const normalized = raw?.trim().toLowerCase();
-  if (normalized === "true") return 1;
   if (normalized === "false" || !normalized) return "loopback";
-  if (/^\d+$/.test(normalized)) return Number(normalized);
-  return normalized;
+  const entries = normalized.split(",").map((entry) => entry.trim());
+  const hopCount = /^(?:true|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|0x[0-9a-f]+)$/i;
+  if (normalized === "true" || entries.some((entry) => !entry || hopCount.test(entry))) {
+    // Hop counts do not authenticate the connecting peer (GHSA-3m5p-2c4r-xxw2).
+    throw new Error("TRUST_PROXY no longer accepts true or hop counts; configure trusted proxy IP addresses or CIDR ranges");
+  }
+  return entries.join(",");
 }
 
 function readJwtSecret(env: ApiEnv, nodeEnv: string, isDevelopmentLike: boolean): string {
@@ -337,8 +345,8 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
         cacheTtlMs: readPositiveInteger(env, "ZERION_CACHE_TTL_MS", 600000, MAX_TIMER_MS),
         lastGoodTtlMs: readPositiveInteger(env, "ZERION_LAST_GOOD_TTL_MS", 86400000, MAX_TIMER_MS),
         dailyBudget: readPositiveInteger(env, "ZERION_DAILY_BUDGET", 1000),
-        maxResponseBytes: readPositiveInteger(env, "ZERION_MAX_RESPONSE_BYTES", 2000000),
-        maxPositions: readPositiveInteger(env, "ZERION_MAX_POSITIONS", 1000),
+        maxResponseBytes: readPositiveInteger(env, "ZERION_MAX_RESPONSE_BYTES", ZERION_MAX_RESPONSE_BYTES_CAP, ZERION_MAX_RESPONSE_BYTES_CAP),
+        maxPositions: readPositiveInteger(env, "ZERION_MAX_POSITIONS", ZERION_MAX_POSITIONS_CAP, ZERION_MAX_POSITIONS_CAP),
       },
     },
     integrations: {

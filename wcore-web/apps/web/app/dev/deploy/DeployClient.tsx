@@ -7,8 +7,22 @@ import { getActiveFactoryChains } from "@wcore/shared";
 import { buildAddEthereumChainParams } from "./chain-params";
 import { switchWalletChain } from "./chain-switch";
 import { pickBuild, PARIS_BUILD_CHAINS, type BuildOutput } from "./build-selector";
+import { getGmWindDown } from "@/lib/gm-winddown";
+import { getGmRpcUnavailableMessage } from "@/lib/gm-rpc-error";
 
 const PLATFORM_OWNER = "0x17d518736Ee9341dcDc0A2498e013D33CFCDD080";
+
+// Guard both the legacy key and a custom numeric ID before touching the wallet.
+// Removed chains cannot be re-enabled by an alias or a custom deployment ID.
+function gmRpcUnavailableForSelection(
+  chainKey: string,
+  chainIdHex: string,
+  chains: readonly { key: string; chainIdNum: number }[],
+): string | null {
+  const id = Number.parseInt(chainIdHex, 16);
+  const effectiveKey = Number.isNaN(id) ? chainKey : chains.find((c) => c.chainIdNum === id)?.key ?? chainKey;
+  return getGmRpcUnavailableMessage(chainKey) ?? getGmRpcUnavailableMessage(String(id)) ?? getGmRpcUnavailableMessage(effectiveKey);
+}
 
 const DEPLOYED = new Set(getActiveFactoryChains());
 const DEFAULT_IMPLEMENTATIONS: Record<string, string> = {
@@ -21,10 +35,10 @@ const DEFAULT_IMPLEMENTATIONS: Record<string, string> = {
 const DEPLOY_CHAIN_KEYS = [
   "BASE", "ETHEREUM", "ARBITRUM_ONE", "OPTIMISM", "POLYGON", "BSC", "AVALANCHE",
   "GNOSIS", "ZKSYNC_ERA", "SCROLL", "LINEA", "MANTLE", "SONIC", "CELO",
-  "FRAXTAL", "WORLDCHAIN", "ROBINHOOD_CHAIN", "UNICHAIN", "BERACHAIN", "INK", "ABSTRACT", "SONEIUM",
+  "FRAXTAL", "WORLDCHAIN", "ROBINHOOD_CHAIN", "MOCA", "UNICHAIN", "BERACHAIN", "INK", "ABSTRACT", "SONEIUM",
   "ARBITRUM_NOVA", "ZORA", "MODE", "SEI",
   // L2s / OP Stack / Superchains
-  "SUPERSEED", "SHAPE", "BOB", "LISK", "METAL_L2",
+  "SHAPE", "BOB", "LISK", "METAL_L2",
   "APPCHAIN", "CAMP", "DUCKCHAIN", "CYBER", "ZIRCUIT",
   "OPENLEDGER", "STABLE", "TAC", "MITOSIS", "B3", "CITREA",
   // EVM-compatible majors
@@ -59,6 +73,7 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   FRAXTAL: { name: "Fraxtal", chainId: 252 },
   WORLDCHAIN: { name: "World Chain", chainId: 480 },
   ROBINHOOD_CHAIN: { name: "Robinhood Chain", chainId: 4663 },
+  MOCA: { name: "Moca Chain", chainId: 2288 },
   UNICHAIN: { name: "Unichain", chainId: 130 },
   BERACHAIN: { name: "Berachain", chainId: 80094 },
   INK: { name: "Ink", chainId: 57073 },
@@ -69,7 +84,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   MODE: { name: "Mode", chainId: 34443 },
   SEI: { name: "Sei", chainId: 1329 },
   // L2s / OP Stack / Superchains
-  SUPERSEED: { name: "Superseed", chainId: 5330 },
   SHAPE: { name: "Shape", chainId: 360 },
   BOB: { name: "BOB", chainId: 60808 },
   LISK: { name: "Lisk", chainId: 1135 },
@@ -180,6 +194,7 @@ export function DeployClient() {
         name: meta.name,
         chainId: "0x" + meta.chainId.toString(16),
         chainIdNum: meta.chainId,
+        windDown: getGmWindDown(coreKey)?.announcedShutdown,
       }];
     });
   }, []);
@@ -211,6 +226,8 @@ export function DeployClient() {
   if (!build) return <LogoSpinner className="h-12 w-12" />;
 
   async function deployGmOnChain() {
+    const rpcUnavailable = gmRpcUnavailableForSelection(chainKey, chainId, deployChains);
+    if (rpcUnavailable) { setError(rpcUnavailable); return; }
     if (!build || !window.ethereum) { setError("Builds not loaded or no wallet"); return; }
     setDeploying(true); setError("");
     try {
@@ -236,6 +253,8 @@ export function DeployClient() {
   }
 
   async function deployFactory() {
+    const rpcUnavailable = gmRpcUnavailableForSelection(chainKey, chainId, deployChains);
+    if (rpcUnavailable) { setError(rpcUnavailable); return; }
     if (!build || !window.ethereum) { setError("Builds not loaded or no wallet"); return; }
     if (!gmOnChainAddr) { setError("Deploy GmOnChain first"); return; }
     setDeploying(true); setError("");
@@ -277,6 +296,8 @@ export function DeployClient() {
             {deployChains.map((c) => (
               DEPLOYED.has(c.key) ? (
                 <option key={c.key} value={c.key} disabled className="text-muted">{c.name} ({c.chainIdNum}) — deployed</option>
+              ) : c.windDown ? (
+                <option key={c.key} value={c.key} disabled className="text-muted">{c.name} ({c.chainIdNum}) — winding down {c.windDown}, no new deploy</option>
               ) : (
                 <option key={c.key} value={c.key}>{c.name} ({c.chainIdNum})</option>
               )

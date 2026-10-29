@@ -93,7 +93,7 @@ export function ValueDistribution({ chains }: ValueDistributionProps) {
           const pct = (entry.value / total) * 100;
           const chainEntry = chains.find(c => (c.chainName || c.chainKey) === entry.name);
           return (
-            <div key={i} className="flex items-center gap-2 min-w-0">
+            <div key={entry.name} className="flex items-center gap-2 min-w-0">
               {chainEntry ? <ChainIcon chainKey={chainEntry.chainKey} size="sm" /> : (
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
               )}
@@ -121,7 +121,7 @@ export function ValueDistribution({ chains }: ValueDistributionProps) {
           {entries.slice(8).map((entry, i) => {
             const pct = (entry.value / total) * 100;
             return (
-              <div key={i} className="flex items-center gap-2 min-w-0">
+              <div key={entry.name} className="flex items-center gap-2 min-w-0">
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: COLORS[(i + 8) % COLORS.length] }} />
                 <span className="text-[11px] text-muted w-28 truncate shrink-0">{entry.name}</span>
                 <div className="flex-1 h-1 rounded-full bg-border overflow-hidden min-w-0">

@@ -10,7 +10,7 @@ export interface ChainsPluginDeps {
 
 export async function chainsPlugin(app: FastifyInstance, deps: ChainsPluginDeps) {
   const { circuitBreakers, cache } = deps;
-  const { chainList, getChain, getChainlistEntry, getExplorerUrl, getRpcEndpoints, metrics, getEurUsdRate, isChainDisabled } = await import("@wcore/core");
+  const { chainList, getChain, getChainlistEntry, getExplorerUrl, getRpcEndpoints, metrics, getEurUsdRate, getFxMetadata, isChainDisabled } = await import("@wcore/core");
   const requireAdmin = (req: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => unknown }) => {
     if (isAdminAuthorized(req)) return true;
     reply.code(401);
@@ -148,13 +148,15 @@ export async function chainsPlugin(app: FastifyInstance, deps: ChainsPluginDeps)
   app.get("/api/price/fx", async (_req, reply) => {
     reply.header("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
     const rate = await getEurUsdRate({ cache: deps.cache });
+    const now = Date.now();
+    const fxMetadata = getFxMetadata(rate, now);
     // Self-telemetry: publish the web runtime's current rate to the cross-runtime
     // drift cache so /api/diag/fx-parity can compare against gsheet's report.
     // Fire-and-forget — never let telemetry failure break the public endpoint.
     cache
       .set(
         "fx_telemetry:web",
-        { rate, ts: Date.now(), sources: [], runtime: "web" },
+        { rate, ts: now, sources: fxMetadata?.sources.map(source => source.source) ?? [], runtime: "web", fxMetadata },
         2 * 60 * 60 * 1000,
       )
       .catch((e: unknown) => app.log.warn({ err: String(e) }, "fx self-telemetry failed"));

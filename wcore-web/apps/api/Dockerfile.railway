@@ -54,9 +54,10 @@ COPY --chown=node:node --from=builder /wcore-gsheet/dist /wcore-gsheet/dist
 COPY --chown=node:node --from=builder /app/package.json /app/package.json
 RUN node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/app/package.json','utf8')); p.type='module'; fs.writeFileSync('/app/package.json',JSON.stringify(p,null,2))"
 COPY --chown=node:node --from=builder /app/node_modules ./node_modules
-COPY --chown=node:node --from=builder /app/packages/shared ./packages/shared
-COPY --chown=node:node --from=builder /app/packages/core ./packages/core
-COPY --chown=node:node --from=builder /app/packages/db ./packages/db
+# Keep compiled entry points (copied below), not TypeScript sources or tsconfig.
+# Preserve package-local dependencies and their workspace symlinks.
+COPY --chown=node:node --from=builder /app/packages/core/node_modules ./packages/core/node_modules
+COPY --chown=node:node --from=builder /app/packages/db/node_modules ./packages/db/node_modules
 RUN mkdir -p node_modules/@wcore && \
     test -L node_modules/@wcore/shared || ln -sf ../../packages/shared node_modules/@wcore/shared && \
     test -L node_modules/@wcore/core || ln -sf ../../packages/core node_modules/@wcore/core && \

@@ -29,6 +29,7 @@ export interface OnchainV3Spec {
     liquidity: string;
     token0: string;
     decimals: string;
+    balanceOf: string;
   };
 }
 
@@ -48,6 +49,7 @@ interface PoolCandidate {
   liquidity?: bigint;
   token0?: string;
   priceUsd?: number;
+  quoteReserveUsd?: number;
 }
 
 const SELECTORS = {
@@ -56,7 +58,17 @@ const SELECTORS = {
   liquidity: "0x1a686502",
   token0: "0x0dfe1681",
   decimals: "0x313ce567",
+  balanceOf: "0x70a08231",
 } as const;
+
+// Same parsing rules as envInt in geckoterminal.ts (kept local to avoid coupling).
+function envInt(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : fallback;
+}
+// Minimum quote-token reserve ($) held by a pool before its slot0 price is trusted.
+// V3 liquidity() alone cannot tell a funded pool from an out-of-range, near-empty one.
+const ONCHAIN_V3_MIN_QUOTE_RESERVE_USD = envInt("ONCHAIN_V3_MIN_QUOTE_RESERVE_USD", 50);
 
 const ONCHAIN_V3_SPECS: Record<string, Omit<OnchainV3Spec, "fees" | "selectors">> = {
   "8453": {
@@ -177,6 +189,8 @@ export class OnchainV3PriceSource implements TokenPriceSource {
     const priced = await this.pricePools(contract, spec, pools);
     const best = priced
       .filter((pool) => isPositiveFinite(pool.priceUsd))
+      // Reject near-empty pools (unknown reserve counts as empty).
+      .filter((pool) => isPositiveFinite(pool.quoteReserveUsd) && pool.quoteReserveUsd >= ONCHAIN_V3_MIN_QUOTE_RESERVE_USD)
       .sort((a, b) => Number(b.liquidity ?? 0n) - Number(a.liquidity ?? 0n))[0];
 
     if (!best || !isPositiveFinite(best.priceUsd)) return null;
@@ -222,6 +236,8 @@ export class OnchainV3PriceSource implements TokenPriceSource {
       detailCalls.push({ to: pool.addr, data: spec.selectors.slot0 });
       detailCalls.push({ to: pool.addr, data: spec.selectors.liquidity });
       detailCalls.push({ to: pool.addr, data: spec.selectors.token0 });
+      // Quote-token balance held by the pool, used as a USD reserve floor.
+      detailCalls.push({ to: pool.quote, data: `${spec.selectors.balanceOf}${padAddress(pool.addr)}` });
     }
     const detailRows = await this.rpc.batch(detailCalls);
     const decimals = await this.getTokenDecimals(contract, spec);
@@ -229,14 +245,28 @@ export class OnchainV3PriceSource implements TokenPriceSource {
     const nativeUsd = this.nativePriceUsd ? await this.nativePriceUsd() : null;
 
     return pools.map((pool, index) => {
-      const slot0 = hexWordToBigInt(detailRows[index * 3]);
-      const liquidity = hexWordToBigInt(detailRows[index * 3 + 1]);
-      const token0 = normalizeEvmAddress(wordToAddress(detailRows[index * 3 + 2]));
+      const slot0 = hexWordToBigInt(detailRows[index * 4]);
+      const liquidity = hexWordToBigInt(detailRows[index * 4 + 1]);
+      const token0 = normalizeEvmAddress(wordToAddress(detailRows[index * 4 + 2]));
+      const quoteBalance = hexWordToBigInt(detailRows[index * 4 + 3]);
       if (slot0 == null || liquidity == null || !token0) return pool;
       const priceQuote = sqrtRatioX96ToPrice(slot0, decimals, pool.quoteDecimals, token0 === contract);
       if (!isPositiveFinite(priceQuote)) return pool;
       const priceUsd = pool.quoteLabel === "WETH" ? (isPositiveFinite(nativeUsd) ? priceQuote * nativeUsd : null) : priceQuote;
-      return { ...pool, liquidity, token0, priceUsd: isPositiveFinite(priceUsd) ? priceUsd : undefined };
+      const quoteAmount = quoteBalance == null ? null : Number(quoteBalance) / 10 ** pool.quoteDecimals;
+      const quoteReserveUsd =
+        quoteAmount == null
+          ? null
+          : pool.quoteLabel === "WETH"
+            ? (isPositiveFinite(nativeUsd) ? quoteAmount * nativeUsd : null)
+            : quoteAmount;
+      return {
+        ...pool,
+        liquidity,
+        token0,
+        priceUsd: isPositiveFinite(priceUsd) ? priceUsd : undefined,
+        quoteReserveUsd: quoteReserveUsd != null && Number.isFinite(quoteReserveUsd) ? quoteReserveUsd : undefined,
+      };
     });
   }
 

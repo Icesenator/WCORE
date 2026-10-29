@@ -947,7 +947,25 @@ function DIAG_CHAIN_RPC_TEST(chainName, options) {
  
  // v4.14.9: Use _originalUrlFetch to bypass QuotaCircuitBreaker patch
  // DIAG must test actual RPC connectivity, not breaker state
- var realFetch = (typeof _originalUrlFetch !== 'undefined') ? _originalUrlFetch : UrlFetchApp.fetch;
+ var originalAvailable = typeof _originalUrlFetch === 'function';
+ var rawFetch = originalAvailable ? _originalUrlFetch : UrlFetchApp.fetch;
+ var quotaRejected = false;
+ // Diagnostic bypass is deliberate; accounting and Google rejection are not.
+ var realFetch = function(url, requestOptions) {
+  if (originalAvailable) {
+   try { if (typeof HttpCounter !== 'undefined' && HttpCounter.record) HttpCounter.record(1, 'DIAG_RPC', url); } catch (eCount) {}
+   try { if (typeof HttpCallCounter !== 'undefined' && HttpCallCounter.increment) HttpCallCounter.increment(url, 'DIAG_RPC'); } catch (eLegacy) {}
+  }
+  try { return rawFetch.call(UrlFetchApp, url, requestOptions); }
+  catch (eProbe) {
+   try { if (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.handleError) QuotaCircuitBreaker.handleError(eProbe); } catch (eHandle) {}
+   var msg = String(eProbe && eProbe.message || eProbe);
+   quotaRejected = (typeof QuotaCircuitBreaker !== 'undefined' && QuotaCircuitBreaker.isQuotaError)
+    ? QuotaCircuitBreaker.isQuotaError(eProbe)
+    : /Service invoked too many times.*(?:urlfetch|URL Fetch)|(?:urlfetch|URL Fetch).*quota/i.test(msg);
+   throw eProbe;
+  }
+ };
 
  var out = [["#", "RPC Endpoint", "Status", "Time (ms)", "Details"]];
 
@@ -1012,6 +1030,7 @@ function DIAG_CHAIN_RPC_TEST(chainName, options) {
    
    var rpcDisplay = rpc.length > 45 ? rpc.substring(0, 42) + "..." : rpc;
    out.push([i + 1, rpcDisplay, status, timeMs, details]);
+   if (quotaRejected) break;
  }
  
  // Summary row

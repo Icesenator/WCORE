@@ -42,6 +42,21 @@ var CHAIN_FACTORY_VERSION = "4.15.51";
 
 var ChainFactory = ChainFactory || {};
 
+/**
+ * Tombstone officiel pour les chaînes définitivement retirées de l'actif local.
+ * Rejette toute création, enregistrement, planification ou scan sans migration
+ * ni purge destructrice de l'historique de cache existant.
+ */
+function _wcoreRemovedChain_(input) {
+  if (input === null || input === undefined) return false;
+  var s = String(input).trim();
+  if (!s) return false;
+  if (s === "5330" || input === 5330) return true;
+  var upper = s.toUpperCase();
+  if (upper === "SUPERSEED" || upper === "SSEED" || upper === "0X14D2") return true;
+  return upper === "LEDGER - SUPERSEED" || upper === "LEDGER - SUPERSEED CRYPTO";
+}
+
 // ============================================================
 // AUTO-REGISTRATION (v4.13.0)
 // ============================================================
@@ -58,9 +73,20 @@ ChainFactory._registry = ChainFactory._registry || {};
 ChainFactory.registerChain = function(chainName, api) {
  if (!api || typeof api.getConfig !== "function") return api;
  var name = String(chainName || api.name || "").toUpperCase();
- if (name) this._registry[name] = api;
- return api;
+ if (_wcoreRemovedChain_(name)) return null;
+ try {
+   return _wcoreRegisterConfiguredChain_(name, api, api.getConfig());
+ } catch (eConfig) {
+   return null;
+ }
 };
+
+// Les factories possèdent déjà la configuration brute : ne pas la construire au chargement.
+function _wcoreRegisterConfiguredChain_(name, api, config) {
+ if (_wcoreRemovedChain_(name) || _wcoreRemovedChain_(config && config.CHAIN && config.CHAIN.CHAIN_ID)) return null;
+ if (name) ChainFactory._registry[name] = api;
+ return api;
+}
 
 ChainFactory.getRegistry = function() {
  return this._registry || {};
@@ -107,6 +133,9 @@ ChainFactory.getCacheVersion = function(vmType) {
 // ============================================================
 
 ChainFactory.createEvmChain = function(chainName, chainConfig) {
+ if (_wcoreRemovedChain_(chainName) || _wcoreRemovedChain_(chainConfig && chainConfig.CHAIN && chainConfig.CHAIN.CHAIN_ID)) {
+   throw new Error("CHAIN_REMOVED: SUPERSEED (5330)");
+ }
  var _config = null;
  var name = String(chainName).toUpperCase();
  
@@ -202,7 +231,7 @@ ChainFactory.createEvmChain = function(chainName, chainConfig) {
  clearCache: function(w,c){return Diagnostic.clearCache(getConfig(),w,c);}
  }
  };
- return ChainFactory.registerChain(name, api);
+ return _wcoreRegisterConfiguredChain_(name, api, chainConfig);
 };
 
 // ============================================================
@@ -234,7 +263,7 @@ ChainFactory.createTonChain = function(chainName, chainConfig) {
   getRefreshStatus: function(a,r,t,f,g){ return TON_REFRESH_STATUS(a,r,t,f,g); },
   getStats: function(a,t){ return TON_STATS(a,t); }
  };
- return ChainFactory.registerChain(name, api);
+ return _wcoreRegisterConfiguredChain_(name, api, chainConfig);
 };
 
 // ============================================================
@@ -322,7 +351,7 @@ ChainFactory.createSvmChain = function(chainName, chainConfig) {
  cacheStats: function(){return Diagnostic.cacheStats(getConfig());}
  }
  };
- return ChainFactory.registerChain(name, api);
+ return _wcoreRegisterConfiguredChain_(name, api, chainConfig);
 };
 
 // ============================================================
@@ -424,7 +453,7 @@ ChainFactory.createCosmosChain = function(chainName, chainConfig) {
  }
  }
  };
- return ChainFactory.registerChain(name, api);
+ return _wcoreRegisterConfiguredChain_(name, api, chainConfig);
 };
 
 // ============================================================

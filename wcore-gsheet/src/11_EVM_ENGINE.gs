@@ -144,7 +144,8 @@
 // ============================================================
 // AUTO-REGISTRATION (v4.13.0)
 // ============================================================
-var EVM_ENGINE_VERSION = "4.15.66";
+// v4.15.67: Cached native pricing is local-only; no snapshot maintenance on reads.
+var EVM_ENGINE_VERSION = "4.15.67";
 
 if (typeof ModuleRegistry !== 'undefined') {
   ModuleRegistry.register("EVM_ENGINE", EVM_ENGINE_VERSION, {
@@ -1278,15 +1279,20 @@ var EvmEngine = {
   var addr = Addr.normalize(address);
   var cache = WalletCache.load(addr, null, config);
   if (!cache) {
-  var snap = null;
-   try {
-   if (typeof OutputSnapshotCache !== 'undefined') snap = OutputSnapshotCache.load(config, addr, "NO_CACHE_MISSING_WALLET_CACHE");
-   } catch (eSnapLoad) {}
-  if (snap) return snap;
-  var emptyCache = (typeof BaseEngine !== "undefined" && BaseEngine.createEmptyCache) ? BaseEngine.createEmptyCache(config) : { assets: [], priceMap: {} };
-  emptyCache.wallet_original = address;
-  return OutputBuilder.fromCacheFallback(chainName, emptyCache, null, "NO_CACHE_WAITING_REFRESH", config);
+  // OutputSnapshotCache.load() cannot attest the age of balances/prices:
+  // its ts is a rendering time, not a successful collection timestamp.
+  // Do not revive a rendered valuation when the source wallet cache is absent.
+  return OutputBuilder.error(chainName, "NO_CACHE_WAITING_REFRESH; balance=UNKNOWN", config);
   }
+ // v4.15.67: Missing/invalid native balances are unknown, never synthetic zero.
+ if (!Array.isArray(cache.assets)) return OutputBuilder.error(chainName, "CACHE_INVALID; balance=UNKNOWN", config);
+ if (config.CHAIN.NATIVE_SYMBOL && !(config.FLAGS && config.FLAGS.DISABLE_NATIVE_BALANCE)) {
+ var cachedNative = null;
+ for (var cn = 0; cn < cache.assets.length; cn++) {
+ if (cache.assets[cn] && cache.assets[cn].contract === "native") { cachedNative = cache.assets[cn]; break; }
+ }
+ if (!cachedNative || Num.parse(cachedNative.balance) == null) return OutputBuilder.error(chainName, "CACHE_INCOMPLETE; native_balance=UNKNOWN", config);
+ }
  var cachedQuotaBlocked = false;
  try {
  cachedQuotaBlocked = (typeof BaseEngine !== 'undefined' && BaseEngine.isSystemBlocked && BaseEngine.isSystemBlocked()) ||
@@ -1600,19 +1606,31 @@ var EvmEngine = {
  // Patch native price if needed
  try {
  var nativeKey = (config && config.KEYS && config.KEYS.NATIVE_PRICE) ? config.KEYS.NATIVE_PRICE : null;
- var fx = (cache && Num.isValidPositive(cache.usd_to_eur_rate)) ? cache.usd_to_eur_rate : null;
  var cachedPriceMap = (cache && cache.priceMap) ? cache.priceMap : {};
+ var cachedPriceTsMap = cache.priceTsMap || {};
+ var cachedNativePriceUnknown = false;
+ var cachedPriceNow = Date.now();
+ var cachedPriceMaxAge = (config.CACHE && config.CACHE.PRICE_STALE_MS) || 3600000;
  
- if (nativeKey && fx) {
+ if (nativeKey) {
  for (var r = 0; r < out.length; r++) {
  var row = out[r];
  if (row && row.length >= 7 && String(row[3]) === "native") {
  try { if (config && config.CHAIN && config.CHAIN.NATIVE_SYMBOL) row[1] = config.CHAIN.NATIVE_SYMBOL; if (config && config.CHAIN && config.CHAIN.NATIVE_NAME) row[2] = config.CHAIN.NATIVE_NAME; } catch(eNatLbl2) {}
  var bal = null; try { bal = (Num && Num.parse) ? Num.parse(row[4]) : null; } catch(eBal) {} if (bal == null || isNaN(bal)) { try { bal = parseFloat(String(row[4]).replace(",", ".")); } catch(eBal2) {} }
+ // Never call computePriceEur here: its native cascade performs HTTP,
+ // even when called with an empty budget and no timer. Only reuse an EUR
+ // cache entry with its own attested timestamp; rendering is not a refresh.
  var eur = null;
- try { eur = PriceManager.computePriceEur({ contract: "native" }, nativeKey, {}, fx, {}, {}, {}, Date.now(), null, null, config); } catch (ePx) { eur = null; }
- if (!Num.isValidPositive(eur)) { eur = cachedPriceMap[nativeKey]; if (!Num.isValidPositive(eur)) eur = cachedPriceMap['native']; }
- if (Num.isValidPositive(eur) && bal != null && !isNaN(bal)) { row[5] = eur; row[6] = bal * eur; }
+ var nativePriceKeys = [nativeKey, "native"];
+ for (var nk = 0; nk < nativePriceKeys.length; nk++) {
+ var pk = nativePriceKeys[nk];
+ var pts = Number(cachedPriceTsMap[pk]);
+ if (Num.isValidPositive(cachedPriceMap[pk]) && isFinite(pts) && pts > 0 && cachedPriceNow >= pts && cachedPriceNow - pts < cachedPriceMaxAge) { eur = Number(cachedPriceMap[pk]); break; }
+ }
+ row[5] = eur == null ? "" : eur;
+ row[6] = eur != null && bal != null && !isNaN(bal) ? bal * eur : "";
+ cachedNativePriceUnknown = eur == null && bal !== 0;
  break;
  }
  }
@@ -1626,6 +1644,11 @@ var EvmEngine = {
   if (Num.isValid(val)) recalcTotal += Num.parseOr(val, 0);
  }
 
+ // An unpriced non-zero native balance makes the portfolio total unknown.
+ if (cachedNativePriceUnknown) {
+ recalcTotal = "";
+ out.push(OutputBuilder.infoRow(chainName, "ERROR", "NATIVE_PRICE_UNKNOWN; cached price absent, stale or age unattested; total=UNKNOWN"));
+ }
  // Add INFO/META rows, patching INFO_TOTAL with recalculated value
  if (cache.lastInfoMetaRows && cache.lastInfoMetaRows.length) {
  for (var i = 0; i < cache.lastInfoMetaRows.length; i++) {
@@ -1637,6 +1660,7 @@ var EvmEngine = {
  if (rr0.length >= 2 && String(rr0[0] || "") === "" && String(rr0[1] || "").indexOf("INFO") === 0) {
  rr0[0] = chainName;
  }
+ if (rr0[1] === "INFO_FX") rr0[2] = _fxMetadataLabel_(cache.usd_to_eur_rate || cache.usd_to_eur || cache.fx, cache.fxMetadata || cache.fm);
  // Patch INFO_TOTAL with recalculated value
  if (rr0[1] === "INFO_TOTAL") {
  rr0[6] = recalcTotal;
@@ -1652,7 +1676,7 @@ var EvmEngine = {
  // INFO_ROT with minimal info for cached mode
  var rotInfo = "chain=" + chainName + "; rot=CACHE; profile=CACHED; rrCursor=" + rrCursor + "; assets=" + assetCount;
  out.push(OutputBuilder.infoRow(chainName, "INFO_ROT", rotInfo));
- out.push(OutputBuilder.infoRow(chainName, "INFO_FX", fxCached ? ("USD->EUR=" + fxCached.toFixed(4)) : "USD->EUR=N/A"));
+ out.push(OutputBuilder.infoRow(chainName, "INFO_FX", _fxMetadataLabel_(fxCached, cache && cache.fxMetadata)));
  out.push(OutputBuilder.infoRow(chainName, "INFO_TOTAL", "Total portefeuille (sum value_eur).", recalcTotal));
  out.push(OutputBuilder.metaRow("last_cache_update", WalletCache.getLastUpdateStr(cache)));
  out.push(OutputBuilder.metaRow("script_version", config.VERSION));
@@ -1702,7 +1726,8 @@ var EvmEngine = {
  if (!foundSv) out.push(OutputBuilder.metaRow("script_version", config.VERSION));
  } catch (eSv) {}
 
-  try { if (typeof OutputSnapshotCache !== 'undefined') OutputSnapshotCache.save(config, addr, out); } catch (eSnapSave) {}
+  // Cached rendering must not run snapshot persistence/global maintenance.
+  // Background scans own persistence; a read must not renew snapshot age.
   return out;
   } catch (e) { return OutputBuilder.error(config.CHAIN.NAME, String(e.message || e), config); }
   },
@@ -1752,6 +1777,10 @@ var EvmEngine = {
   */
   getRefreshStatus: function(address, rpc, tokensRange, forceFull, triggerRefresh, config, walletNames) {
     var refreshError = null;
+    // v4.16.84: do not begin blocking HTTP after cache preflight exhausted
+    // the existing execution budget. This cannot interrupt an in-flight fetch.
+    var statusTimer = typeof createTimer === "function"
+      ? createTimer((config && config.TIMEOUTS && config.TIMEOUTS.MAX_EXECUTION_MS) || 18000) : null;
     var addrLower = Addr.normalize(address);
     var cexBusyStatus = BaseEngine.cexBusyStatus ? BaseEngine.cexBusyStatus(addrLower, config) : "";
     if (cexBusyStatus) return cexBusyStatus;
@@ -1775,19 +1804,66 @@ var EvmEngine = {
     } catch (e) {}
 
     var _cacheStatusTs = _evmCacheStatusDatetime_(cacheBefore, beforeTs);
+    var statusChainKey = "";
+    try { statusChainKey = (typeof _webScanChainKey_ === "function") ? _webScanChainKey_(config) : ""; } catch (eChainKey) {}
+    if (typeof _statusPhaseMark_ === "function") _statusPhaseMark_(statusChainKey, "CACHE_PREFLIGHT");
     if (BaseEngine.shouldSkipRefreshForSameTrigger && BaseEngine.shouldSkipRefreshForSameTrigger(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
       if (_cacheStatusTs) return BaseEngine.wrapCacheOnlyMarker(_cacheStatusTs, _httpBefore);
-      return "[NO_CACHE] " + Format.now();
+      return "[NO_CACHE] [AGE_UNKNOWN]";
     }
     if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(addrLower, config, cacheBefore, forceFull, triggerRefresh)) {
-      if (_cacheStatusTs) return BaseEngine.wrapCacheOnlyMarker("[FRESH] " + _cacheStatusTs, _httpBefore);
-      return "[NO_CACHE] " + Format.now();
+      // v4.16.84: skipping may mean an obsolete pulse, not a fresh cache.
+      // Preserve the actual cache date without asserting price/balance freshness.
+      if (_cacheStatusTs) return BaseEngine.wrapCacheOnlyMarker(_cacheStatusTs, _httpBefore);
+      return "[NO_CACHE] [AGE_UNKNOWN]";
     }
 
+      // v4.16.85: a custom function dies at 30 s and UrlFetchApp has no client
+      // timeout. Queue the scan for a trigger-budget worker instead of starting
+      // a fetch that Google will kill before the cache can be written.
+      if (typeof _webScanQueueEnabled_ === "function" && _webScanQueueEnabled_() &&
+          !(typeof _webScanQueueDraining_ === "function" && _webScanQueueDraining_())) {
+        var queuedScan = null;
+        try {
+          queuedScan = _webScanQueueEnqueue_(addrLower, _webScanTokenList_(tokensRange), forceFull, config,
+            forceBypass ? "MANUAL" : "AUTO",
+            typeof _webScanCacheTimestamp_ === "function" ? _webScanCacheTimestamp_(cacheBefore) : beforeTs);
+        } catch (eQueue) { queuedScan = null; }
+        if (queuedScan && queuedScan.ok) {
+          if (typeof _statusPhaseMark_ === "function") _statusPhaseMark_(statusChainKey, "QUEUED");
+          // Preserve the known cache date, not the enqueue time. The pending
+          // marker itself keeps watchdog admission active and prevents J1 sync.
+          return "[REFRESH_QUEUED] " + (_cacheStatusTs || "[AGE_UNKNOWN]");
+        }
+        if (queuedScan && queuedScan.reason === "QUEUE_COOLDOWN") {
+          return "[REFRESH_COOLDOWN] " + (_cacheStatusTs || "[AGE_UNKNOWN]");
+        }
+        if (queuedScan && queuedScan.reason === "QUEUE_NOT_DUE") {
+          return "[REFRESH_NOT_DUE] " + (_cacheStatusTs || "[AGE_UNKNOWN]");
+        }
+        if (queuedScan && queuedScan.reason === "QUEUE_DEFERRED") {
+          return "[REFRESH_QUEUE_DEFERRED] " + (_cacheStatusTs || "[AGE_UNKNOWN]");
+        }
+        if (queuedScan && queuedScan.reason === "QUEUE_FULL") {
+          return "[REFRESH_QUEUE_FULL] " + (_cacheStatusTs || "[AGE_UNKNOWN]");
+        }
+        if (!queuedScan || queuedScan.reason !== "QUEUE_DISABLED") {
+          // A broken queue must not silently fall back to the unbounded fetch
+          // that killed the function; surface it with the real cache date.
+          return "[REFRESH_QUEUE_ERROR] " + (_cacheStatusTs || "[AGE_UNKNOWN]");
+        }
+        // QUEUE_DISABLED: explicit opt-out, legacy bounded path applies.
+      }
+
+      if (statusTimer && statusTimer.remaining() <= ((config && config.TIMEOUTS && config.TIMEOUTS.SAFE_MARGIN_MS) || 900)) {
+        return "[WEB_SCAN_DEFERRED] [STATUS_BUDGET] " + (_cacheStatusTs || "[AGE_UNKNOWN]");
+      }
+      if (typeof _statusPhaseMark_ === "function") _statusPhaseMark_(statusChainKey, "SYNC_SCAN_START");
       try {
         if (typeof _webScanWallet_ === "function") {
           var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
           if (webScan && webScan.ok && webScan.status) {
+            if (typeof _statusPhaseMark_ === "function") _statusPhaseMark_(statusChainKey, "SYNC_SCAN_RETURN");
             if (webScan.quotaBlocked && BaseEngine.rememberRefreshTriggerAttempt) {
               BaseEngine.rememberRefreshTriggerAttempt(addrLower, config, cacheBefore, triggerRefresh);
             }

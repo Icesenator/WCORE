@@ -1481,7 +1481,13 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  out.push(["Cache", m("N/A", "No cache")]);
  out.push(["CacheVersion", (config.CACHE_VERSION || "N/A") + " (no cache)"]);
  } else {
- var upd = Num.isValid(cache.updatedAt) ? cache.updatedAt : 0;
+ // v4.16.84: packed date strings supported; unknown/future never age zero.
+ var upd = Number(cache.updatedAt);
+ if (!(isFinite(upd) && upd > 0)) {
+ try { upd = new Date(String(cache.updatedAt || "")).getTime(); } catch (eDate) { upd = 0; }
+ }
+ if (upd > 0 && upd < 20000000000) upd *= 1000;
+ if (!(isFinite(upd) && upd > 0 && upd <= nowMs)) upd = 0;
  cacheAgeSec = upd ? Math.round((nowMs - upd) / 1000) : -1;
  
  out.push(["Cache.updatedAt", m(upd ? Format.datetime(upd) : "N/A", 
@@ -1669,13 +1675,15 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  
  // === Flags ===
  var flagStale = (cacheAgeSec >= 0 && ttlSec > 0 && cacheAgeSec > ttlSec) ? 1 : 0;
+ out.push(["Cache.freshness", cacheAgeSec < 0 ? "UNKNOWN" : (flagStale ? "STALE" : "CACHE_RECENT_NOT_BALANCE_PROOF")]);
  out.push(["Flag.stale", flagStale]);
  out.push(["Flag.pricing_gap", (pricesMissing > 0) ? 1 : 0]);
  out.push(["Flag.rpc_bad", (blockedCount > 0) ? 1 : 0]);
- out.push(["Flag.has_error", hasError]);
+ out.push(["Flag.has_error", hasError ? 1 : "UNKNOWN"]);
+ out.push(["Error.scope", "CACHE_ONLY_NOT_CUSTOM_FUNCTION"]);
  
  // === Status & Score ===
- var status = hasError ? "ERROR" : ((flagStale || pricesMissing > 0 || blockedCount > 0) ? "WARN" : "OK");
+ var status = hasError ? "ERROR" : ((cacheAgeSec < 0 || flagStale || pricesMissing > 0 || blockedCount > 0) ? "WARN" : "OK");
  var score = 100;
  if (flagStale) score -= 30;
  if (pricesMissing > 0) score -= 20;
@@ -1684,7 +1692,7 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  score = Math.max(0, Math.min(100, score));
  
  out.push(["Status", status]);
- out.push(["Health.score", m(score, "/100")]);
+ out.push(["Health.score", cacheAgeSec < 0 ? "UNKNOWN" : m(score, "/100")]);
  
  // === Activity Metrics (v4.12.21 FIX: use config.CHAIN.NAME, not .ID) ===
  try {
@@ -1753,8 +1761,11 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  }
  
  // Check if refresh needed based on cache age
- var cacheAgeMs = cacheAgeSec >= 0 ? cacheAgeSec * 1000 : 0;
- if (cacheAgeMs > refreshInterval * 2 && priorityName !== "IMMEDIATE") {
+ var cacheAgeMs = cacheAgeSec >= 0 ? cacheAgeSec * 1000 : null;
+ if (cacheAgeMs === null) {
+ priorityName = "NORMAL";
+ priorityReason = "Cache age UNKNOWN";
+ } else if (cacheAgeMs > refreshInterval * 2 && priorityName !== "IMMEDIATE") {
  priorityName = "URGENT";
  priorityReason = "Cache very old";
  } else if (cacheAgeMs > refreshInterval && priorityName === "SKIP") {
@@ -1775,7 +1786,7 @@ BaseEngine.buildStatsBase = function(address, cache, config, chainLabel, vmType,
  else if (nextRefreshMs < 3600000) nextRefreshStr = Math.round(nextRefreshMs / 60000) + "min";
  else nextRefreshStr = (nextRefreshMs / 3600000).toFixed(1) + "h";
  }
- out.push(["Refresh.next_in", nextRefreshStr]);
+ out.push(["Refresh.next_in", cacheAgeMs === null ? "UNKNOWN" : nextRefreshStr]);
  
  // Refresh.interval
  var intervalStr = "24h";

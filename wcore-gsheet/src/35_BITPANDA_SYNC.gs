@@ -337,24 +337,39 @@ function _cexManualJobKindFromLabel_(label) {
 //      written is always valid JSON.
 var _CEX_QUEUE_MAX_CHARS = 8000;
 
+// v4.16.83 : absorbe une contention COURTE (meme politique que _cexWithScriptLock_)
+// au lieu d'un unique tryLock. P2-OBS-CEX-QUEUE-LOCK-MISS : un seul tryLock(1 s)
+// rate faisait jeter, l'exception remontait jusqu'a onEdit, le clic manuel etait
+// perdu SANS statut alors que le statut "QUEUED" avait deja ete ecrit par
+// l'appelant (faux succes). Le fail-closed est CONSERVE : si le verrou reste
+// indisponible apres les tentatives bornees, on jette et aucun job n'est ecrit.
+// La saturation de file jette aussi, mais n'est jamais retentee (ce n'est pas un
+// probleme de verrou) : la file existante reste intacte.
 function _cexQueueMutate_(mutator) {
   var props = PropertiesService.getScriptProperties();
-  var lock = null, locked = false;
-  try { lock = LockService.getScriptLock(); locked = lock.tryLock(_CEX_LOCK_TRY_MS); } catch (eLock) { locked = false; }
-  if (!locked) throw new Error("CEX queue lock unavailable");
-  try {
-    var queue = [];
-    try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
-    if (Object.prototype.toString.call(queue) !== "[object Array]") queue = [];
-
-    var outcome = mutator(queue);
-    var serialized = JSON.stringify(queue);
-    if (serialized.length > _CEX_QUEUE_MAX_CHARS) throw new Error("CEX queue capacity exceeded");
-    props.setProperty("CEX_MANUAL_JOB_QUEUE", serialized);
-    return outcome;
-  } finally {
-    if (lock) { try { lock.releaseLock(); } catch (eRelease) {} }
+  var ran = false;
+  var outcome = null;
+  for (var attempt = 0; attempt < _CEX_LOCK_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) { try { Utilities.sleep(_CEX_LOCK_RETRY_SLEEP_MS); } catch (eSleep) {} }
+    var lock = null, locked = false;
+    try { lock = LockService.getScriptLock(); locked = lock.tryLock(_CEX_LOCK_TRY_MS); } catch (eLock) { locked = false; }
+    if (!locked) continue;
+    try {
+      var queue = [];
+      try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
+      if (Object.prototype.toString.call(queue) !== "[object Array]") queue = [];
+      outcome = mutator(queue);
+      var serialized = JSON.stringify(queue);
+      if (serialized.length > _CEX_QUEUE_MAX_CHARS) throw new Error("CEX queue capacity exceeded");
+      props.setProperty("CEX_MANUAL_JOB_QUEUE", serialized);
+      ran = true;
+    } finally {
+      if (lock) { try { lock.releaseLock(); } catch (eRelease) {} }
+    }
+    break;
   }
+  if (!ran) throw new Error("CEX queue lock unavailable");
+  return outcome;
 }
 
 function CEX_QUEUE_MANUAL_JOB(kind, sheetName, refreshFlagProp, statusSheetName, statusCell) {
@@ -369,16 +384,45 @@ function _cexEnqueueManualJobs_(jobs) {
   if (!jobs || !jobs.length) return "NO_JOBS";
   var props = PropertiesService.getScriptProperties();
   var now = Date.now();
-  _cexQueueMutate_(function(queue) {
-    for (var i = 0; i < jobs.length; i++) {
-      var j = jobs[i] || {};
-      queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
-    }
-  });
+  try {
+    _cexQueueMutate_(function(queue) {
+      for (var i = 0; i < jobs.length; i++) {
+        var j = jobs[i] || {};
+        queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
+      }
+    });
+  } catch (eEnqueue) {
+    // v4.16.83 : une file perdue doit etre SIGNALEE, jamais presentee comme
+    // QUEUED. L'appelant a pu ecrire "QUEUED" avant l'appel : on l'ecrase par un
+    // statut d'echec horodate et on ne bloque pas les scans on-chain.
+    var reason = (eEnqueue && eEnqueue.message) ? eEnqueue.message : String(eEnqueue);
+    _cexWriteManualEnqueueFailure_(jobs, reason);
+    return "QUEUE_FAILED";
+  }
   props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(now + 10 * 60 * 1000));
   _cexWriteManualQueuedStatusBatch_(jobs);
   _cexEnsureManualWorkerTrigger_();
   return "QUEUED";
+}
+
+// v4.16.83 : statut d'echec explicite pour une mise en file manuelle refusee
+// (verrou indisponible apres retries, file saturee, persistance en erreur).
+function _cexWriteManualEnqueueFailure_(jobs, reason) {
+  try {
+    var ss = _bpGetSpreadsheet_();
+    var stamp = "ERROR " + _bpFmtStamp_() + " QUEUE: " + String(reason || "unavailable");
+    for (var i = 0; i < jobs.length; i++) {
+      var j = jobs[i] || {};
+      var status = stamp + " [" + String(j.kind || "") + "]";
+      if (j.statusSheetName && j.statusCell) {
+        var sh = ss.getSheetByName(j.statusSheetName);
+        if (sh) sh.getRange(j.statusCell).setValue(status.substring(0, 500)).setNumberFormat("@");
+      }
+      if (j.sheetName && j.statusCell !== "B1") {
+        _bpSetSheetStatus_(ss, j.sheetName, status);
+      }
+    }
+  } catch (eStatus) {}
 }
 
 function _cexWriteManualQueuedStatusBatch_(jobs) {
@@ -1957,8 +2001,9 @@ function _cexWriteVerifMap_(sh, sheetName) {
   }
 }
 
+// v4.16.85 - P1-DATA-CEX-CRYPTO-TICKER-PARITY : rapprocher le ticker F et traiter position/ticker Crypto comme criteres litteraux.
 function _cexBuildVerifFormula_(sheetName) {
-  var cryptoDetailsV2Formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + sheetName + '";\'Portefeuille Crypto Details\'!$C:$C;s)>0;"V";"X")))))';
+  var cryptoDetailsV2Formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + String(sheetName || "").replace(/~/g, '~~').replace(/\*/g, '~*').replace(/\?/g, '~?').replace(/"/g, '""') + '";\'Portefeuille Crypto Details\'!$F:$F;SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(s;"~";"~~");"*";"~*");"?";"~?"))>0;"V";"X")))))';
   var ls = String(sheetName || "").toLowerCase();
   var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
   if (!isFiatOrStocks) return cryptoDetailsV2Formula;

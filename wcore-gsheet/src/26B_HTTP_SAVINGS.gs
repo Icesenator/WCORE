@@ -607,7 +607,16 @@ var HttpCallCounter = (function(){
   };
 
   UrlFetchApp.fetchAll = function(requests) {
-   if (typeof Http !== 'undefined' && Http.canFetchNow && !Http.canFetchNow("26B.fetchAll")) {
+   // WC-07: bound the whole batch, without claiming cross-execution reservation.
+   var batchBudgetAllowed = true;
+   if (typeof BudgetHTTP !== 'undefined' && BudgetHTTP.remaining) {
+    try {
+     var remaining = BudgetHTTP.remaining();
+     batchBudgetAllowed = typeof remaining === 'number' && isFinite(remaining) &&
+      remaining >= 0 && (requests ? requests.length : 0) <= remaining;
+    } catch (eBudget) { batchBudgetAllowed = false; }
+   }
+   if (!batchBudgetAllowed || (typeof Http !== 'undefined' && Http.canFetchNow && !Http.canFetchNow("26B.fetchAll"))) {
     var nulls = [];
     var n0 = (requests && requests.length) ? requests.length : 0;
     for (var z = 0; z < n0; z++) nulls.push(null);

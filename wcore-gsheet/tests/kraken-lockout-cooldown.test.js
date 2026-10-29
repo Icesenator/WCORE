@@ -29,7 +29,7 @@ function harness(opts) {
       getUserProperties: () => ({ getProperty: () => null, setProperty() {} }),
       getDocumentProperties: () => ({ getProperty: () => null, setProperty() {} }),
     },
-    SpreadsheetApp: { openById: () => ({}) },
+    SpreadsheetApp: { openById: () => ({ getSheetByName: () => null }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 1 }, MacAlgorithm: { HMAC_SHA_512: 1 },
       computeDigest: () => [1], newBlob: () => ({ getBytes: () => [2] }), base64Decode: () => [3],
@@ -40,6 +40,9 @@ function harness(opts) {
         fetches.push(url);
         const body = opts.lockout
           ? { error: ['EGeneral:Temporary lockout'], result: {} }
+          : url.endsWith('/BalanceEx') ? { error: [], result: { XXBT: { balance: '0.1', hold_trade: '0', credit: '0', credit_used: '0' }, ZEUR: { balance: '5', hold_trade: '0', credit: '0', credit_used: '0' }, 'NVDAx.T': { balance: '1', hold_trade: '0', credit: '0', credit_used: '0' } } }
+          : url.endsWith('/OpenOrders') ? { error: [], result: { open: {} } }
+          : url.indexOf('/public/AssetPairs') >= 0 ? { error: [], result: {} }
           : { error: [], result: { XXBT: '0.1', ZEUR: '5', 'NVDAx.T': '1' } };
         return { getResponseCode: () => 200, getContentText: () => JSON.stringify(body) };
       },
@@ -57,11 +60,11 @@ function harness(opts) {
   return { ctx, props, fetches, writes, setNow: (v) => { nowMs = v; }, now: () => nowMs };
 }
 
-// 1. Un lockout arme une pause persistante de 60 minutes.
+// 1. Un lockout arme une pause persistante de 60 minutes (borne superieure de la doc Kraken).
 {
   const h = harness({ lockout: true });
   assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, { key: 'k', secret: 's' }), /Temporary lockout/);
-  assert.equal(h.props.get('KRAKEN_LOCKOUT_UNTIL_MS'), String(h.now() + HOUR), 'le lockout doit armer une pause de 60 min');
+  assert.equal(h.props.get('KRAKEN_LOCKOUT_UNTIL_MS'), String(h.now() + 60 * 60000), 'le lockout doit armer une pause de 60 min');
 }
 
 // 2. Pendant la pause, aucun appel prive Kraken n est emis.
@@ -91,7 +94,8 @@ function harness(opts) {
   const out = JSON.parse(h.ctx.UPDATE_KRAKEN_SPOT());
   assert.equal(out.ok, true);
   const privateCalls = h.fetches.filter((u) => u.indexOf('/0/private/') >= 0);
-  assert.equal(privateCalls.length, 1, 'un seul appel prive');
+  // Recovery : un appel privé Balance mutualisé par cycle.
+  assert.deepEqual(privateCalls.map((u) => u.slice(u.indexOf('/0/'))), ['/0/private/Balance'], 'un appel prive mutualise');
   assert.deepEqual(h.writes, ['CEX - Kraken Crypto', 'CEX - Kraken Stocks']);
   assert.equal(h.props.get('KRAKEN_SHARED_BALANCE_OK_MS'), String(h.now()), 'le succes partage est horodate');
 }

@@ -114,9 +114,9 @@ test('inclusion packaging locale : 27A dans src, sauvegarde hors src, clasp non 
   assert.ok(listed.includes('27A_RPC_LOOKUP.gs'));
   assert.ok(listed.includes('27_ACTIVITY_REFRESH.gs'));
   assert.equal(listed.some((name) => name.includes('wc15-before')), false);
+  // .backups/ is local-only (ignored by git): when the pre-WC15 copy exists it must live outside src.
   const backup = path.join(__dirname, '..', '.backups', '27_ACTIVITY_REFRESH.gs.wc15-before');
-  assert.equal(fs.existsSync(backup), true);
-  assert.equal(path.relative(src, backup).startsWith('..'), true);
+  if (fs.existsSync(backup)) assert.equal(path.relative(src, backup).startsWith('..'), true);
   const clasp = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '.clasp.json'), 'utf8'));
   assert.equal(clasp.rootDir, 'src');
   const ignore = fs.readFileSync(path.join(__dirname, '..', '.claspignore'), 'utf8');

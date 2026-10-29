@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import Fastify, { type FastifyInstance } from "fastify";
 import { analyticsPlugin, createPrismaAnalyticsStore, type AnalyticsAggregateStore } from "../src/plugins/analytics.js";
 import { FUNNEL_EVENTS_MAX, FunnelEventsBodySchema, FunnelEventSchema } from "../src/schemas.js";
+import { z } from "zod";
 
 const upserts: Array<Record<string, unknown>> = [];
 const store: AnalyticsAggregateStore = {
@@ -110,10 +111,11 @@ describe("analytics plugin", () => {
     const post = (payload: unknown) => app.inject({ method: "POST", url: "/api/analytics/events", payload: payload as Record<string, unknown> });
 
     function countElementParses() {
-      const target = FunnelEventSchema as unknown as { _parse: (...args: unknown[]) => unknown };
-      const original = target._parse;
-      const state = { calls: 0, restore: () => { target._parse = original; } };
-      target._parse = function (this: unknown, ...args: unknown[]) {
+      // Zod 4 runs each schema through its own _zod.run (no shared _parse hook).
+      const target = (FunnelEventSchema as unknown as { _zod: { run: (...args: unknown[]) => unknown } })._zod;
+      const original = target.run;
+      const state = { calls: 0, restore: () => { target.run = original; } };
+      target.run = function (this: unknown, ...args: unknown[]) {
         state.calls++;
         return original.apply(this, args);
       };
@@ -122,7 +124,7 @@ describe("analytics plugin", () => {
 
     test("guard limit matches the schema contract", () => {
       assert.equal(FUNNEL_EVENTS_MAX, 5);
-      assert.equal(FunnelEventsBodySchema.shape.events._def.maxLength?.value, FUNNEL_EVENTS_MAX);
+      assert.equal(z.toJSONSchema(FunnelEventsBodySchema.shape.events).maxItems, FUNNEL_EVENTS_MAX);
       assert.equal(FunnelEventsBodySchema.shape.events.element, FunnelEventSchema);
     });
 

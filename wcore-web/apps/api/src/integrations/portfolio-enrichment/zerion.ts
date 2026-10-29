@@ -72,6 +72,10 @@ const envelopeSchema = z.object({
   data: z.array(positionSchema),
 }).strict();
 
+// Tests count how many rows and implementations Zod validates (Zod 4 runs each schema
+// through its own _zod.run, with no shared prototype hook).
+export const ZERION_SCHEMAS_FOR_TESTS = { envelope: envelopeSchema, position: positionSchema, implementation: implementationSchema } as const;
+
 type ZerionPosition = z.infer<typeof positionSchema>;
 type ZerionEnvelope = z.infer<typeof envelopeSchema>;
 

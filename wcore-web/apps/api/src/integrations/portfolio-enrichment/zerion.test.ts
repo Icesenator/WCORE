@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { z } from "zod";
 
 import {
   createZerionProvider,
   MAX_IMPLEMENTATIONS_PER_POSITION,
   MAX_VALIDATED_ITEMS,
+  ZERION_SCHEMAS_FOR_TESTS,
   ZerionProviderError,
   type CreateZerionProviderOptions,
   type ZerionErrorKind,
@@ -232,17 +232,19 @@ test("times out before headers and while reading a stalled body", async () => {
   await assert.rejects(stalled.load(context()), expectError("timeout"));
 });
 
-function countPositionRowParses() {
-  const proto = z.ZodObject.prototype as unknown as { _parse: (input: { data: unknown }) => unknown };
-  const original = proto._parse;
-  const state = { calls: 0, restore: () => { proto._parse = original; } };
-  proto._parse = function (this: unknown, input: { data: unknown }) {
-    const data = input?.data as { type?: unknown } | null | undefined;
-    if (data && typeof data === "object" && data.type === "positions") state.calls++;
-    return original.call(this, input);
+// Counts the validations Zod 4 runs for one schema (each schema has its own _zod.run).
+function countSchemaRuns(schema: unknown) {
+  const zod = (schema as { _zod: { run: (...args: unknown[]) => unknown } })._zod;
+  const original = zod.run;
+  const state = { calls: 0, restore: () => { zod.run = original; } };
+  zod.run = function (this: unknown, ...args: unknown[]) {
+    state.calls++;
+    return original.apply(this, args);
   };
   return state;
 }
+
+const countPositionRowParses = () => countSchemaRuns(ZERION_SCHEMAS_FOR_TESTS.position);
 
 test("rejects more raw rows than maxPositions before validating any row", async () => {
   for (const extra of [1, 2, 3]) {
@@ -279,17 +281,7 @@ test("implementations bound stays the documented assumption", () => {
   assert.equal(MAX_IMPLEMENTATIONS_PER_POSITION, 128);
 });
 
-function countImplementationParses() {
-  const proto = z.ZodObject.prototype as unknown as { _parse: (input: { path?: unknown[] }) => unknown };
-  const original = proto._parse;
-  const state = { calls: 0, restore: () => { proto._parse = original; } };
-  proto._parse = function (this: unknown, input: { path?: unknown[] }) {
-    const path = input?.path;
-    if (Array.isArray(path) && path[path.length - 2] === "implementations") state.calls++;
-    return original.call(this, input);
-  };
-  return state;
-}
+const countImplementationParses = () => countSchemaRuns(ZERION_SCHEMAS_FOR_TESTS.implementation);
 
 function rowWithImplementations(count: number, valid: boolean) {
   const row = position("many-implementations");
@@ -337,17 +329,15 @@ function compactBody(rows: number, implementationsPerRow: number): string {
 }
 
 async function loadCountingObjectParses(text: string, maxPositions: number) {
-  const proto = z.ZodObject.prototype as unknown as { _parse: (input: unknown) => unknown };
-  const original = proto._parse;
-  let calls = 0;
-  proto._parse = function (this: unknown, input: unknown) { calls++; return original.call(this, input); };
+  // Any Zod validation starts with the envelope schema.
+  const spy = countSchemaRuns(ZERION_SCHEMAS_FOR_TESTS.envelope);
   try {
     await provider(async () => new Response(text), { maxPositions }).load(context(maxPositions));
-    return { kind: "ok", calls };
+    return { kind: "ok", calls: spy.calls };
   } catch (error) {
-    return { kind: (error as ZerionProviderError).kind, calls };
+    return { kind: (error as ZerionProviderError).kind, calls: spy.calls };
   } finally {
-    proto._parse = original;
+    spy.restore();
   }
 }
 

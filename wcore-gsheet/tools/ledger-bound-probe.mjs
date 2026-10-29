@@ -1,0 +1,3 @@
+import {api} from './ledger-audit.mjs';
+const t='ZZ_ROOT_BOUND_PROBE_'+Date.now();const a=await api(':batchUpdate',{requests:[{addSheet:{properties:{title:t,gridProperties:{rowCount:20,columnCount:4}}}}]});const id=a.replies[0].addSheet.properties.sheetId;
+try{await api('/values:batchUpdate',{valueInputOption:'USER_ENTERED',data:[{range:`'${t}'!A1:A3`,values:[['a'],['b'],['c']]},{range:`'${t}'!B1`,values:[['=IFERROR(MAX(FILTER(ROW(A1:A20);A1:A20<>""));1)']]},{range:`'${t}'!C1`,values:[['=MAP(A1:INDEX(A:A;B1);LAMBDA(x;x&"!"))']]}]});console.log(JSON.stringify((await api('/values/'+encodeURIComponent(`'${t}'!A1:D5`))).values));}finally{await api(':batchUpdate',{requests:[{deleteSheet:{sheetId:id}}]});}

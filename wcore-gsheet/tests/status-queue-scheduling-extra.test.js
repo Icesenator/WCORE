@@ -1,0 +1,3 @@
+const fs=require('node:fs'), vm=require('node:vm'), path=require('node:path');const test=require('node:test'),assert=require('node:assert/strict');
+const root=process.env.WCORE_STATUS_CANDIDATE || path.resolve(__dirname,'../src');
+test('diagnostic inclut réellement les métriques queue',()=>{const c={_webScanQueueStatusRows_:()=>[['queueDepth',7]]};vm.createContext(c);vm.runInContext(fs.readFileSync(path.join(root,process.env.WCORE_STATUS_CANDIDATE ? '41_GSHEET_WEB_SCAN.js' : '41_GSHEET_WEB_SCAN.gs'),'utf8'),c);c._webScanBreakerStatus_=()=>({});c._webScanEnabled_=()=>true;c._webScanRequireEnabled_=()=>true;c._webScanProp_=()=>'';assert.equal(Object.fromEntries(c.DIAG_WEB_SCAN_STATUS()).queueDepth,7);});

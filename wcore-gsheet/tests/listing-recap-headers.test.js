@@ -18,6 +18,9 @@ const recap = {
       setFormula(formula) {
         writes.push({ a1, formula });
       },
+      setFormulas(formulas) {
+        writes.push({ a1, formulas });
+      },
       setRichTextValues() {},
       clearContent() {}
     };
@@ -58,22 +61,33 @@ assert.strictEqual(JSON.stringify(headerWrite.values), JSON.stringify([[
   'LAST SCAN (J1)'
 ]]));
 
-// v4.16.x: Recap Portfolio!CA1:CA2 must be auto-repaired by _setRecapHyperlinks_
+// v4.16.x: Recap Portfolio!CA1:CA2+ must be auto-repaired by _setRecapHyperlinks_
 // so the Vérif column keeps surfacing "Erreur (0 V)" for ledger/CEX rows
 // whose target column has zero V entries (previous behavior regressed to a
 // bare 0). We assert the explicit call to _repairRecapPortfolioVerif_ and
 // the contract of the formula itself.
+// NOTE: since 2026-10-04 the repair writes ONE CLASSIC FORMULA PER ROW
+// (setFormulas over CA2:CA_last) instead of a single MAP spill in CA2.
+// A slow/broken INDIRECT then breaks only its own cell instead of nuking
+// the whole column with a formula-parse error.
 const verifHeader = writes.find((write) => write.a1 === 'CA1' && 'value' in write);
-const verifFormula = writes.find((write) => write.a1 === 'CA2' && 'formula' in write);
+const verifFormulas = writes.filter((write) => 'formulas' in write);
 assert(verifHeader, 'Recap refresh should set CA1 to the Vérif header');
 assert.strictEqual(verifHeader.value, 'Vérif');
-assert(verifFormula, 'Recap refresh should set CA2 to the Vérif MAP formula');
+assert(verifFormulas.length > 0 && verifFormulas[0].formulas.length > 0 && verifFormulas[0].formulas[0][0],
+  'Recap refresh should write per-row Vérif formulas (setFormulas) starting at CA2');
 assert(typeof context._recapPortfolioVerifFormula_ === 'function', '_recapPortfolioVerifFormula_ must be defined');
 const formula = context._recapPortfolioVerifFormula_();
+assert(typeof context._recapPortfolioVerifRowFormula_ === 'function', '_recapPortfolioVerifRowFormula_ must be defined');
+const formulaRow7 = context._recapPortfolioVerifRowFormula_(7);
+assert(formulaRow7.indexOf('A7') >= 0, 'row formula must reference its own row (A7 for row 7)');
+assert(/MAP\s*\(/i.test(formula) === false, 'formula must NOT be a MAP spill anymore');
+assert(formula.indexOf('Notification Rules') >= 0, 'formula must exclude utility tabs');
 assert(formula.indexOf('Erreur (X présent)') >= 0, 'formula must surface Erreur (X présent) for X entries');
 assert(formula.indexOf('Erreur (0 V)') >= 0, 'formula must surface Erreur (0 V) when no V entry exists');
-assert(formula.indexOf('CEX - ') >= 0, 'formula must branch on CEX sheets (F:F column)');
-assert(formula.indexOf('H:H') >= 0, 'formula must branch on Ledger/on-chain sheets (H:H column)');
+assert(formula.indexOf('CEX - ') >= 0, 'formula must branch on CEX sheets (F2:F500 column)');
+assert(formula.indexOf('H2:H500') >= 0, 'formula must branch on Ledger/on-chain sheets (bounded H2:H500 column)');
+assert(!/![FH]:[FH]/.test(formula), 'formula must NOT use unbounded full-column INDIRECT ranges (!F:F / !H:H)');
 assert(typeof context.REPAIR_RECAP_PORTFOLIO_VERIF === 'function', 'REPAIR_RECAP_PORTFOLIO_VERIF must be exposed');
 
 // v4.16.x scoping: "Erreur (0 V)" is only meaningful on on-chain CRYPTO tabs.
@@ -84,13 +98,13 @@ assert(typeof context._recapVerifBranchFormula_ === 'function', '_recapVerifBran
 const cexBranch = context._recapVerifBranchFormula_('cex');
 const actionBranch = context._recapVerifBranchFormula_('action');
 const cryptoBranch = context._recapVerifBranchFormula_('crypto');
-assert(cexBranch.indexOf('F:F') >= 0, 'cex branch must count in F:F');
+assert(cexBranch.indexOf('F2:F500') >= 0, 'cex branch must count in F2:F500');
 assert(cexBranch.indexOf('Erreur (X présent)') >= 0, 'cex branch must surface Erreur (X présent)');
 assert(cexBranch.indexOf('Erreur (0 V)') < 0, 'cex branch must NOT surface Erreur (0 V) — 0 V is a legitimate empty CEX');
-assert(actionBranch.indexOf('H:H') >= 0, 'action branch must count in H:H');
+assert(actionBranch.indexOf('J3:J') >= 0, 'action branch must count actual Vérif in J3:J');
 assert(actionBranch.indexOf('Erreur (X présent)') >= 0, 'action branch must surface Erreur (X présent)');
 assert(actionBranch.indexOf('Erreur (0 V)') < 0, 'action branch must NOT surface Erreur (0 V) — Action tabs have no V marks');
-assert(cryptoBranch.indexOf('H:H') >= 0, 'crypto branch must count in H:H');
+assert(cryptoBranch.indexOf('H2:H500') >= 0, 'crypto branch must count in H2:H500');
 assert(cryptoBranch.indexOf('Erreur (X présent)') >= 0, 'crypto branch must surface Erreur (X présent)');
 assert(cryptoBranch.indexOf('Erreur (0 V)') >= 0, 'crypto branch must surface Erreur (0 V) when no V entry exists');
 assert(formula.indexOf('Action"') >= 0, 'formula must detect Action tabs by name suffix');

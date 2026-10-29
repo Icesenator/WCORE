@@ -88,7 +88,7 @@ function makeEnv(over) {
     isFinite,
     Logger: { log: (m) => logged.push(String(m)) },
     LockService: {
-      getUserLock: () => (opts.lockUnavailable
+      getScriptLock: () => (opts.lockUnavailable
         ? null
         : { tryLock: () => !opts.lockContended, releaseLock: () => {} })
     },
@@ -162,7 +162,8 @@ function makeEnv(over) {
   const rolled = new Date(Date.now() - 9 * 3600000);
   assert.strictEqual(payload.d, rolled.getUTCFullYear() + '-' + (rolled.getUTCMonth() + 1) + '-' + rolled.getUTCDate(),
     'the day key must use the 09h UTC rollover shared with the other HTTP counters');
-  assert.strictEqual(ctx.ExemptHttp.used('OTHER_SLOT'), 0, 'slots must be metered independently');
+  assert.strictEqual(ctx.ExemptHttp.used('PORTFOLIO_STOCK'), 0, 'authorized slots must be metered independently');
+  assert.strictEqual(ctx.ExemptHttp.used('OTHER_SLOT'), null, 'an unauthorized slot must not mint a budget');
 }
 
 // --- Contract 4: a genuine Google rejection is re-thrown AND reported to the
@@ -251,11 +252,17 @@ for (const [source, fnName] of [
 }
 
 // --- Contract 7: version guards for the three touched files.
-assert.match(quotaSource, /var\s+QUOTA_CIRCUIT_BREAKER_VERSION\s*=\s*["']4\.16\.79["'];/,
-  'QUOTA_CIRCUIT_BREAKER_VERSION must be bumped to 4.16.79');
-assert.match(cryptoSource, /var\s+CRYPTO_PORTFOLIO_VERSION\s*=\s*["']4\.16\.79["'];/,
-  'CRYPTO_PORTFOLIO_VERSION must be bumped to 4.16.79');
-assert.match(stockSource, /var\s+STOCK_PORTFOLIO_VERSION\s*=\s*["']4\.16\.79["'];/,
-  'STOCK_PORTFOLIO_VERSION must be bumped to 4.16.79');
+// Intent: each file must carry AT LEAST the 4.16.79 quota-exempt fix; later bumps stay valid.
+function versionAtLeast(source, name, floor) {
+  const m = source.match(new RegExp('var\\s+' + name + '\\s*=\\s*["\'](\\d+)\\.(\\d+)\\.(\\d+)["\']'));
+  assert.ok(m, `${name} must be declared`);
+  const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const f = floor.split('.').map(Number);
+  const ok = v[0] > f[0] || (v[0] === f[0] && (v[1] > f[1] || (v[1] === f[1] && v[2] >= f[2])));
+  assert.ok(ok, `${name} must be at least ${floor} (found ${v.join('.')})`);
+}
+versionAtLeast(quotaSource, 'QUOTA_CIRCUIT_BREAKER_VERSION', '4.16.79');
+versionAtLeast(cryptoSource, 'CRYPTO_PORTFOLIO_VERSION', '4.16.79');
+versionAtLeast(stockSource, 'STOCK_PORTFOLIO_VERSION', '4.16.79');
 
 console.log('quota-exempt portfolio guard OK');

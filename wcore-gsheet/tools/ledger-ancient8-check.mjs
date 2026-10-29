@@ -1,0 +1,1 @@
+import {api} from './ledger-audit.mjs';const r=await api('/values/'+encodeURIComponent("'Ledger - Ancient8'!A3:J12"));console.log(JSON.stringify((r.values||[]).map((x,i)=>({row:i+3,ticker:x[1],hasBalance:x[4]!==undefined&&x[4]!=='',verif:x[7]||null,meta:x[1]==='INFO_FX'?x[2]:undefined})),null,2));

@@ -40,6 +40,7 @@ const context = {
 };
 
 vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', '04E_FX_METADATA.gs'), 'utf8'), context);
 vm.runInContext(walletSource, context);
 vm.runInContext(globalSource, context);
 

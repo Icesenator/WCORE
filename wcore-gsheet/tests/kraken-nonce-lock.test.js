@@ -84,19 +84,22 @@ function makeHarness(opts) {
   assert.equal(h.props.get('KRAKEN_LAST_NONCE'), String(n), 'la nouvelle valeur doit remplacer l ancienne');
 }
 
-// --- 3. Valeur persistee corrompue: on retombe sur l horloge sans casser ---
+// --- 3. Contrat strict : corruption persistée = refus, jamais fallback horloge ---
 {
   const h = makeHarness({ props: [['KRAKEN_LAST_NONCE', 'not-a-number']] });
-  const n = h.ctx._krakenNextNonce_();
-  assert.ok(/^\d+$/.test(n) && Number(n) > 0, 'un nonce valide doit etre produit malgre une valeur corrompue');
+  assert.throws(() => h.ctx._krakenNextNonce_(), /nonce/i, 'un historique corrompu interdit un nouveau nonce');
+  assert.equal(h.props.get('KRAKEN_LAST_NONCE'), 'not-a-number', 'historique préservé pour investigation');
 }
 
-// --- 4. ScriptProperties indisponible: jamais d exception, le nonce reste utilisable ---
+// --- 4. ScriptProperties indisponible: fail-closed (incrément 3, P1-DATA-KRAKEN-STOCKS-OPEN-ORDERS) ---
+// Un nonce non persisté peut ne pas être strictement croissant au cycle suivant
+// (Invalid nonce puis Temporary lockout) : on refuse l'appel plutôt que de risquer le ban.
 {
-  const h = makeHarness({ propsUnavailable: true });
-  let n = null;
-  assert.doesNotThrow(function () { n = h.ctx._krakenNextNonce_(); }, 'Properties indisponible ne doit pas lever');
-  assert.ok(/^\d+$/.test(n), 'le nonce doit rester une chaine numerique');
+  let fetched = 0;
+  const h = makeHarness({ propsUnavailable: true, fetch: function () { fetched++; throw new Error('unexpected fetch'); } });
+  assert.throws(function () { h.ctx._krakenNextNonce_(); }, /properties unavailable/, 'Properties indisponible doit bloquer le nonce');
+  assert.throws(function () { h.ctx._krakenPrivatePost_('/0/private/BalanceEx', {}, { publicKey: 'k', privateKey: 'cw==' }); });
+  assert.equal(fetched, 0, 'aucun appel prive sans nonce persiste');
 }
 
 // --- 5. Les DEUX jobs Kraken partagent le MÊME lock (anti collision de nonce) ---

@@ -1,5 +1,6 @@
 /**
- * ROBINHOOD_CHAIN.gs - Robinhood Chain (v4.15.119)
+ * ROBINHOOD_CHAIN.gs - Robinhood Chain (v4.15.120)
+ * Pricing DEX : slug vérifié et contrepartie SPY autorisée par adresse, jamais SPY/10000.
  * ChainFactory pattern with explicit function declarations
  */
 
@@ -14,7 +15,9 @@ var _ROBINHOOD_CHAIN = ChainFactory.createEvmChain("ROBINHOOD_CHAIN", {
     NATIVE_NAME: "Ether",
     NATIVE_DECIMALS: 18,
     NATIVE_LLAMA_ID: "coingecko:ethereum",
-    NATIVE_GECKO_ID: "ethereum"
+    NATIVE_GECKO_ID: "ethereum",
+    DEX_SLUG: "robinhood",
+    DEX_QUOTE_ADDRESSES: ["0x117cc2133c37b721f49de2a7a74833232b3b4c0c"]
   },
   LLAMA_ID_MAP: { "ETH":"coingecko:ethereum" }
 });

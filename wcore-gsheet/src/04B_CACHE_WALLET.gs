@@ -267,7 +267,12 @@ CacheManager._deflateWalletPayload_ = function(obj) {
  out.a = rows;
 
  if (obj.rrCursor !== undefined) out.r = obj.rrCursor;
- if (obj.usd_to_eur !== undefined) out.fx = obj.usd_to_eur;
+ // Alias du scan delegue : conserver le taux applique, jamais recalculer les prix.
+ if (obj.usd_to_eur_rate !== undefined) out.fx = obj.usd_to_eur_rate;
+ else if (obj.usd_to_eur !== undefined) out.fx = obj.usd_to_eur;
+ else if (obj.fx !== undefined) out.fx = obj.fx;
+ if (obj.fxMetadata) out.fm = obj.fxMetadata;
+ else if (obj.fm) out.fm = obj.fm;
 
  var u = CacheManager._toEpochSec_(obj.updatedAt || obj.updated_at || obj.CacheUpdatedAt);
  if (u !== null) out.u = u;
@@ -359,7 +364,11 @@ CacheManager._inflateWalletPayload_ = function(compact) {
 
  out.assets = assets;
  if (compact.r !== undefined) out.rrCursor = compact.r;
- if (compact.fx !== undefined) out.usd_to_eur = compact.fx;
+ if (compact.fx !== undefined) {
+ out.usd_to_eur = compact.fx;
+ out.usd_to_eur_rate = compact.fx;
+ }
+ if (compact.fm) out.fxMetadata = compact.fm;
  if (compact.u !== undefined) out.updatedAt = CacheManager._fromEpochSec_(compact.u);
  if (compact.s !== undefined) out.last_full_scan = CacheManager._fromEpochSec_(compact.s);
  if (compact.p !== undefined) out.last_full_price = CacheManager._fromEpochSec_(compact.p);

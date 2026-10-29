@@ -774,16 +774,18 @@ var HttpCounter = (function() {
   // Contention cannot safely persist without the lock, so the observed dropped total is a lower bound.
   var _droppedPending = 0;
   var _lastValidCount = 0;
+  var _hasValidCount = false;
   var _telemetryDegraded = false;
   // Set by the tolerant breakdown reader when it repairs a corrupt map during a snapshot.
   var _snapshotBreakdownCorrupt = false;
 
   function _loadRaw(props, key) {
     var raw = props.getProperty(key);
-    if (!raw) return {};
+    if (!raw) return null;
     var obj;
-    try { obj = JSON.parse(raw); } catch (eParse) { return {}; }
-    return (obj && typeof obj === "object") ? obj : {};
+    try { obj = JSON.parse(raw); } catch (eParse) { throw new Error("Malformed HTTP telemetry: " + key); }
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) { throw new Error("Invalid HTTP telemetry: " + key); }
+    return obj;
   }
 
   function _snapshotLoadRaw(props, key) {
@@ -988,16 +990,29 @@ var HttpCounter = (function() {
     return out;
   }
 
-  function _readLocked(fallback, reader) {
+  function _readLocked(fallback, reader, key) {
     var lock = null;
     var acquired = false;
     try {
       lock = LockService.getUserLock();
-      if (!lock || !lock.tryLock(LOCK_WAIT_MS)) return fallback;
+      if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+        // v4.16.82: a contended lock must not erase attribution. Returning the
+        // caller's fallback made byHost()/byTrigger() report 0 while count()
+        // still reported the real total — the historical "hosts=0 / total=132"
+        // asymmetry. This READ-ONLY path mirrors _fallbackCount(): ScriptProperties
+        // returns the complete stored string, so it is safe without the lock.
+        if (!key) return fallback;
+        _telemetryDegraded = true;
+        try { return _flatten(_purge(_snapshotLoadRawLenient(PropertiesService.getScriptProperties(), key), Date.now())); }
+        catch (eFallback) { _telemetryDegraded = true; return fallback; }
+      }
       acquired = true;
       return reader(PropertiesService.getScriptProperties());
     } catch (e) {
-      return fallback;
+      if (!key) return fallback;
+        _telemetryDegraded = true;
+        try { return _flatten(_purge(_snapshotLoadRawLenient(PropertiesService.getScriptProperties(), key), Date.now())); }
+        catch (eFallback) { _telemetryDegraded = true; return fallback; }
     } finally {
       if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
     }
@@ -1011,8 +1026,13 @@ var HttpCounter = (function() {
       var props = PropertiesService.getScriptProperties();
       var total = _sum(_purge(_snapshotLoadRaw(props, KEY), Date.now()));
       _lastValidCount = total;
+      _hasValidCount = true;
       return total;
     } catch (e) {
+      // No evidence of consumption is not proof of no consumption: a malformed or
+      // unreadable total must never be read as a reliable zero. The previous valid
+      // count is retained; if none was ever obtained (_hasValidCount still false)
+      // the budget stays closed until a trustworthy read succeeds.
       return _lastValidCount;
     }
   }
@@ -1097,6 +1117,7 @@ var HttpCounter = (function() {
       });
       if (measured == null) return _fallbackCount() + _bufferSum();
       _lastValidCount = measured;
+      _hasValidCount = true;
       _telemetryDegraded = false;
       return measured + _bufferSum();
     },
@@ -1105,11 +1126,19 @@ var HttpCounter = (function() {
       return _telemetryDegraded;
     },
 
+    // True only when a trustworthy total has been obtained at least once this
+    // execution (fresh locked read, or a valid persisted snapshot). A transient
+    // exception or contention does NOT clear it; a corrupt/unreadable total keeps
+    // it false so consumers never read "no evidence" as a reliable zero.
+    isCountValid: function() {
+      return _hasValidCount;
+    },
+
     byTrigger: function() {
       var out = _readLocked({}, function(props) {
         var nowMs = Date.now();
         return _flatten(_purge(_loadRaw(props, TRIGGER_KEY), nowMs));
-      });
+      }, TRIGGER_KEY);
       var buffered = _bufferedTotalsFlat();
       for (var cat in buffered) {
         if (buffered.hasOwnProperty(cat)) out[cat] = (out[cat] || 0) + buffered[cat];
@@ -1121,7 +1150,7 @@ var HttpCounter = (function() {
       var out = _readLocked({}, function(props) {
         var nowMs = Date.now();
         return _flatten(_purge(_loadRaw(props, HOST_KEY), nowMs));
-      });
+      }, HOST_KEY);
       var buffered = _bufferedHostsFlat();
       for (var h in buffered) {
         if (buffered.hasOwnProperty(h)) out[h] = (out[h] || 0) + buffered[h];
@@ -1155,7 +1184,19 @@ var HttpCounter = (function() {
       try {
         lock = LockService.getUserLock();
         if (!lock || !lock.tryLock(LOCK_WAIT_MS)) {
+          // v4.16.82: same rationale as _readLocked — a contended lock must not
+          // publish an EMPTY breakdown next to a real total. Read the raw keys
+          // read-only so hosts/triggers stay attributable; still marked
+          // unavailable because this execution could not take the lock.
+          unavailable.categories = _flatten(_purge(_snapshotLoadRawLenient(PropertiesService.getScriptProperties(), TRIGGER_KEY), Date.now()));
+          unavailable.hosts = _flatten(_purge(_snapshotLoadRawLenient(PropertiesService.getScriptProperties(), HOST_KEY), Date.now()));
+          var cBuf = _bufferedTotalsFlat();
+          for (var c2 in cBuf) { if (cBuf.hasOwnProperty(c2)) unavailable.categories[c2] = (unavailable.categories[c2] || 0) + cBuf[c2]; }
+          var hBuf = _bufferedHostsFlat();
+          for (var h2 in hBuf) { if (hBuf.hasOwnProperty(h2)) unavailable.hosts[h2] = (unavailable.hosts[h2] || 0) + hBuf[h2]; }
           unavailable.total = _fallbackCount() + _bufferSum();
+          if (_snapshotBreakdownCorrupt) unavailable.corrupt = true;
+          unavailable.consistency = "BEST_EFFORT_UNLOCKED";
           return unavailable;
         }
         acquired = true;
@@ -1240,6 +1281,7 @@ var BudgetHTTP = BudgetHTTP || (function() {
   };
   var adminMinRemaining = CATEGORY_MIN_REMAINING.admin;
   var telemetryDegraded = false;
+  var _hasValidCount = false;
 
   // v4.16.39 — POST-TRIP SCAN FLOOR (recurring BLOCKED:QUOTA)
   //
@@ -1268,19 +1310,44 @@ var BudgetHTTP = BudgetHTTP || (function() {
   var TRIP_FLOOR_KEY = "WCORE_HTTP_TRIP_FLOOR_UNTIL_v1";
   var TRIP_FLOOR_MS = 3 * 60 * 60 * 1000;
   var TRIP_FLOOR_LOCK_WAIT_MS = 100;
-  // Execution-local memo: the deadline cannot change mid-execution (only a trip
-  // writes it), so one properties read per execution is enough. The READ is
-  // lock-free on purpose: getProperty is atomic, and a UserLock read is exactly
-  // the contended path (100ms tryLock) this design must avoid — failing open
-  // during contention would disable the hold precisely during a quota crisis.
-  // Only the WRITE keeps the UserLock discipline of the file.
-  var _floorUntilMemo = null;
+  // Authoritative probe of the shared deadline. Reads happen at every admission
+  // boundary: an execution that observed "no floor" must not keep that belief
+  // after another execution arms one. {known:false} means the property could not
+  // be read or is corrupt; callers gating real work must fail closed then.
+  // Both writes (monotonic arm and explicit clear) use the same bounded
+  // ScriptLock because this ScriptProperty is shared across users.
+
+  function _floorProbe_() {
+    try {
+      var raw = PropertiesService.getScriptProperties().getProperty(TRIP_FLOOR_KEY);
+      if (!raw) return { known: true, until: 0 };
+      var parsed = parseInt(raw, 10);
+      // A corrupt value is NOT proof that no floor is armed.
+      if (!isFinite(parsed)) return { known: false, until: 0 };
+      // A deadline further out than the maximum window cannot have been written by
+      // a real trip (clock skew, manual edit): treat it as absent so a bad value
+      // can never wedge WCORE into a permanent hold.
+      if (parsed > Date.now() + TRIP_FLOOR_MS) return { known: true, until: 0 };
+      return { known: true, until: parsed };
+    } catch (e) {
+      return { known: false, until: 0 };
+    }
+  }
+
+  function _floorUntil() {
+    return _floorProbe_().until;
+  }
+
+  function _floorActive() {
+    var probe = _floorProbe_();
+    return probe.known === true && probe.until > Date.now();
+  }
 
   function _floorWrite(writer) {
     var lock = null;
     var acquired = false;
     try {
-      lock = LockService.getUserLock();
+      lock = LockService.getScriptLock();
       if (!lock || !lock.tryLock(TRIP_FLOOR_LOCK_WAIT_MS)) return false;
       acquired = true;
       writer(PropertiesService.getScriptProperties());
@@ -1292,40 +1359,27 @@ var BudgetHTTP = BudgetHTTP || (function() {
     }
   }
 
-  function _floorUntil() {
-    if (_floorUntilMemo != null) return _floorUntilMemo;
-    var until = 0;
-    try {
-      // Atomic read — no lock needed (see memo comment above).
-      var raw = PropertiesService.getScriptProperties().getProperty(TRIP_FLOOR_KEY);
-      if (raw) {
-        var parsed = parseInt(raw, 10);
-        if (isFinite(parsed)) until = parsed;
-      }
-    } catch (e) {
-      until = 0;
-    }
-    // A deadline further out than the maximum window cannot have been written by
-    // a real trip (clock skew, corruption, manual edit): treat it as absent so a
-    // bad value can never wedge WCORE into a permanent hold.
-    if (until > Date.now() + TRIP_FLOOR_MS) until = 0;
-    _floorUntilMemo = until;
-    return until;
-  }
-
-  function _floorActive() {
-    return _floorUntil() > Date.now();
-  }
-
   function _count() {
     try {
       if (typeof HttpCounter !== 'undefined' && HttpCounter.count) {
         var count = HttpCounter.count();
+        if (typeof count !== "number" || !isFinite(count) || count < 0) {
+          telemetryDegraded = true;
+          _hasValidCount = false;
+          return 0;
+        }
         telemetryDegraded = !!(HttpCounter.isDegraded && HttpCounter.isDegraded());
+        // Fail-closed: an unattested total (corrupt/unreadable, never valid) must
+        // not open the budget as a reliable zero. A valid last-known count keeps
+        // admission working under transient contention/exception.
+        _hasValidCount = HttpCounter.isCountValid
+          ? !!HttpCounter.isCountValid()
+          : !HttpCounter.isDegraded();
         return count;
       }
     } catch (e) {
       telemetryDegraded = true;
+      _hasValidCount = false;
     }
     return 0;
   }
@@ -1358,11 +1412,20 @@ var BudgetHTTP = BudgetHTTP || (function() {
       // Never let a future-dated or absurd anchor extend the hold past the window.
       if (!(anchor < now)) anchor = now;
       var until = anchor + TRIP_FLOOR_MS;
+      // v4.16.38: a lagging or concurrent writer must never SHORTEN an already
+      // armed post-trip floor — otherwise the safety hold is silently eroded.
+      // The write is monotonic (max) inside the guarded section.
+      var effectiveUntil = until;
       var persisted = _floorWrite(function(props) {
-        props.setProperty(TRIP_FLOOR_KEY, String(until));
+        var existing = 0;
+        try { existing = Number(props.getProperty(TRIP_FLOOR_KEY) || 0); } catch (eRead) {}
+        if (isFinite(existing) && existing > effectiveUntil) effectiveUntil = existing;
+        props.setProperty(TRIP_FLOOR_KEY, String(effectiveUntil));
       });
-      if (persisted) _floorUntilMemo = until;
-      else try { Logger.log("[BUDGET_HTTP] post-trip scan floor not armed (telemetry lock/properties unavailable)"); } catch (eLog) {}
+      if (persisted) {
+        // No execution-local memo: the next admission boundary re-reads the
+        // shared deadline so a concurrent arm/clear is observed.
+      } else try { Logger.log("[BUDGET_HTTP] post-trip scan floor not armed (telemetry lock/properties unavailable)"); } catch (eLog) {}
       return persisted;
     },
 
@@ -1372,7 +1435,10 @@ var BudgetHTTP = BudgetHTTP || (function() {
      * @returns {boolean}
      */
     isPostTripFloorActive: function() {
-      return _floorActive();
+      var probe = _floorProbe_();
+      // Unknown (unreadable or corrupt) must never authorize a transport.
+      if (probe.known !== true) return true;
+      return probe.until > Date.now();
     },
 
     /**
@@ -1383,7 +1449,6 @@ var BudgetHTTP = BudgetHTTP || (function() {
       var cleared = _floorWrite(function(props) {
         props.deleteProperty(TRIP_FLOOR_KEY);
       });
-      _floorUntilMemo = cleared ? 0 : null;
       return cleared;
     },
 
@@ -1407,7 +1472,12 @@ var BudgetHTTP = BudgetHTTP || (function() {
     allow: function(categoryOrReason) {
       var category = categoryForReason(categoryOrReason);
       var min = CATEGORY_MIN_REMAINING[category] || CATEGORY_MIN_REMAINING.other;
-      if (this.remaining() < min) return false;
+      // Fail-closed: an unattested total (corrupt/unreadable, never valid) must not
+      // open the budget as a reliable zero. Evaluate the counter FIRST so
+      // _hasValidCount reflects the current reading, not its module initial value.
+      var remaining = this.remaining();
+      if (!_hasValidCount) return false;
+      if (remaining < min) return false;
       return true;
     },
 
@@ -1424,7 +1494,10 @@ var BudgetHTTP = BudgetHTTP || (function() {
         adminMinRemaining: adminMinRemaining,
         // Advisory post-trip scan hold (does not affect the budget numbers above).
         tripFloorActive: _floorActive(),
-        tripFloorUntil: _floorUntil() || null
+        tripFloorUntil: _floorUntil() || null,
+        // true when the shared deadline could not be read/corrupted: the AUTO
+        // admission then fails closed while the numeric fields above read 0.
+        tripFloorUnknown: _floorProbe_().known !== true
       };
     }
   };
@@ -1453,6 +1526,14 @@ var ExemptHttp = (function() {
   var KEY_PREFIX = "WCORE_EXEMPT_HTTP_";
   var LOCK_WAIT_MS = 100;
   var _memo = {};
+  // Historical contract: this bounded fallback exists for the two portfolio
+  // snapshot fetches only. Any other slot name must not mint a fresh envelope.
+  var ALLOWED_SLOTS = { "PORTFOLIO_STOCK": true, "PORTFOLIO_CRYPTO": true };
+  // Set when a persist write failed during THIS execution: the persisted count
+  // can no longer be trusted as unchanged, so the local memo bounds the rest of
+  // the execution instead of re-reading a value we failed to update.
+  var _writeDown = {};
+  var _degradedAttempts = {};
 
   function _dayStamp() {
     // Same 09h UTC rollover as the other HTTP counters (26B_HTTP_SAVINGS).
@@ -1460,41 +1541,88 @@ var ExemptHttp = (function() {
     return d.getUTCFullYear() + "-" + (d.getUTCMonth() + 1) + "-" + d.getUTCDate();
   }
 
-  function _readUsed(key) {
+  function _readUsed(key, fresh) {
+    var today = _dayStamp();
     var memo = _memo[key];
-    if (memo && memo.day === _dayStamp()) return memo.n;
-    var used = 0;
-    try {
-      var raw = PropertiesService.getScriptProperties().getProperty(key);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && parsed.d === _dayStamp() && typeof parsed.n === "number") used = parsed.n;
-      }
-    } catch (e) {}
-    return used;
+    if (!fresh && memo && memo.day === today) return memo.n;
+    var raw;
+    try { raw = PropertiesService.getScriptProperties().getProperty(key); }
+    catch (eRead) { throw eRead; }
+    if (raw == null || raw === "") return 0; // absent key is not corrupt
+    var parsed;
+    try { parsed = JSON.parse(raw); } catch (eParse) { return null; }
+    if (!parsed || Object.prototype.toString.call(parsed) !== "[object Object]" ||
+        typeof parsed.d !== "string" || !/^\d{4}-\d{1,2}-\d{1,2}$/.test(parsed.d) ||
+        typeof parsed.n !== "number" || !isFinite(parsed.n) || parsed.n < 0 ||
+        Math.floor(parsed.n) !== parsed.n) return null;
+    // A valid record from a different 09h-UTC period does not consume today's
+    // budget. Present but corrupt data is UNKNOWN, never evidence of zero.
+    return parsed.d === today ? parsed.n : 0;
   }
 
   function _reserve(slot, limit) {
     var key = KEY_PREFIX + String(slot || "default");
     var lock = null;
     var acquired = false;
+    var period;
     try {
-      try { lock = LockService.getUserLock(); } catch (eLock) { lock = null; }
-      if (lock && lock.tryLock) acquired = !!lock.tryLock(LOCK_WAIT_MS);
+      try {
+        // ScriptProperties are shared across users of this script.
+        lock = LockService.getScriptLock();
+        if (lock && lock.tryLock) acquired = !!lock.tryLock(LOCK_WAIT_MS);
+      } catch (eLock) { acquired = false; }
+      // Reservation period is anchored AFTER lock acquisition, before reading.
+      period = _dayStamp();
       var props = PropertiesService.getScriptProperties();
-      var used = _readUsed(key);
+      // Always reread the persisted count, even when the lock was unavailable.
+      // That is best-effort freshness, NOT an atomic reservation without a lock.
+      // A write failure keeps the per-execution memo instead of resetting it.
+      // The degraded envelope is per execution, not reset by a 09h rollover
+      // followed by storage recovery. Persisted normal reservations still roll.
+      if (_writeDown[key] && (_degradedAttempts[key] || 0) >= Math.min(limit, 2)) return false;
+      var used = _readUsed(key, true, period);
+      // A degraded local envelope never overrides a newer authoritative count.
+      // Retain its lower bound on recovery, without pretending it was persisted.
+      var localMemo = _memo[key];
+      if (_writeDown[key] === period && localMemo && localMemo.day === period && used != null) {
+        used = Math.max(used, localMemo.n);
+      }
+      if (used == null) {
+        try { Logger.log("[EXEMPT_HTTP] counter unknown/corrupt: " + slot); } catch (eLog) {}
+        return false;
+      }
       if (used >= limit) return false;
+      // Without ownership of the shared lock, never write shared reservations.
+      // Preserve only the explicitly weaker, execution-local emergency envelope.
+      if (!acquired) {
+        if ((_degradedAttempts[key] || 0) >= Math.min(limit, 2)) return false;
+        _degradedAttempts[key] = (_degradedAttempts[key] || 0) + 1;
+        _memo[key] = { day: period, n: used + 1 };
+        _writeDown[key] = period;
+        return true;
+      }
       used += 1;
-      _memo[key] = { day: _dayStamp(), n: used };
-      try { props.setProperty(key, JSON.stringify({ d: _dayStamp(), n: used })); } catch (eWrite) {}
+      _memo[key] = { day: period, n: used };
+      try { props.setProperty(key, JSON.stringify({ d: period, n: used })); }
+      catch (eWrite) {
+        _writeDown[key] = period;
+        _degradedAttempts[key] = (_degradedAttempts[key] || 0) + 1;
+        if (_degradedAttempts[key] > Math.min(limit, 2)) return false;
+      }
       return true;
     } catch (e) {
+      if (!period) period = _dayStamp();
       // Telemetry/properties outage must not block the portfolio, but it also
       // must not open an unlimited hole: fall back to the execution-local memo.
+      // No persistent daily guarantee is claimed in this degraded path.
       var memoKey = KEY_PREFIX + String(slot || "default");
-      var memoUsed = (_memo[memoKey] && _memo[memoKey].day === _dayStamp()) ? _memo[memoKey].n : 0;
-      if (memoUsed >= limit) return false;
-      _memo[memoKey] = { day: _dayStamp(), n: memoUsed + 1 };
+      var memoUsed = (_memo[memoKey] && _memo[memoKey].day === period) ? _memo[memoKey].n : 0;
+      if (memoUsed >= limit || (_degradedAttempts[memoKey] || 0) >= Math.min(limit, 2)) return false;
+      _degradedAttempts[memoKey] = (_degradedAttempts[memoKey] || 0) + 1;
+      _memo[memoKey] = { day: period, n: memoUsed + 1 };
+      // A degraded attempt was not persisted. Recovery of the storage service
+      // must not reset this execution's already-consumed local envelope.
+      _writeDown[memoKey] = period;
       return true;
     } finally {
       if (acquired) { try { lock.releaseLock(); } catch (eRelease) {} }
@@ -1512,7 +1640,8 @@ var ExemptHttp = (function() {
 
   return {
     used: function(slot) {
-      return _readUsed(KEY_PREFIX + String(slot || "default"));
+      if (!Object.prototype.hasOwnProperty.call(ALLOWED_SLOTS, slot)) return null;
+      try { return _readUsed(KEY_PREFIX + slot); } catch (eRead) { return null; }
     },
 
     /**
@@ -1520,9 +1649,15 @@ var ExemptHttp = (function() {
      * propagates so the caller classifies it and the breaker stays accurate.
      */
     attempt: function(slot, url, options, dailyLimit) {
+      if (typeof slot !== "string" || !Object.prototype.hasOwnProperty.call(ALLOWED_SLOTS, slot)) {
+        try { Logger.log("[EXEMPT_HTTP] unauthorized slot"); } catch (eLog) {}
+        return null;
+      }
+      var ceiling = parseInt(QUOTA_EXEMPT_DAILY_LIMIT, 10);
+      if (!(ceiling > 0)) ceiling = 96;
       var limit = parseInt(dailyLimit, 10);
-      if (!(limit > 0)) limit = parseInt(QUOTA_EXEMPT_DAILY_LIMIT, 10);
-      if (!(limit > 0)) limit = 96;
+      if (!(limit > 0)) limit = ceiling;
+      limit = Math.min(limit, ceiling); // overrides may reduce, never mint quota
       if (!_reserve(slot, limit)) {
         try { Logger.log("[EXEMPT_HTTP] allowance spent: " + slot); } catch (eLog) {}
         return null;

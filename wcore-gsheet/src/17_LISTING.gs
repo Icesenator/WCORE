@@ -51,7 +51,7 @@ var LEDGER_RETIRED_NAMES = {
 
 function _isLedgerLike_(name) {
  var n = String(name || "").toLowerCase();
- if (LEDGER_RETIRED_NAMES[n]) return false;
+ if (LEDGER_RETIRED_NAMES[n] || /^zz_(validation|root_bound|fixture|test)/i.test(n)) return false;
  return (
  (n.indexOf("ledger") >= 0 ||
   n.indexOf("layer3") >= 0 ||
@@ -81,7 +81,7 @@ function _filterLedgerNames_(names) {
  var out = [];
  for (var i = 0; i < (names || []).length; i++) {
   var name = String(names[i] || "");
-  if (name && !LEDGER_RETIRED_NAMES[name.toLowerCase()]) out.push(name);
+  if (name && _isLedgerLike_(name)) out.push(name);
  }
  return out;
 }
@@ -126,47 +126,75 @@ function _ensureLedgerCache_(force) {
 
 // ============================================================
 // v4.16.x — Recap Portfolio column CA (Vérif)
-// MAP formula that surfaces verification state per ledger/CEX row.
+// Classic per-row formula (NOT a MAP spill): one formula per line, extended
+// along the table. A slow/broken INDIRECT only breaks its own cell instead of
+// nuking the whole column with a formula-parse error.
 // Three branches, one per on-sheet convention:
 //   - CEX   ("CEX - ..."): F:F, surface X errors only. 0 V is a legitimate
 //     empty CEX, never an error.
 //   - Action on-chain (sheet name ends with "Action"): H:H, surface X
 //     errors only. Action tabs do not use V marks.
 //   - Crypto on-chain (everything else): H:H, surface X errors AND the
-//     "Erreur (0 V)" branch when no V entry is present (previous MAP
-//     stopped at COUNTIF and left a bare 0 in that case).
+//     "Erreur (0 V)" branch when no V entry is present.
+// Utility tabs (Rebalancing, Vac, ~calc, Notification Rules) and the Recap
+// itself are excluded so they never produce a value or an error.
+// INDIRECT ranges are bounded (F2:F500, H2:H500) — never full columns.
 // Each branch is exposed separately so the test harness can assert the
 // contract without a Sheets runtime.
-// Called from _setRecapHyperlinks_ so the formula is restored whenever
+// Called from _setRecapHyperlinks_ so the formulas are restored whenever
 // the ledger cache is rebuilt.
 // ============================================================
-function _recapVerifBranchFormula_(kind) {
+function _recapVerifExcludedTabs_() {
+  return ["Recap Portfolio", "Recap Chain", "Rebalancing", "Vac", "~calc", "Notification Rules"];
+}
+
+function _recapVerifIsExcludedExpr_(cellRef) {
+  var parts = _recapVerifExcludedTabs_().map(function (t) {
+    return cellRef + '="' + t + '"';
+  });
+  return "OR(" + parts.join(";") + ")";
+}
+
+function _recapVerifBranchFormula_(kind, cellRef) {
+  var ref = cellRef || "A2";
   if (kind === "cex") {
-    return 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!F:F");"X")>0;"Erreur (X présent)";COUNTIF(INDIRECT("\'"&sheet&"\'!F:F");"V"))';
+    return 'IF(COUNTIF(INDIRECT("\'"&' + ref + '&"\'!F2:F500");"X")>0;"Erreur (X présent)";COUNTIF(INDIRECT("\'"&' + ref + '&"\'!F2:F500");"V"))';
   }
   if (kind === "action") {
-    return 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"X")>0;"Erreur (X présent)";COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"V"))';
+    return 'IF(COUNTIF(INDIRECT("\'"&' + ref + '&"\'!J3:J");"X")>0;"Erreur (X présent)";COUNTIF(INDIRECT("\'"&' + ref + '&"\'!J3:J");"V"))';
   }
   // kind === "crypto" (default) — only branch that surfaces "Erreur (0 V)".
-  return 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"X")>0;"Erreur (X présent)";'
-    + 'IF(COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"V")=0;"Erreur (0 V)";COUNTIF(INDIRECT("\'"&sheet&"\'!H:H");"V")))';
+  return 'IF(COUNTIF(INDIRECT("\'"&' + ref + '&"\'!H2:H500");"X")>0;"Erreur (X présent)";'
+    + 'IF(COUNTIF(INDIRECT("\'"&' + ref + '&"\'!H2:H500");"V")=0;"Erreur (0 V)";COUNTIF(INDIRECT("\'"&' + ref + '&"\'!H2:H500");"V")))';
+}
+
+function _recapPortfolioVerifRowFormula_(row) {
+  var ref = "A" + row;
+  var excluded = _recapVerifIsExcludedExpr_(ref);
+  var cexBranch = _recapVerifBranchFormula_("cex", ref);
+  var actionBranch = _recapVerifBranchFormula_("action", ref);
+  var cryptoBranch = _recapVerifBranchFormula_("crypto", ref);
+  return "=IF(" + ref + '="";"";'
+    + "IF(" + excluded + ';"";'
+    + 'IF(LEFT(' + ref + ';6)="CEX - ";' + cexBranch + ';'
+    + 'IF(RIGHT(' + ref + ';7)=" Action";' + actionBranch + ";" + cryptoBranch + ")"
+    + ")))";
 }
 
 function _recapPortfolioVerifFormula_() {
-  var cexBranch = _recapVerifBranchFormula_("cex");
-  var actionBranch = _recapVerifBranchFormula_("action");
-  var cryptoBranch = _recapVerifBranchFormula_("crypto");
-  return '=MAP(A2:A;LAMBDA(sheet;IF(sheet="";"";'
-    + 'IF(LEFT(sheet;6)="CEX - ";' + cexBranch + ';'
-    + 'IF(RIGHT(sheet;7)=" Action";' + actionBranch + ';' + cryptoBranch + ')'
-    + ')))';
+  return _recapPortfolioVerifRowFormula_(2);
 }
 
 function _repairRecapPortfolioVerif_(ss) {
   var recap = ss && ss.getSheetByName("Recap Portfolio");
   if (!recap) return false;
   recap.getRange("CA1").setValue("Vérif");
-  recap.getRange("CA2").setFormula(_recapPortfolioVerifFormula_());
+  var lastRow = Math.max(recap.getLastRow(), 2);
+  var formulas = [];
+  for (var r = 2; r <= lastRow; r++) {
+    formulas.push([_recapPortfolioVerifRowFormula_(r)]);
+  }
+  recap.getRange(2, 79, formulas.length, 1).setFormulas(formulas);
   return true;
 }
 

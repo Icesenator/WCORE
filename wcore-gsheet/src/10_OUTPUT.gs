@@ -439,7 +439,7 @@ var OutputBuilder = {
  if (overrideNativeInfo) {
  out.push(this.infoRow(chainName, "INFO_NATIVE", String(overrideNativeInfo)));
  }
- out.push(this.infoRow(chainName, "INFO_FX", fxCached ? ("USD->EUR=" + fxCached.toFixed(4)) : "USD->EUR=N/A"));
+ out.push(this.infoRow(chainName, "INFO_FX", _fxMetadataLabel_(fxCached, cache && cache.fxMetadata)));
  out.push(this.infoRow(chainName, "INFO_TOTAL", "Total portefeuille (sum value_eur).", total));
  
  // Ajouter les lignes META

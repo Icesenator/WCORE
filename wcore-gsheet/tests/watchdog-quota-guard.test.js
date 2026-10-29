@@ -25,7 +25,7 @@ const maxPulsesMatch = source.match(/var\s+WD_MAX_PULSES_PER_RUN\s*=\s*(\d+)\s*;
 assert(maxPulsesMatch, 'WD_MAX_PULSES_PER_RUN must be defined');
 assert.strictEqual(Number(maxPulsesMatch[1]), 10, 'WATCHDOG should cap B1 pulses at 10 per run');
 
-function loadWatchdogHelpers() {
+function loadWatchdogHelpers(overrides) {
   const names = [
     '_wd_norm_',
     '_wd_fmtDate_',
@@ -42,6 +42,9 @@ function loadWatchdogHelpers() {
     '_wd_isCexSheet_',
     '_wd_collectGlobalRefreshActions_',
     '_wd_shouldSyncJ1_',
+    '_wd_a2NeedsRecalc_',
+    '_wd_confirmA2Error_',
+    '_wd_quoteA1Sheet_',
     '_wd_j1LatchValue_',
     '_wd_readDirectB1_',
     '_wd_needsRefresh_',
@@ -65,7 +68,13 @@ function loadWatchdogHelpers() {
     QuotaCircuitBreaker: { isTripped: () => false },
     HttpErrorGuard: { isQuotaExhausted: () => false },
     CacheGuard: { isBlocked: () => false },
-    Logger: { log() {} }
+    Logger: { log() {} },
+    WCORE_SPREADSHEET_ID: 'TEST_ID',
+    Sheets: { Spreadsheets: { Values: { get: (_id, range) => {
+      if (String(range).endsWith('!A2')) return { values: [['#ERROR!']] };
+      throw new Error('range not stubbed in this test');
+    } } } },
+    ...(overrides || {})
   };
   vm.createContext(context);
   vm.runInContext(code, context);
@@ -133,6 +142,25 @@ assert(
     reason: 'a2_error_recalc',
     fairnessIndex: 0
   }], 'A2 custom-function errors should bump J1 by one second without pulsing B1');
+}
+
+{
+  // v4.16.72: the bump requires the A2 error to be confirmed on the sheet.
+  const stale = helpers._wd_collectGlobalRefreshActions_([
+    { sheetName: 'Ledger - Aurora', vA2: '#ERROR!', vB1: '2026-07-08 20:16:06',
+      vI1: 'WEB_SCAN_OK 2026-07-08 20:16:28', vJ1: '2026-07-08 20:16:28' }
+  ], helpers._wd_parseLocalDateTimeToMs_('2026-07-08 21:10:00'), 5 * 3600000, '2026-07-08 21:10:00', {});
+  assert.equal(stale.length, 1, 'confirmed A2 error still bumps in the shared context');
+  const healthy = loadWatchdogHelpers({ Sheets: { Spreadsheets: { Values: { get: (_id, range) => {
+    if (String(range).endsWith('!A2')) return { values: [['1,00 €']] };
+    throw new Error('range not stubbed in this test');
+  } } } } });
+  const noBump = healthy._wd_collectGlobalRefreshActions_([
+    { sheetName: 'Ledger - Aurora', vA2: '#ERROR!', vB1: '2026-07-08 20:16:06',
+      vI1: 'WEB_SCAN_OK 2026-07-08 20:16:28', vJ1: '2026-07-08 20:16:28' }
+  ], healthy._wd_parseLocalDateTimeToMs_('2026-07-08 21:10:00'), 5 * 3600000, '2026-07-08 21:10:00', {});
+  assert.deepEqual(noBump.filter((a) => a.reason === 'a2_error_recalc'), [],
+    'a stale Recap A2 that the sheet contradicts must not bump J1');
 }
 
 {

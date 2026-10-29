@@ -302,6 +302,62 @@ test("GeckoTerminal Try3 ignores pools below the liquidity floor", async () => {
   assert.equal(result?.marker, "NEED_TRY3");
 });
 
+// IJN on Base (2026-10-29): simple token_price $0.000214 came from a drained v4 pool,
+// /tokens price_usd and the only real pool (IJN/WETH, $3.2k reserve) gave $0.0000046.
+function ijnFetch(simple: string | null, tokenPrice: string | null, pools: Array<{ price: string; reserve: string }>) {
+  return fetchMock((url) => {
+    if (url.includes("/simple/networks/base/token_price/")) {
+      return { data: { attributes: { token_prices: { [CONTRACT]: simple } } } };
+    }
+    if (url.includes(`/networks/base/tokens/${CONTRACT}/pools`)) {
+      return {
+        data: pools.map((p) => ({
+          attributes: { base_token_price_usd: p.price, reserve_in_usd: p.reserve },
+          relationships: { base_token: { data: { id: `base_${CONTRACT}` } } },
+        })),
+      };
+    }
+    if (url.includes(`/networks/base/tokens/${CONTRACT}`)) {
+      return { data: { attributes: { price_usd: tokenPrice, symbol: "IJN", name: "I Just Need" } } };
+    }
+    throw new Error(`unexpected url ${url}`);
+  });
+}
+
+test("GeckoTerminal rejects a simple price diverging from /tokens and uses the deepest pool", async () => {
+  const cache = new MemoryPricingCache();
+  const source = new GeckoTerminalPriceSource(cache, ijnFetch("0.00021457721", "0.000004595024852", [
+    { price: "0.000004595024852", reserve: "3261.5957" },
+    { price: "0.0003969896901", reserve: "0.000000000000000000001" },
+  ]));
+
+  const result = await source.getTokenPriceUsd(token());
+
+  assert.deepEqual(result, { priceUsd: 0.000004595024852, source: "gt", symbol: "IJN", name: "I Just Need" });
+  assert.equal(await cache.getMarker(`GT_OK:base:${CONTRACT}`), null, "a divergent token is never marked confirmed");
+});
+
+test("GeckoTerminal leaves a divergent token unpriced when no pool clears the liquidity floor", async () => {
+  const source = new GeckoTerminalPriceSource(new MemoryPricingCache(), ijnFetch("0.00021457721", "0.000004595024852", [
+    { price: "0.0003969896901", reserve: "0.000000000000000000001" },
+  ]));
+
+  const result = await source.getTokenPriceUsd(token());
+
+  assert.equal(result?.priceUsd, null);
+  assert.equal(result?.reason, "gt_simple_unconfirmed");
+});
+
+test("GeckoTerminal keeps a simple price confirmed by /tokens and marks it GT_OK", async () => {
+  const cache = new MemoryPricingCache();
+  const source = new GeckoTerminalPriceSource(cache, ijnFetch("0.0000096154", "0.0000096154", []));
+
+  const result = await source.getTokenPriceUsd(token());
+
+  assert.deepEqual(result, { priceUsd: 0.0000096154, source: "gt-batch", symbol: "IJN", name: "I Just Need" });
+  assert.equal(await cache.getMarker(`GT_OK:base:${CONTRACT}`), "GT_OK");
+});
+
 // Jupiter retired the v2 price API: it answers 404, and the source swallowed that
 // through `if (!res.ok) return null`, so every SVM token silently lost its most
 // important source. v3 replies with a flat map keyed by mint, holding `usdPrice`.

@@ -1,7 +1,7 @@
-import { NEED_TRY3 } from "../markers.js";
+import { GT_OK, MARKER_TTL_MS, NEED_TRY3 } from "../markers.js";
 import type { PricingCache, PricingToken, SourcePrice, SourcePriceLike, TokenPriceSource } from "../types.js";
 import { isPositiveFinite, normalizePriceKey } from "../types.js";
-import { gtMarkerKey, gtNetwork } from "../markers.js";
+import { gtConfirmMarkerKey, gtMarkerKey, gtNetwork } from "../markers.js";
 
 // Defaults: 120 calls / 60s. The web runtime has no 30s execution cap like GSheet,
 // so we can afford a much higher budget per scan. Keep the shared throttle to
@@ -43,6 +43,40 @@ class GtThrottle {
 }
 
 const sharedGtThrottle = new GtThrottle(DEFAULT_MAX_CALLS, DEFAULT_WINDOW_MS);
+
+// Two GeckoTerminal prices for the same token further apart than this ratio disagree.
+const GT_MAX_DIVERGENCE = 3;
+
+export function gtPricesAgree(a: number, b: number): boolean {
+  return isPositiveFinite(a) && isPositiveFinite(b) && Math.max(a, b) / Math.min(a, b) <= GT_MAX_DIVERGENCE;
+}
+
+/**
+ * Bulk GT simple prices are served as fresh cache hits without any other check, so a
+ * price fabricated by a drained pool would stick. Keep a bulk GT price only when
+ * DefiLlama agrees with it, or when the per-token path recently confirmed it against
+ * /tokens price_usd (GT_OK marker). Everything else goes through the per-token cascade.
+ */
+export async function confirmGtBatchPrices(
+  network: string,
+  gtBatch: Map<string, number> | null | undefined,
+  llamaBatch: Map<string, number> | null | undefined,
+  cache: Pick<PricingCache, "getMarker">,
+): Promise<Map<string, number>> {
+  const confirmed = new Map<string, number>();
+  if (!(gtBatch instanceof Map)) return confirmed;
+  for (const [contract, priceUsd] of gtBatch) {
+    const llamaUsd = llamaBatch instanceof Map ? llamaBatch.get(contract) : undefined;
+    if (llamaUsd != null) {
+      if (gtPricesAgree(priceUsd, llamaUsd)) confirmed.set(contract, priceUsd);
+      continue;
+    }
+    let marker: string | null = null;
+    try { marker = await cache.getMarker(gtConfirmMarkerKey(network, contract)); } catch { /* unconfirmed */ }
+    if (marker === GT_OK) confirmed.set(contract, priceUsd);
+  }
+  return confirmed;
+}
 
 export class GeckoTerminalPriceSource implements TokenPriceSource {
   private readonly throttle: GtThrottle;
@@ -108,16 +142,25 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
     const marker = this.cache ? await this.cache.getMarker(gtMarkerKey(token)) : null;
     const skipTry2 = marker === NEED_TRY3;
     if (!skipTry2) {
-      if (this.checkThrottle()) {
-        const try1 = await this.tryTokenPrice(net, contract);
-        if (isPositiveFinite(try1)) return { priceUsd: try1, source: "gt-batch" };
-      }
-      if (this.checkThrottle()) {
-        const try2 = await this.tryToken(token, contract);
-        if (try2 && isPositiveFinite(try2.priceUsd)) return try2;
-        if (try2?.marker === NEED_TRY3) {
-          await this.cache?.setMarker(gtMarkerKey(token), NEED_TRY3);
+      const try1 = this.checkThrottle() ? await this.tryTokenPrice(net, contract) : null;
+      const try2 = this.checkThrottle() ? await this.tryToken(token, contract) : null;
+      const try2Price = try2 && isPositiveFinite(try2.priceUsd) ? try2.priceUsd : null;
+      const identity = { ...(try2?.symbol ? { symbol: try2.symbol } : {}), ...(try2?.name ? { name: try2.name } : {}) };
+      if (isPositiveFinite(try1)) {
+        if (try2Price != null && gtPricesAgree(try1, try2Price)) {
+          await this.cache?.setMarker(gtConfirmMarkerKey(net, contract), GT_OK, MARKER_TTL_MS);
+          return { priceUsd: try1, source: "gt-batch", ...identity };
         }
+        // The simple price can come from a drained pool (IJN: $0.000214 simple vs
+        // $0.0000046 on its only real pool): unconfirmed, only the deepest pool above
+        // the liquidity floor may price the token, otherwise it stays unpriced.
+        const pooled = this.checkThrottle() ? await this.tryPools(net, contract) : null;
+        if (isPositiveFinite(pooled)) return { priceUsd: pooled, source: "gt", ...identity };
+        return { priceUsd: null, source: "gt", reason: "gt_simple_unconfirmed" };
+      }
+      if (try2 && try2Price != null) return try2;
+      if (try2?.marker === NEED_TRY3) {
+        await this.cache?.setMarker(gtMarkerKey(token), NEED_TRY3);
       }
     }
 

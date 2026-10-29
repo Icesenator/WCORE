@@ -541,8 +541,9 @@ DegradedMode.getCachedWithDegradedInfo = function(address, config, walletNames, 
  return this._appendDegradedInfo(output, null, config, circuitBreakerActive);
  }
  
- var chainName = this._getChainName(address, config, walletNames);
- return this._buildCachedDegradedOutput(chainName, "CIRCUIT_BREAKER_ACTIVE", config, null);
+ // Preserve the engine's explicit unknown/error result. Replacing it with
+ // _buildCachedDegradedOutput would fabricate a native balance of zero.
+ return output;
  }
  
  return output;

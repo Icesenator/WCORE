@@ -42,7 +42,8 @@ test('inventaire complet : seules les références de refus restent dans les sou
       }
     }
   }
-  for (const dir of ['src', 'dist', 'tools', 'scripts']) walk(dir);
+  // scripts/ is local-only (ignored by git): scanned when present, absent from a clean checkout.
+  for (const dir of ['src', 'dist', 'tools', 'scripts']) if (fs.existsSync(path.join(root, dir))) walk(dir);
 });
 test('le tombstone reconnaît uniquement la clé, les noms Ledger exacts et 5330', () => {
   const ctx = context([factory]);

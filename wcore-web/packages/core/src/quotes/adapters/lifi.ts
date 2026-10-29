@@ -72,8 +72,6 @@ export interface LifiStep {
   includedSteps?: Array<{ tool?: string }>;
 }
 
-const NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000";
-
 function parseAmount(value: string | undefined): bigint | null {
   if (typeof value !== "string" || !/^[0-9]+$/.test(value)) return null;
   try {

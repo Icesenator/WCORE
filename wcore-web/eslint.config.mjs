@@ -57,6 +57,11 @@ export default tseslint.config(
     },
   },
   {
+    // Node scripts driving a real browser: page.evaluate() bodies use DOM globals.
+    files: ["apps/web/e2e/**/*.cjs"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
     files: ["scripts/check-tweet.cjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },

@@ -85,6 +85,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm --filter @wcore/core test
       - run: pnpm --filter @wcore/shared test
+      # superseed-removal.test.ts inspects the generated packages/shared/dist.
+      - run: pnpm --filter @wcore/shared build
       - run: pnpm --filter @wcore/web test
       - run: pnpm build
 

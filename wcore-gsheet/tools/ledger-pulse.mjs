@@ -1,0 +1,13 @@
+import { api } from './ledger-audit.mjs';
+import pulse from '../../scripts/ledger-pulse-time.cjs';
+const sheet=process.argv[2];
+if (!sheet?.startsWith('Ledger -')) throw new Error('Onglet Ledger explicite requis');
+const range="'"+sheet.replaceAll("'","''")+"'!B1";
+const before=await api('/values/'+encodeURIComponent(range));
+const original=before.values?.[0]?.[0];
+const instant=process.argv[3]==='--normalize-existing' ? original : new Date().toISOString();
+if(process.argv[3]==='--normalize-existing' && !/^\d{4}-\d{2}-\d{2}T.*Z$/.test(String(original))) throw new Error('B1 non ISO : aucune mutation');
+const value=pulse.formatLedgerPulse(instant);
+await api('/values:batchUpdate',{valueInputOption:'RAW',data:[{range,values:[[value]]}]});
+const after=await api('/values/'+encodeURIComponent(range));
+console.log(JSON.stringify({before:original,after:after.values?.[0]?.[0],sourceInstant:instant,canonical:value===after.values?.[0]?.[0],precision:'seconde (contrat canonique)'},null,2));

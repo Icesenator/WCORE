@@ -104,7 +104,7 @@ test('update refresh logs progress without writing B1 on every step', () => {
 test('update refresh clears only stale source tail after writing fresh source rows', () => {
   assert.match(source, /_cryptoPortfolioWriteSourceRows_\(ss\.getId\(\), sourceMatrix\)/,
     'refresh must write the fresh source matrix through the Sheets API');
-  assert.match(source, /_cryptoPortfolioClearSourceTail_\(ss\.getId\(\), sourceMatrix\.length\)/,
+  assert.match(source, /_cryptoPortfolioClearSourceTail_\(ss\.getId\(\), sourceMatrix\.length, sh\)/,
     'refresh must clear stale source rows through the Sheets API after writing fresh rows');
   assert.match(source, /Sheets\.Spreadsheets\.Values\.batchUpdate/,
     'refresh writes must use Advanced Sheets API to avoid SpreadsheetApp timeouts on calculated sheets');

@@ -14,9 +14,10 @@ export interface GsheetScamEnrichment {
 
 export interface GsheetFxTelemetry {
   rate: number;
-  ts: number;
+  ts: number | null;
   sources: string[];
   runtime: "gsheet" | "web";
+  fxMetadata?: unknown;
 }
 
 export interface GsheetCryptoPortfolioRow {
@@ -89,6 +90,7 @@ export interface GsheetScanResult {
   errors: string[];
   degraded: boolean;
   fxRate: number;
+  fxMetadata?: import("@wcore/core").FxMetadata | null;
   scanMs: number;
   phases?: unknown;
   cacheStats?: unknown;
@@ -837,6 +839,61 @@ const FX_TELEMETRY_KEY_GSHEET = "fx_telemetry:gsheet";
 const FX_TELEMETRY_TTL_MS = 2 * 60 * 60 * 1000; // 2h
 const FX_DRIFT_TOLERANCE = 0.02; // 2% between web and gsheet
 const FX_DRIFT_ALERT = 0.05; // 5% = hard alert
+const FX_MAX_SOURCES = 16;
+const FX_MAX_SOURCE_NAME_LENGTH = 128;
+function projectFxMetadata(value: unknown): import("@wcore/core").FxMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const m = value as Record<string, unknown>;
+  if (m.version !== 1 || m.unit !== "EUR_PER_USD" || m.available !== true || m.applied !== "UNKNOWN"
+    || typeof m.rate !== "number" || typeof m.cacheWrittenAt !== "number" || typeof m.ttlMs !== "number"
+    || (m.sourceCollectedAt !== null && typeof m.sourceCollectedAt !== "number")
+    || !["SINGLE", "MEAN", "MEDIAN", "UNKNOWN"].includes(m.selection as string)
+    || !["FRESH", "STALE", "UNKNOWN"].includes(m.freshness as string)
+    || !Array.isArray(m.sources) || m.sources.length > FX_MAX_SOURCES) return null;
+  const sources: import("@wcore/core").FxMetadata["sources"] = [];
+  for (const raw of m.sources) {
+    if (!raw || typeof raw !== "object" || typeof raw.source !== "string"
+      || raw.source.length > FX_MAX_SOURCE_NAME_LENGTH || typeof raw.rate !== "number" || typeof raw.ts !== "number") return null;
+    sources.push({ source: raw.source, rate: raw.rate, ts: raw.ts });
+  }
+  return {
+    version: 1, unit: "EUR_PER_USD", available: true, applied: "UNKNOWN", rate: m.rate,
+    cacheWrittenAt: m.cacheWrittenAt, sourceCollectedAt: m.sourceCollectedAt, ttlMs: m.ttlMs,
+    selection: m.selection as import("@wcore/core").FxMetadata["selection"],
+    freshness: m.freshness as import("@wcore/core").FxMetadata["freshness"], sources,
+  };
+}
+function projectFxReport(value: unknown): GsheetFxTelemetry | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const r = value as Record<string, unknown>;
+  if (r.runtime !== "web" && r.runtime !== "gsheet") return undefined;
+  return {
+    rate: typeof r.rate === "number" ? r.rate : NaN,
+    ts: typeof r.ts === "number" ? r.ts : null,
+    runtime: r.runtime,
+    sources: Array.isArray(r.sources) ? r.sources.slice(0, FX_MAX_SOURCES)
+      .filter((source): source is string => typeof source === "string" && source.length <= FX_MAX_SOURCE_NAME_LENGTH) : [],
+    fxMetadata: projectFxMetadata(r.fxMetadata),
+  };
+}
+
+// Reports are attestations, not financial inputs. Legacy reports remain ingestible,
+// but cannot establish units, source age or a comparable observation interval.
+function isComparableFxReport(report: GsheetFxTelemetry | undefined, runtime: "web" | "gsheet", now: number): boolean {
+  if (!report || report.runtime !== runtime || !Number.isFinite(report.rate) || report.rate <= 0) return false;
+  const m = report.fxMetadata as Partial<import("@wcore/core").FxMetadata> | null | undefined;
+  if (!m || m.version !== 1 || m.unit !== "EUR_PER_USD" || m.available !== true || m.rate !== report.rate || m.freshness !== "FRESH") return false;
+  const validTime = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= now;
+  if (!validTime(report.ts) || !validTime(m.cacheWrittenAt) || !validTime(m.sourceCollectedAt)) return false;
+  if (typeof m.ttlMs !== "number" || !Number.isFinite(m.ttlMs) || m.ttlMs <= 0) return false;
+  if (m.cacheWrittenAt > report.ts || now - m.cacheWrittenAt >= m.ttlMs || now - m.sourceCollectedAt >= m.ttlMs) return false;
+  if (!Array.isArray(m.sources) || m.sources.length === 0) return false;
+  if (!m.sources.every(source => source && typeof source.source === "string" && source.source.trim().length > 0
+    && Number.isFinite(source.rate) && source.rate > 0 && validTime(source.ts)
+    && source.ts <= m.cacheWrittenAt! && now - source.ts < m.ttlMs!)) return false;
+  return m.sourceCollectedAt === Math.min(...m.sources.map(source => source.ts));
+}
+
 const EVM_CONTRACT_RE = /^0x[0-9a-f]{40}$/;
 
 function normalizeGsheetPriceRequest(body: unknown): { ok: true; chain: string; tokens: string[] } | { ok: false; error: string } {
@@ -959,6 +1016,7 @@ async function defaultScanRunner(
     errors,
     degraded: hasDegradingErrors(errors),
     fxRate,
+    fxMetadata: core.getFxMetadata(fxRate),
     scanMs: Number(assets.scanMs || 0),
     phases: assets.phases,
     cacheStats: assets.cacheStats,
@@ -1122,9 +1180,10 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
     }
     const telemetry: GsheetFxTelemetry = {
       rate,
-      ts: Number(body?.ts) || Date.now(),
-      sources: Array.isArray(body?.sources) ? body.sources.map(String) : [],
+      ts: typeof body?.ts === "number" && Number.isFinite(body.ts) ? body.ts : null,
+      sources: projectFxReport({ sources: body?.sources, runtime: "gsheet" })!.sources,
       runtime: body?.runtime === "web" ? "web" : "gsheet",
+      fxMetadata: projectFxMetadata(body?.fxMetadata),
     };
     if (!opts.cacheWriter) {
       return reply.code(503).send({ error: "telemetry_disabled" });
@@ -1142,32 +1201,34 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   await app.register(gsheetProtectedRoutes, opts);
 
   // Public drift comparison endpoint — no auth, useful for CI smoke tests.
-  // Returns 503 if either runtime hasn't reported yet (cold start).
+  // Missing or unattested runtime observations yield drift:null, never zero.
   app.get("/api/diag/fx-parity", async (_req, reply) => {
     if (!opts.cacheWriter) return reply.code(503).send({ error: "telemetry_disabled" });
-    const [web, gsheet] = await Promise.all([
-      opts.cacheWriter.get(FX_TELEMETRY_KEY_WEB) as Promise<GsheetFxTelemetry | undefined>,
-      opts.cacheWriter.get(FX_TELEMETRY_KEY_GSHEET) as Promise<GsheetFxTelemetry | undefined>,
+    const [rawWeb, rawGsheet] = await Promise.all([
+      opts.cacheWriter.get(FX_TELEMETRY_KEY_WEB),
+      opts.cacheWriter.get(FX_TELEMETRY_KEY_GSHEET),
     ]);
+    const web = projectFxReport(rawWeb);
+    const gsheet = projectFxReport(rawGsheet);
     const now = Date.now();
     const result: {
       ok: boolean;
       now: number;
-      web: { rate: number; ts: number; ageMs: number; sources: string[] } | null;
-      gsheet: { rate: number; ts: number; ageMs: number; sources: string[] } | null;
+      web: (GsheetFxTelemetry & { ageMs: number | null }) | null;
+      gsheet: (GsheetFxTelemetry & { ageMs: number | null }) | null;
       drift: number | null;
       tolerance: number;
       alert: number;
     } = {
       ok: false,
       now,
-      web: web ? { rate: web.rate, ts: web.ts, ageMs: now - web.ts, sources: web.sources } : null,
-      gsheet: gsheet ? { rate: gsheet.rate, ts: gsheet.ts, ageMs: now - gsheet.ts, sources: gsheet.sources } : null,
+      web: web ? { ...web, ageMs: typeof web.ts === "number" && Number.isFinite(web.ts) && web.ts > 0 && web.ts <= now ? now - web.ts : null } : null,
+      gsheet: gsheet ? { ...gsheet, ageMs: typeof gsheet.ts === "number" && Number.isFinite(gsheet.ts) && gsheet.ts > 0 && gsheet.ts <= now ? now - gsheet.ts : null } : null,
       drift: null,
       tolerance: FX_DRIFT_TOLERANCE,
       alert: FX_DRIFT_ALERT,
     };
-    if (web && gsheet) {
+    if (web && gsheet && isComparableFxReport(web, "web", now) && isComparableFxReport(gsheet, "gsheet", now)) {
       const max = Math.max(web.rate, gsheet.rate);
       const min = Math.min(web.rate, gsheet.rate);
       result.drift = (max - min) / max;

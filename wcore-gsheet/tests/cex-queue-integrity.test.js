@@ -62,7 +62,7 @@ function makeContext() {
   // whole Apps Script surface.
   const start = source.indexOf('var _CEX_QUEUE_MAX_CHARS');
   const end = source.indexOf('function CEX_QUEUE_MANUAL_JOB');
-  vm.runInContext('var _CEX_LOCK_TRY_MS = 1000;\n' + source.slice(start, end), context);
+  vm.runInContext('var _CEX_LOCK_TRY_MS = 1000;\nvar _CEX_LOCK_MAX_ATTEMPTS = 3;\nvar _CEX_LOCK_RETRY_SLEEP_MS = 250;\n' + source.slice(start, end), context);
   return { context, store, isLockHeld: () => lockHeld };
 }
 
@@ -164,7 +164,7 @@ function makeContext() {
   vm.createContext(context);
   const start = source.indexOf('var _CEX_WORKER_LEASE_TTL_MS');
   const end = source.indexOf('function CEX_MANUAL_REFRESH_WORKER');
-  vm.runInContext('var _CEX_LOCK_TRY_MS = 1000;\n' + source.slice(start, end), context);
+  vm.runInContext('var _CEX_LOCK_TRY_MS = 1000;\nvar _CEX_LOCK_MAX_ATTEMPTS = 3;\nvar _CEX_LOCK_RETRY_SLEEP_MS = 250;\n' + source.slice(start, end), context);
 
   assert.strictEqual(context._cexWorkerAcquireLease_(), true);
   const acquired = JSON.parse(store.CEX_WORKER_LEASE);

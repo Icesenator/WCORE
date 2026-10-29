@@ -1,7 +1,7 @@
 import { http, createConfig } from "wagmi";
 import type { Chain } from "viem";
 import { base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-  mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, cyber,
+  mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, lisk, metalL2, cyber,
   immutableZkEvm, morph, mezo, swellchain, swan, vana, story } from "wagmi/chains";
 // We intentionally do NOT register wagmi's `injected()` connector in the
 // static config. Reason: a broken Turbopack chunk on `injected` throws
@@ -497,6 +497,22 @@ const arc: Chain = {
   blockExplorers: { default: { name: "Arc Explorer", url: "https://explorer.arc.io" } },
 };
 
+// Moca Chain mainnet, chainId 2288. Values mirror the canonical registry
+// (wcore-gsheet/dist/chains/MOCA.ts, verified read-only on both RPCs): native MOCA
+// (18 decimals), RPCs rpc.mocachain.org and moca.drpc.org (both answer eth_chainId
+// 0x8f0), explorer https://scan.mocachain.org. Required so /gm can switch the wallet
+// to 2288 now that its factory is registered in GM_FACTORIES.
+const moca: Chain = {
+  id: 2288,
+  name: "Moca Chain",
+  nativeCurrency: { name: "MOCA", symbol: "MOCA", decimals: 18 },
+  rpcUrls: {
+    default: { http: ["https://rpc.mocachain.org", "https://moca.drpc.org"] },
+    public: { http: ["https://rpc.mocachain.org", "https://moca.drpc.org"] },
+  },
+  blockExplorers: { default: { name: "Moca Chain Scan", url: "https://scan.mocachain.org" } },
+};
+
 declare module "wagmi" {
   interface Register {
     config: typeof config;
@@ -522,10 +538,10 @@ const wagmiConnectors = [
 
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, superseed, shape, bob, lisk, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
+    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, lisk, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
     mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
-    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc],
+    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca],
   // as any needed — wagmi connector types mismatch with custom chain list
   connectors: wagmiConnectors as any,
   transports: {
@@ -554,7 +570,6 @@ export const config = createConfig({
     [zora.id]: http(),
     [mode.id]: http(),
     [sei.id]: http(),
-    [superseed.id]: http(),
     [shape.id]: http(),
     [bob.id]: http(),
     [lisk.id]: http(),
@@ -623,6 +638,7 @@ export const config = createConfig({
     [vana.id]: http(),
     [story.id]: http(),
     [arc.id]: http(),
+    [moca.id]: http(),
   },
   ssr: false,
 });

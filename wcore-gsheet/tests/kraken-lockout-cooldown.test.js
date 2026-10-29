@@ -29,7 +29,7 @@ function harness(opts) {
       getUserProperties: () => ({ getProperty: () => null, setProperty() {} }),
       getDocumentProperties: () => ({ getProperty: () => null, setProperty() {} }),
     },
-    SpreadsheetApp: { openById: () => ({}) },
+    SpreadsheetApp: { openById: () => ({ getSheetByName: () => null }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 1 }, MacAlgorithm: { HMAC_SHA_512: 1 },
       computeDigest: () => [1], newBlob: () => ({ getBytes: () => [2] }), base64Decode: () => [3],
@@ -40,6 +40,9 @@ function harness(opts) {
         fetches.push(url);
         const body = opts.lockout
           ? { error: ['EGeneral:Temporary lockout'], result: {} }
+          : url.endsWith('/BalanceEx') ? { error: [], result: { XXBT: { balance: '0.1', hold_trade: '0', credit: '0', credit_used: '0' }, ZEUR: { balance: '5', hold_trade: '0', credit: '0', credit_used: '0' }, 'NVDAx.T': { balance: '1', hold_trade: '0', credit: '0', credit_used: '0' } } }
+          : url.endsWith('/OpenOrders') ? { error: [], result: { open: {} } }
+          : url.indexOf('/public/AssetPairs') >= 0 ? { error: [], result: {} }
           : { error: [], result: { XXBT: '0.1', ZEUR: '5', 'NVDAx.T': '1' } };
         return { getResponseCode: () => 200, getContentText: () => JSON.stringify(body) };
       },
@@ -57,11 +60,11 @@ function harness(opts) {
   return { ctx, props, fetches, writes, setNow: (v) => { nowMs = v; }, now: () => nowMs };
 }
 
-// 1. Un lockout arme une pause persistante de 60 minutes.
+// 1. Un lockout arme une pause persistante de 60 minutes (borne superieure de la doc Kraken).
 {
   const h = harness({ lockout: true });
   assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, { key: 'k', secret: 's' }), /Temporary lockout/);
-  assert.equal(h.props.get('KRAKEN_LOCKOUT_UNTIL_MS'), String(h.now() + HOUR), 'le lockout doit armer une pause de 60 min');
+  assert.equal(h.props.get('KRAKEN_LOCKOUT_UNTIL_MS'), String(h.now() + 60 * 60000), 'le lockout doit armer une pause de 60 min');
 }
 
 // 2. Pendant la pause, aucun appel prive Kraken n est emis.
@@ -91,7 +94,8 @@ function harness(opts) {
   const out = JSON.parse(h.ctx.UPDATE_KRAKEN_SPOT());
   assert.equal(out.ok, true);
   const privateCalls = h.fetches.filter((u) => u.indexOf('/0/private/') >= 0);
-  assert.equal(privateCalls.length, 1, 'un seul appel prive');
+  // Recovery : un appel privé Balance mutualisé par cycle.
+  assert.deepEqual(privateCalls.map((u) => u.slice(u.indexOf('/0/'))), ['/0/private/Balance'], 'un appel prive mutualise');
   assert.deepEqual(h.writes, ['CEX - Kraken Crypto', 'CEX - Kraken Stocks']);
   assert.equal(h.props.get('KRAKEN_SHARED_BALANCE_OK_MS'), String(h.now()), 'le succes partage est horodate');
 }
@@ -226,22 +230,49 @@ function harness(opts) {
     'les DEUX installeurs d auto-heal doivent deleguer au helper de cadence');
 }
 
-// 16. Forme de cadence VERIFIEE PAR EXECUTION, pas lue dans la doc.
-// PROBE_TRIGGER_API (execute le 2026-09-29, puis supprime) a liste les methodes
-// reelles du builder timeBased() de ce runtime et teste chaque chaine :
-//   everyDays(1).atTime(9,30,0)          -> TypeError, la methode N'EXISTE PAS
-//   everyDays(1).atMinute(30)            -> TypeError, la methode N'EXISTE PAS
-//   everyDays(1).atHour(0).nearMinute(0) -> OK   <- forme retenue
-//   everyDays(1).atHour(0).nearMinute(30)-> OK
-// Trois hypotheses successives avaient echoue avant cette introspection.
+// 16. Forme de cadence : everyHours(1), et RIEN d'autre.
+//
+// REGRESSION 2026-09-30 : une tentative de cadence 30 min a utilise
+//   everyDays(1).atHour(0).nearMinute(30)
+// qui s'INSTALLE sans erreur (aucun TypeError, donc le test "la forme marche"
+// passait) mais ne s'execute QU'UNE FOIS PAR JOUR : everyDays(1) fixe la
+// periode, atHour/nearMinute ne precisent que l'instant DANS cette periode.
+// Resultat : PULSE fige 18 h, un seul passage a 00:28.
+//
+// Un test qui verifie seulement "la chaine ne leve pas" est donc INSUFFISANT :
+// il faut verrouiller la PERIODE. Assertions strictes ci-dessous.
 {
   const src = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
   const codeOnly = src.split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join('\n');
+
+  // Un trigger CLOCK sans everyXxx() ne s'execute qu'UNE FOIS.
+  const bareClock = codeOnly.match(/timeBased\(\)\s*\.\s*create\(\)/g) || [];
+  assert.equal(bareClock.length, 0, 'un trigger CLOCK sans everyXxx() ne tire qu une fois');
+
+  // atTime/atMinute n'existent pas dans ce runtime.
   assert.ok(!/\.atTime\(/.test(codeOnly), 'atTime() n existe pas dans ce runtime');
   assert.ok(!/\.atMinute\(/.test(codeOnly), 'atMinute() n existe pas dans ce runtime');
-  const clockCalls = codeOnly.match(/timeBased\(\)\.everyDays\(1\)\.atHour\(0\)\.nearMinute\(\d+\)\.create\(\)/g) || [];
-  assert.equal(clockCalls.length, 4, 'quatre triggers horloge : SPOT h:00 et h:30, STOCKS h:15 et h:45');
-  assert.ok(!/PROBE_TRIGGER_API/.test(codeOnly), 'le probe temporaire ne doit pas rester dans le code');
+
+  // nearMinute n'a pas d'effet de periode : INTERDIT (c'est la regression).
+  assert.ok(!/nearMinute\(/.test(codeOnly),
+    'nearMinute() fixe un instant dans everyDays(1), pas une cadence : un seul passage par jour');
+  assert.ok(!/everyDays\(/.test(codeOnly),
+    'everyDays(1) fixe la periode a UN JOUR : ne pas l utiliser pour une cadence horaire');
+
+  // Seule forme autorisee : everyHours(1) sur les deux handlers Kraken.
+  const hourly = codeOnly.match(/newTrigger\("UPDATE_KRAKEN_(SPOT|STOCKS_FIAT)"\)\.timeBased\(\)\.everyHours\(1\)\.create\(\)/g) || [];
+  assert.equal(hourly.length, 2, 'exactement 2 triggers horaires : SPOT + STOCKS');
+  assert.ok(!/PROBE_/.test(codeOnly), 'le probe temporaire ne doit pas rester dans le code');
+}
+
+// 17. Le retour d INSTALL_KRAKEN_SYNC_TRIGGER ne doit pas promettre une cadence
+// que le code ne tient pas (il avait annonce "30 min" pendant tout le lockout).
+{
+  const src = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
+  const fn = src.slice(src.indexOf('function INSTALL_KRAKEN_SYNC_TRIGGER'));
+  const ret = (fn.match(/return\s+"([^"]*)"/) || [])[1] || '';
+  assert.ok(/cadence horaire/.test(ret), 'le message doit annoncer la cadence reellement installee');
+  assert.ok(!/30 min/.test(ret), 'le message ne doit pas annoncer 30 min si la cadence est horaire');
 }
 
 console.log('kraken lockout cooldown OK');

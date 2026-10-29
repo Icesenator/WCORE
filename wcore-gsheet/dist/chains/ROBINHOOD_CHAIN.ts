@@ -26,6 +26,10 @@ export const ROBINHOOD_CHAIN: ChainConfig = {
     NATIVE_DECIMALS: 18,
     NATIVE_LLAMA_ID: "coingecko:ethereum",
     NATIVE_GECKO_ID: "ethereum",
+    DEX_SLUG: "robinhood",
+    DEX_QUOTE_ADDRESSES: [
+      "0x117cc2133c37b721f49de2a7a74833232b3b4c0c",
+    ],
   },
   LLAMA_ID_MAP: {
     ETH: "coingecko:ethereum",

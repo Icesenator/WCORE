@@ -1,3 +1,6 @@
+// v4.16.80 - Tail clear skipped when the A:E block below the written rows is already empty, bounded to
+// the last row that actually holds content (formulas returning "" count as content), and always
+// verified by an independent re-read, so an ambiguous/empty response can no longer freeze B1.
 // v4.16.79 - Metered quota-exempt fallback + timestamped BLOCKED:QUOTA status, so a third-party drain of the user-scoped UrlFetch quota no longer freezes B1 for hours.
 // v4.16.77 - Bounded document-lock wait when the Stock/Crypto hourly triggers fire at the same minute; the loser no longer returns BUSY leaving a stale B1.
 // v4.16.33 - Rank 5002 manual price skips stale #N/A/blank Details rows and uses the first valid positive price.
@@ -9,7 +12,7 @@
 // v4.15.201 - Retry transient WCORE API network failures (e.g. "Address unavailable") before erroring.
 // v4.15.200 - Portefeuille Crypto (source WCORE API, sans SyncWith).
 
-var CRYPTO_PORTFOLIO_VERSION = "4.16.79";
+var CRYPTO_PORTFOLIO_VERSION = "4.16.80";
 
 // Transient network failures from UrlFetchApp.fetch (e.g. GAS "Address
 // unavailable", DNS, TCP reset, micro-quota) are thrown, not returned as an
@@ -120,8 +123,8 @@ function UPDATE_CRYPTO_PORTFOLIO_V2() {
         mark("write:done");
       }
       mark("clearTail:start");
-      _cryptoPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length);
-      mark("clearTail:done");
+      var clearOutcome = _cryptoPortfolioClearSourceTail_(ss.getId(), sourceMatrix.length, sh);
+      mark("clearTail:done", "reason=" + ((clearOutcome && clearOutcome.reason) || "unknown"));
 
       _cryptoPortfolioWriteControlCells_(ss.getId(), _cryptoPortfolioCurrentRunTimestamp_(), false);
       _portfolioReapplyFilter_(sh, CRYPTO_PORTFOLIO_CONFIG.MANAGED_LAST_COLUMN, 19, 361516782, 19, 1484, 2);
@@ -468,13 +471,61 @@ function _cryptoPortfolioWriteSourceRows_(spreadsheetId, sourceMatrix) {
   }, spreadsheetId);
 }
 
-function _cryptoPortfolioClearSourceTail_(spreadsheetId, sourceRowCount) {
+// Independent, bounded read of the A:E tail (columns F:T are never touched or inspected).
+// Returns the last row that actually holds content in A:E, or 0 when the window is provably
+// empty, or null when the state cannot be verified.
+function _cryptoPortfolioTailLastDataRow_(sh, clearStart) {
+  if (!sh || typeof sh.getRange !== "function") return null;
+  var lastRow = CRYPTO_PORTFOLIO_CONFIG.MAX_ROWS;
+  if (clearStart > lastRow) return 0;
+  var tailRange = sh.getRange(clearStart, 1, lastRow - clearStart + 1, 5);
+  var values = tailRange.getValues();
+  var formulas = tailRange.getFormulas();
+  for (var r = values.length - 1; r >= 0; r--) {
+    var row = values[r] || [];
+    var formulaRow = formulas[r] || [];
+    for (var c = 0; c < 5; c++) {
+      if (formulaRow[c] || (row[c] !== "" && row[c] !== null && row[c] !== undefined)) return clearStart + r;
+    }
+  }
+  return 0;
+}
+
+function _cryptoPortfolioTailHasData_(sh, clearStart) {
+  var lastDataRow = _cryptoPortfolioTailLastDataRow_(sh, clearStart);
+  return lastDataRow === null ? null : lastDataRow > 0;
+}
+
+// v4.16.80 - The tail clear is skipped when A:E below the written block is already empty, is bounded
+// to the last row that actually holds content, and is ALWAYS verified by an independent re-read so an
+// ambiguous/empty response can never freeze B1 with an unproven failure. Cells are genuinely cleared
+// (never written as ""), and the clear is strictly scoped to A:E so formulas F:T and manual rows are
+// never touched.
+function _cryptoPortfolioClearSourceTail_(spreadsheetId, sourceRowCount, sh) {
   var clearStart = CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW + Number(sourceRowCount || 0);
-  if (clearStart > CRYPTO_PORTFOLIO_CONFIG.MAX_ROWS) return;
+  var maxRow = CRYPTO_PORTFOLIO_CONFIG.MAX_ROWS;
+  if (clearStart > maxRow) return { cleared: false, reason: "no-tail" };
   if (typeof Sheets === "undefined" || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) {
     throw new Error("Advanced Sheets service unavailable for Crypto V2 source clear");
   }
-  Sheets.Spreadsheets.Values.clear({}, spreadsheetId, _cryptoPortfolioSheetRange_("A" + clearStart + ":E" + CRYPTO_PORTFOLIO_CONFIG.MAX_ROWS));
+  var lastDataRow = _cryptoPortfolioTailLastDataRow_(sh, clearStart);
+  if (lastDataRow === null) throw new Error("Crypto V2 source tail verification unavailable; clear refused");
+  if (lastDataRow === 0) return { cleared: false, reason: "already-empty" };
+  var clearEnd = Math.min(lastDataRow, maxRow);
+
+  var range = _cryptoPortfolioSheetRange_("A" + clearStart + ":E" + clearEnd);
+  var clearFailure = null;
+  try {
+    Sheets.Spreadsheets.Values.clear({}, spreadsheetId, range);
+  } catch (eClear) {
+    // A transport/parse failure is NOT proof the clear did not happen.
+    clearFailure = eClear;
+  }
+  if (_cryptoPortfolioTailHasData_(sh, clearStart) === false) {
+    return { cleared: true, reason: clearFailure ? "cleared-empty-response" : "cleared" };
+  }
+  if (clearFailure) throw clearFailure;
+  throw new Error("Crypto V2 source tail still populated after clear (unverified response)");
 }
 
 function _cryptoPortfolioWriteControlCells_(spreadsheetId, statusValue, refreshValue) {

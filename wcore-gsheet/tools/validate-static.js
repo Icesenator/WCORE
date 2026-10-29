@@ -309,8 +309,11 @@ if (!pricingWorkerForRegistry.includes("bestReserve")) {
 const registerStart = chainFactory.indexOf("ChainFactory.registerChain = function");
 const registerEnd = chainFactory.indexOf("ChainFactory.getRegistry = function");
 const registerBody = registerStart >= 0 && registerEnd > registerStart ? chainFactory.slice(registerStart, registerEnd) : "";
-if (registerBody.includes(".getConfig(")) {
-  fail(errors, "ChainFactory.registerChain must stay lazy and not build every chain config at load time");
+if (!registerBody.includes("api.getConfig()") ||
+    !registerBody.includes("_wcoreRegisterConfiguredChain_") ||
+    chainFactory.includes("return ChainFactory.registerChain(name, api);" ) ||
+    (chainFactory.match(/return _wcoreRegisterConfiguredChain_\(name, api, chainConfig\);/g) || []).length !== 4) {
+  fail(errors, "Direct registration must validate config; factory registration must stay lazy using raw config");
 }
 
 const rpc = read("src/05_RPC.gs");

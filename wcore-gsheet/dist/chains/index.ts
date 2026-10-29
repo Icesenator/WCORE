@@ -20,7 +20,6 @@ import { BASE } from "./BASE.js";
 import { BEAM } from "./BEAM.js";
 import { BERACHAIN } from "./BERACHAIN.js";
 import { BITLAYER } from "./BITLAYER.js";
-import { BLAST } from "./BLAST.js";
 import { BOB } from "./BOB.js";
 import { BOBA } from "./BOBA.js";
 import { BSC } from "./BSC.js";
@@ -93,6 +92,7 @@ import { METAL_L2 } from "./METAL_L2.js";
 import { METIS } from "./METIS.js";
 import { MEZO } from "./MEZO.js";
 import { MITOSIS } from "./MITOSIS.js";
+import { MOCA } from "./MOCA.js";
 import { MODE } from "./MODE.js";
 import { MONAD } from "./MONAD.js";
 import { MOONBEAM } from "./MOONBEAM.js";
@@ -137,7 +137,6 @@ import { STABLE } from "./STABLE.js";
 import { STEP_NETWORK } from "./STEP_NETWORK.js";
 import { STORY } from "./STORY.js";
 import { STRIDE } from "./STRIDE.js";
-import { SUPERSEED } from "./SUPERSEED.js";
 import { SWAN } from "./SWAN.js";
 import { SWELLCHAIN } from "./SWELLCHAIN.js";
 import { TAC } from "./TAC.js";
@@ -181,7 +180,6 @@ export const chains = {
   BEAM,
   BERACHAIN,
   BITLAYER,
-  BLAST,
   BOB,
   BOBA,
   BSC,
@@ -254,6 +252,7 @@ export const chains = {
   METIS,
   MEZO,
   MITOSIS,
+  MOCA,
   MODE,
   MONAD,
   MOONBEAM,
@@ -298,7 +297,6 @@ export const chains = {
   STEP_NETWORK,
   STORY,
   STRIDE,
-  SUPERSEED,
   SWAN,
   SWELLCHAIN,
   TAC,

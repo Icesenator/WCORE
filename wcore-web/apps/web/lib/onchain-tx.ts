@@ -13,6 +13,8 @@
  * the React hook supplies the provider and wagmi senders.
  */
 
+import { assertGmRpcAvailable, isGmRpcUnauthorized } from "./gm-rpc-error";
+
 export interface RawProvider {
   request: (args: { method: string; params?: unknown[] | Record<string, unknown> }) => Promise<unknown>;
 }
@@ -92,6 +94,7 @@ export async function switchChainAny(
   >,
   chainId: number,
 ): Promise<void> {
+  assertGmRpcAvailable(String(chainId));
   if (senders.rawProvider) {
     const chainIdHex = "0x" + chainId.toString(16);
     try {
@@ -159,24 +162,32 @@ export async function waitForTransactionReceiptAny(
   txHash: string,
   timeoutMs: number,
 ): Promise<TransactionReceipt> {
+  const deadline = Date.now() + timeoutMs;
+  const timeoutError = () => new Error(`Transaction validation timeout (${Math.round(timeoutMs / 1000)}s). Confirmation unknown; check the transaction in your wallet.`);
   if (!rawProvider) {
     if (!publicWait) throw new Error("No receipt provider available");
     const receipt = await publicWait(txHash, timeoutMs);
+    if (Date.now() >= deadline) throw timeoutError();
+    if (receipt.status !== "success" && receipt.status !== "reverted") {
+      throw new Error("Transaction receipt status unknown. Check the transaction in your wallet.");
+    }
     return { status: receipt.status === "success" ? "0x1" : "0x0", logs: receipt.logs };
   }
 
-  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const receipt = await rawProvider.request({
         method: "eth_getTransactionReceipt",
         params: [txHash],
       }) as TransactionReceipt | null;
+      if (Date.now() >= deadline) break;
       if (receipt?.status === "0x1" || receipt?.status === "0x0") return receipt;
-    } catch {
-      // Keep polling through a transient wallet RPC failure.
+    } catch (error) {
+      // Authorization failures cannot be repaired by polling. Preserve their
+      // diagnostic; other transient wallet RPC failures may still recover.
+      if (isGmRpcUnauthorized(error)) throw error;
     }
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
-  throw new Error(`Transaction validation timeout (${Math.round(timeoutMs / 1000)}s).`);
+  throw timeoutError();
 }

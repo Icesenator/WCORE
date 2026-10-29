@@ -58,7 +58,9 @@ describe("useScanOrchestrator planning", () => {
     assert.deepEqual(jobs[0]?.tasks.map(task => task.addr), [EVM]);
   });
 
-  test("preserves prior chain assets and totals when a refresh fails empty", () => {
+  // Revised 2026-10-28 (P2-DATA-SCAN-REFRESH-PRESERVATION): old assets are kept as a separate
+  // last-known value, never re-injected into the current result or its total.
+  test("keeps prior chain assets out of the current result when a refresh fails empty", () => {
     const previous: ChainScan = {
       chainKey: "BASE",
       chainName: "Base",
@@ -84,9 +86,12 @@ describe("useScanOrchestrator planning", () => {
     };
     const merged = mergeChainRefreshResult([previous], "BASE", "EVM", failedRefresh);
 
-    assert.equal(merged.totalEur, 25);
-    assert.equal(merged.chains[0]?.tokens[0]?.symbol, "USDC");
+    assert.equal(merged.totalEur, 0);
+    assert.equal(merged.chains[0]?.tokens.length, 0);
     assert.equal(merged.chains[0]?.degraded, true);
-    assert.match(merged.chains[0]?.errors.at(-1)?.message ?? "", /stale_refresh_failed: chain_timeout/);
+    assert.match(merged.chains[0]?.errors.at(-1)?.message ?? "", /chain_timeout/);
+    assert.equal(merged.lastKnown?.tokens[0]?.symbol, "USDC");
+    assert.equal(merged.lastKnown?.totals.valueEur, 25);
+    assert.match(merged.failure ?? "", /chain_timeout/);
   });
 });

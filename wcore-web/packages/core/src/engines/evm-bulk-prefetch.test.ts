@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { getEvmWalletAssets } from "./evm-scan.js";
 import { MemoryPricingCache } from "../pricing/index.js";
+import { gtConfirmMarkerKey } from "../pricing/markers.js";
 
 const OWNER = "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
 const TOKEN = "0x1111111111111111111111111111111111111111";
@@ -88,10 +89,33 @@ test("GeckoTerminal still takes precedence over DefiLlama for a shared contract"
 
 test("one prefetch failing does not lose the other", async () => {
   const priceCache = new MemoryPricingCache();
+  priceCache.setMarker(gtConfirmMarkerKey("base", TOKEN), "GT_OK");
   const result = await scanHarness({
     onLlama: async () => { throw new Error("llama down"); },
     onGt: async () => new Map([[TOKEN, 7]]),
   }, priceCache);
 
   assert.equal(tokenPrice(result as never), 7, "a failing batch must degrade only its own source");
+});
+
+test("an unconfirmed GeckoTerminal bulk price is not served (IJN drained-pool price)", async () => {
+  const priceCache = new MemoryPricingCache();
+  const result = await scanHarness({
+    onLlama: async () => new Map<string, number>(),
+    onGt: async () => new Map([[TOKEN, 0.000214]]),
+  }, priceCache);
+
+  // No DefiLlama agreement and no GT_OK marker: the token goes through the per-token
+  // cascade (all sources null here) instead of trusting the simple price blindly.
+  assert.equal(tokenPrice(result as never), null);
+});
+
+test("a GeckoTerminal bulk price diverging from DefiLlama by more than 3x is dropped", async () => {
+  const priceCache = new MemoryPricingCache();
+  const result = await scanHarness({
+    onLlama: async () => new Map([[TOKEN, 10]]),
+    onGt: async () => new Map([[TOKEN, 47]]),
+  }, priceCache);
+
+  assert.equal(tokenPrice(result as never), 10, "DefiLlama stays when GeckoTerminal disagrees");
 });

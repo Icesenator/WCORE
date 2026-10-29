@@ -11,7 +11,7 @@ const ZERION_CHAIN_MAP = {
   linea: "LINEA",
   scroll: "SCROLL",
   mantle: "MANTLE",
-  blast: "BLAST",
+  
   solana: "SOLANA",
 } as const;
 

@@ -1,7 +1,7 @@
 import { EvmAddress, SvmAddress } from "@wcore/shared";
 import { z } from "zod";
 
-import type { ZerionEnrichmentConfig } from "../../config.js";
+import { ZERION_MAX_POSITIONS_CAP, type ZerionEnrichmentConfig } from "../../config.js";
 import { toWcoreChain } from "./chain-map.js";
 import { canonicalProtocol } from "./protocol-aliases.js";
 import type {
@@ -71,6 +71,10 @@ const envelopeSchema = z.object({
   meta: z.object({ total: z.number().int().nonnegative() }).strict(),
   data: z.array(positionSchema),
 }).strict();
+
+// Tests count how many rows and implementations Zod validates (Zod 4 runs each schema
+// through its own _zod.run, with no shared prototype hook).
+export const ZERION_SCHEMAS_FOR_TESTS = { envelope: envelopeSchema, position: positionSchema, implementation: implementationSchema } as const;
 
 type ZerionPosition = z.infer<typeof positionSchema>;
 type ZerionEnvelope = z.infer<typeof envelopeSchema>;
@@ -170,6 +174,28 @@ async function readBoundedBody(
     offset += chunk.byteLength;
   }
   return body;
+}
+
+// Assumed bound: no local doc fixes it (fixtures carry at most 1 implementation per
+// position, chain-map supports 13 networks). Wide margin, checked before safeParse.
+export const MAX_IMPLEMENTATIONS_PER_POSITION = 128;
+
+// Aggregate cap (rows + implementations): ZERION_MAX_POSITIONS_CAP rows x (1 + 128) = 129000.
+// config.ts refuses ZERION_MAX_POSITIONS above that cap at startup; never stricter by default.
+export const MAX_VALIDATED_ITEMS = ZERION_MAX_POSITIONS_CAP * (1 + MAX_IMPLEMENTATIONS_PER_POSITION);
+
+function exceedsValidationBudget(rows: unknown[]): boolean {
+  let items = rows.length;
+  if (items > MAX_VALIDATED_ITEMS) return true;
+  for (const row of rows) {
+    const implementations = (row as { attributes?: { fungible_info?: { implementations?: unknown } | null } } | null)
+      ?.attributes?.fungible_info?.implementations;
+    if (!Array.isArray(implementations)) continue;
+    if (implementations.length > MAX_IMPLEMENTATIONS_PER_POSITION) return true;
+    items += implementations.length;
+    if (items > MAX_VALIDATED_ITEMS) return true;
+  }
+  return false;
 }
 
 function parseJson(body: Uint8Array): unknown {
@@ -367,6 +393,7 @@ export function createZerionProvider(options: CreateZerionProviderOptions): Port
         // length check below would reject it (GHSA-mrhx-c7xc-m3w5).
         const rawData = (json as { data?: unknown } | null)?.data;
         if (Array.isArray(rawData) && rawData.length > options.maxPositions) throw new ZerionProviderError("oversize");
+        if (Array.isArray(rawData) && exceedsValidationBudget(rawData)) throw new ZerionProviderError("oversize");
         const result = envelopeSchema.safeParse(json);
         if (!result.success) throw new ZerionProviderError("malformed");
         if (result.data.meta.total > options.maxPositions || result.data.data.length > options.maxPositions) {

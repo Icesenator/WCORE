@@ -13,7 +13,6 @@ const EXPLORERS: Record<string, string> = {
   scroll: "https://scrollscan.com",
   mantle: "https://mantlescan.xyz",
   mode: "https://modescan.io",
-  blast: "https://blastscan.io",
   celo: "https://celoscan.io",
   fraxtal: "https://fraxscan.com",
   zora: "https://zorascan.xyz",
@@ -61,7 +60,6 @@ const EXPLORERS: Record<string, string> = {
   redstone: "https://explorer.redstone.xyz",
   ancient8: "https://scan.ancient8.gg",
   bob: "https://explorer.gobob.xyz",
-  superseed: "https://explorer.superseed.xyz",
   metal_l2: "https://explorer.metall2.com",
   camp: "https://explorer.campnetwork.xyz",
   gravity: "https://explorer.gravity.xyz",
@@ -99,6 +97,7 @@ const EXPLORERS: Record<string, string> = {
   // Arc mainnet (USDC-native L2, chainId 5042). URL from the official Arc docs
   // (docs.arc.io → Connect to Arc → Network details).
   arc: "https://explorer.arc.io",
+  moca: "https://scan.mocachain.org",
 };
 
 export function getExplorerUrl(chainKey: string, contract: string): string | null {

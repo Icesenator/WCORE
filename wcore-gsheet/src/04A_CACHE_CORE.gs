@@ -466,8 +466,14 @@ CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(target
  if (need <= 0) return true;
 
   var cands = [];
+  function isExpiredHttpDay_(k) {
+    var m = /^WCORE_HTTP_(?:DAY|HOST|TRIGGER|T0|MILE)_(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(k);
+    if (!m) return false;
+    var start = Date.UTC(Number(m[1]), Number(m[2])-1, Number(m[3]), 9);
+    return isFinite(start) && nowMs >= start + 2 * 24 * 3600000;
+  }
   function isProtectedKey_(k) {
-  return k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1" ||
+  return (k.indexOf("WCORE_HTTP_") === 0 && !isExpiredHttpDay_(k)) || k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1" ||
     k === "WCORE_WATCHDOG_LEASE" || k === "WCORE_AUTO_HEAL_LEASE";
   }
   function pushIf(matchFn, prio) {

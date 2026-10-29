@@ -617,3 +617,60 @@ test("getCosmosWalletAssets fails over to the next REST endpoint when the primar
   assert.ok(failoverHits > 0, "should have failed over to an alternate endpoint");
   assert.equal(result.native.balance, 5, "should read balance from the failover endpoint");
 });
+
+test("getCosmosWalletAssets treats an HTTP 200 gRPC error envelope as a failed read, not an empty one", async () => {
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => 5 },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const cache = new MemoryCacheStore();
+  // rest.cosmos.directory relays to several nodes and some of them answer 200 with the
+  // node's error body, e.g. for an address whose bech32 checksum is wrong.
+  const envelope = { code: 2, message: "decoding bech32 failed: invalid checksum", details: [] };
+  const fetch = async () => ({ ok: true, status: 200, json: async () => envelope }) as Response;
+
+  const result = await getCosmosWalletAssets(OWNER, "cosmos_hub", { fetchImpl: fetch as never, sources, fxRate: 1, cache });
+  await new Promise(r => setTimeout(r, 0));
+
+  for (const prefix of ["bal", "del", "unb", "rew"]) {
+    assert.equal((await cache.get(`${prefix}:cosmos_hub:${OWNER}`)) ?? null, null, `${prefix} cache must not record an error as an empty list`);
+  }
+  for (const label of ["balances", "delegations", "unbonding", "rewards"]) {
+    assert.ok(result.errors.includes(`${label} error: error envelope (code 2)`), `${label} error should be reported: ${result.errors.join(" | ")}`);
+  }
+  assert.ok(!result.errors.some(e => e.includes("bech32")), "the node's own message must not reach the scan errors");
+});
+
+test("getCosmosWalletAssets keeps cached delegations when a relay answers 200 with an error envelope", async () => {
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => 10 },
+    dexscreener: { getTokenPriceUsd: async () => null },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const cache = new MemoryCacheStore();
+  await cache.set(`del:cosmos_hub:${OWNER}`, [{ validator: "cosmosvaloper1abc", amount: "2000000" }], 60_000);
+
+  const fetch = async (url: string) => {
+    if (url.includes("/cosmos/bank/v1beta1/balances/")) {
+      return { ok: true, json: async () => ({ balances: [{ denom: "uatom", amount: "1000000" }] }) } as Response;
+    }
+    if (url.includes("/cosmos/staking/v1beta1/delegations/")) {
+      return { ok: true, status: 200, json: async () => ({ error: "endpoint error: relay send failed" }) } as Response;
+    }
+    return { ok: false, status: 404, json: async () => ({}) } as Response;
+  };
+
+  const result = await getCosmosWalletAssets(OWNER, "cosmos_hub", { fetchImpl: fetch as never, sources, fxRate: 1, cache });
+  await new Promise(r => setTimeout(r, 0));
+
+  assert.ok(result.errors.some(e => e === "[DEGRADED] delegations: using cached fallback"), result.errors.join(" | "));
+  assert.deepEqual(await cache.get(`del:cosmos_hub:${OWNER}`), [{ validator: "cosmosvaloper1abc", amount: "2000000" }]);
+  assert.ok(result.native.balance >= 3, `staked amount should come from the cache, got ${result.native.balance}`);
+});

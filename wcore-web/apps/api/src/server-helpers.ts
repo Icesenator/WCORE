@@ -70,9 +70,31 @@ export function isAllowedCsrfOrigin(
   return parsedReferer !== null && allowed.has(parsedReferer);
 }
 
+/**
+ * Classify the router's percent-encoded pathname, never its query. decodeURI
+ * decodes static letters like find-my-way, but preserves encoded separators
+ * (%2F, %3F, %23): those must not create route boundaries or CSRF exemptions.
+ * Do not resolve dot segments or decode twice; neither represents raw routing.
+ * Like find-my-way, strip the origin of an absolute-form target
+ * (`POST http://host/api/scan`) and end the path at the first `?` or `#`.
+ * Invalid encodings and targets the router cannot route have no trusted
+ * classification and guards fail closed.
+ */
+export function canonicalApiPathname(path: string): string | null {
+  const target = path.startsWith("/") ? path : path.replace(/^https?:\/\/.*?\//, "/");
+  if (!target.startsWith("/")) return null;
+  const pathname = target.split(/[?#]/, 1)[0] ?? "";
+  try {
+    return decodeURI(pathname);
+  } catch {
+    return null;
+  }
+}
+
 export function requiresCsrfOriginCheck(method: string, path: string): boolean {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase())) return false;
-  const cleanPath = path.split("?")[0] ?? "";
+  const cleanPath = canonicalApiPathname(path);
+  if (cleanPath === null) return true;
   if (!cleanPath.startsWith("/api/")) return false;
   if (cleanPath === "/api/auth/nonce" || cleanPath === "/api/auth/login") return false;
   // /api/gsheet/* is authenticated by x-gsheet-token, not cookies — CSRF irrelevant.
@@ -81,7 +103,8 @@ export function requiresCsrfOriginCheck(method: string, path: string): boolean {
 }
 
 export function getApiRateLimitBucket(method: string, path: string): ApiRateLimitBucket {
-  const cleanPath = path.split("?")[0] ?? "";
+  const cleanPath = canonicalApiPathname(path);
+  if (cleanPath === null) return "catch_all";
   if (cleanPath.startsWith("/api/scan/async/") && method.toUpperCase() === "GET") return "scan_poll";
   if (cleanPath.startsWith("/api/scan")) return "scan";
   if (cleanPath.startsWith("/api/auth") || cleanPath === "/api/wallets/nonce") return "auth";
@@ -289,8 +312,8 @@ export async function applyPostAuthRateLimit(
   deps: PostAuthRateLimitDeps,
 ): Promise<void> {
   const method = req.method.toUpperCase();
-  const path = req.url.split("?")[0] ?? "";
-  const bucket = getApiRateLimitBucket(method, path);
+  const path = canonicalApiPathname(req.url);
+  const bucket = getApiRateLimitBucket(method, req.url);
   if (bucket === null) return;
   const isNoncePath = path === "/api/auth/nonce" || path === "/api/wallets/nonce";
   const nonceAddr = isNoncePath ? deps.nonceTargetAddress(req) : null;

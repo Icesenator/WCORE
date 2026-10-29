@@ -11,6 +11,7 @@ function buildApp(opts: { db: boolean; redis: boolean }) {
     checkRedis: async () => { calls.redis += 1; return opts.redis; },
     coreVersion: "test-core",
     chainCount: 182,
+    build: { sha: "a".repeat(40), source: "build-info" },
   });
   return { app, calls, registered };
 }
@@ -88,7 +89,20 @@ describe("liveness endpoint", () => {
 
     const keys = Object.keys(JSON.parse(res.body) as Record<string, unknown>);
     assert.deepEqual(keys.filter((k) => /circuit|breaker/i.test(k)), []);
-    assert.deepEqual(keys.sort(), ["chainCount", "coreVersion", "service", "status", "uptimeSec"]);
+    // `build` names the commit (public repository) so a deploy can be verified.
+    assert.deepEqual(keys.sort(), ["build", "chainCount", "coreVersion", "service", "status", "uptimeSec"]);
+    await app.close();
+  });
+
+  test("names the commit the image was built from without probing dependencies", async () => {
+    const { app, registered } = buildApp({ db: true, redis: true });
+    await registered;
+
+    const res = await app.inject({ method: "GET", url: "/health" });
+
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body) as { build: { sha: string; source: string } };
+    assert.deepEqual(body.build, { sha: "a".repeat(40), source: "build-info" });
     await app.close();
   });
 });

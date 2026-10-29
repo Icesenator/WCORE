@@ -1,0 +1,23 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "wcore-web/apps/api/Dockerfile.railway",
+    "watchPatterns": [
+      "wcore-web/railway/api.json",
+      "wcore-gsheet/dist/**",
+      "wcore-web/package.json",
+      "wcore-web/pnpm-lock.yaml",
+      "wcore-web/pnpm-workspace.yaml",
+      "wcore-web/tsconfig.base.json",
+      "wcore-web/packages/shared/**",
+      "wcore-web/packages/core/**",
+      "wcore-web/packages/db/**",
+      "wcore-web/apps/api/**"
+    ]
+  },
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 120
+  }
+}

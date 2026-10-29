@@ -6,7 +6,8 @@ import compress from "@fastify/compress";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@wcore/db";
 import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, warmDynamicRpcEndpoints } from "@wcore/core";
-import { GM_FACTORIES } from "@wcore/shared";
+import { BUILD_INFO_PATH, GM_FACTORIES, resolveBuildIdentity } from "@wcore/shared";
+import { readFileSync } from "node:fs";
 
 // Le cache d'endpoints dynamiques vit 6 h; on le renouvelle avant expiration.
 const RPC_WARM_INTERVAL_MS = 5 * 60 * 60 * 1000;
@@ -34,11 +35,11 @@ import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
 import { apiConfig } from "./config.js";
+import { trustProxyStartupWarning } from "./trust-proxy.js";
 
-// `true` would trust any X-Forwarded-For chain hop (IP spoofing surface for rate-limiting).
-// In prod Railway routes through a single proxy, so `1` (single hop) is the correct default
-// when the user opts in via TRUST_PROXY=true. Explicit hop counts (e.g. TRUST_PROXY=2) and
-// loopback fallback are preserved.
+// `true` and numeric hop counts are rejected by configuration. They do not
+// authenticate the connecting peer. Use trusted proxy IPs or CIDR ranges;
+// absent/false keeps the loopback-only fallback.
 const PORT = apiConfig.server.port;
 const HOST = apiConfig.server.host;
 const trustProxy = apiConfig.server.trustProxy;
@@ -51,6 +52,9 @@ const app = Fastify({
       ? { level: apiConfig.server.logLevel, transport: { target: "pino-pretty" } }
       : { level: apiConfig.server.logLevel }),
 });
+
+const trustProxyWarning = trustProxyStartupWarning(trustProxy, apiConfig.runtime.isProduction);
+if (trustProxyWarning) app.log.warn(trustProxyWarning);
 
 const redisConfig = apiConfig.redis.config;
 const sharedCache = redisConfig
@@ -145,7 +149,7 @@ function rateLimitIdentity(req: { ip: string; headers: Record<string, string | s
 }
 
 // For pre-auth nonce endpoints, IP-only keying is spoofable via X-Forwarded-For
-// if TRUST_PROXY=true without a CIDR allowlist. Binding to the queried address
+// if the trusted proxy list is wrong. Binding to the queried address
 // adds a second axis: an attacker must rotate addresses to scale a flood, and
 // each address gets its own per-minute bucket.
 function nonceTargetAddress(req: { query?: unknown }): string | null {
@@ -332,6 +336,9 @@ await app.register(healthPlugin, {
   checkRedis,
   coreVersion: CORE_VERSION,
   chainCount: chainList.length,
+  build: resolveBuildIdentity((() => {
+    try { return readFileSync(BUILD_INFO_PATH, "utf8"); } catch { return null; }
+  })(), process.env),
 });
 
 app.get("/api/me/plan", async (req, reply) => {

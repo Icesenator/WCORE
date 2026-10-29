@@ -16,7 +16,9 @@ function registryChainCount(): number {
   ];
   for (const dir of candidates) {
     try {
-      const stems = readdirSync(dir)
+      // Runtime lookup only. Without turbopackIgnore, Next 16.4 cannot bound this
+      // cwd-relative path and traces the whole project into the standalone server.
+      const stems = readdirSync(/* turbopackIgnore: true */ dir)
         .filter((file) => /\.(?:ts|js)$/.test(file) && !file.endsWith(".d.ts") && !file.startsWith("index."))
         .map((file) => file.replace(/\.(?:ts|js)$/, ""));
       const count = new Set(stems).size;

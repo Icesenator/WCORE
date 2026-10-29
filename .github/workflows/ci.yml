@@ -39,6 +39,32 @@ jobs:
       - name: Graph artifact guard (sources suivies uniquement)
         run: node scripts/graph-artifact-guard.test.cjs
 
+      # Garde-fous de deploiement Railway : aucun appel a Railway, un faux `railway` est
+      # place en tete du PATH. Parite service -> Dockerfile -> watchPatterns -> upload.
+      - name: Railway deploy guards
+        run: node --test wcore-web/scripts/railway-deploy.test.mjs wcore-web/scripts/railway-trust-proxy-attestation.test.mjs wcore-web/scripts/verify-deployment.test.mjs wcore-web/railway/railway-config.test.mjs
+
+  # Operators deploy from Windows through deploy.ps1. Runs the wrapper in real PowerShell
+  # with git and node, against a throwaway repository and a fake railway.cmd: no Railway
+  # access, no credential.
+  deploy-wrapper-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: deploy.ps1 wrapper (PowerShell)
+        shell: pwsh
+        run: ./wcore-web/scripts/deploy-ps1.test.ps1
+
+      - name: Railway deploy guards on Windows
+        run: node --test wcore-web/scripts/railway-deploy.test.mjs wcore-web/scripts/railway-trust-proxy-attestation.test.mjs wcore-web/scripts/verify-deployment.test.mjs
+
   typecheck-test-build:
     runs-on: ubuntu-latest
     steps:
@@ -221,8 +247,34 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: ${{ github.workspace }}/wcore-web/.gitleaks.toml
 
+      # gitleaks-action scans a PR with --first-parent --no-merges over the PR's
+      # commit list: commits brought in by merged branches are skipped, and on
+      # PR #7 its range stopped at e7f961d, 20 commits short of the head. This
+      # step scans every commit reachable from the head and not from master,
+      # merged branches included, with the same rules and .gitleaksignore. It
+      # reuses the binary the action just installed: nothing else is downloaded.
+      - name: gitleaks (full release range)
+        working-directory: .
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          bin=$(ls /tmp/gitleaks-*/gitleaks 2>/dev/null | head -n 1 || true)
+          if [ ! -x "$bin" ]; then echo "::error::gitleaks binary installed by gitleaks-action not found"; exit 1; fi
+          git fetch --no-tags --quiet origin master
+          base=$(git merge-base origin/master "$HEAD_SHA")
+          count=$(git rev-list --count "$base..$HEAD_SHA")
+          echo "gitleaks range: $base..$HEAD_SHA ($count commits, merged branches included, no --first-parent)"
+          if [ "$count" -eq 0 ]; then echo "nothing beyond master to scan"; exit 0; fi
+          "$bin" detect --source . --redact --verbose --no-banner --exit-code 1 \
+            --config wcore-web/.gitleaks.toml \
+            --log-opts="$base..$HEAD_SHA"
+
   e2e:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, which Playwright 1.59.1 refuses to install
+    # browsers on ("Playwright does not support chromium on ubuntu26.04-x64"), so
+    # the critical flows never ran. Pinned until @playwright/test is upgraded.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

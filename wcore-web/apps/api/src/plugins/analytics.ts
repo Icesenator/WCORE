@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { AdminFunnelQuerySchema, FunnelEventsBodySchema } from "../schemas.js";
+import { AdminFunnelQuerySchema, FUNNEL_EVENTS_MAX, FunnelEventsBodySchema } from "../schemas.js";
 
 export interface AnalyticsIncrementInput {
   bucketDate: Date;
@@ -113,6 +113,12 @@ export function createPrismaAnalyticsStore(prisma: AnalyticsPrismaClient): Analy
 
 export async function analyticsPlugin(app: FastifyInstance, deps: AnalyticsPluginDeps) {
   app.post("/api/analytics/events", async (request, reply) => {
+    const rawEvents = typeof request.body === "object" && request.body !== null
+      ? (request.body as { events?: unknown }).events
+      : undefined;
+    if (Array.isArray(rawEvents) && rawEvents.length > FUNNEL_EVENTS_MAX) {
+      return reply.code(400).send({ error: "invalid_body" });
+    }
     const parsed = FunnelEventsBodySchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_body" });
 

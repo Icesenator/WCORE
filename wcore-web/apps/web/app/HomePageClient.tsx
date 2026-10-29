@@ -6,6 +6,7 @@ import { useState, useCallback, useEffect, useRef, type FormEvent } from "react"
 import { useAccount } from "wagmi";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChainSelector } from "@/components/ChainSelector";
+import { MyGroups } from "@/components/MyGroups";
 import { useWallet } from "@/components/ConnectButton";
 import { WalletManager, type WalletManagerProps } from "@/components/WalletManager";
 import { usePreferences } from "@/components/PreferencesProvider";
@@ -318,20 +319,22 @@ export function HomePageClient({ coverage }: { coverage: CoverageStats }) {
           <div className="flex gap-2 flex-wrap sm:flex-nowrap">
             <input
               id="address"
+              aria-label="Public wallet address"
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="0x... / cosmos1... / Solana base58 / TON (EQ...)"
-              className="flex-1 min-w-0 rounded-xl border border-border bg-bg px-5 py-4 text-fg text-base outline-none focus:border-accent placeholder:text-muted/50"
+              className="w-full sm:flex-1 sm:w-auto min-w-0 rounded-xl border border-border bg-bg px-5 py-4 text-fg text-base outline-none focus:border-accent focus:ring-2 focus:ring-accent/40 placeholder:text-muted"
               autoComplete="off"
               spellCheck={false}
             />
             <input
               type="text"
+              aria-label="Wallet label (optional)"
               value={addressLabel}
               onChange={(e) => setAddressLabel(e.target.value)}
               placeholder="Label (optional)"
-              className="w-36 shrink-0 rounded-xl border border-border bg-bg px-3 py-4 text-fg text-sm outline-none focus:border-accent placeholder:text-muted/50"
+              className="flex-1 sm:flex-none sm:w-36 min-w-0 rounded-xl border border-border bg-bg px-3 py-4 text-fg text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/40 placeholder:text-muted"
               autoComplete="off"
             />
             <button type="submit" className="rounded-xl bg-accent px-8 py-4 font-bold text-bg hover:opacity-90 transition shrink-0 text-base disabled:opacity-60">
@@ -362,6 +365,8 @@ export function HomePageClient({ coverage }: { coverage: CoverageStats }) {
         </form>
       </section>
 
+      <MyGroups chains={chains} onExplore={(href) => router.push(href)} />
+
       {recentScans.length > 0 ? (
         <div className="mt-10 rounded-lg border border-border bg-card p-5">
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">Recent Scans</p>
@@ -377,30 +382,30 @@ export function HomePageClient({ coverage }: { coverage: CoverageStats }) {
         </div>
       ) : null}
 
-      <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-2 text-2xl">⛓️</div>
+      <div className="mt-10 grid gap-x-8 gap-y-6 lg:grid-cols-[1.4fr_1fr]" aria-label="Portfolio tools">
+        <div className="border-t border-border py-5">
+          <span aria-hidden="true" className="mb-2 block text-accent">↗</span>
           <h3 className="text-sm font-semibold mb-1">Track {coverage.chainConfigCount} chains</h3>
           <p className="text-xs text-muted leading-relaxed">
             Paste any public EVM, Solana, Cosmos or TON address. Automatic VM detection, real-time pricing from 5 sources (DefiLlama, DexScreener, GeckoTerminal, Jupiter, CoinGecko), multi-wallet linking, custom tokens and CSV export. Unavailable chains are auto-skipped to keep scans fast and accurate.
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-2 text-2xl">🌐</div>
+        <div className="border-t border-border py-5">
+          <span aria-hidden="true" className="mb-2 block text-accent">↔</span>
           <h3 className="text-sm font-semibold mb-1">Selected DeFi positions</h3>
           <p className="text-xs text-muted leading-relaxed">
             Track Compound V3 collateral and debt, WCT, Chainbase and selected staked assets. Net values stay signed, while [Flex] and [Lock] show current liquidity.
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-2 text-2xl">🏦</div>
+        <div className="border-t border-border py-5">
+          <span aria-hidden="true" className="mb-2 block text-accent">≡</span>
           <h3 className="text-sm font-semibold mb-1">CEX holdings in one view</h3>
           <p className="text-xs text-muted leading-relaxed">
             Link your own read-only API keys for Binance, Bitpanda, Bitfinex, Bybit, Coinbase, Kraken and OKX in Profile. Balances and valuations land in the same scan summary as your on-chain wallets. Spot, Earn, staking, commodities and stocks are all priced without ever leaving your browser.
           </p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
-          <div className="mb-2 text-2xl">⛽</div>
+        <div className="border-t border-border py-5">
+          <span aria-hidden="true" className="mb-2 block text-accent">→</span>
           <h3 className="text-sm font-semibold mb-1">On-chain GM</h3>
           <p className="text-xs text-muted leading-relaxed">
             Say GM across {coverage.gmEnabledChainCount} supported chains. Deploy your own GM contract, earn 50% creator revenue per GM, withdraw anytime. Per-chain streaks, leaderboard, referrals and 1-click daily GM.

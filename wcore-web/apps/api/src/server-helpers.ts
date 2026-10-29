@@ -1,6 +1,6 @@
 import { CORE_VERSION, getChain, metrics } from "@wcore/core";
 import type { CacheStore, WalletAssets, WalletAssetsCommon } from "@wcore/core";
-import type { ChainScan, TokenAsset } from "@wcore/shared";
+import { isRetiredChain, type ChainScan, type TokenAsset } from "@wcore/shared";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 export function validateChains(input: unknown): { ok: true; chains: string[]; skipped?: string[] } | { ok: false; error: string } {
@@ -12,6 +12,7 @@ export function validateChains(input: unknown): { ok: true; chains: string[]; sk
   const skipped: string[] = [];
   for (const item of input) {
     if (typeof item !== "string" || !item.trim()) return { ok: false, error: `invalid chain: ${JSON.stringify(item)}` };
+    if (isRetiredChain(item)) return { ok: false, error: `chain_removed: ${item.trim()}` };
     const key = item.trim().toUpperCase();
     try {
       const chain = getChain(key);

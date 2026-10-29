@@ -1,4 +1,4 @@
-import type { ChainScan } from "@wcore/shared";
+import { isRetiredChain, type ChainScan } from "@wcore/shared";
 
 const MAJOR_PRICEABLE_SYMBOLS = new Set(["AAVE", "BTC", "CBETH", "DAI", "ETH", "ETHFI", "LINK", "PENDLE", "RETH", "STETH", "UNI", "USDC", "USDT", "WBTC", "WETH", "WSTETH"]);
 
@@ -17,8 +17,9 @@ export function orderScanJobsForExecution<T extends { vm: string }>(jobs: T[]): 
 
 export function mergeChainResults(existing: ChainScan[], incoming: ChainScan[]): MergedScanResults {
   const byChain = new Map<string, ChainScan>();
-  for (const chain of existing) byChain.set(chain.chainKey.toLowerCase(), chain);
-  for (const chain of incoming) byChain.set(chain.chainKey.toLowerCase(), chain);
+  for (const chain of [...existing, ...incoming]) {
+    if (!isRetiredChain(chain.chainKey)) byChain.set(chain.chainKey.toLowerCase(), chain);
+  }
 
   const chains = Array.from(byChain.values()).sort((a, b) => b.totals.valueEur - a.totals.valueEur);
   const totalEur = Math.round(chains.reduce((sum, chain) => sum + chain.totals.valueEur, 0) * 100) / 100;

@@ -7,9 +7,11 @@ import { useGmChain } from "@/hooks/useGmChain";
 import { ChainIcon } from "@/components/ChainIcon";
 import { Logo } from "@/components/Logo";
 import { GmWithdrawButton } from "@/components/GmWithdrawButton";
-import { useGmContracts, type GmContractWithBalance } from "@/hooks/useGmContracts";
+import { useGmContracts, type GmContractWithBalance, useHistoricalGmContracts } from "@/hooks/useGmContracts";
+import { getExplorerUrl } from "@/lib/explorers";
 import { getFactoryAddress, GM_PLATFORM_OWNER } from "@wcore/shared";
 import { lsGmDone } from "@/lib/gm-storage";
+import { getGmRpcUnavailableMessage } from "@/lib/gm-rpc-error";
 import { getGmChains, getSoonChains, type GmChain } from "./gm-chains";
 import { filterGmChains } from "./filter-gm-chains";
 import { buildChainStatusesFromApi, type ApiGmStatus } from "@/lib/gm-status-reconcile";
@@ -27,6 +29,7 @@ export function GmPageClient() {
   const availableChains = filterGmChains(GM_CHAINS.filter(c => getFactoryAddress(c.key)), search);
   const soonChains = filterGmChains(SOON_CHAINS, search);
   const { contractsByChain, withdrawingId, withdrawCreator, withdrawPlatform } = useGmContracts(isAuthenticated ? address : null);
+  const { contracts: historicalContracts, loading: historicalLoading } = useHistoricalGmContracts(isAuthenticated ? address : null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -123,6 +126,62 @@ export function GmPageClient() {
           </div>
         </div>
       ))}
+
+      {/* Historical contracts for retired chains */}
+      {(historicalContracts.length > 0 || historicalLoading) && (
+        <div className="mt-8">
+          <h3 className="mb-4 text-sm font-semibold text-muted uppercase tracking-wider">Historical Chains (Retired)</h3>
+          {historicalLoading ? (
+            <div className="rounded-xl border border-border bg-card p-5 text-center text-muted">
+              Loading historical contracts…
+            </div>
+          ) : historicalContracts.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {historicalContracts.map((contract) => (
+                <div key={contract.id} className="rounded-xl border border-border bg-card p-5 opacity-70">
+                  <div className="flex h-9 items-center gap-3 mb-4">
+                    <ChainIcon chainKey={contract.chainKey.toUpperCase()} />
+                    <div>
+                      <p className="font-semibold text-fg text-sm">
+                        {contract.chainKey.charAt(0).toUpperCase() + contract.chainKey.slice(1).replace(/_/g, " ")}
+                      </p>
+                      <p className="text-[10px] text-muted uppercase">
+                        Contract: {contract.contractAddress.slice(0, 6)}…{contract.contractAddress.slice(-4)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {(() => {
+                      const explorerUrl = getExplorerUrl(contract.chainKey, contract.contractAddress);
+                      return explorerUrl ? (
+                        <a
+                          href={explorerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`${GM_ACTION_CLASS} border border-border bg-transparent text-muted hover:text-fg flex-1`}
+                        >
+                          View on Explorer
+                        </a>
+                      ) : (
+                        <div className={`${GM_ACTION_CLASS} border border-border bg-transparent text-muted/50 flex-1 cursor-not-allowed`}>
+                          Explorer unavailable
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <p className="mt-2 text-center text-[10px] text-muted">
+                    Retired chain — read-only
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-5 text-center text-muted">
+              No historical contracts found.
+            </div>
+          )}
+        </div>
+      )}
       </div>
     </div>
   );
@@ -139,6 +198,7 @@ function GmChainCard({ chain, initialStatus, walletAddress, gmContracts, withdra
   connectedAddress: string;
 }) {
   const isPlatformOwner = connectedAddress?.toLowerCase() === GM_PLATFORM_OWNER;
+  const rpcUnavailable = getGmRpcUnavailableMessage(chain.key);
   const creatorContracts = gmContracts.filter((contract) => contract.role !== "platform");
   const platformContracts = isPlatformOwner ? gmContracts : [];
   const { hasDeployed, alreadyGmToday, initDone, sending, deploying, handleSendGm, handleDeploy } = useGmChain(
@@ -157,7 +217,14 @@ function GmChainCard({ chain, initialStatus, walletAddress, gmContracts, withdra
         </div>
       </div>
 
-      {!initDone || hasDeployed === null ? (
+      {rpcUnavailable ? (
+        <div className="flex flex-col gap-2">
+          <button type="button" disabled title={rpcUnavailable} className={`${GM_ACTION_CLASS} bg-accent/10 text-muted cursor-not-allowed`}>
+            GM unavailable
+          </button>
+          <p role="status" className="text-xs text-muted">{rpcUnavailable}</p>
+        </div>
+      ) : !initDone || hasDeployed === null ? (
         <div className="h-8 flex items-center justify-center">
           <Logo className="h-4 w-4 text-accent animate-spin" />
         </div>

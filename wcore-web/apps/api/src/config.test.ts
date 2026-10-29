@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { getApiConfig } from "./config.js";
+import { getApiConfig, ZERION_MAX_POSITIONS_CAP, ZERION_MAX_RESPONSE_BYTES_CAP } from "./config.js";
 
 const STRONG_SECRET = "abcdefghijklmnopqrstuvwxyz1234567890ABCDEFG";
 
@@ -234,8 +234,8 @@ describe("getApiConfig", () => {
       ZERION_CACHE_TTL_MS: "700000",
       ZERION_LAST_GOOD_TTL_MS: "90000000",
       ZERION_DAILY_BUDGET: "1200",
-      ZERION_MAX_RESPONSE_BYTES: "3000000",
-      ZERION_MAX_POSITIONS: "1500",
+      ZERION_MAX_RESPONSE_BYTES: "1500000",
+      ZERION_MAX_POSITIONS: "500",
     });
     assert.deepEqual(config.portfolioEnrichment.zerion, {
       enabled: true,
@@ -244,8 +244,8 @@ describe("getApiConfig", () => {
       cacheTtlMs: 700000,
       lastGoodTtlMs: 90000000,
       dailyBudget: 1200,
-      maxResponseBytes: 3000000,
-      maxPositions: 1500,
+      maxResponseBytes: 1500000,
+      maxPositions: 500,
     });
   });
 
@@ -280,6 +280,21 @@ describe("getApiConfig", () => {
           new RegExp(`${key} must be a positive safe integer`),
         );
       }
+    }
+  });
+
+  it("caps Zerion position and response-size limits at their defaults", () => {
+    assert.equal(ZERION_MAX_POSITIONS_CAP, 1000);
+    assert.equal(ZERION_MAX_RESPONSE_BYTES_CAP, 2_000_000);
+    const atCap = getApiConfig({ NODE_ENV: "test", ZERION_MAX_POSITIONS: "1000", ZERION_MAX_RESPONSE_BYTES: "2000000" });
+    assert.equal(atCap.portfolioEnrichment.zerion.maxPositions, 1000);
+    assert.equal(atCap.portfolioEnrichment.zerion.maxResponseBytes, 2_000_000);
+    for (const [key, over, cap] of [
+      ["ZERION_MAX_POSITIONS", "1001", "1000"],
+      ["ZERION_MAX_RESPONSE_BYTES", "2000001", "2000000"],
+    ] as const) {
+      assert.throws(() => getApiConfig({ NODE_ENV: "test", [key]: over }), new RegExp(`^Error: ${key} must be at most ${cap}$`));
+      assert.throws(() => getApiConfig({ NODE_ENV: "test", [key]: "1e400" }), new RegExp(`${key} must be a positive safe integer`));
     }
   });
 

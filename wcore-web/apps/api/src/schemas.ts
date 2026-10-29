@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CEX_PROVIDERS } from "@wcore/shared";
+import { CEX_PROVIDERS, isRetiredChain } from "@wcore/shared";
 
 // ─── Primitives ─────────────────────────────────────────────────────────────
 
@@ -20,7 +20,8 @@ export const ChainKey = z
   .min(1)
   .max(50)
   .regex(/^[a-z0-9_-]+$/i, "Invalid chain key")
-  .transform((s) => s.toLowerCase());
+  .transform((s) => s.toLowerCase())
+  .refine((s) => !isRetiredChain(s), { message: "chain_removed" });
 
 export const CuidId = z.string().cuid("Invalid id");
 
@@ -175,8 +176,11 @@ export const FunnelEventSchema = z.object({
   dimensions: FunnelDimensionsSchema,
 }).strict();
 
+/** Batch cap; also enforced before safeParse (Zod 3 walks every element past max). */
+export const FUNNEL_EVENTS_MAX = 5;
+
 export const FunnelEventsBodySchema = z.object({
-  events: z.array(FunnelEventSchema).min(1).max(5),
+  events: z.array(FunnelEventSchema).min(1).max(FUNNEL_EVENTS_MAX),
 }).strict();
 
 export const AdminFunnelQuerySchema = z.object({
@@ -187,7 +191,7 @@ export const AdminFunnelQuerySchema = z.object({
 
 /** GET /api/price/native */
 export const NativePriceQuerySchema = z.object({
-  chain: z.string().min(1).max(50).optional(),
+  chain: z.string().min(1).max(50).refine((s) => !isRetiredChain(s), { message: "chain_removed" }).optional(),
 });
 
 /** POST /api/custom-tokens */

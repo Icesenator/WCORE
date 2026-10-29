@@ -42,7 +42,6 @@ var MISSING_TOKENS_CONFIG = {
  "LINEA": "https://linea.blockscout.com",
  "CELO": "https://celo.blockscout.com",
  "AVALANCHE": "https://snowtrace.io",
- "BLAST": "https://blastscan.io"
  }
 };
 

@@ -11,10 +11,14 @@ import {
 } from "@wcore/chains";
 import type { ChainConfig } from "@wcore/chains/types";
 import { WEB_CHAIN_OVERRIDES } from "./web-overrides.js";
+import { isRetiredChain } from "@wcore/shared";
 
 // Local web-only chains (not yet ported to wcore-gsheet/src/*.gs).
 
-const merged = { ...gsheetChains } as Record<string, ChainConfig>;
+// Keep stale upstream/generated registries from resurrecting a removed chain.
+const merged = Object.fromEntries(Object.entries(gsheetChains).filter(([key, chain]) =>
+  !isRetiredChain(key) && !isRetiredChain(chain.key) && !isRetiredChain(String(chain.CHAIN?.CHAIN_ID)),
+)) as Record<string, ChainConfig>;
 for (const [overrideKey, override] of Object.entries(WEB_CHAIN_OVERRIDES)) {
   const base = merged[overrideKey];
   if (!base) continue;

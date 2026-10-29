@@ -9,6 +9,8 @@ import { getScanProgressDisplay } from "@/components/scan-progress";
 import { mergeChainResults, orderScanJobsForExecution } from "@/components/scan-results";
 import { runWithConcurrency } from "@/lib/concurrency";
 import { buildScanFinishedEvent, trackFunnelEvent, type FunnelCampaign } from "@/lib/funnel-analytics";
+import { isFailedChain } from "@/lib/share-card";
+import { applyRefreshToLastKnown, pruneLastKnown, type ChainRefreshOutcome, type LastKnownState } from "@/lib/refresh-outcome";
 
 const GLOBAL_CHAIN_CONCURRENCY = Math.max(1, Math.floor(Number(process.env.NEXT_PUBLIC_SCAN_CONCURRENCY) || 50));
 // PERF-8: batch multiple chains of the same VM into a single /api/scan/batch
@@ -41,35 +43,42 @@ type ScanResult = { address: string; label: string; chains: ChainScan[]; totalEu
 export type ScanOrchestratorTask = { index: number; addr: string; vm: string; chains: string[] };
 export type ScanOrchestratorJob = { vm: ScanVm; chains: string[]; tasks: ScanOrchestratorTask[] };
 
+/**
+ * A failed refresh (API zero-native placeholder, client error, or no response) becomes the current
+ * chain as a failure: unknown value, excluded by the Share/CSV guards, never a confirmed zero.
+ * The previous successful result of that chain is returned separately as `lastKnown` and is never
+ * re-injected into the current chains or total. Successes, partial results with assets and
+ * confirmed zeros replace the previous chain as before.
+ */
 export function mergeChainRefreshResult(
   previousChains: ChainScan[],
   chainKey: string,
   vm: ScanVm,
   incoming?: ChainScan,
   error = "scan_failed",
-): { chains: ChainScan[]; totalEur: number } {
-  const failedEmpty = !incoming || (
-    incoming.errors.length > 0 &&
-    incoming.native === null &&
-    incoming.tokens.length === 0 &&
-    incoming.totals.valueEur === 0 &&
-    incoming.totals.tokenCount === 0
-  );
-  if (!failedEmpty) return mergeChainResults(previousChains, [incoming]);
+): ChainRefreshOutcome {
+  if (incoming && (incoming.chainKey.toLowerCase() !== chainKey.toLowerCase() || incoming.vm?.toUpperCase() !== vm.toUpperCase())) {
+    incoming = undefined;
+    error = "refresh_identity_mismatch";
+  }
+  if (incoming && !isFailedChain(incoming)) return mergeChainResults(previousChains, [incoming]);
 
+  const current = incoming ?? makeErrorChainScan(chainKey, vm, error);
+  const failure = current.errors.map(item => item.message).filter(Boolean).join("; ") || error;
   const previous = previousChains.find(chain => chain.chainKey.toLowerCase() === chainKey.toLowerCase());
-  if (!previous) return mergeChainResults(previousChains, [incoming ?? makeErrorChainScan(chainKey, vm, error)]);
+  const merged = mergeChainResults(previousChains, [current]);
+  return previous && previous.vm?.toUpperCase() === vm.toUpperCase() && !isFailedChain(previous) ? { ...merged, lastKnown: previous, failure } : { ...merged, failure };
+}
 
-  const messages = incoming?.errors.map(item => item.message).filter(Boolean) ?? [error];
-  const stale = {
-    ...previous,
-    degraded: true,
-    errors: [
-      ...previous.errors,
-      { stage: "scan", message: `stale_refresh_failed: ${messages.join("; ") || error}` },
-    ],
-  };
-  return mergeChainResults(previousChains, [stale]);
+/** Apply only the refreshed chain to the latest wallet state; other fresh chains are kept. */
+export function applyRefreshedChain<T extends { chains: ChainScan[]; totalEur: number }>(wallet: T, chainKey: string, outcome: ChainRefreshOutcome): T {
+  const current = outcome.chains.find(chain => chain.chainKey.toLowerCase() === chainKey.toLowerCase());
+  // `mergeChainRefreshResult` always emits the requested chain (a failure becomes a zero
+  // placeholder, never an absent one), so `current` is always present. The branch below is a
+  // defensive no-op kept for callers that build an outcome by hand.
+  if (!current) return wallet;
+  const merged = mergeChainResults(wallet.chains, [current]);
+  return { ...wallet, chains: merged.chains, totalEur: merged.totalEur };
 }
 
 export function buildScanOrchestratorJobs({
@@ -132,6 +141,9 @@ export function useScanOrchestrator({
   campaign,
 }: ScanOrchestratorParams) {
   const [results, setResults] = useState<Array<ScanResult> | null>(null);
+  // Latest committed results, read by refresh handlers that must not run side effects in updaters.
+  const resultsRef = useRef<Array<ScanResult> | null>(null);
+  useEffect(() => { resultsRef.current = results; }, [results]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [chainProgress, setChainProgress] = useState({ done: 0, total: 0 });
   const [overallChainProgress, setOverallChainProgress] = useState({ done: 0, total: 0 });
@@ -147,6 +159,16 @@ export function useScanOrchestrator({
   const [elapsed, setElapsed] = useState(0);
   const [scanTrigger, setScanTrigger] = useState(0);
   const [lastScanCompleteTime, setLastScanCompleteTime] = useState<number>(0);
+  // Separate last-known registry (display only, never part of results/totals/exports).
+  const lastKnownRef = useRef<LastKnownState>({ entries: {}, observedAt: {} });
+  const [lastKnownChains, setLastKnownChains] = useState<LastKnownState["entries"]>({});
+  const recordRefresh = useCallback((address: string, chainKey: string, outcome: ChainRefreshOutcome) => {
+    const next = applyRefreshToLastKnown(lastKnownRef.current, address, chainKey, outcome, new Date().toISOString());
+    if (next === lastKnownRef.current) return;
+    const entriesChanged = next.entries !== lastKnownRef.current.entries;
+    lastKnownRef.current = next;
+    if (entriesChanged) setLastKnownChains(next.entries);
+  }, []);
   const forceRefreshRef = useRef(false);
   // When non-empty, force-refresh (cache bypass) applies ONLY to these addresses;
   // other wallets re-scan from cache. Empty = force applies to all (global refresh).
@@ -191,6 +213,8 @@ export function useScanOrchestrator({
         };
       });
       setResults(initial);
+      lastKnownRef.current = pruneLastKnown(lastKnownRef.current, validEnabledAddresses);
+      setLastKnownChains(lastKnownRef.current.entries);
       const myRunId = ++scanRunIdRef.current;
       const startTime = Date.now();
       setScanStartTime(startTime);
@@ -242,6 +266,7 @@ export function useScanOrchestrator({
       function markWalletChainDone(task: typeof walletTasks[number], chain: string, chains: ChainScan[], error?: string) {
         const previousChains = updated[task.index]?.chains ?? [];
         const merged = mergeChainRefreshResult(previousChains, chain, task.vm as ScanVm, chains[0], error);
+        recordRefresh(task.addr, chain, merged);
         if (error) errorsByWallet.set(task.index, error);
         updated[task.index] = {
           address: task.addr,
@@ -452,6 +477,7 @@ export function useScanOrchestrator({
     retryAbortControllerRef.current?.abort();
     const abortController = new AbortController();
     retryAbortControllerRef.current = abortController;
+    const runId = scanRunIdRef.current;
     setRetryingTimedOut(true);
     try {
       const uniqueChains = new Map<string, string[]>();
@@ -462,21 +488,30 @@ export function useScanOrchestrator({
       }
       for (const [chainKey, addrs] of uniqueChains) {
         const batchResult = await fetchBatchScan(addrs, [chainKey], deepScan, customTokenList, true, abortController.signal);
+        if (abortController.signal.aborted || runId !== scanRunIdRef.current) return;
         if (batchResult?.wallets) {
           const byAddress = new Map(batchResult.wallets.map(w => [w.address.toLowerCase(), w]));
-          setResults(prev => (prev ?? []).map(wallet => {
+          // Compute outside the state updater so the last-known registry is written exactly once.
+          const outcomes = new Map<string, ChainRefreshOutcome>();
+          const vmByWallet = new Map<string, ScanVm>();
+          for (const wallet of resultsRef.current ?? []) {
             const fresh = byAddress.get(wallet.address.toLowerCase());
-            if (!fresh) return wallet;
+            if (!fresh) continue;
             const previous = wallet.chains.find(c => c.chainKey.toLowerCase() === chainKey.toLowerCase());
+            vmByWallet.set(wallet.address.toLowerCase(), (previous?.vm ?? detectChainType(wallet.address)) as ScanVm);
             const incoming = fresh.chains.find(c => c.chainKey.toLowerCase() === chainKey.toLowerCase());
-            const merged = mergeChainRefreshResult(
+            outcomes.set(wallet.address.toLowerCase(), mergeChainRefreshResult(
               wallet.chains,
               chainKey,
-              (previous?.vm ?? detectChainType(wallet.address)) as ScanVm,
+              vmByWallet.get(wallet.address.toLowerCase())!,
               incoming,
               batchResult.error,
-            );
-            return { ...wallet, chains: merged.chains, totalEur: merged.totalEur };
+            ));
+          }
+          for (const [address, merged] of outcomes) recordRefresh(address, chainKey, merged);
+          setResults(prev => (prev ?? []).map(wallet => {
+            const merged = outcomes.get(wallet.address.toLowerCase());
+            return merged ? applyRefreshedChain(wallet, chainKey, merged) : wallet;
           }));
         }
       }
@@ -488,7 +523,21 @@ export function useScanOrchestrator({
         setRetryingTimedOut(false);
       }
     }
-  }, [timedOutChains, deepScan, customTokenList]);
+  }, [timedOutChains, deepScan, customTokenList, recordRefresh]);
+
+  /** Single-chain refresh from a chain card: same failure semantics as the scan. */
+  const applyChainRefresh = useCallback((address: string, chainKey: string, incoming: ChainScan | undefined, error?: string) => {
+    // Compute outside the state updater so the last-known registry is written exactly once.
+    const wallet = (resultsRef.current ?? []).find(w => w.address.toLowerCase() === address.toLowerCase());
+    if (!wallet) return;
+    const previous = wallet.chains.find(c => c.chainKey.toLowerCase() === chainKey.toLowerCase());
+    const merged = mergeChainRefreshResult(wallet.chains, chainKey, (previous?.vm ?? detectChainType(wallet.address)) as ScanVm, incoming, error);
+    recordRefresh(wallet.address, chainKey, merged);
+    // Only the refreshed chain is applied to the latest state; other chains are never rewritten.
+    setResults(prev => prev?.map(w => w.address.toLowerCase() === address.toLowerCase()
+      ? applyRefreshedChain(w, chainKey, merged)
+      : w) ?? prev);
+  }, [recordRefresh]);
   /* eslint-enable react-hooks/refs */
 
   const triggerForceRefresh = useCallback(() => {
@@ -519,6 +568,8 @@ export function useScanOrchestrator({
   return {
     results,
     setResults,
+    lastKnownChains,
+    applyChainRefresh,
     progress,
     chainProgress,
     overallChainProgress,

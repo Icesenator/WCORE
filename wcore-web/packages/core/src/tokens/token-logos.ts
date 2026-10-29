@@ -11,7 +11,7 @@ const CHAIN_SLUGS: Record<string, string> = {
   ARBITRUM_ONE: "arbitrum", OPTIMISM: "optimism", BASE: "base",
   AVALANCHE: "avalanchec", FANTOM: "fantom", GNOSIS: "xdai",
   CELO: "celo", LINEA: "linea", SCROLL: "scroll",
-  ZKSYNC_ERA: "zksync", MANTLE: "mantle", BLAST: "blast",
+  ZKSYNC_ERA: "zksync", MANTLE: "mantle",
   MODE: "mode", FRAXTAL: "fraxtal", WORLDCHAIN: "worldchain",
   UNICHAIN: "unichain", BERACHAIN: "berachain", SONIC: "sonic",
   ZORA: "zora", SEI: "sei", SHAPE: "shape", ANCIENT8: "ancient8",

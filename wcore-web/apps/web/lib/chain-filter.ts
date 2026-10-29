@@ -1,3 +1,5 @@
+import { isRetiredChain } from "@wcore/shared";
+
 export type ScanVm = "EVM" | "SVM" | "COSMOS" | "TON";
 
 export interface ChainScanMeta {
@@ -11,6 +13,7 @@ export function matchCompatibleChains(
   chainMetaMap: Record<string, ChainScanMeta>,
 ): string[] {
   return chainKeys.filter((ch) => {
+    if (isRetiredChain(ch)) return false;
     const key = ch.toUpperCase();
     const meta = chainMetaMap[key];
     if (!meta) {

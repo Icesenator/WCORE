@@ -2,7 +2,8 @@
 import { apiFetch } from "@/lib/api";
 
 import { useState, useEffect, useCallback } from "react";
-import { useWallet, ConnectButton } from "@/components/ConnectButton";
+import { useWallet } from "@/components/ConnectButton";
+import { SupportPublicHelp } from "./SupportPublicHelp";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { PageSkeleton } from "@/components/PageSkeleton";
 
@@ -21,7 +22,7 @@ interface Ticket {
 
 export function SupportClient() {
   const { address } = useWallet();
-  const { t } = usePreferences();
+  const { language } = usePreferences();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState("bug");
@@ -82,13 +83,7 @@ export function SupportClient() {
   };
 
   if (!address) {
-    return (
-      <div className="py-12">
-        <h1 className="text-2xl font-bold mb-4">Support</h1>
-        <p className="text-muted mb-4">{t("connectProfile")}</p>
-        <ConnectButton />
-      </div>
-    );
+    return <SupportPublicHelp language={language} />;
   }
 
   return (

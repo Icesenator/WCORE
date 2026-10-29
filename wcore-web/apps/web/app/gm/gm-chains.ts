@@ -10,12 +10,12 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   optimism: "Optimism", polygon: "Polygon", bsc: "BNB Chain",
   avalanche: "Avalanche", gnosis: "Gnosis", soneium: "Soneium",
   zksync_era: "zkSync Era", scroll: "Scroll", linea: "Linea",
-  mantle: "Mantle", blast: "Blast", celo: "Celo", fraxtal: "Fraxtal",
+  mantle: "Mantle", celo: "Celo", fraxtal: "Fraxtal",
   worldchain: "World Chain", unichain: "Unichain", berachain: "Berachain",
   ink: "Ink", abstract: "Abstract",
   zora: "Zora", mode: "Mode",
-  sei: "Sei", superseed: "Superseed", shape: "Shape",
-  bob: "BOB", lisk: "Lisk",
+  sei: "Sei", shape: "Shape",
+  bob: "BOB",
   metal_l2: "Metal L2", robinhood_chain: "Robinhood Chain", appchain: "AppChain",
   camp: "Camp", duckchain: "DuckChain", cyber: "Cyber",
   zircuit: "Zircuit", openledger: "OpenLedger",
@@ -32,7 +32,6 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   flare: "Flare",
   x_layer: "X Layer",
   shibarium: "Shibarium",
-  degen: "Degen",
   beam: "Beam",
   ronin: "Ronin",
   opbnb: "opBNB",
@@ -54,13 +53,13 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   story: "Story",
   intuition: "Intuition",
   plume: "Plume",
-  superposition: "Superposition",
   monad: "Monad",
   megaeth: "MegaETH",
   doma: "Doma",
   b2: "B2",
   katana: "Katana",
   arc: "Arc",
+  moca: "Moca Chain",
 };
 
 const SOON_CHAIN_CANDIDATES: GmChain[] = [
@@ -111,6 +110,7 @@ const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "bitlayer", name: "Bitlayer" },
   { key: "flow", name: "Flow EVM" },
   { key: "arc", name: "Arc" },
+  { key: "moca", name: "Moca Chain" },
 ];
 
 export function getGmChains(): GmChain[] {

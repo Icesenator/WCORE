@@ -1,7 +1,11 @@
 // v4.16.43 - budget d appels PRIVES (plafond glissant 24 h) + cache court 4 min pour les
 //            diagnostics + le refresh manuel A1 respecte la pause post-lockout.
-//            But : pouvoir RAFRAICHIR PLUS SOUVENT (trigger 30 min) sans jamais risquer
-//            un ban. Le plafond transforme "risque de ban" en " degradation visible et bornee".
+//            But : pouvoir RAFRAICHIR SANS jamais risquer un ban. Le plafond
+//            transforme "risque de ban" en " degradation visible et bornee" ; la
+//            frequence horaire reste la cadence prouvee en production.
+//            REGRESSION corrigee le 2026-09-30 : une tentative de cadence 30 min
+//            (everyDays(1).atHour().nearMinute()) produisait des triggers
+//            QUOTIDIENS, donc un seul passage par jour et un PULSE fige 18 h.
 // v4.16.42 - pause persistante 60 min apres Temporary lockout (aucun appel prive pendant la pause)
 //            + un seul appel Balance/h : UPDATE_KRAKEN_SPOT ecrit Crypto ET Stocks, le trigger
 //            Stocks saute si ce passage partage a moins de 55 min.
@@ -582,60 +586,46 @@ function KRAKEN_REFRESH_WATCHDOG() {
   return "LEGACY_DISABLED: manual requests use CEX_MANUAL_REFRESH_WORKER";
 }
 
-// v4.16.43 - cadence 30 min au lieu de 1 h.
-//
-// ASTUCE POUR RAFRAICHIR PLUS SOUVENT : Apps Script n'accepte QUE everyMinutes(1),
-// everyHours(1), everyDays(1) ou un horaire horloge via atHour/atMinute.
-// everyMinutes(30) est REJETE. On obtient donc 2 passages/h par des triggers horloge
-// decales (minute 0 et minute 30).
-//
-// Cout reel : 48 appels prives/jour au lieu de 24, tres loin du plafond de
-// securite de 220 et du compteur d API Kraken. Le passage UPDATE_KRAKEN_SPOT ecrit
-// les DEUX onglets (Crypto + Stocks) avec UN seul appel Balance, donc doubler la
-// cadence ne double pas la charge sur l onglet Stocks : son propre trigger est
-// decale de 15 min et saute via KRAKEN_SHARED_BALANCE_OK_MS quand le passage
-// partage a moins de 55 min.
-//
-// Le decalage de 15 min est aussi un filet de securite : si UPDATE_KRAKEN_SPOT
-// echoue (pause, budget), KRAKEN_SHARED_BALANCE_OK_MS n'est pas horodate, donc
-// UPDATE_KRAKEN_STOCKS_FIAT tente sa chance a la place.
 // v4.16.43 - helper UNIQUE d installation des triggers Kraken, appele par
 // INSTALL_KRAKEN_SYNC_TRIGGER *et* par _wcoreAutoHealCreateManagedTriggers_.
-// Sans ce partage, un WCORE_AUTO_HEAL_FORCE recreerait les triggers everyHours(1)
-// et annulerait silencieusement la cadence 30 min.
+// Sans ce partage, un WCORE_AUTO_HEAL_FORCE recreerait ses propres triggers
+// horaires en doublon (deux passages/h au lieu d un).
 //
-// SEMANTIQUE Apps Script — INTROSPECTEE, pas supposee.
+// SEMANTIQUE Apps Script — INTROSPECTEE puis VERIFIEE PAR OBSERVATION.
 // PROBE_TRIGGER_API a liste les methodes reelles du builder timeBased() de ce
 // runtime : at, after, atDate, everyWeeks, onWeekDay, atHour, nearMinute,
 // onMonthDay, everyMinutes, everyHours, everyDays, inTimezone, create.
-// Consequence directe, deux fois verifiee par execution :
-//   - atTime() et atMinute() N'EXISTENT PAS  -> TypeError
-//   - atHour() s emaille avec everyDays(1)    -> OK
-// nearMinute() est la primitive de cadence fine : everyDays(1).nearMinute(n)
-// planifie un passage a la minute n de chaque jour, donc deux triggers
-// nearMinute(0) + nearMinute(30) donnent exactement la cadence 30 min voulue.
-// On ne se fie plus a la doc : la liste ci-dessus fait foi.
+//
+// REGRESSION OBSERVEE 2026-09-30 : everyDays(1).atHour(0).nearMinute(30)
+// s interprete comme "UNE FOIS PAR JOUR a 00:30", PAS comme "toutes les 30 min".
+// everyDays(1) fixe la PERIODE (1 jour) ; atHour/nearMinute ne precisent que le
+// point de declenchement DANS cette periode. Resultat : les 4 triggers n ont
+// tire qu'une fois (00:28-00:29) puis plus jamais, PULSE fige 18 h. C est un
+// contresens : un trigger CLOCK sans everyXxx() ne s execute qu UNE fois.
+//
+// CORRECTIF : on revient a everyHours(1), cadence horaire provee en production
+// avant le 2026-09-29 (4 triggers/jour d'appels prives). La frequence N est plus
+// le rempart contre le lockout : c est le BUDGET (220 appels prives/24 h) et la
+// PAUSE post-lockout qui jouent ce role. Le helper reste unique pour que l
+// auto-heal ne recree pas ses propres triggers horaires en doublon.
 function _krakenInstallCadenceTriggers_() {
   var trs = ScriptApp.getProjectTriggers();
   for (var i = 0; i < trs.length; i++) {
     var fn = trs[i].getHandlerFunction();
     if (fn === "UPDATE_KRAKEN_SPOT" || fn === "UPDATE_KRAKEN_STOCKS_FIAT" || fn === "KRAKEN_REFRESH_WATCHDOG") ScriptApp.deleteTrigger(trs[i]);
   }
-  // SPOT : minutes 0 et 30 de chaque heure. Un SEUL appel Balance ecrit les
-  // deux onglets (Crypto + Stocks).
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).nearMinute(0).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyDays(1).atHour(0).nearMinute(30).create();
-  // STOCKS : minutes 15 et 45. Filet de securite : si SPOT echoue (pause
+  // SPOT horaire. Un SEUL appel Balance ecrit les deux onglets (Crypto + Stocks).
+  ScriptApp.newTrigger("UPDATE_KRAKEN_SPOT").timeBased().everyHours(1).create();
+  // STOCKS horaire, decale de 15 min : filet de securite. Si SPOT echoue (pause
   // post-lockout, budget epuise), KRAKEN_SHARED_BALANCE_OK_MS n est pas horodate
   // et ce trigger tente sa chance. Sinon il saute (passage partage < 55 min).
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).nearMinute(15).create();
-  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyDays(1).atHour(0).nearMinute(45).create();
-  return 4;
+  ScriptApp.newTrigger("UPDATE_KRAKEN_STOCKS_FIAT").timeBased().everyHours(1).create();
+  return 2;
 }
 
 function INSTALL_KRAKEN_SYNC_TRIGGER() {
   var n = _krakenInstallCadenceTriggers_();
-  return "Triggers installed (cadence 30 min, " + n + " triggers): UPDATE_KRAKEN_SPOT (h:00, h:30) + UPDATE_KRAKEN_STOCKS_FIAT (h:15, h:45, filet de securite)";
+  return "Triggers installed (cadence horaire, " + n + " triggers): UPDATE_KRAKEN_SPOT + UPDATE_KRAKEN_STOCKS_FIAT (filet). Le budget 220 appels prives/24 h et la pause post-lockout protigent du ban, PAS la frequence.";
 }
 
 // v4.16.36: écrit le fiat (EUR) + les xStocks Kraken (normalisés vers le canonique
@@ -750,8 +740,8 @@ function KRAKEN_BUDGET_STATUS() {
     lockout_active: !!lockoutUntil,
     lockout_resume_local: lockoutUntil ? Utilities.formatDate(new Date(lockoutUntil), "Europe/Paris", "yyyy-MM-dd HH:mm:ss") : null,
     lockout_remaining_min: lockoutUntil ? Math.ceil((lockoutUntil - now) / 60000) : 0,
-    cadence: "30 min (SPOT h:00 et h:30 ecrit Crypto+Stocks en 1 appel ; STOCKS h:15 et h:45 en filet)",
-    projected_calls_per_day: 48,
+    cadence: "horaire (SPOT ecrit Crypto+Stocks en 1 appel ; STOCKS en filet, saute si passage partage < 55 min)",
+    projected_calls_per_day: 24,
     next_safe_manual_refresh: lockoutUntil ? "apres " + Utilities.formatDate(new Date(lockoutUntil), "Europe/Paris", "HH:mm") : "maintenant"
   });
 }

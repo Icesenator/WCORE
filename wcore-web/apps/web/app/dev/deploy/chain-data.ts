@@ -82,12 +82,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Mantle", symbol: "MNT", decimals: 18 },
     rpcUrls: ["https://rpc.mantle.xyz", "https://1rpc.io/mantle", "https://mantle.drpc.org", "https://mantle-rpc.publicnode.com"],
   },
-  BLAST: {
-    chainId: "0x13e31",
-    chainName: "Blast",
-    nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.blast.io", "https://blast.din.dev/rpc", "https://blastl2-mainnet.public.blastapi.io"],
-  },
   SONIC: {
     chainId: "0x92",
     chainName: "Sonic",
@@ -117,6 +111,12 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainName: "Robinhood Chain",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.mainnet.chain.robinhood.com"],
+  },
+  MOCA: {
+    chainId: "0x8f0",
+    chainName: "Moca Chain",
+    nativeCurrency: { name: "MOCA", symbol: "MOCA", decimals: 18 },
+    rpcUrls: ["https://rpc.mocachain.org", "https://moca.drpc.org"],
   },
   UNICHAIN: {
     chainId: "0x82",
@@ -172,12 +172,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Sei", symbol: "SEI", decimals: 18 },
     rpcUrls: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com", "https://1329.rpc.thirdweb.com"],
   },
-  SUPERSEED: {
-    chainId: "0x14d2",
-    chainName: "Superseed",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://mainnet.superseed.xyz", "https://superseed.drpc.org"],
-  },
   SHAPE: {
     chainId: "0x168",
     chainName: "Shape",
@@ -213,12 +207,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainName: "Camp",
     nativeCurrency: { name: "Camp", symbol: "CAMP", decimals: 18 },
     rpcUrls: ["https://rpc-mainnet.campnetwork.xyz"],
-  },
-  DUCKCHAIN: {
-    chainId: "0x15a9",
-    chainName: "DuckChain",
-    nativeCurrency: { name: "Gram", symbol: "GRAM", decimals: 18 },
-    rpcUrls: ["https://rpc.duckchain.io", "https://rpc-hk.duckchain.io"],
   },
   CYBER: {
     chainId: "0x1d88",
@@ -260,7 +248,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x208d",
     chainName: "B3",
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://mainnet-rpc.b3.fun"],
+    rpcUrls: ["https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-1", "https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-2"],
   },
   CITREA: {
     chainId: "0x1012",
@@ -363,12 +351,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainName: "Shibarium",
     nativeCurrency: { name: "Bone ShibaSwap", symbol: "BONE", decimals: 18 },
     rpcUrls: ["https://shibarium.drpc.org", "https://rpc.shibarium.shib.io"],
-  },
-  DEGEN: {
-    chainId: "0x27bc86aa",
-    chainName: "Degen",
-    nativeCurrency: { name: "Degen", symbol: "DEGEN", decimals: 18 },
-    rpcUrls: ["https://degen-mainnet.g.alchemy.com/public", "https://rpc.degen.tips"],
   },
   BEAM: {
     chainId: "0x10f1",
@@ -502,12 +484,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Plume", symbol: "PLUME", decimals: 18 },
     rpcUrls: ["https://rpc.plume.org", "https://plume.drpc.org", "https://plume-mainnet.gateway.tatum.io"],
   },
-  SUPERPOSITION: {
-    chainId: "0xd7cc",
-    chainName: "Superposition",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.superposition.so", "https://55244.rpc.thirdweb.com"],
-  },
   SOMNIA: {
     chainId: "0x13a7",
     chainName: "Somnia",
@@ -532,12 +508,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
     rpcUrls: ["https://rpc.matchain.io", "https://rpc.ankr.com/matchain_mainnet", "https://698.rpc.thirdweb.com"],
   },
-  RACE: {
-    chainId: "0x1a95",
-    chainName: "RACE",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://racemainnet.io", "https://6805.rpc.thirdweb.com"],
-  },
   DOMA: {
     chainId: "0x17cc5",
     chainName: "Doma",
@@ -549,12 +519,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainName: "B2",
     nativeCurrency: { name: "Bitcoin", symbol: "BTC", decimals: 18 },
     rpcUrls: ["https://rpc.bsquared.network", "https://b2-mainnet.alt.technology"],
-  },
-  BOTANIX: {
-    chainId: "0xe35",
-    chainName: "Botanix",
-    nativeCurrency: { name: "Bitcoin", symbol: "BTC", decimals: 18 },
-    rpcUrls: ["https://rpc.ankr.com/botanix_mainnet", "https://rpc.botanixlabs.com"],
   },
   KATANA: {
     chainId: "0xb67d2",
@@ -632,12 +596,12 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   534352, // SCROLL
   59144, // LINEA
   5000, // MANTLE
-  81457, // BLAST
   146, // SONIC
   42220, // CELO
   252, // FRAXTAL
   480, // WORLDCHAIN
   4663, // ROBINHOOD_CHAIN
+  2288, // MOCA
   130, // UNICHAIN
   80094, // BERACHAIN
   57073, // INK
@@ -647,14 +611,12 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   7777777, // ZORA
   34443, // MODE
   1329, // SEI
-  5330, // SUPERSEED
   360, // SHAPE
   60808, // BOB
   1135, // LISK
   1750, // METAL_L2
   466, // APPCHAIN
   484, // CAMP
-  5545, // DUCKCHAIN
   7560, // CYBER
   48900, // ZIRCUIT
   1612, // OPENLEDGER
@@ -679,7 +641,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   14, // FLARE
   196, // X_LAYER
   109, // SHIBARIUM
-  666666666, // DEGEN
   4337, // BEAM
   2020, // RONIN
   204, // OPBNB
@@ -702,15 +663,12 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   1155, // INTUITION
   42793, // ETHERLINK
   98866, // PLUME
-  55244, // SUPERPOSITION
   5031, // SOMNIA
   143, // MONAD
   4326, // MEGAETH
   698, // MATCHAIN
-  6805, // RACE
   97477, // DOMA
   223, // B2
-  3637, // BOTANIX
   747474, // KATANA
   232, // LENS
   543210, // ZERO

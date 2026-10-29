@@ -1,3 +1,4 @@
+import { filterActiveChainKeys } from "@wcore/shared";
 import { WalletContent } from "@/components/WalletContent";
 import { normalizeCampaign } from "@/lib/funnel-analytics";
 
@@ -13,7 +14,7 @@ export default async function WalletPage({
 
   const addresses = decodeURIComponent(address).split(",").map((a) => a.trim()).filter(Boolean);
   const linked = linkedParam ? decodeURIComponent(linkedParam).split(",").map((a) => a.trim()).filter(Boolean) : [];
-  const chains = chainsParam ? chainsParam.split(",").map((c) => c.trim()).filter(Boolean) : ["BASE", "ETHEREUM"];
+  const chains = filterActiveChainKeys(chainsParam ? chainsParam.split(",").map((c) => c.trim()).filter(Boolean) : ["BASE", "ETHEREUM"]);
   const deepScan = deepParam === "1";
 
   const walletLabels: Record<string, string> = {};

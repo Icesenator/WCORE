@@ -2,6 +2,7 @@ import type { PricingToken, SourcePriceLike, TokenPriceSource } from "../types.j
 import { isPositiveFinite, normalizePriceKey } from "../types.js";
 
 interface DexPair {
+  chainId?: string;
   baseToken?: { address?: string; symbol?: string; name?: string };
   quoteToken?: { address?: string; symbol?: string; name?: string };
   priceUsd?: string | number;
@@ -37,7 +38,12 @@ export class DexScreenerPriceSource implements TokenPriceSource {
     const pairs = Array.isArray(json) ? json : json.pairs ?? [];
     let best: SourcePriceLike = null;
     let bestLiquidity = -1;
+    const quoteAddresses = token.chain.CHAIN?.DEX_QUOTE_ADDRESSES;
+    const verifiedQuotes = new Set(Array.isArray(quoteAddresses) ? quoteAddresses.map(address => normalizePriceKey(String(address))) : []);
+    const allowedQuote = (symbol: string | undefined, address: string | undefined) =>
+      verifiedQuotes.has(normalizePriceKey(address ?? "")) || isAllowedQuote(symbol, address, token.chain.vm);
     for (const pair of pairs) {
+      if (pair.chainId && pair.chainId !== String(slug)) continue;
       const liq = Number(pair.liquidity?.usd ?? 0);
       if (!Number.isFinite(liq) || liq < 50 || liq <= bestLiquidity) continue;
       const base = normalizePriceKey(pair.baseToken?.address ?? "");
@@ -45,11 +51,11 @@ export class DexScreenerPriceSource implements TokenPriceSource {
       const baseUsd = Number(pair.priceUsd);
       if (!isPositiveFinite(baseUsd)) continue;
       if (base === contract) {
-        if (!isAllowedQuote(pair.quoteToken?.symbol, pair.quoteToken?.address, token.chain.vm)) continue;
+        if (!allowedQuote(pair.quoteToken?.symbol, pair.quoteToken?.address)) continue;
         best = { priceUsd: baseUsd, source: "dex", symbol: pair.baseToken?.symbol, name: pair.baseToken?.name };
         bestLiquidity = liq;
       } else if (quote === contract) {
-        if (!isAllowedQuote(pair.baseToken?.symbol, pair.baseToken?.address, token.chain.vm)) continue;
+        if (!allowedQuote(pair.baseToken?.symbol, pair.baseToken?.address)) continue;
         const native = Number(pair.priceNative);
         if (!isPositiveFinite(native)) continue;
         best = { priceUsd: baseUsd / native, source: "dex", symbol: pair.quoteToken?.symbol, name: pair.quoteToken?.name };

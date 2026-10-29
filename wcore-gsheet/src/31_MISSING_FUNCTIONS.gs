@@ -12,7 +12,7 @@
  * Compares Blockscout results with existing cache to find missing tokens.
  * 
  * Supported: BASE, ETHEREUM, OPTIMISM, ARBITRUM_ONE, POLYGON,
- * GNOSIS, SCROLL, ZKSYNC_ERA, LINEA, CELO, AVALANCHE, BLAST
+ * GNOSIS, SCROLL, ZKSYNC_ERA, LINEA, CELO, AVALANCHE
  ************************************************************/
 
 // ============================================================
@@ -134,15 +134,4 @@ function GET_MISSING_WALLET_ASSETS_AVALANCHE(wallet) {
  }
  return [["chain_name", "token_ticker", "token_name", "contract_address", "balance", "price_eur", "value_eur"],
  ["Avalanche", "ERROR", "MissingTokensEngine not loaded", "", "", "", ""]];
-}
-
-// ============================================================
-// BLAST
-// ============================================================
-function GET_MISSING_WALLET_ASSETS_BLAST(wallet) {
- if (typeof MissingTokensEngine !== 'undefined' && MissingTokensEngine.getMissingWalletAssets) {
- return MissingTokensEngine.getMissingWalletAssets(wallet, null, _BLAST.getConfig(), WalletNames);
- }
- return [["chain_name", "token_ticker", "token_name", "contract_address", "balance", "price_eur", "value_eur"],
- ["Blast", "ERROR", "MissingTokensEngine not loaded", "", "", "", ""]];
 }

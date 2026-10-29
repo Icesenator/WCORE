@@ -45,10 +45,11 @@ after(async () => {
 });
 
 // Compte les validations d'éléments : 0 prouve que safeParse n'a pas parcouru le tableau.
-const schemaProto = FunnelEventSchema as unknown as { _parse: (input: unknown) => unknown };
-const originalParse = schemaProto._parse;
+// Zod 4 runs each schema through its own _zod.run (no shared _parse hook): count the event validations there.
+const eventSchemaInternals = (FunnelEventSchema as unknown as { _zod: { run: (...args: unknown[]) => unknown } })._zod;
+const originalRun = eventSchemaInternals.run;
 let elementParses = 0;
-schemaProto._parse = function (this: unknown, input: unknown) { elementParses++; return originalParse.call(this, input); };
+eventSchemaInternals.run = function (this: unknown, ...args: unknown[]) { elementParses++; return originalRun.apply(this, args); };
 
 const EVENT = { event: "scan_started", campaign: "unknown", surface: "home", variant: "control", dimensions: {} };
 const SIX = { events: Array.from({ length: 6 }, () => EVENT) };

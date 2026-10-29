@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { filterDisabledGmContracts, filterUnusedGmContracts, filterUnsupportedGmChains, findVerifiedDeployedContract, pickCreatorContractsFirst, prepareMyContractsResponse } from "./gm-contracts.js";
+import { filterHistoricalContracts, filterDisabledGmContracts, filterUnusedGmContracts, filterUnsupportedGmChains, findVerifiedDeployedContract, pickCreatorContractsFirst, prepareMyContractsResponse } from "./gm-contracts.js";
+import { GM_HISTORICAL_FACTORIES } from "@wcore/shared";
 
 const DEPLOYED_EVENT = "0x33c981baba081f8fd2c52ac6ad1ea95b6814b4376640f55689051f6584729688";
 const FACTORY = "0xe7cfd4b041650ddc8861ffe066a2cd2cce0f6ecb";
@@ -85,6 +86,8 @@ test("filterUnsupportedGmChains drops rows of halted chains that left GM_FACTORI
   // the DB, so /api/gm/random kept handing them out and the header GM died with
   // "GM not supported on polygon_zkevm. Factory not deployed yet."
   const contracts = filterUnsupportedGmChains([
+    { id: "lisk-stale", chainKey: "lisk", contractAddress: "0x3000000000000000000000000000000000000003" },
+    { id: "lisk-stale-upper", chainKey: "LISK", contractAddress: "0x3000000000000000000000000000000000000004" },
     { id: "zkevm-stale", chainKey: "polygon_zkevm", contractAddress: "0x3000000000000000000000000000000000000001" },
     { id: "zkevm-stale-upper", chainKey: "POLYGON_ZKEVM", contractAddress: "0x3000000000000000000000000000000000000002" },
     { id: "base-live", chainKey: "BASE", contractAddress: "0xea392000a2ae8045cfe72e538cdfbb809c6c49ea" },
@@ -104,4 +107,62 @@ test("findVerifiedDeployedContract extracts a factory deployment only after stri
   assert.equal(findVerifiedDeployedContract({ ...receipt, status: "0x0" }, FACTORY, DEPLOYED_EVENT, CREATOR), null);
   assert.equal(findVerifiedDeployedContract({ ...receipt, to: CONTRACT }, FACTORY, DEPLOYED_EVENT, CREATOR), null);
   assert.equal(findVerifiedDeployedContract(receipt, FACTORY, DEPLOYED_EVENT, "0x3000000000000000000000000000000000000003"), null);
+});
+
+test("historical chains are identified and separated from active factories", () => {
+  // Historical chains exist in GM_HISTORICAL_FACTORIES but not in GM_FACTORIES
+  const historicalKeys = Object.keys(GM_HISTORICAL_FACTORIES);
+  assert.ok(historicalKeys.includes("degen"));
+  assert.ok(historicalKeys.includes("superposition"));
+  assert.ok(!historicalKeys.includes("moca"));
+  assert.ok(!historicalKeys.includes("base"));
+
+  // filterUnsupportedGmChains (active-only) filters out historical chains
+  const mixedContracts = [
+    { id: "active-base", chainKey: "BASE", contractAddress: "0x1" },
+    { id: "historical-degen", chainKey: "DEGEN", contractAddress: "0x2" },
+    { id: "historical-superposition", chainKey: "SUPERPOSITION", contractAddress: "0x3" },
+  ];
+  const activeOnly = filterUnsupportedGmChains(mixedContracts);
+  assert.equal(activeOnly.length, 1);
+  assert.equal(activeOnly[0]?.id, "active-base");
+
+  // Active chains still pass
+  const activeKept = filterUnsupportedGmChains([{ id: "test", chainKey: "MOCA", contractAddress: "0x1" }]);
+  assert.equal(activeKept.length, 1);
+  assert.equal(activeKept[0]?.id, "test");
+});
+
+test("historical registry keeps addresses without fabricating a retirement date", () => {
+  const degen = GM_HISTORICAL_FACTORIES.degen;
+  assert.ok(degen);
+  assert.equal(degen.address, "0xc3e5ef8c71712f55fabc6b3c07844a49103c9d8f");
+  assert.equal(degen.chainId, 666666666);
+  assert.equal(Object.prototype.hasOwnProperty.call(degen, "retiredAt"), false);
+
+  const superposition = GM_HISTORICAL_FACTORIES.superposition;
+  assert.ok(superposition);
+  assert.equal(superposition.address, "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f");
+  assert.equal(superposition.chainId, 55244);
+  assert.equal(Object.prototype.hasOwnProperty.call(superposition, "retiredAt"), false);
+});
+
+test("filterHistoricalContracts keeps only retired-chain rows, case-insensitively", () => {
+  const rows = [
+    { id: "degen-lower", chainKey: "degen", contractAddress: "0x1000000000000000000000000000000000000001" },
+    { id: "superposition-upper", chainKey: "SUPERPOSITION", contractAddress: "0x2000000000000000000000000000000000000002" },
+    { id: "degen-mixed", chainKey: "Degen", contractAddress: "0x3000000000000000000000000000000000000003" },
+    { id: "active-base", chainKey: "BASE", contractAddress: "0x4000000000000000000000000000000000000004" },
+    { id: "active-moca", chainKey: "MOCA", contractAddress: "0x5000000000000000000000000000000000000005" },
+  ];
+
+  const historical = filterHistoricalContracts(rows).map((r) => r.id);
+  assert.deepEqual(historical, ["degen-lower", "superposition-upper", "degen-mixed"]);
+
+  // Active chains (incl. Moca) never enter the history path — no regression
+  assert.equal(filterHistoricalContracts(rows).some((r) => r.id === "active-moca"), false);
+
+  // No historical rows → empty result is valid
+  assert.deepEqual(filterHistoricalContracts([{ id: "x", chainKey: "BASE", contractAddress: "0x6" }]), []);
+  assert.deepEqual(filterHistoricalContracts([]), []);
 });

@@ -200,3 +200,44 @@ export function useGmContracts(address: string | undefined | null) {
 
   return { contracts, contractsByChain, loading, withdrawingId, refreshContracts, withdrawCreator, withdrawPlatform };
 }
+
+export interface HistoricalGmContract {
+  id: string;
+  chainKey: string;
+  contractAddress: string;
+  createdAt: string;
+  creatorAddress: string | null;
+  isHistorical: true;
+}
+
+export function useHistoricalGmContracts(address: string | null) {
+  const [contracts, setContracts] = useState<HistoricalGmContract[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchHistorical = useCallback(async () => {
+    if (!address) {
+      setContracts([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await apiFetch("/api/gm/historical-contracts");
+      if (res.ok) {
+        const data = await res.json();
+        setContracts(data);
+      } else {
+        setContracts([]);
+      }
+    } catch {
+      setContracts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [address]);
+
+  useEffect(() => {
+    fetchHistorical();
+  }, [fetchHistorical]);
+
+  return { contracts, loading, refreshHistorical: fetchHistorical };
+}

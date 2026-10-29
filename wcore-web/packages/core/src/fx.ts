@@ -219,6 +219,34 @@ export async function getEurUsdRate(
   return rate;
 }
 
+export interface FxMetadata {
+  version: 1;
+  rate: number;
+  unit: "EUR_PER_USD";
+  available: true;
+  applied: "UNKNOWN";
+  sources: FxSourceResult[];
+  selection: "SINGLE" | "MEAN" | "MEDIAN" | "UNKNOWN";
+  sourceCollectedAt: number | null;
+  cacheWrittenAt: number;
+  ttlMs: number;
+  freshness: "FRESH" | "STALE" | "UNKNOWN";
+}
+
+// Pure observation of the exact cached rate; never fetch to decorate a scan.
+export function getFxMetadata(rate: number, now = Date.now()): FxMetadata | null {
+  if (!_memCache || _memCache.rate !== rate) return null;
+  const sources = Array.isArray(_memCache.sources) ? _memCache.sources.map(source => ({ ...source })) : [];
+  const timestamps = sources.map(source => source.ts).filter(ts => Number.isFinite(ts) && ts > 0);
+  return {
+    version: 1, rate, unit: "EUR_PER_USD", available: true, applied: "UNKNOWN", sources,
+    selection: sources.length >= 3 ? "MEDIAN" : sources.length === 2 ? "MEAN" : sources.length === 1 ? "SINGLE" : "UNKNOWN",
+    sourceCollectedAt: timestamps.length ? Math.min(...timestamps) : null,
+    cacheWrittenAt: _memCache.ts, ttlMs: FX_CACHE_TTL_MS,
+    freshness: !timestamps.length || !_memCache.ts || now < _memCache.ts ? "UNKNOWN" : now - Math.min(...timestamps) < FX_CACHE_TTL_MS && now - _memCache.ts < FX_CACHE_TTL_MS ? "FRESH" : "STALE",
+  };
+}
+
 export function _resetFxCacheForTests(): void {
   _memCache = null;
 }

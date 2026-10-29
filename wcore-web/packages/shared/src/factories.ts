@@ -24,12 +24,11 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   zora: { address: "0xd0f92622a510f82eef0178e596a4d6f17418c3c2", chainId: 7777777 },
   mode: { address: "0x7480f3d34784f45cd3c7f2f668822ee9a8029a90", chainId: 34443 },
   sei: { address: "0x71e7436f0854890d7984198e22226fb67f1dce24", chainId: 1329 },
-  superseed: { address: "0x69ef3319b7d0831b9da96eeb7065f09a058f1166", chainId: 5330 },
   shape: { address: "0xc1ad3bb5827403edf623e7011b3c435165d0eafa", chainId: 360 },
   bob: { address: "0xb1334b848f5da4e9a3bf6773abf492140f6d6a69", chainId: 60808 },
-  lisk: { address: "0xcc57c6df12d926f958f36fe98c0c8a8008fac490", chainId: 1135 },
   metal_l2: { address: "0xd1ccba23ffc3657fb1562f26b5c4301e54836a6c", chainId: 1750 },
   robinhood_chain: { address: "0x4d90e914871921f0443bda53f70def868d9f2960", chainId: 4663 },
+  moca: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 2288 },
   appchain: { address: "0xda65daf33f4492352171161e5a07631c5cc47e4f", chainId: 466 },
   camp: { address: "0x2d2eb5d89eae3f8687676da0462753481e3a7785", chainId: 484 },
   cyber: { address: "0x0e6a5974de12170d3829b9b859610ed684eafd47", chainId: 7560 },
@@ -79,7 +78,7 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // Degen mainnet (Base L3). Shanghai-capable (factory 1696 bytes, 61 PUSH0) and
   // London (baseFeePerGas ~12 gwei) → standard build, no Paris fallback needed.
   // Factory implementation() → 0x5863a056ad0cbe06876b49c9ab7c50bcd0432718 (GmOnChain impl, 2237 bytes).
-  degen: { address: "0xc3e5ef8c71712f55fabc6b3c07844a49103c9d8f", chainId: 666666666 },
+  // Degen retired: preserve deployed-contract history, no active GM factory.
   // Beam mainnet (Avalanche subnet, gaming-focused). Shanghai-capable (factory 1696 bytes, 61 PUSH0) and
   // London (baseFeePerGas ~1 gwei) → standard build, no Paris fallback needed.
   // Factory implementation() → 0xb2d644fd73c2265d4e77e224d6ba9f8a4640d573 (GmOnChain impl, 2237 bytes).
@@ -159,7 +158,7 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   story: { address: "0xaaf9c75f5cc4c8b001f2562173993445ed8946fa", chainId: 1514 },
   intuition: { address: "0xb6a0615caf1fc1d27688f77de251411776404110", chainId: 1155 },
   plume: { address: "0xc019e086f795661213b11884b52338e8752468d3", chainId: 98866 },
-  superposition: { address: "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f", chainId: 55244 },
+  // Superposition retired: preserve deployed-contract history, no active GM factory.
   monad: { address: "0xd4930a277986021da6db82db18fd26e6c6c4a763", chainId: 143 },
   megaeth: { address: "0xc357a4e3741e57a9bf53a3ae1c7584e16413dd07", chainId: 4326 },
   doma: { address: "0x405376616102772a6045b5ad61f877fb31bafb93", chainId: 97477 },
@@ -197,3 +196,13 @@ export function getFactoryAddress(chainKey: string): string | undefined {
 export function getActiveFactoryChains(): string[] {
   return Object.keys(GM_FACTORIES);
 }
+
+// Historical factories for retired chains.
+// These factories are no longer usable for new GM creation, but their deployed
+// contracts remain on-chain and must stay identifiable to their owners. Kept in a
+// distinct registry so no consumer of GM_FACTORIES can treat them as active.
+// No retirement date is recorded here: it is not attested per chain.
+export const GM_HISTORICAL_FACTORIES: Record<string, { address: string; chainId: number }> = {
+  degen: { address: "0xc3e5ef8c71712f55fabc6b3c07844a49103c9d8f", chainId: 666666666 },
+  superposition: { address: "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f", chainId: 55244 },
+};

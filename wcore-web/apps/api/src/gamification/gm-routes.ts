@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@wcore/db";
 import { createGmHelpers } from "./gm-helpers.js";
+import { isRetiredChain } from "@wcore/shared";
 
 type ChainStatusRow = { chainKey: string };
 
@@ -9,12 +10,12 @@ export function buildGmStatusResponse(
   gmsToday: ChainStatusRow[],
 ): Record<string, { deployed: boolean; gmDone: boolean }> {
   const result: Record<string, { deployed: boolean; gmDone: boolean }> = {};
-  for (const c of contracts) {
+  for (const c of contracts.filter((row) => !isRetiredChain(row.chainKey))) {
     const chainKey = c.chainKey.toLowerCase();
     result[chainKey] ??= { deployed: false, gmDone: false };
     result[chainKey]!.deployed = true;
   }
-  for (const g of gmsToday) {
+  for (const g of gmsToday.filter((row) => !isRetiredChain(row.chainKey))) {
     const chainKey = g.chainKey.toLowerCase();
     result[chainKey] ??= { deployed: false, gmDone: false };
     result[chainKey]!.gmDone = true;

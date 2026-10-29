@@ -11,7 +11,7 @@ test("every published chain satisfies the runtime schema", () => {
       : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
   });
 
-  assert.equal(chainList.length, 159, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(chainList.length, 158, "registry count changed: update the verified roadmaps with the same commit");
 
   assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
   assert.deepEqual(failures, []);
@@ -98,16 +98,25 @@ test("Somnia keeps the chainId its RPC endpoints actually serve", () => {
   assert.equal(chain.CHAIN?.CHAIN_ID, 5031);
 });
 
-test("Degen prefers the measured public Alchemy gateway", () => {
-  const chain = getChain("DEGEN");
+test("retired Degen, Superposition and Superseed remain absent from the active registry and GM factories", () => {
+  for (const key of ["DEGEN", "SUPERPOSITION", "SUPERSEED"]) {
+    assert.equal(getChain(key), undefined, `${key} must not be restored to make GM eligible`);
+    assert.equal(GM_FACTORIES[key.toLowerCase()], undefined, `${key} must not advertise an active factory`);
+  }
+});
 
-  assert.ok(chain, "DEGEN chain should be registered");
-  assert.equal(chain.CHAIN?.CHAIN_ID, 666666666);
-  assert.equal(chain.RPC?.MAX_LOG_RANGE, 99);
-  assert.deepEqual(chain.RPC?.ENDPOINTS, [
-    "https://degen-mainnet.g.alchemy.com/public",
-    "https://rpc.degen.tips",
-  ]);
+test("ABSTRACT keeps its verified mainnet identity while it remains tracked", () => {
+  // Verified 2026-10-12 from the primary source (@AbstractChain post 2107554632675340420 and
+  // docs.abs.xyz, which renders its own "shutting down" banner): the Abstract L2 winds down on
+  // 2026-12-15. Ticket P2-CHAIN-ABSTRACT-WINDDOWN blocks NEW GM deployments (see
+  // apps/web/lib/gm-winddown.ts) while keeping the chain tracked so users can still see the
+  // assets they must migrate.
+  //
+  // This guard deliberately does NOT force the chain to stay active: retirement is an
+  // evidence-driven decision, so a future removal of ABSTRACT from the registry is allowed
+  // and must then be covered by a "remains absent" test, like retired Degen/Superposition.
+  const chain = getChain("ABSTRACT");
+  if (chain) assert.equal(chain.CHAIN?.CHAIN_ID, 2741, "verified Abstract mainnet chain id (0xAB5)");
 });
 
 test("all active GM chains have native pricing oracle ids", () => {

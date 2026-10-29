@@ -2,9 +2,9 @@
 import Link from "next/link";
 import type { ChainScan } from "@wcore/shared";
 import { usePreferences } from "@/components/PreferencesProvider";
-import { exportCSV } from "@/lib/csv-export";
+import { exportCSV, hasFailedChains } from "@/lib/csv-export";
 import { getApiUrl } from "@/lib/api";
-import { buildShareCardUrl } from "@/lib/share-card";
+import { buildShareCardUrl, portfolioOutputAvailability } from "@/lib/share-card";
 import { trackFunnelEvent, type FunnelCampaign, type PortfolioAction } from "@/lib/funnel-analytics";
 
 export function PortfolioSummaryCard({
@@ -21,6 +21,7 @@ export function PortfolioSummaryCard({
   onRefreshAll,
   campaign,
   cexCount = 0,
+  scanComplete = false,
 }: {
   totalEur: number;
   timeAgo: string;
@@ -29,21 +30,34 @@ export function PortfolioSummaryCard({
   totalTokens: number;
   deepScan: boolean;
   scanDuration: number;
-  allChainCards: Array<{ totals: { pricedCount: number }; degraded: boolean }>;
+  allChainCards: Array<Pick<ChainScan, "chainKey" | "errors" | "native" | "tokens" | "totals" | "degraded">>;
   displayResultsAdjusted: Array<{ address: string; label: string; chains: ChainScan[]; totalEur: number }>;
   refreshingAll: boolean;
   onRefreshAll: () => void;
   campaign: FunnelCampaign;
   cexCount?: number;
+  scanComplete?: boolean;
 }) {
   const { formatValue, t } = usePreferences();
+  const outputs = portfolioOutputAvailability({ scanComplete, chains: allChainCards });
+  const shareHref = outputs.share ? buildShareCardUrl(getApiUrl(), { totalEur, walletCount: addresses.length, chainCount: outputs.usableChains, cexCount }) : null;
+  const blockedTitle = outputs.reason === "scan_in_progress"
+    ? "Available when the scan is complete"
+    : outputs.reason === "partial_result"
+      ? `${outputs.failedChains} chain(s) failed: the share card needs a complete scan`
+      : "No scan result to export or share yet";
+  // The CSV covers every wallet in displayResultsAdjusted, so its partial flag uses that same scope.
+  const exportPartial = hasFailedChains(displayResultsAdjusted);
+  const exportTitle = exportPartial
+    ? "Export partial CSV (failed chains are not included)"
+    : (t("exportCSV") ?? "Export CSV");
   const trackAction = (action: PortfolioAction) => {
     void trackFunnelEvent({ event: "portfolio_action", campaign, surface: "wallet", variant: "control", dimensions: { action } });
   };
 
   return (
     <div className="rounded-lg border border-border bg-card p-5">
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3 mb-4">
         <div>
           <div className="flex items-baseline gap-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted">{t("portfolio")}</p>
@@ -63,24 +77,36 @@ export function PortfolioSummaryCard({
           <button
             type="button"
             onClick={() => {
+              if (!outputs.export) return;
               trackAction("export");
               exportCSV(displayResultsAdjusted, {
                 address: t("address"), label: t("label"), chain: t("chain"),
                 symbol: "Symbol", name: "Name", contract: "Contract",
                 balance: t("balance"), priceLabel: t("price"), valueLabel: t("value"),
-              });
+              }, { partial: exportPartial });
             }}
-            className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition"
-            title={t("exportCSV") ?? "Export CSV"}
-          >⬇ Export</button>
-          <a
-            href={buildShareCardUrl(getApiUrl(), { totalEur, walletCount: addresses.length, chainCount: uniqueChains, cexCount })}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => trackAction("share")}
-            className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition"
-            title="Share your clean portfolio card"
-          >↗ Share</a>
+            disabled={!outputs.export}
+            className={`flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium transition ${outputs.export ? "text-accent hover:bg-accent/10" : "cursor-not-allowed text-muted opacity-50"}`}
+            title={outputs.export ? exportTitle : blockedTitle}
+          >{exportPartial ? "⬇ Export (partial)" : "⬇ Export"}</button>
+          {shareHref ? (
+            <a
+              href={shareHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => trackAction("share")}
+              className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition"
+              title="Share your clean portfolio card (rounded total, no address)"
+            >↗ Share</a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium cursor-not-allowed text-muted opacity-50"
+              title={blockedTitle}
+              aria-label={`Share unavailable: ${blockedTitle}`}
+            >↗ Share</button>
+          )}
         </div>
       </div>
 

@@ -16,8 +16,11 @@ import { Logo } from "./Logo";
 import { GmWithdrawButton } from "./GmWithdrawButton";
 import { usePreferences } from "./PreferencesProvider";
 import { useGmChain } from "@/hooks/useGmChain";
+import { getGmWindDown, gmDeployBlockedMessage } from "@/lib/gm-winddown";
 import { type GmContractWithBalance } from "@/hooks/useGmContracts";
 import { getCexProviderMeta } from "@/lib/cex-display";
+import { chainCurrentValue, type LastKnownEntry } from "@/lib/refresh-outcome";
+import { LastKnownChainNotice } from "./LastKnownChainNotice";
 
 import { getActiveFactoryChains } from "@wcore/shared";
 
@@ -37,9 +40,11 @@ export interface ChainCardProps {
   withdrawingId?: string | null;
   onWithdrawCreator?: (contract: GmContractWithBalance) => Promise<void>;
   onWithdrawPlatform?: (contract: GmContractWithBalance) => Promise<void>;
+  /** Value kept after a failed refresh, shown separately; never part of the current value. */
+  lastKnown?: LastKnownEntry | null;
 }
 
-function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connectedAddress, gmContracts = [], gmStatus, withdrawingId, onWithdrawCreator, onWithdrawPlatform }: ChainCardProps) {
+function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connectedAddress, gmContracts = [], gmStatus, withdrawingId, onWithdrawCreator, onWithdrawPlatform, lastKnown }: ChainCardProps) {
   const { formatValue, t } = usePreferences();
   const [refreshing, setRefreshing] = useState(false);
   const [showDiag, setShowDiag] = useState(false);
@@ -123,6 +128,7 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
     }, (chain.native?.valueEur ?? 0));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chain.tokens, chain.native, chain.totals.valueEur, cleanTotalVersion, cexProviderMeta]);
+  const currentValue = chainCurrentValue(chain);
   const isTimedOut = chain.errors.some((e) => e.message.includes("chain_timeout"));
   const isCircuitOpen = chain.errors.some((e) => e.message.includes("circuit_open"));
   const rpcErrors = chain.errors.filter((e) => e.message.includes("RPC") || e.message.includes("consensus") || e.message.includes("fetch") || e.message.includes("eth_getLogs"));
@@ -201,6 +207,14 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
                 {sending ? <Logo className="h-3 w-3 text-accent animate-spin inline-block" /> : alreadyGmToday ? "✅ GM" : "⛽ GM"}
               </button>
             ) : (
+              getGmWindDown(chainKeyLower) ? (
+                <span
+                  className="rounded border border-yellow-400/20 bg-yellow-400/5 px-2 py-0.5 text-[10px] font-medium text-yellow-400/80 shrink-0"
+                  title={gmDeployBlockedMessage(getGmWindDown(chainKeyLower)!)}
+                >
+                  ⚠️ {getGmWindDown(chainKeyLower)!.chainKey} winding down {getGmWindDown(chainKeyLower)!.announcedShutdown}
+                </span>
+              ) : (
               <button
                 type="button"
                 onClick={handleDeploy}
@@ -211,6 +225,7 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
               >
                 {deploying ? <Logo className="h-3 w-3 text-yellow-400 animate-spin inline-block" /> : "🚀 Deploy GM Contract"}
               </button>
+              )
             )
           ) : null}
           {connectedAddress && isCurrentWallet && !cexProviderMeta && chainKeyLower && FACTORIES[chainKeyLower] && onWithdrawCreator ? creatorContracts.map((contract) => (
@@ -232,7 +247,9 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
               nativePriceEur={chain.native?.priceEur ?? undefined}
             />
           )) : null}
-          {isTimedOut ? (
+          {currentValue === null ? (
+            <p className="shrink-0 text-base font-bold sm:text-lg text-muted" title="Refresh failed: current balance unknown">Unknown</p>
+          ) : isTimedOut ? (
             <p className="shrink-0 text-base font-bold sm:text-lg text-orange-300 animate-pulse" title="Scan still running — partial data being saved. Retry to see it.">⏱️</p>
           ) : isCircuitOpen ? (
             <p className="shrink-0 text-base font-bold sm:text-lg text-red-300" title="Circuit breaker open">⚡</p>
@@ -278,7 +295,8 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
           <span>Chain <strong>skipped</strong> to save quota — will retry automatically after cooldown.</span>
         </div>
       ) : null}
-      <TokenTable native={chain.native} tokens={chain.tokens} chainKey={chain.chainKey} connectedAddress={connectedAddress} />                {showDiag && totalErrors > 0 ? (
+      {lastKnown && currentValue === null ? <LastKnownChainNotice entry={lastKnown} formatValue={formatValue} /> : null}
+      <TokenTable native={currentValue === null ? null : chain.native} tokens={chain.tokens} chainKey={chain.chainKey} connectedAddress={connectedAddress} />                {showDiag && totalErrors > 0 ? (
         <div className="mt-3 rounded-md border border-yellow-900/30 bg-yellow-950/10 p-3 text-xs space-y-1">
           {rpcErrors.length > 0 ? (
             <details open>

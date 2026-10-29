@@ -9,39 +9,51 @@ interface ChainIconProps {
 }
 
 const SIZE_PX = { sm: 20, md: 28, lg: 36 } as const;
-
-const EMOJIS: Record<string, string> = {
-  ETHEREUM: "\u27E0", BASE: "\uD83D\uDD35", ARBITRUM_ONE: "\uD83D\uDD36", OPTIMISM: "\uD83D\uDD34",
-  POLYGON: "\uD83D\uDFE3", BSC: "\uD83D\uDFE1", AVALANCHE: "\uD83D\uDD3A", GNOSIS: "\uD83D\uDFE2",
-  ZKSYNC_ERA: "\u2B1C", LINEA: "\u2B1B", SOLANA: "\u25CE", COSMOS_HUB: "\u269B\uFE0F",
-  XRPLEVM: "\uD83D\uDCA7", TON: "\uD83C\uDF0A",
-};
-
 const CONTAIN_LOGOS = new Set(["GNOSIS", "CEX_BINANCE", "CEX_BITPANDA", "CEX_BITFINEX", "CEX_BYBIT", "CEX_COINBASE", "CEX_OKX", "CEX_KRAKEN"]);
 
+/**
+ * Deterministic monogram used when no verified asset can be loaded.
+ *
+ * Deliberately NOT an emoji/glyph: emoji fallbacks rendered inconsistently
+ * across platforms and read as corrupted icons. A monogram keeps the exact same
+ * box, centring and contrast as every other icon.
+ */
+function monogram(chainKey: string): string {
+  const bare = chainKey.replace(/^CEX_/i, "").replace(/[^A-Za-z0-9]/g, "");
+  return (bare.slice(0, 2) || "?").toUpperCase();
+}
+
 function ChainIconInner({ chainKey, size = "md" }: ChainIconProps) {
-  const upper = chainKey.toUpperCase();
+  const upper = chainKey.trim().toUpperCase();
   const localPath = (manifest as Record<string, string>)[upper] ?? null;
-  const [failed, setFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const px = SIZE_PX[size];
-  const emoji = EMOJIS[upper] ?? "\u26D3\uFE0F";
-  const src = localPath ?? `https://icons.llamao.fi/icons/chains/rsz_${chainKey.toLowerCase().replace(/_/g, "")}.jpg`;
+  const src = localPath ?? `https://icons.llamao.fi/icons/chains/rsz_${upper.toLowerCase().replace(/_/g, "")}.jpg`;
+  const failed = failedSrc === src;
   const contain = CONTAIN_LOGOS.has(upper);
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center rounded-full border border-border relative ${contain ? "bg-white" : "bg-card"}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full border border-border relative overflow-hidden ${contain && !failed ? "bg-white" : "bg-card"}`}
+      role={failed ? "img" : undefined}
+      aria-label={failed ? chainKey : undefined}
       style={{ width: px, height: px }}
     >
       {!failed ? (
         <img
           src={src}
           alt={chainKey}
-          className={`block w-full h-full rounded-full relative ${contain ? "object-contain p-0.5" : "object-cover"}`}
-          onError={() => setFailed(true)}
+          className={`block w-full h-full rounded-full ${contain ? "object-contain p-0.5" : "object-cover"}`}
+          onError={() => setFailedSrc(src)}
         />
       ) : (
-        <span className="text-sm leading-none">{emoji}</span>
+        <span
+          className="font-semibold leading-none text-muted select-none"
+          style={{ fontSize: Math.round(px * 0.45) }}
+          aria-hidden="true"
+        >
+          {monogram(chainKey)}
+        </span>
       )}
     </span>
   );

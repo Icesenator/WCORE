@@ -1,12 +1,79 @@
 param(
   [ValidateSet("api","web","cex-relay")]
   [string]$Service = "web",
-  [switch]$SkipRemoteCheck
+  [switch]$SkipRemoteCheck,
+  # Verification uniquement : aucun upload, verrou ou fichier temporaire.
+  [switch]$PreflightOnly,
+  # Projet Railway attendu — empêche la création implicite d'un nouveau projet.
+  [string]$ExpectedProjectId = "cbb16f4a-79c1-46ef-92b2-019c9c9940d7",
+  [string]$ExpectedEnvironment = "production"
 )
 
 $jsonPath = Join-Path $PSScriptRoot "..\..\railway.json"
 $lockPath = Join-Path $PSScriptRoot "..\.deploy.lock"
 $ignorePath = Join-Path $PSScriptRoot "..\..\.railwayignore"
+
+# --- Railway link guard (P2-MAINT-WEB-RAILWAY-LINK-MISSING) ---
+# Refuse de déployer si le lien Railway n'est pas vérifiable ou ne correspond
+# pas au projet/environnement attendu. Ne crée jamais de projet implicitement.
+function Assert-RailwayLink {
+  param(
+    [string]$ExpectedProjectId,
+    [string]$ExpectedEnvironment,
+    [string]$Service
+  )
+  # railway status --json renvoie la structure du projet.
+  # On vérifie : project.id, que l'environnement existe, que le service existe.
+  $statusJson = railway status --json 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $statusJson) {
+    Write-Error "Railway non lié : 'railway status --json' a echoue ou n'a rien retourne. Exécutez 'railway link -p <projectId> -e <environment> -s <service>' avant de déployer."
+    exit 1
+  }
+  if ([string]::IsNullOrWhiteSpace($ExpectedProjectId) -or [string]::IsNullOrWhiteSpace($ExpectedEnvironment)) {
+    throw "Destination Railway explicite incomplete : deploiement refuse."
+  }
+  $status = $statusJson | ConvertFrom-Json -ErrorAction Stop
+  $actualProjectId = if ($status.id) { $status.id } else { "" }
+  $availableEnvironments = @()
+  if ($status.environments -and $status.environments.edges) {
+    $availableEnvironments = @($status.environments.edges | ForEach-Object { $_.node.name })
+  }
+  $availableServices = @()
+  if ($status.services -and $status.services.edges) {
+    $availableServices = @($status.services.edges | ForEach-Object { $_.node.name })
+  }
+
+  if (-not $actualProjectId) {
+    Write-Error "Impossible de determiner le projet Railway lie (champ 'id' absent). Lien requis."
+    exit 1
+  }
+  if ($actualProjectId -ne $ExpectedProjectId) {
+    Write-Error "Projet Railway inattendu : '$actualProjectId' (attendu '$ExpectedProjectId'). Refus de déployer pour eviter la creation d'un projet parasite."
+    exit 1
+  }
+  if ($availableEnvironments -notcontains $ExpectedEnvironment) {
+    Write-Error "Environnement '$ExpectedEnvironment' introuvable dans le projet $actualProjectId. Disponibles : $($availableEnvironments -join ', ')."
+    exit 1
+  }
+  if ($availableServices -notcontains $Service) {
+    Write-Error "Service '$Service' introuvable dans le projet $actualProjectId. Disponibles : $($availableServices -join ', ')."
+    exit 1
+  }
+  $environments = @($status.environments.edges | Where-Object { $_.node.name -eq $ExpectedEnvironment })
+  $services = @($status.services.edges | Where-Object { $_.node.name -eq $Service })
+  if ($environments.Count -ne 1 -or $services.Count -ne 1 -or
+      -not $environments[0].node.id -or -not $services[0].node.id) {
+    throw "Destination Railway incomplete ou ambigue : deploiement refuse."
+  }
+  Write-Host "Destination Railway verifiee : WCORE / $ExpectedEnvironment / $Service"
+  return @{ Project = $actualProjectId; Environment = $environments[0].node.id; Service = $services[0].node.id }
+}
+
+$railwayTarget = Assert-RailwayLink -ExpectedProjectId $ExpectedProjectId -ExpectedEnvironment $ExpectedEnvironment -Service $Service
+if ($PreflightOnly) {
+  Write-Host "Preflight valide : aucun deploiement execute."
+  exit 0
+}
 
 # Incident 2026-09-02 : un deploy depuis un master local 19 commits behind origin a
 # re-remis en prod une regression SKHY (retour au pricing KRX) deja corrigee sur
@@ -130,7 +197,7 @@ try {
   Set-Content -LiteralPath $jsonPath -Value ($config | ConvertTo-Json -Depth 10) -NoNewline
   Set-Content -LiteralPath $ignorePath -Value ($ignoreLines -join "`n") -NoNewline
 
-  railway up (Join-Path $PSScriptRoot "..\..") --path-as-root --service $Service --ci
+  railway up (Join-Path $PSScriptRoot "..\..") --path-as-root --project $railwayTarget.Project --environment $railwayTarget.Environment --service $railwayTarget.Service --ci
   $deployExitCode = $LASTEXITCODE
 } finally {
   Set-Content -LiteralPath $jsonPath -Value $original -NoNewline

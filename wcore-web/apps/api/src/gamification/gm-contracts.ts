@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@wcore/db";
-import { canonicalChainKey, getFactory } from "@wcore/shared";
+import { canonicalChainKey, getFactory, GM_HISTORICAL_FACTORIES } from "@wcore/shared";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 
@@ -131,6 +131,18 @@ export function pickCreatorContractsFirst<T extends GmRandomContract>(contracts:
   if (!normalized) return contracts;
   const mine = contracts.filter((contract) => contract.creatorAddress?.toLowerCase() === normalized);
   return mine.length > 0 ? mine : contracts;
+}
+
+// True when a chainKey belongs to a retired chain (preserved for read-only history).
+export function isHistoricalChainKey(chainKey: string): boolean {
+  return Object.prototype.hasOwnProperty.call(GM_HISTORICAL_FACTORIES, chainKey.trim().toLowerCase());
+}
+
+// Keep only the contracts that sit on retired chains. Case-insensitive because
+// gm_contracts rows may hold either case (lisk/LISK precedent). Pure helper so the
+// read-only history path can be tested without a DB.
+export function filterHistoricalContracts<T extends GmContractAddress>(contracts: T[]): T[] {
+  return contracts.filter((contract) => isHistoricalChainKey(contract.chainKey));
 }
 
 export async function registerGmContractsRoutes(
@@ -444,5 +456,46 @@ export async function registerGmContractsRoutes(
       console.error("GM contract balance RPC error:", (e as Error).message || String(e));
       return { creatorBalance: "0", platformBalance: "0", chainKey: contract.chainKey, contractAddress: contract.contractAddress };
     }
+  });
+
+  // Historical contracts for retired chains — read-only, authenticated user only.
+  // Extracted so it can be exercised with a mocked Prisma (no DB, no network).
+  registerGmHistoricalContractsRoute(app, prisma);
+}
+
+// GET /api/gm/historical-contracts — read-only history of retired-chain contracts.
+//
+// Identity comes exclusively from the authenticated request (`req.user`, set by the
+// auth plugin from the signed httpOnly JWT cookie). No address from the query/body/
+// header is ever used to scope the query, so user A cannot read user B's contracts.
+// The route performs no write, no RPC call, no on-chain sync and no signature.
+export function registerGmHistoricalContractsRoute(app: FastifyInstance, prisma: PrismaClient) {
+  app.get("/api/gm/historical-contracts", async (req, reply) => {
+    if (!req.user) return reply.code(401).send({ error: "not_authenticated" });
+
+    const dbUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { address: true } });
+    const userAddress = dbUser?.address?.toLowerCase() ?? "";
+
+    // Same ownership scope as /api/gm/my-contracts: match by the user's verified
+    // wallet address, or by ownerId when the account has no address yet.
+    const owned = await prisma.gmContract.findMany({
+      where: userAddress
+        ? {
+            OR: [
+              { creatorAddress: userAddress },
+              { owner: { address: userAddress } },
+            ],
+          }
+        : { ownerId: req.user.id },
+      select: { id: true, chainKey: true, contractAddress: true, createdAt: true, creatorAddress: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return filterHistoricalContracts(owned).map((c) => ({
+      ...c,
+      chainKey: c.chainKey,
+      contractAddress: c.contractAddress,
+      isHistorical: true as const,
+    }));
   });
 }

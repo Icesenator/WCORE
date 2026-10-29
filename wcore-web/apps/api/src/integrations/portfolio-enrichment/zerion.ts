@@ -1,7 +1,7 @@
 import { EvmAddress, SvmAddress } from "@wcore/shared";
 import { z } from "zod";
 
-import type { ZerionEnrichmentConfig } from "../../config.js";
+import { ZERION_MAX_POSITIONS_CAP, type ZerionEnrichmentConfig } from "../../config.js";
 import { toWcoreChain } from "./chain-map.js";
 import { canonicalProtocol } from "./protocol-aliases.js";
 import type {
@@ -170,6 +170,28 @@ async function readBoundedBody(
     offset += chunk.byteLength;
   }
   return body;
+}
+
+// Assumed bound: no local doc fixes it (fixtures carry at most 1 implementation per
+// position, chain-map supports 13 networks). Wide margin, checked before safeParse.
+export const MAX_IMPLEMENTATIONS_PER_POSITION = 128;
+
+// Aggregate cap (rows + implementations): ZERION_MAX_POSITIONS_CAP rows x (1 + 128) = 129000.
+// config.ts refuses ZERION_MAX_POSITIONS above that cap at startup; never stricter by default.
+export const MAX_VALIDATED_ITEMS = ZERION_MAX_POSITIONS_CAP * (1 + MAX_IMPLEMENTATIONS_PER_POSITION);
+
+function exceedsValidationBudget(rows: unknown[]): boolean {
+  let items = rows.length;
+  if (items > MAX_VALIDATED_ITEMS) return true;
+  for (const row of rows) {
+    const implementations = (row as { attributes?: { fungible_info?: { implementations?: unknown } | null } } | null)
+      ?.attributes?.fungible_info?.implementations;
+    if (!Array.isArray(implementations)) continue;
+    if (implementations.length > MAX_IMPLEMENTATIONS_PER_POSITION) return true;
+    items += implementations.length;
+    if (items > MAX_VALIDATED_ITEMS) return true;
+  }
+  return false;
 }
 
 function parseJson(body: Uint8Array): unknown {
@@ -361,7 +383,12 @@ export function createZerionProvider(options: CreateZerionProviderOptions): Port
         }
 
         const body = await readBoundedBody(response, options.maxResponseBytes, abortController);
-        const result = envelopeSchema.safeParse(parseJson(body));
+        const json = parseJson(body);
+        // Zod 3 validates every row past any bound: cap the raw row count before parsing.
+        const rawRows = typeof json === "object" && json !== null ? (json as { data?: unknown }).data : undefined;
+        if (Array.isArray(rawRows) && rawRows.length > options.maxPositions) throw new ZerionProviderError("oversize");
+        if (Array.isArray(rawRows) && exceedsValidationBudget(rawRows)) throw new ZerionProviderError("oversize");
+        const result = envelopeSchema.safeParse(json);
         if (!result.success) throw new ZerionProviderError("malformed");
         if (result.data.meta.total > options.maxPositions || result.data.data.length > options.maxPositions) {
           throw new ZerionProviderError("oversize");

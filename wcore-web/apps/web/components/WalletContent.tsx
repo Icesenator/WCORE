@@ -11,6 +11,8 @@ import { useWalletLabels } from "@/hooks/useWalletLabels";
 import { useCexHoldings } from "@/hooks/useCexHoldings";
 import { fetchScan } from "@/lib/scan-api";
 import { apiFetch } from "@/lib/api";
+import { isFailedChain } from "@/lib/share-card";
+import { lastKnownKey } from "@/lib/refresh-outcome";
 
 const ValueDistribution = dynamic(() => import("@/components/ValueDistribution").then(m => ({ default: m.ValueDistribution })), { ssr: false });
 import { usePreferences } from "@/components/PreferencesProvider";
@@ -302,6 +304,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
           onRefreshAll={handleRefreshAll}
           campaign={campaign}
           cexCount={cexResults.length}
+          scanComplete={!isLoading}
         />
 
         {/* Tab navigation */}
@@ -407,21 +410,9 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
             // trigger an on-chain scan for their synthetic address.
             if (isCexWallet) return;
             const d = await fetchScan(wallet.address, [chainKey], deepScan, customTokenList, true);
-            if (!d.error && d.chains[0]) {
-              scanOrch.setResults((prev) => {
-                const updated = prev?.map((w) => {
-                  if (w.address.toLowerCase() !== wallet.address.toLowerCase()) return w;
-                  const idx = w.chains.findIndex((c) => c.chainKey === chainKey);
-                  const newChain = d.chains[0]!;
-                  const newChains = idx >= 0
-                    ? w.chains.map((c, i) => i === idx ? newChain : c)
-                    : [...w.chains, newChain];
-                  const sorted = newChains.sort((a, b) => b.totals.valueEur - a.totals.valueEur);
-                  return { ...w, chains: sorted, totalEur: Math.round(sorted.reduce((s, c) => s + c.totals.valueEur, 0) * 100) / 100 };
-                }) ?? prev;
-                return updated;
-              });
-            }
+            // Same semantics as the scan: a failed refresh shows an unknown current value and keeps
+            // the previous result only as a separate, explicitly stale last-known value.
+            scanOrch.applyChainRefresh(wallet.address, chainKey, d.chains[0], d.error);
           };
           return (
           <div key={wallet.address}>
@@ -446,14 +437,15 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
               {(() => {
                 // A negative chain total is a real DeFi debt that lowers the portfolio.
                 // Collapsing it with the empty chains hid the very position explaining the total.
-                const activeChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur !== 0);
-                const zeroChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur === 0);
+                // A failed chain has an unknown value: never list it among the confirmed 0 € chains.
+                const activeChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur !== 0 || isFailedChain(c));
+                const zeroChains = wallet.chains.filter((c: ChainScan) => c.totals.valueEur === 0 && !isFailedChain(c));
                 const isExpanded = expandedWallets.has(wallet.address);
                 const chains = isExpanded ? wallet.chains : activeChains;
                 return (
                   <>
                     {chains.map((chain: ChainScan) => (
-                      <ChainCard key={`${wallet.address}-${chain.chainKey}`} chain={chain} walletLabel={wallet.label} walletAddress={wallet.address} connectedAddress={connectedAddress || undefined} gmContracts={contractsByChain.get(chain.chainKey.toLowerCase()) ?? []} gmStatus={gmStatusMap[chain.chainKey]} withdrawingId={withdrawingId} onWithdrawCreator={withdrawCreator} onWithdrawPlatform={withdrawPlatform} onRefresh={() => handleRefreshChain(chain.chainKey)} />
+                      <ChainCard key={`${wallet.address}-${chain.chainKey}`} chain={chain} walletLabel={wallet.label} walletAddress={wallet.address} connectedAddress={connectedAddress || undefined} gmContracts={contractsByChain.get(chain.chainKey.toLowerCase()) ?? []} gmStatus={gmStatusMap[chain.chainKey]} withdrawingId={withdrawingId} onWithdrawCreator={withdrawCreator} onWithdrawPlatform={withdrawPlatform} onRefresh={() => handleRefreshChain(chain.chainKey)} lastKnown={scanOrch.lastKnownChains[lastKnownKey(wallet.address, chain.chainKey)] ?? null} />
                     ))}
                     {zeroChains.length > 0 ? (
                       <button

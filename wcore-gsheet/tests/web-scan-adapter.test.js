@@ -158,10 +158,12 @@ function makeContext(props, fetchBody) {
       datetime: () => '2026-06-26 19:00:00',
     },
     BaseEngine: { isSystemBlocked: () => false },
-    QuotaCircuitBreaker: props.__quotaCircuitBreaker,
+    QuotaCircuitBreaker: props.__quotaCircuitBreaker || { isTripped: () => false },
+    BudgetHTTP: { allow: () => true, isPostTripFloorActive: () => false },
     __saved: saved,
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', '04E_FX_METADATA.gs'), 'utf8'), context);
   vm.runInContext(source, context);
   return context;
 }

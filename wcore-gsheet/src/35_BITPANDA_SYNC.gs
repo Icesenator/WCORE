@@ -1,3 +1,4 @@
+// v4.16.82 - Leasing CEX : la liberation ne peut plus etre perdue en silence (CEX_RELEASE_LOCK/_cexWorkerReleaseLease_ retryent le script lock au lieu de laisser la lease 10 min -> BUSY muet sur tout le connecteur), et le libelle d'echec ecrit dans le B1 de l'onglet est horodate comme la cellule de statut (P2-OBS-CEX-STATUS-STALE-LABEL, chemin B1).
 // v4.16.81 - Statut manuel CEX (Portefeuille Crypto!V2): un echec porte un horodatage lisible en tete (P2-OBS-CEX-STATUS-STALE-LABEL).
 // v4.16.75 - UPDATE_BITPANDA_SPOT/STOCKS_FIAT flush HttpCounter en sortie (telemetrie budget pas perdue).
 // v4.16.74 - Split Bitpanda legacy security.stock vs equity_security duplicates (-LEG suffix).
@@ -33,7 +34,7 @@
 // Mise a jour:
 //   UPDATE_BITPANDA_SPOT()
 
-var BITPANDA_SYNC_VERSION = "4.16.81";
+var BITPANDA_SYNC_VERSION = "4.16.82";
 
 var BITPANDA_SYNC_CONFIG = {
   BASE_URL: "https://api.bitpanda.com/v1",
@@ -131,16 +132,42 @@ function _bpFmtStamp_() {
 // ScriptLock is held only around the short lease read/write.
 var _CEX_LOCK_TTL_MS = 10 * 60 * 1000;
 var _CEX_LOCK_TRY_MS = 1000;
+// v4.16.82 : un unique tryLock(1 s) rate ne doit plus etre fatal pour le cycle de
+// vie d'une lease. CEX_RELEASE_LOCK sortait de son try SANS supprimer la propriete
+// CEX_LOCK_<NAME> (lease conservee jusqu'a son TTL de 10 min) et le meme finally
+// oubliait le owner en memoire : plus aucun appel du connecteur ne aboutissait,
+// reponse BUSY pendant 10 min, sans trace. Observe 2026-10-01 sur Kraken (donnees
+// ecrites 18:44, puis "ERROR: BUSY" sur LES DEUX onglets a 18:45 alors que
+// KRAKEN_SYNC_STATUS = ok:true, lockout inactif, budget 26/220). Trois tentatives
+// courtes transforment cette panne muette en un simple retry.
+var _CEX_LOCK_MAX_ATTEMPTS = 3;
+var _CEX_LOCK_RETRY_SLEEP_MS = 250;
 var _CEX_LOCK_OWNERS = {};
+
+// Execute fn() sous le script lock, en retryant une contention courte.
+// Renvoie la valeur de fn(), ou null si le lock n a pas pu etre pris (fail closed).
+function _cexWithScriptLock_(fn) {
+  var scriptLock = null;
+  var locked = false;
+  var result = null;
+  for (var attempt = 0; attempt < _CEX_LOCK_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) { try { Utilities.sleep(_CEX_LOCK_RETRY_SLEEP_MS); } catch (eSleep) {} }
+    try {
+      if (!scriptLock) scriptLock = LockService.getScriptLock();
+      locked = scriptLock.tryLock(_CEX_LOCK_TRY_MS);
+      if (locked) { result = fn(); break; }
+    } catch (eInner) {
+      break;
+    }
+  }
+  if (locked && scriptLock) { try { scriptLock.releaseLock(); } catch (eRelease) {} }
+  return result;
+}
 
 function CEX_ACQUIRE_LOCK(name) {
   var key = "CEX_LOCK_" + name;
-  var scriptLock = null;
-  var locked = false;
-  try {
-    scriptLock = LockService.getScriptLock();
-    locked = scriptLock.tryLock(_CEX_LOCK_TRY_MS);
-    if (!locked) return false;
+  var owner = null;
+  var acquired = _cexWithScriptLock_(function() {
     var props = PropertiesService.getScriptProperties();
     var now = Date.now();
     var raw = props.getProperty(key);
@@ -149,40 +176,35 @@ function CEX_ACQUIRE_LOCK(name) {
       try { heldUntil = parseInt(JSON.parse(raw).until, 10); } catch (eParse) { heldUntil = parseInt(raw, 10); }
       if (isFinite(heldUntil) && heldUntil > now) return false;
     }
-    var owner = Utilities.getUuid();
+    owner = Utilities.getUuid();
     props.setProperty(key, JSON.stringify({ owner: owner, until: now + _CEX_LOCK_TTL_MS }));
-    _CEX_LOCK_OWNERS[name] = owner;
     return true;
-  } catch (e) {
-    return false;
-  } finally {
-    if (locked && scriptLock) {
-      try { scriptLock.releaseLock(); } catch (eRelease) {}
-    }
-  }
+  });
+  if (acquired !== true || !owner) return false;
+  _CEX_LOCK_OWNERS[name] = owner;
+  return true;
 }
 
 function CEX_RELEASE_LOCK(name) {
   var owner = _CEX_LOCK_OWNERS[name];
   if (!owner) return;
-  var scriptLock = null;
-  var locked = false;
   try {
-    scriptLock = LockService.getScriptLock();
-    locked = scriptLock.tryLock(_CEX_LOCK_TRY_MS);
-    if (!locked) return;
-    var props = PropertiesService.getScriptProperties();
-    var key = "CEX_LOCK_" + name;
-    var raw = props.getProperty(key);
-    var lease = null;
-    try { lease = raw ? JSON.parse(raw) : null; } catch (eParse) {}
-    if (lease && lease.owner === owner) props.deleteProperty(key);
+    var released = _cexWithScriptLock_(function() {
+      var props = PropertiesService.getScriptProperties();
+      var key = "CEX_LOCK_" + name;
+      var raw = props.getProperty(key);
+      var lease = null;
+      try { lease = raw ? JSON.parse(raw) : null; } catch (eParse) {}
+      if (lease && lease.owner === owner) props.deleteProperty(key);
+      return true;
+    });
+    if (released !== true) {
+      // Etat degrade : la lease reste posee jusqu a son TTL. Doit laisser une trace.
+      try { Logger.log("CEX_RELEASE_LOCK(" + name + "): script lock indisponible, lease conservee jusqu au TTL (BUSY temporaire)"); } catch (eLog) {}
+    }
   } catch (e) {
   } finally {
     delete _CEX_LOCK_OWNERS[name];
-    if (locked && scriptLock) {
-      try { scriptLock.releaseLock(); } catch (eRelease) {}
-    }
   }
 }
 
@@ -315,24 +337,39 @@ function _cexManualJobKindFromLabel_(label) {
 //      written is always valid JSON.
 var _CEX_QUEUE_MAX_CHARS = 8000;
 
+// v4.16.83 : absorbe une contention COURTE (meme politique que _cexWithScriptLock_)
+// au lieu d'un unique tryLock. P2-OBS-CEX-QUEUE-LOCK-MISS : un seul tryLock(1 s)
+// rate faisait jeter, l'exception remontait jusqu'a onEdit, le clic manuel etait
+// perdu SANS statut alors que le statut "QUEUED" avait deja ete ecrit par
+// l'appelant (faux succes). Le fail-closed est CONSERVE : si le verrou reste
+// indisponible apres les tentatives bornees, on jette et aucun job n'est ecrit.
+// La saturation de file jette aussi, mais n'est jamais retentee (ce n'est pas un
+// probleme de verrou) : la file existante reste intacte.
 function _cexQueueMutate_(mutator) {
   var props = PropertiesService.getScriptProperties();
-  var lock = null, locked = false;
-  try { lock = LockService.getScriptLock(); locked = lock.tryLock(_CEX_LOCK_TRY_MS); } catch (eLock) { locked = false; }
-  if (!locked) throw new Error("CEX queue lock unavailable");
-  try {
-    var queue = [];
-    try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
-    if (Object.prototype.toString.call(queue) !== "[object Array]") queue = [];
-
-    var outcome = mutator(queue);
-    var serialized = JSON.stringify(queue);
-    if (serialized.length > _CEX_QUEUE_MAX_CHARS) throw new Error("CEX queue capacity exceeded");
-    props.setProperty("CEX_MANUAL_JOB_QUEUE", serialized);
-    return outcome;
-  } finally {
-    if (lock) { try { lock.releaseLock(); } catch (eRelease) {} }
+  var ran = false;
+  var outcome = null;
+  for (var attempt = 0; attempt < _CEX_LOCK_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) { try { Utilities.sleep(_CEX_LOCK_RETRY_SLEEP_MS); } catch (eSleep) {} }
+    var lock = null, locked = false;
+    try { lock = LockService.getScriptLock(); locked = lock.tryLock(_CEX_LOCK_TRY_MS); } catch (eLock) { locked = false; }
+    if (!locked) continue;
+    try {
+      var queue = [];
+      try { queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (eParse) { queue = []; }
+      if (Object.prototype.toString.call(queue) !== "[object Array]") queue = [];
+      outcome = mutator(queue);
+      var serialized = JSON.stringify(queue);
+      if (serialized.length > _CEX_QUEUE_MAX_CHARS) throw new Error("CEX queue capacity exceeded");
+      props.setProperty("CEX_MANUAL_JOB_QUEUE", serialized);
+      ran = true;
+    } finally {
+      if (lock) { try { lock.releaseLock(); } catch (eRelease) {} }
+    }
+    break;
   }
+  if (!ran) throw new Error("CEX queue lock unavailable");
+  return outcome;
 }
 
 function CEX_QUEUE_MANUAL_JOB(kind, sheetName, refreshFlagProp, statusSheetName, statusCell) {
@@ -347,16 +384,45 @@ function _cexEnqueueManualJobs_(jobs) {
   if (!jobs || !jobs.length) return "NO_JOBS";
   var props = PropertiesService.getScriptProperties();
   var now = Date.now();
-  _cexQueueMutate_(function(queue) {
-    for (var i = 0; i < jobs.length; i++) {
-      var j = jobs[i] || {};
-      queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
-    }
-  });
+  try {
+    _cexQueueMutate_(function(queue) {
+      for (var i = 0; i < jobs.length; i++) {
+        var j = jobs[i] || {};
+        queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
+      }
+    });
+  } catch (eEnqueue) {
+    // v4.16.83 : une file perdue doit etre SIGNALEE, jamais presentee comme
+    // QUEUED. L'appelant a pu ecrire "QUEUED" avant l'appel : on l'ecrase par un
+    // statut d'echec horodate et on ne bloque pas les scans on-chain.
+    var reason = (eEnqueue && eEnqueue.message) ? eEnqueue.message : String(eEnqueue);
+    _cexWriteManualEnqueueFailure_(jobs, reason);
+    return "QUEUE_FAILED";
+  }
   props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(now + 10 * 60 * 1000));
   _cexWriteManualQueuedStatusBatch_(jobs);
   _cexEnsureManualWorkerTrigger_();
   return "QUEUED";
+}
+
+// v4.16.83 : statut d'echec explicite pour une mise en file manuelle refusee
+// (verrou indisponible apres retries, file saturee, persistance en erreur).
+function _cexWriteManualEnqueueFailure_(jobs, reason) {
+  try {
+    var ss = _bpGetSpreadsheet_();
+    var stamp = "ERROR " + _bpFmtStamp_() + " QUEUE: " + String(reason || "unavailable");
+    for (var i = 0; i < jobs.length; i++) {
+      var j = jobs[i] || {};
+      var status = stamp + " [" + String(j.kind || "") + "]";
+      if (j.statusSheetName && j.statusCell) {
+        var sh = ss.getSheetByName(j.statusSheetName);
+        if (sh) sh.getRange(j.statusCell).setValue(status.substring(0, 500)).setNumberFormat("@");
+      }
+      if (j.sheetName && j.statusCell !== "B1") {
+        _bpSetSheetStatus_(ss, j.sheetName, status);
+      }
+    }
+  } catch (eStatus) {}
 }
 
 function _cexWriteManualQueuedStatusBatch_(jobs) {
@@ -447,18 +513,22 @@ function _cexWorkerRenewLease_(props) {
 function _cexWorkerReleaseLease_() {
   var owner = _CEX_WORKER_LEASE_OWNER;
   if (!owner) return;
-  var lock = null, locked = false;
   try {
-    lock = LockService.getScriptLock();
-    locked = lock.tryLock(_CEX_LOCK_TRY_MS);
-    if (!locked) return;
-    var props = PropertiesService.getScriptProperties();
-    var raw = props.getProperty("CEX_WORKER_LEASE");
-    var lease = null;
-    try { lease = raw ? JSON.parse(raw) : null; } catch (eParse) {}
-    if (lease && lease.owner === owner) props.deleteProperty("CEX_WORKER_LEASE");
+    // v4.16.82 : meme helper que les leases connecteur. Un tryLock(1 s) rate
+    // laissait CEX_WORKER_LEASE posee jusqu a son TTL (2 min) sans trace.
+    var released = _cexWithScriptLock_(function() {
+      var props = PropertiesService.getScriptProperties();
+      var raw = props.getProperty("CEX_WORKER_LEASE");
+      var lease = null;
+      try { lease = raw ? JSON.parse(raw) : null; } catch (eParse) {}
+      if (lease && lease.owner === owner) props.deleteProperty("CEX_WORKER_LEASE");
+      return true;
+    });
+    if (released !== true) {
+      try { Logger.log("_cexWorkerReleaseLease_(): script lock indisponible, CEX_WORKER_LEASE conservee jusqu au TTL"); } catch (eLog) {}
+    }
+  } catch (e) {
   } finally {
-    if (locked && lock) { try { lock.releaseLock(); } catch (eRelease) {} }
     _CEX_WORKER_LEASE_OWNER = "";
   }
 }
@@ -613,6 +683,11 @@ function _cexWriteManualJobStatus_(job, result) {
     var ss = _bpGetSpreadsheet_();
     var status = String(result || "");
     if (status.length > 500) status = status.substring(0, 500);
+    // v4.16.82 : un seul libelle d'echec, horodate, pour la cellule de statut ET
+    // pour le B1 de l'onglet. v4.16.81 n'horodatait que la premiere : un "ERROR: BUSY"
+    // fige sur B1 restait indiscernable d'un etat courant (invariant du meme defect,
+    // P2-OBS-CEX-STATUS-STALE-LABEL, non traite sur ce chemin).
+    var failureLabel = "ERROR " + _bpFmtStamp_() + " " + String(job.kind || "") + ": " + status;
     var isSuccess = status === "OK" || status.indexOf('"ok":true') >= 0 || /^\d{4}-\d{2}-\d{2}/.test(status);
     if (job.statusSheetName && job.statusCell) {
       var statusSheet = ss.getSheetByName(job.statusSheetName);
@@ -622,7 +697,7 @@ function _cexWriteManualJobStatus_(job, result) {
         // Le corps brut reste exact (aucune donnee inventee, aucun succes fabrique).
         var display = isSuccess
           ? String(job.kind || "") + " OK: " + _bpFmtStamp_()
-          : "ERROR " + _bpFmtStamp_() + " " + String(job.kind || "") + ": " + status;
+          : failureLabel;
         statusSheet.getRange(job.statusCell).setValue(display).setNumberFormat("@");
       }
     }
@@ -640,7 +715,7 @@ function _cexWriteManualJobStatus_(job, result) {
             var b1 = rowStamp || _bpFmtStamp_();
             sh.getRange("B1").setValue(b1).setNumberFormat("@");
           } else if (status === "BUSY" || status.indexOf("THREW:") === 0 || status.indexOf('"ok":false') >= 0) {
-            _bpSetSheetStatus_(ss, job.sheetName, "ERROR: " + status);
+            _bpSetSheetStatus_(ss, job.sheetName, failureLabel);
           }
         }
       } catch (eB1) {}
@@ -1926,8 +2001,9 @@ function _cexWriteVerifMap_(sh, sheetName) {
   }
 }
 
+// v4.16.85 - P1-DATA-CEX-CRYPTO-TICKER-PARITY : rapprocher le ticker F et traiter position/ticker Crypto comme criteres litteraux.
 function _cexBuildVerifFormula_(sheetName) {
-  var cryptoDetailsV2Formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + sheetName + '";\'Portefeuille Crypto Details\'!$C:$C;s)>0;"V";"X")))))';
+  var cryptoDetailsV2Formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + String(sheetName || "").replace(/~/g, '~~').replace(/\*/g, '~*').replace(/\?/g, '~?').replace(/"/g, '""') + '";\'Portefeuille Crypto Details\'!$F:$F;SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(s;"~";"~~");"*";"~*");"?";"~?"))>0;"V";"X")))))';
   var ls = String(sheetName || "").toLowerCase();
   var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
   if (!isFiatOrStocks) return cryptoDetailsV2Formula;

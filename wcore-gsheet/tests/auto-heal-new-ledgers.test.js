@@ -11,7 +11,10 @@ const diagnosticSource = fs.readFileSync(path.join(__dirname, '..', 'src', '13_D
 const initSource = fs.readFileSync(path.join(__dirname, '..', 'src', '01_INIT.gs'), 'utf8');
 const refreshSource = fs.readFileSync(path.join(__dirname, '..', 'src', '16_REFRESH.gs'), 'utf8');
 const cacheCoreSource = fs.readFileSync(path.join(__dirname, '..', 'src', '04A_CACHE_CORE.gs'), 'utf8');
-assert.match(autoHealSource, /WCORE_AUTO_HEAL_VERSION\s*=\s*["']4\.16\.36["']/, 'auto-heal version must advance to 4.16.36');
+const autoHealVersion = autoHealSource.match(/WCORE_AUTO_HEAL_VERSION\s*=\s*["'](\d+)\.(\d+)\.(\d+)["']/);
+assert.ok(autoHealVersion, 'auto-heal version must be declared');
+const av = autoHealVersion.slice(1).map(Number);
+assert.ok(av[0] > 4 || (av[0] === 4 && (av[1] > 16 || (av[1] === 16 && av[2] >= 36))), 'auto-heal version must retain at least 4.16.36 fixes');
 assert.match(autoHealSource, /WCORE_AUTO_HEAL_TRIGGER_SPEC\s*=\s*["']v4\.16\.35:/, 'auto-heal trigger spec must advance with lease architecture');
   assert.match(initSource, /MINOR:\s*16,\s*\n\s*PATCH:\s*80,/, 'global WCORE version must advance to 4.16.80');
 
@@ -282,7 +285,7 @@ function makeBootstrapContext(props) {
 {
   const watchdogLease = JSON.stringify({ owner: 'watchdog-owner', until: Date.now() + 600000 });
   const autoHealLease = JSON.stringify({ owner: 'autoheal-owner', until: Date.now() + 600000 });
-  const purgeableKey = 'WCORE_HTTP_OLD_BUCKET';
+  const purgeableKey = 'WCORE_HTTP_DAY_2020-1-1'; // recognized expired day, not an unknown critical key
   const purgeableValue = 'x'.repeat(256);
   const props = {
     WCORE_WATCHDOG_LEASE: watchdogLease,

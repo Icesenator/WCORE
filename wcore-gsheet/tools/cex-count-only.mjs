@@ -1,0 +1,1 @@
+import {api} from './ledger-audit.mjs';const m=await api('?fields=sheets.properties');const names=m.sheets.map(s=>s.properties.title).filter(n=>n.startsWith('CEX - '));console.log(JSON.stringify({observedAt:new Date().toISOString(),count:names.length,names}));

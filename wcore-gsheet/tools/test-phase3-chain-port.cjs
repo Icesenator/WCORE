@@ -10,7 +10,7 @@ const EXCLUDED_WEB_CHAINS = new Set(["web-overrides"]);
 
 function expectedChains() {
   return fs.readdirSync(WEB_CHAINS_DIR)
-    .filter((file) => file.endsWith(".ts") && file !== "index.ts" && file !== "chains.test.ts")
+    .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts") && file !== "index.ts")
     .map((file) => path.basename(file, ".ts"))
     .filter((chainKey) => !EXCLUDED_WEB_CHAINS.has(chainKey))
     .sort();
@@ -84,17 +84,15 @@ for (const chainKey of chainsToVerify) {
   }
 }
 
-execFileSync(process.execPath, ["build-index.mjs"], {
-  cwd: WEB_CHAINS_DIR,
-  stdio: "pipe",
-});
-
+// wcore-web's chains/index.ts is now maintained by hand (build-index.mjs refuses to run):
+// check its declared counts instead of regenerating it.
 const gsheetCount = fs.readdirSync(path.join(ROOT, "dist", "chains"))
   .filter((file) => file.endsWith(".ts") && file !== "index.ts" && file !== "types.ts")
   .length;
 const localUniqueCount = fs.readdirSync(WEB_CHAINS_DIR)
-  .filter((file) => file.endsWith(".ts") && file !== "index.ts" && file !== "chains.test.ts")
+  .filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts") && file !== "index.ts")
   .map((file) => path.basename(file, ".ts"))
+  .filter((chainKey) => !EXCLUDED_WEB_CHAINS.has(chainKey))
   .filter((chainKey) => !fs.existsSync(path.join(ROOT, "dist", "chains", `${chainKey}.ts`)))
   .length;
 const webIndexText = readText(path.join(WEB_CHAINS_DIR, "index.ts"));

@@ -1,3 +1,4 @@
+// v4.16.37 - Automatic inventory repair targets only missing/duplicate handlers, with persisted backoff.
 // v4.16.36 - Recover storage pressure and retry lease acquisition once.
 // v4.16.35 - Use an owner-safe dedicated lease without holding ScriptLock during maintenance.
 // v4.16.34 - Rotate relay CEX providers through one canonical 15-minute trigger.
@@ -25,7 +26,7 @@
  *   when waiting for WATCHDOG_FROM_RECAP probe window.
  ************************************************************/
 
-var WCORE_AUTO_HEAL_VERSION = "4.16.36";
+var WCORE_AUTO_HEAL_VERSION = "4.16.37";
 var WCORE_AUTO_HEAL_COOLDOWN_MS = 10 * 60 * 1000;
 var WCORE_AUTO_HEAL_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
@@ -240,7 +241,51 @@ function _wcoreAutoHealCexStatus_(props) {
   return hbAgeMs == null ? null : { mode: "heartbeat", ageMs: hbAgeMs, staleCount: 0, total: 0 };
 }
 
+// Automatic repair is inventory-based and scoped to one handler; liveness alone
+// does not prove a trigger is defective. Explicit force reinstall remains separate.
+function _wcoreAutoHealRepairTriggerInventory_(out, props) {
+  var minutes = { WCORE_AUTO_HEAL_TIMER: 10, WATCHDOG_FROM_RECAP: 10, QUOTA_RECOVERY_SWEEP: 30, SYNC_J1_ALL_SHEETS: 5, UPDATE_CEX_RELAY_ROTATION: 15, CEX_MANUAL_REFRESH_WORKER: 1 };
+  var hourly = ["UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_KRAKEN_STOCKS_FIAT", "UPDATE_BITFINEX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH"];
+  var sheets = ["LEDGER_ON_CHANGE", "MASTER_ON_EDIT"];
+  var handlers = Object.keys(minutes).concat(hourly, sheets);
+  var triggers = ScriptApp.getProjectTriggers();
+  var now = Date.now();
+  var ss = null;
+  try { ss = _wcoreGetSpreadsheet_(); } catch (eProbe) {}
+  if (!ss) { _wcoreAutoHealRow_(out, "Trigger repair", "DEFERRED", "spreadsheet unavailable; no trigger mutation"); return; }
+  if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) {
+    _wcoreAutoHealRow_(out, "Trigger repair", "DEFERRED", "quota exhausted; no trigger mutation"); return;
+  }
+  for (var i = 0; i < handlers.length; i++) {
+    var handler = handlers[i];
+    var matches = [];
+    for (var t = 0; t < triggers.length; t++) if (triggers[t].getHandlerFunction() === handler) matches.push(triggers[t]);
+    if (matches.length === 1) continue;
+    var key = "WCORE_TRIGGER_REPAIR_LAST_" + handler;
+    var last = Number(props.getProperty(key) || 0);
+    if (last > 0 && now - last < 30 * 60 * 1000) { _wcoreAutoHealRow_(out, handler, "BACKOFF", "repair attempted within 30 minutes"); continue; }
+    // Persist before any mutation; persistence failure must prevent the attempt.
+    props.setProperty(key, String(now));
+    try {
+      if (matches.length > 1) {
+        for (var d = 1; d < matches.length; d++) ScriptApp.deleteTrigger(matches[d]);
+        _wcoreAutoHealRow_(out, handler, "DEDUPLICATED", "first trigger preserved");
+      } else {
+        var builder = ScriptApp.newTrigger(handler);
+        if (sheets.indexOf(handler) !== -1) {
+          builder = builder.forSpreadsheet(ss);
+          if (handler === "MASTER_ON_EDIT") builder.onEdit().create(); else builder.onChange().create();
+        } else if (minutes[handler]) builder.timeBased().everyMinutes(minutes[handler]).create();
+        else builder.timeBased().everyHours(1).create();
+        _wcoreAutoHealRow_(out, handler, "CREATED", "missing handler only");
+      }
+    } catch (eRepair) { _wcoreAutoHealRow_(out, handler, "ERROR", String(eRepair.message || eRepair)); }
+  }
+  _wcoreAutoHealRow_(out, "Triggers", "CHECKED", "automatic scoped repair; liveness/spec mismatch does not authorize global reinstall");
+}
+
 function _wcoreAutoHealEnsureTriggers_(out, props, force) {
+  if (force !== true) { _wcoreAutoHealRepairTriggerInventory_(out, props); return; }
   var managed = ["WCORE_AUTO_HEAL_TIMER", "ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "QUOTA_RECOVERY_SWEEP_FOLLOWUP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "BITPANDA_REFRESH_WATCHDOG", "CEX_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "UPDATE_TOP_MARKETCAP", "UPDATE_DYNAMIC_RPCS", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_KRAKEN_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG", "_runPricingWorker"];
   var required = ["WCORE_AUTO_HEAL_TIMER", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "SYNC_J1_ALL_SHEETS", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_KRAKEN_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_BITFINEX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "MASTER_ON_EDIT"];
   var staleRelay = ["UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "BITPANDA_REFRESH_WATCHDOG", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG"];

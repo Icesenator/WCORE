@@ -132,6 +132,7 @@ function runtime(shared, options = {}) {
     CacheManager: { init() {} },
     Format: { now: () => '2026-07-18 12:00:00', datetime: () => '2026-07-18 12:00:00' },
     QuotaCircuitBreaker: options.quota || { isTripped: () => false, handleError: () => false },
+    BudgetHTTP: { allow: () => true, isPostTripFloorActive: () => false },
     HttpCounter: { record() {} },
     HttpCallCounter: { increment() {} },
     Logger: { log() {} },
@@ -139,6 +140,7 @@ function runtime(shared, options = {}) {
   };
   vm.createContext(context);
   vm.runInContext(keysSource, context);
+  vm.runInContext(fs.readFileSync(path.join(root, 'src/04E_FX_METADATA.gs'), 'utf8'), context);
   vm.runInContext(webSource, context);
   return context;
 }
@@ -192,11 +194,11 @@ function successfulResponse() {
   const ctx = runtime(shared, { allowUnlockedCacheRead: true });
   ctx.CacheService.getScriptCache = () => { throw new Error('cache unavailable'); };
   assert.deepEqual(JSON.parse(JSON.stringify(ctx._webScanBreakerStatus_())), {
-    open: false,
-    openUntil: 0,
-    failures: 0,
+    open: null,
+    openUntil: null,
+    failures: null,
     unavailable: true,
-  }, 'cache read failure must report fail-open automatic admission');
+  }, 'cache read failure must report UNKNOWN without claiming breaker CLOSED');
 }
 
 {
@@ -219,7 +221,7 @@ function successfulResponse() {
   const shared = state();
   const result = runtime(shared)._webScanWallet_('0xgloballock', [], false, { CHAIN: { KEY: 'BASE' } });
   assert.equal(result.ok, true, JSON.stringify(result));
-  assert.equal(shared.scriptLockRequests, 2, 'automatic admission and breaker update use ScriptLock');
+  assert.equal(shared.scriptLockRequests, 3, 'automatic admission, owner release and breaker update use ScriptLock');
   assert.equal(shared.userLockRequests, 0, 'shared ScriptCache state must not use UserLock');
 }
 
@@ -244,9 +246,9 @@ function successfulResponse() {
   const config = { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' }, CACHE_VERSION: 1 };
   assert.equal(first._webScanWallet_('0xAbC', [], false, config).ok, true);
   const deferred = second._webScanWallet_('0xAbC', [], false, config);
-  assert.equal(shared.fetches, 1, 'two automatic executions must produce one Web fetch');
-  assert.equal(deferred.deferred, true);
-  assert.match(deferred.status, /^\[CACHE_ONLY\] 2026-07-18 12:00:00$/);
+  assert.equal(shared.fetches, 2, 'two sequential completed scans may reacquire after owner release');
+  assert.equal(deferred.deferred, false);
+  assert.match(deferred.status, /^WEB_SCAN_OK /);
   assert.equal(shared.lockHeld, false, 'UserLock must be released before HTTP and cache rendering');
   assert(shared.puts[0].key.startsWith('WSCAN_LEASE:BASE:'));
   assert(!shared.puts[0].key.toLowerCase().includes('0xabc'), 'canonical lease key must not expose the wallet address');
@@ -257,10 +259,10 @@ function successfulResponse() {
   const address = '0xabcdef0123456789abcdef0123456789abcdef01';
   const config = { CHAIN: { KEY: 'BASE', NAME: 'Base' } };
   assert.equal(runtime(shared)._webScanWallet_(address, [], false, config).deferred, false);
-  assert.equal(runtime(shared)._webScanWallet_(address, [], false, config).deferred, true, 'unexpired lease suppresses a duplicate fetch');
+  assert.equal(runtime(shared)._webScanWallet_(address, [], false, config).deferred, false, 'completed owner release permits a sequential fetch; concurrent acquisition tested separately');
   shared.nowMs += 120001;
   assert.equal(runtime(shared)._webScanWallet_(address, [], false, config).deferred, false, 'expired lease admits a new fetch');
-  assert.equal(shared.fetches, 2);
+  assert.equal(shared.fetches, 3);
 }
 
 {
@@ -280,8 +282,11 @@ function successfulResponse() {
   const result = ctx._webScanWallet_('0xdef', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base' } });
   assert.equal(result.deferred, false, 'lease owner performs the request');
   const contender = runtime(shared)._webScanWallet_('0xdef', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base' } });
-  assert.equal(contender.deferred, true);
-  assert.equal(contender.status, '[WEB_SCAN_DEFERRED] N/A', 'missing cache must return a stable timestamp-free marker');
+  assert.equal(contender.deferred, false, 'sequential call follows a completed owner release');
+  const held = runtime(shared);
+  held._webScanAcquireAdmissionV2_('0xheld', 'BASE', false);
+  const blocked = held._webScanWallet_('0xheld', [], false, { CHAIN: { KEY: 'BASE' } });
+  assert.equal(blocked.status, '[WEB_SCAN_DEFERRED] N/A', 'held lease without cache must keep stable marker');
 }
 
 for (const mode of ['lock', 'cache']) {

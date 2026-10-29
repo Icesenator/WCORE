@@ -91,6 +91,10 @@ export interface ApiConfig {
 const DEV_ENVS = new Set(["development", "test"]);
 const DEV_JWT_SECRET = "wcore-dev-secret-change-in-prod";
 const MAX_TIMER_MS = 2_147_483_647;
+// Zerion ceilings equal the defaults: raising them would also widen the pre-parse
+// validation budget (MAX_VALIDATED_ITEMS in zerion.ts is derived from the positions cap).
+export const ZERION_MAX_POSITIONS_CAP = 1000;
+export const ZERION_MAX_RESPONSE_BYTES_CAP = 2_000_000;
 const WEAK_SECRET_PATTERNS = [/change-in-(prod|real-deploy)/i, /placeholder/i, /^wcore-staging-/i, /^test-/i, /^dev-/i];
 
 function readNumber(env: ApiEnv, key: string, fallback: number, options: { min?: number } = {}): number {
@@ -331,8 +335,8 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
         cacheTtlMs: readPositiveInteger(env, "ZERION_CACHE_TTL_MS", 600000, MAX_TIMER_MS),
         lastGoodTtlMs: readPositiveInteger(env, "ZERION_LAST_GOOD_TTL_MS", 86400000, MAX_TIMER_MS),
         dailyBudget: readPositiveInteger(env, "ZERION_DAILY_BUDGET", 1000),
-        maxResponseBytes: readPositiveInteger(env, "ZERION_MAX_RESPONSE_BYTES", 2000000),
-        maxPositions: readPositiveInteger(env, "ZERION_MAX_POSITIONS", 1000),
+        maxResponseBytes: readPositiveInteger(env, "ZERION_MAX_RESPONSE_BYTES", ZERION_MAX_RESPONSE_BYTES_CAP, ZERION_MAX_RESPONSE_BYTES_CAP),
+        maxPositions: readPositiveInteger(env, "ZERION_MAX_POSITIONS", ZERION_MAX_POSITIONS_CAP, ZERION_MAX_POSITIONS_CAP),
       },
     },
     integrations: {

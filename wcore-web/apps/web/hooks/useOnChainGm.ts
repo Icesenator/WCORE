@@ -8,10 +8,12 @@ import { gmOnChainAbi, gmFactoryAbi } from "@/lib/gm-abi";
 import { getFactory, getFactoryAddress } from "@wcore/shared";
 import { getApiUrl, apiFetch } from "@/lib/api";
 import { lsContractDeployed, lsSetContractDeployed, lsSetGmDone } from "@/lib/gm-storage";
+import { getGmWindDown, gmDeployBlockedMessage } from "@/lib/gm-winddown";
 import { useSafeSwitchChain } from "./useSafeSwitchChain";
 import { switchChainAny, sendTransactionAny, waitForTransactionReceiptAny } from "@/lib/onchain-tx";
 import { resolveHasDeployed } from "@/lib/gm-deploy-status";
 import { describeGmSwitchError } from "@/lib/gm-switch-error";
+import { assertGmRpcAvailable, isGmRpcUnauthorized, normalizeGmRpcError } from "@/lib/gm-rpc-error";
 import { computeGmTipWei } from "@/lib/gm-tip";
 import { useWallet } from "@/components/ConnectButton";
 
@@ -173,6 +175,7 @@ export function useOnChainGm(config: GmConfig) {
       // Always pick a random contract from ALL contracts on the site
       const contractInfo = await getRandomContract();
       const { chainKey, contractAddress } = contractInfo;
+      assertGmRpcAvailable(chainKey);
 
       const senders = buildSenders();
       const expectedChainId = getGmChainId(chainKey);
@@ -187,7 +190,10 @@ export function useOnChainGm(config: GmConfig) {
       let providerConfirmed = false;
       while (Date.now() < switchDeadline) {
         if (senders.rawProvider) {
-          const actualHex = await senders.rawProvider.request({ method: "eth_chainId" }).catch(() => null) as string | null;
+          const actualHex = await senders.rawProvider.request({ method: "eth_chainId" }).catch((error: unknown) => {
+            if (isGmRpcUnauthorized(error)) throw normalizeGmRpcError(error);
+            return null;
+          }) as string | null;
           if (actualHex && Number(actualHex) === expectedChainId) { providerConfirmed = true; break; }
         } else if (chainIdRef.current === expectedChainId) {
           providerConfirmed = true;
@@ -253,6 +259,8 @@ export function useOnChainGm(config: GmConfig) {
       window.dispatchEvent(new CustomEvent("wcore-gm-done", { detail: { date: today, chain: chainKey } }));
 
       return txHash;
+    } catch (error) {
+      throw normalizeGmRpcError(error);
     } finally {
       setSending(false);
     }
@@ -261,6 +269,11 @@ export function useOnChainGm(config: GmConfig) {
   const deployContract = useCallback(async (): Promise<{ address: string; txHash: string }> => {
     if (!config.chainKey) throw new Error("chainKey required for deploy");
     if (!config.walletAddress) throw new Error("Wallet not connected");
+    assertGmRpcAvailable(config.chainKey);
+    // Winding-down chains refuse NEW contracts: the deployed contract would become
+    // inaccessible. Existing contracts and GM sends stay untouched.
+    const windDown = getGmWindDown(config.chainKey);
+    if (windDown) throw new Error(gmDeployBlockedMessage(windDown));
     setDeploying(true);
     try {
       const factoryAddr = getFactoryAddress(config.chainKey)??"";
@@ -277,7 +290,10 @@ export function useOnChainGm(config: GmConfig) {
       let providerConfirmed = false;
       while (Date.now() < switchDeadline) {
         if (senders.rawProvider) {
-          const actualHex = await senders.rawProvider.request({ method: "eth_chainId" }).catch(() => null) as string | null;
+          const actualHex = await senders.rawProvider.request({ method: "eth_chainId" }).catch((error: unknown) => {
+            if (isGmRpcUnauthorized(error)) throw normalizeGmRpcError(error);
+            return null;
+          }) as string | null;
           if (actualHex && Number(actualHex) === expectedChainId) { providerConfirmed = true; break; }
         } else if (chainIdRef.current === expectedChainId) {
           providerConfirmed = true;
@@ -345,6 +361,8 @@ export function useOnChainGm(config: GmConfig) {
       if (config.chainKey) lsSetContractDeployed(config.chainKey, contractAddress);
 
       return { address: contractAddress, txHash };
+    } catch (error) {
+      throw normalizeGmRpcError(error);
     } finally {
       setDeploying(false);
     }

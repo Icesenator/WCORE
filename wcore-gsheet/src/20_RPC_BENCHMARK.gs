@@ -333,7 +333,7 @@ function AUTO_BENCHMARK_ALL_CHAINS() {
  var chains = [
  "ETHEREUM", "BASE", "ARBITRUM_ONE", "OPTIMISM", "POLYGON", 
  "BSC", "AVALANCHE", "LINEA", "SCROLL", "ZKSYNC_ERA",
- "BLAST", "MODE", "ZORA", "MANTLE", "TAIKO_ALETHIA"
+ "MODE", "ZORA", "MANTLE", "TAIKO_ALETHIA"
  ];
  
  var output = [

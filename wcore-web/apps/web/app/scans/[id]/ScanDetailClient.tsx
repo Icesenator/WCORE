@@ -4,33 +4,33 @@ import { apiFetch } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import type { ChainScan, TokenAsset } from "@wcore/shared";
+import type { TokenAsset } from "@wcore/shared";
+import { projectHistoricalPortfolioHealth, historicalSummaryValue, historicalChainValue, type HistoricalHealthInput } from "@/lib/historical-portfolio-health";
+import { PortfolioHealthPanel } from "@/components/PortfolioHealthPanel";
 import { ConnectButton } from "@/components/ConnectButton";
 import { VmBadge } from "@/components/ChainCard";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { LogoSpinner } from "@/components/LogoSpinner";
-import { buildPortfolioCsv } from "@/lib/csv-export";
+import { buildPortfolioCsv, withoutFailedChains } from "@/lib/csv-export";
+import { isFailedChain, portfolioCsvFilename } from "@/lib/share-card";
+
+const SHARE_SCAN_ADDRESS_WARNING = "This creates a public link. Anyone with the link will see the full wallet address, its balances and tokens until you revoke it. Continue?";
 
 const ValueDistribution = dynamic(() => import("@/components/ValueDistribution").then(m => ({ default: m.ValueDistribution })), { ssr: false });
 
-interface ScanDetail {
+interface ScanDetail extends HistoricalHealthInput {
   id: string;
   address: string;
   chains: string[];
   totalEur: number;
   tokenCount: number;
   createdAt: string;
-  result?: {
-    address: string;
-    chains: ChainScan[];
-    totals: { valueEur: number; tokenCount: number; pricedCount: number; chainsWithErrors: number };
-    generatedAt: string;
-  };
 }
 
 export function ScanDetailClient({ id }: { id: string }) {
   const { formatValue } = usePreferences();
   const [scan, setScan] = useState<ScanDetail | null>(null);
+  const [observedAt, setObservedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [shareUrl, setShareUrl] = useState("");
@@ -41,12 +41,14 @@ export function ScanDetailClient({ id }: { id: string }) {
       .then((r) => r.json())
       .then((d: ScanDetail & { error?: string }) => {
         if (d.error) { setError(d.error); setLoading(false); return; }
+        setObservedAt(new Date().toISOString());
         setScan(d);
         setLoading(false);
       })
       .catch(() => { setError("Failed to load scan"); setLoading(false); });
   }, [id]);
 
+  const health = useMemo(() => scan && observedAt ? projectHistoricalPortfolioHealth(scan, observedAt) : null, [scan, observedAt]);
   const chains = useMemo(() => scan?.result?.chains ?? [], [scan?.result?.chains]);
 
   const chainCards = useMemo(() => {
@@ -69,6 +71,7 @@ export function ScanDetailClient({ id }: { id: string }) {
   }
 
   const totalEur = scan.totalEur;
+  const summary = health ? historicalSummaryValue(health, totalEur) : { value: null, qualifier: "UNKNOWN" as const };
 
   return (
     <>
@@ -82,32 +85,33 @@ export function ScanDetailClient({ id }: { id: string }) {
       </header>
 
       <div className="rounded-lg border border-border bg-card p-5 mb-6 no-print">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted">Scan Result</p>
-            <p className="mt-2 text-2xl font-bold sm:text-3xl">{formatValue(totalEur)}</p>
+            <p className="mt-2 text-2xl font-bold sm:text-3xl">{summary.value === null ? "Unknown" : formatValue(summary.value)}</p>
+            {summary.qualifier === "PARTIAL" ? <p className="text-xs text-muted">Partial known value</p> : null}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => {
                 if (!scan.result) return;
-                const csv = buildPortfolioCsv([{ address: scan.address, label: "", chains, totalEur }]);
+                const csv = buildPortfolioCsv(withoutFailedChains([{ address: scan.address, label: "", chains, totalEur }]));
                 const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
                 const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob); a.download = `wcore-scan-${new Date(scan.createdAt).toISOString().slice(0, 10)}.csv`; a.click();
+                a.href = URL.createObjectURL(blob); a.download = portfolioCsvFilename(new Date(scan.createdAt), chains.some(isFailedChain)); a.click();
                 URL.revokeObjectURL(a.href);
               }}
               className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition no-print"
             >⬇ Export CSV</button>
             {shareUrl ? (
-                <div className="flex gap-1">
-                  <input value={shareUrl} readOnly className="text-xs rounded border border-border bg-bg px-2 py-1 text-muted w-40" onClick={(e) => (e.target as HTMLInputElement).select()} />
+                <div className="flex min-w-0 gap-1">
+                  <input value={shareUrl} readOnly className="text-xs rounded border border-border bg-bg px-2 py-1 text-muted min-w-0 w-40 max-w-full" onClick={(e) => (e.target as HTMLInputElement).select()} />
                   <button onClick={() => { navigator.clipboard.writeText(shareUrl); setCopyLabel("Copied!"); setTimeout(() => setCopyLabel("Copy link"), 2000); }} className="rounded-lg border border-accent/30 px-2 py-1 text-xs text-accent hover:bg-accent/10 transition">{copyLabel}</button>
                   <button onClick={async () => { await apiFetch(`/api/scans/${id}/share`, { method: "DELETE" }); setShareUrl(""); }} className="rounded-lg border border-red-400/30 px-2 py-1 text-xs text-red-400 hover:bg-red-400/10 transition">✕</button>
                 </div>
               ) : (
-                <button onClick={async () => { try { const res = await apiFetch(`/api/scans/${id}/share`, { method: "POST" }); const d = await res.json() as { url?: string }; if (d.url) setShareUrl(d.url); } catch (_e) { console.error("Failed to share scan:", _e); /* noop */ } }} className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition">🔗 Share</button>
+                <button title="Create a public link (shows the full wallet address)" onClick={async () => { if (!window.confirm(SHARE_SCAN_ADDRESS_WARNING)) return; try { const res = await apiFetch(`/api/scans/${id}/share`, { method: "POST" }); const d = await res.json() as { url?: string }; if (d.url) setShareUrl(d.url); } catch (_e) { console.error("Failed to share scan:", _e); /* noop */ } }} className="flex items-center gap-1 rounded-lg border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition">🔗 Share</button>
               )}
           </div>
         </div>
@@ -119,6 +123,8 @@ export function ScanDetailClient({ id }: { id: string }) {
           {scan.result?.totals.chainsWithErrors ? <span className="text-yellow-300">⚠ {scan.result.totals.chainsWithErrors} with errors</span> : null}
         </div>
       </div>
+
+      {health ? <PortfolioHealthPanel health={health} formatValue={formatValue} /> : null}
 
       {chains.length > 0 ? (
         <ValueDistribution chains={chains} />
@@ -133,7 +139,7 @@ export function ScanDetailClient({ id }: { id: string }) {
                 <VmBadge vm={chain.vm as "EVM" | "SVM" | "COSMOS"} />
                 {chain.degraded ? <span className="text-[10px] text-yellow-400">[DEGRADED]</span> : null}
               </div>
-              <span className="font-mono text-sm font-semibold">{formatValue(chain.totals.valueEur)}</span>
+              {(() => { const v = historicalChainValue(chain.totals, chain); return <span className="font-mono text-sm font-semibold" title={v.qualifier === "PARTIAL" ? "Partial known value" : undefined}>{v.value === null ? "Unknown" : `${formatValue(v.value)}${v.qualifier === "PARTIAL" ? " *" : ""}`}</span>; })()}
             </div>
 
             {chain.errors.length > 0 ? (

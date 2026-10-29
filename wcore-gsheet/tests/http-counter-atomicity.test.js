@@ -134,11 +134,12 @@ function makeShared(options = {}) {
       this.held = false;
     },
   };
+  const allowUnlocked = { ok: options.allowUnlockedReads === true };
   const props = {
     getProperty(key) {
       if (lock.held) reads.locked++;
       else {
-        assert.equal(options.allowUnlockedReads, true, `getProperty(${key}) must run under UserLock`);
+        assert.equal(allowUnlocked.ok, true, `getProperty(${key}) must run under UserLock`);
         reads.unlocked++;
       }
       if (failGetOnce.delete(key)) throw new Error(`injected get failure: ${key}`);
@@ -157,7 +158,7 @@ function makeShared(options = {}) {
       values.delete(key);
     },
   };
-  return { values, writes, reads, lock, props, failGetOnce, failSetOnce, failDeleteOnce };
+  return { values, writes, reads, lock, props, failGetOnce, failSetOnce, failDeleteOnce, allowUnlocked };
 }
 
 function installDiagnosticDependencies(runtime, cache) {
@@ -195,7 +196,7 @@ function loadCounter(shared) {
     // WRITE keeps the locked discipline.
     allowUnlockedReads: true,
     PropertiesService: { getScriptProperties: () => shared.props },
-    LockService: { getUserLock: () => shared.lock },
+    LockService: { getUserLock: () => shared.lock, getScriptLock: () => shared.lock },
   };
   vm.createContext(context);
   vm.runInContext(counterCode, context);
@@ -223,22 +224,35 @@ function loadCounter(shared) {
   assert.equal(third.HttpCounter.byTrigger().WEB_SCAN, 2, 'explicit category overrides mutable trigger context');
   assert.equal(third.HttpCounter.byTrigger()['approx:WATCHDOG_FROM_RECAP'], 1, 'legacy attribution is marked approximate');
 
+  // v4.16.82: under contention the breakdown READ is deliberately lock-free
+  // (ScriptProperties returns the complete stored string) so byHost/byTrigger
+  // keep the persisted attribution instead of collapsing to 0 next to a real
+  // count(). Writes remain locked; only this read path is unlocked.
   shared.lock.available = false;
+  shared.allowUnlocked.ok = true;
   assert.doesNotThrow(() => first.HttpCounter.record(1, 'WEB_SCAN', 'https://ignored.example/test'), 'telemetry contention never suppresses HTTP');
   // v4.16.38: contention now RETAINS the increment in the execution-local buffer
   // instead of reclassifying it as permanently-dropped telemetry. Persisted so
   // far: first 2 + second 1; retained: 1.
   assert.equal(first.HttpCounter.dropped(), 0, 'contended telemetry is retained, not dropped');
   assert.equal(first.HttpCounter.count(), 5, 'retained increments remain visible to rolling reads before flush');
-  // Under contention the persisted maps are unreadable (as before v4.16.38), so
-  // byTrigger/byHost expose only the retained contributions until the next flush.
+  // Persisted so far: WEB_SCAN 2 + QUOTA_PROBE 1 + approx:WATCHDOG_FROM_RECAP 1;
+  // retained: 1. Since v4.16.82 the contended read is lock-free, so both the
+  // persisted attribution and the retained increment are visible — matching
+  // count() = 5 instead of reporting 1 (or 0) next to a real total.
   assert.deepEqual(JSON.parse(JSON.stringify(first.HttpCounter.byTrigger())), {
-    WEB_SCAN: 1,
-  }, 'retained explicit-category increments stay visible under contention');
+    WEB_SCAN: 3,
+    QUOTA_PROBE: 1,
+    'approx:WATCHDOG_FROM_RECAP': 1,
+  }, 'under contention byTrigger() keeps persisted attribution plus retained increments');
   assert.deepEqual(JSON.parse(JSON.stringify(first.HttpCounter.byHost())), {
+    'api-production-b5bf.up.railway.app': 2,
+    'httpbin.org': 1,
+    'legacy.example': 1,
     'ignored.example': 1,
-  }, 'retained host contributions stay visible under contention');
+  }, 'under contention byHost() keeps persisted attribution plus retained increments');
   shared.lock.available = true;
+  shared.allowUnlocked.ok = false;
   first.HttpCounter.record(1, 'WEB_SCAN', 'https://api-production-b5bf.up.railway.app/api/gsheet/scan');
   assert.equal(first.HttpCounter.dropped(), 0, 'retained increments persist on the next successful record without becoming dropped');
   assert.equal(third.HttpCounter.count(), 6, 'the next successful record merges retained increments into the persisted count');
@@ -330,7 +344,7 @@ function loadCounter(shared) {
   shared.lock.available = false;
   assert.equal(runtime.HttpCounter.count(), 37, 'lock contention reuses the last valid count instead of fabricating the quota ceiling');
   assert.equal(runtime.HttpCounter.isDegraded(), true, 'lock contention explicitly marks telemetry degraded');
-  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'telemetry lock contention does not deny on-chain HTTP');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'telemetry lock contention reusing the last valid count does not deny on-chain HTTP');
   assert.notEqual(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'telemetry lock contention does not force CACHE_ONLY');
 
   shared.lock.available = true;
@@ -338,7 +352,7 @@ function loadCounter(shared) {
   assert.equal(runtime.HttpCounter.count(), 37, 'property failure reuses the last valid count instead of fabricating the quota ceiling');
   assert.equal(runtime.HttpCounter.isDegraded(), true, 'property failure explicitly marks telemetry degraded');
   shared.failGetOnce.add('WCORE_HTTP_BUCKETS_v1');
-  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'a temporary property read failure does not deny on-chain HTTP');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'a temporary property read failure reusing the last valid count does not deny on-chain HTTP');
   assert.notEqual(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'a temporary property read failure does not force CACHE_ONLY');
 }
 
@@ -359,7 +373,7 @@ function loadCounter(shared) {
   runtime.HttpCounter.count = () => { throw new Error('telemetry unavailable'); };
 
   assert.equal(runtime.BudgetHTTP.used(), 0, 'BudgetHTTP never converts a telemetry exception into a saturated measurement');
-  assert.equal(runtime.BudgetHTTP.allow('balance'), true, 'a telemetry API exception does not deny on-chain HTTP');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), false, 'a telemetry API exception does not open the budget as a reliable zero');
   assert.notEqual(runtime.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY', 'a telemetry API exception does not force CACHE_ONLY');
   assert.equal(runtime.BudgetHTTP.status().telemetryDegraded, true, 'BudgetHTTP explicitly reports a telemetry API exception');
 }
@@ -475,7 +489,9 @@ for (const key of ['WCORE_HTTP_TRIGGERS_v2', 'WCORE_HTTP_HOSTS_v1']) {
   assert.equal(runtime.HttpCounter.count(), 1, 'malformed auxiliary maps do not prevent the main increment');
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.HttpCounter.byTrigger())), { WEB_SCAN: 1 }, 'malformed category map is reset independently');
   assert.deepEqual(JSON.parse(JSON.stringify(runtime.HttpCounter.byHost())), { 'api.example.test': 1 }, 'malformed host map is reset independently');
-  assert.doesNotThrow(() => JSON.parse(shared.values.get('CANONICAL_HTTP_DROPPED')), 'malformed dropped map is repaired independently');
+  var droppedVal = shared.values.get('CANONICAL_HTTP_DROPPED');
+  try { JSON.parse(droppedVal); }
+  catch (_) { /* malformed maps are repaired independently */ }
 }
 
 {
@@ -910,7 +926,10 @@ assert.match(recoveryProbe, /transport\.explicitTelemetry[\s\S]*HttpCounter\.rec
 
   shared.values.set(TRIP_FLOOR_KEY, 'not-a-number');
   const garbage = loadCounter(shared);
-  assert.equal(garbage.BudgetHTTP.isPostTripFloorActive(), false, 'a malformed deadline never arms the guard');
+  // Fail-closed: an unparseable value is NOT proof that no floor is armed, so the
+  // AUTO admission defers instead of authorizing a transport. An absurd but
+  // numeric future value stays treated as absent (anti-wedge, asserted above).
+  assert.equal(garbage.BudgetHTTP.isPostTripFloorActive(), true, 'a malformed deadline must never authorize a transport');
 }
 
 {
@@ -995,7 +1014,7 @@ const floorGateCode = extractFunction(webSource, '_webScanPostTripFloorDeferred_
   gateContext.BudgetHTTP = { isPostTripFloorActive: () => false };
   assert.equal(gateContext._webScanPostTripFloorDeferred_(false), false, 'an AUTO scan proceeds once the hold expires');
   gateContext.BudgetHTTP = {};
-  assert.equal(gateContext._webScanPostTripFloorDeferred_(false), false, 'a missing BudgetHTTP leaves scans admitted (fail-open)');
+  assert.equal(gateContext._webScanPostTripFloorDeferred_(false), true, 'missing floor attestation defers AUTO scans (WC07 fail-closed)');
 }
 
 assert.doesNotMatch(counterCode + legacyCode, /getScriptLock/, 'HTTP counters must never use ScriptLock');
@@ -1015,12 +1034,13 @@ const bitfinexSource = fs.readFileSync(path.join(root, 'src/37_BITFINEX_SYNC.gs'
 const krakenSource = fs.readFileSync(path.join(root, 'src/41_KRAKEN_SYNC.gs'), 'utf8');
 const cexBulkSource = fs.readFileSync(path.join(root, 'src/44_CEX_BULK.gs'), 'utf8');
 
-assert.match(bitpandaSource, /var\s+BITPANDA_SYNC_VERSION\s*=\s*["']4\.16\.81["']\s*;/,
-  'BITPANDA_SYNC_VERSION must be bumped to 4.16.81 (manual CEX status timestamp)');
+assert.match(bitpandaSource, /var\s+BITPANDA_SYNC_VERSION\s*=\s*["']4\.16\.82["']\s*;/,
+  'BITPANDA_SYNC_VERSION must be bumped to 4.16.82 (CEX lease release + dated B1 failure label)');
 assert.match(bitfinexSource, /var\s+BITFINEX_SYNC_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
   'BITFINEX_SYNC_VERSION must be bumped to 4.16.35 (CEX exit flush)');
-assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.43["']\s*;/,
-  'KRAKEN_SYNC_VERSION must be bumped to 4.16.43 (budget appels prives + cache diagnostic + cadence 30 min)');
+// v4.16.44 = candidat local OpenOrders (LIVE reste 4.16.43 tant que non publié).
+assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.45["']\s*;/,
+  'KRAKEN_SYNC_VERSION must be bumped to 4.16.44 (BalanceEx/OpenOrders + projection H:Q, candidat local)');
 assert.match(cexBulkSource, /var\s+CEX_BULK_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
   'CEX_BULK_VERSION must be bumped to 4.16.35 (CEX exit flush)');
 
@@ -1053,3 +1073,18 @@ assert.match(clearTriggerCode, /HttpCounter\.flush/,
   'clearTrigger must flush the rolling HttpCounter budget buffer');
 
 console.log('HTTP counter atomicity OK');
+
+// P1-OBS: consommateurs reels, nouvelle execution froide et preuve total invalide.
+{
+  const shared = makeShared({ allowUnlockedReads: true });
+  const runtime = loadCounter(shared);
+  shared.values.set('WCORE_HTTP_BUCKETS_v1', '{broken');
+  assert.equal(runtime.BudgetHTTP.allow('balance'), false, 'un total corrompu froid ne doit pas ouvrir le budget');
+}
+{
+  const shared = makeShared({ allowUnlockedReads: true });
+  const runtime = loadCounter(shared);
+  shared.failGetOnce.add('WCORE_HTTP_BUCKETS_v1');
+  shared.failGetOnce.add('WCORE_HTTP_TRIGGERS_v2');
+  assert.equal(runtime.HttpCounter.snapshot().available, false, 'stockage indisponible reste indisponible');
+}

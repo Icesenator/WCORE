@@ -14,7 +14,6 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   scroll: { address: "0x592948005b31f70b4af1e565bf6105dd8a1f1f5b", chainId: 534352 },
   linea: { address: "0x5b06b9015e6203f0f1d01023b50179c41927fa9c", chainId: 59144 },
   mantle: { address: "0x1050b7e894e37d51fbfcb1c2a2bb29aa628447ce", chainId: 5000 },
-  blast: { address: "0x88ec9eb3489282e10d7964d4a26431518bd7bf2b", chainId: 81457 },
   celo: { address: "0xa71fd1d986cbacfb6a7c4adbb4391641d3bc1b45", chainId: 42220 },
   fraxtal: { address: "0x49b825f0bcb2a1633dff0baff0f4592732943af9", chainId: 252 },
   worldchain: { address: "0x44eef927937c9cc495420f922510d02d60e46498", chainId: 480 },
@@ -25,12 +24,11 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   zora: { address: "0xd0f92622a510f82eef0178e596a4d6f17418c3c2", chainId: 7777777 },
   mode: { address: "0x7480f3d34784f45cd3c7f2f668822ee9a8029a90", chainId: 34443 },
   sei: { address: "0x71e7436f0854890d7984198e22226fb67f1dce24", chainId: 1329 },
-  superseed: { address: "0x69ef3319b7d0831b9da96eeb7065f09a058f1166", chainId: 5330 },
   shape: { address: "0xc1ad3bb5827403edf623e7011b3c435165d0eafa", chainId: 360 },
   bob: { address: "0xb1334b848f5da4e9a3bf6773abf492140f6d6a69", chainId: 60808 },
-  lisk: { address: "0xcc57c6df12d926f958f36fe98c0c8a8008fac490", chainId: 1135 },
   metal_l2: { address: "0xd1ccba23ffc3657fb1562f26b5c4301e54836a6c", chainId: 1750 },
   robinhood_chain: { address: "0x4d90e914871921f0443bda53f70def868d9f2960", chainId: 4663 },
+  moca: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 2288 },
   appchain: { address: "0xda65daf33f4492352171161e5a07631c5cc47e4f", chainId: 466 },
   camp: { address: "0x2d2eb5d89eae3f8687676da0462753481e3a7785", chainId: 484 },
   cyber: { address: "0x0e6a5974de12170d3829b9b859610ed684eafd47", chainId: 7560 },
@@ -196,3 +194,13 @@ export function getFactoryAddress(chainKey: string): string | undefined {
 export function getActiveFactoryChains(): string[] {
   return Object.keys(GM_FACTORIES);
 }
+
+// Historical factories for retired chains.
+// These factories are no longer usable for new GM creation, but their deployed
+// contracts remain on-chain and must stay identifiable to their owners. Kept in a
+// distinct registry so no consumer of GM_FACTORIES can treat them as active.
+// No retirement date is recorded here: it is not attested per chain.
+export const GM_HISTORICAL_FACTORIES: Record<string, { address: string; chainId: number }> = {
+  degen: { address: "0xc3e5ef8c71712f55fabc6b3c07844a49103c9d8f", chainId: 666666666 },
+  superposition: { address: "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f", chainId: 55244 },
+};

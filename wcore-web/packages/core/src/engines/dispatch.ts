@@ -1,4 +1,5 @@
 import { getChain } from "../chains/index.js";
+import { isRetiredChain } from "@wcore/shared";
 import type { IntraScanCache, PricingCache } from "../pricing/index.js";
 import type { EvmWalletAssets } from "./evm.js";
 import type { SvmWalletAssets } from "./svm.js";
@@ -36,6 +37,7 @@ export async function getWalletAssets(
   opts: DispatchOptions = {},
 ): Promise<WalletAssets> {
   const key = normalizeDispatchKey(chainKey);
+  if (isRetiredChain(key)) throw new Error("chain removed: SUPERSEED (5330)");
   const chain = getChain(key);
   if (!chain) throw new Error(`unknown chain: ${chainKey}`);
   if (chain.FLAGS?.DISABLE_CHAIN === true) throw new Error(`chain disabled: ${key}`);

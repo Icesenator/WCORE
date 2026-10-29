@@ -19,7 +19,7 @@ test("maps only reviewed Zerion mainnets", () => {
     linea: "LINEA",
     scroll: "SCROLL",
     mantle: "MANTLE",
-    blast: "BLAST",
+    
     solana: "SOLANA",
   };
   for (const [providerChain, chain] of Object.entries(cases)) assert.equal(toWcoreChain(providerChain), chain);

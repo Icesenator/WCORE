@@ -133,6 +133,7 @@ function _webScanChainKey_(config) {
 }
 
 function _webScanAllowed_(chainKey) {
+  if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(chainKey)) return false;
   var allow = String(_webScanProp_("GSHEET_WEB_SCAN_ALLOWLIST") || "ALL").trim();
   if (!allow || allow.toUpperCase() === "ALL") return true;
   var want = String(chainKey || "").trim().toUpperCase();
@@ -464,6 +465,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     priceTsMap: priceTsMap,
     balanceTsMap: balanceTsMap,
     usd_to_eur_rate: _webScanNum_(payload.fxRate, 0) || null,
+    fxMetadata: payload.fxMetadata && Number(payload.fxMetadata.rate) === Number(payload.fxRate) ? payload.fxMetadata : null,
     scanStats: {
       source: "wcore-web",
       vm: String(payload.vm || ""),
@@ -491,7 +493,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
       ["", "INFO_ROT", "chain=" + _webScanChainKey_(config) + "; rot=WEB; profile=WCORE_WEB; degraded=" + (!!payload.degraded), "", "", "", ""],
       ["", "INFO_NATIVE", nativeInfo, "", "", "", ""],
       ["", "INFO_STAKING", stakingInfo ? ("delegated=" + stakingInfo.delegated + "; unbonding=" + stakingInfo.unbonding + "; rewards=" + stakingInfo.rewards + "; total=" + stakingInfo.total) : "N/A", "", "", "", ""],
-      ["", "INFO_FX", payload.fxRate ? ("USD->EUR=" + Number(payload.fxRate).toFixed(4)) : "USD->EUR=N/A", "", "", "", ""],
+      ["", "INFO_FX", _fxMetadataLabel_(payload.fxRate, payload.fxMetadata), "", "", "", ""],
       ["", "INFO_TIMING", timingInfo, "", "", "", ""],
       ["", "INFO_RPC", rpcInfo, "", "", "", ""],
       ["", "INFO_TOTAL", "Total portefeuille (sum value_eur).", "", "", "", cleanTotalEur],
@@ -674,6 +676,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.updatedAt = incoming.updatedAt || Date.now();
   out.last_run_update_ms = incoming.last_run_update_ms || out.updatedAt;
   out.usd_to_eur_rate = incoming.usd_to_eur_rate || existing.usd_to_eur_rate || null;
+  out.fxMetadata = _fxMetadataMerge_(existing, incoming, out.usd_to_eur_rate);
   out.priceMap = _webScanClone_(existing.priceMap || {}) || {};
   purgeBlockedMapKeys(out.priceMap);
   if (requestedSet) for (var rpk in requestedSet) if (rpk && !updatedKeys[rpk]) delete out.priceMap[rpk];
@@ -715,14 +718,17 @@ function _webScanRequestPayload_(address, tokensRange, forceFull, config) {
 var _webScanQuotaTestDone = false;
 function _webScanQuotaTripped_() {
   try {
-    if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.isTripped && QuotaCircuitBreaker.isTripped()) {
+    if (typeof QuotaCircuitBreaker === "undefined" || typeof QuotaCircuitBreaker.isTripped !== "function") return true;
+    var quotaState = QuotaCircuitBreaker.isTripped();
+    if (quotaState !== true && quotaState !== false) return true;
+    if (quotaState === true) {
       if (!_webScanQuotaTestDone && typeof QuotaCircuitBreaker.testOnce === "function") {
         _webScanQuotaTestDone = true;
         try { QuotaCircuitBreaker.testOnce(false); } catch (eTest) {}
       }
-      if (typeof QuotaCircuitBreaker.isTripped === "function" && QuotaCircuitBreaker.isTripped()) return true;
+      if (QuotaCircuitBreaker.isTripped() !== false) return true;
     }
-  } catch (e) {}
+  } catch (e) { return true; }
   return false;
 }
 
@@ -766,10 +772,10 @@ function _webScanPostTripFloorDeferred_(forceFull) {
   if (_webScanForce_(forceFull)) return false;
   try {
     if (typeof BudgetHTTP !== "undefined" && BudgetHTTP.isPostTripFloorActive) {
-      return BudgetHTTP.isPostTripFloorActive() === true;
+      return BudgetHTTP.isPostTripFloorActive() !== false;
     }
-  } catch (e) {}
-  return false;
+  } catch (e) { return true; }
+  return true;
 }
 
 function _webScanHttpClass_(code) {
@@ -783,6 +789,9 @@ function _webScanReadBreakerState_(cache) {
   cache = cache || CacheService.getScriptCache();
   var raw = cache.get(CK_get('webApiFailureState'));
   var state = raw ? JSON.parse(raw) : {};
+  if (!state || typeof state !== 'object' || Array.isArray(state)) throw new Error('WEB_BREAKER_STATE_INVALID');
+  if (Object.prototype.hasOwnProperty.call(state, 'openUntil') &&
+      (typeof state.openUntil !== 'number' || !isFinite(state.openUntil) || state.openUntil < 0)) throw new Error('WEB_BREAKER_STATE_INVALID');
   var failures = Array.isArray(state.failures) ? state.failures : [];
   var bounded = [];
   for (var i = Math.max(0, failures.length - GSHEET_WEB_BREAKER_THRESHOLD); i < failures.length; i++) {
@@ -801,7 +810,7 @@ function _webScanBreakerStatus_() {
       failures: state.failures.length
     };
   } catch (e) {
-    return { open: false, openUntil: 0, failures: 0, unavailable: true };
+    return { open: null, openUntil: null, failures: null, unavailable: true };
   }
 }
 
@@ -847,12 +856,31 @@ function _webScanWalletHash_(address) {
   return hex;
 }
 
-function _webScanReleaseLease_(leaseKey) {
-  if (!leaseKey) return;
+function _webScanLeaseToken_() {
+  try { if (typeof Utilities !== "undefined" && Utilities.getUuid) return Utilities.getUuid(); } catch (eUuid) {}
+  return "L" + String(Date.now()) + "-" + String(Math.random()).slice(2);
+}
+
+// Release only the lease this invocation still owns under the same bounded
+// ScriptLock used by both automatic acquisition entry points. CacheService has
+// no native compare-and-delete: exclusion covers only cooperating code in this
+// GAS project, not external mutations, eviction, or another project.
+// Missing token/lock leaves the existing 30-second TTL unchanged.
+function _webScanReleaseLease_(leaseKey, leaseToken) {
+  if (!leaseKey || !leaseToken) return;
+  var lock = null;
+  var acquired = false;
   try {
+    lock = LockService.getScriptLock();
+    if (!lock || !lock.tryLock(GSHEET_WEB_SCAN_LOCK_WAIT_MS)) return;
+    acquired = true;
     var cache = CacheService.getScriptCache();
-    if (cache) cache.remove(leaseKey);
-  } catch (e) {}
+    if (cache && cache.get(leaseKey) === leaseToken) cache.remove(leaseKey);
+  } catch (e) {
+    // Leave the lease to its existing TTL if ownership cannot be checked safely.
+  } finally {
+    if (acquired) try { lock.releaseLock(); } catch (eRelease) {}
+  }
 }
 
 function _webScanDeferredResult_(address, cacheKey, config, reason) {
@@ -884,8 +912,9 @@ function _webScanAcquireAdmission_(address, chainKey, forceFull) {
     if (breaker.openUntil > Date.now()) return { allowed: false, reason: 'WEB_BREAKER_OPEN' };
     var key = CK_get('webScanLease', { chainKey: chainKey, walletHash: _webScanWalletHash_(address) });
     if (cache.get(key)) return { allowed: false, reason: 'LEASE_HELD' };
-    cache.put(key, '1', GSHEET_WEB_SCAN_LEASE_SEC);
-    return { allowed: true, leaseKey: key };
+    var token = _webScanLeaseToken_();
+    cache.put(key, token, GSHEET_WEB_SCAN_LEASE_SEC);
+    return { allowed: true, leaseKey: key, leaseToken: token };
   } catch (e) {
     admissionError = true;
   } finally {
@@ -897,26 +926,16 @@ function _webScanAcquireAdmission_(address, chainKey, forceFull) {
   }
 }
 
-// v4.16.37: Removed global admission lease — per-wallet CacheService leases (120s)
-// already prevent double-scanning.  Multiple wallets can now scan concurrently,
-// eliminating the LOCK_BUSY bottleneck that caused 80% of B1 pulses to be wasted.
+// Same bounded ScriptLock protocol for every automatic acquisition/release.
+// The lock covers only cache inspection/mutation; HTTP runs after its release.
 function _webScanAcquireAdmissionV2_(address, chainKey, forceFull) {
-  if (_webScanForce_(forceFull)) return { allowed: true, bypassed: true };
-  try {
-    var cache = CacheService.getScriptCache();
-    if (!cache) return { allowed: false, reason: "CACHE_UNAVAILABLE" };
-    var breaker = _webScanReadBreakerState_(cache);
-    if (breaker.openUntil > Date.now()) return { allowed: false, reason: "WEB_BREAKER_OPEN" };
-    var key = CK_get("webScanLease", { chainKey: chainKey, walletHash: _webScanWalletHash_(address) });
-    if (cache.get(key)) return { allowed: false, reason: "LEASE_HELD" };
-    cache.put(key, "1", GSHEET_WEB_SCAN_LEASE_SEC);
-    return { allowed: true, leaseKey: key };
-  } catch (e) {
-    return { allowed: false, reason: "ADMISSION_ERROR" };
-  }
+  return _webScanAcquireAdmission_(address, chainKey, forceFull);
 }
 
 function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
+  if (typeof _wcoreRemovedChain_ === "function" && (_wcoreRemovedChain_(_webScanChainKey_(config)) || _wcoreRemovedChain_(config && config.CHAIN && config.CHAIN.CHAIN_ID))) {
+    return { ok: false, error: "CHAIN_REMOVED", status: "[CHAIN_REMOVED] SUPERSEED (5330)" };
+  }
   try {
     if (!_webScanEnabled_()) return null;
     var chainKey = _webScanChainKey_(config);
@@ -928,11 +947,12 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       return _webScanDeferredResult_(address, cacheKey, config, "POST_TRIP_FLOOR");
     }
     var admission = _webScanAcquireAdmissionV2_(address, chainKey, forceFull);
-    if (admission.reason === "ADMISSION_ERROR") {
+    if (admission && admission.reason === "ADMISSION_ERROR") {
       admission = _webScanAcquireAdmission_(address, chainKey, forceFull);
     }
-    if (!admission.allowed) return _webScanDeferredResult_(address, cacheKey, config, admission.reason);
+    if (!admission || admission.allowed !== true) return _webScanDeferredResult_(address, cacheKey, config, admission && admission.reason || "ADMISSION_UNKNOWN");
     var leaseKey = admission.leaseKey || null;
+    var leaseToken = admission.leaseToken || null;
     var baseUrl = _webScanProp_("WCORE_WEB_API_URL").replace(/\/$/, "");
     var token = _webScanProp_("GSHEET_API_TOKEN");
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
@@ -960,6 +980,14 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     var attempts = force ? GSHEET_WEB_SCAN_MANUAL_ATTEMPTS : GSHEET_WEB_SCAN_AUTO_ATTEMPTS;
     for (var attempt = 1; attempt <= attempts; attempt++) {
       if (_webScanQuotaTripped_()) return _webScanBlockedQuotaResult_(chainKey);
+      // Original transport bypasses Http.canFetchNow; budget attestation must
+      // therefore be checked here for EACH physical attempt, including retries.
+      var budgetAllowed = false;
+      try {
+        budgetAllowed = typeof BudgetHTTP !== "undefined" && typeof BudgetHTTP.allow === "function" &&
+          BudgetHTTP.allow("balance-web-scan") === true;
+      } catch (eBudget) {}
+      if (!budgetAllowed) return _webScanDeferredResult_(address, cacheKey, config, "BUDGET_UNAVAILABLE");
       if (transport.explicitTelemetry) {
         try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, "WEB_SCAN", baseUrl + "/api/gsheet/scan"); } catch (eCount) {}
         try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment(baseUrl + "/api/gsheet/scan", "WEB_SCAN"); } catch (eLegacyCount) {}
@@ -997,7 +1025,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
         return { ok: false, status: 'NETWORK_ERROR', error: String(fetchErr && (fetchErr.message || fetchErr) || fetchErr), transient: true };
       }
     }
-    _webScanReleaseLease_(leaseKey);
+    _webScanReleaseLease_(leaseKey, leaseToken);
     var payload = JSON.parse(resp.getContentText() || "{}");
     var cache = _webScanConvertToWalletCache_(payload, config, tokensRange);
     if (!cache || !cache.assets || !cache.assets.length) {
@@ -1083,7 +1111,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       cache: cache
     };
   } catch (e) {
-    _webScanReleaseLease_(leaseKey);
+    _webScanReleaseLease_(leaseKey, leaseToken);
     var chainKeyCatch = (typeof chainKey === "string" && chainKey) ? chainKey : ((config && _webScanChainKey_ && _webScanChainKey_(config)) || "");
     var caughtQuotaResult = _webScanHandleQuotaError_(e, chainKeyCatch);
     if (caughtQuotaResult) return caughtQuotaResult;
@@ -1094,7 +1122,7 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
 
 function DIAG_WEB_SCAN_STATUS() {
   var breaker = _webScanBreakerStatus_();
-  return [
+  var rows = [
     ["Metric", "Value"],
     ["version", GSHEET_WEB_SCAN_VERSION],
     ["enabled", _webScanEnabled_()],
@@ -1110,6 +1138,7 @@ function DIAG_WEB_SCAN_STATUS() {
     ["automatic_attempts", GSHEET_WEB_SCAN_AUTO_ATTEMPTS],
     ["manual_attempts", GSHEET_WEB_SCAN_MANUAL_ATTEMPTS]
   ];
+  return rows.concat(typeof _webScanQueueStatusRows_ === "function" ? _webScanQueueStatusRows_() : []);
 }
 
 function LIVE_PROBE_WEB_SCAN_CHAIN(chain, address) {

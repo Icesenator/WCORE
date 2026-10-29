@@ -26,6 +26,7 @@ import {
   type PricingSourceSet,
 } from "../pricing/index.js";
 import type { OnchainV3Rpc } from "../pricing/sources/onchain-v3.js";
+import { confirmGtBatchPrices } from "../pricing/sources/geckoterminal.js";
 import type { CacheStore } from "../cache/index.js";
 import { DISCOVERY_CACHE_TTL_MS } from "../cache/index.js";
 import type { BalanceDecision, BalanceSource } from "../balances/index.js";
@@ -628,7 +629,7 @@ export async function getEvmWalletAssets(
   };
 
   applyBulkPrices(llamaBatch, "llama-batch");
-  applyBulkPrices(gtBatch, "gt-batch");
+  applyBulkPrices(await confirmGtBatchPrices(gtNetwork, gtBatch, llamaBatch, priceCache), "gt-batch");
 
   const PRICE_CONCURRENCY = 10;
   for (let i = 0; i < withBalances.length; i += PRICE_CONCURRENCY) {

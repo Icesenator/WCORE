@@ -1,7 +1,8 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.16.71
+ * Version: v4.16.81
+ * v4.16.81: idempotent A2 recovery latch across watchdog and fast J1 sync.
  *
  * v4.16.71: hold-aware recovery sweep (piste 3). Pendant le post-trip scan
  *   hold 3h, QUOTA_RECOVERY_SWEEP ne pulse plus les wallets on-chain (les
@@ -433,6 +434,24 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
     stats.stateErrors = Number(stats.stateErrors || 0) + apiExecution.stateErrors;
     props.setProperty(P_WD_CURSOR, String((cursor + probeSize) % stats.N));
     stats.ok = true;
+      // v4.16.85: an installable trigger has a 6 min budget, a custom function
+      // only 30 s. Queued delegated scans are drained here, never in the cell.
+      try {
+        if (typeof _webScanQueueDrain_ === "function" && typeof _webScanQueueEnabled_ === "function" && _webScanQueueEnabled_()) {
+          var _qRemaining = 300000 - (Date.now() - t0) - 30000;
+          if (_qRemaining > GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS) {
+            var _qRes = _webScanQueueDrain_({ maxItems: 3, budgetMs: Math.min(_qRemaining, 180000) });
+            stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
+            stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
+            stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome }; });
+          } else {
+            stats.scanQueueReason = "WATCHDOG_BUDGET";
+          }
+        }
+      } catch (eQueueDrain) {
+        stats.scanQueueError = String(eQueueDrain && (eQueueDrain.message || eQueueDrain) || eQueueDrain);
+      }
+
   } catch (e) {
     stats.error = e.message;
     stats.stack = e.stack || "";
@@ -538,6 +557,7 @@ function _wd_checkPartialCycles_(ss, nowMs, maxPulses) {
     for (var i = 0; i < data.length; i++) {
       var sheetName = String(data[i][sheetColIndex] || "").trim();
       if (!sheetName || sheetName.startsWith("//")) continue;
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(sheetName)) continue;
       
       var cycleVal = String(data[i][cycleColIndex] || "").toLowerCase().trim();
       stats.checked++;
@@ -636,6 +656,7 @@ function DIAG_WATCHDOG_PARTIAL_CYCLES() {
     for (var i = 0; i < data.length; i++) {
       var sheetName = String(data[i][0] || "").trim();
       if (!sheetName || sheetName.startsWith("//")) continue;
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(sheetName)) continue;
       
       var cycleVal = String(data[i][cycleColIndex] || "").trim();
       var lastPulse = lastPulseMap[sheetName] || 0;
@@ -778,7 +799,7 @@ function _wd_isLastUpdateFormat_(s) {
 function _wd_extractTimestamp_(vI1) {
   vI1 = _wd_norm_(vI1);
   // Match usable prefixes followed by timestamp.
-  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|CHAIN_DISABLED|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR)\]\s*(.+)$/);
+  var match = vI1.match(/^\[(?:BLOCKED:[^\]]+|CACHE_ONLY|CHAIN_DISABLED|WEB_SCAN_DEGRADED|WEB_SCAN_PRESERVED|WEB_SCAN_ERROR|REFRESH_QUEUED|REFRESH_COOLDOWN|REFRESH_QUEUE_FULL|REFRESH_QUEUE_ERROR|REFRESH_QUEUE_DEFERRED|REFRESH_NOT_DUE)\]\s*(.+)$/);
   if (match && match[1]) {
     vI1 = match[1].trim();
   }
@@ -1124,7 +1145,8 @@ function _wd_executeApiActions_(actions, nowMs) {
 
 function _wd_isUnsafeLatchSource_(vI1) {
   vI1 = _wd_norm_(vI1).toUpperCase();
-  return vI1.indexOf("[BLOCKED:") === 0 || vI1.indexOf("[NO_CACHE]") === 0 ||
+  return /^\[REFRESH_(?:QUEUED|COOLDOWN|QUEUE_FULL|QUEUE_ERROR|QUEUE_DEFERRED|NOT_DUE)\]/.test(vI1) ||
+    vI1.indexOf("[BLOCKED:") === 0 || vI1.indexOf("[NO_CACHE]") === 0 ||
     vI1.indexOf("[WEB_SCAN_ERROR]") === 0 || vI1.indexOf("[WEB_SCAN_DEFERRED]") === 0 ||
     vI1.indexOf("NO_CACHE_WAITING_REFRESH") >= 0;
 }
@@ -1282,7 +1304,9 @@ function _wd_isCexSheet_(name) {
 }
 
 function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, partialCandidates) {
-  var urgentCandidates = (partialCandidates || []).slice();
+  var urgentCandidates = (partialCandidates || []).filter(function(candidate) {
+    return !(typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(candidate && (candidate.name || candidate.sheetName)));
+  });
   var cycleCandidates = [];
   var syncActions = [];
   stats = stats || {};
@@ -1303,6 +1327,7 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     if (_wd_isCexSheet_(d.name || d.sheetName || "")) continue;
 
     var sheetName = d.name || d.sheetName || "";
+    if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(sheetName)) continue;
     var i1Norm = _wd_norm_(d.vI1 || "");
     var isWebError = i1Norm.indexOf("[WEB_SCAN_ERROR]") === 0;
     var webErrorAllowed = !isWebError;
@@ -1349,8 +1374,7 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
       (i1Norm.indexOf("[CACHE_ONLY]") === 0 &&
         (!_wd_isLastUpdateFormat_(extractedI1) || !isFinite(extractedI1Ms)));
     var vA2Norm = _wd_norm_(d.vA2 || "");
-    var needsA2Recalc = (vA2Norm === "" || vA2Norm.indexOf("#") === 0 ||
-      vA2Norm.toLowerCase().indexOf("exceeded maximum execution time") >= 0) &&
+    var needsA2Recalc = _wd_a2NeedsRecalc_(vA2Norm) &&
       _wd_isLastUpdateFormat_(extractedI1) && _wd_shouldSyncJ1_(d.vI1 || "", "");
     var cooldownMin = refreshCheck.useBlockedCooldown ? WD_PULSE_MIN_BLOCKED : WD_PULSE_MIN;
     var canPulseNormally = !needsA2Recalc && !suppressB1Pulses && webErrorAllowed &&
@@ -1426,9 +1450,12 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     if (_wd_norm_(d.vI1 || "").indexOf("[CACHE_ONLY]") === 0 && j1SyncValue !== actualI1) {
       j1SyncReason = "cache_only_attempt";
     }
+    if (needsA2Recalc && !_wd_confirmA2Error_(d.name || d.sheetName || "")) {
+      needsA2Recalc = false;
+    }
     if (needsA2Recalc) {
       var bumpedJ1 = _wd_bumpTimestampSeconds_(actualI1, 1);
-      if (bumpedJ1) {
+      if (bumpedJ1 && _wd_norm_(d.vJ1 || "") !== bumpedJ1) {
         syncActions.push({
           sheet: d.sheet || null,
           sheetName: d.name || d.sheetName || "",
@@ -1525,6 +1552,13 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
   return syncActions.concat(selectedPulses);
 }
 
+// v4.16.81: keep an A2 recovery bump stable across both J1 writers.
+function _wd_a2NeedsRecalc_(value) {
+  var normalized = _wd_norm_(value);
+  return normalized === "" || normalized.indexOf("#") === 0 ||
+    normalized.toLowerCase().indexOf("exceeded maximum execution time") >= 0;
+}
+
 function _wd_shouldSyncJ1_(vI1, vJ1) {
   if (_wd_isUnsafeLatchSource_(vI1)) return false;
   const actualI1 = _wd_extractTimestamp_(vI1);
@@ -1581,7 +1615,31 @@ function _wd_readDirectB1_(sheetName) {
   }
 }
 
+/**
+ * v4.16.81: A2 du Recap peut etre perime (INDIRECT non recalcule par les
+ * ecritures API). Avant de forcer un bump J1, confirmer l'erreur A2 sur la
+ * feuille elle-meme ; une lecture indisponible n'autorise pas le bump.
+ * @returns {boolean} true seulement si l'A2 direct confirme l'erreur
+ */
+function _wd_confirmA2Error_(sheetName) {
+  if (!sheetName) return false;
+  try {
+    if (typeof Sheets === "undefined" || !Sheets.Spreadsheets || !Sheets.Spreadsheets.Values) return false;
+    var resp = Sheets.Spreadsheets.Values.get(WCORE_SPREADSHEET_ID, _wd_quoteA1Sheet_(sheetName) + "!A2");
+    var vals = (resp && resp.values) || [];
+    var value = (vals[0] && vals[0][0] != null) ? String(vals[0][0]) : "";
+    return _wd_a2NeedsRecalc_(value);
+  } catch (eRead) {
+    return false;
+  }
+}
+
 function _wd_needsRefresh_(vA2, vI1, nowMs, staleMs, vB1) {
+  // Pending is not success. Natural watchdog pulses retain existing per-sheet
+  // admission/cooldowns and readmit requests after volatile cache eviction.
+  if (/^\[REFRESH_(?:QUEUED|COOLDOWN|QUEUE_FULL|QUEUE_ERROR|QUEUE_DEFERRED|NOT_DUE)\]/.test(vI1)) {
+    return { needsPulse: true, reason: "error", blockedReason: null, useBlockedCooldown: false };
+  }
   if (vI1.indexOf("[WEB_SCAN_DEFERRED]") === 0) {
     return { needsPulse: true, reason: "empty", blockedReason: null, useBlockedCooldown: false };
   }
@@ -1912,6 +1970,25 @@ function WATCHDOG_FROM_RECAP() {
       stats.ok = true;
       stats.exec_ms = Date.now() - t0;
 
+      // v4.16.85: an installable trigger has a 6 min budget, a custom function
+      // only 30 s. Queued delegated scans are drained here, never in the cell.
+      try {
+        if (typeof _webScanQueueDrain_ === "function" && typeof _webScanQueueEnabled_ === "function" && _webScanQueueEnabled_()) {
+          var _qRemaining = 300000 - (Date.now() - t0) - 30000;
+          if (_qRemaining > GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS) {
+            var _qRes = _webScanQueueDrain_({ maxItems: 3, budgetMs: Math.min(_qRemaining, 180000) });
+            stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
+            stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
+            stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome }; });
+          } else {
+            stats.scanQueueReason = "WATCHDOG_BUDGET";
+          }
+        }
+      } catch (eQueueDrain) {
+        stats.scanQueueError = String(eQueueDrain && (eQueueDrain.message || eQueueDrain) || eQueueDrain);
+      }
+      stats.exec_ms = Date.now() - t0;
+
       // v4.15.23 DIAG: capture per-probe state so user-visible diag cell can inspect sync
       try {
         var diagPerSheet = sheetData.slice(0, Math.min(sheetData.length, 40)).map(function(d){
@@ -1942,6 +2019,7 @@ function WATCHDOG_FROM_RECAP() {
           }
         } catch (eDiagCell) {}
       } catch (eDiag) {}
+
 
     } catch (e) {
       stats.error = e.message;
@@ -2056,16 +2134,22 @@ function _recoverySelectPulseList_(sheetList, holdActive) {
   var list = [];
   if (sheetList && sheetList.length) {
     for (var i = 0; i < sheetList.length; i++) {
-      if (sheetList[i]) list.push(sheetList[i]);
+      if (sheetList[i] && !(typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(sheetList[i]))) list.push(sheetList[i]);
     }
   }
   var active = holdActive === true;
   if (!active) {
     try {
       if (typeof BudgetHTTP !== "undefined" && BudgetHTTP.isPostTripFloorActive) {
-        active = BudgetHTTP.isPostTripFloorActive() === true;
+        // Fail closed on an unreadable/corrupt deadline: an unknown floor state
+        // must not re-pulse the recovery wave that re-exhausts the quota window.
+        active = BudgetHTTP.isPostTripFloorActive() !== false;
       }
-    } catch (eHold) {}
+    } catch (eHold) {
+      // An unreadable floor state must not silently re-pulse the recovery wave;
+      // defer the pass instead (bounded by the operator clear and the 3h expiry).
+      active = true;
+    }
   }
   if (active) return { pulse: [], deferred: list };
   if (list.length <= RECOVERY_FIRST_PASS_CAP) return { pulse: list, deferred: [] };
@@ -2626,6 +2710,15 @@ function SYNC_J1_ALL_SHEETS() {
       if (_wd_isUnsafeLatchSource_(i1)) continue;
       if (!_wd_isLastUpdateFormat_(cleanI1)) continue;
       if (cleanI1 === j1) continue;
+      // Preserve the watchdog's one-second recovery latch only while A2
+      // still needs recalculation. Unknown direct state must not undo it.
+      var sourceI1 = _wd_extractTimestamp_(i1);
+      if (j1 === _wd_bumpTimestampSeconds_(sourceI1, 1)) {
+        try {
+          var recoverySheet = ss.getSheetByName(String((names[i] && names[i][0]) || "").trim());
+          if (!recoverySheet || _wd_a2NeedsRecalc_(recoverySheet.getRange("A2").getValue())) continue;
+        } catch (eRecoveryRead) { stats.errors++; continue; }
+      }
       stats.checked++;
 
       var sheetName = String((names[i] && names[i][0]) || "").trim();

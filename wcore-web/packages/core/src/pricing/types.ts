@@ -18,7 +18,7 @@ export type PriceSource =
   | "realt"
   | "zora";
 
-export type PricingMarker = "NEED_DEEP" | "NEED_TRY3" | "NEED_ONCHAIN";
+export type PricingMarker = "NEED_DEEP" | "NEED_TRY3" | "NEED_ONCHAIN" | "GT_OK";
 
 export interface PricingToken {
   key: string;

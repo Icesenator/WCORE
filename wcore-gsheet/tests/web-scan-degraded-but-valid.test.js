@@ -54,6 +54,7 @@ const ctx = {
   _webScanChainKey_: (c) => String((c && c.CHAIN && (c.CHAIN.KEY || c.CHAIN.NAME)) || "B3"),
 };
 vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', '04E_FX_METADATA.gs'), 'utf8'), ctx);
 for (const n of NAMES) vm.runInContext(extract(n), ctx);
 
 const RATE_LIMITED = [

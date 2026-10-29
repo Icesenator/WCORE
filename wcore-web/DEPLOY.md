@@ -2,23 +2,77 @@
 
 ## Production deploys — Railway (wcore.xyz / api-production-b5bf.up.railway.app)
 
-The Railway project has **three services** (`web`, `api` and `cex-relay`). Since `@wcore/core` depends on `@wcore/chains` from `wcore-gsheet/dist`, deploys use the repo root context `C:\Users\strau\WCORE` and the root `railway.json`. `wcore-web/scripts/deploy.ps1` swaps `dockerfilePath` according to `-Service`, runs `railway up <root> --path-as-root --service <name> --ci`, restores the JSON in a `finally` block, and propagates Railway's exit code.
+The Railway project has **three services** (`web`, `api` and `cex-relay`). Since `@wcore/core` depends on `@wcore/chains` from `wcore-gsheet/dist`, deploys use the repo root as build context. `wcore-web/scripts/railway-deploy.mjs` (wrapped by `deploy.ps1`) publishes **one pushed commit**, never the working tree:
+
+1. resolves `-Ref` to a commit after `git fetch origin`, refuses it unless it is on a branch of `origin`, and, for the `production` environment, unless it is part of `origin/master`;
+2. reads `wcore-web/railway/deploy-manifest.json` and the service's config file (`wcore-web/railway/<service>.json`) **from that commit**, and checks the Dockerfile it names really builds that service;
+3. for `api`, requires an operator **TRUST_PROXY attestation** for this exact project, environment and commit (see below); it never reads Railway variables, and `-AcceptSharedClientIp` is refused;
+4. takes a per-target lock, extracts `git archive <sha>` into an empty temporary directory and checks it matches the commit file for file;
+5. writes `railway.json`, `.railwayignore` and `wcore-web/build-info.json` (commit, ref, service, environment) inside that directory only;
+6. runs `railway up <dir> --path-as-root --project <id> --environment <env> --service <name> --ci --message "wcore <service> <sha>"` and returns its exit code.
 
 ```powershell
-# From WCORE
-powershell -File wcore-web\scripts\deploy.ps1 -Service api
-
-powershell -File wcore-web\scripts\deploy.ps1 -Service web
-
-# Deploy both (sequentially)
-powershell -File wcore-web\scripts\deploy.ps1 -Service api; powershell -File wcore-web\scripts\deploy.ps1 -Service web
+# From WCORE. Every parameter is required; -DryRun stops before `railway up`.
+powershell -File wcore-web\scripts\deploy.ps1 -Service api -Ref origin/master -Environment production -Project <railway project id> -TrustProxyAttestation <path to attestation.json>
+powershell -File wcore-web\scripts\deploy.ps1 -Service web -Ref origin/master -Environment production -Project <railway project id>
 ```
+
+Concurrent deploys: the deployer takes a lock file per project/environment/service on **this machine** (never expired by age: a deploy that runs for hours keeps it; one left by a crash is cleared only with `--clear-stale-lock`, only on the machine that took it and only once its process has exited), then refuses while `railway deployment list` shows a deployment of that service in `BUILDING`, `DEPLOYING`, `INITIALIZING`, `WAITING` or `QUEUED`, or when that list cannot be read. This is **not** distributed mutual exclusion: two machines can still both pass the Railway check in the seconds before either upload is registered, and Railway offers no lock to close that window. Deploy from one designated machine, one service at a time.
+
+Railway stops reading `railway.json` / `railway.toml` for existing services on **2026-12-01** (Config as Code is deprecated in favour of Infrastructure as Code, `.railway/railway.ts`). Until then the `wcore-web/railway/<service>.json` written into the upload decides the Dockerfile; from that date the deployer refuses to publish (`E_CONFIG_SOURCE`) until the services are migrated, because the upload would no longer control which Dockerfile builds which service.
+
+Uncommitted edits, untracked files and local commits cannot reach an image. The checked-out `railway.json` is no longer rewritten, so two deploys cannot race on it; still deploy `api` before `web`, one after the other. The guards are tested without Railway by `node --test wcore-web/scripts/railway-deploy.test.mjs` (also launched on Windows by `scripts/deploy-ps1.test.ps1`), and the service/Dockerfile/watch-pattern parity by `node --test wcore-web/railway/railway-config.test.mjs`.
+
+For GitHub-triggered deploys, set each service's **config file path** in the Railway dashboard to `wcore-web/railway/<service>.json`. A service left on the default reads the root `railway.json`, which builds the **API** image.
+
+### TRUST_PROXY attestation (API only)
+
+The deployer no longer reads `TRUST_PROXY`: `railway variable list` returns every variable of the service, secrets included. Instead the operator, after checking the value and the proxy topology **privately** (procedure: `docs/cloud/TRUST_PROXY_SECURITY.md`), writes a local JSON file and passes it with `-TrustProxyAttestation`. Never commit it or post it: it holds no value, but it is release material.
+
+```json
+{
+  "schema": "wcore.trust-proxy-attestation",
+  "version": 1,
+  "project": "<railway project id>",
+  "service": "api",
+  "environment": "production",
+  "sha": "<full 40-character commit the deploy resolves -Ref to>",
+  "observedAt": "2026-10-27T10:00:00.000Z",
+  "reviewedAt": "2026-10-27T10:02:00.000Z",
+  "issuedAt": "2026-10-27T10:03:00.000Z",
+  "expiresAt": "2026-10-27T10:25:00.000Z",
+  "classification": "VALID_VERIFIED_PROXY",
+  "topologyVerified": true,
+  "operatorConfirmed": true,
+  "validationRules": "wcore.trust-proxy.release/v1",
+  "driftAcknowledgement": "wcore.post-observation-drift/v1"
+}
+```
+
+Exactly these 15 keys, once each, flat; times in UTC with milliseconds. The deployer refuses (`E_TRUST_PROXY_ATTESTATION`, one message that never shows the file's content or path) when the file is missing, larger than 8 KB, a symlink or behind one, not at its canonical path, for another project, environment, service or commit, classified otherwise than `VALID_VERIFIED_PROXY` (loopback or unset included), or outside `observedAt ≤ reviewedAt ≤ issuedAt ≤ now < expiresAt` with at most 30 minutes from observation to expiry. It re-checks the window just before the dry-run result and just before `railway up`.
+
+**Limits.** This is a declaration, not a proof: anyone who can write the file can forge it, it authenticates nobody, and the value Railway actually runs with can change after `observedAt`. The API itself still refuses to start on an invalid `TRUST_PROXY` (the healthcheck then keeps the previous deployment serving); an unset or loopback value only logs a warning, so check `req.remoteAddress` in the API logs after every deploy.
 
 ### ⚠️ Do not run `railway up` directly
 
-Bare `railway up` (no `--service` flag) deploys to the currently linked service with whatever `dockerfilePath` is in `railway.json`. Running it from the wrong directory can also exclude `wcore-gsheet/dist`, breaking `@wcore/chains`. Always use `wcore-web/scripts/deploy.ps1`.
+Bare `railway up` deploys the working tree, uncommitted files included, to the currently linked service with whatever `dockerfilePath` is in `railway.json`. Running it from the wrong directory can also exclude `wcore-gsheet/dist`, breaking `@wcore/chains`. Always use `wcore-web/scripts/deploy.ps1`.
 
 ### Verification after deploy
+
+A 200 does not prove which code answers. Each image carries the commit it was built from (`wcore-web/build-info.json`, written by the deployer; `RAILWAY_GIT_COMMIT_SHA` for a GitHub-triggered build) and reports it as `build` in `GET /health` (API) and `GET /healthz` (web), which are also the Railway healthcheck paths in `wcore-web/railway/<service>.json`. Check the deployed commit with one GET per service, which changes nothing:
+
+```powershell
+node wcore-web\scripts\verify-deployment.mjs --service api --url https://api-production-b5bf.up.railway.app --expect-sha <sha>
+node wcore-web\scripts\verify-deployment.mjs --service web --url https://wcore.xyz --expect-sha <sha>
+```
+
+It fails on a status other than 200, a non-JSON response (the other app answering), the wrong service name, or another commit; for the API it also requires `GET /ready` to answer 200 `ready` (PostgreSQL and Redis reachable).
+
+What each check proves, and what it does not:
+- The Railway healthcheck runs **only while a deployment starts**: Railway routes traffic to the new deployment once the path answers 2xx within the timeout, otherwise the deployment fails and the previous one keeps serving. Railway does **not** probe it afterwards: it is not monitoring.
+- `/health` (API) and `/healthz` (web) prove the process started and name its commit; they deliberately probe no dependency, so a database or Redis outage cannot block a rollback.
+- `/ready` (API) proves PostgreSQL and Redis answer at that moment. It is checked after publication by `verify-deployment.mjs`, not by Railway.
+- None of them proves the application works end to end: run the non-mutating smoke checks of the release plan as well. After a rollback, run it with the commit the rollback should have restored. `build.source` is `build-info`, `railway-git`, `unknown` (an image built before this change) or `conflict` (the two sources disagree).
 
 ```powershell
 # Service status (both services)
@@ -102,12 +156,12 @@ The Fastify API derives `req.ip` from the `trustProxy` setting:
 | `TRUST_PROXY` | Behavior | Use when |
 |---------------|----------|----------|
 | unset / `false` | Trust loopback only (`127.0.0.1`, `::1`) | No proxy, or local docker/nginx co-located on the API host |
-| `true` | Trust *any* upstream — accepts `X-Forwarded-For` from anywhere | Single trusted proxy you control AND the API is not directly reachable |
-| CIDR list (e.g. `10.0.0.0/8`) | Trust only the listed networks | Multi-hop proxy chain |
+| IP/CIDR list (e.g. `10.0.0.0/8`) | Trust only the listed direct proxy networks | Verified proxy topology |
+| `true`, numbers, empty list entries, malformed entries, ranges wider than IPv4 /8 or IPv6 /16, more than 64 entries | Startup configuration error | Never |
 
-Setting `TRUST_PROXY=true` while the API is still reachable on a public
-port lets clients spoof their IP via `X-Forwarded-For` and bypass the
-Redis-backed rate limiter. Treat it as a privileged switch.
+`true` and numeric hop counts do not authenticate the connecting peer
+(GHSA-3m5p-2c4r-xxw2) and are rejected. Before enabling a proxy setting,
+verify the exact direct proxy IPs or CIDR ranges for that environment.
 
 ---
 
@@ -413,7 +467,7 @@ docker cp wcore-redis-prod:/data/dump.rdb redis-backup-$(date +%Y%m%d).rdb
 | `ADMIN_TOKEN` | No | unset | Required for the admin routes. While unset they answer 401 and admin operations are unavailable. |
 | `CEX_SECRET` | **Yes in production** | - | Encrypts stored exchange credentials. Production refuses to read or write them without it, rather than falling back to another secret. |
 | `RATE_LIMIT_AUTH` | No | 30 | Auth rate limit |
-| `TRUST_PROXY` | No | loopback | `true`, `false`, or CIDR — see Reverse proxy section |
+| `TRUST_PROXY` | No | loopback | `false`, `loopback`, or IP/CIDR list — see Reverse proxy section |
 | `LOG_LEVEL` | No | info | pino level (`debug` / `info` / `warn` / `error`) |
 | `SCAN_CONCURRENCY` | No | 50 | Per-scan chain concurrency. >50 saturates public RPCs. Single source of truth: `apps/api/src/plugins/scan.ts:13`. |
 | `ADMIN_TOKEN` | No | — | Protects /admin + /api/admin/* |

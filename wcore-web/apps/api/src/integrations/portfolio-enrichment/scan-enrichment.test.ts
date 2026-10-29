@@ -9,6 +9,18 @@ import { createEnrichmentScanStepIfConfigured, runEnrichmentDiagnostics } from "
 import { createRpcContractVerifier } from "./rpc-verifier.js";
 import type { PortfolioEnrichmentProvider, ProviderPortfolioSnapshot } from "./types.js";
 
+// The enrichment timeout unrefs its timer so it never holds the server process open.
+// With a provider that never settles nothing else is left on the event loop here, and
+// node:test cancels the test, then every later test in the file, before it fires.
+async function withEventLoopHeld<T>(work: Promise<T>): Promise<T> {
+  const hold = setInterval(() => {}, 1_000);
+  try {
+    return await work;
+  } finally {
+    clearInterval(hold);
+  }
+}
+
 const WCORE_TOKEN = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const NEW_TOKEN = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const WALLET = "0x1111111111111111111111111111111111111111";
@@ -62,9 +74,9 @@ test("defined step but enabled=false: no call", async () => {
   assert.equal(called, 0);
 });
 
-test("provider timeout does not degrade anything and yields no candidate", async () => {
+test("provider timeout does not degrade anything and yields no candidate", { timeout: 10_000 }, async () => {
   const step = stepWith(() => new Promise(() => {}), async () => null);
-  const r = await runEnrichmentDiagnostics({ enabled: true, step, address: WALLET, chains: ["ETHEREUM"], chainAssets: new Map([["ETHEREUM", walletAssets("ETHEREUM")]]) });
+  const r = await withEventLoopHeld(runEnrichmentDiagnostics({ enabled: true, step, address: WALLET, chains: ["ETHEREUM"], chainAssets: new Map([["ETHEREUM", walletAssets("ETHEREUM")]]) }));
   assert.equal(r?.enrich_zerion, "TIMEOUT");
   assert.equal(r?.candidates, 0);
   assert.equal(r?.mutatedAssets, false);

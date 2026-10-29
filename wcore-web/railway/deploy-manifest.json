@@ -1,0 +1,60 @@
+{
+  "$comment": "Read by wcore-web/scripts/railway-deploy.mjs from the commit being deployed. Each service names its Railway config file (also usable as the service's config-as-code path in the dashboard), lines its Dockerfile must contain, and the paths left out of the uploaded context. Kept in sync with the Dockerfiles by railway-config.test.mjs. configSource 'config-as-code' means the uploaded railway.json decides the Dockerfile: Railway stops reading it on 2026-12-01 (docs/cloud/RAILWAY_CONFIG_MIGRATION.md), after which railway-deploy.mjs refuses to publish.",
+  "productionEnvironment": "production",
+  "configSource": "config-as-code",
+  "commonIgnore": [
+    "docs/",
+    ".github/",
+    ".obsidian/",
+    ".tmp/",
+    ".generated/",
+    "graphify-out/",
+    "**/node_modules/",
+    "wcore-gsheet/docs/",
+    "wcore-gsheet/pulls/",
+    "wcore-gsheet/src/"
+  ],
+  "services": {
+    "api": {
+      "config": "wcore-web/railway/api.json",
+      "dockerfileMarkers": [
+        "pnpm --filter \"@wcore/api\" build",
+        "EXPOSE 4000"
+      ],
+      "ignore": [
+        "wcore-web/apps/web/",
+        "wcore-web/docs/",
+        "wcore-web/contracts/",
+        "wcore-gsheet/railway-relay/"
+      ],
+      "trustProxyPreflight": true
+    },
+    "web": {
+      "config": "wcore-web/railway/web.json",
+      "dockerfileMarkers": [
+        "pnpm --filter \"@wcore/web\" build",
+        "EXPOSE 3000"
+      ],
+      "ignore": [
+        "wcore-web/apps/api/",
+        "wcore-web/docs/",
+        "wcore-web/contracts/",
+        "wcore-web/apps/web/__tests__/",
+        "wcore-web/apps/web/e2e/",
+        "wcore-gsheet/railway-relay/"
+      ],
+      "trustProxyPreflight": false
+    },
+    "cex-relay": {
+      "config": "wcore-web/railway/cex-relay.json",
+      "dockerfileMarkers": [
+        "COPY wcore-gsheet/railway-relay/server.js"
+      ],
+      "ignore": [
+        "wcore-web/",
+        "wcore-gsheet/dist/"
+      ],
+      "trustProxyPreflight": false
+    }
+  }
+}

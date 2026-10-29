@@ -77,10 +77,9 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // Factory implementation() → 0xbbfd44638fa928bfc7a28be19aafafc443222eef (GmOnChain impl, 2237 bytes).
   // Note: original www.shibrpc.com DNS fails — drpc.org + shib.io are the working RPCs.
   shibarium: { address: "0x04e5d61ba8cba9292b0a7f1d6242197a5ac7c0e4", chainId: 109 },
-  // Degen mainnet (Base L3). Shanghai-capable (factory 1696 bytes, 61 PUSH0) and
-  // London (baseFeePerGas ~12 gwei) → standard build, no Paris fallback needed.
-  // Factory implementation() → 0x5863a056ad0cbe06876b49c9ab7c50bcd0432718 (GmOnChain impl, 2237 bytes).
-  degen: { address: "0xc3e5ef8c71712f55fabc6b3c07844a49103c9d8f", chainId: 666666666 },
+  // Degen (666666666) and Superposition (55244) were retired on 2026-09-30: no node
+  // answers any more (wcore-gsheet/docs/chains-retirees.md). Their chain ids stay in
+  // LEGACY_GM_CHAIN_IDS (apps/web/hooks/useGmContracts.ts) for contracts already deployed.
   // Beam mainnet (Avalanche subnet, gaming-focused). Shanghai-capable (factory 1696 bytes, 61 PUSH0) and
   // London (baseFeePerGas ~1 gwei) → standard build, no Paris fallback needed.
   // Factory implementation() → 0xb2d644fd73c2265d4e77e224d6ba9f8a4640d573 (GmOnChain impl, 2237 bytes).
@@ -160,7 +159,6 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   story: { address: "0xaaf9c75f5cc4c8b001f2562173993445ed8946fa", chainId: 1514 },
   intuition: { address: "0xb6a0615caf1fc1d27688f77de251411776404110", chainId: 1155 },
   plume: { address: "0xc019e086f795661213b11884b52338e8752468d3", chainId: 98866 },
-  superposition: { address: "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f", chainId: 55244 },
   monad: { address: "0xd4930a277986021da6db82db18fd26e6c6c4a763", chainId: 143 },
   megaeth: { address: "0xc357a4e3741e57a9bf53a3ae1c7584e16413dd07", chainId: 4326 },
   doma: { address: "0x405376616102772a6045b5ad61f877fb31bafb93", chainId: 97477 },

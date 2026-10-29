@@ -1,204 +1,152 @@
-# Test for scripts/deploy.ps1 - Task 6 / P1-4
-# Verifies that the script propagates railway up exit code to its caller, restores
-# railway.json, and scopes the uploaded build context via .railwayignore.
+# Tests deploy.ps1 as an operator runs it on Windows: a real PowerShell process, real git
+# and node, a throwaway repository whose path contains spaces, and a fake `railway.cmd`
+# first on PATH that records every call. Nothing reaches Railway, no credential is used.
 #
-# Run: powershell -ExecutionPolicy Bypass -File scripts/deploy-ps1.test.ps1
-#
-# Methodology: spawn deploy.ps1 as a child process with a mock railway.cmd in
-# PATH. The fixture mirrors the real layout (repo/wcore-web/scripts/deploy.ps1)
-# so that $PSScriptRoot\..\.. resolves to the fake repo root. The mock captures
-# the generated .railwayignore before exiting with a configurable code.
+# Run: pwsh -NoProfile -File wcore-web/scripts/deploy-ps1.test.ps1   (CI: deploy-wrapper-windows)
 
 $ErrorActionPreference = "Stop"
-$script:TestsPassed = 0
-$script:TestsFailed = 0
+$failures = New-Object System.Collections.Generic.List[string]
+function Check([bool]$Condition, [string]$Label) {
+  if ($Condition) { Write-Host "ok   $Label" } else { Write-Host "FAIL $Label"; $failures.Add($Label) }
+}
 
-function Test-Deploy {
-  param(
-    [int]$RailwayExitCode,
-    [int]$ExpectedScriptExitCode,
-    [string]$Service = "web",
-    [string[]]$ExpectIgnoreContains = @(),
-    [string[]]$ExpectIgnoreExcludes = @(),
-    [string]$ExpectDockerfile,
-    [string[]]$ExpectWatchContains = @(),
-    [string]$PreExistingIgnore,
-    [string]$Label
-  )
+# A real CLI on PATH could be reached if the fake were not found first: refuse to run.
+if (Get-Command railway -ErrorAction SilentlyContinue) { throw "a railway CLI is already on PATH; run these tests where it is not installed" }
 
-  $testRoot = Join-Path $env:TEMP "wcore-deploy-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-  $scriptsDir = Join-Path $testRoot "wcore-web\scripts"
-  $mockBin = Join-Path $testRoot "mock-bin"
+$scriptsDir = $PSScriptRoot
+$root = Join-Path ([IO.Path]::GetTempPath()) ("wcore deploy ps1 " + [guid]::NewGuid().ToString("N").Substring(0, 8))
+$origin = Join-Path $root "origin.git"
+$repo = Join-Path $root "repo with spaces"
+$bin = Join-Path $root "fake bin"
+$tmp = Join-Path $root "tmp dir"
+$capture = Join-Path $root "calls.jsonl"
+New-Item -ItemType Directory -Force -Path $bin, $tmp | Out-Null
 
-  try {
-    New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
-    New-Item -ItemType Directory -Path $mockBin -Force | Out-Null
+function Invoke-Git { & git @args; if ($LASTEXITCODE -ne 0) { throw "git $args failed" } }
+function Write-File([string]$Path, [string]$Content) {
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
+  [IO.File]::WriteAllText($Path, $Content)
+}
 
-    $deploySrc = Join-Path $PSScriptRoot "deploy.ps1"
-    $deployDst = Join-Path $scriptsDir "deploy.ps1"
-    Copy-Item -LiteralPath $deploySrc -Destination $deployDst -Force
+Invoke-Git init --quiet --bare --initial-branch=master $origin
+Invoke-Git clone --quiet $origin $repo
+Invoke-Git -C $repo config user.email "test@example.invalid"
+Invoke-Git -C $repo config user.name "test"
+Invoke-Git -C $repo checkout --quiet -B master
 
-    $testJsonPath = Join-Path $testRoot "railway.json"
-    $originalContent = '{"build":{"dockerfilePath":"apps/web/Dockerfile"}}'
-    Set-Content -LiteralPath $testJsonPath -Value $originalContent -NoNewline
+# The scripts under test, copied so that deploy.ps1 resolves this repository as its root.
+Copy-Item (Join-Path $scriptsDir "deploy.ps1") (New-Item -ItemType Directory -Force -Path "$repo\wcore-web\scripts")
+Copy-Item (Join-Path $scriptsDir "railway-deploy.mjs") "$repo\wcore-web\scripts"
+New-Item -ItemType Directory -Force -Path "$repo\wcore-web\apps\api\src" | Out-Null
+Copy-Item (Join-Path $scriptsDir "..\apps\api\src\trust-proxy.ts") "$repo\wcore-web\apps\api\src"
+Write-File "$repo\wcore-web\railway\deploy-manifest.json" (@{
+  productionEnvironment = "production"; configSource = "config-as-code"; commonIgnore = @("docs/")
+  services = @{ api = @{ config = "wcore-web/railway/api.json"; dockerfileMarkers = @('pnpm --filter "@wcore/api" build'); ignore = @("wcore-web/apps/web/"); trustProxyPreflight = $true } }
+} | ConvertTo-Json -Depth 5)
+Write-File "$repo\wcore-web\railway\api.json" '{"build":{"builder":"DOCKERFILE","dockerfilePath":"wcore-web/apps/api/Dockerfile.railway"}}'
+Write-File "$repo\wcore-web\apps\api\Dockerfile.railway" "RUN pnpm --filter `"@wcore/api`" build`n"
+Invoke-Git -C $repo add -A
+Invoke-Git -C $repo commit --quiet -m initial
+Invoke-Git -C $repo push --quiet origin master
 
-    $ignorePath = Join-Path $testRoot ".railwayignore"
-    if ($PSBoundParameters.ContainsKey("PreExistingIgnore")) {
-      Set-Content -LiteralPath $ignorePath -Value $PreExistingIgnore -NoNewline
-    }
+Write-File "$bin\fake-railway.cjs" @'
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.FAKE_CAPTURE, JSON.stringify(args) + "\n");
+if (args[0] === "status") process.stdout.write(JSON.stringify({ id: "proj-1", name: "WCORE" }));
+if (args[0] === "deployment") process.stdout.write(JSON.stringify([{ id: "d0", status: "SUCCESS" }]));
+if (args[0] === "up" && !fs.existsSync(args[1] + "\\wcore-web\\build-info.json")) process.exit(90);
+process.exit(args[0] === "up" ? Number(process.env.FAKE_UP_EXIT ?? 0) : 0);
+'@
+Write-File "$bin\railway.cmd" "@node `"%~dp0fake-railway.cjs`" %*`r`n"
 
-    # The mock snapshots .railwayignore and railway.json as seen by `railway up`, then exits.
-    $capturePath = Join-Path $testRoot "captured-ignore.txt"
-    $captureJsonPath = Join-Path $testRoot "captured-json.txt"
-    $mockRailwayPath = Join-Path $mockBin "railway.cmd"
-    $mockBody = "@echo off`r`nif exist `"$ignorePath`" copy /Y `"$ignorePath`" `"$capturePath`" >nul`r`ncopy /Y `"$testJsonPath`" `"$captureJsonPath`" >nul`r`nexit /b $RailwayExitCode`r`n"
-    Set-Content -LiteralPath $mockRailwayPath -Value $mockBody -NoNewline
+$env:PATH = "$bin;$env:PATH"
+$env:FAKE_CAPTURE = $capture
+$env:TEMP = $tmp
+$env:TMP = $tmp
+$wrapper = "$repo\wcore-web\scripts\deploy.ps1"
+$shell = (Get-Process -Id $PID).Path
 
-    $oldPath = $env:PATH
-    $env:PATH = "$mockBin;$env:PATH"
+function Invoke-Wrapper([string[]]$Arguments, [hashtable]$Env = @{}) {
+  if (Test-Path $capture) { Remove-Item $capture }
+  foreach ($key in @("FAKE_UP_EXIT")) { Remove-Item "env:$key" -ErrorAction SilentlyContinue }
+  foreach ($key in $Env.Keys) { Set-Item "env:$key" $Env[$key] }
+  $output = & $shell -NoProfile -NonInteractive -File $wrapper @Arguments 2>&1 | Out-String
+  $calls = if (Test-Path $capture) { @(Get-Content $capture | ForEach-Object { , ($_ | ConvertFrom-Json) }) } else { @() }
+  [pscustomobject]@{ Exit = $LASTEXITCODE; Output = $output; Calls = $calls; Ups = @($calls | Where-Object { $_[0] -eq "up" }) }
+}
 
-    try {
-      $output = powershell -ExecutionPolicy Bypass -File $deployDst -Service $Service 2>&1
-      $actualExitCode = $LASTEXITCODE
-    } finally {
-      $env:PATH = $oldPath
-    }
-
-    $errors = New-Object System.Collections.Generic.List[string]
-
-    if ($actualExitCode -ne $ExpectedScriptExitCode) {
-      $errors.Add("expected script exit=$ExpectedScriptExitCode, got $actualExitCode")
-    }
-
-    $restored = Get-Content -LiteralPath $testJsonPath -Raw
-    if ($restored -ne $originalContent) {
-      $errors.Add("railway.json not restored. Got: $restored")
-    }
-
-    $lockPath = Join-Path $testRoot "wcore-web\.deploy.lock"
-    if (Test-Path $lockPath) {
-      $errors.Add("deploy lock file was not cleaned up")
-    }
-
-    # Match whole lines: "wcore-web/apps/web/__tests__/" must not satisfy a check for
-    # "wcore-web/apps/web/", otherwise the guard silently accepts an over-broad exclusion.
-    $capturedLines = if (Test-Path $capturePath) {
-      @(Get-Content -LiteralPath $capturePath | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" -and -not $_.StartsWith("#") })
-    } else { $null }
-    if (($ExpectIgnoreContains.Count -gt 0 -or $ExpectIgnoreExcludes.Count -gt 0) -and $null -eq $capturedLines) {
-      $errors.Add(".railwayignore was not present during railway up")
-    }
-    foreach ($needle in $ExpectIgnoreContains) {
-      if ($null -ne $capturedLines -and $capturedLines -notcontains $needle) {
-        $errors.Add(".railwayignore should exclude '$needle'. Got: $($capturedLines -join ', ')")
-      }
-    }
-    foreach ($needle in $ExpectIgnoreExcludes) {
-      if ($null -ne $capturedLines -and $capturedLines -contains $needle) {
-        $errors.Add(".railwayignore must NOT exclude '$needle'")
-      }
-    }
-
-    if ($PSBoundParameters.ContainsKey("ExpectDockerfile")) {
-      $capturedJson = if (Test-Path $captureJsonPath) { Get-Content -LiteralPath $captureJsonPath -Raw } else { $null }
-      if ($null -eq $capturedJson) {
-        $errors.Add("railway.json was not present during railway up")
-      } elseif ($capturedJson -notmatch [regex]::Escape($ExpectDockerfile)) {
-        $errors.Add("railway.json should pin '$ExpectDockerfile'. Got: $capturedJson")
-      }
-    }
-
-    # watchPatterns must be pinned per service too. Leaving the committed web-scoped
-    # list in place made `railway up --service api` answer "no changes detected in watch
-    # paths, build will skip": it returned success and deployed nothing.
-    if ($ExpectWatchContains.Count -gt 0) {
-      $capturedJson = if (Test-Path $captureJsonPath) { Get-Content -LiteralPath $captureJsonPath -Raw } else { $null }
-      if ($null -eq $capturedJson) {
-        $errors.Add("railway.json was not present during railway up")
-      } else {
-        foreach ($needle in $ExpectWatchContains) {
-          if ($capturedJson -notmatch [regex]::Escape($needle)) {
-            $errors.Add("watchPatterns should cover '$needle'. Got: $capturedJson")
-          }
-        }
-      }
-    }
-
-    if ($PSBoundParameters.ContainsKey("PreExistingIgnore")) {
-      if (-not (Test-Path $ignorePath)) {
-        $errors.Add("pre-existing .railwayignore was deleted instead of restored")
-      } else {
-        $afterIgnore = Get-Content -LiteralPath $ignorePath -Raw
-        if ($afterIgnore -ne $PreExistingIgnore) {
-          $errors.Add("pre-existing .railwayignore not restored. Got: $afterIgnore")
-        }
-      }
-    } elseif (Test-Path $ignorePath) {
-      $errors.Add("generated .railwayignore was not cleaned up")
-    }
-
-    if ($errors.Count -eq 0) {
-      Write-Host "PASS: $Label (railway exit=$RailwayExitCode -> script exit=$actualExitCode)"
-      $script:TestsPassed++
-    } else {
-      Write-Host "FAIL: $Label" -ForegroundColor Red
-      foreach ($e in $errors) {
-        Write-Host "  - $e" -ForegroundColor Red
-      }
-      Write-Host "  output: $output"
-      $script:TestsFailed++
-    }
-  } finally {
-    Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
+# A synthetic operator attestation for the API, bound to the target; the deployer
+# compares the path with its realpath, so Node canonicalises it (8.3 names, casing).
+function New-Attestation([string]$Name, [int]$ObservedMinutesAgo = 2, [int]$ExpiresInMinutes = 20) {
+  $file = Join-Path $root "attest $Name.json"
+  $at = { param($minutes) [DateTime]::UtcNow.AddMinutes($minutes).ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", [Globalization.CultureInfo]::InvariantCulture) }
+  $statement = [ordered]@{
+    schema = "wcore.trust-proxy-attestation"; version = 1; project = "proj-1"; service = "api"; environment = "production"
+    sha = (& git -C $repo rev-parse origin/master).Trim()
+    observedAt = & $at (-$ObservedMinutesAgo); reviewedAt = & $at (-$ObservedMinutesAgo); issuedAt = & $at (-1); expiresAt = & $at $ExpiresInMinutes
+    classification = "VALID_VERIFIED_PROXY"; topologyVerified = $true; operatorConfirmed = $true
+    validationRules = "wcore.trust-proxy.release/v1"; driftAcknowledgement = "wcore.post-observation-drift/v1"
   }
+  Write-File $file ($statement | ConvertTo-Json)
+  (& node -e "process.stdout.write(require('fs').realpathSync(process.argv[1]))" $file)
 }
 
-Write-Host "=== deploy.ps1 exit code propagation tests ===" -ForegroundColor Cyan
+$attestation = New-Attestation "valid"
+$target = @("-Service", "api", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1", "-TrustProxyAttestation", $attestation)
+$noVariableRead = { param($r) @($r.Calls | Where-Object { $_[0] -in @("variable", "variables", "env") }).Count -eq 0 }
 
-# Primary RED test: railway fails -> script must return non-zero.
-Test-Deploy -RailwayExitCode 42 -ExpectedScriptExitCode 42 -Label "railway exit 42 is propagated"
-# Regression: success path still works.
-Test-Deploy -RailwayExitCode 0  -ExpectedScriptExitCode 0  -Label "railway exit 0 stays 0"
-# Another non-zero code (common Railway failure code 1).
-Test-Deploy -RailwayExitCode 1  -ExpectedScriptExitCode 1  -Label "railway exit 1 is propagated"
+try {
+  $r = Invoke-Wrapper @("-Service", "api", "-Environment", "production", "-Project", "proj-1")
+  Check ($r.Exit -ne 0 -and $r.Calls.Count -eq 0) "a missing -Ref fails before anything runs"
 
-Write-Host ""
-Write-Host "=== .railwayignore build-context scoping (upload timeout 2026-08-02) ===" -ForegroundColor Cyan
+  $r = Invoke-Wrapper @("-Service", "worker", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1")
+  Check ($r.Exit -ne 0 -and $r.Calls.Count -eq 0) "an unknown -Service is rejected by the wrapper"
 
-# The API image never COPYs apps/web (24 MiB of public assets): it must not be uploaded.
-Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "api" `
-  -ExpectIgnoreContains @("wcore-web/apps/web/") `
-  -ExpectIgnoreExcludes @("wcore-web/apps/api/", "wcore-web/packages/", "wcore-gsheet/dist") `
-  -ExpectDockerfile "wcore-web/apps/api/Dockerfile.railway" `
-  -ExpectWatchContains @("wcore-web/apps/api/**", "wcore-web/packages/db/**") `
-  -Label "api deploy excludes apps/web but keeps its own build inputs"
+  $r = Invoke-Wrapper ($target + "-DryRun")
+  Check ($r.Exit -eq 0) "-DryRun succeeds with an attestation (exit $($r.Exit); $($r.Output.Trim()))"
+  Check (& $noVariableRead $r) "-DryRun never reads Railway variables"
+  Check ($r.Ups.Count -eq 0) "-DryRun never calls railway up"
+  Check (@($r.Calls | Where-Object { $_[0] -eq "deployment" }).Count -eq 1) "-DryRun still checks the deployments in progress"
 
-# The web image needs apps/web/public, so it must never be excluded there.
-Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "web" `
-  -ExpectIgnoreContains @("wcore-web/apps/api/") `
-  -ExpectIgnoreExcludes @("wcore-web/apps/web/", "wcore-web/packages/", "wcore-gsheet/dist") `
-  -ExpectDockerfile "wcore-web/apps/web/Dockerfile.railway" `
-  -ExpectWatchContains @("wcore-web/apps/web/**") `
-  -Label "web deploy excludes apps/api but keeps apps/web"
+  $sha = (& git -C $repo rev-parse origin/master).Trim()
+  $r = Invoke-Wrapper $target
+  Check ($r.Exit -eq 0) "a full run returns railway up's exit code 0 (exit $($r.Exit); $($r.Output.Trim()))"
+  Check (& $noVariableRead $r) "a full run never reads Railway variables"
+  if ($r.Ups.Count -eq 1) {
+    $up = $r.Ups[0]
+    $flag = { param($name) $up[[array]::IndexOf($up, $name) + 1] }
+    Check ((& $flag "--project") -eq "proj-1" -and (& $flag "--environment") -eq "production" -and (& $flag "--service") -eq "api") "project, environment and service reach railway up"
+    Check ((& $flag "--message") -eq "wcore api $sha") "the message names the commit as one argument despite its spaces"
+    Check ($up[1].StartsWith($tmp)) "the upload directory under a TEMP path with spaces stays one argument"
+  } else {
+    Check $false "exactly one railway up call (got $($r.Ups.Count))"
+  }
 
-# The relay builds from the repo root too: railway.json must be pinned to its own
-# Dockerfile, and railway-relay/ must survive the ignore list.
-Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "cex-relay" `
-  -ExpectIgnoreContains @("wcore-web/") `
-  -ExpectIgnoreExcludes @("wcore-gsheet/railway-relay/") `
-  -ExpectDockerfile "wcore-gsheet/railway-relay/Dockerfile" `
-  -ExpectWatchContains @("wcore-gsheet/railway-relay/**") `
-  -Label "cex-relay deploy pins its Dockerfile and keeps railway-relay"
+  $r = Invoke-Wrapper $target @{ FAKE_UP_EXIT = "7" }
+  Check ($r.Exit -eq 7) "railway up's failure code is propagated (exit $($r.Exit))"
 
-# A user-authored .railwayignore must survive the deploy untouched.
-Test-Deploy -RailwayExitCode 0 -ExpectedScriptExitCode 0 -Service "api" `
-  -PreExistingIgnore "# user file`nsomething/" `
-  -Label "pre-existing .railwayignore is restored"
+  $r = Invoke-Wrapper @("-Service", "api", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1")
+  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_TRUST_PROXY_ATTESTATION" -and (& $noVariableRead $r)) "an API deploy without attestation is refused with exit 2, no variable read"
 
-Write-Host ""
-Write-Host "Passed: $($script:TestsPassed), Failed: $($script:TestsFailed)"
+  $expired = New-Attestation "expired" -ObservedMinutesAgo 40 -ExpiresInMinutes -15
+  $r = Invoke-Wrapper @("-Service", "api", "-Ref", "origin/master", "-Environment", "production", "-Project", "proj-1", "-TrustProxyAttestation", $expired)
+  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_TRUST_PROXY_ATTESTATION" -and $r.Output -notmatch [regex]::Escape($root)) "an expired attestation is refused, its path not printed"
 
-if ($script:TestsFailed -gt 0) {
-  exit 1
+  $r = Invoke-Wrapper ($target + "-AcceptSharedClientIp")
+  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0) "-AcceptSharedClientIp is forwarded and refused by the deployer"
+
+  Write-File "$repo\local.txt" "local commit"
+  Invoke-Git -C $repo add local.txt
+  Invoke-Git -C $repo commit --quiet -m local
+  $r = Invoke-Wrapper @("-Service", "api", "-Ref", "HEAD", "-Environment", "production", "-Project", "proj-1", "-TrustProxyAttestation", $attestation)
+  Check ($r.Exit -eq 2 -and $r.Ups.Count -eq 0 -and $r.Output -match "E_NOT_PUBLISHED") "an unpushed commit is refused with exit 2"
+} finally {
+  Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
 }
+
+if ($failures.Count -gt 0) { Write-Host "`n$($failures.Count) failure(s)"; exit 1 }
+Write-Host "`nall deploy.ps1 checks passed"
+# Explicit: the last wrapper call above exits 2 on purpose, and a pwsh step in GitHub
+# Actions ends with $LASTEXITCODE.
 exit 0

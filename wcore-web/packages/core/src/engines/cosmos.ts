@@ -318,6 +318,18 @@ export async function getCosmosWalletAssets(
   };
 }
 
+// rest.cosmos.directory relays to several nodes, and some answer HTTP 200 with the
+// node's error body ({"code":2,"message":"decoding bech32 failed..."} or
+// {"error":"endpoint error: relay send failed"}). Reading the missing list as empty
+// reported zero and overwrote the fallback cache, so such a body is a failed read.
+// The node's own text is not relayed: scan errors are returned to the client as is.
+function cosmosErrorEnvelope(json: unknown, fields: string[]): string | null {
+  const body = (json ?? {}) as Record<string, unknown>;
+  if (fields.some((field) => Array.isArray(body[field]))) return null;
+  if (typeof body.code === "number" && Number.isSafeInteger(body.code)) return `error envelope (code ${body.code})`;
+  return body.error !== undefined ? "relay error envelope" : "response without the expected list";
+}
+
 async function fetchCosmosBalances(
   fetchFn: typeof fetch,
   restUrl: string,
@@ -332,6 +344,11 @@ async function fetchCosmosBalances(
       return { items: [], failed: true };
     }
     const json = (await res.json()) as { balances?: Array<{ denom?: string; amount?: string }> };
+    const envelope = cosmosErrorEnvelope(json, ["balances"]);
+    if (envelope) {
+      errors.push(`balances error: ${envelope}`);
+      return { items: [], failed: true };
+    }
     return {
       items: (json.balances ?? []).map((b) => ({
         denom: String(b.denom ?? ""),
@@ -388,6 +405,11 @@ async function fetchCosmosDelegations(
     const json = (await res.json()) as {
       delegation_responses?: Array<{ delegation?: { validator_address?: string; shares?: string }; balance?: { amount?: string } }>;
     };
+    const envelope = cosmosErrorEnvelope(json, ["delegation_responses"]);
+    if (envelope) {
+      errors.push(`delegations error: ${envelope}`);
+      return { items: [], failed: true };
+    }
     return {
       items: (json.delegation_responses ?? []).map((d) => ({
         validator: String(d.delegation?.validator_address ?? ""),
@@ -417,6 +439,11 @@ async function fetchCosmosUnbonding(
     const json = (await res.json()) as {
       unbonding_responses?: Array<{ entries?: Array<{ balance?: string }> }>;
     };
+    const envelope = cosmosErrorEnvelope(json, ["unbonding_responses"]);
+    if (envelope) {
+      errors.push(`unbonding error: ${envelope}`);
+      return { items: [], failed: true };
+    }
     const results: StakingDelegation[] = [];
     for (const d of json.unbonding_responses ?? []) {
       for (const entry of d.entries ?? []) {
@@ -447,6 +474,11 @@ async function fetchCosmosRewards(
       total?: Array<{ denom?: string; amount?: string }>;
       rewards?: Array<{ reward?: Array<{ denom?: string; amount?: string }> }>;
     };
+    const envelope = cosmosErrorEnvelope(json, ["total", "rewards"]);
+    if (envelope) {
+      errors.push(`rewards error: ${envelope}`);
+      return { items: [], failed: true };
+    }
     // Use total if available, otherwise sum rewards
     if (json.total) {
       return {

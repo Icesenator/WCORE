@@ -1,3 +1,5 @@
+import { parseTrustProxy } from "./trust-proxy.js";
+
 export type ApiEnv = Record<string, string | undefined>;
 
 export interface RedisConfig {
@@ -28,7 +30,7 @@ export interface ApiConfig {
   server: {
     port: number;
     host: string;
-    trustProxy: number | string;
+    trustProxy: string;
     logLevel: string;
     usePrettyLogger: boolean;
   };
@@ -131,14 +133,6 @@ function readCsv(env: ApiEnv, key: string): string[] {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-}
-
-function parseTrustProxy(raw: string | undefined): number | string {
-  const normalized = raw?.trim().toLowerCase();
-  if (normalized === "true") return 1;
-  if (normalized === "false" || !normalized) return "loopback";
-  if (/^\d+$/.test(normalized)) return Number(normalized);
-  return normalized;
 }
 
 function readJwtSecret(env: ApiEnv, nodeEnv: string, isDevelopmentLike: boolean): string {

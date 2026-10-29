@@ -40,6 +40,7 @@ import {
 } from "./evm-types.js";
 import { getRecentLogRange, readNativeBalance, canServeEmptyCache, readErc20Balance } from "./evm-balances.js";
 import { sharedPriceCache, buildSources, priceNative, priceToken, priceCacheKey } from "./evm-pricing.js";
+import { confirmGtBatchPrices } from "../pricing/sources/geckoterminal.js";
 import { cacheKey } from "@wcore/shared";
 
 // ÔöÇÔöÇÔöÇ Multi-Wallet Batch Scan ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
@@ -612,6 +613,7 @@ export async function getEvmWalletsAssets(
   const pricedTokens: Array<{ key: string; token: EvmWalletToken }> = [];
 
   const livePrefetchedPriceContracts = new Set<string>();
+  let llamaBatchPrices: Map<string, number> | null = null;
   const skipBulkLlama = chain.CHAIN?.SKIP_LLAMA_BATCH === true || chain.key === "GNOSIS";
   if (!skipBulkLlama && directlyPricedTokens.length > 0 && typeof sources.defillama.batchTokenPrices === "function") {
     const llamaSlug = String(chain.CHAIN?.LLAMA_CHAIN_SLUG ?? chain.CHAIN?.DEX_SLUG ?? "");
@@ -619,6 +621,7 @@ export async function getEvmWalletsAssets(
       const contracts = directlyPricedTokens.map((token) => token.pricingContract ?? token.contract);
       try {
         const batchPrices = await sources.defillama.batchTokenPrices(llamaSlug, contracts);
+        llamaBatchPrices = batchPrices;
         if (batchPrices.size > 0) {
           const nowMs = Date.now();
           await Promise.all(Array.from(batchPrices).map(async ([contract, priceUsd]) => {
@@ -640,8 +643,9 @@ export async function getEvmWalletsAssets(
     const gtNetwork = String(chain.CHAIN?.GT_NETWORK ?? chain.CHAIN?.DEX_SLUG ?? chain.key);
     const contracts = directlyPricedTokens.map((token) => token.pricingContract ?? token.contract);
     try {
-      const batchPrices = await sources.geckoterminal.batchTokenPrices(gtNetwork, contracts);
-      if (batchPrices instanceof Map && batchPrices.size > 0) {
+      const batchPrices = await confirmGtBatchPrices(
+        gtNetwork, await sources.geckoterminal.batchTokenPrices(gtNetwork, contracts), llamaBatchPrices, priceCache);
+      if (batchPrices.size > 0) {
         const nowMs = Date.now();
         await Promise.all(Array.from(batchPrices).map(async ([contract, priceUsd]) => {
           const priceEur = priceUsd * fxRate;

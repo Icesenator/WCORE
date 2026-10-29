@@ -5,6 +5,7 @@ import { getEvmWalletAssets, getEvmWalletsAssets } from "./evm.js";
 import { discoveredTokenVariantKey, normalizeBalanceSelectorExtraArgs, normalizeCachedDiscoveryTokens } from "./evm-scan.js";
 import type { RpcCallOptions } from "../rpc/index.js";
 import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
+import { gtConfirmMarkerKey } from "../pricing/markers.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
 import { pushBalanceDecisionError } from "./evm-types.js";
 
@@ -250,6 +251,7 @@ test("getEvmWalletAssets forceRefresh keeps current-run GT bulk prices", async (
     onchainV3: { getTokenPriceUsd: async () => 0.1 },
   };
   const priceCache = new MemoryPricingCache();
+  priceCache.setMarker(gtConfirmMarkerKey("base", CUSTOM), "GT_OK");
   await priceCache.setPrice(`base:${CUSTOM}`, { priceEur: 9, ts: Date.now(), source: "poisoned-cache" });
 
   const result = await getEvmWalletAssets(OWNER, "base", {
@@ -1505,11 +1507,15 @@ test("getEvmWalletAssets bulk pre-fetches GT prices before per-token cascade", a
     onchainV3: { getTokenPriceUsd: async () => null },
   } as PricingSourceSet;
 
+  // Bulk GT prices are served only once confirmed (GT_OK marker from the per-token path).
+  const priceCache = new MemoryPricingCache();
+  for (const contract of contracts) priceCache.setMarker(gtConfirmMarkerKey("base", contract), "GT_OK");
   const result = await getEvmWalletAssets(OWNER, "base", {
     dispatcher: dispatcher as never,
     rpc: rpc as never,
     sources,
     tokenDiscovery: discovery,
+    sharedPriceCache: priceCache,
     fxRate: 1,
   });
 
@@ -1551,6 +1557,7 @@ test("getEvmWalletsAssets: forceRefresh keeps current-run GT bulk prices", async
     onchainV3: { getTokenPriceUsd: async () => 0.1 },
   };
   const priceCache = new MemoryPricingCache();
+  priceCache.setMarker(gtConfirmMarkerKey("base", CUSTOM), "GT_OK");
   await priceCache.setPrice(`base:${CUSTOM}`, { priceEur: 9, ts: Date.now(), source: "poisoned-cache" });
 
   const result = await getEvmWalletsAssets([WALLET_A], "base", {

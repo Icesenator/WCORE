@@ -92,7 +92,10 @@ var Http = {
   try { Logger.log("[HTTP] budget blocked fetch: " + String(reason || "unknown")); } catch (eBLog) {}
   return false;
  }
- } catch (eB) {}
+ } catch (eB) {
+  try { Logger.log("[HTTP] budget admission unavailable: " + String(reason || "unknown")); } catch (eBLog) {}
+  return false;
+ }
  return true;
  },
  

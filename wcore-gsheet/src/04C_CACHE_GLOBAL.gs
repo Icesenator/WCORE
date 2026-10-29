@@ -1008,7 +1008,8 @@ WalletCache = (function(existing) {
  u: obj.u || obj.updatedAt || 0,
  a: compactAssets,
  pm: pmCompact,
- fx: obj.fx || obj.usd_to_eur_rate || null,
+ fx: obj.fx || obj.usd_to_eur_rate || obj.usd_to_eur || null,
+ fm: obj.fxMetadata || obj.fm || null,
  rc: obj.rc || obj.rrCursor || 0,
  bt: _pruneTsMap(obj.balanceTsMap || obj.bt || {}, 800),
  at: _pruneTsMap(obj.attemptTsMap || obj.at || {}, 800),
@@ -1065,7 +1066,7 @@ WalletCache = (function(existing) {
  }
  
  var lastCacheUpdate = "";
- var updatedAt = compact.u || compact.updatedAt || 0;
+ var updatedAt = compact.u || compact.updatedAt || compact.updated_at || 0;
  if (updatedAt > 0) {
  try {
  lastCacheUpdate = Format.datetime(updatedAt);
@@ -1079,7 +1080,7 @@ WalletCache = (function(existing) {
  }
  
  var reconstructedInfoMeta = (compact.im && compact.im.length) ? compact.im.slice(0) : null;
- var fx = compact.fx;
+ var fx = compact.fx || compact.usd_to_eur_rate || compact.usd_to_eur || null;
 
  if (!reconstructedInfoMeta) {
  reconstructedInfoMeta = [];
@@ -1093,7 +1094,7 @@ WalletCache = (function(existing) {
   for (var im = 0; im < reconstructedInfoMeta.length; im++) {
   var row = reconstructedInfoMeta[im] || [];
   if (row[1] === "INFO_FX") {
-  row[2] = fx ? ("USD->EUR=" + fx.toFixed(4)) : "USD->EUR=N/A";
+  row[2] = _fxMetadataLabel_(fx, compact.fm || compact.fxMetadata || null);
   hasFx = true;
   }
   if (row[1] === "INFO_TOTAL") {
@@ -1117,6 +1118,7 @@ WalletCache = (function(existing) {
  attemptTsMap: compact.at || {},
  purgedTsMap: compact.pg || {},
  usd_to_eur_rate: fx,
+ fxMetadata: compact.fm || compact.fxMetadata || null,
  rrCursor: compact.rc || 0,
  lastInfoMetaRows: reconstructedInfoMeta,
  last_full_scan_ms: compact.fs || 0,

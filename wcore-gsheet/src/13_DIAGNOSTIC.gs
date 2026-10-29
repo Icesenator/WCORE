@@ -1572,6 +1572,8 @@ function QUOTA_RESET_READINESS_CHECK() {
     if (typeof _originalUrlFetch !== "function") {
       probeMsg = "_originalUrlFetch indisponible";
     } else {
+      try { if (typeof HttpCounter !== "undefined" && HttpCounter.record) HttpCounter.record(1, "QUOTA_READINESS", "https://httpbin.org/get"); } catch (eCount) {}
+      try { if (typeof HttpCallCounter !== "undefined" && HttpCallCounter.increment) HttpCallCounter.increment("https://httpbin.org/get", "QUOTA_READINESS"); } catch (eLegacy) {}
       var resp = _originalUrlFetch.call(UrlFetchApp, "https://httpbin.org/get", {
         method: "get",
         muteHttpExceptions: true
@@ -1581,6 +1583,7 @@ function QUOTA_RESET_READINESS_CHECK() {
       probeMsg = probeOk ? "OK (code 200)" : ("KO (HTTP " + code + ")");
     }
   } catch (eProbe) {
+    try { if (typeof QuotaCircuitBreaker !== "undefined" && QuotaCircuitBreaker.handleError) QuotaCircuitBreaker.handleError(eProbe); } catch (eHandle) {}
     probeMsg = "KO (" + String(eProbe && (eProbe.message || eProbe) || "erreur probe") + ")";
   }
   if (!probeOk) reasons.push("probe quota KO: " + probeMsg);

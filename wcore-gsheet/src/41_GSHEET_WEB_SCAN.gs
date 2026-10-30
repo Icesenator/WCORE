@@ -1,9 +1,6 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
- * v4.16.70 - STALE_IS_NOT_FRESH: a token rescanned without a price becomes UNKNOWN
- *   (price/value null, priceMap/priceTsMap entries dropped) instead of keeping its
- *   previous price; API stale-cache prices keep price_stale and their real price_ts.
  * v4.16.68 - Post-trip scan hold: after an authoritative Google quota trip
  *   (BudgetHTTP.noteAuthoritativeTrip, armed by QuotaCircuitBreaker._trip),
  *   AUTO web scans degrade to cached output for 3h so the recovery sweep's
@@ -79,7 +76,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.70";
+var GSHEET_WEB_SCAN_VERSION = "4.16.68";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -317,13 +314,6 @@ function _webScanAssetFromToken_(tokenObj) {
     price_eur: priceEur,
     value_eur: valueEur
   };
-  // STALE_IS_NOT_FRESH: keep the API's stale-cache label and the observation time,
-  // so the cache never re-stamps an old price with the scan time.
-  if (priceEur != null && _webScanTokenIsStale_(tokenObj)) {
-    asset.price_stale = true;
-    var staleTs = Number(tokenObj.priceTs);
-    if (isFinite(staleTs) && staleTs > 0) asset.price_ts = staleTs;
-  }
   var xstock = tokenObj.xstock;
   if (xstock && typeof xstock === "object") {
     var underlyingSymbol = typeof xstock.underlyingSymbol === "string" ? xstock.underlyingSymbol.trim() : "";
@@ -350,16 +340,6 @@ function _webScanAssetFromToken_(tokenObj) {
     }
   }
   return asset;
-}
-
-function _webScanTokenIsStale_(tokenObj) {
-  if (!tokenObj) return false;
-  if (tokenObj.priceStale === true) return true;
-  var flags = tokenObj.flags;
-  if (Array.isArray(flags)) {
-    for (var i = 0; i < flags.length; i++) if (String(flags[i] || "").toUpperCase() === "STALE_PRICE") return true;
-  }
-  return false;
 }
 
 function _webScanIsScamToken_(tokenObj, blockedSet) {
@@ -438,7 +418,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     if (_webScanNum_(asset.value_eur, 0) !== 0) cleanTotalEur += _webScanNum_(asset.value_eur, 0);
     if (asset.price_eur != null) {
       priceMap[asset.contract] = asset.price_eur;
-      priceTsMap[asset.contract] = asset.price_stale && asset.price_ts ? asset.price_ts : now;
+      priceTsMap[asset.contract] = now;
     } else {
       missingPrices++;
     }
@@ -617,19 +597,8 @@ function _webScanMergeAsset_(oldAsset, newAsset, preserveIncompleteNative) {
   if (newAsset.name) out.name = newAsset.name;
   if (newAsset.decimals != null && isFinite(Number(newAsset.decimals))) out.decimals = Number(newAsset.decimals) | 0;
   if (!preservePositiveNative && newAsset.balance != null && isFinite(Number(newAsset.balance))) out.balance = Number(newAsset.balance);
-  var newPriceOk = newAsset.price_eur != null && isFinite(Number(newAsset.price_eur)) && Math.abs(Number(newAsset.price_eur)) < 1000000000;
-  if (newPriceOk) out.price_eur = Number(newAsset.price_eur);
+  if (newAsset.price_eur != null && isFinite(Number(newAsset.price_eur)) && Math.abs(Number(newAsset.price_eur)) < 1000000000) out.price_eur = Number(newAsset.price_eur);
   if (!preservePositiveNative && newAsset.value_eur != null && isFinite(Number(newAsset.value_eur)) && Math.abs(Number(newAsset.value_eur)) < 1000000000000) out.value_eur = Number(newAsset.value_eur);
-  // STALE_IS_NOT_FRESH: a token the API just rescanned without a price is UNKNOWN,
-  // never its previous price (BONSAI/RBF kept their pre-fix wrong prices here).
-  if (!newPriceOk && !preservePositiveNative) { out.price_eur = null; out.value_eur = null; }
-  if (!preservePositiveNative) {
-    delete out.price_stale; delete out.price_ts;
-    if (newPriceOk && newAsset.price_stale === true) {
-      out.price_stale = true;
-      if (newAsset.price_ts != null) out.price_ts = newAsset.price_ts;
-    }
-  }
   return out;
 }
 
@@ -644,16 +613,6 @@ function _webScanNeutralizePrice_(asset) {
   asset.price_eur = null;
   asset.value_eur = null;
   return asset;
-}
-
-// Map keys keep the API's contract casing; asset keys are lowercased.
-function _webScanDropUnpricedMapKeys_(map, updatedKeys, byKey) {
-  if (!map) return;
-  for (var mk in map) {
-    var lk = String(mk || "").trim().toLowerCase();
-    if (!lk || lk === "native" || !updatedKeys[lk] || !byKey[lk] || byKey[lk].price_eur != null) continue;
-    delete map[mk];
-  }
 }
 
 function _webScanMergeWithExistingCache_(existing, incoming) {
@@ -721,15 +680,11 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.priceMap = _webScanClone_(existing.priceMap || {}) || {};
   purgeBlockedMapKeys(out.priceMap);
   if (requestedSet) for (var rpk in requestedSet) if (rpk && !updatedKeys[rpk]) delete out.priceMap[rpk];
-  // Drop the old priceMap/priceTsMap entry of every rescanned token that came back
-  // unpriced, otherwise OutputBuilder._getPrice / WalletCache._expand resurrect it.
-  _webScanDropUnpricedMapKeys_(out.priceMap, updatedKeys, byKey);
   var newPriceMap = incoming.priceMap || {};
   for (var pk in newPriceMap) if (newPriceMap[pk] != null) out.priceMap[pk] = newPriceMap[pk];
   out.priceTsMap = _webScanClone_(existing.priceTsMap || {}) || {};
   purgeBlockedMapKeys(out.priceTsMap);
   if (requestedSet) for (var rptk in requestedSet) if (rptk && !updatedKeys[rptk]) delete out.priceTsMap[rptk];
-  _webScanDropUnpricedMapKeys_(out.priceTsMap, updatedKeys, byKey);
   var newPriceTsMap = incoming.priceTsMap || {};
   for (var ptk in newPriceTsMap) if (newPriceTsMap[ptk] != null) out.priceTsMap[ptk] = newPriceTsMap[ptk];
   out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};

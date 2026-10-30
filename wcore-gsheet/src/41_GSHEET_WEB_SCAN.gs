@@ -1,6 +1,14 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.70 - Price freshness end to end: a rescanned token returned without a
+ *   valid price becomes UNKNOWN (price/value null, priceMap/priceTsMap entries
+ *   dropped case-insensitively) instead of keeping its old cached price; a Web
+ *   last-known price (priceStale / STALE_PRICE) is stored with price_stale and
+ *   the date of its observation (price_ts, priceTsMap), never the scan time.
+ *   The 6h preserved-price cap now matches map keys case-insensitively: under
+ *   v4.16.69 a mixed-case contract (e.g. C-Locked 0x0297E997…) always read as
+ *   undated and lost even a recent preserved price.
  * v4.16.69 - Cap preserved token prices during Web cache merges: a price the new
  *   payload does not refresh is kept only while priceTsMap dates it within
  *   GSHEET_WEB_MAX_PRESERVED_PRICE_AGE_MS (6h); otherwise it becomes a pricing gap
@@ -80,7 +88,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.69";
+var GSHEET_WEB_SCAN_VERSION = "4.16.70";
 var GSHEET_WEB_MAX_PRESERVED_PRICE_AGE_MS = 6 * 60 * 60 * 1000;
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
@@ -294,6 +302,29 @@ function _webScanAssetFromNative_(nativeObj, config) {
   };
 }
 
+/**
+ * v4.16.70: the Web API marks a last-known cache price with priceStale=true
+ * (GSheet route) or the STALE_PRICE flag (ChainScan contract). Either one means
+ * "not a fresh market price".
+ */
+function _webScanTokenIsStale_(tokenObj) {
+  if (!tokenObj || typeof tokenObj !== "object") return false;
+  if (tokenObj.priceStale === true) return true;
+  var flags = tokenObj.flags;
+  if (Array.isArray(flags)) {
+    for (var i = 0; i < flags.length; i++) if (String(flags[i]).toUpperCase() === "STALE_PRICE") return true;
+  }
+  return false;
+}
+
+/** v4.16.70: epoch ms (seconds accepted) of the observation behind a stale price, else 0. */
+function _webScanPriceTs_(raw) {
+  var ts = Number(raw);
+  if (!isFinite(ts) || ts <= 0) return 0;
+  if (ts < 20000000000) ts *= 1000;
+  return ts;
+}
+
 function _webScanAssetFromToken_(tokenObj) {
   tokenObj = tokenObj || {};
   var contract = String(tokenObj.contract || tokenObj.address || tokenObj.mint || tokenObj.denom || "").trim();
@@ -319,6 +350,11 @@ function _webScanAssetFromToken_(tokenObj) {
     price_eur: priceEur,
     value_eur: valueEur
   };
+  if (priceEur != null && _webScanTokenIsStale_(tokenObj)) {
+    asset.price_stale = true;
+    var staleTs = _webScanPriceTs_(tokenObj.priceTs);
+    if (staleTs > 0) asset.price_ts = staleTs;
+  }
   var xstock = tokenObj.xstock;
   if (xstock && typeof xstock === "object") {
     var underlyingSymbol = typeof xstock.underlyingSymbol === "string" ? xstock.underlyingSymbol.trim() : "";
@@ -423,7 +459,8 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     if (_webScanNum_(asset.value_eur, 0) !== 0) cleanTotalEur += _webScanNum_(asset.value_eur, 0);
     if (asset.price_eur != null) {
       priceMap[asset.contract] = asset.price_eur;
-      priceTsMap[asset.contract] = now;
+      // v4.16.70: a stale price keeps the date of its observation, never the scan time.
+      priceTsMap[asset.contract] = asset.price_stale === true && asset.price_ts > 0 ? asset.price_ts : now;
     } else {
       missingPrices++;
     }
@@ -602,9 +639,43 @@ function _webScanMergeAsset_(oldAsset, newAsset, preserveIncompleteNative) {
   if (newAsset.name) out.name = newAsset.name;
   if (newAsset.decimals != null && isFinite(Number(newAsset.decimals))) out.decimals = Number(newAsset.decimals) | 0;
   if (!preservePositiveNative && newAsset.balance != null && isFinite(Number(newAsset.balance))) out.balance = Number(newAsset.balance);
-  if (newAsset.price_eur != null && isFinite(Number(newAsset.price_eur)) && Math.abs(Number(newAsset.price_eur)) < 1000000000) out.price_eur = Number(newAsset.price_eur);
+  var hasNewPrice = newAsset.price_eur != null && isFinite(Number(newAsset.price_eur)) && Math.abs(Number(newAsset.price_eur)) < 1000000000;
+  if (hasNewPrice) out.price_eur = Number(newAsset.price_eur);
   if (!preservePositiveNative && newAsset.value_eur != null && isFinite(Number(newAsset.value_eur)) && Math.abs(Number(newAsset.value_eur)) < 1000000000000) out.value_eur = Number(newAsset.value_eur);
+  // v4.16.70: a token the scan just returned without a valid price is UNKNOWN; the
+  // old cached price must not reappear as a current market value.
+  if (!hasNewPrice && !preservePositiveNative) {
+    out.price_eur = null;
+    out.value_eur = null;
+  }
+  if (!preservePositiveNative) {
+    delete out.price_stale;
+    delete out.price_ts;
+    if (hasNewPrice && newAsset.price_stale === true) {
+      out.price_stale = true;
+      if (newAsset.price_ts > 0) out.price_ts = newAsset.price_ts;
+    }
+  }
   return out;
+}
+
+/**
+ * v4.16.70: drop the cached priceMap/priceTsMap entries of rescanned tokens before
+ * the incoming values are applied, so a token returned without a valid price is
+ * not repriced from the old map. Map keys keep the API contract casing, asset keys
+ * are lowercase: compare case-insensitively.
+ */
+function _webScanDropUnpricedMapKeys_(mapObj, keySet) {
+  if (!mapObj || !keySet) return 0;
+  var dropped = 0;
+  for (var mk in mapObj) {
+    if (!Object.prototype.hasOwnProperty.call(mapObj, mk)) continue;
+    if (keySet[String(mk).toLowerCase()]) {
+      delete mapObj[mk];
+      dropped++;
+    }
+  }
+  return dropped;
 }
 
 function _webScanMergedTotal_(assets) {
@@ -682,27 +753,45 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.last_run_update_ms = incoming.last_run_update_ms || out.updatedAt;
   out.usd_to_eur_rate = incoming.usd_to_eur_rate || existing.usd_to_eur_rate || null;
   out.fxMetadata = _fxMetadataMerge_(existing, incoming, out.usd_to_eur_rate);
+  // v4.16.70: map entries of rescanned tokens come from the incoming scan only. Old
+  // entries are dropped whatever their casing, so an unpriced token loses its price
+  // and a priced/stale one cannot keep a duplicate key with an older timestamp.
+  var rescannedKeys = {};
+  for (var uk in updatedKeys) {
+    if (uk && uk !== "native") rescannedKeys[uk] = true;
+  }
   out.priceMap = _webScanClone_(existing.priceMap || {}) || {};
   purgeBlockedMapKeys(out.priceMap);
+  _webScanDropUnpricedMapKeys_(out.priceMap, rescannedKeys);
   if (requestedSet) for (var rpk in requestedSet) if (rpk && !updatedKeys[rpk]) delete out.priceMap[rpk];
   var newPriceMap = incoming.priceMap || {};
   for (var pk in newPriceMap) if (newPriceMap[pk] != null) out.priceMap[pk] = newPriceMap[pk];
   out.priceTsMap = _webScanClone_(existing.priceTsMap || {}) || {};
   purgeBlockedMapKeys(out.priceTsMap);
+  _webScanDropUnpricedMapKeys_(out.priceTsMap, rescannedKeys);
   if (requestedSet) for (var rptk in requestedSet) if (rptk && !updatedKeys[rptk]) delete out.priceTsMap[rptk];
   var newPriceTsMap = incoming.priceTsMap || {};
   for (var ptk in newPriceTsMap) if (newPriceTsMap[ptk] != null) out.priceTsMap[ptk] = newPriceTsMap[ptk];
   var preservedNowMs = Date.now();
   var expiredPrices = 0;
+  // v4.16.70: asset keys are lowercase while map keys keep the API casing
+  // (e.g. 0x0297E997…): look the maps up case-insensitively, otherwise every
+  // mixed-case contract reads as undated and loses a recent preserved price.
+  var newPriceCI = {};
+  for (var npk in newPriceMap) if (newPriceMap[npk] != null) newPriceCI[String(npk).toLowerCase()] = true;
+  var priceTsCI = {};
+  for (var otk in out.priceTsMap) if (out.priceTsMap[otk] != null) priceTsCI[String(otk).toLowerCase()] = out.priceTsMap[otk];
   for (var ek = 0; ek < order.length; ek++) {
     var expKey = order[ek];
-    if (!expKey || expKey === "native" || newPriceMap[expKey] != null) continue;
-    var expTs = Number(out.priceTsMap[expKey]);
+    if (!expKey || expKey === "native" || newPriceCI[String(expKey).toLowerCase()]) continue;
+    var expTs = Number(priceTsCI[String(expKey).toLowerCase()]);
     if (isFinite(expTs) && expTs > 0 && preservedNowMs - expTs >= 0 && preservedNowMs - expTs <= GSHEET_WEB_MAX_PRESERVED_PRICE_AGE_MS) continue;
     if (byKey[expKey] && byKey[expKey].price_eur != null) expiredPrices++;
     _webScanNeutralizePrice_(byKey[expKey]);
-    delete out.priceMap[expKey];
-    delete out.priceTsMap[expKey];
+    var expSet = {};
+    expSet[String(expKey).toLowerCase()] = true;
+    _webScanDropUnpricedMapKeys_(out.priceMap, expSet);
+    _webScanDropUnpricedMapKeys_(out.priceTsMap, expSet);
   }
   out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};
   purgeBlockedMapKeys(out.balanceTsMap);

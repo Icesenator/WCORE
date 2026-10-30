@@ -1,6 +1,10 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.16.69 - Cap preserved token prices during Web cache merges: a price the new
+ *   payload does not refresh is kept only while priceTsMap dates it within
+ *   GSHEET_WEB_MAX_PRESERVED_PRICE_AGE_MS (6h); otherwise it becomes a pricing gap
+ *   instead of surviving forever (DAYS on Base stuck at a drained-pool price).
  * v4.16.68 - Post-trip scan hold: after an authoritative Google quota trip
  *   (BudgetHTTP.noteAuthoritativeTrip, armed by QuotaCircuitBreaker._trip),
  *   AUTO web scans degrade to cached output for 3h so the recovery sweep's
@@ -76,7 +80,8 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.68";
+var GSHEET_WEB_SCAN_VERSION = "4.16.69";
+var GSHEET_WEB_MAX_PRESERVED_PRICE_AGE_MS = 6 * 60 * 60 * 1000;
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -687,6 +692,18 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   if (requestedSet) for (var rptk in requestedSet) if (rptk && !updatedKeys[rptk]) delete out.priceTsMap[rptk];
   var newPriceTsMap = incoming.priceTsMap || {};
   for (var ptk in newPriceTsMap) if (newPriceTsMap[ptk] != null) out.priceTsMap[ptk] = newPriceTsMap[ptk];
+  var preservedNowMs = Date.now();
+  var expiredPrices = 0;
+  for (var ek = 0; ek < order.length; ek++) {
+    var expKey = order[ek];
+    if (!expKey || expKey === "native" || newPriceMap[expKey] != null) continue;
+    var expTs = Number(out.priceTsMap[expKey]);
+    if (isFinite(expTs) && expTs > 0 && preservedNowMs - expTs >= 0 && preservedNowMs - expTs <= GSHEET_WEB_MAX_PRESERVED_PRICE_AGE_MS) continue;
+    if (byKey[expKey] && byKey[expKey].price_eur != null) expiredPrices++;
+    _webScanNeutralizePrice_(byKey[expKey]);
+    delete out.priceMap[expKey];
+    delete out.priceTsMap[expKey];
+  }
   out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};
   purgeBlockedMapKeys(out.balanceTsMap);
   var newBalanceTsMap = incoming.balanceTsMap || {};
@@ -697,6 +714,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.scanStats.webMergePreservedAssets = Math.max(0, oldAssets.length - purgedScams - updated);
   out.scanStats.webMergePurgedScamAssets = purgedScams;
   out.scanStats.webMergeNeutralizedPrices = neutralizedPrices;
+  if (expiredPrices > 0) out.scanStats.webMergeExpiredPrices = expiredPrices;
   if (nativePreserved > 0) out.scanStats.webNativePreservedFromCache = nativePreserved;
   out.scanStats.totalValueEur = _webScanMergedTotal_(mergedAssets);
   out.lastInfoMetaRows = incoming.lastInfoMetaRows || existing.lastInfoMetaRows || [];

@@ -43,6 +43,7 @@ export const TRANSLATIONS: Record<string, Record<Language, string>> = {
   analyze: { en: "Analyze wallet", fr: "Analyser le portefeuille" },
   newScan: { en: "New scan", fr: "Nouveau scan" },
   noPrice: { en: "No price", fr: "Pas de prix" },
+  stalePrice: { en: "Stale price", fr: "Prix ancien" },
   degraded: { en: "Degraded", fr: "Dégradé" },
   valueDistribution: { en: "Value Distribution", fr: "Répartition" },
   walletAddress: { en: "Wallet address", fr: "Adresse wallet" },

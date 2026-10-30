@@ -156,7 +156,9 @@ export class GeckoTerminalPriceSource implements TokenPriceSource {
         // the liquidity floor may price the token, otherwise it stays unpriced.
         const pooled = this.checkThrottle() ? await this.tryPools(net, contract) : null;
         if (isPositiveFinite(pooled)) return { priceUsd: pooled, source: "gt", ...identity };
-        return { priceUsd: null, source: "gt", reason: "gt_simple_unconfirmed" };
+        // Observability: a /tokens call that never answered (429, non-2xx, local throttle)
+        // is not evidence of disagreement. Same outcome (unpriced), distinct reason.
+        return { priceUsd: null, source: "gt", reason: try2Price == null ? "gt_confirm_unavailable" : "gt_simple_unconfirmed" };
       }
       if (try2 && try2Price != null) return try2;
       if (try2?.marker === NEED_TRY3) {

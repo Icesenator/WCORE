@@ -1030,6 +1030,49 @@ describe("gsheetPlugin", () => {
     await app.close();
   });
 
+  test("price repair keeps the stale label and observation time of a cache-stale price", async () => {
+    const staleTs = Date.parse("2026-06-26T15:00:00.000Z");
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "TELL", name: "tell you straight", contract: "0xed9bba84974a06e3886fa6228b27de43c93b4147", balance: 19500, decimals: 18, priceEur: null, valueEur: null },
+        ],
+        totalValueEur: 21,
+        errors: ["TELL price: NO_PRICE"],
+        degraded: true,
+        fxRate: 0.86,
+        scanMs: 123,
+      }),
+      priceBatcher: async () => ({
+        fxRate: 0.86,
+        prices: {
+          "0xed9bba84974a06e3886fa6228b27de43c93b4147": { priceEur: 0.00002, priceUsd: 0.000023, source: "cache-stale", priceTs: staleTs },
+        },
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base" },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.tokens[0].priceSource, "cache-stale");
+    assert.equal(body.tokens[0].priceStale, true, "STALE_IS_NOT_FRESH");
+    assert.equal(body.tokens[0].priceTs, staleTs, "the GSheet must not re-stamp a stale price with now");
+    await app.close();
+  });
+
   test("drops a hard-blocked scam token even when passed as a custom token", async () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {

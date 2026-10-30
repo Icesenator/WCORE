@@ -62,6 +62,8 @@ export interface GsheetPriceRecord {
   priceEur: number | null;
   priceUsd: number | null;
   source: string | null;
+  /** Epoch ms of the observation, set only for a stale-cache price. */
+  priceTs?: number;
 }
 
 export interface GsheetPriceBatchResult {
@@ -525,7 +527,7 @@ async function repairMissingGsheetScanPrices(
       priceEur: rec.priceEur,
       valueEur: roundMoney(balance * rec.priceEur),
       priceSource: rec.source,
-      ...(rec.source === "cache-stale" ? { priceStale: true } : {}),
+      ...(rec.source === "cache-stale" ? { priceStale: true, ...(rec.priceTs != null ? { priceTs: rec.priceTs } : {}) } : {}),
     };
   });
   if (repairedSymbols.size === 0) return result;
@@ -975,6 +977,7 @@ async function defaultPriceBatcher(input: GsheetPriceBatchInput, cache?: CacheSt
       priceEur: priced.priceEur,
       priceUsd: priced.priceUsd,
       source: priced.source,
+      ...(priced.stale && priced.priceTs != null ? { priceTs: priced.priceTs } : {}),
     };
   });
   return { fxRate, prices };

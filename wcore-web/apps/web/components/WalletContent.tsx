@@ -512,7 +512,7 @@ export function WalletContent({ addresses, linkedAddresses: linkedAddrs, chains,
                         {topTokens.map(t => (
                           <div key={(t.contract ?? "native") + t.chainName} className="flex items-center justify-between text-[11px]">
                             <span className="text-fg truncate max-w-[100px]">{t.symbol}</span>
-                            <span className="text-muted tabular-nums">{formatValue(t.valueEur ?? 0)}</span>
+                            <span className="text-muted tabular-nums">{t.valueEur == null ? "—" : formatValue(t.valueEur)}</span>
                           </div>
                         ))}
                       </div>

@@ -524,6 +524,8 @@ async function repairMissingGsheetScanPrices(
       ...(token as Record<string, unknown>),
       priceEur: rec.priceEur,
       valueEur: roundMoney(balance * rec.priceEur),
+      priceSource: rec.source,
+      ...(rec.source === "cache-stale" ? { priceStale: true } : {}),
     };
   });
   if (repairedSymbols.size === 0) return result;

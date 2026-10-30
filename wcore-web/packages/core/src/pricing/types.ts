@@ -60,6 +60,10 @@ export interface PricingResult {
   reason: string | null;
   marker?: PricingMarker;
   trail: PricingTrailStep[];
+  /** STALE_IS_NOT_FRESH: true when priceEur comes from the stale-cache fallback. */
+  stale?: boolean;
+  /** Epoch ms at which the served price was observed (set on stale fallback). */
+  priceTs?: number;
 }
 
 export interface CachedPrice {

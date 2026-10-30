@@ -4,7 +4,7 @@ import { MemoryPricingCache, type PricingSourceSet, type PricingToken } from "..
 import { roundUnitPrice } from "../pricing/rounding.js";
 import type { ChainConfig } from "../types.js";
 import type { DiscoveredToken } from "../tokens/index.js";
-import { priceNative, priceToken } from "./evm-pricing.js";
+import { priceCacheKey, priceNative, priceToken } from "./evm-pricing.js";
 
 test("roundUnitPrice rounds beyond 12 decimal places", () => {
   assert.equal(roundUnitPrice(0.1234567890126), 0.123456789013);
@@ -186,4 +186,34 @@ test("priceToken does not degrade a scan when a long-tail token has no market pr
 
   assert.equal(result.priceEur, null);
   assert.deepEqual(errors, []);
+});
+
+test("priceToken propagates the stale-cache label, source and observation time", async () => {
+  const miss = async () => null;
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: miss, getNativePriceUsd: miss },
+    dexscreener: { getTokenPriceUsd: miss },
+    geckoterminal: { getTokenPriceUsd: miss },
+    coingecko: { getNativePriceUsd: miss, getTokenPriceUsd: miss },
+    jupiter: { getTokenPriceUsd: miss },
+    onchainV3: { getTokenPriceUsd: miss },
+  };
+  const chain = { key: "BASE", CHAIN: { NAME: "Base", CHAIN_ID: 8453, NATIVE_SYMBOL: "ETH", NATIVE_DECIMALS: 18 } } as ChainConfig;
+  const contract = "0x3333333333333333333333333333333333333333";
+  const known = { contract, symbol: "OLD", name: "Old", decimals: 18, source: "explorer" } as DiscoveredToken;
+  const cache = new MemoryPricingCache();
+  const ts = Date.now() - 2 * 60 * 60 * 1000;
+  cache.setPrice(priceCacheKey(chain, contract), { priceEur: 4, ts, source: "llama-coins", symbol: "OLD" });
+  const stale = await priceToken(chain, known, 3, 1, sources, cache, undefined, []);
+  assert.equal(stale.priceEur, 4);
+  assert.equal(stale.priceSource, "cache-stale");
+  assert.equal(stale.priceStale, true);
+  assert.equal(stale.priceTs, ts);
+
+  const poolCache = new MemoryPricingCache();
+  poolCache.setPrice(priceCacheKey(chain, contract), { priceEur: 4, ts, source: "onchain-v3", symbol: "OLD" });
+  const unknown = await priceToken(chain, known, 3, 1, sources, poolCache, undefined, []);
+  assert.equal(unknown.priceEur, null, "UNKNOWN_IS_NOT_ZERO");
+  assert.equal(unknown.valueEur, null, "FINANCIAL_FALSE_ZERO=FORBIDDEN");
+  assert.equal(unknown.priceStale, undefined);
 });

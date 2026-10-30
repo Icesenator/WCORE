@@ -72,6 +72,8 @@ export async function priceNative(
     priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),
     valueEur,
     logoUrl: getNativeLogo(chain),
+    priceSource: priced.priceEur == null ? null : (priced.source ?? null),
+    ...(priced.stale ? { priceStale: true, priceTs: priced.priceTs } : {}),
   };
 }
 
@@ -144,6 +146,8 @@ export async function priceToken(
     balance,
     priceEur: priced.priceEur == null ? null : roundUnitPrice(priced.priceEur),
     valueEur: priced.priceEur == null ? null : roundMoney(balance * priced.priceEur),
+    priceSource: priced.priceEur == null ? null : (priced.source ?? null),
+    ...(priced.stale ? { priceStale: true, priceTs: priced.priceTs } : {}),
   };
 }
 

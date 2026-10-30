@@ -12,6 +12,9 @@ import type {
 import { isPositiveFinite, normalizePriceKey } from "./types.js";
 
 const DEFAULT_PRICE_STALE_MS = 60 * 60 * 1000;
+// STALE_IS_NOT_FRESH: hard upper bound for serving a cached price after every live
+// source failed, independent of the backing store TTL (MemoryPricingCache has none).
+const MAX_STALE_FALLBACK_MS = 6 * 60 * 60 * 1000;
 let _setPriceLogged = false;
 
 // Global contract -> DefiLlama alias map. Used when a chain's LLAMA_CONTRACT_MAP
@@ -95,7 +98,7 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
   const previousPriceEur = staleFallback?.priceEur ?? null;
 
   if (token.isNative || key === "native" || key.startsWith("native@")) {
-    return priceNative(options, key, trail, previousPriceEur);
+    return priceNative(options, key, trail, previousPriceEur, staleFallback?.ts ?? null);
   }
 
   const mappedLlamaId = getContractLlamaId(token);
@@ -165,26 +168,36 @@ async function priceTokenCascadeInner(options: PriceTokenCascadeOptions): Promis
   }
 
   // Fallback to stale cache if all live sources failed (rate limiting during massive scans)
-  if ((!options.skipCache || options.allowStaleCacheOnMiss) && previousPriceEur != null) {
-    // Under forceRefresh, refuse stale AMM-pool prices (dex/gt/onchain/jupiter):
-    // dust pools fabricate prices (e.g. sbFUSE $0.31 from a $0.00016 GT pool)
-    // that would otherwise be resurrected forever. Registry sources are trusted.
-    if (options.skipCache && staleFallback?.source && isUntrustedStalePoolSource(staleFallback.source)) {
+  if ((!options.skipCache || options.allowStaleCacheOnMiss) && previousPriceEur != null && staleFallback) {
+    // Refuse stale AMM-pool prices (dex/gt/onchain/jupiter/zora) on EVERY path, not only
+    // under forceRefresh: dust pools fabricate prices (sbFUSE, BONSAI, RBF) and a live
+    // source that now rejects the pool must not be overridden by its own old answer.
+    // An entry without a source is not provably trusted either.
+    if (!staleFallback.source || isUntrustedStalePoolSource(staleFallback.source)) {
       trail.push({ source: "cache-stale", status: "skipped", reason: "untrusted_amm_stale" });
       return result(key, null, null, null, "NO_PRICE", trail, gt?.marker);
     }
-    trail.push({ source: "cache-stale", status: "hit" });
-    return result(
-      key,
-      previousPriceEur,
-      previousPriceEur / options.fxRate,
-      "cache-stale",
-      null,
-      trail,
-      undefined,
-      staleFallback?.symbol,
-      staleFallback?.name,
-    );
+    const staleAgeMs = nowMs - staleFallback.ts;
+    if (!(staleAgeMs >= 0 && staleAgeMs < MAX_STALE_FALLBACK_MS)) {
+      trail.push({ source: "cache-stale", status: "skipped", reason: "stale_too_old" });
+      return result(key, null, null, null, "NO_PRICE", trail, gt?.marker);
+    }
+    trail.push({ source: "cache-stale", status: "hit", reason: `origin=${staleFallback.source}` });
+    return {
+      ...result(
+        key,
+        previousPriceEur,
+        previousPriceEur / options.fxRate,
+        "cache-stale",
+        null,
+        trail,
+        undefined,
+        staleFallback.symbol,
+        staleFallback.name,
+      ),
+      stale: true,
+      priceTs: staleFallback.ts,
+    };
   }
 
   return result(key, null, null, null, "NO_PRICE", trail, gt?.marker);
@@ -195,6 +208,7 @@ async function priceNative(
   key: string,
   trail: PricingResult["trail"],
   previousPriceEur: number | null,
+  previousTs: number | null,
 ): Promise<PricingResult> {
   const llamaId = stringField(options.token.chain.CHAIN?.NATIVE_LLAMA_ID) ?? getSymbolLlamaId(options.token.symbol ?? options.token.chain.CHAIN?.NATIVE_SYMBOL, options.token.chain);
   const llama = await trySource("llama-native", trail, () => options.sources.defillama.getNativePriceUsd(options.token, llamaId ?? undefined));
@@ -207,9 +221,13 @@ async function priceNative(
   if (cgResult) return cgResult;
 
   // Fallback to stale cache if all live sources failed (rate limiting during massive scans)
-  if ((!options.skipCache || options.allowStaleCacheOnMiss) && previousPriceEur != null) {
-    trail.push({ source: "cache-stale", status: "hit" });
-    return result(key, previousPriceEur, previousPriceEur / options.fxRate, "cache-stale", null, trail);
+  if ((!options.skipCache || options.allowStaleCacheOnMiss) && previousPriceEur != null && previousTs != null) {
+    const nativeAgeMs = (options.nowMs ?? Date.now()) - previousTs;
+    if (nativeAgeMs >= 0 && nativeAgeMs < MAX_STALE_FALLBACK_MS) {
+      trail.push({ source: "cache-stale", status: "hit" });
+      return { ...result(key, previousPriceEur, previousPriceEur / options.fxRate, "cache-stale", null, trail), stale: true, priceTs: previousTs };
+    }
+    trail.push({ source: "cache-stale", status: "skipped", reason: "stale_too_old" });
   }
 
   return result(key, null, null, null, "NO_PRICE", trail);

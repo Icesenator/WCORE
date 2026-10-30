@@ -601,6 +601,7 @@ test("native pricing falls back to stale cache when all sources fail", async () 
   assert.equal(result.priceEur, 5.5, "should use stale cache price");
   assert.equal(result.source, "cache-stale", "source should be cache-stale");
   assert.equal(result.reason, null, "reason should be null (success)");
+  assert.equal(result.stale, true, "STALE_IS_NOT_FRESH: native stale fallback must be labeled");
 });
 
 test("token pricing falls back to stale cache when all sources fail", async () => {
@@ -608,7 +609,7 @@ test("token pricing falls back to stale cache when all sources fail", async () =
   const testToken = token();
 
   // Pre-populate cache with a stale price
-  cache.setPrice(testToken.key, { priceEur: 2.5, ts: Date.now() - 2 * 60 * 60 * 1000, source: "dex" });
+  cache.setPrice(testToken.key, { priceEur: 2.5, ts: Date.now() - 2 * 60 * 60 * 1000, source: "llama-coins" });
 
   // All sources fail
   const sources = sourceSet({ defillama: null, dexscreener: null, geckoterminal: null, coingecko: null });
@@ -622,6 +623,87 @@ test("token pricing falls back to stale cache when all sources fail", async () =
 
   assert.equal(result.priceEur, 2.5, "should use stale cache price");
   assert.equal(result.source, "cache-stale", "source should be cache-stale");
+  assert.equal(result.stale, true, "STALE_IS_NOT_FRESH: stale fallback must be labeled");
+});
+
+test("stale AMM-pool price is refused even without forceRefresh (BONSAI/RBF empty V3 pool)", async () => {
+  const cache = new MemoryPricingCache();
+  const testToken = token();
+  cache.setPrice(testToken.key, { priceEur: 2.5, ts: Date.now() - 2 * 60 * 60 * 1000, source: "onchain-v3" });
+  const sources = sourceSet({ defillama: null, dexscreener: null, geckoterminal: null, coingecko: null });
+  const result = await priceTokenCascade({ token: testToken, fxRate, cache, sources });
+  assert.equal(result.priceEur, null);
+  assert.equal(result.reason, "NO_PRICE");
+});
+
+for (const [label, contract, staleEur] of [
+  ["BONSAI", "0x474f4cb764df9da079d94052fed39625c147c12c", 0.01073570875],
+  ["RBF", "0x15de59489de5e7f240d72f787dc4a292b8199339", 0.000604689417],
+] as const) {
+  test(`${label}: empty-pool price cached before the fix is not resurrected once every source misses`, async () => {
+    const cache = new MemoryPricingCache();
+    const t = token({ key: contract, contract, symbol: label });
+    cache.setPrice(contract, { priceEur: staleEur, ts: Date.now() - 2 * 60 * 60 * 1000, source: "onchain-v3", symbol: label });
+    const result = await priceTokenCascade({ token: t, fxRate, cache, sources: sourceSet({}) });
+    assert.equal(result.priceEur, null, "UNTRUSTED_PRICE_IS_NOT_VALID");
+    assert.equal(result.reason, "NO_PRICE");
+    assert.notEqual(result.priceEur, 0, "UNKNOWN_IS_NOT_ZERO");
+  });
+}
+
+test("fresh cached price (< 1h) is served without a stale label", async () => {
+  const cache = new MemoryPricingCache();
+  const t = token();
+  const ts = Date.now() - 30 * 60 * 1000;
+  cache.setPrice(t.key, { priceEur: 3, ts, source: "llama-coins", symbol: "TEST" });
+  const result = await priceTokenCascade({ token: t, fxRate, cache, sources: sourceSet({}) });
+  assert.equal(result.priceEur, 3);
+  assert.notEqual(result.stale, true);
+});
+
+test("stale trusted price carries its observation timestamp", async () => {
+  const cache = new MemoryPricingCache();
+  const t = token();
+  const ts = Date.now() - 2 * 60 * 60 * 1000;
+  cache.setPrice(t.key, { priceEur: 2.5, ts, source: "llama-coins" });
+  const result = await priceTokenCascade({ token: t, fxRate, cache, sources: sourceSet({}) });
+  assert.equal(result.source, "cache-stale");
+  assert.equal(result.stale, true);
+  assert.equal(result.priceTs, ts);
+});
+
+test("stale trusted price older than 6h becomes UNKNOWN (store without TTL)", async () => {
+  const cache = new MemoryPricingCache();
+  const t = token();
+  cache.setPrice(t.key, { priceEur: 2.5, ts: Date.now() - 7 * 60 * 60 * 1000, source: "llama-coins" });
+  const result = await priceTokenCascade({ token: t, fxRate, cache, sources: sourceSet({}) });
+  assert.equal(result.priceEur, null);
+  assert.equal(result.reason, "NO_PRICE");
+});
+
+test("stale cached price without a source is not trusted", async () => {
+  const cache = new MemoryPricingCache();
+  const t = token();
+  cache.setPrice(t.key, { priceEur: 2.5, ts: Date.now() - 2 * 60 * 60 * 1000 });
+  const result = await priceTokenCascade({ token: t, fxRate, cache, sources: sourceSet({}) });
+  assert.equal(result.priceEur, null);
+});
+
+test("a live source still wins over a cached stale pool price", async () => {
+  const cache = new MemoryPricingCache();
+  const t = token();
+  cache.setPrice(t.key, { priceEur: 9, ts: Date.now() - 2 * 60 * 60 * 1000, source: "onchain-v3" });
+  const result = await priceTokenCascade({ token: t, fxRate, cache, sources: sourceSet({ dexscreener: 1 }) });
+  assert.equal(result.priceEur, fxRate);
+  assert.notEqual(result.stale, true);
+});
+
+test("native stale price older than 6h becomes UNKNOWN", async () => {
+  const cache = new MemoryPricingCache();
+  const nativeToken: PricingToken = { key: "native", contract: "native", symbol: "ETH", isNative: true, chain: baseChain };
+  cache.setPrice("native", { priceEur: 2000, ts: Date.now() - 7 * 60 * 60 * 1000, source: "llama-native" });
+  const result = await priceTokenCascade({ token: nativeToken, fxRate, cache, sources: sourceSet({}) });
+  assert.equal(result.priceEur, null);
 });
 
 test("forceRefresh refuses a stale AMM-pool price when live sources miss", async () => {

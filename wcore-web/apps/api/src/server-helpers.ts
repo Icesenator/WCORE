@@ -193,8 +193,9 @@ export function buildChainScan(chainKey: string, assets: WalletAssets, fxRate?: 
   const native: TokenAsset = {
     contract: "native", symbol: assets.native?.symbol ?? "NATIVE", name: assets.native?.symbol ?? "Native",
     decimals: nativeDecimals, balance: assets.native?.balance ?? 0, priceEur: assets.native?.priceEur ?? null,
-    priceSource: assets.native?.priceEur == null ? null : "pricing-cascade", valueEur: assets.native?.valueEur ?? null,
-    flags: [], logoUrl: nativeLogo ?? getNativeLogoUrl(assets.native?.symbol ?? ""),
+    priceSource: assets.native?.priceEur == null ? null : (typeof assets.native?.priceSource === "string" ? assets.native.priceSource : "pricing-cascade"),
+    valueEur: assets.native?.valueEur ?? null,
+    flags: assets.native?.priceStale === true && assets.native?.priceEur != null ? ["STALE_PRICE"] : [], logoUrl: nativeLogo ?? getNativeLogoUrl(assets.native?.symbol ?? ""),
   };
   const rawTokens = (assets.tokens as Array<Record<string, unknown>>) ?? [];
   const tokens: TokenAsset[] = rawTokens.map((token) => ({
@@ -202,11 +203,12 @@ export function buildChainScan(chainKey: string, assets: WalletAssets, fxRate?: 
     symbol: String(token["symbol"] ?? ""), name: String(token["name"] ?? token["symbol"] ?? ""),
     decimals: Number(token["decimals"] ?? 18), balance: Number(token["balance"] ?? 0),
     priceEur: (token["priceEur"] as number | null) ?? null,
-    priceSource: (token["priceEur"] as number | null) == null ? null : "pricing-cascade",
+    priceSource: (token["priceEur"] as number | null) == null ? null : (typeof token["priceSource"] === "string" ? token["priceSource"] : "pricing-cascade"),
     valueEur: (token["valueEur"] as number | null) ?? null,
     flags: [
       ...(token["defi"] && typeof token["defi"] === "object" ? ["DEFI"] : []),
       ...((token["priceEur"] as number | null) == null ? ["NO_PRICE"] : []),
+      ...(token["priceStale"] === true && (token["priceEur"] as number | null) != null ? ["STALE_PRICE"] : []),
     ],
     logoUrl: typeof token["logoUrl"] === "string" ? token["logoUrl"] : undefined,
   }));

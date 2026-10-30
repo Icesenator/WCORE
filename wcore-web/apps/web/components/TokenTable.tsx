@@ -230,6 +230,9 @@ export function TokenTable({ native, tokens, chainKey, connectedAddress }: Token
                       {asset.flags.includes("NO_PRICE") && !isNative && !isCexAsset ? (
                         <span className="ml-1.5 rounded bg-yellow-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-yellow-300">{t("noPrice")}</span>
                       ) : null}
+                      {asset.flags.includes("STALE_PRICE") && !asset.flags.includes("NO_PRICE") ? (
+                        <span className="ml-1.5 rounded bg-orange-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-orange-300">{t("stalePrice")}</span>
+                      ) : null}
                       {!isNative && isScam ? <span className="ml-1.5 rounded bg-red-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-300" title={(asset as AugmentedTokenAsset)._scamReasons?.join(", ")}>⚠️ SCAM</span> : null}
                       {isDefi ? <span className="ml-1.5 rounded bg-blue-900/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-300" title="DeFi position (staked, locked, liquid staking, flex)">DeFi</span> : null}
                       {!isNative && !isCexAsset ? (

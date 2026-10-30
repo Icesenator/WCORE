@@ -27,6 +27,10 @@ export interface WalletAssetPrice {
   valueEur: number | null;
   logoUrl?: string;
   priceSource?: string | null;
+  /** STALE_IS_NOT_FRESH: set when priceEur comes from the stale-cache fallback. */
+  priceStale?: boolean;
+  /** Epoch ms at which a stale price was observed. */
+  priceTs?: number;
 }
 
 /** Internal provenance carried by enriched token-compatible assets. */

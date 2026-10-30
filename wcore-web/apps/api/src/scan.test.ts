@@ -130,6 +130,32 @@ describe("buildChainScan", () => {
 
     assert.deepEqual(chainScan.tokens[0]?.flags, ["DEFI"]);
   });
+
+  test("STALE_IS_NOT_FRESH: keeps the real price source and flags stale-cache prices", () => {
+    const chainScan = buildChainScan("BASE", {
+      chain: "base",
+      chainName: "Base",
+      native: { symbol: "ETH", balance: 1, priceEur: 2000, valueEur: 2000, priceSource: "cache-stale", priceStale: true, priceTs: 1 },
+      tokens: [
+        { contract: "0x1111111111111111111111111111111111111111", symbol: "OLD", name: "Old", decimals: 18, balance: 2, priceEur: 3, valueEur: 6, priceSource: "cache-stale", priceStale: true, priceTs: 1 },
+        { contract: "0x2222222222222222222222222222222222222222", symbol: "LIVE", name: "Live", decimals: 18, balance: 1, priceEur: 5, valueEur: 5, priceSource: "dex" },
+        { contract: "0x474f4cb764df9da079d94052fed39625c147c12c", symbol: "BONSAI", name: "Bonsai", decimals: 18, balance: 1491, priceEur: null, valueEur: null, priceSource: null },
+      ],
+      errors: [],
+      totalValueEur: 2011,
+      scanMs: 1,
+    });
+    assert.equal(chainScan.native?.priceSource, "cache-stale");
+    assert.deepEqual(chainScan.native?.flags, ["STALE_PRICE"]);
+    assert.equal(chainScan.tokens[0]?.priceSource, "cache-stale");
+    assert.deepEqual(chainScan.tokens[0]?.flags, ["STALE_PRICE"]);
+    assert.equal(chainScan.tokens[1]?.priceSource, "dex");
+    assert.deepEqual(chainScan.tokens[1]?.flags, []);
+    assert.equal(chainScan.tokens[2]?.priceEur, null, "UNKNOWN_IS_NOT_ZERO");
+    assert.equal(chainScan.tokens[2]?.valueEur, null);
+    assert.deepEqual(chainScan.tokens[2]?.flags, ["NO_PRICE"]);
+    assert.equal(chainScan.totals.pricedCount, 3);
+  });
 });
 
 describe("rateLimitIdentity", () => {

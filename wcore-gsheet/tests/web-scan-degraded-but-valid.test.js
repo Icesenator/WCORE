@@ -40,7 +40,7 @@ const NAMES = [
   "_webScanNum_", "_webScanFirstNum_", "_webScanAssetKey_", "_webScanClone_",
   "_webScanHasUsefulAssets_", "_webScanAssetFromNative_", "_webScanIsScamToken_",
   "_webScanBlockedSet_", "_webScanPriorityTokenSet_", "_webScanMergeAsset_",
-  "_webScanNeutralizePrice_", "_webScanMergedTotal_", "_webScanDropUnpricedMapKeys_", "_webScanMergeWithExistingCache_",
+  "_webScanNeutralizePrice_", "_webScanMergedTotal_", "_webScanMergeWithExistingCache_",
   "_webScanConvertToWalletCache_", "_webScanShouldPreserveExistingCache_",
 ];
 

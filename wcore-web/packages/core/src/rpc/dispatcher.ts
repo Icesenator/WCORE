@@ -11,6 +11,11 @@ export interface DispatcherConfig {
   maxRpcs?: number;
   timeoutMs?: number;
   /**
+   * When true, fewer than `minRpcs` answering endpoints never make a consensus: the
+   * health filter may not shrink the vote to a single provider.
+   */
+  strictMinRpcs?: boolean;
+  /**
    * Aborts every call this dispatcher issues.
    *
    * A scan that has already timed out used to keep its RPC calls running: the per-chain
@@ -25,6 +30,7 @@ const DEFAULT_CONFIG: Required<Omit<DispatcherConfig, "signal">> = {
   minRpcs: 2,
   maxRpcs: 3,
   timeoutMs: 2500,
+  strictMinRpcs: false,
 };
 
 export interface DispatchAttempt<T> {
@@ -37,6 +43,8 @@ export interface DispatchAttempt<T> {
 
 export interface DispatchResult<T> extends ConsensusResult<T> {
   attempts: DispatchAttempt<T>[];
+  /** Quorum was enforced against `minRpcs`; answers outside a consensus are not trusted. */
+  strict?: boolean;
 }
 
 export class RpcDispatcher {
@@ -48,7 +56,11 @@ export class RpcDispatcher {
   pickEndpoints(endpoints: ReadonlyArray<string>): string[] {
     const cfg = { ...DEFAULT_CONFIG, ...this.config };
     const healthy = this.health.filterHealthy(endpoints);
-    const pool = healthy.length >= cfg.minRpcs ? healthy : (healthy.length > 0 ? healthy : [...endpoints]);
+    // Strict quorum: a provider set aside by the health filter is asked again rather than
+    // leaving the survivors to answer alone.
+    const pool = healthy.length >= cfg.minRpcs
+      ? healthy
+      : (healthy.length > 0 && !cfg.strictMinRpcs ? healthy : [...endpoints]);
     return pool.slice(0, Math.max(cfg.minRpcs, Math.min(cfg.maxRpcs, pool.length)));
   }
 
@@ -90,8 +102,8 @@ export class RpcDispatcher {
     const consensus = reachConsensus(
       attempts.map((a) => (a.ok ? a.value : null)),
       serialize,
-      { total: attempts.length },
+      { total: cfg.strictMinRpcs ? Math.max(attempts.length, cfg.minRpcs) : attempts.length },
     );
-    return { ...consensus, attempts };
+    return { ...consensus, attempts, strict: cfg.strictMinRpcs };
   }
 }

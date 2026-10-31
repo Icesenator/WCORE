@@ -8,6 +8,7 @@
 // resolves to, rather than calling fetch directly.
 
 import { lookup } from "node:dns/promises";
+import { redactRpcEndpoint } from "@wcore/core";
 
 // Hostnames that never need a DNS round-trip to be rejected.
 const PRIVATE_HOSTNAME = /^(localhost|.*\.local|.*\.internal|.*\.localhost)$/i;
@@ -58,7 +59,8 @@ export function isPrivateAddress(rawIp: string): boolean {
 
 export class UnsafeUrlError extends Error {
   constructor(reason: string, url: string) {
-    super(`unsafe url (${reason}): ${url}`);
+    // Path, query and credentials can hold a provider key: name the host only.
+    super(`unsafe url (${reason}): ${redactRpcEndpoint(url)}`);
     this.name = "UnsafeUrlError";
   }
 }

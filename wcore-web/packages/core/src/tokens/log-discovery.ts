@@ -1,5 +1,6 @@
 import { EvmRpc, RpcDispatcher } from "../rpc/index.js";
 import { TRANSFER_EVENT_TOPIC } from "./abi.js";
+import { redactRpcEndpoint } from "../rpc/rpc-override.js";
 
 export interface TransferLog {
   address: string;
@@ -50,7 +51,8 @@ async function discoverLogsInRange(
       // rpc-health ; ici seul le résultat final compte.
       return { contracts: [...found], errors: [] };
     } catch (err) {
-      errors.push(`${endpoint}: ${err instanceof Error ? err.message : String(err)}`);
+      // errors[] reaches the API payload and the sheet: name the host, never the URL.
+      errors.push(`${redactRpcEndpoint(endpoint)}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return { contracts: [], errors };

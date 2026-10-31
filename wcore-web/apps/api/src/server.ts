@@ -5,7 +5,7 @@ import cookie from "@fastify/cookie";
 import compress from "@fastify/compress";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@wcore/db";
-import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, warmDynamicRpcEndpoints } from "@wcore/core";
+import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, validateRpcOverridesAtStartup, warmDynamicRpcEndpoints } from "@wcore/core";
 import { BUILD_INFO_PATH, GM_FACTORIES, resolveBuildIdentity } from "@wcore/shared";
 import { readFileSync } from "node:fs";
 
@@ -577,6 +577,7 @@ if (!apiConfig.runtime.isTest && isMainModule) {
     const realTSource = new RealTPriceSource(sharedCache);
     realTSource.getTokenPriceUsd({ key: "realt-dummy", chain: { key: "GNOSIS", vm: "EVM" } as any, contract: "0x0000000000000000000000000000000000000000", symbol: "" }).catch(() => { /* registry load failed, will retry on first RealT scan */ });
     await app.listen({ port: PORT, host: HOST });
+    validateRpcOverridesAtStartup(process.env, (message) => app.log.error(message));
     loadChainlist().catch((e) => { console.error("loadChainlist error:", (e).message || String(e)); });
     snapshotMetrics().catch((e) => { console.error("initial snapshotMetrics error:", (e).message || String(e)); });
     setInterval(() => snapshotMetrics().catch((e) => { console.error("snapshotMetrics interval error:", (e).message || String(e)); }), 300_000).unref();

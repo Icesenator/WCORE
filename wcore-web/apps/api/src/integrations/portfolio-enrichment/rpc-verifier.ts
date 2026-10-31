@@ -8,7 +8,7 @@
 //   * the provider-reported balance is never used here or by callers,
 //   * every failure (throw, timeout, no endpoint, malformed input) returns null = UNVERIFIED.
 
-import { EvmRpc, RpcDispatcher, getChain, getRpcEndpoints, multicall, type MulticallCall, type MulticallResult } from "@wcore/core";
+import { EvmRpc, RpcDispatcher, consensusConfigFor, getChain, getRpcEndpoints, multicall, type MulticallCall, type MulticallResult } from "@wcore/core";
 
 import type { EnrichmentMergeDeps } from "./merge.js";
 
@@ -35,18 +35,31 @@ export interface RpcContractVerifierDeps {
   dispatcher?: RpcDispatcher;
   endpointsFor?: (chain: string) => string[];
   /** Injectable for tests; defaults to the real Multicall3 read. */
-  multicallFn?: (endpoints: string[], calls: MulticallCall[]) => Promise<MulticallResult[]>;
+  multicallFn?: (endpoints: string[], calls: MulticallCall[], chainKey: string) => Promise<MulticallResult[]>;
 }
 
 export function createRpcContractVerifier(deps: RpcContractVerifierDeps = {}): EnrichmentMergeDeps["verifyContract"] {
   const rpc = deps.rpc ?? new EvmRpc();
-  const dispatcher = deps.dispatcher ?? new RpcDispatcher();
+  // One dispatcher per chain: each chain has its own quorum, and an overridden chain
+  // must keep requiring two agreeing providers.
+  const dispatchers = new Map<string, RpcDispatcher>();
+  const dispatcherFor = (chainKey: string): RpcDispatcher => {
+    if (deps.dispatcher) return deps.dispatcher;
+    let dispatcher = dispatchers.get(chainKey);
+    if (!dispatcher) {
+      dispatcher = new RpcDispatcher(undefined, consensusConfigFor(chainKey, getChain(chainKey)));
+      dispatchers.set(chainKey, dispatcher);
+    }
+    return dispatcher;
+  };
   const endpointsFor = deps.endpointsFor ?? ((chain: string) => getRpcEndpoints(chain));
-  const read = deps.multicallFn ?? ((endpoints: string[], calls: MulticallCall[]) => multicall(rpc, dispatcher, endpoints, calls));
+  const read = deps.multicallFn ?? ((endpoints: string[], calls: MulticallCall[], chainKey: string) =>
+    multicall(rpc, dispatcherFor(chainKey), endpoints, calls));
 
   return async ({ chain, address, contract }) => {
     try {
-      const config = getChain(chain.toUpperCase());
+      const chainKey = chain.toUpperCase();
+      const config = getChain(chainKey);
       if (!config || config.vm !== "EVM") return null; // unknown / non-EVM ⇒ UNVERIFIED
       const target = contract.toLowerCase();
       const holder = address.toLowerCase();
@@ -58,7 +71,7 @@ export function createRpcContractVerifier(deps: RpcContractVerifierDeps = {}): E
       const results = await read(endpoints, [
         { target, callData: encodeAddressCall(BALANCE_OF_SELECTOR, holder) },
         { target, callData: DECIMALS_SELECTOR },
-      ]);
+      ], chainKey);
 
       const balanceResult = results[0];
       if (!balanceResult?.success) return null;

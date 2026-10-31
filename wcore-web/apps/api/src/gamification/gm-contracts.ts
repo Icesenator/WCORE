@@ -3,6 +3,7 @@ import type { PrismaClient } from "@wcore/db";
 import { canonicalChainKey, getFactory, GM_HISTORICAL_FACTORIES } from "@wcore/shared";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
+import { GM_UNAVAILABLE_STATUS, gmUnavailableBody, isGmChainUnavailable } from "./gm-unavailable.js";
 
 const DISABLED_GM_CONTRACTS = new Set([
   "base:0x4622e578ca79864dd475cc241e623e2ba556fb1b",
@@ -225,7 +226,13 @@ export async function registerGmContractsRoutes(
     });
     if (existing) return reply.code(409).send({ error: "contract_already_registered", id: existing.id });
 
-    const receipt = await fetchDeployReceipt(chainKey, txHash);
+    let receipt: DeployReceipt | null;
+    try {
+      receipt = await fetchDeployReceipt(chainKey, txHash);
+    } catch (e) {
+      if (isGmChainUnavailable(e)) return reply.code(GM_UNAVAILABLE_STATUS).send(gmUnavailableBody(e));
+      throw e;
+    }
     const verifiedContract = receipt ? findVerifiedDeployedContract(receipt, factory.address, CONTRACT_DEPLOYED_EVENT, req.user.address ?? "") : null;
     if (verifiedContract !== contractAddress.toLowerCase()) {
       return reply.code(400).send({ error: "deploy_verification_failed" });
@@ -274,7 +281,12 @@ export async function registerGmContractsRoutes(
       // Check native balance on each GM chain in parallel.
       // RPC amplification is mitigated by the anonymous gm_read rate limit (60/min).
       const balanceChecks = uniqueChains.map(async (chainKey) => {
-        const rpcs = deps.getChainRpcs(chainKey);
+        let rpcs: string[] | undefined;
+        try {
+          rpcs = deps.getChainRpcs(chainKey);
+        } catch {
+          return; // chain unavailable for GM: not eligible, the other chains still are
+        }
         if (!rpcs || rpcs.length === 0) return;
         const rpc = rpcs[0]!;
         try {
@@ -407,11 +419,20 @@ export async function registerGmContractsRoutes(
       byChain.set(c.chainKey, list);
     }
     const balanceMaps = new Map<string, Map<string, { creatorBalance: string; platformBalance: string }>>();
+    const unavailableChains = new Set<string>();
     await Promise.all(Array.from(byChain.entries()).map(async ([chainKey, list]) => {
-      const map = await readGmContractBalancesBatch(chainKey, list);
-      balanceMaps.set(chainKey, map);
+      try {
+        balanceMaps.set(chainKey, await readGmContractBalancesBatch(chainKey, list));
+      } catch (e) {
+        if (!isGmChainUnavailable(e)) throw e;
+        unavailableChains.add(chainKey);
+      }
     }));
     const withBalances = contracts.map((contract) => {
+      // Unreadable is not zero: say so instead of reporting an empty balance.
+      if (unavailableChains.has(contract.chainKey)) {
+        return { ...contract, creatorBalance: null as unknown as string, platformBalance: null as unknown as string, balanceStatus: "UNAVAILABLE" };
+      }
       const balances = balanceMaps.get(contract.chainKey)?.get(contract.contractAddress)
         ?? { creatorBalance: "0", platformBalance: "0" };
       return {
@@ -453,6 +474,7 @@ export async function registerGmContractsRoutes(
         contractAddress: contract.contractAddress,
       };
     } catch (e) {
+      if (isGmChainUnavailable(e)) return reply.code(GM_UNAVAILABLE_STATUS).send(gmUnavailableBody(e));
       console.error("GM contract balance RPC error:", (e as Error).message || String(e));
       return { creatorBalance: "0", platformBalance: "0", chainKey: contract.chainKey, contractAddress: contract.contractAddress };
     }

@@ -570,6 +570,7 @@ const isMainModule = !!process.argv[1] && import.meta.url === pathToFileURL(proc
 
 if (!apiConfig.runtime.isTest && isMainModule) {
   try {
+    validateRpcOverridesAtStartup(process.env, (message) => app.log.error(message));
     warnSingleRpcChains();
     seedGmContracts(prisma).catch((e) => { console.error("seedGmContracts error:", (e).message || String(e)); });
     // Pre-load RealT registry into Redis at startup so scans can price RealT tokens
@@ -577,7 +578,6 @@ if (!apiConfig.runtime.isTest && isMainModule) {
     const realTSource = new RealTPriceSource(sharedCache);
     realTSource.getTokenPriceUsd({ key: "realt-dummy", chain: { key: "GNOSIS", vm: "EVM" } as any, contract: "0x0000000000000000000000000000000000000000", symbol: "" }).catch(() => { /* registry load failed, will retry on first RealT scan */ });
     await app.listen({ port: PORT, host: HOST });
-    validateRpcOverridesAtStartup(process.env, (message) => app.log.error(message));
     loadChainlist().catch((e) => { console.error("loadChainlist error:", (e).message || String(e)); });
     snapshotMetrics().catch((e) => { console.error("initial snapshotMetrics error:", (e).message || String(e)); });
     setInterval(() => snapshotMetrics().catch((e) => { console.error("snapshotMetrics interval error:", (e).message || String(e)); }), 300_000).unref();

@@ -2,7 +2,8 @@
 //   {"B3": ["https://provider-one/...", "https://provider-two/..."]}
 // Keyed provider URLs are secrets: they come only from the server environment, never
 // from the repository, and are never echoed in errors. Any invalid entry rejects the
-// whole override so a typo cannot silently drop a chain to a single endpoint.
+// whole configuration: reading it throws a redacted error, so the API refuses to start
+// rather than silently scanning an overridden chain without its quorum.
 
 import { getChain } from "../chains/index.js";
 
@@ -78,8 +79,8 @@ export function parseRpcOverrides(raw: string | undefined): RpcOverrideParse {
   return { overrides };
 }
 
-// Called once at API startup: an invalid override would otherwise fall back silently to
-// the static endpoints. The message never contains an URL.
+// Called at API startup, before listening: logs the redacted reason, then throws.
+// The message never contains an URL.
 export function validateRpcOverridesAtStartup(env: Env = process.env, warn: (message: string) => void = console.warn): void {
   const { error } = parseRpcOverrides(env.WCORE_RPC_OVERRIDES);
   if (error) {

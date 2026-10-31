@@ -18,6 +18,7 @@ test("les erreurs HTTP de transport ne divulguent pas la clé reflétée", async
 test("un motif SSRF ne divulgue pas le nom de compte", () => {
   const err = new UnsafeUrlError("private_host_account-secret.internal", url);
   assert.doesNotMatch(err.message, /account-secret|key-secret/);
+  assert.match(err.message, /external-url$/, "une URL quelconque n'est pas étiquetée comme fournisseur RPC");
 });
 
 test("GM refuse explicitement une chaîne surchargée non attestée", async () => {

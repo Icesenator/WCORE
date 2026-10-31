@@ -33,7 +33,9 @@ export class RpcCallError extends Error {
   constructor(message: string, endpoint: string, rpcCause?: unknown) {
     // Provider/transport messages can echo a key independently of the URL.
     super(/revert/i.test(message) ? "RPC execution reverted"
-      : /^HTTP \d{3}$/.test(message) ? message : "RPC request failed");
+      : /^HTTP \d{3}$/.test(message) ? message
+      : /^RPC error -?\d+/.test(message) ? message.match(/^RPC error -?\d+/)![0]
+      : "RPC request failed");
     this.name = "RpcCallError";
     // Non-enumerable: a logged or serialized error must not carry a keyed provider URL.
     Object.defineProperty(this, "endpoint", { value: endpoint, enumerable: false });

@@ -57,10 +57,16 @@ export function isPrivateAddress(rawIp: string): boolean {
   return true; // not an address we can reason about → refuse
 }
 
+// Opaque label for diagnostics: an overridden RPC keeps its override:CHAIN#n id.
+function describeUrl(url: string): string {
+  const label = redactRpcEndpoint(url);
+  return label.startsWith("override:") ? label : "external-url";
+}
+
 export class UnsafeUrlError extends Error {
   constructor(reason: string, url: string) {
-    // Path, query and credentials can hold a provider key: name the host only.
-    super(`unsafe url (${reason.startsWith("private_host_") ? "private_host" : reason.startsWith("dns_rebind_") ? "dns_rebind" : reason.startsWith("bad_protocol_") ? "bad_protocol" : reason}): ${redactRpcEndpoint(url)}`);
+    // Host, path, query and credentials can identify an account or hold a key.
+    super(`unsafe url (${reason.startsWith("private_host_") ? "private_host" : reason.startsWith("dns_rebind_") ? "dns_rebind" : reason.startsWith("bad_protocol_") ? "bad_protocol" : reason}): ${describeUrl(url)}`);
     this.name = "UnsafeUrlError";
   }
 }
@@ -143,7 +149,7 @@ export async function safeFetch(
     try {
       response = await fetchImpl(url, { ...requestInit, redirect: "manual" });
     } catch {
-      throw new Error(`HTTP transport failed: ${redactRpcEndpoint(rawUrl)}`);
+      throw new Error(`HTTP transport failed: ${describeUrl(rawUrl)}`);
     }
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
 

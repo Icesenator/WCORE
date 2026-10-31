@@ -126,26 +126,27 @@ export function GmPageClient() {
           </div>
         </div>
       ))}
+      </div>
 
-      {/* Historical contracts for retired chains */}
+      {/* Historical contracts for retired chains: a section of its own, not a cell of the active grid */}
       {(historicalContracts.length > 0 || historicalLoading) && (
-        <div className="mt-8">
+        <section className="mt-8 w-full min-w-0">
           <h3 className="mb-4 text-sm font-semibold text-muted uppercase tracking-wider">Historical Chains (Retired)</h3>
           {historicalLoading ? (
             <div className="rounded-xl border border-border bg-card p-5 text-center text-muted">
               Loading historical contracts…
             </div>
           ) : historicalContracts.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {historicalContracts.map((contract) => (
-                <div key={contract.id} className="rounded-xl border border-border bg-card p-5 opacity-70">
+                <div key={contract.id} className="min-w-0 rounded-xl border border-border bg-card p-5 opacity-70">
                   <div className="flex h-9 items-center gap-3 mb-4">
                     <ChainIcon chainKey={contract.chainKey.toUpperCase()} />
-                    <div>
-                      <p className="font-semibold text-fg text-sm">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-fg text-sm">
                         {contract.chainKey.charAt(0).toUpperCase() + contract.chainKey.slice(1).replace(/_/g, " ")}
                       </p>
-                      <p className="text-[10px] text-muted uppercase">
+                      <p className="truncate text-[10px] text-muted uppercase">
                         Contract: {contract.contractAddress.slice(0, 6)}…{contract.contractAddress.slice(-4)}
                       </p>
                     </div>
@@ -180,9 +181,8 @@ export function GmPageClient() {
               No historical contracts found.
             </div>
           )}
-        </div>
+        </section>
       )}
-      </div>
     </div>
   );
 }

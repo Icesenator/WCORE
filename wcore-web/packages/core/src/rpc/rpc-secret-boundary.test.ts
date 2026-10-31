@@ -24,6 +24,11 @@ test("un message RPC distant ne divulgue pas les secrets qu'il reflète", () => 
   assert.doesNotMatch(JSON.stringify(error), /private-key|secret-account/);
 });
 
+test("le code JSON-RPC numérique reste diagnostiquable, sans le texte du fournisseur", () => {
+  const error = new RpcCallError("RPC error -32005: limit exceeded for private-key", endpoint);
+  assert.equal(error.message, "RPC error -32005");
+});
+
 test("la découverte ne retransmet aucun texte d'erreur fournisseur arbitraire", async () => {
   const result = await discoverTokensByTransferLogs({
     address: "0x00000000000000000000000000000000000000a1", endpoints: [endpoint],

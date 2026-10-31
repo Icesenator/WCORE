@@ -1,6 +1,5 @@
 import { getChain } from "../chains/index.js";
 import { EvmRpc, RpcDispatcher, multicall, type MulticallCall } from "../rpc/index.js";
-import { rpcHealth } from "../rpc/rpc-health.js";
 import { getRpcEndpoints, getVerifiedEvmRpcEndpoints } from "../rpc/endpoints.js";
 import { consensusConfigFor } from "../rpc/rpc-override.js";
 import { createOnchainBatchRpc } from "./onchain-rpc.js";

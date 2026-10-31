@@ -50,9 +50,9 @@ async function discoverLogsInRange(
       // alors que la découverte a abouti. La santé RPC est déjà tracée par
       // rpc-health ; ici seul le résultat final compte.
       return { contracts: [...found], errors: [] };
-    } catch (err) {
-      // errors[] reaches the API payload and the sheet: name the host, never the URL.
-      errors.push(`${redactRpcEndpoint(endpoint)}: ${err instanceof Error ? err.message : String(err)}`);
+    } catch {
+      // Provider text can echo credentials and reaches the sheet through errors[].
+      errors.push(`${redactRpcEndpoint(endpoint)}: RPC log discovery failed`);
     }
   }
   return { contracts: [], errors };

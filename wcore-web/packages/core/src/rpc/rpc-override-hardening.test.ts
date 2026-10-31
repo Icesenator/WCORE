@@ -22,7 +22,7 @@ test("découverte de logs : l'erreur remontée ne contient ni chemin ni clé de 
   for (const e of res.errors) {
     assert.equal(/secret-key|\/v2\/|apikey/.test(e), false, e);
   }
-  assert.ok(res.errors.some((e) => e.includes("keyed.example-provider.test")), "l'hôte reste identifiable");
+  assert.ok(res.errors.every((e) => e.startsWith("rpc-provider:")), "aucun hôte ne divulgue un compte");
 });
 
 test("surcharge active : le cache dynamique Chainlist ne réintroduit pas d'autres endpoints", async () => {
@@ -47,7 +47,7 @@ test("surcharge active : le cache dynamique Chainlist ne réintroduit pas d'autr
 
 test("validation au démarrage : surcharge invalide signalée sans URL, valide sans message", () => {
   const warnings: string[] = [];
-  validateRpcOverridesAtStartup({ WCORE_RPC_OVERRIDES: JSON.stringify({ B3: ["http://plain.test/secret-key-789"] }) }, (m) => warnings.push(m));
+  assert.throws(() => validateRpcOverridesAtStartup({ WCORE_RPC_OVERRIDES: JSON.stringify({ B3: ["http://plain.test/secret-key-789"] }) }, (m) => warnings.push(m)));
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0].includes("secret-key"), false);
   const ok: string[] = [];

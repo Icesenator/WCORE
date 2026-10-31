@@ -28,6 +28,14 @@ test("prix onchain, quorum strict : seuls les résultats concordants sont retenu
   assert.deepEqual(await batch.batch(CALLS), ["0x10", null]);
 });
 
+test("prix onchain : deux contre deux ne constituent pas un quorum", async () => {
+  const C = "https://c.test/rpc";
+  const D = "https://d.test/rpc";
+  const rpc = fakeRpc({ [A]: ["0x10"], [B]: ["0x10"], [C]: ["0x99"], [D]: ["0x99"] });
+  const batch = createOnchainBatchRpc({ chainKey: "B3", endpoints: [A, B, C, D], rpc, strict: true });
+  assert.deepEqual(await batch.batch(CALLS.slice(0, 1)), [null]);
+});
+
 test("prix onchain, mode historique : le premier fournisseur qui répond suffit", async () => {
   const rpc = fakeRpc({ [A]: new Error("down"), [B]: ["0x10", "0x20"] });
   const batch = createOnchainBatchRpc({ chainKey: "BASE", endpoints: [A, B], rpc, strict: false });

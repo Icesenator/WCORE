@@ -16,7 +16,7 @@ const ENV = { WCORE_RPC_OVERRIDES: JSON.stringify({ B3: [KEYED, KEYED_2] }) };
 test("diagnostic d'un endpoint surchargé : identifiant opaque, ni hôte ni clé", () => {
   assert.equal(redactRpcEndpoint(KEYED, ENV), "override:B3#1");
   assert.equal(redactRpcEndpoint(KEYED_2, ENV), "override:B3#2");
-  assert.equal(redactRpcEndpoint("https://public-rpc.example.test/path", ENV), "public-rpc.example.test");
+  assert.equal(redactRpcEndpoint("https://public-rpc.example.test/path", ENV), "rpc-provider");
 });
 
 test("configuration invalide : le message ne recopie jamais une clé de la variable", () => {
@@ -30,10 +30,10 @@ test("configuration invalide : le message ne recopie jamais une clé de la varia
 test("surcharge refusée pour une chaîne inconnue ou non EVM", () => {
   const warnings: string[] = [];
   const env = { WCORE_RPC_OVERRIDES: JSON.stringify({ NOT_A_CHAIN: [KEYED, KEYED_2] }) };
-  validateRpcOverridesAtStartup(env, (m) => warnings.push(m));
+  assert.throws(() => validateRpcOverridesAtStartup(env, (m) => warnings.push(m)));
   assert.equal(warnings.length, 1);
-  assert.equal(getRpcOverride("NOT_A_CHAIN", env), undefined);
-  assert.equal(consensusConfigFor("NOT_A_CHAIN", undefined, env).strictMinRpcs, false);
+  assert.throws(() => getRpcOverride("NOT_A_CHAIN", env));
+  assert.throws(() => consensusConfigFor("NOT_A_CHAIN", undefined, env));
 });
 
 test("surcharge refusée pour un hôte local, une IP littérale ou des identifiants dans l'URL", () => {

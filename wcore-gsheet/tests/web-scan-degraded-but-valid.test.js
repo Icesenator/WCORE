@@ -42,10 +42,12 @@ const NAMES = [
   "_webScanBlockedSet_", "_webScanPriorityTokenSet_", "_webScanMergeAsset_",
   "_webScanNeutralizePrice_", "_webScanMergedTotal_", "_webScanMergeWithExistingCache_",
   "_webScanConvertToWalletCache_", "_webScanShouldPreserveExistingCache_",
+  "_webScanDropUnpricedMapKeys_", "_webScanTokenIsStale_", "_webScanPriceTs_",
 ];
 
 const ctx = {
   console, Math, JSON, Date, Object, Array, String, Number, isFinite, parseInt, parseFloat,
+  GSHEET_WEB_MAX_PRESERVED_PRICE_AGE_MS: 6 * 60 * 60 * 1000,
   GSHEET_WEB_MAX_TOKEN_PRICE_EUR: 1e6,
   GSHEET_WEB_MAX_TOKEN_VALUE_EUR: 1e7,
   CFG_CACHE_WALLET: 64,

@@ -11,7 +11,7 @@ const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EV
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
 
-assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.68["']/, 'web scan adapter version must advance to 4.16.68');
+assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.70["']/, 'web scan adapter version must advance to 4.16.70');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
@@ -823,7 +823,8 @@ const samplePayload = JSON.stringify({
       { contract: '0x0297E997b56017164110f75F71ecd58dA823085B', symbol: 'C-Locked', name: 'Chainbase Staking (locked)', balance: 58.58143972, decimals: 18, price_eur: 0.06, value_eur: 3.51 },
     ],
     priceMap: { native: 1300, '0xold0000000000000000000000000000000000001': 5, '0x0297E997b56017164110f75F71ecd58dA823085B': 0.06 },
-    priceTsMap: {},
+    // v4.16.69: a preserved price survives only within the 6h window of its timestamp.
+    priceTsMap: { '0xold0000000000000000000000000000000000001': Date.now() - 60 * 60 * 1000 },
     balanceTsMap: {},
     scanStats: { source: 'old-cache' },
   };

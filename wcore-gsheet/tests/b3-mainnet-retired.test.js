@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
-const B3_TOKEN_ON_BASE = '0xb3b32f9f8827d4634fe7d973fa1034ec9fddb3b3';
+const B3_ON_BASE_CONTRACT = '0xb3b32f9f8827d4634fe7d973fa1034ec9fddb3b3';
 
 function context(files) {
   const forbidden = () => { throw new Error('accès réseau/cache interdit'); };
@@ -51,7 +51,7 @@ test('le tombstone reconnaît B3 Mainnet, 8333 et son onglet Ledger, rien d’au
   for (const key of ['B3', 'b3', ' B3 ', '8333', 8333, '0x208d', '0X208D', 'Ledger - B3', 'Ledger - B3 Crypto']) {
     assert.equal(ctx._wcoreRemovedChain_(key), true, String(key));
   }
-  for (const key of ['B2', 'B3_TEST', 'BASE', 'Ledger - Base', '18333', '83330', B3_TOKEN_ON_BASE, 'B3 (Base)']) {
+  for (const key of ['B2', 'B3_TEST', 'BASE', 'Ledger - Base', '18333', '83330', B3_ON_BASE_CONTRACT, 'B3 (Base)']) {
     assert.equal(ctx._wcoreRemovedChain_(key), false, String(key));
   }
   assert.throws(() => ctx.ChainFactory.createEvmChain('B3', {}), /CHAIN_REMOVED: B3 \(8333\)/);
@@ -115,6 +115,6 @@ test('le cache B3 reste lisible en diagnostic, sans réseau ni écriture', () =>
 
 test('le token B3 sur Base n’est pas touché', () => {
   for (const file of ['13A_DIAG_CACHE.gs', '13B_DIAG_RPC.gs', '13C_DIAG_TOKEN.gs']) {
-    assert.match(read('src/' + file).toLowerCase(), new RegExp(B3_TOKEN_ON_BASE), file);
+    assert.match(read('src/' + file).toLowerCase(), new RegExp(B3_ON_BASE_CONTRACT), file);
   }
 });

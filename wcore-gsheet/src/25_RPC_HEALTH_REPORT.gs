@@ -217,7 +217,7 @@ function _getRpcHealthEvmChains() {
  // List of known EVM chain variable names
  var evmNames = [
  "ABSTRACT", "ANCIENT8", "APECHAIN", "APPCHAIN", "ARBITRUM_NOVA", "ARBITRUM_ONE",
- "ASTAR", "AURORA", "AVALANCHE", "B2", "B3", "BASE", "BEAM", "BERACHAIN",
+ "ASTAR", "AURORA", "AVALANCHE", "B2", "BASE", "BEAM", "BERACHAIN",
  "BITLAYER", "BOB", "BOBA", "BOTANIX", "BSC", "CAMP", "CELO",
  "CRONOS", "CYBER", "DBK_CHAIN", "DOMA", "DUCKCHAIN", "ETHEREUM", "ETHERLINK",
  "FLARE", "FLOW", "FRAXTAL", "FUSE", "GEB", "GNOSIS", "GRAVITY", "HASHKEY",

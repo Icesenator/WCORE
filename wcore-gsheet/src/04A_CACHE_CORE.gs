@@ -473,7 +473,10 @@ CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(target
     return isFinite(start) && nowMs >= start + 2 * 24 * 3600000;
   }
   function isProtectedKey_(k) {
-  return (k.indexOf("WCORE_HTTP_") === 0 && !isExpiredHttpDay_(k)) || k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1" ||
+  // A retired chain is never refreshed again, so its cache would always look oldest;
+  // it is kept as evidence (funds may still be recoverable), never purged for space.
+  var retiredChainCache = k.indexOf("_CACHE_") > 0 && typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(k.split("_CACHE_")[0]);
+  return retiredChainCache || (k.indexOf("WCORE_HTTP_") === 0 && !isExpiredHttpDay_(k)) || k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1" ||
     k === "WCORE_WATCHDOG_LEASE" || k === "WCORE_AUTO_HEAL_LEASE";
   }
   function pushIf(matchFn, prio) {

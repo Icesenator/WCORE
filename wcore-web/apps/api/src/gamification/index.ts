@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { PrismaClient } from "@wcore/db";
 import { GM_FACTORIES, canonicalChainKey } from "@wcore/shared";
-import { getChainMaxLogRange, getPrimaryRpcEndpoint, getRpcEndpoints, warmDynamicRpcEndpoints } from "@wcore/core";
+import { getChainMaxLogRange, getPrimaryRpcEndpoint, getRpcEndpoints, getRpcOverride, warmDynamicRpcEndpoints } from "@wcore/core";
 import { encodeFunctionData, decodeFunctionResult, parseAbi } from "viem";
 import { registerGmRoutes } from "./gm-routes.js";
 import { registerGmOnchainRoutes } from "./gm-onchain.js";
@@ -32,10 +32,13 @@ export function startOfUtcDay(date: Date): Date {
 }
 
 export function getChainRpc(chainKey: string): string | undefined {
+  if (getRpcOverride(chainKey)) throw new Error("RPC_OVERRIDE_GM_UNATTESTED");
   return getPrimaryRpcEndpoint(chainKey);
 }
 
 export function getChainRpcs(chainKey: string): string[] | undefined {
+  // Legacy GM readers cannot attest overridden providers; refuse rather than emit zero.
+  if (getRpcOverride(chainKey)) throw new Error("RPC_OVERRIDE_GM_UNATTESTED");
   const endpoints = getRpcEndpoints(chainKey);
   return endpoints.length ? endpoints : undefined;
 }

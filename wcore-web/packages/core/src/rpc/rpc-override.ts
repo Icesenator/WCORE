@@ -33,7 +33,8 @@ function validEndpoint(value: unknown): value is string {
     return url.protocol === "https:"
       && !url.username && !url.password
       && host.includes(".")
-      && !host.endsWith(".localhost")
+      && !/(?:\.(?:localhost|local|internal)|\.)$/.test(host)
+      && !url.hash
       && !/^[\d.]+$/.test(host)
       && !host.startsWith("[");
   } catch {
@@ -61,7 +62,7 @@ export function parseRpcOverrides(raw: string | undefined): RpcOverrideParse {
     }
     const chain = getChain(chainKey);
     if (!chain || chain.vm !== "EVM") {
-      return { overrides: {}, error: `WCORE_RPC_OVERRIDES entry ${chainKey} is not a known EVM chain` };
+      return { overrides: {}, error: "WCORE_RPC_OVERRIDES contains an unknown or non-EVM chain" };
     }
     if (!Array.isArray(list) || list.length < MIN_PROVIDERS || list.length > MAX_ENDPOINTS_PER_CHAIN) {
       return { overrides: {}, error: `WCORE_RPC_OVERRIDES entry ${chainKey} must list ${MIN_PROVIDERS} to ${MAX_ENDPOINTS_PER_CHAIN} endpoints` };
@@ -69,7 +70,7 @@ export function parseRpcOverrides(raw: string | undefined): RpcOverrideParse {
     if (!list.every(validEndpoint) || new Set(list).size !== list.length) {
       return { overrides: {}, error: `WCORE_RPC_OVERRIDES entry ${chainKey} must contain distinct https URLs on public named hosts` };
     }
-    if (new Set(list.map(providerDomain)).size < MIN_PROVIDERS) {
+    if (new Set(list.map(providerDomain)).size !== list.length) {
       return { overrides: {}, error: `WCORE_RPC_OVERRIDES entry ${chainKey} must use at least ${MIN_PROVIDERS} different provider domains` };
     }
     overrides[chainKey] = [...list];
@@ -81,11 +82,16 @@ export function parseRpcOverrides(raw: string | undefined): RpcOverrideParse {
 // the static endpoints. The message never contains an URL.
 export function validateRpcOverridesAtStartup(env: Env = process.env, warn: (message: string) => void = console.warn): void {
   const { error } = parseRpcOverrides(env.WCORE_RPC_OVERRIDES);
-  if (error) warn(`${error}; RPC overrides are ignored`);
+  if (error) {
+    warn(error);
+    throw new Error(error);
+  }
 }
 
 export function getRpcOverride(chainKey: string, env: Env = process.env): string[] | undefined {
-  return parseRpcOverrides(env.WCORE_RPC_OVERRIDES).overrides[chainKey.trim().toUpperCase()];
+  const parsed = parseRpcOverrides(env.WCORE_RPC_OVERRIDES);
+  if (parsed.error) throw new Error(parsed.error);
+  return parsed.overrides[chainKey.trim().toUpperCase()];
 }
 
 export interface ConsensusConfig {
@@ -118,7 +124,8 @@ export function redactRpcEndpoint(endpoint: string, env: Env = process.env): str
     if (index >= 0) return `override:${chainKey}#${index + 1}`;
   }
   try {
-    return new URL(endpoint).hostname || "invalid-endpoint";
+    new URL(endpoint);
+    return "rpc-provider";
   } catch {
     return "invalid-endpoint";
   }

@@ -56,8 +56,8 @@ test("override actif : quorum strict, au moins deux voix, jamais réduit par le 
 });
 
 test("libellé d'endpoint : ni chemin, ni requête, ni clé", () => {
-  assert.equal(redactRpcEndpoint(A), "a.example-provider-one.test");
-  assert.equal(redactRpcEndpoint(B), "b.example-provider-two.test");
+  assert.equal(redactRpcEndpoint(A), "rpc-provider");
+  assert.equal(redactRpcEndpoint(B), "rpc-provider");
   assert.equal(redactRpcEndpoint("not a url"), "invalid-endpoint");
 });
 

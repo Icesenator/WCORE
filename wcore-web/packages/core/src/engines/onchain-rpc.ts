@@ -48,7 +48,7 @@ export function createOnchainBatchRpc(opts: OnchainBatchRpcOptions): OnchainV3Rp
           const value = answer[i];
           if (value != null) counts.set(value, (counts.get(value) ?? 0) + 1);
         }
-        for (const [value, count] of counts) if (count >= MIN_AGREEING_PROVIDERS) return value;
+        for (const [value, count] of counts) if (count >= MIN_AGREEING_PROVIDERS && count * 2 > endpoints.length) return value;
         return null;
       });
     },

@@ -60,7 +60,8 @@ test("assertResolvesPublic rejects a public name pointing at a private address",
   // is exactly what the hostname check alone cannot see.
   await assert.rejects(
     assertResolvesPublic(new URL("http://rpc.example.com/"), resolvesTo("169.254.169.254")),
-    (e: unknown) => e instanceof UnsafeUrlError && /dns_rebind_169\.254\.169\.254/.test((e as Error).message),
+    (e: unknown) => e instanceof UnsafeUrlError && /dns_rebind/.test(e.message)
+      && !/169\.254\.169\.254|rpc\.example\.com/.test(e.message),
   );
 });
 

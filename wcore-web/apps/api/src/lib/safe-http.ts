@@ -60,7 +60,7 @@ export function isPrivateAddress(rawIp: string): boolean {
 export class UnsafeUrlError extends Error {
   constructor(reason: string, url: string) {
     // Path, query and credentials can hold a provider key: name the host only.
-    super(`unsafe url (${reason}): ${redactRpcEndpoint(url)}`);
+    super(`unsafe url (${reason.startsWith("private_host_") ? "private_host" : reason.startsWith("dns_rebind_") ? "dns_rebind" : reason.startsWith("bad_protocol_") ? "bad_protocol" : reason}): ${redactRpcEndpoint(url)}`);
     this.name = "UnsafeUrlError";
   }
 }
@@ -139,7 +139,12 @@ export async function safeFetch(
 
   for (let redirects = 0; ; redirects++) {
     await assertResolvesPublic(url, opts?.resolveAddresses);
-    const response = await fetchImpl(url, { ...requestInit, redirect: "manual" });
+    let response: Response;
+    try {
+      response = await fetchImpl(url, { ...requestInit, redirect: "manual" });
+    } catch {
+      throw new Error(`HTTP transport failed: ${redactRpcEndpoint(rawUrl)}`);
+    }
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
 
     const location = response.headers.get("location");

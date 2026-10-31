@@ -1,5 +1,6 @@
 import { EvmRpc, RpcDispatcher } from "../rpc/index.js";
 import { TRANSFER_EVENT_TOPIC } from "./abi.js";
+import { redactRpcEndpoint } from "../rpc/rpc-override.js";
 
 export interface TransferLog {
   address: string;
@@ -49,8 +50,9 @@ async function discoverLogsInRange(
       // alors que la découverte a abouti. La santé RPC est déjà tracée par
       // rpc-health ; ici seul le résultat final compte.
       return { contracts: [...found], errors: [] };
-    } catch (err) {
-      errors.push(`${endpoint}: ${err instanceof Error ? err.message : String(err)}`);
+    } catch {
+      // Provider text can echo credentials and reaches the sheet through errors[].
+      errors.push(`${redactRpcEndpoint(endpoint)}: RPC log discovery failed`);
     }
   }
   return { contracts: [], errors };

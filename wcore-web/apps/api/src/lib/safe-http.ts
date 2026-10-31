@@ -8,6 +8,7 @@
 // resolves to, rather than calling fetch directly.
 
 import { lookup } from "node:dns/promises";
+import { redactRpcEndpoint } from "@wcore/core";
 
 // Hostnames that never need a DNS round-trip to be rejected.
 const PRIVATE_HOSTNAME = /^(localhost|.*\.local|.*\.internal|.*\.localhost)$/i;
@@ -56,9 +57,16 @@ export function isPrivateAddress(rawIp: string): boolean {
   return true; // not an address we can reason about → refuse
 }
 
+// Opaque label for diagnostics: an overridden RPC keeps its override:CHAIN#n id.
+function describeUrl(url: string): string {
+  const label = redactRpcEndpoint(url);
+  return label.startsWith("override:") ? label : "external-url";
+}
+
 export class UnsafeUrlError extends Error {
   constructor(reason: string, url: string) {
-    super(`unsafe url (${reason}): ${url}`);
+    // Host, path, query and credentials can identify an account or hold a key.
+    super(`unsafe url (${reason.startsWith("private_host_") ? "private_host" : reason.startsWith("dns_rebind_") ? "dns_rebind" : reason.startsWith("bad_protocol_") ? "bad_protocol" : reason}): ${describeUrl(url)}`);
     this.name = "UnsafeUrlError";
   }
 }
@@ -137,7 +145,12 @@ export async function safeFetch(
 
   for (let redirects = 0; ; redirects++) {
     await assertResolvesPublic(url, opts?.resolveAddresses);
-    const response = await fetchImpl(url, { ...requestInit, redirect: "manual" });
+    let response: Response;
+    try {
+      response = await fetchImpl(url, { ...requestInit, redirect: "manual" });
+    } catch {
+      throw new Error(`HTTP transport failed: ${describeUrl(rawUrl)}`);
+    }
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
 
     const location = response.headers.get("location");

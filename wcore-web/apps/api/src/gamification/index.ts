@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { PrismaClient } from "@wcore/db";
 import { GM_FACTORIES, canonicalChainKey } from "@wcore/shared";
-import { getChainMaxLogRange, getPrimaryRpcEndpoint, getRpcEndpoints, warmDynamicRpcEndpoints } from "@wcore/core";
+import { getChainMaxLogRange, getPrimaryRpcEndpoint, getRpcEndpoints, getRpcOverride, warmDynamicRpcEndpoints } from "@wcore/core";
 import { encodeFunctionData, decodeFunctionResult, parseAbi } from "viem";
 import { registerGmRoutes } from "./gm-routes.js";
 import { registerGmOnchainRoutes } from "./gm-onchain.js";
@@ -10,6 +10,7 @@ import { registerLeaderboardRoutes } from "./leaderboard.js";
 import { registerCreatorRoutes } from "./creator.js";
 import { registerNotificationRoutes } from "./notifications.js";
 import { assertAllPublicHttp, safeFetch } from "../lib/safe-http.js";
+import { GmChainUnavailableError } from "./gm-unavailable.js";
 
 const PLATFORM_OWNER = {
   EVM: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080",
@@ -32,10 +33,13 @@ export function startOfUtcDay(date: Date): Date {
 }
 
 export function getChainRpc(chainKey: string): string | undefined {
+  if (getRpcOverride(chainKey)) throw new GmChainUnavailableError(chainKey);
   return getPrimaryRpcEndpoint(chainKey);
 }
 
 export function getChainRpcs(chainKey: string): string[] | undefined {
+  // Legacy GM readers cannot attest overridden providers; refuse rather than emit zero.
+  if (getRpcOverride(chainKey)) throw new GmChainUnavailableError(chainKey);
   const endpoints = getRpcEndpoints(chainKey);
   return endpoints.length ? endpoints : undefined;
 }

@@ -5,7 +5,7 @@ import cookie from "@fastify/cookie";
 import compress from "@fastify/compress";
 import { pathToFileURL } from "node:url";
 import { PrismaClient } from "@wcore/db";
-import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, warmDynamicRpcEndpoints } from "@wcore/core";
+import { CORE_VERSION, chainList, createCacheStore, isAtomicCacheStore, MemoryCacheStore, CircuitBreaker, loadChainlist, metrics, sendAlert, validateRpcOverridesAtStartup, warmDynamicRpcEndpoints } from "@wcore/core";
 import { BUILD_INFO_PATH, GM_FACTORIES, resolveBuildIdentity } from "@wcore/shared";
 import { readFileSync } from "node:fs";
 
@@ -570,6 +570,7 @@ const isMainModule = !!process.argv[1] && import.meta.url === pathToFileURL(proc
 
 if (!apiConfig.runtime.isTest && isMainModule) {
   try {
+    validateRpcOverridesAtStartup(process.env, (message) => app.log.error(message));
     warnSingleRpcChains();
     seedGmContracts(prisma).catch((e) => { console.error("seedGmContracts error:", (e).message || String(e)); });
     // Pre-load RealT registry into Redis at startup so scans can price RealT tokens

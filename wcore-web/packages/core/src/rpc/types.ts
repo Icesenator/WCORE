@@ -28,13 +28,18 @@ export function isJsonRpcSuccess<T>(r: JsonRpcResponse<T>): r is JsonRpcSuccess<
 }
 
 export class RpcCallError extends Error {
-  readonly endpoint: string;
-  readonly rpcCause?: unknown;
+  declare readonly endpoint: string;
+  declare readonly rpcCause?: unknown;
   constructor(message: string, endpoint: string, rpcCause?: unknown) {
-    super(message);
+    // Provider/transport messages can echo a key independently of the URL.
+    super(/revert/i.test(message) ? "RPC execution reverted"
+      : /^HTTP \d{3}$/.test(message) ? message
+      : /^RPC error -?\d+/.test(message) ? message.match(/^RPC error -?\d+/)![0]
+      : "RPC request failed");
     this.name = "RpcCallError";
-    this.endpoint = endpoint;
-    this.rpcCause = rpcCause;
+    // Non-enumerable: a logged or serialized error must not carry a keyed provider URL.
+    Object.defineProperty(this, "endpoint", { value: endpoint, enumerable: false });
+    Object.defineProperty(this, "rpcCause", { value: rpcCause, enumerable: false });
   }
 }
 

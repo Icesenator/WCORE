@@ -5,6 +5,7 @@ import { canonicalChainKey, getFactory } from "@wcore/shared";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
+import { GM_UNAVAILABLE_STATUS, gmUnavailableBody, isGmChainUnavailable } from "./gm-unavailable.js";
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const statusOnchainCache = new Map<string, { value: boolean; expiresAt: number }>();
@@ -54,7 +55,13 @@ export async function registerGmOnchainRoutes(
     const txHash = onchainParsed.data.txHash.toLowerCase();
     const chainKey = canonicalChainKey(onchainParsed.data.chainKey);
     const gmContractAddress = onchainParsed.data.contractAddress?.toLowerCase();
-    const rpcUrl = getChainRpc(chainKey);
+    let rpcUrl: string | undefined;
+    try {
+      rpcUrl = getChainRpc(chainKey);
+    } catch (e) {
+      if (isGmChainUnavailable(e)) return reply.code(GM_UNAVAILABLE_STATUS).send(gmUnavailableBody(e));
+      throw e;
+    }
     if (!rpcUrl) return reply.code(400).send({ error: "unsupported_chain", chainKey });
 
     // Resolve GM contract: use provided contractAddress if available, else fallback to platform
@@ -429,7 +436,13 @@ export async function registerGmOnchainRoutes(
 
     const factory = getFactory(chainQuery);
     if (!factory) return reply.code(400).send({ error: "unsupported_chain" });
-    const rpcs = getChainRpcs(chainQuery);
+    let rpcs: string[] | undefined;
+    try {
+      rpcs = getChainRpcs(chainQuery);
+    } catch (e) {
+      if (isGmChainUnavailable(e)) return reply.code(GM_UNAVAILABLE_STATUS).send(gmUnavailableBody(e));
+      throw e;
+    }
     if (!rpcs?.length) return reply.code(400).send({ error: "no_rpc" });
 
     try {

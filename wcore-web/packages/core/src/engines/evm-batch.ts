@@ -1,6 +1,7 @@
 ﻿import { getChain } from "../chains/index.js";
 import { EvmRpc, RpcDispatcher, multicall, type MulticallCall, type MulticallResult } from "../rpc/index.js";
 import { getRpcEndpoints, getVerifiedEvmRpcEndpoints } from "../rpc/endpoints.js";
+import { consensusConfigFor } from "../rpc/rpc-override.js";
 import {
   decodeUint256,
   decodeUint256FirstWord,
@@ -107,8 +108,7 @@ export async function getEvmWalletsAssets(
   const effectiveEndpoints = endpoints;
 
   const dispatcher = opts.dispatcher ?? new RpcDispatcher(undefined, {
-    minRpcs: Number(chain.RPC?.CONSENSUS_MIN_RPCS ?? 2),
-    maxRpcs: Number(chain.RPC?.CONSENSUS_MAX_RPCS ?? 3),
+    ...consensusConfigFor(key, chain),
     timeoutMs: rpcTimeout,
     // The batch timeout now reaches the RPC layer instead of stopping at this scan.
     signal: opts.signal,

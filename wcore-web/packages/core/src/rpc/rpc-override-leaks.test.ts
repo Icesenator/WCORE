@@ -83,6 +83,20 @@ test("quorum strict : le revert d'un seul fournisseur ne marque pas le jeton non
   assert.equal(writes.some((k) => k.startsWith("meta:skip:")), false, writes.join(","));
 });
 
+test("surcharge : la santé globale ne retire pas un fournisseur de la liste (sinon B3 resterait dégradé des heures)", async () => {
+  const { rpcHealth } = await import("./rpc-health.js");
+  const { getRpcEndpoints } = await import("./endpoints.js");
+  const before = process.env.WCORE_RPC_OVERRIDES;
+  process.env.WCORE_RPC_OVERRIDES = ENV.WCORE_RPC_OVERRIDES;
+  try {
+    for (let i = 0; i < 3; i++) rpcHealth.recordFailure("B3", KEYED_2);
+    assert.deepEqual(getRpcEndpoints("B3"), [KEYED, KEYED_2]);
+  } finally {
+    rpcHealth.recordSuccess("B3", KEYED_2);
+    if (before === undefined) delete process.env.WCORE_RPC_OVERRIDES; else process.env.WCORE_RPC_OVERRIDES = before;
+  }
+});
+
 test("RpcCallError : l'endpoint n'apparaît ni à l'inspection ni en JSON", () => {
   const err = new RpcCallError("HTTP 500", KEYED);
   assert.equal(err.endpoint, KEYED);

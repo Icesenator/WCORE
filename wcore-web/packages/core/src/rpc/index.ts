@@ -5,5 +5,6 @@ export * from "./client.js";
 export * from "./dispatcher.js";
 export * from "./multicall.js";
 export * from "./endpoints.js";
+export { consensusConfigFor, getRpcOverride, redactRpcEndpoint, validateRpcOverridesAtStartup } from "./rpc-override.js";
 export { rpcHealth, RpcHealthTracker } from "./rpc-health.js";
 export * from "./chain-health.js";

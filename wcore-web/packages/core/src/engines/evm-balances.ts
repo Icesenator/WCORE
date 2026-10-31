@@ -11,6 +11,13 @@ import { cacheVote, liveVote, failedLiveVote, cacheEntry, type BalanceCacheEntry
 export const _blockCache = new Map<string, { block: number; ts: number }>();
 export const _BLOCK_CACHE_TTL_MS = 30_000;
 
+// Under a strict quorum, an answer that did not reach consensus stays below the live
+// confidence threshold of resolveBalance: it can neither beat the cache nor stand alone.
+const UNCONFIRMED_LIVE_CONFIDENCE = 0.5;
+function liveVoteConfidence(res: { strict?: boolean; consensus: boolean }): number {
+  return res.strict && !res.consensus ? UNCONFIRMED_LIVE_CONFIDENCE : 0.9;
+}
+
 function erc20BalanceCacheKey(
   chainKey: string,
   contract: string,
@@ -102,9 +109,10 @@ export async function readNativeBalance(
   (value) => value.toString());
 
   const votes: BalanceVote[] = [];
+  const liveConfidence = liveVoteConfidence(res);
   for (const a of res.attempts) {
     if (a.ok && a.value != null) {
-      votes.push(liveVote("rpc", BigInt(a.value), false, 0.9, a.endpoint));
+      votes.push(liveVote("rpc", BigInt(a.value), false, liveConfidence, a.endpoint));
     } else {
       votes.push(failedLiveVote("rpc", String(a.error ?? "balance fetch failed")));
     }
@@ -197,10 +205,11 @@ export async function readErc20Balance(
 
   const votes: BalanceVote[] = [];
   const decode = customSelector ? decodeUint256FirstWord : decodeUint256;
+  const liveConfidence = liveVoteConfidence(res);
   for (const a of res.attempts) {
     if (a.ok && a.value) {
       const raw = decode(a.value);
-      votes.push(liveVote("rpc", raw, false, 0.9, a.endpoint));
+      votes.push(liveVote("rpc", raw, false, liveConfidence, a.endpoint));
     } else {
       votes.push(failedLiveVote("rpc", String(a.error ?? "eth_call failed")));
     }
@@ -231,7 +240,8 @@ export async function readErc20Balance(
   const decision = resolveBalance(votes);
 
   // Check if ALL RPCs reverted → flag as non-ERC20 for future scans
-  const allReverted = res.attempts.length > 0 && res.attempts.every((a) => {
+  // Under a strict quorum one provider's revert is not enough to hide a token for 24 h.
+  const allReverted = res.attempts.length >= (res.strict ? 2 : 1) && res.attempts.every((a) => {
     if (a.ok) return false;
     const msg = String(a.error ?? "");
     return msg.includes("revert") || msg.includes("reverted");

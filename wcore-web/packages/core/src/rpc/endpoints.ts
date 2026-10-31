@@ -2,6 +2,7 @@ import { getChain } from "../chains/index.js";
 import { getRpcUrls, loadChainlist } from "../chainlist.js";
 import { rpcHealth } from "./rpc-health.js";
 import { EvmRpc } from "./client.js";
+import { getRpcOverride } from "./rpc-override.js";
 
 export interface RpcEndpointOptions {
   includeDynamic?: boolean;
@@ -37,9 +38,11 @@ function isUsableRpcUrl(url: string): boolean {
   return url.startsWith("https://") && !url.includes("${") && !url.includes("{") && !url.includes("}");
 }
 
-function getStaticRpcEndpoints(chainKey: string): string[] {
+function getStaticRpcEndpoints(chainKey: string, env: Record<string, string | undefined> = process.env): string[] {
   const chain = getChain(normalizeChainKey(chainKey));
   if (!chain) return [];
+  const override = getRpcOverride(normalizeChainKey(chainKey), env);
+  if (override && chain.vm === "EVM") return dedupe(override);
   if (chain.vm === "COSMOS") {
     return dedupe([chain.API?.RPC_URL, chain.API?.REST_URL, chain.API?.LCD_URL].filter((x): x is string => typeof x === "string"));
   }
@@ -76,7 +79,8 @@ export function getChainMaxLogRange(chainKey: string): number | undefined {
 export function getRpcEndpoints(chainKey: string, options: RpcEndpointOptions = {}): string[] {
   const key = normalizeChainKey(chainKey);
   const staticEndpoints = getStaticRpcEndpoints(key);
-  const dynamic = options.includeDynamic !== false ? dynamicRpcCache.get(key) : undefined;
+  // An override is the complete endpoint list: Chainlist must not add providers back.
+  const dynamic = options.includeDynamic !== false && !getRpcOverride(key) ? dynamicRpcCache.get(key) : undefined;
   const dynamicFresh = dynamic && Date.now() - dynamic.ts < DYNAMIC_TTL_MS ? dynamic.endpoints : [];
   const merged = dedupe([...staticEndpoints, ...dynamicFresh]);
   const healthy = options.useHealth === false ? merged : rpcHealth.getHealthyEndpoints(key, merged);

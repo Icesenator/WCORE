@@ -2,6 +2,8 @@ import { getChain } from "../chains/index.js";
 import { EvmRpc, RpcDispatcher, multicall, type MulticallCall } from "../rpc/index.js";
 import { rpcHealth } from "../rpc/rpc-health.js";
 import { getRpcEndpoints, getVerifiedEvmRpcEndpoints } from "../rpc/endpoints.js";
+import { consensusConfigFor } from "../rpc/rpc-override.js";
+import { createOnchainBatchRpc } from "./onchain-rpc.js";
 import {
   decodeUint256,
   discoverTokensByTransferLogs,
@@ -151,32 +153,19 @@ export async function getEvmWalletAssets(
   const effectiveEndpoints = endpoints;
 
   const dispatcher = opts.dispatcher ?? new RpcDispatcher(undefined, {
-    minRpcs: Number(chain.RPC?.CONSENSUS_MIN_RPCS ?? 2),
-    maxRpcs: Number(chain.RPC?.CONSENSUS_MAX_RPCS ?? 3),
+    ...consensusConfigFor(key, chain),
     timeoutMs: rpcTimeout,
     // The caller's timeout now reaches the RPC layer instead of stopping at this scan.
     signal: opts.signal,
   });
 
-  const onchainRpc: OnchainV3Rpc = {
-    async batch(calls) {
-      const ethCalls = calls.map((c) => ({ method: "eth_call", params: [{ to: c.to, data: c.data }, "latest"] }));
-      try {
-        const results = await Promise.any(
-          effectiveEndpoints.map(async (endpoint) => {
-            const results = await rpc.batch(endpoint, ethCalls, { timeoutMs: 5000, signal: opts.signal });
-            const mapped = results.map((r) => (r && "result" in r && typeof r.result === "string") ? r.result : null);
-            rpcHealth.recordSuccess(key, endpoint);
-            return mapped;
-          }),
-        );
-        return results;
-      } catch {
-        for (const ep of effectiveEndpoints) rpcHealth.recordFailure(key, ep);
-        return calls.map(() => null);
-      }
-    },
-  };
+  const onchainRpc: OnchainV3Rpc = createOnchainBatchRpc({
+    chainKey: key,
+    endpoints: effectiveEndpoints,
+    rpc,
+    strict: consensusConfigFor(key, chain).strictMinRpcs,
+    signal: opts.signal,
+  });
 
   const cache = opts.cache;
   const balanceCacheKey = `bal_cache:${key.toLowerCase()}:${normalizedAddress}`;

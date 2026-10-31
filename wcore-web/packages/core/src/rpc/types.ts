@@ -28,13 +28,14 @@ export function isJsonRpcSuccess<T>(r: JsonRpcResponse<T>): r is JsonRpcSuccess<
 }
 
 export class RpcCallError extends Error {
-  readonly endpoint: string;
-  readonly rpcCause?: unknown;
+  declare readonly endpoint: string;
+  declare readonly rpcCause?: unknown;
   constructor(message: string, endpoint: string, rpcCause?: unknown) {
     super(message);
     this.name = "RpcCallError";
-    this.endpoint = endpoint;
-    this.rpcCause = rpcCause;
+    // Non-enumerable: a logged or serialized error must not carry a keyed provider URL.
+    Object.defineProperty(this, "endpoint", { value: endpoint, enumerable: false });
+    Object.defineProperty(this, "rpcCause", { value: rpcCause, enumerable: false });
   }
 }
 

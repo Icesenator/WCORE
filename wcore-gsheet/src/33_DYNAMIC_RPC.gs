@@ -515,7 +515,7 @@ function _dynamicRpcGetOurChainIds() {
     "DUCKCHAIN", "GEB", "MATCHAIN", "METAL_L2", "MEZO", "MITOSIS",
     "PLASMA", "RACE", "REYA", "STABLE", "SUPERPOSITION",
     "SWAN", "TAC", "ZKLINKNOVA", "XRPLEVM", "ZIRCUIT",
-    "LENS", "APPCHAIN", "B3", "DBK_CHAIN", "DOMA",
+    "LENS", "APPCHAIN", "DBK_CHAIN", "DOMA",
     "INTUITION", "KATANA", "OPENLEDGER"
   ];
 

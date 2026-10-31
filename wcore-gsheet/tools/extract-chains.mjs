@@ -196,6 +196,7 @@ function extractFromFile(filePath) {
   const config = safeEvalLiteral(literal, prelude);
   // Tombstone : ne jamais republier une source historique restaurée par erreur.
   if (key === "SUPERSEED" || Number(config.CHAIN?.CHAIN_ID) === 5330) return null;
+  if (key === "B3" || Number(config.CHAIN?.CHAIN_ID) === 8333) return null;
   return { varName, kind, key, config };
 }
 

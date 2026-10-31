@@ -37,7 +37,6 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   stable: { address: "0x67d96a81e44761edd3e9a4ba5e3872ac5980122d", chainId: 988 },
   tac: { address: "0xdc73b2ddf853bd4959288b45d5e5ac348c73075a", chainId: 239 },
   mitosis: { address: "0x540dbcb3b2055ef5790b9fdaa197216bb4aac3c2", chainId: 124816 },
-  b3: { address: "0x14bfaa1302ab5ea8041d3dfec9abb668efbf2f34", chainId: 8333 },
   sonic: { address: "0xb22fb1dbbaf87990b738502bb5f3eed5c19a43e4", chainId: 146 },
   citrea: { address: "0xf4b08900af3c44e42dfebe60624d5c7c32e743fd", chainId: 4114 },
   cronos: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 25 },
@@ -203,4 +202,7 @@ export function getActiveFactoryChains(): string[] {
 export const GM_HISTORICAL_FACTORIES: Record<string, { address: string; chainId: number }> = {
   degen: { address: "0xc3e5ef8c71712f55fabc6b3c07844a49103c9d8f", chainId: 666666666 },
   superposition: { address: "0x8e2530ef73ef47a1f086f8baf423c1bdcd9e472f", chainId: 55244 },
+  // B3 Mainnet: network closing, new withdrawals closed (2026-10-31). Kept for the
+  // owners of deployed contracts; it is not an active factory.
+  b3: { address: "0x14bfaa1302ab5ea8041d3dfec9abb668efbf2f34", chainId: 8333 },
 };

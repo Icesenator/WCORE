@@ -11,3 +11,9 @@
 4ee3dc5feb60361d52927bb3b6fd32a2631cd01f:wcore-web/apps/api/test/analytics-hook-order.fixture.ts:postgres-url-with-credentials:9
 4ee3dc5feb60361d52927bb3b6fd32a2631cd01f:wcore-web/apps/api/src/route-classification.fixture.ts:postgres-url-with-credentials:8
 4ee3dc5feb60361d52927bb3b6fd32a2631cd01f:wcore-web/apps/api/test/zerion-config-startup.test.ts:postgres-url-with-credentials:83
+
+# Ignore exact des deux détections du commit 3670ec02 (retrait de B3 Mainnet, PR #38).
+# Toutes deux visent la constante B3_TOKEN_ON_BASE = adresse PUBLIQUE du contrat du token B3
+# sur Base (0xb3b3…b3b3), pas une clé ; la constante est renommée dans le commit suivant.
+3670ec02c402af6cf74b2bc533d37b537ee7ff9e:wcore-web/packages/core/src/engines/b3-mainnet-retired.test.ts:generic-api-key:7
+3670ec02c402af6cf74b2bc533d37b537ee7ff9e:wcore-gsheet/tests/b3-mainnet-retired.test.js:generic-api-key:10

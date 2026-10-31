@@ -15,7 +15,6 @@ import { AURORA } from "./AURORA.js";
 import { AVALANCHE } from "./AVALANCHE.js";
 import { AWAJI } from "./AWAJI.js";
 import { B2 } from "./B2.js";
-import { B3 } from "./B3.js";
 import { BASE } from "./BASE.js";
 import { BEAM } from "./BEAM.js";
 import { BERACHAIN } from "./BERACHAIN.js";
@@ -175,7 +174,6 @@ export const chains = {
   AVALANCHE,
   AWAJI,
   B2,
-  B3,
   BASE,
   BEAM,
   BERACHAIN,

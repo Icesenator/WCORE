@@ -15,6 +15,7 @@ const LEGACY_GM_CHAIN_IDS: Record<string, number> = {
   duckchain: 5545,
   degen: 666666666,
   superposition: 55244,
+  b3: 8333,
 };
 let cachedContracts: GmContractWithBalance[] = [];
 let cachedKey = "";

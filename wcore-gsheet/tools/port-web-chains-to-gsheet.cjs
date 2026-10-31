@@ -57,7 +57,8 @@ function factoryName(vm) {
 
 function emitGs(chainKey, config) {
   // Tombstone : refuser une ancienne config, sans recréer de wrapper exécutable.
-  if (chainKey === "SUPERSEED" || Number(config.CHAIN && config.CHAIN.CHAIN_ID) === 5330) {
+  if (chainKey === "SUPERSEED" || Number(config.CHAIN && config.CHAIN.CHAIN_ID) === 5330 ||
+      chainKey === "B3" || Number(config.CHAIN && config.CHAIN.CHAIN_ID) === 8333) {
     throw new Error("CHAIN_REMOVED");
   }
   const vm = config.vm;

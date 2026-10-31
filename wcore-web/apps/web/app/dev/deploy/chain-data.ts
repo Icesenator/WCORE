@@ -244,12 +244,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "MITO", symbol: "MITO", decimals: 18 },
     rpcUrls: ["https://rpc.mitosis.org"],
   },
-  B3: {
-    chainId: "0x208d",
-    chainName: "B3",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-1", "https://wcore-rpc-relay.straub-florian88-fs.workers.dev/b3-2"],
-  },
   CITREA: {
     chainId: "0x1012",
     chainName: "Citrea",
@@ -623,7 +617,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   988, // STABLE
   239, // TAC
   124816, // MITOSIS
-  8333, // B3
   4114, // CITREA
   25, // CRONOS
   122, // FUSE

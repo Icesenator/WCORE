@@ -47,14 +47,44 @@ var ChainFactory = ChainFactory || {};
  * Rejette toute création, enregistrement, planification ou scan sans migration
  * ni purge destructrice de l'historique de cache existant.
  */
+// B3 Mainnet (8333) : fermeture du réseau, retraits fermés le 2026-10-31. Le cache et
+// l'onglet Ledger sont conservés comme preuves ; seul le traitement actif s'arrête.
+// Le token B3 sur Base (0xb3b3…b3b3) est un actif distinct, non concerné.
+var WCORE_REMOVED_CHAINS = [
+  { label: "SUPERSEED (5330)", ids: ["5330", "SUPERSEED", "SSEED", "0X14D2", "LEDGER - SUPERSEED", "LEDGER - SUPERSEED CRYPTO"] },
+  { label: "B3 (8333)", ids: ["8333", "B3", "0X208D", "LEDGER - B3", "LEDGER - B3 CRYPTO"] }
+];
+
+function _wcoreRemovedChainLabel_(input) {
+  if (input === null || input === undefined) return "";
+  var upper = String(input).trim().toUpperCase();
+  if (!upper) return "";
+  for (var i = 0; i < WCORE_REMOVED_CHAINS.length; i++) {
+    if (WCORE_REMOVED_CHAINS[i].ids.indexOf(upper) >= 0) return WCORE_REMOVED_CHAINS[i].label;
+  }
+  return "";
+}
+
 function _wcoreRemovedChain_(input) {
-  if (input === null || input === undefined) return false;
-  var s = String(input).trim();
-  if (!s) return false;
-  if (s === "5330" || input === 5330) return true;
-  var upper = s.toUpperCase();
-  if (upper === "SUPERSEED" || upper === "SSEED" || upper === "0X14D2") return true;
-  return upper === "LEDGER - SUPERSEED" || upper === "LEDGER - SUPERSEED CRYPTO";
+  return _wcoreRemovedChainLabel_(input) !== "";
+}
+
+// Les formules existantes de l'onglet "Ledger - B3" restent valides (pas de #NAME?)
+// mais n'affichent plus ni solde ni total : aucune valeur ancienne présentée comme
+// courante, aucun scan. Les données restent dans WalletCache et dans l'archive.
+function _wcoreRemovedChainCell_(label) {
+  return [["[CHAIN_REMOVED] " + label + " — réseau fermé, onglet archivé, aucune valeur courante"]];
+}
+function GET_WALLET_ASSETS_B3() { return _wcoreRemovedChainCell_("B3 (8333)"); }
+function CACHED_WALLET_ASSETS_B3() { return _wcoreRemovedChainCell_("B3 (8333)"); }
+function B3_REFRESH_STATUS() { return "[CHAIN_REMOVED] B3 (8333)"; }
+function B3_STATS() { return _wcoreRemovedChainCell_("B3 (8333)"); }
+// Lecture seule du cache conservé (preuve pour une demande de récupération) : aucun
+// appel réseau, aucune écriture. Les autres diagnostics B3 (RPC, purge) sont retirés.
+function DIAG_B3_CACHE_ASSETS(w) {
+  var keys = (typeof EvmConfigBuilder !== "undefined" && EvmConfigBuilder.generateKeys) ? EvmConfigBuilder.generateKeys("B3") : null;
+  if (!keys || !keys.PREFIX) keys = { PREFIX: "B3_CACHE_" };
+  return Diagnostic.cacheListAssets({ CHAIN: { NAME: "B3 (archive)", CHAIN_ID: 8333, NATIVE_SYMBOL: "ETH", NATIVE_DECIMALS: 18 }, KEYS: keys }, w);
 }
 
 // ============================================================
@@ -134,7 +164,7 @@ ChainFactory.getCacheVersion = function(vmType) {
 
 ChainFactory.createEvmChain = function(chainName, chainConfig) {
  if (_wcoreRemovedChain_(chainName) || _wcoreRemovedChain_(chainConfig && chainConfig.CHAIN && chainConfig.CHAIN.CHAIN_ID)) {
-   throw new Error("CHAIN_REMOVED: SUPERSEED (5330)");
+   throw new Error("CHAIN_REMOVED: " + (_wcoreRemovedChainLabel_(chainName) || _wcoreRemovedChainLabel_(chainConfig && chainConfig.CHAIN && chainConfig.CHAIN.CHAIN_ID)));
  }
  var _config = null;
  var name = String(chainName).toUpperCase();

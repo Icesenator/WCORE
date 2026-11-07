@@ -264,13 +264,8 @@ const tac: Chain = {
   blockExplorers: { default: { name: "TAC Explorer", url: "https://explorer.tac.build" } },
 };
 
-const b3: Chain = {
-  id: 8333,
-  name: "B3",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: ["https://mainnet-rpc.b3.fun", "https://8333.rpc.thirdweb.com"] }, public: { http: ["https://mainnet-rpc.b3.fun", "https://8333.rpc.thirdweb.com"] } },
-  blockExplorers: { default: { name: "B3 Explorer", url: "https://explorer.b3.fun" } },
-};
+// B3 Mainnet (8333) retired on 2026-10-31 (network closed): no chain definition,
+// so wagmi can neither switch to it nor add it (wallet_addEthereumChain).
 
 const citrea: Chain = {
   id: 4114,
@@ -539,7 +534,7 @@ const wagmiConnectors = [
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, lisk, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
-    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, b3, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
+    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca],
   // as any needed — wagmi connector types mismatch with custom chain list
@@ -603,7 +598,6 @@ export const config = createConfig({
     [openledger.id]: http(),
     [stable.id]: http(),
     [tac.id]: http(),
-    [b3.id]: http(),
     [citrea.id]: http(),
     [cronos.id]: http(),
     [fuse.id]: http(),

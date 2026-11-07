@@ -32,7 +32,7 @@ describe("coverage stats", () => {
     assert.equal(stats.cexProviderCount, CEX_PROVIDERS.length);
     assert.equal(stats.gmEnabledChainCount, Object.keys(GM_FACTORIES).length);
     assert.equal(stats.cexProviderCount, 7);
-    assert.equal(stats.chainConfigCount, 158); // Superseed 5330 retiré du catalogue actif.
+    assert.equal(stats.chainConfigCount, 157); // Superseed 5330 et B3 Mainnet 8333 retirés du catalogue actif.
     assert.notEqual(stats.chainConfigCount, 325);
   });
 });

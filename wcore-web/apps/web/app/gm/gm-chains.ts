@@ -19,7 +19,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   metal_l2: "Metal L2", robinhood_chain: "Robinhood Chain", appchain: "AppChain",
   camp: "Camp", duckchain: "DuckChain", cyber: "Cyber",
   zircuit: "Zircuit", openledger: "OpenLedger",
-  stable: "Stable", tac: "TAC", mitosis: "Mitosis", b3: "B3", sonic: "Sonic", citrea: "Citrea", cronos: "Cronos", fuse: "Fuse", kaia: "Kaia",
+  stable: "Stable", tac: "TAC", mitosis: "Mitosis", sonic: "Sonic", citrea: "Citrea", cronos: "Cronos", fuse: "Fuse", kaia: "Kaia",
   moonbeam: "Moonbeam",
   moonriver: "Moonriver",
   astar: "Astar",

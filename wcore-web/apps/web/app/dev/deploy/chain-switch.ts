@@ -1,3 +1,4 @@
+import { getRetiredChainLabel, isRetiredChainId } from "@wcore/shared";
 import type { AddEthereumChainParams } from "./chain-params";
 
 export interface WalletRequest {
@@ -46,6 +47,11 @@ export async function switchWalletChain(
   chainIdHex: string,
   lookupAddParams: (chainIdNum: number) => AddEthereumChainParams | null,
 ): Promise<void> {
+  // Retired networks (B3 8333, Superseed 5330): refuse before any wallet request.
+  if (isRetiredChainId(chainIdHex)) {
+    const label = getRetiredChainLabel(String(parseInt(chainIdHex, 16))) ?? chainIdHex;
+    throw Object.assign(new Error(`${label} has been removed from WCORE. Wallet and RPC actions are not supported.`), { code: "CHAIN_REMOVED" });
+  }
   if (!ethereum) return;
   try {
     await ethereum.request({

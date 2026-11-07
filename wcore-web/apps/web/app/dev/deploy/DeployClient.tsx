@@ -40,7 +40,7 @@ const DEPLOY_CHAIN_KEYS = [
   // L2s / OP Stack / Superchains
   "SHAPE", "BOB", "LISK", "METAL_L2",
   "APPCHAIN", "CAMP", "DUCKCHAIN", "CYBER", "ZIRCUIT",
-  "OPENLEDGER", "STABLE", "TAC", "MITOSIS", "B3", "CITREA",
+  "OPENLEDGER", "STABLE", "TAC", "MITOSIS", "CITREA",
   // EVM-compatible majors
   "CRONOS", "FUSE", "KAIA", "MOONBEAM", "MOONRIVER", "ASTAR", "AURORA",
   "METIS", "BOBA", "ROOTSTOCK", "PULSECHAIN", "KCC", "CORE", "FLARE",
@@ -97,7 +97,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   STABLE: { name: "Stable", chainId: 988 },
   TAC: { name: "TAC", chainId: 239 },
   MITOSIS: { name: "Mitosis", chainId: 124816 },
-  B3: { name: "B3", chainId: 8333 },
   FOGO: { name: "Fogo", chainId: 4242 },
   CITREA: { name: "Citrea", chainId: 4114 },
   // EVM-compatible majors

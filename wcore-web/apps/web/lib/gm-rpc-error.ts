@@ -1,4 +1,4 @@
-import { isRetiredChain } from "@wcore/shared";
+import { getRetiredChainLabel } from "@wcore/shared";
 
 /** RPC diagnostics only: never infer gas, contract failure or broadcast from a transport error. */
 export function isGmRpcUnauthorized(error: unknown, seen = new Set<object>()): boolean {
@@ -23,8 +23,9 @@ export function normalizeGmRpcError(error: unknown): unknown {
 
 /** Permanent local retirement guard, including legacy keys and numeric IDs. */
 export function getGmRpcUnavailableMessage(chainKey: string): string | null {
-  return isRetiredChain(chainKey)
-    ? "Superseed L2 has been removed from WCORE. Wallet and RPC actions are not supported."
+  const label = getRetiredChainLabel(chainKey);
+  return label
+    ? `${label} has been removed from WCORE. Wallet and RPC actions are not supported.`
     : null;
 }
 

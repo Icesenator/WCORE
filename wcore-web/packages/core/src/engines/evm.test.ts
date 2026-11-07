@@ -1842,7 +1842,7 @@ test("getEvmWalletsAssets: unexpected native read exception is reported as unava
     async batch(): Promise<unknown[]> { return []; },
   };
 
-  const result = await getEvmWalletsAssets([WALLET_A], "B3", {
+  const result = await getEvmWalletsAssets([WALLET_A], "B2", {
     dispatcher: dispatcher as never,
     rpc: rpc as never,
     sources: makeNativeSources(1),

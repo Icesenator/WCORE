@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, getApiUrl } from "@/lib/api";
-import { asSentinelChainsResponse } from "@/lib/sentinel-view";
-import type { SentinelAlertsResponse, SentinelChainsResponse, SentinelHealthResponse } from "@/lib/sentinel-view";
+import { asSentinelChainsResponse, asSentinelHealthResponse, toPrivateState } from "@/lib/sentinel-view";
+import type { PrivateState, SentinelChainsResponse, SentinelHealthResponse } from "@/lib/sentinel-view";
+
+export type { PrivateState };
 
 // Registre public partage entre composants (badges, page, cloche) : une seule requete.
 let chainsPromise: Promise<SentinelChainsResponse | null> | null = null;
@@ -33,8 +35,6 @@ export function hasStoredSession(): boolean {
   try { return typeof window !== "undefined" && !!window.localStorage.getItem("wcore_address"); } catch { return false; }
 }
 
-export type PrivateState = { status: "loading" } | { status: "anonymous" } | { status: "error" } | { status: "ok"; data: SentinelAlertsResponse };
-
 /** Alertes privees (exposition). 401 = utilisateur non connecte : aucune donnee privee. */
 export function useSentinelAlerts(pollMs = 10 * 60 * 1000): { state: PrivateState; reload: () => void; ack: (id: string) => Promise<boolean> } {
   const [state, setState] = useState<PrivateState>({ status: "loading" });
@@ -44,9 +44,9 @@ export function useSentinelAlerts(pollMs = 10 * 60 * 1000): { state: PrivateStat
     if (!hasStoredSession()) { setState({ status: "anonymous" }); return; }
     apiFetch("/api/sentinel/alerts")
       .then(async (r) => {
-        if (r.status === 401) return setState({ status: "anonymous" });
-        if (!r.ok) return setState({ status: "error" });
-        setState({ status: "ok", data: (await r.json()) as SentinelAlertsResponse });
+        // Reponse non conforme (ex. {}) = indisponible, jamais un faux « aucune alerte ».
+        const json = r.ok ? await r.json().catch(() => null) : null;
+        setState(toPrivateState(r.status, json));
       })
       .catch(() => setState({ status: "error" }));
   }, []);
@@ -74,7 +74,7 @@ export function useSentinelAlerts(pollMs = 10 * 60 * 1000): { state: PrivateStat
 export function useSentinelHealth(): SentinelHealthResponse | null | undefined {
   const [h, setH] = useState<SentinelHealthResponse | null | undefined>(undefined);
   useEffect(() => {
-    fetch(`${getApiUrl()}/api/sentinel/health`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(setH).catch(() => setH(null));
+    fetch(`${getApiUrl()}/api/sentinel/health`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((json) => setH(asSentinelHealthResponse(json))).catch(() => setH(null));
   }, []);
   return h;
 }

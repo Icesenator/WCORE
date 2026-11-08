@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, getApiUrl } from "@/lib/api";
+import { asSentinelChainsResponse } from "@/lib/sentinel-view";
 import type { SentinelAlertsResponse, SentinelChainsResponse, SentinelHealthResponse } from "@/lib/sentinel-view";
 
 // Registre public partage entre composants (badges, page, cloche) : une seule requete.
@@ -13,7 +14,8 @@ export function loadSentinelChains(force = false): Promise<SentinelChainsRespons
   if (!force && chainsPromise && Date.now() - chainsAt < CHAINS_TTL_MS) return chainsPromise;
   chainsAt = Date.now();
   chainsPromise = fetch(`${getApiUrl()}/api/sentinel/chains`, { cache: "no-store" })
-    .then((r) => (r.ok ? (r.json() as Promise<SentinelChainsResponse>) : null))
+    .then((r) => (r.ok ? r.json() : null))
+    .then((json) => asSentinelChainsResponse(json))
     .catch(() => null);
   return chainsPromise;
 }

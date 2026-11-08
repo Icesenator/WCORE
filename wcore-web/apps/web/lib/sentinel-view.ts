@@ -78,10 +78,19 @@ export function nextDeadline(chain: SentinelChainView): SentinelDeadlineView | n
 export function normalizeKey(k: string): string { return String(k || "").trim().toLowerCase().replace(/[\s-]+/g, "_"); }
 
 /** Index chainKey normalise -> chaine a risque (statut non ACTIVE). */
-export function riskIndex(chains: readonly SentinelChainView[]): Map<string, SentinelChainView> {
+export function riskIndex(chains: readonly SentinelChainView[] | null | undefined): Map<string, SentinelChainView> {
   const m = new Map<string, SentinelChainView>();
-  for (const c of chains) if (c.status !== "ACTIVE") m.set(normalizeKey(c.chainKey), c);
+  // Fail-safe : une reponse sans tableau ne doit jamais casser le rendu des cartes (ChainCard, scans).
+  if (!Array.isArray(chains)) return m;
+  for (const c of chains) if (c && typeof c.chainKey === "string" && c.status !== "ACTIVE") m.set(normalizeKey(c.chainKey), c);
   return m;
+}
+
+/** Valide la forme minimale de GET /api/sentinel/chains ; toute autre reponse = registre indisponible (null). */
+export function asSentinelChainsResponse(json: unknown): SentinelChainsResponse | null {
+  if (!json || typeof json !== "object") return null;
+  const j = json as Partial<SentinelChainsResponse>;
+  return Array.isArray(j.chains) && Array.isArray(j.alerts) ? (j as SentinelChainsResponse) : null;
 }
 
 /** Nombre de notifications a afficher sur la cloche (P0/P1 non acquittees). */

@@ -21,6 +21,7 @@ import { type GmContractWithBalance } from "@/hooks/useGmContracts";
 import { getCexProviderMeta } from "@/lib/cex-display";
 import { chainCurrentValue, type LastKnownEntry } from "@/lib/refresh-outcome";
 import { LastKnownChainNotice } from "./LastKnownChainNotice";
+import { SentinelChainBadge } from "./SentinelChainBadge";
 
 import { getActiveFactoryChains } from "@wcore/shared";
 
@@ -150,6 +151,7 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-semibold sm:text-lg">{chain.chainName}</h2>
+              <SentinelChainBadge chainKey={chain.chainKey} />
               {isTimedOut ? (
                 <span className="shrink-0 rounded bg-orange-900/70 px-2 py-0.5 text-xs font-bold uppercase text-orange-200 animate-pulse" title="Scan still running in background — partial data is being saved">⏱️ TIMEOUT</span>
               ) : isCircuitOpen ? (

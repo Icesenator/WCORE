@@ -19,6 +19,9 @@ import { scanPlugin } from "./plugins/scan.js";
 import { createEnrichmentScanStepIfConfigured } from "./integrations/portfolio-enrichment/scan-enrichment.js";
 import { adminPlugin, DependencyTransitionTracker, dependencyHealthStatus } from "./plugins/admin.js";
 import { healthPlugin } from "./plugins/health.js";
+import { sentinelPlugin, startSentinelScheduler, type SentinelDeps } from "./plugins/sentinel.js";
+import { createSentinelStore, exposuresForUser, type WalletScanReader } from "./plugins/sentinel-store.js";
+import { safeFetch } from "./lib/safe-http.js";
 import { walletPlugin } from "./plugins/wallet.js";
 import { cexPlugin } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
@@ -325,6 +328,33 @@ registerPostAuthRateLimit(app, {
 });
 await gamificationPlugin(app, prisma, isAdminAuthorized);
 await supportPlugin(app, prisma);
+
+// --- Chain Sentinel (fermetures et migrations de reseaux) ---
+// Collecte serveur des sources officielles (anti-SSRF via safeFetch), persistance
+// dans le cache partage (Redis), propositions validees par un administrateur.
+// Aucune operation wallet. Planification activee seulement si SENTINEL_ENABLED=true.
+// Etat durable dans PostgreSQL ; verrou dans Redis. Sans Redis (repli memoire), le
+// verrou n'est pas partage entre instances : la collecte ne s'execute pas (echec ferme),
+// et la sante passe en STALE, ce qui leve une alerte visible.
+const sentinelLock = isAtomicCacheStore(sharedCache)
+  ? sharedCache
+  : { add: async () => false, delete: async () => {} };
+const sentinelDeps: SentinelDeps = {
+  store: createSentinelStore(prisma, sentinelLock),
+  intervalMs: 6 * 3600 * 1000,
+  fetchText: async (url: string) => {
+    const res = await safeFetch(url, { signal: AbortSignal.timeout(10_000), headers: { "user-agent": "wcore-chain-sentinel/1" } });
+    const text = (await res.text()).slice(0, 2_000_000);
+    return { status: res.status, text };
+  },
+};
+await app.register(sentinelPlugin, {
+  ...sentinelDeps,
+  isAdmin: (req) => isAdminAuthorized(req),
+  userId: (req) => req.user?.id ?? null,
+  // Dernier scan de chaque adresse de l'utilisateur ; sans scan, aucune exposition (=> NOT_COVERED).
+  exposuresFor: (userId: string, chainKeys: string[]) => exposuresForUser(prisma as unknown as WalletScanReader, userId, chainKeys),
+});
 // --- Health ---
 
 // Liveness et readiness vivent dans ./plugins/health.ts, ou leurs garanties
@@ -580,6 +610,7 @@ if (!apiConfig.runtime.isTest && isMainModule) {
     loadChainlist().catch((e) => { console.error("loadChainlist error:", (e).message || String(e)); });
     snapshotMetrics().catch((e) => { console.error("initial snapshotMetrics error:", (e).message || String(e)); });
     setInterval(() => snapshotMetrics().catch((e) => { console.error("snapshotMetrics interval error:", (e).message || String(e)); }), 300_000).unref();
+    if (process.env.SENTINEL_ENABLED === "true") startSentinelScheduler(sentinelDeps, app.log);
     // Le cache d'endpoints dynamiques expire au bout de 6 h (DYNAMIC_TTL_MS,
     // rpc/endpoints.ts), mais warmDynamicRpcEndpoints n'etait appele qu'une
     // fois, au chargement du module gamification. Un process Railway vit

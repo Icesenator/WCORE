@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  formatCountdown, sortAlerts, nextDeadline, riskIndex, pendingCount, isPublicSafe, normalizeKey,
+  formatCountdown, sortAlerts, nextDeadline, riskIndex, pendingCount, isPublicSafe, normalizeKey, asSentinelChainsResponse,
   type SentinelAlertView, type SentinelChainView, type SentinelChainsResponse,
 } from "../lib/sentinel-view";
 
@@ -42,6 +42,20 @@ test("riskIndex : clés normalisées, chaînes actives exclues", () => {
   assert.ok(idx.has("cronos_zkevm"));
   assert.ok(!idx.has("base"));
   assert.equal(normalizeKey(" Cronos zkEVM "), "cronos_zkevm");
+});
+
+test("fail-safe : une reponse /api/sentinel/chains malformee ne casse jamais le rendu (regression e2e PR #40)", () => {
+  // Le mock e2e catch-all repond {} : avant correctif, riskIndex(undefined) levait une TypeError dans ChainCard.
+  assert.equal(asSentinelChainsResponse({}), null);
+  assert.equal(asSentinelChainsResponse(null), null);
+  assert.equal(asSentinelChainsResponse({ chains: "x", alerts: [] }), null);
+  assert.equal(asSentinelChainsResponse({ chains: [], alerts: {} }), null);
+  const ok = { version: 1, generatedAt: "2026-11-08T00:00:00Z", chains: [chain({})], alerts: [] };
+  assert.equal(asSentinelChainsResponse(ok), ok);
+  assert.doesNotThrow(() => riskIndex(undefined));
+  assert.doesNotThrow(() => riskIndex(null));
+  assert.equal(riskIndex(undefined).size, 0);
+  assert.equal(riskIndex([null as unknown as SentinelChainView, chain({ chainKey: "lisk", status: "RETIRED" })]).size, 1);
 });
 
 test("pendingCount : nul pour un visiteur, sinon taille de la file serveur", () => {

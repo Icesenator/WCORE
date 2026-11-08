@@ -93,9 +93,60 @@ export function asSentinelChainsResponse(json: unknown): SentinelChainsResponse 
   return Array.isArray(j.chains) && Array.isArray(j.alerts) ? (j as SentinelChainsResponse) : null;
 }
 
+const SEVERITIES: readonly string[] = ["P0", "P1", "P2"];
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const isStrOrNull = (v: unknown) => v === null || typeof v === "string";
+const isNumOrNull = (v: unknown) => v === null || (typeof v === "number" && Number.isFinite(v));
+const isUrl = (v: unknown) => { if (typeof v !== "string") return false; try { new URL(v); return true; } catch { return false; } };
+
+/** Champs d'une alerte effectivement lus par la cloche et la page /sentinel. */
+function isAlertView(a: unknown): a is SentinelAlertView {
+  return isObj(a) && typeof a.chainKey === "string" && typeof a.code === "string" && SEVERITIES.includes(a.severity as string)
+    && isNumOrNull(a.actionByMs) && isStrOrNull(a.deadlineKind ?? null) && typeof a.exposure === "string"
+    && Array.isArray(a.officialSourceUrls) && a.officialSourceUrls.every(isUrl)
+    && (a.id === undefined || typeof a.id === "string")
+    && (a.acknowledged === undefined || typeof a.acknowledged === "boolean")
+    && (a.conflict === undefined || typeof a.conflict === "boolean");
+}
+
+/**
+ * Valide GET /api/sentinel/alerts. Une seule alerte invalide rejette toute la reponse (null) :
+ * l'ecarter en silence pourrait masquer une alerte P0 et simuler « aucune alerte ».
+ */
+export function asSentinelAlertsResponse(json: unknown): SentinelAlertsResponse | null {
+  if (!isObj(json)) return null;
+  const { alerts, pendingNotificationIds } = json;
+  if (!Array.isArray(alerts) || !alerts.every(isAlertView)) return null;
+  if (!Array.isArray(pendingNotificationIds) || !pendingNotificationIds.every((id) => typeof id === "string")) return null;
+  return json as unknown as SentinelAlertsResponse;
+}
+
+/** Valide GET /api/sentinel/health ; toute autre reponse = etat de surveillance inconnu (null), jamais « sain ». */
+export function asSentinelHealthResponse(json: unknown): SentinelHealthResponse | null {
+  if (!isObj(json) || !isObj(json.monitoring)) return null;
+  const m = json.monitoring;
+  if (m.status !== "OK" && m.status !== "STALE") return null;
+  if (m.severity !== undefined && !SEVERITIES.includes(m.severity as string)) return null;
+  if (!isStrOrNull(json.lastRunAt) || !isStrOrNull(json.lastSuccessAt)) return null;
+  const n = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+  if (!n(json.sourcesChecked) || !n(json.sourcesFailed)) return null;
+  return json as unknown as SentinelHealthResponse;
+}
+
+export type PrivateState = { status: "loading" } | { status: "anonymous" } | { status: "error" } | { status: "ok"; data: SentinelAlertsResponse };
+
+/** Etat prive a partir de la reponse HTTP : 401 = visiteur ; erreur ou reponse invalide = indisponible, jamais « aucune alerte ». */
+export function toPrivateState(httpStatus: number, json: unknown): PrivateState {
+  if (httpStatus === 401) return { status: "anonymous" };
+  if (httpStatus < 200 || httpStatus >= 300) return { status: "error" };
+  const data = asSentinelAlertsResponse(json);
+  return data ? { status: "ok", data } : { status: "error" };
+}
+
 /** Nombre de notifications a afficher sur la cloche (P0/P1 non acquittees). */
 export function pendingCount(res: SentinelAlertsResponse | null): number {
-  return res ? res.pendingNotificationIds.length : 0;
+  // Fail-safe : une reponse incomplete ne doit jamais faire planter la Sidebar (global error boundary).
+  return res && Array.isArray(res.pendingNotificationIds) ? res.pendingNotificationIds.length : 0;
 }
 
 /** Garde de confidentialite : une vue publique ne doit jamais contenir d'exposition. */

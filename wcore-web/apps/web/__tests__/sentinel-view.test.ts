@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import {
   formatCountdown, sortAlerts, nextDeadline, riskIndex, pendingCount, isPublicSafe, normalizeKey, asSentinelChainsResponse,
   type SentinelAlertView, type SentinelChainView, type SentinelChainsResponse,
+  type SentinelAlertsResponse, type SentinelHealthResponse,
 } from "../lib/sentinel-view";
+import * as View from "../lib/sentinel-view";
+
+type PrivateState = { status: "loading" } | { status: "anonymous" } | { status: "error" } | { status: "ok"; data: SentinelAlertsResponse };
 
 const H = 3600000, D = 24 * H;
 
@@ -61,6 +65,89 @@ test("fail-safe : une reponse /api/sentinel/chains malformee ne casse jamais le 
 test("pendingCount : nul pour un visiteur, sinon taille de la file serveur", () => {
   assert.equal(pendingCount(null), 0);
   assert.equal(pendingCount({ generatedAt: "", alerts: [], pendingNotificationIds: ["a", "b"] }), 2);
+});
+
+// --- Regression e2e PR #40 (scenario 279) : reponses privees /api/sentinel/alerts et /health non validees. ---
+// Namespace : sur ed6f29d0 ces fonctions n'existent pas, chaque test echoue alors individuellement (RED lisible).
+const V = View as unknown as Record<string, (...args: unknown[]) => unknown>;
+const validAlert = (p: Partial<SentinelAlertView> = {}): SentinelAlertView =>
+  alert({ id: "a1", chainKey: "sophon", chainId: 50104, severity: "P0", actionByMs: 1764028800000, countdownMs: 1000,
+    deadlineKind: "NETWORK_SHUTDOWN", officialSourceUrls: ["https://blog.sophon.xyz/x"], acknowledged: false, ...p });
+const validAlerts = (): SentinelAlertsResponse =>
+  ({ generatedAt: "2026-11-08T00:00:00Z", alerts: [validAlert(), validAlert({ id: "a2", severity: "P1" })], pendingNotificationIds: ["a1", "a2"] });
+const validHealth = (): SentinelHealthResponse =>
+  ({ lastRunAt: "2026-11-08T00:00:00Z", lastSuccessAt: "2026-11-08T00:00:00Z", sourcesChecked: 4, sourcesFailed: 0, monitoring: { status: "OK" } });
+
+test("pendingCount : une reponse incomplete ne leve jamais d'exception (cloche dans la Sidebar)", () => {
+  // Avant correctif : TypeError « reading 'length' », qui remontait au global error boundary.
+  assert.doesNotThrow(() => pendingCount({} as SentinelAlertsResponse));
+  assert.equal(pendingCount({} as SentinelAlertsResponse), 0);
+  assert.equal(pendingCount({ generatedAt: "", alerts: [], pendingNotificationIds: "x" } as unknown as SentinelAlertsResponse), 0);
+});
+
+test("asSentinelAlertsResponse : {} , null, champs absents ou mal types => null", () => {
+  assert.equal(typeof V.asSentinelAlertsResponse, "function");
+  const bad: unknown[] = [
+    {}, null, undefined, "x", 42, [],
+    { alerts: [], generatedAt: "" },                                     // pendingNotificationIds absent
+    { pendingNotificationIds: [], generatedAt: "" },                     // alerts absent
+    { alerts: {}, pendingNotificationIds: [], generatedAt: "" },
+    { alerts: [], pendingNotificationIds: "a1", generatedAt: "" },
+    { alerts: [], pendingNotificationIds: [1, 2], generatedAt: "" },
+    { ...validAlerts(), alerts: [null] },
+    { ...validAlerts(), alerts: [{ ...validAlert(), severity: "P9" }] },
+    { ...validAlerts(), alerts: [{ ...validAlert(), chainKey: 7 }] },
+    { ...validAlerts(), alerts: [{ ...validAlert(), code: undefined }] },
+    { ...validAlerts(), alerts: [{ ...validAlert(), actionByMs: "demain" }] },
+    { ...validAlerts(), alerts: [{ ...validAlert(), officialSourceUrls: "https://x" }] },
+    { ...validAlerts(), alerts: [{ ...validAlert(), officialSourceUrls: ["pas une url"] }] },
+    { ...validAlerts(), alerts: [{ ...validAlert(), acknowledged: "non" }] },
+  ];
+  for (const b of bad) assert.equal(V.asSentinelAlertsResponse!(b), null, JSON.stringify(b));
+});
+
+test("asSentinelAlertsResponse : une reponse valide est conservee a l'identique", () => {
+  const ok = validAlerts();
+  assert.equal(V.asSentinelAlertsResponse!(ok), ok);
+  const empty = { generatedAt: "2026-11-08T00:00:00Z", alerts: [], pendingNotificationIds: [] };
+  assert.equal(V.asSentinelAlertsResponse!(empty), empty);
+  // Champs supplementaires du serveur (ex. changes) toleres ; actionByMs null et id absent valides.
+  const extra = { ...validAlerts(), changes: { added: 1 }, alerts: [validAlert({ actionByMs: null, id: undefined })] };
+  assert.equal(V.asSentinelAlertsResponse!(extra), extra);
+});
+
+test("session connectee : etat prive => cloche affichee pour une reponse valide, jamais de faux zero", () => {
+  assert.equal(typeof V.toPrivateState, "function");
+  // Reponse valide avec 2 notifications : etat ok, la cloche affiche 2 et passe en P0.
+  const s = V.toPrivateState!(200, validAlerts()) as PrivateState;
+  assert.equal(s.status, "ok");
+  if (s.status !== "ok") return;
+  assert.equal(pendingCount(s.data), 2);
+  assert.ok(s.data.alerts.some((a) => a.severity === "P0" && !a.acknowledged));
+  // Reponse malformee (mock e2e catch-all) : etat erreur, jamais { status: "ok" } avec un compteur a 0.
+  for (const b of [{}, null, { alerts: [] }]) assert.deepEqual(V.toPrivateState!(200, b), { status: "error" });
+  assert.deepEqual(V.toPrivateState!(401, null), { status: "anonymous" });
+  assert.deepEqual(V.toPrivateState!(500, validAlerts()), { status: "error" });
+});
+
+test("asSentinelHealthResponse : contrat /api/sentinel/health, invalide => null (etat inconnu, jamais sain)", () => {
+  assert.equal(typeof V.asSentinelHealthResponse, "function");
+  const h = validHealth();
+  assert.equal(V.asSentinelHealthResponse!(h), h);
+  const stale = { ...validHealth(), lastSuccessAt: null, monitoring: { status: "STALE", severity: "P0" } };
+  assert.equal(V.asSentinelHealthResponse!(stale), stale);
+  const bad: unknown[] = [
+    {}, null, "OK", [],
+    { ...validHealth(), monitoring: undefined },
+    { ...validHealth(), monitoring: {} },
+    { ...validHealth(), monitoring: { status: "GREEN" } },
+    { ...validHealth(), monitoring: { status: "STALE", severity: "P7" } },
+    { ...validHealth(), sourcesChecked: "4" },
+    { ...validHealth(), sourcesFailed: Number.NaN },
+    { ...validHealth(), lastSuccessAt: 123 },
+    { ...validHealth(), lastRunAt: {} },
+  ];
+  for (const b of bad) assert.equal(V.asSentinelHealthResponse!(b), null, JSON.stringify(b));
 });
 
 test("isPublicSafe : refuse toute exposition dans la vue publique", () => {

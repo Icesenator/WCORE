@@ -391,3 +391,13 @@ model FunnelEventAggregate {
   @@index([campaign, bucketDate])
   @@map("funnel_event_aggregates")
 }
+
+// Chain Sentinel : etat durable (registre valide, sources, propositions, accuses,
+// historique). Le verrou de collecte reste dans Redis (SET NX PX).
+model SentinelState {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("sentinel_state")
+}

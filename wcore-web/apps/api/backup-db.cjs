@@ -13,7 +13,7 @@ const BACKUP_MODELS = [
   'quest', 'userQuest', 'badge', 'userBadge', 'customToken', 'scamOverride',
   'scamVerdict', 'scamScanLog',
   'gmContract', 'onchainGm', 'userChainGm', 'notification', 'ticket',
-  'systemMetricSnapshot', 'opsEvent', 'funnelEventAggregate',
+  'systemMetricSnapshot', 'opsEvent', 'funnelEventAggregate', 'sentinelState',
 ];
 
 async function collectBackup(client, timestamp = new Date().toISOString(), onModel = () => {}) {

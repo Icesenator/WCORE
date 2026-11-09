@@ -33,10 +33,15 @@ test("jobPrincipal prefers the signed-in user over the source IP", () => {
 });
 
 test("ownership keeps wrong users and IPs indistinguishable", () => {
-  assert.equal(ownsScanJob({ userId: "owner", ip: "1.2.3.4" }, "owner", "9.9.9.9"), true);
-  assert.equal(ownsScanJob({ userId: "owner", ip: "1.2.3.4" }, "intruder", "1.2.3.4"), false);
-  assert.equal(ownsScanJob({ userId: null, ip: "1.2.3.4" }, undefined, "1.2.3.4"), true);
-  assert.equal(ownsScanJob({ userId: null, ip: "1.2.3.4" }, undefined, "9.9.9.9"), false);
+  assert.equal(ownsScanJob({ userId: "owner", ip: "1.2.3.4" }, "owner", "9.9.9.9", false), true);
+  assert.equal(ownsScanJob({ userId: "owner", ip: "1.2.3.4" }, "intruder", "1.2.3.4", true), false);
+  assert.equal(ownsScanJob({ userId: null, ip: "1.2.3.4" }, undefined, "1.2.3.4", true), true);
+  assert.equal(ownsScanJob({ userId: null, ip: "1.2.3.4" }, undefined, "9.9.9.9", true), false);
+});
+
+test("an anonymous job also requires its poll token: a matching (possibly forged) IP is not enough", () => {
+  assert.equal(ownsScanJob({ userId: null, ip: "1.2.3.4" }, undefined, "1.2.3.4", false), false);
+  assert.equal(ownsScanJob({ userId: null, ip: "1.2.3.4" }, "someone", "1.2.3.4", false), false);
 });
 
 test("poll serialization preserves the API shape and hides queued status", () => {

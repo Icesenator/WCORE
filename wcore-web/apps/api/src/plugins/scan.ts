@@ -9,6 +9,7 @@ import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
 import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout, chainCircuitOutcome, applyChainCircuitOutcome } from "./scan-utils.js";
 import { getPostgresScanJobQueue, jobPrincipal, type ScanJobProgress, type ScanJobQueue } from "./scan-job.js";
+import { SCAN_POLL_TOKEN_HEADER, scanPollToken, verifyScanPollToken } from "./scan-poll-token.js";
 import { classifyScanError, consumeScanBudget, isUnreachableScan, scanRequestCost } from "../server-helpers.js";
 import { apiConfig } from "../config.js";
 import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
@@ -770,12 +771,13 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
         : { error: "too_many_jobs", message: `Max ${admission.limit} concurrent scans. Wait for one to finish.` };
     }
 
-    return { jobId, chains: requestedChains.length };
+    return { jobId, chains: requestedChains.length, pollToken: scanPollToken(apiConfig.auth.jwtSecret, jobId) };
   });
 
   app.get("/api/scan/async/:jobId", async (req, reply) => {
     const { jobId } = ScanJobParamsSchema.parse(req.params);
-    const job = await scanJobQueue.getOwned(jobId, req.user?.id, req.ip);
+    const pollTokenValid = verifyScanPollToken(apiConfig.auth.jwtSecret, jobId, req.headers[SCAN_POLL_TOKEN_HEADER]);
+    const job = await scanJobQueue.getOwned(jobId, req.user?.id, req.ip, pollTokenValid);
     if (!job) return reply.code(404).send({ error: "job_not_found" });
     return job;
   });

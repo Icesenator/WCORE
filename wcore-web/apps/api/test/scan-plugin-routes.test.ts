@@ -74,9 +74,9 @@ class MemoryScanJobQueue implements ScanJobQueue {
     return { ok: true as const, jobId: input.jobId };
   }
 
-  async getOwned(jobId: string, userId: string | undefined, ip: string) {
+  async getOwned(jobId: string, userId: string | undefined, ip: string, pollTokenValid: boolean) {
     const row = this.jobs.get(jobId);
-    if (!row || !ownsScanJob(row, userId, ip)) return null;
+    if (!row || !ownsScanJob(row, userId, ip, pollTokenValid)) return null;
     return row.result ?? serializePollResult(row.jobId, row.address, row.status, row.progress);
   }
 }
@@ -129,13 +129,14 @@ function scanCacheKey(address: string, chain: string): string {
   return `scan:result:${address.toLowerCase()}:${chain.toLowerCase()}`;
 }
 
-async function pollJob(app: FastifyInstance, jobId: string, opts: { user?: string; remoteAddress?: string } = {}) {
+async function pollJob(app: FastifyInstance, jobId: string, opts: { user?: string; remoteAddress?: string; pollToken?: string } = {}) {
   const headers: Record<string, string> = {};
   if (opts.user) headers["x-test-user"] = opts.user;
+  if (opts.pollToken) headers["x-scan-poll-token"] = opts.pollToken;
   return app.inject({ method: "GET", url: `/api/scan/async/${jobId}`, headers, remoteAddress: opts.remoteAddress });
 }
 
-async function waitForJobSettled(app: FastifyInstance, jobId: string, opts: { user?: string } = {}): Promise<Record<string, unknown>> {
+async function waitForJobSettled(app: FastifyInstance, jobId: string, opts: { user?: string; pollToken?: string } = {}): Promise<Record<string, unknown>> {
   const deadline = Date.now() + 5000;
   for (;;) {
     const res = await pollJob(app, jobId, opts);
@@ -347,10 +348,11 @@ describe("async scan job lifecycle", () => {
   test("creates a job, runs it to completion, and reports per-chain results", async () => {
     const res = await app.inject({ method: "POST", url: "/api/scan/async", payload: { address: ADDR_A, chains: [FAKE_CHAIN] } });
     assert.equal(res.statusCode, 200);
-    const { jobId } = res.json() as { jobId: string };
+    const { jobId, pollToken } = res.json() as { jobId: string; pollToken: string };
     assert.ok(jobId, "jobId returned");
+    assert.match(pollToken, /^[A-Za-z0-9_-]{43}$/, "poll token returned in the body");
 
-    const body = await waitForJobSettled(app, jobId);
+    const body = await waitForJobSettled(app, jobId, { pollToken });
     // The fake chain errors on every entry → 0 done → job status "error"
     assert.equal(body.status, "error");
     const progress = body.progress as { done: number; total: number };
@@ -363,8 +365,8 @@ describe("async scan job lifecycle", () => {
     getFakeBreaker("X_OPEN_CHAIN").allow = false;
     const res = await app.inject({ method: "POST", url: "/api/scan/async", payload: { address: ADDR_A, chains: ["X_OPEN_CHAIN", FAKE_CHAIN] } });
     assert.equal(res.statusCode, 200);
-    const { jobId } = res.json() as { jobId: string };
-    const body = await waitForJobSettled(app, jobId);
+    const { jobId, pollToken } = res.json() as { jobId: string; pollToken: string };
+    const body = await waitForJobSettled(app, jobId, { pollToken });
     const progress = body.progress as { done: number; total: number };
     assert.equal(progress.total, 2);
     const chains = body.chains as Array<{ chainKey: string; errors: Array<{ message: string }> }>;
@@ -382,13 +384,26 @@ describe("async scan job lifecycle", () => {
   test("anonymous jobs are bound to the creator IP", async () => {
     const res = await app.inject({ method: "POST", url: "/api/scan/async", payload: { address: ADDR_A, chains: [FAKE_CHAIN] }, remoteAddress: "192.0.2.10" });
     assert.equal(res.statusCode, 200);
-    const { jobId } = res.json() as { jobId: string };
+    const { jobId, pollToken } = res.json() as { jobId: string; pollToken: string };
 
-    const wrongIp = await pollJob(app, jobId, { remoteAddress: "192.0.2.99" });
+    const wrongIp = await pollJob(app, jobId, { remoteAddress: "192.0.2.99", pollToken });
     assert.equal(wrongIp.statusCode, 404, "different IP must not read an anonymous job");
 
-    const rightIp = await pollJob(app, jobId, { remoteAddress: "192.0.2.10" });
+    const rightIp = await pollJob(app, jobId, { remoteAddress: "192.0.2.10", pollToken });
     assert.equal(rightIp.statusCode, 200, "creator IP can poll its job");
+  });
+
+  test("anonymous jobs also require the poll token: the creator IP alone is not enough", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/scan/async", payload: { address: ADDR_A, chains: [FAKE_CHAIN] }, remoteAddress: "192.0.2.10" });
+    assert.equal(res.statusCode, 200);
+    const { jobId, pollToken } = res.json() as { jobId: string; pollToken: string };
+
+    const noToken = await pollJob(app, jobId, { remoteAddress: "192.0.2.10" });
+    assert.equal(noToken.statusCode, 404, "an IP match without the token must not read the job");
+    assert.equal(noToken.json().error, "job_not_found", "same answer as an unknown job");
+
+    const badToken = await pollJob(app, jobId, { remoteAddress: "192.0.2.10", pollToken: pollToken.slice(0, -1) + (pollToken.endsWith("A") ? "B" : "A") });
+    assert.equal(badToken.statusCode, 404, "an altered token must not read the job");
   });
 
   test("authenticated jobs require the owning user", async () => {

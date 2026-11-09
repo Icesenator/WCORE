@@ -140,11 +140,13 @@ export async function fetchScan(
         const d = await createRes.json().catch(() => ({}));
         return { chains: [], totals: { valueEur: 0, tokenCount: 0 }, error: d.error || `HTTP ${createRes.status}`, message: d.message };
       }
-      const { jobId } = await createRes.json() as { jobId: string };
+      const { jobId, pollToken } = await createRes.json() as { jobId: string; pollToken?: string };
+      // Sent only when the API issued one, so an older API never sees the header (CORS preflight).
+      const pollInit: RequestInit | undefined = pollToken ? { headers: { "x-scan-poll-token": pollToken } } : undefined;
       // Poll until done
       for (let i = 0; i < 300; i++) {
         await new Promise(r => setTimeout(r, 3000));
-        const pollRes = await apiFetch(`${API_URL}/api/scan/async/${jobId}`);
+        const pollRes = await apiFetch(`${API_URL}/api/scan/async/${jobId}`, pollInit);
         if (!pollRes.ok) {
           const d = await pollRes.json().catch(() => ({}));
           return { chains: [], totals: { valueEur: 0, tokenCount: 0 }, error: d.error || `HTTP ${pollRes.status}`, message: d.message };

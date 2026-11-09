@@ -4,6 +4,7 @@
 // deja le jobId. Il ne juge pas la difficulte d'obtenir le jobId (aleatoire de 128 bits, mais
 // present dans l'URL donc dans les journaux de requetes), seulement la verification effective
 // d'autorisation. Adresses : plages de documentation et prefixes generiques uniquement.
+import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
@@ -11,7 +12,8 @@ import { parseTrustProxy, restrictTrustProxyToNonPublic } from "./trust-proxy.js
 import { jobPrincipal, ownsScanJob } from "./plugins/scan-job.js";
 import { SCAN_POLL_TOKEN_HEADER, scanPollToken, verifyScanPollToken } from "./plugins/scan-poll-token.js";
 
-const SECRET = "test-secret-0123456789abcdef0123456789";
+// Secret de test genere a l execution : aucun litteral (gitleaks generic-api-key).
+const SECRET = randomBytes(32).toString("hex");
 const JOB_ID = "0123456789abcdef0123456789abcdef";
 const VICTIM = "198.51.100.23";
 const EDGE = "100.64.0.5"; // proxy Railway vu en CGNAT (generique)

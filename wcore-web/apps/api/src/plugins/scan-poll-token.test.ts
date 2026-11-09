@@ -1,8 +1,10 @@
+import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SCAN_POLL_TOKEN_HEADER, scanPollToken, verifyScanPollToken } from "./scan-poll-token.js";
 
-const SECRET = "test-secret-0123456789abcdef0123456789";
+// Secret de test genere a l execution : aucun litteral (gitleaks generic-api-key).
+const SECRET = randomBytes(32).toString("hex");
 const JOB = "0123456789abcdef0123456789abcdef";
 
 test("le jeton de lecture est deterministe, lie au jobId et au secret", () => {

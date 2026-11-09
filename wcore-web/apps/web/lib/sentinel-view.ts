@@ -21,39 +21,164 @@ export interface SentinelHealthResponse { lastRunAt: string | null; lastSuccessA
 
 const DAY = 86400000, HOUR = 3600000, MIN = 60000;
 
-/** Compte a rebours lisible ; une echeance passee l'indique explicitement. */
-export function formatCountdown(ms: number | null): string {
+export type SentinelLang = "fr" | "en";
+
+/** Compte a rebours lisible ; une echeance passee l'indique explicitement. Francais par defaut. */
+export function formatCountdown(ms: number | null, lang: SentinelLang = "fr"): string {
   if (ms === null || !Number.isFinite(ms)) return "—";
   const past = ms < 0;
   const a = Math.abs(ms);
   const d = Math.floor(a / DAY), h = Math.floor((a % DAY) / HOUR), m = Math.floor((a % HOUR) / MIN);
-  const txt = d > 0 ? `${d} j ${h} h` : h > 0 ? `${h} h ${m} min` : `${m} min`;
+  const day = lang === "en" ? "d" : "j";
+  const txt = d > 0 ? `${d} ${day} ${h} h` : h > 0 ? `${h} h ${m} min` : `${m} min`;
+  if (lang === "en") return past ? `overdue by ${txt}` : `in ${txt}`;
   return past ? `dépassée depuis ${txt}` : `dans ${txt}`;
 }
 
-export const STATUS_LABEL: Record<SentinelStatus, string> = {
-  ACTIVE: "Actif", WINDING_DOWN: "Fermeture annoncée", RETIRED: "Retiré", UNKNOWN: "Inconnu",
+const STATUS_LABELS: Record<SentinelLang, Record<SentinelStatus, string>> = {
+  fr: { ACTIVE: "Actif", WINDING_DOWN: "Fermeture annoncée", RETIRED: "Retiré", UNKNOWN: "Inconnu" },
+  en: { ACTIVE: "Active", WINDING_DOWN: "Shutdown announced", RETIRED: "Retired", UNKNOWN: "Unknown" },
 };
 
-export const CODE_LABEL: Record<string, string> = {
-  ACTION_REQUIRED_BEFORE_DEADLINE: "Action requise avant l'échéance",
-  FUNDS_STRANDED_AFTER_SHUTDOWN: "Fonds bloqués après fermeture",
-  EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposition inconnue après fermeture",
-  RECOVERY_WINDOW_OPEN: "Fenêtre de récupération ouverte",
-  RECOVERY_PLANNED: "Récupération annoncée (non ouverte)",
-  RETIRED_NO_EXPOSURE: "Réseau retiré, aucune exposition attestée",
-  UNVERIFIED_ANNOUNCEMENT: "Annonce non vérifiée par une source officielle",
-  SENTINEL_STALE: "Surveillance interrompue",
+const CODE_LABELS: Record<SentinelLang, Record<string, string>> = {
+  fr: {
+    ACTION_REQUIRED_BEFORE_DEADLINE: "Action requise avant l'échéance",
+    FUNDS_STRANDED_AFTER_SHUTDOWN: "Fonds bloqués après fermeture",
+    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposition inconnue après fermeture",
+    RECOVERY_WINDOW_OPEN: "Fenêtre de récupération ouverte",
+    RECOVERY_PLANNED: "Récupération annoncée (non ouverte)",
+    RETIRED_NO_EXPOSURE: "Réseau retiré, aucune exposition attestée",
+    UNVERIFIED_ANNOUNCEMENT: "Annonce non vérifiée par une source officielle",
+    SENTINEL_STALE: "Surveillance interrompue",
+  },
+  en: {
+    ACTION_REQUIRED_BEFORE_DEADLINE: "Action required before the deadline",
+    FUNDS_STRANDED_AFTER_SHUTDOWN: "Funds stranded after shutdown",
+    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposure unknown after shutdown",
+    RECOVERY_WINDOW_OPEN: "Recovery window open",
+    RECOVERY_PLANNED: "Recovery announced (not open yet)",
+    RETIRED_NO_EXPOSURE: "Network retired, no exposure attested",
+    UNVERIFIED_ANNOUNCEMENT: "Announcement not verified by an official source",
+    SENTINEL_STALE: "Monitoring interrupted",
+  },
 };
 
-export const DEADLINE_LABEL: Record<string, string> = {
-  NON_NATIVE_BRIDGE_LAST: "Dernier bridge (actifs non natifs)",
-  BRIDGE_WITHDRAW_LAST: "Dernier retrait par bridge",
-  UNSTAKE_LAST: "Dernier unstake",
-  WITHDRAW_LAST: "Dernier retrait",
-  NETWORK_SHUTDOWN: "Arrêt du réseau",
-  CLAIM_END: "Fin de la réclamation",
+const DEADLINE_LABELS: Record<SentinelLang, Record<string, string>> = {
+  fr: {
+    NON_NATIVE_BRIDGE_LAST: "Dernier bridge (actifs non natifs)",
+    BRIDGE_WITHDRAW_LAST: "Dernier retrait par bridge",
+    UNSTAKE_LAST: "Dernier unstake",
+    WITHDRAW_LAST: "Dernier retrait",
+    NETWORK_SHUTDOWN: "Arrêt du réseau",
+    CLAIM_END: "Fin de la réclamation",
+  },
+  en: {
+    NON_NATIVE_BRIDGE_LAST: "Last bridge (non-native assets)",
+    BRIDGE_WITHDRAW_LAST: "Last bridge withdrawal",
+    UNSTAKE_LAST: "Last unstake",
+    WITHDRAW_LAST: "Last withdrawal",
+    NETWORK_SHUTDOWN: "Network shutdown",
+    CLAIM_END: "End of claims",
+  },
 };
+
+export type SentinelRecovery = SentinelChainView["recoveryAfterShutdown"];
+const RECOVERY_LABELS: Record<SentinelLang, Record<SentinelRecovery, string>> = {
+  fr: { AVAILABLE: "ouverte", PLANNED: "annoncée, non ouverte", NOT_AVAILABLE: "aucune", UNKNOWN: "non établie" },
+  en: { AVAILABLE: "open", PLANNED: "announced, not open yet", NOT_AVAILABLE: "none", UNKNOWN: "not established" },
+};
+
+/** Libelles francais, conserves pour les appelants existants. */
+export const STATUS_LABEL = STATUS_LABELS.fr;
+export const CODE_LABEL = CODE_LABELS.fr;
+export const DEADLINE_LABEL = DEADLINE_LABELS.fr;
+
+export const statusLabel = (s: SentinelStatus, lang: SentinelLang): string => STATUS_LABELS[lang][s] ?? s;
+/** Un code ou une echeance inconnus restent affiches tels quels. */
+export const codeLabel = (code: string, lang: SentinelLang): string => CODE_LABELS[lang][code] ?? code;
+export const deadlineLabel = (kind: string, lang: SentinelLang): string => DEADLINE_LABELS[lang][kind] ?? kind;
+export const recoveryLabel = (r: SentinelRecovery, lang: SentinelLang): string => RECOVERY_LABELS[lang][r] ?? r;
+
+const SENTINEL_TEXTS = {
+  fr: {
+    intro: "Fermetures et migrations de réseaux : échéances, sources officielles, exposition de votre portefeuille. Aucune transaction n'est jamais effectuée.",
+    noSource: "aucune source",
+    unofficial: " (non officielle)",
+    conflictingDates: "dates contradictoires",
+    acknowledged: "acquittée",
+    exposure: "exposition",
+    acknowledge: "Accuser réception",
+    computedAt: (iso: string) => `Calculé le ${iso}`,
+    criticalPersonal: "Alerte critique",
+    criticalGeneral: "Alerte critique générale (exposition non vérifiée)",
+    seeAlerts: "Voir les alertes",
+    monitoringRegion: "État de la surveillance",
+    monitoringChecking: "Surveillance : vérification…",
+    monitoringUnknown: "Surveillance : état inconnu (service injoignable). Les échéances affichées peuvent être obsolètes.",
+    monitoringStale: (last: string) => `Surveillance interrompue : dernier contrôle réussi ${last}. Les échéances affichées peuvent être obsolètes.`,
+    never: "jamais",
+    lastCheck: (last: string, checked: number, failed: number) => `Dernier contrôle automatique : ${last} · ${checked} source(s), ${failed} en échec.`,
+    alertsTitle: "Alertes",
+    signInForExposure: "Connectez-vous pour voir l'exposition de votre portefeuille ; les alertes ci-dessous sont générales.",
+    personalUnavailable: "Alertes personnelles indisponibles pour le moment.",
+    loading: "Chargement…",
+    registryUnavailableAlerts: "Registre Chain Sentinel indisponible : impossible d'afficher les alertes. Ce n'est pas une absence d'alerte.",
+    noAlerts: "Aucune alerte.",
+    chainsTitle: "Chaînes surveillées",
+    colNetwork: "Réseau",
+    colStatus: "Statut",
+    colNextDeadline: "Prochaine échéance",
+    colSources: "Sources",
+    successor: (id: number | string) => `successeur distinct ${id}`,
+    registryUnavailable: "Registre indisponible.",
+    retiredRegion: "Historique des chaînes retirées",
+    retiredTitle: "Chaînes retirées et récupération",
+    recovery: "Récupération",
+    bellLabel: (n: number) => `${n} alerte(s) Chain Sentinel non acquittée(s)`,
+  },
+  en: {
+    intro: "Network shutdowns and migrations: deadlines, official sources, exposure of your wallet. No transaction is ever made.",
+    noSource: "no source",
+    unofficial: " (unofficial)",
+    conflictingDates: "conflicting dates",
+    acknowledged: "acknowledged",
+    exposure: "exposure",
+    acknowledge: "Acknowledge",
+    computedAt: (iso: string) => `Computed at ${iso}`,
+    criticalPersonal: "Critical alert",
+    criticalGeneral: "General critical alert (exposure not verified)",
+    seeAlerts: "See alerts",
+    monitoringRegion: "Monitoring status",
+    monitoringChecking: "Monitoring: checking…",
+    monitoringUnknown: "Monitoring: status unknown (service unreachable). The deadlines shown may be out of date.",
+    monitoringStale: (last: string) => `Monitoring interrupted: last successful check ${last}. The deadlines shown may be out of date.`,
+    never: "never",
+    lastCheck: (last: string, checked: number, failed: number) => `Last automatic check: ${last} · ${checked} source(s), ${failed} failed.`,
+    alertsTitle: "Alerts",
+    signInForExposure: "Sign in to see your wallet's exposure; the alerts below are general.",
+    personalUnavailable: "Personal alerts are unavailable for now.",
+    loading: "Loading…",
+    registryUnavailableAlerts: "Chain Sentinel registry unavailable: alerts cannot be shown. This does not mean there are no alerts.",
+    noAlerts: "No alerts.",
+    chainsTitle: "Monitored chains",
+    colNetwork: "Network",
+    colStatus: "Status",
+    colNextDeadline: "Next deadline",
+    colSources: "Sources",
+    successor: (id: number | string) => `separate successor ${id}`,
+    registryUnavailable: "Registry unavailable.",
+    retiredRegion: "Retired chains history",
+    retiredTitle: "Retired chains and recovery",
+    recovery: "Recovery",
+    bellLabel: (n: number) => `${n} unacknowledged Chain Sentinel alert(s)`,
+  },
+} satisfies Record<SentinelLang, Record<string, unknown>>;
+
+export type SentinelText = (typeof SENTINEL_TEXTS)["fr"];
+/** Textes de la page /sentinel, de la cloche et du badge, dans la langue du site. */
+export function sentinelText(lang: SentinelLang): SentinelText {
+  return SENTINEL_TEXTS[lang] ?? SENTINEL_TEXTS.fr;
+}
 
 export function severityClass(s: SentinelSeverity): string {
   return s === "P0" ? "border-red-500/60 bg-red-500/10 text-red-300" : s === "P1" ? "border-amber-500/60 bg-amber-500/10 text-amber-200" : "border-sky-500/40 bg-sky-500/10 text-sky-200";

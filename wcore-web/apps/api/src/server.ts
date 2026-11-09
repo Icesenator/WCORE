@@ -38,14 +38,16 @@ import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
 import { apiConfig } from "./config.js";
-import { trustProxyStartupWarning } from "./trust-proxy.js";
+import { describeTrustProxyScope, restrictTrustProxyToNonPublic, trustProxyStartupWarning } from "./trust-proxy.js";
 
 // `true` and numeric hop counts are rejected by configuration. They do not
 // authenticate the connecting peer. Use trusted proxy IPs or CIDR ranges;
 // absent/false keeps the loopback-only fallback.
 const PORT = apiConfig.server.port;
 const HOST = apiConfig.server.host;
-const trustProxy = apiConfig.server.trustProxy;
+// Never trust an Internet-routable peer as a proxy, whatever TRUST_PROXY says (see trust-proxy.ts).
+const trustProxyScope = restrictTrustProxyToNonPublic(apiConfig.server.trustProxy);
+const trustProxy = trustProxyScope.value;
 
 const app = Fastify({
   trustProxy,
@@ -58,6 +60,8 @@ const app = Fastify({
 
 const trustProxyWarning = trustProxyStartupWarning(trustProxy, apiConfig.runtime.isProduction);
 if (trustProxyWarning) app.log.warn(trustProxyWarning);
+// Address-free summary, so the effective scope is observable in the deploy logs without reading the variable.
+app.log.info(describeTrustProxyScope(trustProxyScope));
 
 const redisConfig = apiConfig.redis.config;
 const sharedCache = redisConfig

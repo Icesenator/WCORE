@@ -94,3 +94,17 @@ test("the default railway.json files build the API image and watch every API sou
     }
   }
 });
+
+// The API trusts TRUST_PROXY by hop position (apps/api/src/trust-proxy.ts). The manifest says so,
+// which is what lets the deployer accept a version 2 operator attestation for this commit; the
+// deployer then looks for the model's markers at the deployed SHA. If the wiring is renamed or
+// removed without updating both, this fails here instead of at release time.
+test("api: the declared trust-proxy model is one the deployer knows and its markers are in the sources", async () => {
+  const { TRUST_PROXY_MODELS } = await import("../scripts/railway-deploy.mjs");
+  const declared = manifest.services.api.trustProxyModel;
+  assert.equal(declared, "wcore.trust-proxy.positional/v1");
+  for (const [path, markers] of Object.entries(TRUST_PROXY_MODELS[declared].sourceMarkers)) {
+    for (const marker of markers) assert.ok(read(path).includes(marker), `${path} lacks ${JSON.stringify(marker)}`);
+  }
+  for (const service of ["web", "cex-relay"]) assert.ok(!Object.hasOwn(manifest.services[service], "trustProxyModel"), service);
+});

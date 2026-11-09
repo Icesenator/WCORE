@@ -57,7 +57,7 @@ cp.spawn = (cmd, args) => {
   return child;
 };
 syncBuiltinESMExports();
-const { checkTrustProxy, parseArgs, deploy } = await import('./railway-deploy.mjs');
+const { checkTrustProxy, parseArgs, deploy, loadServicePlan } = await import('./railway-deploy.mjs');
 function document(overrides = {}) {
   return { schema: 'wcore.trust-proxy-attestation', version: 1, ...target,
     observedAt: '2026-10-27T11:53:00.000Z', issuedAt: '2026-10-27T11:55:00.000Z', reviewedAt: '2026-10-27T11:54:00.000Z',
@@ -145,6 +145,107 @@ test('lecture unique : changement du fichier après observation ne change pas la
   assert.doesNotThrow(() => assessment.revalidate(NOW));
   assert.throws(() => assessment.revalidate(NOW + 21 * 60000), { code: 'E_TRUST_PROXY_ATTESTATION' });
 });
+// --- Politique V2 : confiance liée à la position du saut (wcore.trust-proxy.release/v2) ---
+// Une déclaration V2 n'est recevable que si le commit déployé déclare le modèle positionnel
+// dans son manifeste ET porte les marqueurs de ce code au SHA cible. Sur un commit de modèle
+// uniforme (confiance à toutes les positions), elle doit être refusée.
+const MANIFEST = 'wcore-web/railway/deploy-manifest.json';
+const SERVER = 'wcore-web/apps/api/src/server.ts', LIB = 'wcore-web/apps/api/src/trust-proxy.ts';
+const POSITIONAL = 'wcore.trust-proxy.positional/v1';
+const WIRED = 'const trustProxyScope = positionalTrustProxy(apiConfig.server.trustProxy);\nconst trustProxy = trustProxyScope.trust;\n';
+async function withCommit({ model = POSITIONAL, server = WIRED, lib = 'export function positionalTrustProxy(parsed) {}\n' }, fn) {
+  const saved = { ...files };
+  const manifest = JSON.parse(files[MANIFEST]);
+  manifest.services.api.trustProxyModel = model;
+  files[MANIFEST] = JSON.stringify(manifest);
+  if (server !== null) files[SERVER] = server;
+  if (lib !== null) files[LIB] = lib;
+  try { return await fn(); } finally { for (const key of Object.keys(files)) delete files[key]; Object.assign(files, saved); }
+}
+const positionalPlan = { service: 'api', trustProxyPreflight: true, trustProxyModel: 'positional' };
+function documentV2(overrides = {}) {
+  return { ...document(), version: 2, classification: 'VALID_POSITIONAL_PROXY', validationRules: 'wcore.trust-proxy.release/v2',
+    trustModel: 'wcore.trust-proxy.positional/v1', publicEntriesAreEdgesOnly: true, ...overrides };
+}
+const rejectedOn = (somePlan, opts) => {
+  calls.length = 0;
+  assert.throws(() => checkTrustProxy(somePlan, opts, root, NOW), e => e.code === 'E_TRUST_PROXY_ATTESTATION' && !e.message.includes('sentinel') && !e.message.includes(root));
+  assert.deepEqual(calls, [], 'Validation purement locale, même lors du refus');
+};
+test('plan : un commit sans trustProxyModel reste de modèle uniform', () => {
+  assert.equal(loadServicePlan(root, SHA, 'api').trustProxyModel, 'uniform');
+});
+test('plan : modèle positional reconnu quand le manifeste le déclare et que le code est câblé au SHA', () =>
+  withCommit({}, () => assert.equal(loadServicePlan(root, SHA, 'api').trustProxyModel, 'positional')));
+// Les marqueurs appartiennent au déployeur, pas au commit : un manifeste ne peut pas les affaiblir.
+const badModels = {
+  'appel positionnel absent du serveur': { server: 'const app = Fastify({ trustProxy: true });\n' },
+  'résultat positionnel non passé à Fastify': { server: 'const trustProxyScope = positionalTrustProxy(apiConfig.server.trustProxy);\nconst trustProxy = true;\n' },
+  'fonction absente du module': { lib: 'export function restrictTrustProxyToNonPublic(parsed) {}\n' },
+  'fichier serveur absent au SHA': { server: null },
+  'fichier module absent au SHA': { lib: null },
+  'identifiant de modèle inconnu': { model: 'wcore.trust-proxy.positional/v0' },
+  'modèle en objet': { model: { id: POSITIONAL, sourceMarkers: {} } },
+  'modèle null': { model: null },
+  'modèle vide': { model: '' },
+  'modèle booléen': { model: true },
+};
+for (const [name, commit] of Object.entries(badModels)) test(`plan : refuse ${name}`, () =>
+  withCommit(commit, () => assert.throws(() => loadServicePlan(root, SHA, 'api'), { code: 'E_TRUST_PROXY_MODEL' })));
+test('V2 : acceptée sur un plan positional, avec un mode distinct', () => {
+  assert.equal(checkTrustProxy(positionalPlan, options(documentV2()), root, NOW).mode, 'OPERATOR_DECLARATIVE_ATTESTATION_POSITIONAL');
+});
+test('V1 : toujours acceptée sur un plan positional (déclaration plus stricte)', () => {
+  assert.equal(checkTrustProxy(positionalPlan, options(document()), root, NOW).mode, 'OPERATOR_DECLARATIVE_ATTESTATION');
+});
+test('V2 : refusée sur un plan uniform ou sans modèle', () => {
+  rejectedOn(plan, options(documentV2()));
+  rejectedOn({ ...plan, trustProxyModel: 'uniform' }, options(documentV2()));
+  rejectedOn({ ...plan, trustProxyModel: 'other' }, options(documentV2()));
+});
+const badV2 = {
+  'version 1 avec les clés V2': { version: 1 }, 'version 3': { version: 3 }, 'version en texte': { version: '2' },
+  'classification V1': { classification: 'VALID_VERIFIED_PROXY' }, 'classification invalide': { classification: 'INVALID_FOR_CURRENT_RELEASE_GATE' },
+  'règles V1': { validationRules: 'wcore.trust-proxy.release/v1' }, 'modèle de confiance inconnu': { trustModel: 'other' },
+  'bords non confirmés': { publicEntriesAreEdgesOnly: false }, 'bords en texte': { publicEntriesAreEdgesOnly: 'true' },
+  'topologie non vérifiée': { topologyVerified: false }, 'opérateur non confirmé': { operatorConfirmed: false },
+  'autre SHA': { sha: 'b'.repeat(40) }, 'autre service': { service: 'web' }, 'périmée': { expiresAt: '2026-10-27T12:00:00.000Z' },
+  'durée excessive': { expiresAt: '2026-10-27T12:25:00.001Z' }, 'clé en trop': { TRUST_PROXY: 'sentinel-secret' },
+};
+for (const [name, changes] of Object.entries(badV2)) test(`V2 : refuse ${name}`, () => rejectedOn(positionalPlan, options(documentV2(changes))));
+for (const key of Object.keys(documentV2())) test(`V2 : refuse champ absent ${key}`, () => { const d = documentV2(); delete d[key]; rejectedOn(positionalPlan, options(d)); });
+test('V1 : refuse les valeurs V2 glissées dans le schéma V1', () => {
+  rejectedOn(positionalPlan, options(document({ classification: 'VALID_POSITIONAL_PROXY' })));
+  rejectedOn(positionalPlan, options(document({ version: 2 })));
+  rejectedOn(positionalPlan, options(document({ validationRules: 'wcore.trust-proxy.release/v2' })));
+});
+test('V2 : refuse clés JSON dupliquées, y compris échappées', () => {
+  const text = JSON.stringify(documentV2());
+  rejectedOn(positionalPlan, options(text.replace('{', '{"version":2,')));
+  rejectedOn(positionalPlan, options(text.replace('{', '{"\\u0076ersion":2,')));
+});
+for (const dryRun of [true, false]) test(`V2 : intégration ${dryRun ? 'dry-run' : 'déploiement'} sur un commit positional, sans lecture de variables`, () => withCommit({}, async () => {
+  calls.length = 0;
+  const logs = [];
+  const args = ['--service','api','--ref','origin/master','--environment','production','--project',target.project,'--trust-proxy-attestation',fixture(documentV2()), ...(dryRun ? ['--dry-run'] : [])];
+  const result = await deploy(args, { repo: root, lockDir: join(root,'locks'), now: NOW, clock: () => NOW, log: text => logs.push(text) });
+  assert.match(logs.join(''), /OPERATOR_DECLARATIVE_ATTESTATION_POSITIONAL/);
+  assert.equal(result.published, !dryRun);
+  assert.ok(!calls.some(c => c.args.some(a => ['variable','variables','env'].includes(a))));
+  assert.equal(calls.filter(c => c.args[0] === 'up').length, dryRun ? 0 : 1);
+}));
+test('V2 : un commit de modèle uniform ne publie jamais avec une déclaration V2', async () => {
+  calls.length = 0;
+  const args = ['--service','api','--ref','origin/master','--environment','production','--project',target.project,'--trust-proxy-attestation',fixture(documentV2())];
+  await assert.rejects(deploy(args, { repo: root, lockDir: join(root,'locks'), now: NOW, clock: () => NOW, log: () => {} }), { code: 'E_TRUST_PROXY_ATTESTATION' });
+  assert.ok(!calls.some(c => c.args[0] === 'up'));
+});
+test('V2 : un manifeste positional sans le code au SHA arrête le déploiement avant tout upload', () => withCommit({ server: 'const app = Fastify({ trustProxy: true });\n' }, async () => {
+  calls.length = 0;
+  const args = ['--service','api','--ref','origin/master','--environment','production','--project',target.project,'--trust-proxy-attestation',fixture(documentV2())];
+  await assert.rejects(deploy(args, { repo: root, lockDir: join(root,'locks'), now: NOW, clock: () => NOW, log: () => {} }), { code: 'E_TRUST_PROXY_MODEL' });
+  assert.ok(!calls.some(c => c.args[0] === 'up'));
+}));
 test('wrapper PowerShell transmet chemin avec espaces et DryRun sans invoquer Node réel', () => {
   const script = fileURLToPath(new URL('./deploy.ps1', import.meta.url));
   const attestationPath = String.raw`C:\synthetic folder\declaration.json`;

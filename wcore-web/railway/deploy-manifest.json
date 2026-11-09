@@ -27,7 +27,8 @@
         "wcore-web/contracts/",
         "wcore-gsheet/railway-relay/"
       ],
-      "trustProxyPreflight": true
+      "trustProxyPreflight": true,
+      "trustProxyModel": "wcore.trust-proxy.positional/v1"
     },
     "web": {
       "config": "wcore-web/railway/web.json",

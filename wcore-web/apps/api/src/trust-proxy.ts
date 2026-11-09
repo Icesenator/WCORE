@@ -73,6 +73,86 @@ export function assessTrustProxy(raw: string | undefined): TrustProxyAssessment 
   }
 }
 
+// 2026-11-08 — A trusted proxy must never be an Internet-routable address. parseTrustProxy accepts
+// ranges up to /8 (IPv4) and /16 (IPv6), which can spill into public space (100.0.0.0/8 holds the
+// public 100.0.0.0/10). A real client from that space, relayed by the platform proxy, would then be
+// "trusted" and its own X-Forwarded-For entries adopted as request.ip. Each entry is therefore
+// reduced to the non-routable blocks it covers, never widened; fully public entries are removed.
+const NON_PUBLIC_V4: ReadonlyArray<[string, number]> = [["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.168.0.0", 16]];
+const NON_PUBLIC_V6: ReadonlyArray<[string, number]> = [["::1", 128], ["fc00::", 7], ["fe80::", 10]];
+
+function v4ToBig(address: string): bigint {
+  return address.split(".").reduce((acc, octet) => (acc << 8n) | BigInt(Number(octet)), 0n);
+}
+function v6ToBig(address: string): bigint {
+  let text = address.toLowerCase();
+  const v4Tail = /(\d+\.\d+\.\d+\.\d+)$/.exec(text);
+  if (v4Tail) { const n = v4ToBig(v4Tail[1]!); text = text.slice(0, -v4Tail[1]!.length) + ((n >> 16n).toString(16)) + ":" + ((n & 0xffffn).toString(16)); }
+  const [head = "", tail] = text.split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail !== undefined && tail ? tail.split(":") : [];
+  const groups = tail === undefined ? left : [...left, ...Array(8 - left.length - right.length).fill("0"), ...right];
+  return groups.reduce((acc, group) => (acc << 16n) | BigInt(parseInt(group || "0", 16)), 0n);
+}
+function bigToV4(value: bigint): string {
+  return [24n, 16n, 8n, 0n].map((shift) => String((value >> shift) & 255n)).join(".");
+}
+function bigToV6(value: bigint): string {
+  const groups = Array.from({ length: 8 }, (_, i) => ((value >> BigInt((7 - i) * 16)) & 0xffffn).toString(16));
+  const text = groups.join(":").replace(/(^|:)0(:0)+(:|$)/, "::");
+  return text.replace(/^:::?/, "::").replace(/:::$/, "::");
+}
+
+interface Cidr { family: 4 | 6; base: bigint; prefix: number }
+function toCidr(entry: string): Cidr {
+  const [address = "", range] = entry.split("/");
+  const family = isIP(address) as 4 | 6;
+  const bits = family === 4 ? 32 : 128;
+  const prefix = range === undefined ? bits : /^\d{1,3}$/.test(range) ? Number(range) : (netmaskPrefix(range) ?? bits);
+  const raw = family === 4 ? v4ToBig(address) : v6ToBig(address);
+  const mask = prefix === 0 ? 0n : ((1n << BigInt(bits)) - 1n) ^ ((1n << BigInt(bits - prefix)) - 1n);
+  return { family, base: raw & mask, prefix };
+}
+function contains(outer: Cidr, inner: Cidr): boolean {
+  if (outer.family !== inner.family || outer.prefix > inner.prefix) return false;
+  const bits = outer.family === 4 ? 32 : 128;
+  const shift = BigInt(bits - outer.prefix);
+  return (inner.base >> shift) === (outer.base >> shift);
+}
+function formatCidr(c: Cidr): string {
+  return `${c.family === 4 ? bigToV4(c.base) : bigToV6(c.base)}/${c.prefix}`;
+}
+
+export interface TrustProxyScope { value: string; entries: number; clipped: number; dropped: number; aliases: string[]; v4: number; v6: number }
+
+/** Reduces a parsed TRUST_PROXY value to non-routable address space. Never widens trust. */
+export function restrictTrustProxyToNonPublic(parsed: string): TrustProxyScope {
+  const kept: string[] = [];
+  const aliases: string[] = [];
+  let clipped = 0, dropped = 0, v4 = 0, v6 = 0;
+  for (const entry of parsed.split(",").map((e) => e.trim()).filter(Boolean)) {
+    if (FASTIFY_ALIASES.has(entry) || entry === "loopback") {
+      // Fastify aliases only name non-routable ranges (loopback, link-local, private/ULA).
+      kept.push(entry); aliases.push(entry); continue;
+    }
+    const cidr = toCidr(entry);
+    const blocks = (cidr.family === 4 ? NON_PUBLIC_V4 : NON_PUBLIC_V6).map(([a, p]) => toCidr(`${a}/${p}`));
+    if (blocks.some((block) => contains(block, cidr))) { kept.push(entry); cidr.family === 4 ? v4++ : v6++; continue; }
+    const inside = blocks.filter((block) => contains(cidr, block));
+    if (inside.length === 0) { dropped++; continue; }
+    clipped++;
+    for (const block of inside) { kept.push(formatCidr(block)); block.family === 4 ? v4++ : v6++; }
+  }
+  const value = kept.length ? kept.join(",") : "loopback";
+  return { value, entries: kept.length, clipped, dropped, aliases, v4, v6 };
+}
+
+/** One startup line describing the effective trust scope. It never contains an address. */
+export function describeTrustProxyScope(scope: TrustProxyScope): string {
+  const mode = loopbackOnly(scope.value) ? "loopback-only" : "addresses";
+  return `TRUST_PROXY scope: mode=${mode} entries=${scope.entries} v4=${scope.v4} v6=${scope.v6} aliases=${scope.aliases.join("+") || "none"} clipped=${scope.clipped} dropped=${scope.dropped} publicSpace=excluded`;
+}
+
 // Behind an HTTP proxy, "loopback" makes request.ip the proxy's address: every anonymous
 // client then shares one rate-limit identity and one scan-job principal. That is safe
 // against spoofing but not what production wants, so it is said once at startup.

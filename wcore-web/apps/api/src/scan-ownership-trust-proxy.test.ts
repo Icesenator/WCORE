@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { parseTrustProxy, restrictTrustProxyToNonPublic } from "./trust-proxy.js";
+import { parseTrustProxy, positionalTrustProxy } from "./trust-proxy.js";
 import { jobPrincipal, ownsScanJob } from "./plugins/scan-job.js";
 import { SCAN_POLL_TOKEN_HEADER, scanPollToken, verifyScanPollToken } from "./plugins/scan-poll-token.js";
 
@@ -22,7 +22,7 @@ const PRIVATE_PEER = "10.0.0.9"; // autre service du reseau prive
 
 type Mode = "ip-only" | "ip-and-token";
 
-async function poll(mode: Mode, trustProxy: string, edge: string, remoteAddress: string, headers: Record<string, string>) {
+async function poll(mode: Mode, trustProxy: (address: string, hop: number) => boolean, edge: string, remoteAddress: string, headers: Record<string, string>) {
   const jobs = new Map<string, { userId: string | null; ip: string }>();
   const app = Fastify({ trustProxy });
   // Reproduction des deux routes : creation (enregistre req.ip, rend le jeton) puis lecture.
@@ -46,7 +46,8 @@ async function poll(mode: Mode, trustProxy: string, edge: string, remoteAddress:
   return res.statusCode;
 }
 
-const restrict = (raw: string) => restrictTrustProxyToNonPublic(parseTrustProxy(raw)).value;
+// Same trust function as server.ts (position-bound).
+const restrict = (raw: string) => positionalTrustProxy(parseTrustProxy(raw)).trust;
 const token = { [SCAN_POLL_TOKEN_HEADER]: scanPollToken(SECRET, JOB_ID) };
 
 describe("scans anonymes, controle d'origine (IP seule) face a un X-Forwarded-For forge", () => {
@@ -71,7 +72,8 @@ describe("scans anonymes, controle d'origine (IP seule) face a un X-Forwarded-Fo
   });
 
   it("le correctif TRUST_PROXY (espace public exclu) ne ferme PAS le chemin prive : il ne touche pas aux alias prives", () => {
-    assert.equal(restrict("uniquelocal"), "uniquelocal");
+    // L'alias prive reste cru comme pair direct (saut 0) : seul le jeton de lecture ferme ce chemin.
+    assert.deepEqual(positionalTrustProxy(parseTrustProxy("uniquelocal")).aliases, ["uniquelocal"]);
   });
 });
 

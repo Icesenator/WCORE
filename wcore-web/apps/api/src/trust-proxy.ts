@@ -137,11 +137,11 @@ export function restrictTrustProxyToNonPublic(parsed: string): TrustProxyScope {
     }
     const cidr = toCidr(entry);
     const blocks = (cidr.family === 4 ? NON_PUBLIC_V4 : NON_PUBLIC_V6).map(([a, p]) => toCidr(`${a}/${p}`));
-    if (blocks.some((block) => contains(block, cidr))) { kept.push(entry); cidr.family === 4 ? v4++ : v6++; continue; }
+    if (blocks.some((block) => contains(block, cidr))) { kept.push(entry); if (cidr.family === 4) v4++; else v6++; continue; }
     const inside = blocks.filter((block) => contains(cidr, block));
     if (inside.length === 0) { dropped++; continue; }
     clipped++;
-    for (const block of inside) { kept.push(formatCidr(block)); block.family === 4 ? v4++ : v6++; }
+    for (const block of inside) { kept.push(formatCidr(block)); if (block.family === 4) v4++; else v6++; }
   }
   const value = kept.length ? kept.join(",") : "loopback";
   return { value, entries: kept.length, clipped, dropped, aliases, v4, v6 };

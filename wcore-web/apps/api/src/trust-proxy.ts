@@ -153,6 +153,64 @@ export function describeTrustProxyScope(scope: TrustProxyScope): string {
   return `TRUST_PROXY scope: mode=${mode} entries=${scope.entries} v4=${scope.v4} v6=${scope.v6} aliases=${scope.aliases.join("+") || "none"} clipped=${scope.clipped} dropped=${scope.dropped} publicSpace=excluded`;
 }
 
+// 2026-11-09 — Position-bound trust (P0-SEC-TRUST-PROXY-PUBLIC-RANGES). Measured on production:
+// client -> Railway public edge (POP) -> internal proxy (100.64.0.0/10) -> container. The public
+// entries of TRUST_PROXY are the edges' addresses: dropping them makes the edge request.ip for every
+// visitor (one shared identity); trusting them at any position lets a client whose real address is in
+// such a range have its own forged X-Forwarded-For entry adopted. Trust is therefore bound to the hop:
+//   hop 0 (directly connected peer)          -> a NON-public entry only (internal proxy);
+//   hop 1 (appended by that internal proxy)  -> a PUBLIC entry only (edge);
+//   hop 2 and beyond                         -> never. request.ip is what the edge appended: the client.
+// An entry that mixes public and non-public space keeps only its non-public blocks (public part dropped).
+const ALIAS_BLOCKS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  loopback: ["127.0.0.0/8", "::1/128"],
+  linklocal: ["169.254.0.0/16", "fe80::/10"],
+  uniquelocal: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"],
+};
+
+export interface PositionalTrust {
+  trust: (address: string, hop: number) => boolean;
+  internal: number;
+  edges: number;
+  dropped: number;
+  aliases: string[];
+}
+
+function addressCidr(address: string): Cidr | null {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address.trim());
+  const value = mapped ? mapped[1]! : address.trim();
+  return isIP(value) ? toCidr(value) : null;
+}
+
+/** Builds the Fastify trustProxy function from a parsed TRUST_PROXY value. Never trusts beyond hop 1. */
+export function positionalTrustProxy(parsed: string): PositionalTrust {
+  const internal: Cidr[] = [];
+  const edges: Cidr[] = [];
+  const aliases: string[] = [];
+  let internalEntries = 0, edgeEntries = 0, dropped = 0;
+  for (const entry of parsed.split(",").map((e) => e.trim()).filter(Boolean)) {
+    const alias = ALIAS_BLOCKS[entry];
+    if (alias) { aliases.push(entry); internalEntries++; for (const block of alias) internal.push(toCidr(block)); continue; }
+    const cidr = toCidr(entry);
+    const blocks = (cidr.family === 4 ? NON_PUBLIC_V4 : NON_PUBLIC_V6).map(([a, p]) => toCidr(`${a}/${p}`));
+    if (blocks.some((block) => contains(block, cidr))) { internal.push(cidr); internalEntries++; continue; }
+    const inside = blocks.filter((block) => contains(cidr, block));
+    if (inside.length === 0) { edges.push(cidr); edgeEntries++; continue; }
+    internal.push(...inside); internalEntries++; dropped++;
+  }
+  const within = (list: Cidr[], address: string) => {
+    const c = addressCidr(address);
+    return c !== null && list.some((net) => contains(net, c));
+  };
+  const trust = (address: string, hop: number) => (hop === 0 ? within(internal, address) : hop === 1 ? within(edges, address) : false);
+  return { trust, internal: internalEntries, edges: edgeEntries, dropped, aliases };
+}
+
+/** One startup line describing the positional trust. It never contains an address. */
+export function describePositionalTrust(scope: PositionalTrust): string {
+  return `TRUST_PROXY scope: mode=positional internal=${scope.internal} edges=${scope.edges} aliases=${scope.aliases.join("+") || "none"} dropped=${scope.dropped} maxHops=2 publicSpace=edge-hop-only`;
+}
+
 // Behind an HTTP proxy, "loopback" makes request.ip the proxy's address: every anonymous
 // client then shares one rate-limit identity and one scan-job principal. That is safe
 // against spoofing but not what production wants, so it is said once at startup.

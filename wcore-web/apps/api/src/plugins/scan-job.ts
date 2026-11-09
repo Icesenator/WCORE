@@ -73,7 +73,7 @@ export interface EnqueueScanJobInput {
 
 export interface ScanJobQueue {
   enqueue(input: EnqueueScanJobInput): Promise<JobAdmission>;
-  getOwned(jobId: string, userId: string | undefined, ip: string): Promise<ScanJobPollResult | null>;
+  getOwned(jobId: string, userId: string | undefined, ip: string, pollTokenValid: boolean): Promise<ScanJobPollResult | null>;
   start(handler: ScanJobHandler): void;
   stop(): Promise<void>;
 }
@@ -95,8 +95,10 @@ export function ownsScanJob(
   job: { userId?: string | null; ip?: string | null },
   userId: string | undefined,
   ip: string,
+  pollTokenValid: boolean,
 ): boolean {
-  return job.userId ? job.userId === userId : job.ip === ip;
+  // An anonymous job also needs its poll token: request.ip can be forged by a trusted private peer.
+  return job.userId ? job.userId === userId : job.ip === ip && pollTokenValid;
 }
 
 export function createLeaseToken(processPrefix = PROCESS_WORKER_PREFIX): string {
@@ -297,9 +299,9 @@ export class PostgresScanJobQueue implements ScanJobQueue {
     });
   }
 
-  async getOwned(jobId: string, userId: string | undefined, ip: string): Promise<ScanJobPollResult | null> {
+  async getOwned(jobId: string, userId: string | undefined, ip: string, pollTokenValid: boolean): Promise<ScanJobPollResult | null> {
     const row = await this.prisma.scanJob.findUnique({ where: { id: jobId } });
-    if (!row || !ownsScanJob(row, userId, ip)) return null;
+    if (!row || !ownsScanJob(row, userId, ip, pollTokenValid)) return null;
     if (row.result && (row.status === "done" || row.status === "error")) return row.result as unknown as ScanJobPollResult;
     return serializePollResult(row.id, row.address, row.status as ScanJobStatus, asProgress(row.progress));
   }

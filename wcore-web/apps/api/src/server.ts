@@ -568,7 +568,8 @@ if (gsheetApiToken) {
       // Variations : celles du cours Yahoo quand le relais les fournit, sinon notre historique quotidien.
       const changes = await withHistoryChanges(sharedCache, "stock", {
         generatedAt: snapshot.generatedAt,
-        rows: snapshot.rows.map((r) => ({ symbol: r.canonicalTicker, priceEur: r.priceEur })),
+        // Un prix perime (dernier cours connu) n'est ni une cloture ni une base de variation.
+        rows: snapshot.rows.map((r) => ({ symbol: r.canonicalTicker, priceEur: r.stale ? null : r.priceEur })),
       });
       return {
         ok: true,

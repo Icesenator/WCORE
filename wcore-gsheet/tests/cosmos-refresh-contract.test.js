@@ -75,14 +75,13 @@ assert.strictEqual(
 );
 
 // --- getWalletAssets -------------------------------------------------------
-// 18_CLEANUP.gs calls getWalletAssets(wallet, "", "", true, false) to force a rescan.
+// v4.16.92: this entry no longer scans. The direct scan wrote the WalletCache without the API
+// anti-scam filter, so it now returns the cache; 18_CLEANUP.gs forces a refresh through
+// getRefreshStatus(wallet, "", "", true, false) instead (covered above).
 calls.walletAssets.length = 0;
-chain.getWalletAssets('cosmos1abc', '', '', true, false);
-assert.strictEqual(calls.walletAssets.length, 1, 'the engine must be called once');
-assert.strictEqual(
-  calls.walletAssets[0][ENGINE_FORCE_FULL_INDEX], true,
-  'the cleanup forced rescan must actually force',
-);
+const assetsOut = chain.getWalletAssets('cosmos1abc', '', '', true, false);
+assert.strictEqual(calls.walletAssets.length, 0, 'the direct engine scan must not be reachable');
+assert.strictEqual(assetsOut, 'cached', 'the entry returns the cached assets');
 
 // --- every Cosmos chain wrapper uses the same contract ---------------------
 const cosmosChains = fs.readdirSync(SRC)

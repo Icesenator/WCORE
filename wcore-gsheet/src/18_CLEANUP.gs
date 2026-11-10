@@ -650,16 +650,17 @@ function REBUILD_WALLET_CACHE(wallet, chain) {
   var addr = Addr.normalize(wallet);
   CacheManager.init();
   
-  // Clear corrupted cache
+  // v4.16.92 : la collecte passe par getRefreshStatus (file puis API filtree), plus par un scan
+  // direct. Le cache n'est plus efface avant : si la collecte est reportee ou echoue, l'ancien
+  // cache reste lisible et l'etat rendu le dit.
+  void config; void addr;
   try {
-    var cacheKey = config.KEYS.CACHE_PREFIX + addr;
-    var props = PropertiesService.getScriptProperties();
-    props.deleteProperty(cacheKey);
-  } catch (e) {}
-  
-  // Trigger fresh scan
-  try {
-    var result = chainObj.getWalletAssets(wallet, "", "", true, false);
+    var refreshStatus = "";
+    if (typeof chainObj.getRefreshStatus === "function") {
+      refreshStatus = String(chainObj.getRefreshStatus(wallet, "", "", true, false) || "");
+    }
+    var result = chainObj.getCachedWalletAssets(wallet);
+    var refreshed = /^[0-9]{4}-[0-9]{2}-[0-9]{2} /.test(refreshStatus);
     
     if (result && result.length > 2) {
       var assetCount = 0;
@@ -670,11 +671,12 @@ function REBUILD_WALLET_CACHE(wallet, chain) {
       }
       
       return [
-        ["Status", "SUCCESS [OK]"],
+        ["Status", refreshed ? "SUCCESS [OK]" : "PENDING"],
         ["Chain", chain],
         ["Wallet", wallet],
         ["Assets Found", assetCount],
-        ["Action", "Cache rebuilt. Refresh your sheet."]
+        ["Refresh", refreshStatus || "UNKNOWN"],
+        ["Action", refreshed ? "Cache rebuilt. Refresh your sheet." : "Refresh queued or deferred: the previous cache is shown."]
       ];
     }
     

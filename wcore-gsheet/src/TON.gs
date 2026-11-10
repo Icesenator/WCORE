@@ -283,7 +283,9 @@ function _tonRefresh_(address, forceFull) {
   }
 }
 
-function GET_WALLET_ASSETS_TON(a,r,t,f,g){ void r; void t; void g; return _tonRefresh_(a, f); }
+// v4.16.92 : plus de collecte directe depuis cette entree (meme regle que les fabriques EVM, SVM
+// et Cosmos) ; elle rend le cache. La collecte passe par TON_REFRESH_STATUS.
+function GET_WALLET_ASSETS_TON(a,r,t,f,g){ void r; void t; void f; void g; return CACHED_WALLET_ASSETS_TON(a); }
 function CACHED_WALLET_ASSETS_TON(a){ var timer=_tonTimer_(); var c=WalletCache.load(_tonNormalizeAddress_(a), timer, TON_CONFIG); return c ? _tonBuildOutput_(c, timer) : _tonNoCacheOutput_(timer); }
 function _tonCacheOnlyStatus_(cache) {
   var ts = "";

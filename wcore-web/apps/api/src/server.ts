@@ -35,6 +35,7 @@ import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
 import { preferSourceChanges, withHistoryChanges } from "./market-cap/price-history.js";
+import { allowForcedRefresh } from "./market-cap/forced-refresh.js";
 import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
@@ -543,7 +544,7 @@ if (gsheetApiToken) {
   // --- Public CMC pages (no auth) ---
 
   app.get("/api/cmc/crypto", async (req, reply) => {
-    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
+    const fresh = await allowForcedRefresh(sharedCache, "crypto", String((req.query as Record<string, unknown>)?.fresh || "") === "true");
     try {
       const service = new CanonicalCryptoService({ cache: sharedCache });
       const snapshot = await service.getListingSnapshot(5_000, { fresh });
@@ -560,7 +561,7 @@ if (gsheetApiToken) {
   });
 
   app.get("/api/cmc/stocks", async (req, reply) => {
-    const fresh = String((req.query as Record<string, unknown>)?.fresh || "") === "true";
+    const fresh = await allowForcedRefresh(sharedCache, "stock", String((req.query as Record<string, unknown>)?.fresh || "") === "true");
     try {
       const service = new CanonicalStockService({ cache: sharedCache });
       const snapshot = await service.getTopMarketCapSnapshot(5_000, { fresh });

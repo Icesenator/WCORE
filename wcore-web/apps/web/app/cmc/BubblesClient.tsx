@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  bubbleKey, bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
+  bubbleKey, bubbleMetric, bubbleShade, freshnessNote, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -210,6 +210,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   function onPointerUp() { dragRef.current = null; }
 
   const hoverChange = hover ? periodChange(hover.row, period) : null;
+  const freshness = snapshot ? freshnessNote(snapshot.generatedAt, snapshot.stale === true, reloadFailed) : null;
 
   function openPopup() {
     if (!popupPath) return;
@@ -309,12 +310,13 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
       </div>
       {popup && snapshot ? (
         <p className="pointer-events-none fixed bottom-1 left-2 z-10 rounded bg-bg/70 px-1.5 text-[10px] text-muted">
-          {new Date(snapshot.generatedAt).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
-          {reloadFailed ? <span className="ml-1 text-amber-500">· reload failed</span> : null}
+          {freshness!.when}
+          {freshness!.warnings.length ? <span className="ml-1 text-amber-500">· {freshness!.warnings.join(" · ")}</span> : null}
         </p>
       ) : null}
       <p className={popup ? "hidden" : "mt-2 text-xs text-muted"}>
         {snapshot ? `Snapshot ${new Date(snapshot.generatedAt).toLocaleString("en")} · ` : ""}
+        {snapshot?.stale ? <span className="text-amber-500">Stale data: the source is unavailable · </span> : null}
         {reloadFailed ? <span className="text-amber-500">Last reload failed, showing the previous data · </span> : null}
         {kind === "crypto" ? "Rankings refresh hourly" : "Rankings refresh daily"}; this page re-reads them every 5 minutes. Drag a bubble to move it.
       </p>

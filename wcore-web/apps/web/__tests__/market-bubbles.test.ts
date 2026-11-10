@@ -130,3 +130,13 @@ test("two assets sharing a symbol get distinct bubbles", async () => {
   bubbles[0]!.x = 123;
   assert.equal(createBubbles([btc], [10], 400, 300, bubbles)[0]!.x, 123);
 });
+
+test("freshnessNote gives a full date and reports a stale snapshot even after a successful reload", async () => {
+  const { freshnessNote } = await import("../lib/market-bubbles");
+  const fresh = freshnessNote("2026-11-10T21:18:00.000Z", false, false);
+  assert.match(fresh.when, /Nov/, "the day is always shown, not just the time");
+  assert.deepEqual(fresh.warnings, []);
+  assert.deepEqual(freshnessNote("2026-11-10T21:18:00.000Z", true, false).warnings, ["stale data"]);
+  assert.deepEqual(freshnessNote("2026-11-10T21:18:00.000Z", true, true).warnings, ["stale data", "reload failed"]);
+  assert.equal(freshnessNote("not a date", false, false).when, "unknown time");
+});

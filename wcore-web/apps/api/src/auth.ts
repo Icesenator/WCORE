@@ -138,6 +138,47 @@ const _siweAllowedDomains = new Set<string>(
     .filter(Boolean)
 );
 
+/**
+ * Vue d'un profil. La partie publique (adresse, score, series GM, badges) est visible de tous.
+ * Les portefeuilles lies, leurs libelles et les totaux des scans sont des donnees de patrimoine :
+ * reserves au proprietaire connecte. Sans cela, n'importe qui pouvait lire, sans connexion,
+ * les wallets d'un utilisateur et la valeur en euros de ses derniers scans (audit du 10/11/2026).
+ */
+export function profileView(user: Record<string, unknown> & { address: string }, viewerAddress: string | null | undefined) {
+  const isOwner = typeof viewerAddress === "string" && viewerAddress.toLowerCase() === String(user.address).toLowerCase();
+  const badges = (user["badges"] as Array<Record<string, unknown>> | undefined) ?? [];
+  const publicPart = {
+    address: user.address,
+    score: user["score"],
+    gmStreak: user["gmStreak"],
+    longestStreak: user["longestStreak"],
+    badges: badges.map((ub) => ub["badge"]),
+  };
+  if (!isOwner) return { ...publicPart, wallets: [], recentScans: [] };
+  const wallets = (user["wallets"] as Array<Record<string, unknown>> | undefined) ?? [];
+  const scans = (user["scans"] as Array<Record<string, unknown>> | undefined) ?? [];
+  return {
+    ...publicPart,
+    // Only wallets whose ownership has been proven by signature. UNSIGNED entries are
+    // view-only claims and can point to any address.
+    wallets: wallets
+      .filter((w) => w["verificationStatus"] === "SIGNED")
+      .map((w) => ({
+        id: w["id"],
+        address: w["address"],
+        label: w["label"],
+        chainType: w["chainType"],
+        verificationStatus: w["verificationStatus"],
+      })),
+    recentScans: scans.map((s) => ({
+      chains: s["chains"],
+      totalEur: s["totalEur"],
+      tokenCount: s["tokenCount"],
+      createdAt: s["createdAt"],
+    })),
+  };
+}
+
 export async function authPlugin(app: FastifyInstance, prisma: PrismaClient, cacheStore: CacheStore) {
   app.decorateRequest("user", undefined);
 
@@ -484,32 +525,7 @@ export async function authPlugin(app: FastifyInstance, prisma: PrismaClient, cac
       },
     });
     if (!user) return { error: "user_not_found" };
-    return {
-      address: user.address,
-      score: user.score,
-      gmStreak: user.gmStreak,
-      longestStreak: user.longestStreak,
-      badges: user.badges.map((ub: Record<string, unknown>) => ub["badge"]),
-      // Only expose wallets whose ownership has been proven by signature.
-      // UNSIGNED entries are view-only claims and can point to any address —
-      // exposing them publicly would let a user fake ownership of e.g. vitalik.eth
-      // for leaderboard / profile spoofing.
-      wallets: user.wallets
-        .filter((w: Record<string, unknown>) => w["verificationStatus"] === "SIGNED")
-        .map((w: Record<string, unknown>) => ({
-          id: w["id"],
-          address: w["address"],
-          label: w["label"],
-          chainType: w["chainType"],
-          verificationStatus: w["verificationStatus"],
-        })),
-      recentScans: user.scans.map((s: Record<string, unknown>) => ({
-        chains: s["chains"],
-        totalEur: s["totalEur"],
-        tokenCount: s["tokenCount"],
-        createdAt: s["createdAt"],
-      })),
-    };
+    return profileView(user as unknown as Record<string, unknown> & { address: string }, req.user?.address);
   });
 
   app.get("/api/wallets/nonce", async (req) => {

@@ -6,6 +6,8 @@ export interface MarketCapRow {
   marketCapEur: number | null;
   logoUrl?: string;
   country?: string;
+  /** Variations en % sur 1 h, 24 h, 7 j et 30 j ; null si inconnues (jamais zéro par défaut). */
+  changes?: { h1: number | null; d1: number | null; w1: number | null; m1: number | null } | null;
 }
 
 export interface MarketCapResponse {
@@ -29,6 +31,12 @@ function isNullableFiniteNumber(value: unknown): value is number | null {
   return value === null || (typeof value === "number" && Number.isFinite(value));
 }
 
+function isChanges(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (!isRecord(value)) return false;
+  return ["h1", "d1", "w1", "m1"].every((k) => !(k in value) || isNullableFiniteNumber(value[k]));
+}
+
 function isMarketCapRow(value: unknown): value is MarketCapRow {
   if (!isRecord(value)) return false;
   return typeof value.rank === "number"
@@ -41,7 +49,8 @@ function isMarketCapRow(value: unknown): value is MarketCapRow {
     && isNullableFiniteNumber(value.priceEur)
     && isNullableFiniteNumber(value.marketCapEur)
     && (!("logoUrl" in value) || typeof value.logoUrl === "string")
-    && (!("country" in value) || typeof value.country === "string");
+    && (!("country" in value) || typeof value.country === "string")
+    && (!("changes" in value) || isChanges(value.changes));
 }
 
 export function parseMarketCapResponse(value: unknown): MarketCapResponse {

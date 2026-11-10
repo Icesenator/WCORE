@@ -12,6 +12,7 @@ export function toCryptoMarketCapRow(row: CryptoListingRow) {
     priceEur: row.priceEur,
     marketCapEur: row.marketCapEur,
     logoUrl,
+    ...(row.changes ? { changes: row.changes } : {}),
   };
 }
 

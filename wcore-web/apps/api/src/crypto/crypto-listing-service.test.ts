@@ -395,3 +395,18 @@ test("throws typed error when no last-good snapshot exists", async () => {
   });
   await assert.rejects(service.getListingSnapshot(), CryptoServiceUnavailableError);
 });
+
+test("getListingSnapshot keeps the CMC percent changes per period, null when absent or invalid", async () => {
+  const rows = manyRows(5000) as Array<Record<string, any>>;
+  rows[0]!.quote.EUR = { ...rows[0]!.quote.EUR, percent_change_1h: 0.5, percent_change_24h: -2.25, percent_change_7d: 10, percent_change_30d: -40 };
+  rows[1]!.quote.EUR = { ...rows[1]!.quote.EUR, percent_change_24h: Number.NaN, percent_change_7d: "3" };
+  const service = new CanonicalCryptoService({
+    cache: new MemoryCacheStore(),
+    apiKeys: ["KEY1"],
+    fetchImpl: async () => cmcResponse(rows),
+    now: () => new Date("2026-07-12T10:00:00.000Z"),
+  });
+  const snapshot = await service.getListingSnapshot(5_000);
+  assert.deepEqual(snapshot.rows[0]!.changes, { h1: 0.5, d1: -2.25, w1: 10, m1: -40 });
+  assert.deepEqual(snapshot.rows[1]!.changes, { h1: null, d1: null, w1: null, m1: null });
+});

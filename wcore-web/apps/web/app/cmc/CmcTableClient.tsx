@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
@@ -203,7 +204,12 @@ export function CmcTableClient({ endpoint, title, description, kind }: CmcTableC
               {isStock ? "Public companies ranking" : "Crypto assets ranking"}
             </p>
             <h1 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">{title}</h1>
-            <p className="mt-2 text-sm leading-6 text-muted sm:text-base">{description}</p>
+            <p className="mt-2 text-sm leading-6 text-muted sm:text-base">
+              {description}{" "}
+              <Link href={isStock ? "/cmc/stocks/bubbles" : "/cmc/crypto/bubbles"} className="text-accent underline-offset-2 hover:underline">
+                Bubble view
+              </Link>
+            </p>
           </div>
 
           <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end lg:w-auto">

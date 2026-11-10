@@ -224,3 +224,39 @@ test("atomic Lua operations work against TEST_REDIS_URL", { skip: !runRealRedisT
     await cache.delete("count");
   }
 });
+
+test("incr keeps a fixed window: the expiry is set when the key is created, never pushed back", async () => {
+  const client = new FakeRedisClient();
+  client.evalResults.push(1, 2);
+  const cache = createRedisCacheStore(client);
+
+  assert.equal(await cache.incr("rate_limit:catch_all:ip", 60), 1);
+  assert.equal(await cache.incr("rate_limit:catch_all:ip", 60), 2);
+  assert.deepEqual(client.evalCalls.map((call) => call.slice(1)), [
+    [1, "rate_limit:catch_all:ip", "60"],
+    [1, "rate_limit:catch_all:ip", "60"],
+  ]);
+  const script = String(client.evalCalls[0]![0]);
+  assert.match(script, /INCR/);
+  assert.match(script, /count == 1 or redis\.call\("TTL", KEYS\[1\]\) < 0/);
+  assert.match(script, /EXPIRE/);
+});
+
+test("MemoryCacheStore.incr resets after the window even under steady traffic", async () => {
+  const realNow = Date.now;
+  let now = 1_000_000;
+  Date.now = () => now;
+  try {
+    const cache = new MemoryCacheStore();
+    // Un appel toutes les 30 s pendant 5 minutes : avec une fenêtre de 60 s, le compteur ne
+    // doit jamais dépasser 2 (il montait sans fin quand chaque appel repoussait l'échéance).
+    let max = 0;
+    for (let i = 0; i < 10; i++) {
+      max = Math.max(max, await cache.incr("k", 60));
+      now += 30_000;
+    }
+    assert.ok(max <= 3, `compteur maximal ${max}`);
+  } finally {
+    Date.now = realNow;
+  }
+});

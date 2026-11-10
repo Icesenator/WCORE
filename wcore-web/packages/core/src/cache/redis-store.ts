@@ -26,6 +26,17 @@ if count == 1 then
 end
 return count`;
 
+// Compteur à fenêtre fixe : la durée de vie est posée à la création de la clé, jamais repoussée.
+// (Avant : EXPIRE à chaque appel. Un client qui appelait au moins une fois par fenêtre ne voyait
+// jamais son compteur revenir à zéro et finissait bloqué en 429 sans dépasser le débit autorisé.)
+// Une clé restée sans durée de vie (EXPIRE perdu) est réparée au passage.
+const INCREMENT_FIXED_WINDOW_SCRIPT = `
+local count = redis.call("INCR", KEYS[1])
+if count == 1 or redis.call("TTL", KEYS[1]) < 0 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return count`;
+
 export interface RedisClient {
   connect(): Promise<unknown>;
   ping(): Promise<unknown>;
@@ -155,9 +166,7 @@ export function createRedisCacheStore(
       }
     },
     async incr(key: string, ttlSec: number): Promise<number> {
-      const count = await client.incr(key);
-      await client.expire(key, ttlSec).catch(() => { /* best-effort */ });
-      return count;
+      return Number(await client.eval(INCREMENT_FIXED_WINDOW_SCRIPT, 1, key, String(ttlSec)));
     },
     async consume(key: string, cost: number, limit: number, ttlSec: number): Promise<boolean> {
       if (!Number.isSafeInteger(cost) || cost <= 0 || !Number.isSafeInteger(limit) || limit < 0 || ttlSec <= 0) return false;

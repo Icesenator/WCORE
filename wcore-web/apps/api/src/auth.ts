@@ -514,6 +514,23 @@ export async function authPlugin(app: FastifyInstance, prisma: PrismaClient, cac
     return { ok: true };
   });
 
+  // Profil complet du proprietaire connecte. Repond 401 sans session valide : le client renouvelle
+  // alors l'acces puis relit (apiFetch), au lieu de recevoir la vue publique expurgee et de
+  // l'afficher comme un historique vide (revue Codex du 10/11/2026).
+  app.get("/api/me/profile", async (req, reply) => {
+    if (!req.user) return reply.code(401).send({ error: "not_authenticated" });
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: {
+        badges: { include: { badge: true } },
+        scans: { orderBy: { createdAt: "desc" }, take: 10 },
+        wallets: { orderBy: { createdAt: "asc" } },
+      },
+    });
+    if (!user) return reply.code(404).send({ error: "user_not_found" });
+    return profileView(user as unknown as Record<string, unknown> & { address: string }, user.address);
+  });
+
   app.get("/api/profile/:address", async (req) => {
     const { address } = ProfileParamsSchema.parse(req.params);
     const user = await prisma.user.findUnique({

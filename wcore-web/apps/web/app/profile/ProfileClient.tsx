@@ -112,7 +112,7 @@ export function ProfileClient({ defaultTab = "points" }: { defaultTab?: string }
       if (!isAuthenticated) { setLoading(false); return; }
       try {
         const [profRes, lbRes, wRes, meRes, planRes, tokensRes] = await Promise.all([
-          apiFetch(`/api/profile/${address}`, { signal: controller.signal }),
+          apiFetch("/api/me/profile", { signal: controller.signal }),
           fetch(`${API_URL}/api/leaderboard`, { signal: controller.signal }),
           apiFetch("/api/wallets", { signal: controller.signal }),
           apiFetch("/api/auth/me", { signal: controller.signal }),

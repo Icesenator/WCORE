@@ -41,9 +41,11 @@ async function mockAuthApi(page: Page, address = USER_ADDRESS) {
       breakdown: { offChain: { days: 3, points: 30, detail: "3 days" }, onChain: { count: 2, points: 40, detail: "2 txs" }, perChain: [{ chain: "base", streak: 2 }], quests: [], questPts: 0 },
     } });
   });
-  await page.route(`${API}/api/profile/**`, async (route) => {
-    await route.fulfill({ json: { address, score: 150, gmStreak: 3, longestStreak: 5, badges: [], wallets: [], recentScans: [] } });
-  });
+  for (const pattern of [`${API}/api/profile/**`, `${API}/api/me/profile`]) {
+    await page.route(pattern, async (route) => {
+      await route.fulfill({ json: { address, score: 150, gmStreak: 3, longestStreak: 5, badges: [], wallets: [], recentScans: [] } });
+    });
+  }
   await page.route(`${API}/api/wallets`, async (route) => {
     await route.fulfill({ json: { wallets: [] } });
   });

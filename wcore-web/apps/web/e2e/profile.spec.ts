@@ -14,7 +14,7 @@ test.describe("Profile Page E2E", () => {
 
     // Mock authenticated API endpoints
     await page.route(
-      (url) => url.href.includes("/api/profile/"),
+      (url) => url.href.includes("/api/profile/") || url.href.includes("/api/me/profile"),
       async (route) => {
         await route.fulfill({
           status: 200,

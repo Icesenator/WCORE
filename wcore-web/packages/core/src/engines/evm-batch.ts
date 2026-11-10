@@ -16,6 +16,7 @@ import {
   hasExplorerDiscovery,
 } from "../tokens/index.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
+import { nextDiscoveryCursor, resolveLogPagination, type LogCoverage } from "../tokens/log-pagination.js";
 import { getCompoundV3Tokens } from "../defi/index.js";
 import {
   type IntraScanCache,
@@ -140,7 +141,10 @@ export async function getEvmWalletsAssets(
   // Called once per chain ÔÇö the block number is cached for 30s across wallets.
   const logBlockWindow = effectiveLogScanWindow(chain, opts.logBlockRange);
   const chainMaxLogRange = typeof chain.RPC?.MAX_LOG_RANGE === "number" ? chain.RPC.MAX_LOG_RANGE : undefined;
-  const logRange = await getRecentLogRange(dispatcher, rpc, effectiveEndpoints, logBlockWindow, [], key, chainMaxLogRange);
+  // Pagination bornée (RPC.PAGINATE_LOGS) : fenêtre complète conservée, découpée à la découverte.
+  const logPagination = resolveLogPagination(key);
+  const logRange = await getRecentLogRange(dispatcher, rpc, effectiveEndpoints, logBlockWindow, [], key,
+    logPagination.paginate ? undefined : chainMaxLogRange);
   const currentBlock = parseInt(logRange.toBlock, 16) || 0;
   const pricingErrors: string[] = [];
   const walletErrors: Map<string, string[]> = new Map();
@@ -200,16 +204,27 @@ export async function getEvmWalletsAssets(
       // Narrow log range to the unseen delta when a valid cursor exists
       let fromBlock = logRange.fromBlock;
       if (cachedBlock != null && hasCachedDiscovery && currentBlock > cachedBlock) {
-        fromBlock = `0x${(cachedBlock + 1).toString(16)}`;
+        if (logPagination.paginate) {
+          // Chaîne paginée : le curseur ne peut que resserrer la fenêtre, jamais l'élargir.
+          const windowFrom = parseInt(logRange.fromBlock, 16);
+          if (Number.isFinite(windowFrom) && cachedBlock + 1 > windowFrom) fromBlock = `0x${(cachedBlock + 1).toString(16)}`;
+        } else {
+          fromBlock = `0x${(cachedBlock + 1).toString(16)}`;
+        }
       }
+      let logCoverage: LogCoverage | undefined;
 
       // Fire-and-forget: write discovery cache + cursor in background.
       // Only when NOT using tokenDiscovery (aligned with single-wallet path guard).
-      const writeDiscoveryCache = (finalTokens: DiscoveredToken[]) => {
+      const writeDiscoveryCache = (finalTokens: DiscoveredToken[], discoveryFailed = false) => {
         if (opts.cache && discoveryCacheKey && !opts.tokenDiscovery) {
           opts.cache.set(discoveryCacheKey, finalTokens, DISCOVERY_CACHE_TTL_MS).catch(() => {});
-          if (currentBlock > 0) {
-            opts.cache.set(`${discoveryCacheKey}:block`, currentBlock, DISCOVERY_CACHE_TTL_MS).catch(() => {});
+          // Chaîne paginée : jamais au-delà du dernier bloc couvert sans trou, rien après un échec.
+          const nextCursor = logPagination.paginate && discoveryFailed
+            ? undefined
+            : nextDiscoveryCursor({ paginated: logPagination.paginate, currentBlock, cachedLastBlock: cachedBlock, coverage: logCoverage });
+          if (nextCursor !== undefined) {
+            opts.cache.set(`${discoveryCacheKey}:block`, nextCursor, DISCOVERY_CACHE_TTL_MS).catch(() => {});
           }
         }
       };
@@ -221,15 +236,20 @@ export async function getEvmWalletsAssets(
               cache: hasCachedDiscovery ? undefined : opts.cache,
               cacheKey: discoveryCacheKey,
               errors: wErrors,
-              logDiscovery: () => discoverTokensByTransferLogs({
-                address: addr,
-                endpoints: effectiveEndpoints,
-                dispatcher,
-                rpc,
-                fromBlock,
-                toBlock: logRange.toBlock,
-                chunkBlocks: chain.RPC?.LOG_CHUNK_BLOCKS as number | undefined,
-              }),
+              logDiscovery: async () => {
+                const logs = await discoverTokensByTransferLogs({
+                  address: addr,
+                  endpoints: effectiveEndpoints,
+                  dispatcher,
+                  rpc,
+                  fromBlock,
+                  toBlock: logRange.toBlock,
+                  chunkBlocks: chain.RPC?.LOG_CHUNK_BLOCKS as number | undefined,
+                  ...(logPagination.paginate ? { maxBlockRange: logPagination.chunkSize } : {}),
+                });
+                logCoverage = logs.coverage;
+                return logs;
+              },
               explorerDiscovery: () => discoverTokensFromExplorer(addr, key, undefined, opts.cache),
               trustExplorerWhenClean: hasExplorerDiscovery(key),
               metadata: (contract) => getErc20Metadata({
@@ -280,7 +300,7 @@ export async function getEvmWalletsAssets(
         // On discovery failure, preserve cached tokens and write them back.
         // This prevents data loss when RPCs are temporarily unhealthy.
         const fallback = cachedTokens ?? [];
-        if (fallback.length > 0) writeDiscoveryCache(fallback);
+        if (fallback.length > 0) writeDiscoveryCache(fallback, true);
         wErrors.push("discovery failed; using cached tokens");
         walletErrors.set(addr, wErrors);
         return { address: addr, tokens: fallback, nativeSymbol: chain.CHAIN?.NATIVE_SYMBOL ?? "NATIVE", nativeLogo: getNativeLogo(chain), isEmpty: false, _empty: false };

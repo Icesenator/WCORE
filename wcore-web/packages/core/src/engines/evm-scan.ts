@@ -17,6 +17,7 @@ import {
 } from "../tokens/index.js";
 import { getCompoundV3Tokens } from "../defi/compound-v3.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
+import { nextDiscoveryCursor, resolveLogPagination, type LogCoverage } from "../tokens/log-pagination.js";
 import {
   GeckoTerminalPriceSource,
   OnchainV3PriceSource,
@@ -287,6 +288,10 @@ export async function getEvmWalletAssets(
   }
 
   const discoveryStart = Date.now();
+  // Pagination bornée d'eth_getLogs (RPC.PAGINATE_LOGS) : fenêtre complète découpée, couverture
+  // vérifiable ; sans elle, plafond historique MAX_LOG_RANGE inchangé.
+  const logPagination = resolveLogPagination(key);
+  let logCoverage: LogCoverage | undefined;
   const discoveryPromise: Promise<{ discovered: DiscoveredToken[]; discoveryMs: number; usedIncremental: boolean; currentBlock: number }> = (async () => {
     let discoveredTokens: DiscoveredToken[];
     let usedIncremental = false;
@@ -295,7 +300,8 @@ export async function getEvmWalletAssets(
       discoveredTokens = await tokenDiscovery.discoverTokensForWallet(normalizedAddress, key);
     } else {
       const chainMaxLogRange = typeof chain.RPC?.MAX_LOG_RANGE === "number" ? chain.RPC.MAX_LOG_RANGE : undefined;
-      const logRange = await getRecentLogRange(dispatcher, rpc, effectiveEndpoints, logBlockWindow, errors, key, chainMaxLogRange);
+      const logRange = await getRecentLogRange(dispatcher, rpc, effectiveEndpoints, logBlockWindow, errors, key,
+        logPagination.paginate ? undefined : chainMaxLogRange);
       currentBlock = parseInt(logRange.toBlock, 16) || 0;
 
       // Narrow the log range to the unseen delta when a valid cursor exists.
@@ -313,15 +319,20 @@ export async function getEvmWalletAssets(
         // we merge them back below, regardless of whether the range is incremental.
         cache: hasCachedDiscovery ? undefined : cache,
         cacheKey: discoveryKey,
-        logDiscovery: () => discoverTokensByTransferLogs({
-          address: normalizedAddress,
-          endpoints: effectiveEndpoints,
-          dispatcher,
-          rpc,
-          fromBlock: logRange.fromBlock,
-          toBlock: logRange.toBlock,
-          chunkBlocks: chain.RPC?.LOG_CHUNK_BLOCKS as number | undefined,
-        }),
+        logDiscovery: async () => {
+          const logs = await discoverTokensByTransferLogs({
+            address: normalizedAddress,
+            endpoints: effectiveEndpoints,
+            dispatcher,
+            rpc,
+            fromBlock: logRange.fromBlock,
+            toBlock: logRange.toBlock,
+            chunkBlocks: chain.RPC?.LOG_CHUNK_BLOCKS as number | undefined,
+            ...(logPagination.paginate ? { maxBlockRange: logPagination.chunkSize } : {}),
+          });
+          logCoverage = logs.coverage;
+          return logs;
+        },
         explorerDiscovery: () => discoverTokensFromExplorer(normalizedAddress, key, undefined, cache),
         trustExplorerWhenClean: hasExplorerDiscovery(key),
         metadata: (contract) => getErc20Metadata({
@@ -366,8 +377,12 @@ export async function getEvmWalletAssets(
   // every scan response for no benefit.
   if (cache && discoveryKey && !opts.tokenDiscovery) {
     cache.set(discoveryKey, discoveredTokens, DISCOVERY_CACHE_TTL_MS).catch(() => { /* discovery cache write failed */ });
-    if (currentBlock > 0) {
-      cache.set(`${discoveryKey}:block`, currentBlock, DISCOVERY_CACHE_TTL_MS).catch(() => { /* cursor write failed */ });
+    // Chaîne paginée : le curseur ne dépasse jamais le dernier bloc couvert sans trou.
+    const nextCursor = nextDiscoveryCursor({
+      paginated: logPagination.paginate, currentBlock, cachedLastBlock, coverage: logCoverage,
+    });
+    if (nextCursor !== undefined) {
+      cache.set(`${discoveryKey}:block`, nextCursor, DISCOVERY_CACHE_TTL_MS).catch(() => { /* cursor write failed */ });
     }
   }
 

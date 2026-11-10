@@ -102,7 +102,7 @@ async function mockCommonApi(page: Page, address = USER_ADDRESS) {
           questPts: 0,
         },
       } });
-    } else if (url.includes("/api/profile")) {
+    } else if (url.includes("/api/profile") || url.includes("/api/me/profile")) {
       await route.fulfill({ json: {
         address,
         score: 185,

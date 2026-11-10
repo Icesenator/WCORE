@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { parseMarketCapResponse, type MarketCapRow } from "../app/cmc/market-cap";
 import {
-  bubbleColor, bubbleMetric, computeRadii, createBubbles, formatChange, selectBubbleRows, stepBubbles,
+  bubbleColor, bubbleKey, bubbleMetric, computeRadii, createBubbles, formatChange, selectBubbleRows, stepBubbles,
   type Bubble, type BubblePeriod,
 } from "../lib/market-bubbles";
 
@@ -83,7 +83,7 @@ describe("simulation", () => {
     assert.ok(b[0]!.x >= 20 && b[0]!.x <= 380 && b[0]!.y >= 20 && b[0]!.y <= 280);
   });
   test("createBubbles conserve la position d'une bulle déjà présente (pas de saut au rafraîchissement)", () => {
-    const prev: Bubble[] = [{ id: "S1", x: 42, y: 24, vx: 0, vy: 0, r: 10 }];
+    const prev: Bubble[] = [{ id: bubbleKey(row(1, 100)), x: 42, y: 24, vx: 0, vy: 0, r: 10 }];
     const next = createBubbles([row(1, 100), row(2, 50)], [30, 20], 400, 300, prev, () => 0.5);
     assert.equal(next[0]!.x, 42);
     assert.equal(next[0]!.r, 30);
@@ -115,4 +115,18 @@ test("sharpLogoUrl asks for a larger logo only when the bubble needs it", async 
   assert.equal(sharpLogoUrl(stock, 100), "https://companiesmarketcap.com/img/company-logos/128/AAPL.png");
   assert.equal(sharpLogoUrl(stock, 300), "https://companiesmarketcap.com/img/company-logos/256/AAPL.png");
   assert.equal(sharpLogoUrl("https://example.org/logo.png", 300), "https://example.org/logo.png");
+});
+
+test("two assets sharing a symbol get distinct bubbles", async () => {
+  const { bubbleKey, createBubbles } = await import("../lib/market-bubbles");
+  const btc = { rank: 1, symbol: "BTC", name: "Bitcoin", priceEur: 60000, marketCapEur: 1e12, logoUrl: "https://s2.coinmarketcap.com/static/img/coins/64x64/1.png" } as never;
+  const fake = { rank: 900, symbol: "BTC", name: "Bitcoin", priceEur: 0.01, marketCapEur: 1e6, logoUrl: "https://s2.coinmarketcap.com/static/img/coins/64x64/31337.png" } as never;
+  const noLogo = { rank: 901, symbol: "BTC", name: "BTC Clone", priceEur: 1, marketCapEur: 1e5 } as never;
+  const keys = [btc, fake, noLogo].map(bubbleKey);
+  assert.equal(new Set(keys).size, 3);
+  const bubbles = createBubbles([btc, fake, noLogo], [10, 10, 10], 400, 300, [], () => 0.5);
+  assert.deepEqual(bubbles.map((b) => b.id), keys);
+  // Une bulle deja affichee garde sa place au rafraichissement.
+  bubbles[0]!.x = 123;
+  assert.equal(createBubbles([btc], [10], 400, 300, bubbles)[0]!.x, 123);
 });

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
+  bubbleKey, bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -123,7 +123,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
     // la première image (et même si le navigateur suspend l'animation).
     if (next.some((b) => !previous.has(b.id))) for (let i = 0; i < 240; i++) stepBubbles(next, w, h);
     bubblesRef.current = next;
-    rowsRef.current = new Map(rows.map((r) => [r.symbol, r]));
+    rowsRef.current = new Map(rows.map((r) => [bubbleKey(r), r]));
     paint();
   }, [rows, sizeMode, period, paint]);
 

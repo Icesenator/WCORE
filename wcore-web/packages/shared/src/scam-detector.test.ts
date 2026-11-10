@@ -306,5 +306,19 @@ test("flags a fake stablecoin only when the name is unbranded AND the price is f
   assert.equal(atPeg.isSuspicious, false);
   assert.ok(atPeg.reasons.some((r) => r.includes("unrelated name")));
 
+  // Missing metadata is never evidence: an empty or blank name gives no signal at all.
+  for (const name of ["", "   ", "-"]) {
+    for (const price of [0.1, 0.0013, null, 0.5, 2, 2.01]) {
+      const r = detectScam("USDC", name, 10, price, "0x00000000000000000000000000000000000f4e08");
+      assert.equal(r.reasons.some((x) => x.includes("stablecoin")), false, `name "${name}" at ${price}`);
+    }
+  }
+  // Bounds: 0.5 and 2 EUR are still parity; just outside them is off-peg.
+  assert.notEqual(detectScam("USDC", "Unrelated Dollar", 10, 0.5, "0x00000000000000000000000000000000000f4e09").level, "scam");
+  assert.notEqual(detectScam("USDC", "Unrelated Dollar", 10, 2, "0x00000000000000000000000000000000000f4e0a").level, "scam");
+  assert.equal(detectScam("USDC", "Unrelated Dollar", 10, 0.49, "0x00000000000000000000000000000000000f4e0b").level, "scam");
+  // No price: never off-peg.
+  assert.notEqual(detectScam("USDC", "Unrelated Dollar", 10, null, "0x00000000000000000000000000000000000f4e0c").level, "scam");
+
   assert.ok(SCAM_RULES_VERSION >= 35);
 });

@@ -407,8 +407,9 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
   //  - the price is far from parity (below 0.5 or above 2 EUR).
   // A real USDC with an aberrant price keeps its brand name and is untouched; an
   // unbranded name at parity only raises a warning (weight 1, not filtered).
+  // A missing or empty name is missing metadata, not evidence: never a signal.
   const stableBrands = STABLECOIN_BRANDS[s.toUpperCase()];
-  if (stableBrands) {
+  if (stableBrands && /[a-z0-9]/i.test(n)) {
     const lowerName = n.toLowerCase();
     const hasBrand = stableBrands.some((b) => lowerName.includes(b));
     if (!hasBrand) {

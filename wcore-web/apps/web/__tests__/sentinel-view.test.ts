@@ -155,3 +155,14 @@ test("isPublicSafe : refuse toute exposition dans la vue publique", () => {
   assert.equal(isPublicSafe(base), true);
   assert.equal(isPublicSafe({ ...base, alerts: [alert({ exposure: "FUNDS_PRESENT" })] }), false);
 });
+
+test("recovery notes and source names follow the interface language, with a French fallback", async () => {
+  const { recoveryNoteFor, sourcePublisherFor } = await import("../lib/sentinel-view");
+  assert.equal(recoveryNoteFor({ recoveryNote: "Depots desactives.", recoveryNoteEn: "Deposits disabled." }, "en"), "Deposits disabled.");
+  assert.equal(recoveryNoteFor({ recoveryNote: "Depots desactives.", recoveryNoteEn: "Deposits disabled." }, "fr"), "Depots desactives.");
+  assert.equal(recoveryNoteFor({ recoveryNote: "Note FR", recoveryNoteEn: null }, "en"), "Note FR");
+  assert.equal(recoveryNoteFor({ recoveryNote: null, recoveryNoteEn: undefined }, "en"), null);
+  assert.equal(sourcePublisherFor({ publisher: "Lisk (blog officiel)", publisherEn: "Lisk (official blog)" }, "en"), "Lisk (official blog)");
+  assert.equal(sourcePublisherFor({ publisher: "Lisk (blog officiel)", publisherEn: "Lisk (official blog)" }, "fr"), "Lisk (blog officiel)");
+  assert.equal(sourcePublisherFor({ publisher: "Galxe Help Center" }, "en"), "Galxe Help Center");
+});

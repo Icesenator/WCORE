@@ -137,6 +137,12 @@ jobs:
         run: pnpm --filter @wcore/db exec prisma migrate deploy
       - name: API tests against isolated PostgreSQL and Redis
         run: pnpm --filter @wcore/api test
+      # Les scripts Lua du cache (fenetre fixe du limiteur, verrous) contre le Redis jetable du job.
+      - name: Core cache Lua scripts against the disposable Redis
+        run: pnpm --filter @wcore/core exec tsx --test src/cache/redis-store.test.ts
+        env:
+          WCORE_ALLOW_TEST_REDIS: "1"
+          WCORE_TEST_REDIS_EPHEMERAL: "1"
 
   # The schema maps tables that no migration created, so `migrate deploy` used to fail
   # on an empty database while production kept working (it was created with `db push`

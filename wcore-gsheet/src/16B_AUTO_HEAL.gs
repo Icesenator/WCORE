@@ -28,6 +28,9 @@
 
 var WCORE_AUTO_HEAL_VERSION = "4.16.37";
 var WCORE_AUTO_HEAL_COOLDOWN_MS = 10 * 60 * 1000;
+// CacheService maximum TTL (6 h): nominally 4 discoveries/day; early eviction
+// can admit another attempt. This cooldown is not a durable daily limit.
+var WCORE_AUTO_HEAL_DISCOVER_COOLDOWN_SEC = 6 * 3600;
 var WCORE_AUTO_HEAL_SPREADSHEET_ID = "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4";
 var WCORE_AUTO_HEAL_WD_STALE_MS = 30 * 60 * 1000;
 // v4.16.30: _runPricingWorker added to managed trigger list + active cleanup.
@@ -486,8 +489,32 @@ function _wcoreAutoHealBootstrapState_(out, force) {
   try {
     if (typeof ActivityTracker !== "undefined" && ActivityTracker.count &&
         ActivityTracker.count() === 0 && typeof DISCOVER_AND_REGISTER_WALLETS === "function") {
-      DISCOVER_AND_REGISTER_WALLETS();
-      _wcoreAutoHealRow_(out, "Activity bootstrap", "RAN", "nonce map was empty");
+      // One HTTP batch per chain RPC. When the nonce map cannot persist (storage
+      // pressure, purge), an empty map re-ran this every heal (10 min). Discovery
+      // is a non-essential bootstrap: claim a cooldown BEFORE fetching, and skip
+      // when the claim cannot be recorded.
+      var discoverCache = null;
+      try { discoverCache = CacheService.getScriptCache(); } catch (eDc) {}
+      // CK_get has a closed registry with no discovery entry in the published
+      // base. Keep this script-scoped key local to the 16B-only change.
+      var discoverKey = "WCORE_AUTO_HEAL_DISCOVER_CLAIM";
+      var discoverClaimed = null;
+      try { discoverClaimed = discoverCache ? discoverCache.get(discoverKey) : null; } catch (eDg) { discoverClaimed = "UNREADABLE"; }
+      if (!discoverCache || discoverClaimed) {
+        _wcoreAutoHealRow_(out, "Activity bootstrap", "SKIP", discoverCache ? "cooldown" : "cooldown store unavailable");
+      } else {
+        var discoverRecorded = false;
+        try {
+          discoverCache.put(discoverKey, String(Date.now()), WCORE_AUTO_HEAL_DISCOVER_COOLDOWN_SEC);
+          discoverRecorded = discoverCache.get(discoverKey) != null;
+        } catch (eDp) {}
+        if (!discoverRecorded) {
+          _wcoreAutoHealRow_(out, "Activity bootstrap", "SKIP", "cooldown not recorded");
+        } else {
+          DISCOVER_AND_REGISTER_WALLETS();
+          _wcoreAutoHealRow_(out, "Activity bootstrap", "RAN", "nonce map was empty");
+        }
+      }
     } else {
       _wcoreAutoHealRow_(out, "Activity bootstrap", "OK", "count=" + (typeof ActivityTracker !== "undefined" && ActivityTracker.count ? ActivityTracker.count() : "n/a"));
     }

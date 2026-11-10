@@ -773,7 +773,12 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
       reason === "blocked contract"
       || reason === "admin blocked contract"
       || reason.startsWith("vanity factory address")
-      || reason.startsWith("dead screen pool")) === true;
+      || reason.startsWith("dead screen pool")
+      // Usurpation de stablecoin (regle 13b) : nom sans aucune marque officielle ET prix loin de
+      // la parite. C'est l'identite du jeton qui est en cause, pas un prix : un vrai stablecoin
+      // porte toujours sa marque. Sans cette ligne, le GSheet, qui renvoie ses jetons deja
+      // affiches en customTokens, gardait le faux USDC valorise (audit Codex du 10/11/2026).
+      || (reason.startsWith("stablecoin ") && reason.includes(" impersonation:"))) === true;
     const hasStrongGoPlusProof = enrichment?.goPlus?.available === true && (
       enrichment.goPlus.isHoneypot === true
       || (enrichment.goPlus.isBlacklisted === true && enrichment.goPlus.canTakeBackOwnership === true)

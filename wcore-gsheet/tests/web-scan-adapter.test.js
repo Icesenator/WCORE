@@ -1220,3 +1220,31 @@ for (const file of ['11_EVM_ENGINE.gs', '14_SVM_ENGINE.gs', '15_COSMOS_ENGINE.gs
 }
 
 console.log('web scan engine integration OK');
+
+{
+  // v4.16.94 : les jetons deja affiches (cache de l'onglet) partent en heldContracts a chaque scan,
+  // meme sans liste I2:I (scan non strict), sans le natif et sans doublon.
+  let sentPayload = null;
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: {
+      assets: [
+        { contract: 'native', symbol: 'ETH', balance: 1 },
+        { contract: '0x0dfd116f3b94062de121836550559836efdfec4f', symbol: 'BARAN', balance: 1000 },
+        { contract: '0x0DFD116F3B94062DE121836550559836EFDFEC4F', symbol: 'BARAN', balance: 1000 },
+      ],
+    },
+  }, (_url, options) => {
+    sentPayload = JSON.parse(options.payload);
+    return { getResponseCode: () => 200, getContentText: () => samplePayload };
+  });
+
+  ctx._webScanWallet_('0x0000000000000000000000000000000000000001', [], false, { CHAIN: { KEY: 'BASE', NAME: 'Base', NATIVE_SYMBOL: 'ETH' } }, 'base_cache_key');
+
+  assert.equal(sentPayload.strictTokens, false);
+  assert.deepEqual(Array.from(sentPayload.heldContracts), ['0x0dfd116f3b94062de121836550559836efdfec4f']);
+  assert.deepEqual(Array.from(sentPayload.customTokens), [], 'customTokens stays the I2:I list only in a non-strict scan');
+}

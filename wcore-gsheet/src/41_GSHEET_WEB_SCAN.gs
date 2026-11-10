@@ -959,6 +959,23 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
     var baseUrl = _webScanProp_("WCORE_WEB_API_URL").replace(/\/$/, "");
     var token = _webScanProp_("GSHEET_API_TOKEN");
     var req = _webScanRequestPayload_(address, tokensRange, forceFull, config);
+    // v4.16.94 : jetons deja affiches (cache de l'onglet), envoyes a chaque scan. L'API garde un
+    // jeton detenu dont le prix manque, a valeur inconnue, au lieu de le retirer comme « sans
+    // marche » : une panne de prix ne fait plus disparaitre une position. Le detecteur d'arnaques
+    // s'applique toujours (decision du proprietaire du 11/11/2026, audit Codex point 8).
+    req.heldContracts = [];
+    try {
+      var heldCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config);
+      var heldAssets = heldCache && Array.isArray(heldCache.assets) ? heldCache.assets : [];
+      var heldSeen = {};
+      for (var ha = 0; ha < heldAssets.length && req.heldContracts.length < 300; ha++) {
+        var heldContract = String(heldAssets[ha] && heldAssets[ha].contract || "").trim();
+        var heldKey = heldContract.toLowerCase();
+        if (!heldContract || heldKey === "native" || heldSeen[heldKey]) continue;
+        heldSeen[heldKey] = true;
+        req.heldContracts.push(heldContract);
+      }
+    } catch (eHeldCache) {}
     if (req.strictTokens) {
       try {
         var requestCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config);

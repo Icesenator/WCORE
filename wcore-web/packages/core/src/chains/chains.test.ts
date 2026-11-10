@@ -11,7 +11,7 @@ test("every published chain satisfies the runtime schema", () => {
       : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
   });
 
-  assert.equal(chainList.length, 158, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(chainList.length, 159, "registry count changed: update the verified roadmaps with the same commit");
 
   assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
   assert.deepEqual(failures, []);
@@ -44,6 +44,32 @@ test("Nexus Mainnet is registered with verified RPC metadata", () => {
   assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "NEX");
   assert.equal(chain.CHAIN?.NATIVE_DECIMALS, 18);
   assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://mainnet.rpc.nexus.xyz/"]);
+});
+
+test("Elysium (Vulcan Forged, 1339) is registered with verified metadata and no borrowed price", () => {
+  const chain = getChain("ELYSIUM");
+
+  assert.ok(chain, "ELYSIUM chain should be registered");
+  assert.equal(chain.vm, "EVM");
+  assert.equal(chain.CHAIN?.NAME, "Elysium");
+  assert.equal(chain.CHAIN?.CHAIN_ID, 1339);
+  assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "LAVA");
+  assert.equal(chain.CHAIN?.NATIVE_DECIMALS, 18);
+  assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://rpc.elysiumchain.tech", "https://1339.rpc.thirdweb.com"]);
+  // The public RPC rejects eth_getLogs over 5,000 blocks and accepts 1,000.
+  assert.equal(chain.RPC?.MAX_LOG_RANGE, 1000);
+  // CoinGecko "lava-network" and DexScreener "elysium" are other projects: no price id at all.
+  assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, undefined);
+  assert.equal(chain.CHAIN?.NATIVE_LLAMA_ID, undefined);
+  assert.equal(chain.CHAIN?.DEX_SLUG, undefined);
+  assert.equal(chain.CHAIN?.GT_NETWORK, undefined);
+});
+
+test("Lisk L2 (1135) stays in the registry so Chain Sentinel can still show held exposure", () => {
+  // The network is shut down and the GAS tombstone stops every Sheets scan, but Chain Sentinel
+  // reads exposure through this registry: removing Lisk here would turn a held claim
+  // (manual claims announced for January 2027) into NOT_COVERED. Same treatment as Gravity.
+  assert.equal(getChain("LISK")?.CHAIN?.CHAIN_ID, 1135);
 });
 
 test("Abstract native ETH pricing uses the Ethereum oracle ids", () => {

@@ -255,3 +255,32 @@ describe("auth nonce/login flow", () => {
   });
 
 });
+
+test("profileView keeps wealth data (wallets, scan totals) for the signed-in owner only", async () => {
+  const { profileView } = await import("./auth.js");
+  const user = {
+    address: "0xowner0000000000000000000000000000000001",
+    score: 12, gmStreak: 3, longestStreak: 5,
+    badges: [{ badge: { id: "b1", name: "Early" } }],
+    wallets: [
+      { id: "w1", address: "0xsigned", label: "Main", chainType: "EVM", verificationStatus: "SIGNED" },
+      { id: "w2", address: "0xclaim", label: "Claim", chainType: "EVM", verificationStatus: "UNSIGNED" },
+    ],
+    scans: [{ chains: ["BASE"], totalEur: 1234.5, tokenCount: 7, createdAt: "2026-11-10T00:00:00Z" }],
+  };
+
+  for (const viewer of [undefined, null, "0xsomeoneelse000000000000000000000000000002"]) {
+    const view = profileView(user, viewer);
+    assert.deepEqual(view.wallets, [], `no wallet for viewer ${viewer}`);
+    assert.deepEqual(view.recentScans, [], `no scan total for viewer ${viewer}`);
+    assert.equal(view.score, 12);
+    assert.equal(view.gmStreak, 3);
+    assert.deepEqual(view.badges, [{ id: "b1", name: "Early" }]);
+    assert.equal(JSON.stringify(view).includes("1234.5"), false);
+    assert.equal(JSON.stringify(view).includes("Main"), false);
+  }
+
+  const own = profileView(user, "0xOWNER0000000000000000000000000000000001");
+  assert.deepEqual(own.wallets.map((w) => w.id), ["w1"], "owner sees signed wallets only");
+  assert.equal(own.recentScans[0]!.totalEur, 1234.5);
+});

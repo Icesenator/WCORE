@@ -47,9 +47,30 @@ export interface SentinelDeps {
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const iso = (ms: number) => new Date(ms).toISOString();
 
+/**
+ * Un registre sauvegarde (apres validation d'une proposition) ne porte pas les traductions
+ * ajoutees ensuite au registre embarque. On les reprend, champ d'affichage seulement, et
+ * uniquement quand le texte francais sauvegarde est identique a celui du registre embarque :
+ * une note modifiee depuis ne recoit jamais une traduction perimee. Aucun fait n'est touche.
+ */
+export function withEmbeddedTranslations(records: ChainLifecycleRecord[]): ChainLifecycleRecord[] {
+  const embedded = new Map(VERIFIED_LIFECYCLE_REGISTRY.map((r) => [r.chainKey, r]));
+  return records.map((rec) => {
+    const ref = embedded.get(rec.chainKey);
+    if (!ref) return rec;
+    const out: ChainLifecycleRecord = { ...rec, sources: { ...rec.sources } };
+    if (!out.recoveryNoteEn && ref.recoveryNoteEn && rec.recoveryNote === ref.recoveryNote) out.recoveryNoteEn = ref.recoveryNoteEn;
+    for (const [id, src] of Object.entries(out.sources)) {
+      const refSrc = ref.sources[id];
+      if (src && !src.publisherEn && refSrc?.publisherEn && src.publisher === refSrc.publisher) out.sources[id] = { ...src, publisherEn: refSrc.publisherEn };
+    }
+    return out;
+  });
+}
+
 export async function loadRegistry(store: CacheStore): Promise<RegistryState> {
   const saved = await store.get<RegistryState>(SENTINEL_KEYS.registry);
-  if (saved && Array.isArray(saved.records) && saved.records.length) return saved;
+  if (saved && Array.isArray(saved.records) && saved.records.length) return { ...saved, records: withEmbeddedTranslations(saved.records) };
   return { version: 1, records: VERIFIED_LIFECYCLE_REGISTRY.map((r) => structuredClone(r)), updatedAt: "2026-11-07T12:30:00Z" };
 }
 
@@ -118,10 +139,10 @@ export interface SentinelPluginOptions extends SentinelDeps {
 function publicChainView(rec: ChainLifecycleRecord, nowMs: number) {
   return {
     chainKey: rec.chainKey, chainId: rec.chainId, name: rec.name, status: rec.status, successorChainId: rec.successorChainId ?? null,
-    recoveryAfterShutdown: rec.recoveryAfterShutdown, recoveryNote: rec.recoveryNote ?? null, lastVerifiedAt: rec.lastVerifiedAt,
+    recoveryAfterShutdown: rec.recoveryAfterShutdown, recoveryNote: rec.recoveryNote ?? null, recoveryNoteEn: rec.recoveryNoteEn ?? null, lastVerifiedAt: rec.lastVerifiedAt,
     deadlines: rec.deadlines.map((d) => ({
       kind: d.kind, at: d.at, assets: d.assets ?? null, countdownMs: Date.parse(d.at) - nowMs,
-      sources: d.sourceIds.map((id) => rec.sources[id]).filter(Boolean).map((s) => ({ url: s!.url, publisher: s!.publisher, official: s!.official })),
+      sources: d.sourceIds.map((id) => rec.sources[id]).filter(Boolean).map((s) => ({ url: s!.url, publisher: s!.publisher, publisherEn: s!.publisherEn ?? null, official: s!.official })),
     })),
   };
 }

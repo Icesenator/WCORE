@@ -29,6 +29,8 @@ export type DeadlineKind = (typeof DEADLINE_KINDS)[number];
 export interface SourceRef {
   url: string;
   publisher: string;
+  /** Libelle anglais de la source, quand il differe (interface anglaise). */
+  publisherEn?: string;
   /** true seulement pour un canal officiel du projet (site, docs, compte officiel). */
   official: boolean;
   retrievedAt: string;
@@ -58,6 +60,8 @@ export interface ChainLifecycleRecord {
   recoveryAfterShutdown: "AVAILABLE" | "PLANNED" | "NOT_AVAILABLE" | "UNKNOWN";
   /** Precision libre et sourcee (ex. « reclamation manuelle prevue en janvier 2027 »). */
   recoveryNote?: string;
+  /** Meme precision en anglais (interface anglaise) ; absente = la note francaise sert. */
+  recoveryNoteEn?: string;
   lastVerifiedAt: string;
 }
 
@@ -95,10 +99,11 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
       { kind: "NETWORK_SHUTDOWN", at: "2026-12-15T00:00:00Z", sourceIds: ["abs-migrate"] },
     ],
     sources: {
-      "abs-migrate": { url: "https://migrate.abs.xyz/", publisher: "Abstract (Migration Hub officiel)", official: true, retrievedAt: "2026-11-07T12:25:00Z" },
+      "abs-migrate": { url: "https://migrate.abs.xyz/", publisher: "Abstract (Migration Hub officiel)", publisherEn: "Abstract (official Migration Hub)", official: true, retrievedAt: "2026-11-07T12:25:00Z" },
     },
     recoveryAfterShutdown: "NOT_AVAILABLE",
     recoveryNote: "« Any users that do not migrate their assets by this date will lose access to their funds » ; bridge natif ~3 h.",
+    recoveryNoteEn: "“Any users that do not migrate their assets by this date will lose access to their funds”; native bridge takes about 3 h.",
     lastVerifiedAt: "2026-11-07T12:25:00Z",
   },
   {
@@ -111,10 +116,11 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
       { kind: "NETWORK_SHUTDOWN", at: "2027-06-03T03:00:00Z", sourceIds: ["cronos-blog"] },
     ],
     sources: {
-      "cronos-blog": { url: "https://blog.cronos.com/p/sunsetting-the-cronos-zkevm-alpha", publisher: "Cronos Labs (blog officiel)", official: true, retrievedAt: "2026-11-07T12:20:00Z" },
+      "cronos-blog": { url: "https://blog.cronos.com/p/sunsetting-the-cronos-zkevm-alpha", publisher: "Cronos Labs (blog officiel)", publisherEn: "Cronos Labs (official blog)", official: true, retrievedAt: "2026-11-07T12:20:00Z" },
     },
     recoveryAfterShutdown: "NOT_AVAILABLE",
     recoveryNote: "Assets remaining after the final shutdown will not be recoverable (blog officiel). Depots desactives.",
+    recoveryNoteEn: "Assets remaining after the final shutdown will not be recoverable (official blog). Deposits disabled.",
     lastVerifiedAt: "2026-11-07T12:20:00Z",
   },
   {
@@ -124,10 +130,11 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     status: "RETIRED",
     deadlines: [{ kind: "NETWORK_SHUTDOWN", at: "2026-11-02T00:00:00Z", sourceIds: ["lisk-blog"] }],
     sources: {
-      "lisk-blog": { url: "https://lisk.com/blog/posts/lisk-chain-has-closed", publisher: "Lisk (blog officiel)", official: true, retrievedAt: "2026-11-07T12:22:00Z" },
+      "lisk-blog": { url: "https://lisk.com/blog/posts/lisk-chain-has-closed", publisher: "Lisk (blog officiel)", publisherEn: "Lisk (official blog)", official: true, retrievedAt: "2026-11-07T12:22:00Z" },
     },
     recoveryAfterShutdown: "PLANNED",
     recoveryNote: "Portal et Bridge fermes le 02/11/2026 ; « manual claims process in January 2027 », details a venir, aucune garantie.",
+    recoveryNoteEn: "Portal and Bridge closed on 2026-11-02; “manual claims process in January 2027”, details to come, no guarantee.",
     lastVerifiedAt: "2026-11-07T12:22:00Z",
   },
   {
@@ -142,11 +149,12 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
       { kind: "CLAIM_END", at: "2027-11-04T00:00:00Z", sourceIds: ["blast-x-recovery"], assets: ["ETH", "USD", "USDB", "WETH"] },
     ],
     sources: {
-      "blast-x-recovery": { url: "https://x.com/blast/status/2117993462356197406", publisher: "Blast (compte X officiel)", official: true, retrievedAt: "2026-11-07T12:24:00Z" },
-      "theblock-blast": { url: "https://x.com/TheBlockCo/status/2106037806795817420", publisher: "The Block (relais)", official: false, retrievedAt: "2026-11-07T12:24:00Z" },
+      "blast-x-recovery": { url: "https://x.com/blast/status/2117993462356197406", publisher: "Blast (compte X officiel)", publisherEn: "Blast (official X account)", official: true, retrievedAt: "2026-11-07T12:24:00Z" },
+      "theblock-blast": { url: "https://x.com/TheBlockCo/status/2106037806795817420", publisher: "The Block (relais)", publisherEn: "The Block (relay)", official: false, retrievedAt: "2026-11-07T12:24:00Z" },
     },
     recoveryAfterShutdown: "AVAILABLE",
     recoveryNote: "Site de recuperation sur Ethereum, actif 12 mois, support final le 04/11/2027 (ETH/USD, retraits en attente, Blast Mobile).",
+    recoveryNoteEn: "Recovery site on Ethereum, live for 12 months, final support on 2027-11-04 (ETH/USD, pending withdrawals, Blast Mobile).",
     lastVerifiedAt: "2026-11-07T12:24:00Z",
   },
   {
@@ -162,13 +170,14 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
       { kind: "NETWORK_SHUTDOWN", at: "2026-11-30T00:00:00Z", sourceIds: ["sophon-x-timeline", "sophon-x-reminder"] },
     ],
     sources: {
-      "sophon-x-timeline": { url: "https://x.com/Sophon/status/2112253258030882831", publisher: "Sophon (compte X officiel, fil du 19/10/2026)", official: true, retrievedAt: "2026-11-08T18:45:00Z" },
-      "sophon-x-reminder": { url: "https://x.com/Sophon/status/2117352374679244928", publisher: "Sophon (compte X officiel, rappel du 02/11/2026)", official: true, retrievedAt: "2026-11-08T18:47:00Z" },
-      "sophon-docs": { url: "https://docs.sophon.xyz/migration", publisher: "Sophon Documentation (officiel, guide sans date fixe, anterieur au 19/10)", official: true, retrievedAt: "2026-11-08T18:50:00Z" },
-      "cointelegraph-sophon": { url: "https://cointelegraph.com/news/sophon-sets-nov-25-withdrawal-deadline-ahead-of-mainnet-shutdown", publisher: "Cointelegraph (relais)", official: false, retrievedAt: "2026-11-07T12:27:00Z" },
+      "sophon-x-timeline": { url: "https://x.com/Sophon/status/2112253258030882831", publisher: "Sophon (compte X officiel, fil du 19/10/2026)", publisherEn: "Sophon (official X account, thread of 2026-10-19)", official: true, retrievedAt: "2026-11-08T18:45:00Z" },
+      "sophon-x-reminder": { url: "https://x.com/Sophon/status/2117352374679244928", publisher: "Sophon (compte X officiel, rappel du 02/11/2026)", publisherEn: "Sophon (official X account, reminder of 2026-11-02)", official: true, retrievedAt: "2026-11-08T18:47:00Z" },
+      "sophon-docs": { url: "https://docs.sophon.xyz/migration", publisher: "Sophon Documentation (officiel, guide sans date fixe, anterieur au 19/10)", publisherEn: "Sophon Documentation (official, undated guide, earlier than 2026-10-19)", official: true, retrievedAt: "2026-11-08T18:50:00Z" },
+      "cointelegraph-sophon": { url: "https://cointelegraph.com/news/sophon-sets-nov-25-withdrawal-deadline-ahead-of-mainnet-shutdown", publisher: "Cointelegraph (relais)", publisherEn: "Cointelegraph (relay)", official: false, retrievedAt: "2026-11-07T12:27:00Z" },
     },
     recoveryAfterShutdown: "NOT_AVAILABLE",
     recoveryNote: "« assets left on Sophon Chain after the deadline risk becoming permanently inaccessible » (X officiel). Retraits et recompenses staking/Guardian : claim.sophon.com ; farms : farm.sophon.xyz. Guardian NFT, vSOPH et SOPH stake : transition automatique vers Ethereum (docs). Depots fermes depuis le 25/06/2026.",
+    recoveryNoteEn: "“assets left on Sophon Chain after the deadline risk becoming permanently inaccessible” (official X). Withdrawals and staking/Guardian rewards: claim.sophon.com; farms: farm.sophon.xyz. Guardian NFT, vSOPH and staked SOPH: automatic transition to Ethereum (docs). Deposits closed since 2026-06-25.",
     lastVerifiedAt: "2026-11-08T18:50:00Z",
   },
 ];

@@ -3,11 +3,12 @@
 export type SentinelStatus = "ACTIVE" | "WINDING_DOWN" | "RETIRED" | "UNKNOWN";
 export type SentinelSeverity = "P0" | "P1" | "P2";
 
-export interface SentinelSourceView { url: string; publisher: string; official: boolean }
+export interface SentinelSourceView { url: string; publisher: string; publisherEn?: string | null; official: boolean }
 export interface SentinelDeadlineView { kind: string; at: string; assets: string[] | null; countdownMs: number; sources: SentinelSourceView[] }
 export interface SentinelChainView {
   chainKey: string; chainId: number; name: string; status: SentinelStatus; successorChainId: number | null;
   recoveryAfterShutdown: "AVAILABLE" | "PLANNED" | "NOT_AVAILABLE" | "UNKNOWN"; recoveryNote: string | null;
+  recoveryNoteEn?: string | null;
   lastVerifiedAt: string; deadlines: SentinelDeadlineView[];
 }
 export interface SentinelAlertView {
@@ -277,4 +278,14 @@ export function pendingCount(res: SentinelAlertsResponse | null): number {
 /** Garde de confidentialite : une vue publique ne doit jamais contenir d'exposition. */
 export function isPublicSafe(res: SentinelChainsResponse): boolean {
   return res.alerts.every((a) => a.exposure === "AUTH_REQUIRED") && !JSON.stringify(res).includes("privateDetail");
+}
+
+/** Note de recuperation dans la langue de l'interface ; repli sur la note francaise. */
+export function recoveryNoteFor(chain: Pick<SentinelChainView, "recoveryNote" | "recoveryNoteEn">, lang: "fr" | "en"): string | null {
+  return (lang === "en" ? chain.recoveryNoteEn || chain.recoveryNote : chain.recoveryNote) || null;
+}
+
+/** Nom de la source dans la langue de l'interface ; repli sur le nom d'origine. */
+export function sourcePublisherFor(source: Pick<SentinelSourceView, "publisher" | "publisherEn">, lang: "fr" | "en"): string {
+  return (lang === "en" && source.publisherEn) || source.publisher;
 }

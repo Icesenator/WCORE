@@ -1879,6 +1879,13 @@ var EvmEngine = {
       }
     } catch (e) {}
 
+    // v4.16.91 (restaure 4.16.86) : un ACK de la file n'est valide que pour cette révision de
+    // requête et le cache relu par cette exécution ; un reçu seul ne vaut jamais succès.
+    if (typeof _webScanQueueDraining_ === "function" && _webScanQueueDraining_()) _WCORE_WEB_SCAN_QUEUE_PROOF = null;
+    if (typeof _webScanQueueAck_ === "function" && !_webScanQueueDraining_() &&
+        _webScanQueueAck_(addrLower, _webScanTokenList_(tokensRange), _webScanForce_(forceFull), config, triggerRefresh, beforeTs)) {
+      return "WEB_SCAN_OK " + Format.datetime(_webScanQueueTimestamp_(beforeTs));
+    }
     var _cacheStatusTs = _evmCacheStatusDatetime_(cacheBefore, beforeTs);
     var statusChainKey = "";
     try { statusChainKey = (typeof _webScanChainKey_ === "function") ? _webScanChainKey_(config) : ""; } catch (eChainKey) {}
@@ -1939,6 +1946,16 @@ var EvmEngine = {
         if (typeof _webScanWallet_ === "function") {
           var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
           if (webScan && webScan.ok && webScan.status) {
+            // v4.16.91 (restaure 4.16.86) : preuve pour la file — le cache a été réécrit et relu.
+            if (typeof _webScanQueueDraining_ === "function" && _webScanQueueDraining_()) {
+              try {
+                var persisted = WalletCache.load(addrLower, null, config);
+                var persistedTs = _webScanQueueTimestamp_(persisted && persisted.updatedAt);
+                var previousTs = _webScanQueueTimestamp_(beforeTs);
+                _WCORE_WEB_SCAN_QUEUE_PROOF = { before: previousTs, stamp: persistedTs,
+                  advanced: persistedTs > previousTs };
+              } catch (eProof) { _WCORE_WEB_SCAN_QUEUE_PROOF = null; }
+            }
             if (typeof _statusPhaseMark_ === "function") _statusPhaseMark_(statusChainKey, "SYNC_SCAN_RETURN");
             if (webScan.quotaBlocked && BaseEngine.rememberRefreshTriggerAttempt) {
               BaseEngine.rememberRefreshTriggerAttempt(addrLower, config, cacheBefore, triggerRefresh);

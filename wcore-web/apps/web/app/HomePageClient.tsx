@@ -183,7 +183,7 @@ export function HomePageClient({ coverage }: { coverage: CoverageStats }) {
     const controller = new AbortController();
     const requestOwner = authenticatedCexAddress.toLowerCase();
     Promise.all([
-      apiFetch(`/api/profile/${authenticatedCexAddress}`, { signal: controller.signal }),
+      apiFetch("/api/me/profile", { signal: controller.signal }),
       apiFetch("/api/wallets", { signal: controller.signal }),
       apiFetch("/api/me/plan", { signal: controller.signal }),
     ]).then(async ([profRes, walletsRes, planRes]) => {

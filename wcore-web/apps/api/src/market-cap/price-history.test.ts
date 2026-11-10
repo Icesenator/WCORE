@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MemoryCacheStore } from "@wcore/core";
-import { changesFromHistory, dailyCloseKey, preferSourceChanges, recordDailyCloses, withHistoryChanges } from "./price-history.js";
+import { changesFromHistory, dailyCloseKey, preferSourceChanges, recordDailyCloses, rowChanges, withHistoryChanges } from "./price-history.js";
 
 const day = (iso: string) => new Date(`${iso}T15:00:00.000Z`);
 
@@ -73,4 +73,17 @@ test("a snapshot is recorded on its own day, not on the day it is viewed", async
   assert.deepEqual(await cache.get(dailyCloseKey("stock", "2026-11-09")), { AAPL: 105 });
   assert.equal(await cache.get(dailyCloseKey("stock", "2026-11-10")), undefined, "today gets no artificial close");
   assert.equal(Math.round(changes.get("AAPL")!.d1! * 100) / 100, 5, "the change compares with the day before the snapshot");
+});
+
+test("a stale row never carries changes, even when the same snapshot was served fresh before", async () => {
+  const cache = new MemoryCacheStore();
+  await recordDailyCloses(cache, "stock", [{ symbol: "MSFT", priceEur: 100 }], day("2026-11-08"));
+  const snapshot = { generatedAt: "2026-11-09T21:30:00.000Z", rows: [{ symbol: "MSFT", priceEur: 105 }] };
+  const history = await withHistoryChanges(cache, "stock", snapshot, day("2026-11-10"));
+  const source = { d1: 1.5, w1: 2, m1: null };
+  assert.ok(rowChanges(false, source, history.get("MSFT"))!.d1 !== null, "fresh row keeps its changes");
+  // Meme generatedAt, la ligne devient perimee : le memo rend les memes variations, la sortie non.
+  const memoized = await withHistoryChanges(cache, "stock", { ...snapshot, rows: [{ symbol: "MSFT", priceEur: null }] }, day("2026-11-10"));
+  assert.equal(rowChanges(true, source, memoized.get("MSFT")), null);
+  assert.equal(rowChanges(true, null, null), null);
 });

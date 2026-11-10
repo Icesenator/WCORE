@@ -68,3 +68,8 @@ test("toStockMarketCapRow leaves empty optional branding undefined", () => {
   assert.equal(mapped.logoUrl, undefined);
   assert.equal(mapped.symbol, "UNBRANDED");
 });
+
+test("toCryptoMarketCapRow exposes the period changes when the row has them", () => {
+  const mapped = toCryptoMarketCapRow({ id: 1, rank: 1, symbol: "BTC", name: "Bitcoin", priceEur: 1, marketCapEur: 1, changes: { h1: 1, d1: 2, w1: 3, m1: 4 } });
+  assert.deepEqual(mapped.changes, { h1: 1, d1: 2, w1: 3, m1: 4 });
+});

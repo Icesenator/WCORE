@@ -34,6 +34,7 @@ import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
+import { withHistoryChanges } from "./market-cap/price-history.js";
 import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
 import { isAdminAuthorized } from "./admin-auth.js";
@@ -563,11 +564,16 @@ if (gsheetApiToken) {
     try {
       const service = new CanonicalStockService({ cache: sharedCache });
       const snapshot = await service.getTopMarketCapSnapshot(5_000, { fresh });
+      // La source des actions ne donne aucune variation : elles viennent de notre historique quotidien.
+      const changes = await withHistoryChanges(sharedCache, "stock", {
+        generatedAt: snapshot.generatedAt,
+        rows: snapshot.rows.map((r) => ({ symbol: r.canonicalTicker, priceEur: r.priceEur })),
+      });
       return {
         ok: true,
         generatedAt: snapshot.generatedAt,
         stale: snapshot.stale,
-        rows: snapshot.rows.map(toStockMarketCapRow),
+        rows: snapshot.rows.map((r) => ({ ...toStockMarketCapRow(r), changes: changes.get(r.canonicalTicker) ?? null })),
       };
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "cmc stocks failed");

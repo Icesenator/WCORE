@@ -132,6 +132,13 @@ export const CACHE_KEY_REGISTRY = {
     storage: "web-only" as const,
     ttl: "30d",
   },
+  marketDailyClose: {
+    vars: ["kind", "date"],
+    gsheet: null,
+    web: "market:daily-close:{kind}:{date}",
+    storage: "web-only" as const,
+    ttl: "40d",
+  },
   stockTopMarketCapLock: {
     vars: [],
     gsheet: null,

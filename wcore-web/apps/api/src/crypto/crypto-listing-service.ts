@@ -18,6 +18,8 @@ export interface CryptoListingRow {
   name: string;
   priceEur: number;
   marketCapEur: number;
+  /** Variations CMC en % (1 h, 24 h, 7 j, 30 j) ; null si absentes. Absent sur les anciens caches. */
+  changes?: { h1: number | null; d1: number | null; w1: number | null; m1: number | null };
 }
 
 export interface CryptoListingSnapshot {
@@ -169,7 +171,7 @@ interface CmcListingsPayload {
     cmc_rank?: unknown;
     symbol?: unknown;
     name?: unknown;
-    quote?: { EUR?: { price?: unknown; market_cap?: unknown } };
+    quote?: { EUR?: { price?: unknown; market_cap?: unknown; percent_change_1h?: unknown; percent_change_24h?: unknown; percent_change_7d?: unknown; percent_change_30d?: unknown } };
   }>;
 }
 
@@ -196,7 +198,9 @@ function parseCmcListings(payload: CmcListingsPayload | null): CryptoListingRow[
       || !Number.isFinite(marketCapEur) || marketCapEur < 0
     ) continue;
     ranks.add(rank as number);
-    rows.push({ id: id as number, rank: rank as number, symbol, name, priceEur, marketCapEur });
+    const pct = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const changes = { h1: pct(quote?.percent_change_1h), d1: pct(quote?.percent_change_24h), w1: pct(quote?.percent_change_7d), m1: pct(quote?.percent_change_30d) };
+    rows.push({ id: id as number, rank: rank as number, symbol, name, priceEur, marketCapEur, changes });
   }
   rows.sort((a, b) => a.rank - b.rank);
   return rows;

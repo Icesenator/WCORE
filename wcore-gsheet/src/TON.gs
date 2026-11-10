@@ -314,28 +314,13 @@ function TON_REFRESH_STATUS(a,r,t,f,g){
   }
   if (typeof _webScanQuotaTripped_ === "function" && _webScanQuotaTripped_()) return "[BLOCKED:QUOTA] " + _tonNow_();
 
-  var before = null;
-  try { before = WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG); } catch (eBefore) {}
-  var beforeUpdatedAt = Number(before && before.updatedAt);
-  if (typeof BaseEngine !== "undefined" && BaseEngine.shouldSkipNoTriggerRecentScan) {
-    var walletKey = _tonNormalizeAddress_(a);
-    if (BaseEngine.shouldSkipNoTriggerRecentScan(walletKey, TON_CONFIG, before, f, g)) {
-      return _tonCacheOnlyStatus_(before);
-    }
-  }
-
-  _tonRefresh_(a, f);
-  var after = null;
-  try { after = WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG); } catch (eAfter) {}
-  var ts = "";
-  try { ts = WalletCache.getLastUpdateStr(after) || ""; } catch (eTs) {}
-  var afterUpdatedAt = Number(after && after.updatedAt);
-  var cacheAdvanced = isFinite(afterUpdatedAt) && afterUpdatedAt > 0 &&
-    (!isFinite(beforeUpdatedAt) || beforeUpdatedAt <= 0 || afterUpdatedAt > beforeUpdatedAt);
-  if (before && (!after || !cacheAdvanced)) return _tonCacheOnlyStatus_(after || before);
-  if (ts) return "TON_SCAN_OK " + ts;
-  if (before) return _tonCacheOnlyStatus_(before);
-  return "[NO_CACHE] " + _tonNow_();
+  // v4.16.93 : plus de collecte directe en repli. Ce chemin ecrivait le WalletCache sans le filtre
+  // anti-arnaque de l'API ; il n'etait atteint que hors configuration par defaut (Web non exige).
+  // Comme les moteurs EVM, SVM et Cosmos : statut du cache, ou erreur s'il n'y en a pas.
+  var cached = null;
+  try { cached = WalletCache.load(_tonNormalizeAddress_(a), null, TON_CONFIG); } catch (eCached) {}
+  if (cached) return _tonCacheOnlyStatus_(cached);
+  return "[WEB_SCAN_ERROR] " + _tonNow_();
 }
 function TON_STATS(a,t){
   void t;

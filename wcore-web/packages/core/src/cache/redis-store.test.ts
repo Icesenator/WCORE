@@ -61,7 +61,10 @@ function getSafeTestRedisUrl(env: RedisTestEnvironment): string {
 
   const normalizedTestUrl = normalizedRedisUrl(env.TEST_REDIS_URL);
   const hostname = new URL(normalizedTestUrl).hostname.toLowerCase();
-  if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname)) {
+  // Un Redis local peut etre le cache de developpement (port 6380 par defaut) : refuse, sauf le
+  // Redis jetable d'un job GitHub Actions, declare explicitement par le workflow.
+  const disposableCiRedis = env.GITHUB_ACTIONS === "true" && env.CI === "true" && env.WCORE_TEST_REDIS_EPHEMERAL === "1";
+  if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname) && !disposableCiRedis) {
     throw new Error("Real Redis tests require a Railway test or staging instance");
   }
   if (env.REDIS_URL && normalizedTestUrl === normalizedRedisUrl(env.REDIS_URL)) {
@@ -178,6 +181,21 @@ test("real Redis safety rejects localhost and normalized production matches", ()
   assert.throws(
     () => getSafeTestRedisUrl({ WCORE_ALLOW_TEST_REDIS: "1", TEST_REDIS_URL: "redis://127.0.0.1:6379/1" }),
     /Railway test or staging/,
+  );
+  // Localhost only for the disposable Redis of a GitHub Actions job, all three flags required.
+  for (const partial of [
+    { GITHUB_ACTIONS: "true", CI: "true" },
+    { GITHUB_ACTIONS: "true", WCORE_TEST_REDIS_EPHEMERAL: "1" },
+    { CI: "true", WCORE_TEST_REDIS_EPHEMERAL: "1" },
+  ]) {
+    assert.throws(
+      () => getSafeTestRedisUrl({ WCORE_ALLOW_TEST_REDIS: "1", TEST_REDIS_URL: "redis://localhost:6379", ...partial }),
+      /Railway test or staging/,
+    );
+  }
+  assert.equal(
+    getSafeTestRedisUrl({ WCORE_ALLOW_TEST_REDIS: "1", TEST_REDIS_URL: "redis://localhost:6379", GITHUB_ACTIONS: "true", CI: "true", WCORE_TEST_REDIS_EPHEMERAL: "1" }),
+    "redis://localhost:6379",
   );
   assert.throws(
     () => getSafeTestRedisUrl({

@@ -74,13 +74,17 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
   const rows = useMemo(() => selectBubbleRows(snapshot?.rows ?? [], count), [snapshot, count]);
   const knownChanges = useMemo(() => rows.filter((r) => periodChange(r, period) !== null).length, [rows, period]);
 
+  // Aucune variation connue sur la période (ex. actions avant le premier jour d'historique) :
+  // on taille par capitalisation plutôt que d'afficher un amas de bulles minuscules.
+  const sizeMode: BubbleMode = mode === "change" && rows.length > 0 && knownChanges === 0 ? "marketcap" : mode;
+
   // (Re)calcule tailles et bulles quand les données, la période, le mode ou la taille changent.
   const rebuild = useCallback(() => {
     const { w, h } = sizeRef.current;
     // En capitalisation, BTC écraserait tout : échelle compressée (rayon ∝ capitalisation^0,3).
     const values = rows.map((r) => {
-      const v = bubbleMetric(r, mode, period);
-      return v !== null && mode === "marketcap" ? v ** 0.6 : v;
+      const v = bubbleMetric(r, sizeMode, period);
+      return v !== null && sizeMode === "marketcap" ? v ** 0.6 : v;
     });
     const radii = computeRadii(values, w, h, {
       fill: rows.length > 200 ? 0.62 : 0.55,
@@ -94,7 +98,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
     bubblesRef.current = next;
     rowsRef.current = new Map(rows.map((r) => [r.symbol, r]));
     paint();
-  }, [rows, mode, period, paint]);
+  }, [rows, sizeMode, period, paint]);
 
   useEffect(() => { rebuild(); }, [rebuild]);
 
@@ -181,7 +185,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
           </p>
           <h1 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">{title}</h1>
           <p className="mt-2 text-sm text-muted">
-            Size shows the {mode === "change" ? "size of the move" : "market cap"}; green is up, red is down, grey is unknown.{" "}
+            Size shows the {sizeMode === "change" ? "size of the move" : "market cap"}; green is up, red is down, grey is unknown.{" "}
             <Link href={tablePath} className="text-accent underline-offset-2 hover:underline">Table view</Link>
           </p>
         </div>
@@ -204,7 +208,8 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
       {snapshot && mode === "change" && knownChanges === 0 ? (
         <p className="mb-3 rounded-lg border border-border bg-card p-3 text-sm text-muted">
           No {PERIOD_LABELS[period].toLowerCase()} change is known yet for these assets
-          {kind === "stock" ? ": stock changes build up from our own daily history (1, 7 and 30 days)." : "."}
+          {kind === "stock" ? ": stock changes build up from our own daily history (1, 7 and 30 days)." : "."}{" "}
+          Until then, bubbles are sized by market cap.
         </p>
       ) : null}
 

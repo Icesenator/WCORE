@@ -12,7 +12,7 @@
  * dépôt. Le dist @wcore/chains ne porte ce champ que pour BSC/DEGEN/MONAD/
  * SOMNIA/TAC/ZERO — toutes les autres chaînes listées ici en étaient dépourvues.
  */
-export const WEB_CHAIN_OVERRIDES: Readonly<Record<string, { RPC?: { MAX_LOG_RANGE?: number } }>> = {
+export const WEB_CHAIN_OVERRIDES: Readonly<Record<string, { RPC?: { MAX_LOG_RANGE?: number; PAGINATE_LOGS?: boolean } }>> = {
   BASE: { RPC: { MAX_LOG_RANGE: 5000 } },
   BOTANIX: { RPC: { MAX_LOG_RANGE: 2000 } },
   CITREA: { RPC: { MAX_LOG_RANGE: 1000 } },
@@ -24,5 +24,10 @@ export const WEB_CHAIN_OVERRIDES: Readonly<Record<string, { RPC?: { MAX_LOG_RANG
   MOONBEAM: { RPC: { MAX_LOG_RANGE: 1024 } },
   MOONRIVER: { RPC: { MAX_LOG_RANGE: 1024 } },
   MORPH: { RPC: { MAX_LOG_RANGE: 5000 } },
+  // 2026-11-09 : HTTP 400 -32602 au-delà de 1 000 blocs (rpc.openledger.xyz ; Pocket zkLink Nova).
+  // PAGINATE_LOGS : la fenêtre de 5 000 blocs est découpée en segments de MAX_LOG_RANGE au lieu
+  // d'être plafonnée (pas de troncature silencieuse de la découverte).
+  OPENLEDGER: { RPC: { MAX_LOG_RANGE: 1000, PAGINATE_LOGS: true } },
   SEI: { RPC: { MAX_LOG_RANGE: 2000 } },
+  ZKLINKNOVA: { RPC: { MAX_LOG_RANGE: 1000, PAGINATE_LOGS: true } },
 };

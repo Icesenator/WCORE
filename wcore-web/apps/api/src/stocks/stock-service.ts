@@ -7,6 +7,7 @@ import {
   fetchStockQuotesViaRelay,
   type StockFxQuoteMap,
   type StockNativeQuoteMap,
+  type StockQuoteChanges,
 } from "../cex/stock-relay.js";
 import { getBitpandaSecurity, mapTopMarketCapTicker } from "./mappings.js";
 import { resolveStockPrice, type ResolvedStockPrice } from "./stock-pricing.js";
@@ -38,6 +39,8 @@ export interface StockSnapshotRow extends ResolvedStockPrice {
   marketCapEur: number;
   supply: number;
   capCorrected: boolean;
+  /** Variations Yahoo du cours retenu ; absent si le prix ne vient pas du relais ou n'est pas frais. */
+  changes?: StockQuoteChanges;
 }
 
 export interface TopMarketCapSnapshot {
@@ -259,6 +262,8 @@ export class CanonicalStockService {
         supply: (marketCapUsd / source.priceUsd) * supplyMultiplier,
         capCorrected,
       };
+      // Les variations ne valent que pour le cours Yahoo du moment : pas pour un repli ni un prix perime.
+      if (quote?.changes && resolved.priceSource === "yahoo:relay" && !resolved.stale) row.changes = quote.changes;
       rows.push(row);
     }
     const correctedTickers = rows.filter((row) => row.capCorrected).map((row) => row.sourceTicker);

@@ -307,3 +307,21 @@ test("stock relay calls are skipped when the URL or token is missing", async () 
 
   assert.equal(calls, 0, "no request may be issued without a relay URL and token");
 });
+
+test("fetchStockQuotesViaRelay keeps bounded changes and drops unusable ones", async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      quotes: {
+        HYXS: { priceNative: 143.5, currency: "USD", yahooTicker: "SKHY", source: "yahoo:relay", changes: { d1: 1.25, w1: "3", m1: 5000 } },
+        SSU: { priceNative: 10, currency: "KRW", yahooTicker: "005930.KS", source: "yahoo:relay", changes: { d1: null, w1: null, m1: null } },
+      },
+    }),
+  }) as Response;
+
+  const quotes = await fetchStockQuotesViaRelay(["HYXS", "SSU"], { fetchImpl, relayUrl: "https://relay.example", relayToken: "secret" });
+
+  assert.deepEqual(quotes.HYXS!.changes, { d1: 1.25, w1: null, m1: null });
+  for (const quote of Object.values(quotes)) if (quote.yahooTicker !== "SKHY") assert.equal("changes" in quote, false);
+});

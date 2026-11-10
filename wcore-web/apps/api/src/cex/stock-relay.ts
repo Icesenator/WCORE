@@ -7,11 +7,23 @@ import { getBitpandaSecurity } from "../stocks/mappings.js";
 
 export type StockPriceMap = Record<string, { priceEur: number; source: string }>;
 
+/** Variations en pourcentage dans la devise de cotation ; null = inconnu, jamais zero. */
+export interface StockQuoteChanges { d1: number | null; w1: number | null; m1: number | null }
+
 export interface StockNativeQuote {
   priceNative: number;
   currency: string;
   yahooTicker: string;
   source: string;
+  changes?: StockQuoteChanges;
+}
+
+export function parseStockQuoteChanges(value: unknown): StockQuoteChanges | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const pick = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > -100 && v < 1000 ? v : null);
+  const out = { d1: pick(record.d1), w1: pick(record.w1), m1: pick(record.m1) };
+  return out.d1 === null && out.w1 === null && out.m1 === null ? null : out;
 }
 
 export type StockNativeQuoteMap = Record<string, StockNativeQuote>;
@@ -143,6 +155,8 @@ export async function fetchStockQuotesViaRelay(symbols: string[], deps: StockRel
         yahooTicker,
         source: "yahoo:relay",
       };
+      const changes = parseStockQuoteChanges(quote.changes);
+      if (changes) out[normalizedSymbol].changes = changes;
     }
     return out;
   } catch (e) {

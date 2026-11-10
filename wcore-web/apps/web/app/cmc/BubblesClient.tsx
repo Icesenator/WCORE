@@ -107,6 +107,13 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
       const h = Math.max(380, Math.min(window.innerHeight - 240, Math.round(w * 0.62)));
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      // Le cadre change de taille (hydratation, rotation, fenêtre) : on garde la disposition en
+      // la mettant à l'échelle, sinon les bulles resteraient groupées dans l'ancienne surface.
+      const prev = sizeRef.current;
+      if (prev.w !== w || prev.h !== h) {
+        for (const b of bubblesRef.current) { b.x *= w / prev.w; b.y *= h / prev.h; }
+        for (let i = 0; i < 60; i++) stepBubbles(bubblesRef.current, w, h);
+      }
       sizeRef.current = { w, h };
       setFrameHeight(h);
       rebuild();

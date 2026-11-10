@@ -110,6 +110,19 @@ export function bubbleShade(change: number | null): { light: string; base: strin
     : { light: `rgba(248, 113, 113, ${a(0.5)})`, base: `rgba(220, 38, 38, ${a(0.5)})`, dark: `rgba(95, 12, 12, ${a(0.45)})`, rim: "rgba(248, 113, 113, 0.95)" };
 }
 
+/**
+ * Les classements fournissent des logos de 64 px, flous une fois agrandis dans une bulle.
+ * Les deux sources connues servent aussi des tailles supérieures : on choisit la plus petite
+ * qui couvre `pixels` (taille réelle à l'écran). Une adresse inconnue est rendue telle quelle.
+ */
+export function sharpLogoUrl(url: string, pixels: number): string {
+  if (pixels <= 64) return url;
+  const big = pixels > 128;
+  return url
+    .replace(/(coinmarketcap\.com\/static\/img\/coins\/)64x64\//, `$1${big ? "200x200" : "128x128"}/`)
+    .replace(/(companiesmarketcap\.com\/img\/company-logos\/)64\//, `$1${big ? "256" : "128"}/`);
+}
+
 export function formatChange(change: number | null): string {
   if (change === null) return "—";
   const v = Math.round(change * 10) / 10;

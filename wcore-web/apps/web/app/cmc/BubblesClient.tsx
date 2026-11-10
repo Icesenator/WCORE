@@ -39,6 +39,8 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   const [count, setCount] = useState<number>(100);
   const [search, setSearch] = useState("");
   const [hideStables, setHideStables] = useState(false);
+  // Fenêtre détachée : les commandes peuvent être repliées pour laisser toute la place aux bulles.
+  const [controlsHidden, setControlsHidden] = useState(false);
   const [hover, setHover] = useState<Hover | null>(null);
   const [frameHeight, setFrameHeight] = useState(480);
 
@@ -129,7 +131,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
       const w = Math.max(320, wrap.clientWidth);
       // Fenêtre détachée : toute la hauteur restante sous les commandes.
       const h = popup
-        ? Math.max(240, Math.floor(window.innerHeight - wrap.getBoundingClientRect().top - 30))
+        ? Math.max(200, Math.floor(window.innerHeight - wrap.getBoundingClientRect().top - 6))
         : Math.max(380, Math.min(window.innerHeight - 240, Math.round(w * 0.62)));
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
@@ -150,7 +152,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
     // La hauteur d'une fenêtre détachée peut changer sans que la largeur du cadre bouge.
     window.addEventListener("resize", resize);
     return () => { observer.disconnect(); window.removeEventListener("resize", resize); };
-  }, [rebuild, popup]);
+  }, [rebuild, popup, controlsHidden]);
 
   // Boucle d'animation : physique + dessin. requestAnimationFrame se met en pause onglet masqué.
   useEffect(() => {
@@ -207,9 +209,9 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   }
 
   return (
-    <main className={popup ? "w-full px-2 pb-1 pt-2" : "w-full px-4 py-5 sm:px-6 sm:py-7"}>
+    <main className={popup ? "w-full px-1.5 pb-0 pt-1.5" : "w-full px-4 py-5 sm:px-6 sm:py-7"}>
       <header className={popup
-        ? "mb-2 flex flex-wrap items-end justify-between gap-2"
+        ? `mb-1.5 flex-wrap items-center gap-1.5 ${controlsHidden ? "hidden" : "flex"}`
         : "mb-4 flex flex-col gap-4 border-b border-border pb-4 lg:flex-row lg:items-end lg:justify-between"}>
         <div className={popup ? "hidden" : undefined}>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">
@@ -221,23 +223,31 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
             <Link href={tablePath} className="text-accent underline-offset-2 hover:underline">Table view</Link>
           </p>
         </div>
-        {popup ? <p className="self-center text-sm font-semibold text-fg">{title}</p> : null}
-        <div className="flex flex-wrap items-end gap-2">
-          <Segmented label="Period" value={period} onChange={(v) => setPeriod(v as BubblePeriod)}
+        <div className={popup ? "flex flex-wrap items-center gap-1.5" : "flex flex-wrap items-end gap-2"}>
+          <Segmented compact={popup} label="Period" value={period} onChange={(v) => setPeriod(v as BubblePeriod)}
             options={periods.map((p) => ({ value: p, label: PERIOD_LABELS[p] }))} />
-          <Segmented label="Size" value={mode} onChange={(v) => setMode(v as BubbleMode)}
+          <Segmented compact={popup} label="Size" value={mode} onChange={(v) => setMode(v as BubbleMode)}
             options={[{ value: "change", label: "Change" }, { value: "marketcap", label: "Market cap" }]} />
-          <Segmented label="Top" value={String(count)} onChange={(v) => setCount(Number(v))}
+          <Segmented compact={popup} label="Top" value={String(count)} onChange={(v) => setCount(Number(v))}
             options={COUNTS.map((c) => ({ value: String(c), label: String(c) }))} />
           {kind === "crypto" ? (
-            <Segmented label="Stablecoins" value={hideStables ? "hide" : "show"} onChange={chooseStables}
-              options={[{ value: "show", label: "Show" }, { value: "hide", label: "Hide" }]} />
+            <Segmented compact={popup} label="Stablecoins" value={hideStables ? "hide" : "show"} onChange={chooseStables}
+              options={[{ value: "show", label: popup ? "Stables" : "Show" }, { value: "hide", label: popup ? "No stables" : "Hide" }]} />
           ) : null}
           <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Find
-            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or ticker"
-              className="h-9 w-40 rounded-lg border border-border bg-card px-3 text-sm text-fg outline-none focus:border-accent" />
+            {popup ? null : "Find"}
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Find"
+              placeholder={popup ? "Find" : "Name or ticker"}
+              className={popup
+                ? "h-7 w-24 rounded-md border border-border bg-card px-2 text-xs text-fg outline-none focus:border-accent"
+                : "h-9 w-40 rounded-lg border border-border bg-card px-3 text-sm text-fg outline-none focus:border-accent"} />
           </label>
+          {popup ? (
+            <button type="button" onClick={() => setControlsHidden(true)} title="Hide the controls"
+              className="h-7 rounded-md border border-border bg-card px-2 text-xs text-muted transition hover:border-accent hover:text-accent">
+              Collapse
+            </button>
+          ) : null}
           {!popup && popupPath ? (
             <button type="button" onClick={openPopup} title="Open the bubbles in their own window"
               className="h-9 rounded-lg border border-border bg-card px-3 text-sm text-fg transition hover:border-accent hover:text-accent">
@@ -268,6 +278,12 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
           onPointerUp={onPointerUp}
           onPointerLeave={() => { setHover(null); dragRef.current = null; }}
         />
+        {popup && controlsHidden ? (
+          <button type="button" onClick={() => setControlsHidden(false)} title="Show the controls"
+            className="absolute right-1.5 top-1.5 z-10 h-6 rounded-md border border-border bg-bg/80 px-2 text-[11px] text-muted transition hover:border-accent hover:text-accent">
+            Controls
+          </button>
+        ) : null}
         {!snapshot && !error ? <p className="absolute inset-0 flex items-center justify-center text-sm text-muted">Loading…</p> : null}
         {hover ? (
           <div className="pointer-events-none absolute z-10 min-w-44 rounded-lg border border-border bg-bg/95 p-3 text-xs shadow-lg"
@@ -281,7 +297,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
           </div>
         ) : null}
       </div>
-      <p className={`${popup ? "mt-1 truncate" : "mt-2"} text-xs text-muted`}>
+      <p className={popup ? "hidden" : "mt-2 text-xs text-muted"}>
         {snapshot ? `Snapshot ${new Date(snapshot.generatedAt).toLocaleString("en")} · ` : ""}
         {kind === "crypto" ? "Rankings refresh hourly" : "Rankings refresh daily"}; this page re-reads them every minute. Drag a bubble to move it.
       </p>
@@ -289,16 +305,17 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   );
 }
 
-function Segmented({ label, value, options, onChange }: {
-  label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void;
+function Segmented({ label, value, options, onChange, compact = false }: {
+  label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void; compact?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-1 text-xs font-medium text-muted">
-      {label}
-      <div role="group" aria-label={label} className="flex h-9 overflow-hidden rounded-lg border border-border bg-card">
+      {compact ? null : label}
+      <div role="group" aria-label={label} title={compact ? label : undefined}
+        className={`flex overflow-hidden border border-border bg-card ${compact ? "h-7 rounded-md" : "h-9 rounded-lg"}`}>
         {options.map((o) => (
           <button key={o.value} type="button" aria-pressed={o.value === value} onClick={() => onChange(o.value)}
-            className={`px-3 text-sm transition ${o.value === value ? "bg-accent font-semibold text-black" : "text-fg hover:bg-border/40"}`}>
+            className={`transition ${compact ? "px-2 text-xs" : "px-3 text-sm"} ${o.value === value ? "bg-accent font-semibold text-black" : "text-fg hover:bg-border/40"}`}>
             {o.label}
           </button>
         ))}
@@ -342,11 +359,18 @@ function paintBubbles(
 }
 
 function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, change: number | null, logos: Map<string, HTMLImageElement | null>) {
-  if (b.r < 14) return;
+  const logo = loadLogo(row, logos);
+  if (b.r < 14) {
+    // Trop petite pour un texte lisible : le logo seul, plutôt qu'un disque muet.
+    if (logo && b.r >= 7) {
+      const s = b.r * 1.25;
+      try { ctx.drawImage(logo, b.x - s / 2, b.y - s / 2, s, s); } catch { /* logo illisible : ignoré */ }
+    }
+    return;
+  }
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const logo = loadLogo(row, logos);
   const showLogo = logo && b.r >= 30;
   const symbolSize = Math.max(9, Math.min(26, b.r * 0.36));
   const changeSize = Math.max(8, symbolSize * 0.72);

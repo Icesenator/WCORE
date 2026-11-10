@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 33;
+export const SCAM_RULES_VERSION = 34;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -172,6 +172,11 @@ const _BLOCKED_CONTRACTS = new Set([
   // "HP: BUY_FAILED", liquidité ~$0.05 Uniswap V2 WETH-SKYAI, 230k holders,
   // BaseScan réputation UNKNOWN, DexScreener 0 paire)
   "0xce014b9c1ac69e01792e9db7393075146a1d4055", // BASE: SKYAI honeypot dusting scam
+  // 2026-11-10 — Ledger - Elysium (Kinetiq 99901) : deux jetons reçus sans achat, confirmés
+  // par le propriétaire. Aucune heuristique ne les signalait (score 0) et la chaîne n'est pas
+  // couverte par l'enrichissement.
+  "0x716da70796d502b3c9ceb5c4876ba60f511dd8a0", // Elysium: ep/acc "Elysium Pepe Acceleration", 120 000 unités non sollicitées, prix de pool ~413 EUR
+  "0xd56786d59f898ab020f386bc21fc08bfd576a942", // Elysium: faux USDC "United States Digital Coin" (prix 0,0013 EUR, loin de la parité)
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([

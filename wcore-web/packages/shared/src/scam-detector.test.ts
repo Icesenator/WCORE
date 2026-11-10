@@ -19,6 +19,17 @@ test("blocks the Ethos - Base SKYAI honeypot dusting contract", () => {
   assert.ok(result.reasons.some((r) => r.toLowerCase().includes("blocked")), "blocked contract reason expected");
 });
 
+test("blocks the two unsolicited Elysium tokens confirmed by the owner", () => {
+  const pepe = detectScam("ep/acc", "Elysium Pepe Acceleration", 120000, 0.003441419274, "0x716DA70796d502b3c9ceb5c4876ba60f511dd8a0");
+  const fakeUsdc = detectScam("USDC", "United States Digital Coin", 3, 0.001347795318, "0xd56786d59f898ab020f386bc21fc08bfd576a942");
+  for (const result of [pepe, fakeUsdc]) {
+    assert.equal(result.level, "scam");
+    assert.ok(result.reasons.some((r) => r.toLowerCase().includes("blocked")));
+  }
+  // Le vrai USDC d'Elysium reste propre.
+  assert.equal(detectScam("USDC", "USDC", 0.110556, 0.9015655244, "0xb47c4c8f73f009cc0c0d3f92b388d13e293f0b65").level, "clean");
+});
+
 test("blocks the known zkanalyst ZK impersonator contract", () => {
   const result = detectScam("ZK", "zkanalyst", 1, 0.006870557357, "0x2937489455711b275e854fb8e2238d0b7cc5fa7b");
   assert.equal(result.isSuspicious, true, "zkanalyst must be flagged");

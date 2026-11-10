@@ -621,29 +621,46 @@ async function okxMergeSubaccountBalances(authGet, pushTrading, pushFunding) {
   return names.length;
 }
 
-async function okxFetchBalances() {
-  const rows = [], seen = {};
+// Comptes de trading et de financement du compte principal : les deux poches de base.
+// Si l'une n'a pas pu etre lue, la collecte est incomplete : on leve une erreur au lieu de
+// renvoyer une liste partielle. L'API et le script GSheet conservent alors les positions
+// precedentes (audit du 10/11/2026 : une liste vide supprimait les avoirs et marquait la
+// synchronisation « ok »). Sous-comptes et Earn restent au mieux, comme avant.
+async function okxCollectMainBalances(authGet, pushTrading, pushFunding) {
+  const failed = [];
   try {
-    const trading = await okxAuthGet("/api/v5/account/balance", null);
+    const trading = await authGet("/api/v5/account/balance", null);
     const data = trading && trading.data && trading.data[0];
     const details = (data && data.details) || [];
     for (const d of details) {
       const amount = d.cashBal != null && d.cashBal !== "" ? d.cashBal : d.eq;
-      okxPushRow(rows, seen, d.ccy, amount, "trading", { valueUsd: d.eqUsd });
+      pushTrading(d.ccy, amount, d.eqUsd);
     }
   } catch (errTrading) {
-    console.log("okx trading balance skipped: " + (errTrading && errTrading.message ? errTrading.message : errTrading));
+    failed.push("trading");
+    console.log("okx trading balance failed: " + (errTrading && errTrading.message ? errTrading.message : errTrading));
   }
   try {
-    const funding = await okxAuthGet("/api/v5/asset/balances", null);
+    const funding = await authGet("/api/v5/asset/balances", null);
     const balances = (funding && funding.data) || [];
     for (const b of balances) {
       const amount = b.bal != null && b.bal !== "" ? b.bal : b.availBal;
-      okxPushRow(rows, seen, b.ccy, amount, "funding");
+      pushFunding(b.ccy, amount);
     }
   } catch (errFunding) {
-    console.log("okx funding balance skipped: " + (errFunding && errFunding.message ? errFunding.message : errFunding));
+    failed.push("funding");
+    console.log("okx funding balance failed: " + (errFunding && errFunding.message ? errFunding.message : errFunding));
   }
+  if (failed.length) throw new Error("OKX collection incomplete (" + failed.join(", ") + " unavailable): previous holdings kept");
+}
+
+async function okxFetchBalances() {
+  const rows = [], seen = {};
+  await okxCollectMainBalances(
+    (path, params) => okxAuthGet(path, params),
+    (ccy, amount, eqUsd) => okxPushRow(rows, seen, ccy, amount, "trading", { valueUsd: eqUsd }),
+    (ccy, amount) => okxPushRow(rows, seen, ccy, amount, "funding"),
+  );
   await okxMergeSubaccountBalances(
     (path, params) => okxAuthGet(path, params),
     (ccy, amount, eqUsd) => okxPushRow(rows, seen, ccy, amount, "trading", { valueUsd: eqUsd }),
@@ -656,27 +673,11 @@ async function okxFetchBalances() {
 
 async function okxFetchBalancesExact(creds) {
   const rows = [], seen = {};
-  try {
-    const trading = await okxAuthGetWithCreds("/api/v5/account/balance", null, creds);
-    const data = trading && trading.data && trading.data[0];
-    const details = (data && data.details) || [];
-    for (const d of details) {
-      const amount = d.cashBal != null && d.cashBal !== "" ? d.cashBal : d.eq;
-      pushRowExact(rows, seen, d.ccy, amount);
-    }
-  } catch (errTrading) {
-    console.log("okx trading balance skipped: " + (errTrading && errTrading.message ? errTrading.message : errTrading));
-  }
-  try {
-    const funding = await okxAuthGetWithCreds("/api/v5/asset/balances", null, creds);
-    const balances = (funding && funding.data) || [];
-    for (const b of balances) {
-      const amount = b.bal != null && b.bal !== "" ? b.bal : b.availBal;
-      pushRowExact(rows, seen, b.ccy, amount);
-    }
-  } catch (errFunding) {
-    console.log("okx funding balance skipped: " + (errFunding && errFunding.message ? errFunding.message : errFunding));
-  }
+  await okxCollectMainBalances(
+    (path, params) => okxAuthGetWithCreds(path, params, creds),
+    (ccy, amount) => pushRowExact(rows, seen, ccy, amount),
+    (ccy, amount) => pushRowExact(rows, seen, ccy, amount),
+  );
   await okxMergeSubaccountBalances(
     (path, params) => okxAuthGetWithCreds(path, params, creds),
     (ccy, amount) => pushRowExact(rows, seen, ccy, amount),
@@ -1911,6 +1912,7 @@ module.exports = {
   okxPushRow,
   mergeOkxEarnBalances,
   okxMergeSubaccountBalances,
+  okxCollectMainBalances,
   mapBybitTickerPricesEur,
   mapCoinbaseTickerPricesEur,
   mapOkxTickerPricesEur,

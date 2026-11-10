@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  bubbleColor, bubbleMetric, computeRadii, createBubbles, formatChange, periodChange, selectBubbleRows, stepBubbles,
+  bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, periodChange, selectBubbleRows, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -87,14 +87,14 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
       return v !== null && sizeMode === "marketcap" ? v ** 0.6 : v;
     });
     const radii = computeRadii(values, w, h, {
-      fill: rows.length > 200 ? 0.62 : 0.55,
+      fill: rows.length > 200 ? 0.68 : 0.64,
       minRadius: rows.length > 200 ? 6 : 10,
     });
     const previous = new Set(bubblesRef.current.map((b) => b.id));
     const next = createBubbles(rows, radii, w, h, bubblesRef.current);
     // Nouvelles bulles : on stabilise la disposition tout de suite, pour qu'elle soit propre dès
     // la première image (et même si le navigateur suspend l'animation).
-    if (next.some((b) => !previous.has(b.id))) for (let i = 0; i < 160; i++) stepBubbles(next, w, h);
+    if (next.some((b) => !previous.has(b.id))) for (let i = 0; i < 240; i++) stepBubbles(next, w, h);
     bubblesRef.current = next;
     rowsRef.current = new Map(rows.map((r) => [r.symbol, r]));
     paint();
@@ -132,7 +132,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
   useEffect(() => {
     let frame = 0;
     const draw = () => {
-      stepBubbles(bubblesRef.current, sizeRef.current.w, sizeRef.current.h);
+      stepBubbles(bubblesRef.current, sizeRef.current.w, sizeRef.current.h, { time: performance.now() });
       paint();
       frame = requestAnimationFrame(draw);
     };
@@ -282,10 +282,16 @@ function paintBubbles(
     ctx.globalAlpha = dim ? 0.15 : 1;
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-    ctx.fillStyle = bubbleColor(change);
+    // Relief : reflet décalé vers le haut à gauche, bord plus sombre.
+    const shade = bubbleShade(change);
+    const gradient = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.05, b.x, b.y, b.r);
+    gradient.addColorStop(0, shade.light);
+    gradient.addColorStop(0.55, shade.base);
+    gradient.addColorStop(1, shade.dark);
+    ctx.fillStyle = gradient;
     ctx.fill();
-    ctx.lineWidth = dragId === b.id ? 3 : 1.5;
-    ctx.strokeStyle = change === null ? "rgba(161,161,170,0.9)" : change >= 0 ? "rgba(34,197,94,0.95)" : "rgba(239,68,68,0.95)";
+    ctx.lineWidth = dragId === b.id ? 3 : 1.25;
+    ctx.strokeStyle = shade.rim;
     ctx.stroke();
     drawLabel(ctx, b, row, change, logos);
   }
@@ -307,12 +313,15 @@ function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, 
     try { ctx.drawImage(logo, b.x - s / 2, b.y - b.r * 0.72, s, s); } catch { /* logo illisible : ignoré */ }
     y = b.y + b.r * 0.12;
   }
+  // Ombre portée du texte, seulement sur les bulles assez grandes (coût de rendu).
+  if (b.r >= 26) { ctx.shadowColor = "rgba(0, 0, 0, 0.6)"; ctx.shadowBlur = 4; }
   ctx.font = `700 ${symbolSize}px system-ui, sans-serif`;
   ctx.fillText(row.symbol.slice(0, 8), b.x, y, b.r * 1.7);
   if (b.r >= 20) {
-    ctx.font = `500 ${changeSize}px system-ui, sans-serif`;
+    ctx.font = `600 ${changeSize}px system-ui, sans-serif`;
     ctx.fillText(formatChange(change), b.x, y + symbolSize * 0.95, b.r * 1.7);
   }
+  ctx.shadowBlur = 0;
 }
 
 function loadLogo(row: MarketCapRow, logos: Map<string, HTMLImageElement | null>): HTMLImageElement | null {

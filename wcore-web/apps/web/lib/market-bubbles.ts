@@ -62,6 +62,21 @@ export function bubbleColor(change: number | null): string {
   return change >= 0 ? `rgba(22, 163, 74, ${alpha})` : `rgba(220, 38, 38, ${alpha})`;
 }
 
+/**
+ * Teintes d'une bulle en relief : reflet clair en haut à gauche, couleur pleine, bord plus sombre.
+ * L'intensité croît avec l'ampleur de la variation ; gris si elle est inconnue.
+ */
+export function bubbleShade(change: number | null): { light: string; base: string; dark: string; rim: string } {
+  if (change === null) {
+    return { light: "rgba(161, 161, 170, 0.60)", base: "rgba(82, 82, 91, 0.60)", dark: "rgba(39, 39, 42, 0.75)", rim: "rgba(161, 161, 170, 0.85)" };
+  }
+  const s = Math.min(1, Math.abs(change) / 12);
+  const a = (v: number) => (0.45 + v * s).toFixed(3);
+  return change >= 0
+    ? { light: `rgba(74, 222, 128, ${a(0.5)})`, base: `rgba(22, 163, 74, ${a(0.5)})`, dark: `rgba(5, 70, 35, ${a(0.45)})`, rim: "rgba(74, 222, 128, 0.95)" }
+    : { light: `rgba(248, 113, 113, ${a(0.5)})`, base: `rgba(220, 38, 38, ${a(0.5)})`, dark: `rgba(95, 12, 12, ${a(0.45)})`, rim: "rgba(248, 113, 113, 0.95)" };
+}
+
 export function formatChange(change: number | null): string {
   if (change === null) return "—";
   const v = Math.round(change * 10) / 10;
@@ -87,17 +102,44 @@ export function createBubbles(
 }
 
 /**
- * Un pas de simulation : légère attraction vers le centre, séparation des chevauchements,
- * rebond sur les bords, amortissement. Modifie les bulles en place.
+ * Un pas de simulation : séparation des chevauchements, rebond sur les bords, amortissement.
+ * Sans attraction par défaut : les bulles occupent tout le cadre au lieu de s'agglutiner au centre.
+ * `time` (ms) ajoute une dérive très lente, propre à chaque bulle. Modifie les bulles en place.
  */
-export function stepBubbles(bubbles: Bubble[], width: number, height: number, opts: { gravity?: number; damping?: number } = {}): void {
-  const gravity = opts.gravity ?? 0.0006;
+export function stepBubbles(
+  bubbles: Bubble[], width: number, height: number,
+  opts: { gravity?: number; damping?: number; time?: number; passes?: number } = {},
+): void {
+  const gravity = opts.gravity ?? 0;
   const damping = opts.damping ?? 0.86;
   const cx = width / 2, cy = height / 2;
-  for (const b of bubbles) {
+  for (let i = 0; i < bubbles.length; i++) {
+    const b = bubbles[i]!;
     b.vx += (cx - b.x) * gravity;
     b.vy += (cy - b.y) * gravity;
+    if (opts.time !== undefined) {
+      const phase = i * 2.399963;
+      b.vx += Math.cos(opts.time * 0.00031 + phase) * 0.012;
+      b.vy += Math.sin(opts.time * 0.00027 + phase * 1.7) * 0.012;
+    }
   }
+  const passes = opts.passes ?? 3;
+  for (let pass = 0; pass < passes; pass++) separate(bubbles, pass === 0 ? 0.05 : 0);
+  for (const b of bubbles) {
+    b.vx *= damping; b.vy *= damping;
+    b.x += b.vx; b.y += b.vy;
+  }
+  // Une dernière séparation puis les bords : aucune bulle ne finit le pas hors du cadre.
+  separate(bubbles, 0);
+  for (const b of bubbles) {
+    if (b.x < b.r) { b.x = b.r; b.vx = Math.abs(b.vx) * 0.5; }
+    if (b.x > width - b.r) { b.x = width - b.r; b.vx = -Math.abs(b.vx) * 0.5; }
+    if (b.y < b.r) { b.y = b.r; b.vy = Math.abs(b.vy) * 0.5; }
+    if (b.y > height - b.r) { b.y = height - b.r; b.vy = -Math.abs(b.vy) * 0.5; }
+  }
+}
+
+function separate(bubbles: Bubble[], impulse: number): void {
   for (let i = 0; i < bubbles.length; i++) {
     const a = bubbles[i]!;
     for (let j = i + 1; j < bubbles.length; j++) {
@@ -111,16 +153,8 @@ export function stepBubbles(bubbles: Bubble[], width: number, height: number, op
       const ux = dx / d, uy = dy / d;
       a.x -= ux * push; a.y -= uy * push;
       b.x += ux * push; b.y += uy * push;
-      a.vx -= ux * push * 0.05; a.vy -= uy * push * 0.05;
-      b.vx += ux * push * 0.05; b.vy += uy * push * 0.05;
+      a.vx -= ux * push * impulse; a.vy -= uy * push * impulse;
+      b.vx += ux * push * impulse; b.vy += uy * push * impulse;
     }
-  }
-  for (const b of bubbles) {
-    b.vx *= damping; b.vy *= damping;
-    b.x += b.vx; b.y += b.vy;
-    if (b.x < b.r) { b.x = b.r; b.vx = Math.abs(b.vx) * 0.5; }
-    if (b.x > width - b.r) { b.x = width - b.r; b.vx = -Math.abs(b.vx) * 0.5; }
-    if (b.y < b.r) { b.y = b.r; b.vy = Math.abs(b.vy) * 0.5; }
-    if (b.y > height - b.r) { b.y = height - b.r; b.vy = -Math.abs(b.vy) * 0.5; }
   }
 }

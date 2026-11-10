@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 34;
+export const SCAM_RULES_VERSION = 35;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -100,6 +100,22 @@ const MAJOR_TOKEN_BRANDS: Record<string, string[]> = {
   SHIB: ["shib", "shiba"],
   BONK: ["bonk"],
   FLOKI: ["floki", "floki"],
+};
+
+// Stablecoin tickers that scammers reuse with an unrelated name and a fake price
+// (e.g. "USDC" named "United States Digital Coin" at 0.0013 EUR on Elysium).
+// Value: official brand strings the name must contain to be considered legitimate.
+const STABLECOIN_BRANDS: Record<string, string[]> = {
+  USDC: ["usdc", "usd coin", "circle"],
+  USDT: ["usdt", "tether"],
+  DAI: ["dai"],
+  USDE: ["usde", "ethena"],
+  USDS: ["usds", "sky"],
+  USD1: ["usd1", "world liberty"],
+  FDUSD: ["fdusd", "first digital"],
+  PYUSD: ["pyusd", "paypal"],
+  TUSD: ["tusd", "trueusd"],
+  EURC: ["eurc", "euro coin", "circle"],
 };
 
 // Permanently blocked contracts — known scams that bypass heuristic detection
@@ -382,6 +398,24 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
     const hasBrand = brands.some((b) => lowerName.includes(b));
     if (!hasBrand) {
       signals.push({ reason: `major ticker ${s} impersonation: name "${n}" is unrelated`, weight: 3 });
+    }
+  }
+
+  // 13b. Stablecoin impersonation. Two independent signals are required before the
+  // token is treated as a scam, so a real stablecoin is never removed by this rule:
+  //  - the name carries none of the official brand strings of the ticker, AND
+  //  - the price is far from parity (below 0.5 or above 2 EUR).
+  // A real USDC with an aberrant price keeps its brand name and is untouched; an
+  // unbranded name at parity only raises a warning (weight 1, not filtered).
+  const stableBrands = STABLECOIN_BRANDS[s.toUpperCase()];
+  if (stableBrands) {
+    const lowerName = n.toLowerCase();
+    const hasBrand = stableBrands.some((b) => lowerName.includes(b));
+    if (!hasBrand) {
+      const offPeg = priceEur != null && priceEur > 0 && (priceEur < 0.5 || priceEur > 2);
+      signals.push(offPeg
+        ? { reason: `stablecoin ${s} impersonation: name "${n}" is unrelated and price ${priceEur!.toPrecision(3)} EUR is far from parity`, weight: 4 }
+        : { reason: `stablecoin ticker ${s} with unrelated name "${n}"`, weight: 1 });
     }
   }
 

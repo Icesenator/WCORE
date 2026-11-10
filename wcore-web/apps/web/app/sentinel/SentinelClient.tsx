@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { useSentinelAlerts, useSentinelChains, useSentinelHealth } from "@/lib/use-sentinel";
 import {
-  codeLabel, deadlineLabel, formatCountdown, nextDeadline, recoveryLabel, sentinelText, severityClass, sortAlerts, statusClass, statusLabel,
+  codeLabel, deadlineLabel, formatCountdown, nextDeadline, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel,
   type SentinelAlertView, type SentinelChainView, type SentinelLang, type SentinelText,
 } from "@/lib/sentinel-view";
 
@@ -14,13 +14,13 @@ function useNow(stepMs = 60_000): number {
   return now;
 }
 
-function SourceLinks({ urls, tx }: { urls: { url: string; publisher: string; official: boolean }[]; tx: SentinelText }) {
+function SourceLinks({ urls, tx, lang }: { urls: { url: string; publisher: string; publisherEn?: string | null; official: boolean }[]; tx: SentinelText; lang: SentinelLang }) {
   if (!urls.length) return <span className="text-muted">{tx.noSource}</span>;
   return (
     <span className="flex flex-wrap gap-x-3 gap-y-1">
       {urls.map((s) => (
         <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer nofollow" className="underline decoration-dotted hover:text-fg">
-          {s.publisher}{s.official ? "" : tx.unofficial}
+          {sourcePublisherFor(s, lang)}{s.official ? "" : tx.unofficial}
         </a>
       ))}
     </span>
@@ -43,9 +43,9 @@ function AlertCard({ a, chain, onAck, now, generatedAt, lang, tx }: { a: Sentine
         {a.actionByMs !== null ? `${new Date(a.actionByMs).toISOString().slice(0, 16).replace("T", " ")} UTC — ${formatCountdown(countdown, lang)}` : ""}
         {a.exposure !== "AUTH_REQUIRED" && <span className="ml-2">· {tx.exposure}{lang === "fr" ? " :" : ":"} {a.exposure}</span>}
       </div>
-      {chain?.recoveryNote && <p className="mt-1 text-xs opacity-80">{chain.recoveryNote}</p>}
+      {chain && recoveryNoteFor(chain, lang) && <p className="mt-1 text-xs opacity-80">{recoveryNoteFor(chain, lang)}</p>}
       <div className="mt-1 text-xs opacity-80">
-        <SourceLinks urls={a.officialSourceUrls.map((u) => ({ url: u, publisher: new URL(u).hostname, official: true }))} tx={tx} />
+        <SourceLinks urls={a.officialSourceUrls.map((u) => ({ url: u, publisher: new URL(u).hostname, official: true }))} tx={tx} lang={lang} />
       </div>
       {onAck && a.id && !a.acknowledged && (a.severity === "P0" || a.severity === "P1") && (
         <button type="button" onClick={() => onAck(a.id!)} className="mt-2 min-h-11 rounded-md border border-current px-3 py-1 text-xs font-semibold hover:bg-black/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
@@ -141,7 +141,7 @@ export function SentinelClient() {
                     <td className="px-3 py-2"><div className="font-medium">{c.name}</div><div className="text-xs text-muted">chain ID {c.chainId}{c.successorChainId ? ` · ${tx.successor(c.successorChainId)}` : ""}</div></td>
                     <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${statusClass(c.status)}`}>{statusLabel(c.status, lang)}</span></td>
                     <td className="px-3 py-2">{d ? <><div>{deadlineLabel(d.kind, lang)}</div><div className="text-xs text-muted">{d.at.slice(0, 16).replace("T", " ")} UTC · {formatCountdown(Date.parse(d.at) - now, lang)}</div></> : "—"}</td>
-                    <td className="px-3 py-2 text-xs"><SourceLinks urls={Array.from(new Map(c.deadlines.flatMap((x) => x.sources).map((s) => [s.url, s])).values())} tx={tx} /></td>
+                    <td className="px-3 py-2 text-xs"><SourceLinks urls={Array.from(new Map(c.deadlines.flatMap((x) => x.sources).map((s) => [s.url, s])).values())} tx={tx} lang={lang} /></td>
                   </tr>
                 );
               })}
@@ -158,7 +158,7 @@ export function SentinelClient() {
           {retired.map((c) => (
             <li key={c.chainKey} className="rounded-lg border border-border p-3">
               <div className="font-medium">{c.name} <span className="text-xs text-muted">(chain ID {c.chainId})</span></div>
-              <div className="text-xs text-muted">{tx.recovery}{lang === "fr" ? " :" : ":"} {recoveryLabel(c.recoveryAfterShutdown, lang)}{c.recoveryNote ? ` — ${c.recoveryNote}` : ""}</div>
+              <div className="text-xs text-muted">{tx.recovery}{lang === "fr" ? " :" : ":"} {recoveryLabel(c.recoveryAfterShutdown, lang)}{recoveryNoteFor(c, lang) ? ` — ${recoveryNoteFor(c, lang)}` : ""}</div>
             </li>
           ))}
         </ul>

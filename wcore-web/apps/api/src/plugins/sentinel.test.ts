@@ -183,3 +183,26 @@ describe("routes", () => {
     assert.doesNotMatch(routes, /sign|transfer|bridge|swap|withdraw|unstake/i);
   });
 });
+
+test("a saved registry gets the embedded English texts only where the French text is unchanged", async () => {
+  const { withEmbeddedTranslations } = await import("./sentinel.js");
+  const { VERIFIED_LIFECYCLE_REGISTRY } = await import("@wcore/shared");
+  const ref = VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.recoveryNoteEn && Object.values(r.sources).some((s) => s.publisherEn))!;
+  const srcId = Object.keys(ref.sources).find((id) => ref.sources[id]!.publisherEn)!;
+  const strip = (r: typeof ref) => {
+    const sources = Object.fromEntries(Object.entries(r.sources).map(([id, s]) => { const { publisherEn: _p, ...rest } = s; void _p; return [id, rest]; }));
+    const { recoveryNoteEn: _n, ...rest } = r; void _n;
+    return { ...rest, sources } as typeof ref;
+  };
+
+  const [same] = withEmbeddedTranslations([strip(ref)]);
+  assert.equal(same!.recoveryNoteEn, ref.recoveryNoteEn);
+  assert.equal(same!.sources[srcId]!.publisherEn, ref.sources[srcId]!.publisherEn);
+
+  const edited = { ...strip(ref), recoveryNote: "Note modifiee par l'administration." };
+  edited.sources = { ...edited.sources, [srcId]: { ...edited.sources[srcId]!, publisher: "Autre source" } };
+  const [changed] = withEmbeddedTranslations([edited]);
+  assert.equal(changed!.recoveryNoteEn, undefined, "a changed French note never gets a stale translation");
+  assert.equal(changed!.sources[srcId]!.publisherEn, undefined);
+  assert.equal(changed!.recoveryNote, "Note modifiee par l'administration.", "facts are untouched");
+});

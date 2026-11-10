@@ -77,6 +77,13 @@ export interface GsheetScanInput {
   forceRefresh: boolean;
   strictTokens: boolean;
   customTokens: string[];
+  /**
+   * Jetons deja affiches dans l'onglet (cache du GSheet). Un jeton detenu dont le prix manque
+   * reste affiche a valeur inconnue au lieu d'etre retire comme « sans marche » : une panne de
+   * prix ne fait plus disparaitre une position. Aucune protection contre le detecteur
+   * d'arnaques (decision du proprietaire du 11/11/2026, audit Codex point 8).
+   */
+  heldContracts: string[];
 }
 
 export interface GsheetScanResult {
@@ -643,7 +650,7 @@ async function defaultChainbaseProvider(address: string): Promise<DefaultChainba
   return await getChainbaseStaking(address);
 }
 
-async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain: string, customTokens: string[] = [], scamEnrichment?: GsheetScamEnrichment): Promise<GsheetScanResult> {
+async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain: string, customTokens: string[] = [], scamEnrichment?: GsheetScamEnrichment, heldContracts: string[] = []): Promise<GsheetScanResult> {
   const core = await import("@wcore/core");
   let nonFungibleFiltered = 0;
   let noMarketFiltered = 0;
@@ -651,6 +658,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
   const blockedContracts = new Set<string>();
   const noMarketSymbols: string[] = [];
   const protectedContracts = new Set(customTokens.map((token) => token.trim().toLowerCase()).filter(Boolean));
+  const heldSet = new Set(heldContracts.map((token) => token.trim().toLowerCase()).filter(Boolean));
   // Whitelisted symbols (xGRAIL, aRUSDC, etc.) — pass the no-market filter when the scan
   // couldn't resolve a price. We mirror @wcore/shared _KNOWN_TOKENS here so the GSheet adapter
   // doesn't need to call detectScam just to know if a token is whitelisted.
@@ -704,7 +712,7 @@ async function sanitizeGsheetScanResult(result: GsheetScanResult, fallbackChain:
       if (symbol) filteredSymbols.add(symbol);
       return false;
     }
-    if (isNoMarketToken(token, protectedContracts, knownTokens)) {
+    if (isNoMarketToken(token, protectedContracts, knownTokens) && !(id && heldSet.has(id))) {
       noMarketFiltered++;
       const symbol = tokenStringField(token, "symbol");
       if (symbol) noMarketSymbols.push(symbol);
@@ -921,7 +929,7 @@ function normalizeGsheetPriceRequest(body: unknown): { ok: true; chain: string; 
 }
 
 function normalizeGsheetScanRequest(body: unknown): { ok: true; input: GsheetScanInput } | { ok: false; error: string } {
-  const b = body as { address?: unknown; chain?: unknown; forceRefresh?: unknown; strictTokens?: unknown; customTokens?: unknown } | undefined;
+  const b = body as { address?: unknown; chain?: unknown; forceRefresh?: unknown; strictTokens?: unknown; customTokens?: unknown; heldContracts?: unknown } | undefined;
   const address = String(b?.address || "").trim();
   if (!address) return { ok: false, error: "missing_address" };
   const chain = String(b?.chain || "").trim().toUpperCase();
@@ -944,6 +952,20 @@ function normalizeGsheetScanRequest(body: unknown): { ok: true; input: GsheetSca
     }
   }
 
+  const heldContracts: string[] = [];
+  if (b?.heldContracts !== undefined) {
+    if (!Array.isArray(b.heldContracts)) return { ok: false, error: "invalid_held_contracts" };
+    const seen = new Set<string>();
+    for (const raw of b.heldContracts) {
+      const token = String(raw || "").trim();
+      if (!token) continue;
+      if (token.length > 256) return { ok: false, error: "invalid_held_contracts" };
+      const key = token.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); heldContracts.push(token); }
+      if (heldContracts.length > 300) return { ok: false, error: "too_many_held_contracts" };
+    }
+  }
+
   return {
     ok: true,
     input: {
@@ -952,6 +974,7 @@ function normalizeGsheetScanRequest(body: unknown): { ok: true; input: GsheetSca
       forceRefresh: b?.forceRefresh === true,
       strictTokens: b?.strictTokens === true,
       customTokens,
+      heldContracts,
     },
   };
 }
@@ -1134,7 +1157,7 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
       await precomputeWCTStakeLockStatus(parsed.input.chain, parsed.input.address);
       const mirrored = applyStakedPriceMirrors(repaired);
       const sanitizeStartedAt = Date.now();
-      const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens, opts.scamEnrichment);
+      const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens, opts.scamEnrichment, parsed.input.heldContracts);
       const sanitizeMs = Date.now() - sanitizeStartedAt;
       const labeled = labelGsheetWalletScan(sanitized, parsed.input.address);
       const out = await injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);

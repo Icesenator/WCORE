@@ -287,3 +287,38 @@ test("does not flag a legit token that happens to have a vanity address", () => 
   );
   assert.notEqual(result.level, "scam", `legit vanity flagged: ${result.reasons.join("; ")}`);
 });
+
+test("flags a fake stablecoin only when the name is unbranded AND the price is far from parity", () => {
+  // Same shape as the Elysium fake, on a contract that is NOT in the blocklist.
+  const fake = detectScam("USDC", "United States Digital Coin", 3, 0.001347795318, "0x00000000000000000000000000000000000f4e01");
+  assert.equal(fake.level, "scam");
+  assert.ok(fake.reasons.some((r) => r.includes("stablecoin USDC impersonation")));
+
+  // A real stablecoin keeps its brand: an aberrant price alone never removes it.
+  assert.notEqual(detectScam("USDC", "USD Coin", 3, 0.001, "0x00000000000000000000000000000000000f4e02").level, "scam");
+  assert.notEqual(detectScam("USDC", "USDC", 0.11, 0.0013, "0x00000000000000000000000000000000000f4e03").level, "scam");
+  assert.equal(detectScam("USDT", "Tether USD", 10, 0.86, "0x00000000000000000000000000000000000f4e04").level, "clean");
+  assert.equal(detectScam("DAI", "Dai Stablecoin", 10, 0.86, "0x00000000000000000000000000000000000f4e05").level, "clean");
+  assert.equal(detectScam("EURC", "EURC", 10, 1, "0x00000000000000000000000000000000000f4e06").level, "clean");
+
+  // Unbranded name at parity: a warning, never filtered.
+  const atPeg = detectScam("USDT", "Some Dollar", 10, 0.87, "0x00000000000000000000000000000000000f4e07");
+  assert.equal(atPeg.isSuspicious, false);
+  assert.ok(atPeg.reasons.some((r) => r.includes("unrelated name")));
+
+  // Missing metadata is never evidence: an empty or blank name gives no signal at all.
+  for (const name of ["", "   ", "-"]) {
+    for (const price of [0.1, 0.0013, null, 0.5, 2, 2.01]) {
+      const r = detectScam("USDC", name, 10, price, "0x00000000000000000000000000000000000f4e08");
+      assert.equal(r.reasons.some((x) => x.includes("stablecoin")), false, `name "${name}" at ${price}`);
+    }
+  }
+  // Bounds: 0.5 and 2 EUR are still parity; just outside them is off-peg.
+  assert.notEqual(detectScam("USDC", "Unrelated Dollar", 10, 0.5, "0x00000000000000000000000000000000000f4e09").level, "scam");
+  assert.notEqual(detectScam("USDC", "Unrelated Dollar", 10, 2, "0x00000000000000000000000000000000000f4e0a").level, "scam");
+  assert.equal(detectScam("USDC", "Unrelated Dollar", 10, 0.49, "0x00000000000000000000000000000000000f4e0b").level, "scam");
+  // No price: never off-peg.
+  assert.notEqual(detectScam("USDC", "Unrelated Dollar", 10, null, "0x00000000000000000000000000000000000f4e0c").level, "scam");
+
+  assert.ok(SCAM_RULES_VERSION >= 35);
+});

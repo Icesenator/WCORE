@@ -32,7 +32,7 @@ describe("coverage stats", () => {
     assert.equal(stats.cexProviderCount, CEX_PROVIDERS.length);
     assert.equal(stats.gmEnabledChainCount, Object.keys(GM_FACTORIES).length);
     assert.equal(stats.cexProviderCount, 7);
-    assert.equal(stats.chainConfigCount, 158); // Superseed 5330 retiré du catalogue actif.
+    assert.equal(stats.chainConfigCount, 159); // Superseed 5330 retiré ; Elysium 1339 ajouté (2026-11-10).
     assert.notEqual(stats.chainConfigCount, 325);
   });
 });

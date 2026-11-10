@@ -91,6 +91,12 @@ assert.ok(tonEntry, 'GET_WALLET_ASSETS_TON must exist with its five parameters')
 assert.ok(/^function GET_WALLET_ASSETS_TON\(a,r,t,f,g\)/.test(tonEntry), 'the public signature is kept');
 assert.ok(tonEntry.includes('CACHED_WALLET_ASSETS_TON(a)'), 'the TON entry returns the cache');
 assert.strictEqual(tonEntry.includes('_tonRefresh_'), false, 'the TON entry must not collect directly');
+// v4.16.93: TON_REFRESH_STATUS no longer falls back to a direct collection either.
+const tonStatusStart = ton.indexOf('function TON_REFRESH_STATUS(');
+const tonStatusBody = ton.slice(tonStatusStart, ton.indexOf('function TON_STATS(', tonStatusStart));
+assert.ok(tonStatusStart >= 0, 'TON_REFRESH_STATUS must exist');
+assert.strictEqual(tonStatusBody.includes('_tonRefresh_('), false, 'TON_REFRESH_STATUS must not collect directly');
+assert.ok(tonStatusBody.includes('_webScanWallet_('), 'TON_REFRESH_STATUS still collects through the API');
 
 // REBUILD_WALLET_CACHE: collects through getRefreshStatus, never erases the cache first.
 const cleanup = read('18_CLEANUP.gs');

@@ -34,7 +34,7 @@ import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
-import { preferSourceChanges, withHistoryChanges } from "./market-cap/price-history.js";
+import { rowChanges, withHistoryChanges } from "./market-cap/price-history.js";
 import { allowForcedRefresh } from "./market-cap/forced-refresh.js";
 import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
@@ -568,13 +568,14 @@ if (gsheetApiToken) {
       // Variations : celles du cours Yahoo quand le relais les fournit, sinon notre historique quotidien.
       const changes = await withHistoryChanges(sharedCache, "stock", {
         generatedAt: snapshot.generatedAt,
-        rows: snapshot.rows.map((r) => ({ symbol: r.canonicalTicker, priceEur: r.priceEur })),
+        // Un prix perime (dernier cours connu) n'est ni une cloture ni une base de variation.
+        rows: snapshot.rows.map((r) => ({ symbol: r.canonicalTicker, priceEur: r.stale ? null : r.priceEur })),
       });
       return {
         ok: true,
         generatedAt: snapshot.generatedAt,
         stale: snapshot.stale,
-        rows: snapshot.rows.map((r) => ({ ...toStockMarketCapRow(r), changes: preferSourceChanges(r.changes, changes.get(r.canonicalTicker)) })),
+        rows: snapshot.rows.map((r) => ({ ...toStockMarketCapRow(r), changes: rowChanges(r.stale, r.changes, changes.get(r.canonicalTicker)) })),
       };
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "cmc stocks failed");

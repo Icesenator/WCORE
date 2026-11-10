@@ -51,16 +51,33 @@ export async function withHistoryChanges(
   now = new Date(),
 ): Promise<Map<string, PriceChanges>> {
   if (memo && memo.kind === kind && memo.generatedAt === snapshot.generatedAt) return memo.changes;
+  // Une cloture est datee du jour de l'instantane, pas du jour de la consultation : un instantane
+  // d'hier consulte aujourd'hui ne doit pas devenir la cloture d'aujourd'hui (audit du 10/11/2026).
+  const observedMs = Date.parse(snapshot.generatedAt);
+  const observedAt = Number.isFinite(observedMs) && observedMs <= now.getTime() + 60_000 ? new Date(observedMs) : now;
   let changes: Map<string, PriceChanges>;
   try {
-    await recordDailyCloses(cache, kind, snapshot.rows, now);
-    changes = await changesFromHistory(cache, kind, snapshot.rows, now);
+    await recordDailyCloses(cache, kind, snapshot.rows, observedAt);
+    changes = await changesFromHistory(cache, kind, snapshot.rows, observedAt);
   } catch {
     changes = new Map(snapshot.rows.map((r) => [r.symbol, { ...NO_CHANGE }]));
     return changes; // pas de mémo : on réessaiera à la prochaine visite
   }
   memo = { kind, generatedAt: snapshot.generatedAt, changes };
   return changes;
+}
+
+/**
+ * Variations d'une ligne de classement. Une ligne perimee (dernier cours connu) n'en a aucune :
+ * ni celles de la source, ni celles de l'historique, meme memorisees pour un instantane servi
+ * frais auparavant (revue Codex du 11/11/2026).
+ */
+export function rowChanges(
+  stale: boolean,
+  source: { d1: number | null; w1: number | null; m1: number | null } | null | undefined,
+  history: PriceChanges | null | undefined,
+): PriceChanges | null {
+  return stale ? null : preferSourceChanges(source, history);
 }
 
 /** Par periode : la variation de la source (cours Yahoo) si elle existe, sinon celle de notre historique. */

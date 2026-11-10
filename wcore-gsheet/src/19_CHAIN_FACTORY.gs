@@ -194,17 +194,20 @@ ChainFactory.createEvmChain = function(chainName, chainConfig) {
  getConfig: getConfig,
  
  // v4.12.0: Added DegradedMode wrapper for quota handling
- // v4.16.92 : plus de scan direct depuis cette entree. Le scan RPC historique ecrivait le
- // WalletCache sans passer par le filtre anti-arnaque de l'API (seul le chemin getRefreshStatus
- // -> file -> API est filtre). GET_WALLET_ASSETS_* rend donc le cache, comme CACHED_WALLET_ASSETS_*.
- // Les cinq parametres sont conserves pour les formules et appels existants.
  getWalletAssets: function(address, rpc, tokensRange, forceFull, triggerRefresh) {
- void rpc; void tokensRange; void forceFull; void triggerRefresh;
  var cfg = getConfig();
- if (typeof DegradedMode !== 'undefined' && DegradedMode.getCachedWithDegradedInfo) {
- return DegradedMode.getCachedWithDegradedInfo(address, cfg, WalletNames, EvmEngine);
+ 
+ // v4.12.0: Wrap with DegradedMode to handle UrlFetch quota errors
+ // v4.12.4: Pass EvmEngine for correct cache key handling
+ // v4.14.5: Pass forceFull so circuit breaker can be overridden
+ if (typeof DegradedMode !== 'undefined' && DegradedMode.wrap) {
+ return DegradedMode.wrap(function() {
+ return EvmEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
+ }, address, cfg, WalletNames, EvmEngine, forceFull);
  }
- return EvmEngine.getCachedWalletAssets(address, cfg, WalletNames);
+ 
+ // Fallback if DegradedMode not available
+ return EvmEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
  },
  
  // v4.12.1: getCachedWalletAssets now handles degraded mode state
@@ -318,17 +321,20 @@ ChainFactory.createSvmChain = function(chainName, chainConfig) {
  getConfig: getConfig,
  
  // v4.12.0: Added DegradedMode wrapper for quota handling
- // v4.16.92 : plus de scan direct depuis cette entree. Le scan RPC historique ecrivait le
- // WalletCache sans passer par le filtre anti-arnaque de l'API (seul le chemin getRefreshStatus
- // -> file -> API est filtre). GET_WALLET_ASSETS_* rend donc le cache, comme CACHED_WALLET_ASSETS_*.
- // Les cinq parametres sont conserves pour les formules et appels existants.
  getWalletAssets: function(address, rpc, tokensRange, forceFull, triggerRefresh) {
- void rpc; void tokensRange; void forceFull; void triggerRefresh;
  var cfg = getConfig();
- if (typeof DegradedMode !== 'undefined' && DegradedMode.getCachedWithDegradedInfo) {
- return DegradedMode.getCachedWithDegradedInfo(address, cfg, WalletNames, SvmEngine);
+ 
+ // v4.12.0: Wrap with DegradedMode to handle UrlFetch quota errors
+ // v4.12.4: Pass SvmEngine for correct cache key handling
+ // v4.14.5: Pass forceFull so circuit breaker can be overridden
+ if (typeof DegradedMode !== 'undefined' && DegradedMode.wrap) {
+ return DegradedMode.wrap(function() {
+ return SvmEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
+ }, address, cfg, WalletNames, SvmEngine, forceFull);
  }
- return SvmEngine.getCachedWalletAssets(address, cfg, WalletNames);
+ 
+ // Fallback if DegradedMode not available
+ return SvmEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
  },
  
  // v4.12.1: getCachedWalletAssets now handles degraded mode state
@@ -409,17 +415,20 @@ ChainFactory.createCosmosChain = function(chainName, chainConfig) {
  // v4.16.45: Same 5-argument contract as the EVM and SVM factories. The sheet calls
  // *_REFRESH_STATUS(addr;"";I2:I;C1;B1) and 18_CLEANUP calls (wallet,"","",true,false),
  // so a 2-argument signature bound forceFull to the empty RPC slot: C1 never forced.
- // v4.16.92 : plus de scan direct depuis cette entree. Le scan RPC historique ecrivait le
- // WalletCache sans passer par le filtre anti-arnaque de l'API (seul le chemin getRefreshStatus
- // -> file -> API est filtre). GET_WALLET_ASSETS_* rend donc le cache, comme CACHED_WALLET_ASSETS_*.
- // Les cinq parametres sont conserves pour les formules et appels existants.
  getWalletAssets: function(address, rpc, tokensRange, forceFull, triggerRefresh) {
- void rpc; void tokensRange; void forceFull; void triggerRefresh;
  var cfg = getConfig();
- if (typeof DegradedMode !== 'undefined' && DegradedMode.getCachedWithDegradedInfo) {
- return DegradedMode.getCachedWithDegradedInfo(address, cfg, WalletNames, CosmosEngine);
+ 
+ // v4.12.0: Wrap with DegradedMode to handle UrlFetch quota errors
+ // v4.12.4: Pass CosmosEngine for correct cache key handling
+ // v4.14.5: Pass forceFull so circuit breaker can be overridden
+ if (typeof DegradedMode !== 'undefined' && DegradedMode.wrap) {
+ return DegradedMode.wrap(function() {
+ return CosmosEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
+ }, address, cfg, WalletNames, CosmosEngine, forceFull);
  }
- return CosmosEngine.getCachedWalletAssets(address, cfg, WalletNames);
+ 
+ // Fallback if DegradedMode not available
+ return CosmosEngine.getWalletAssets(address, rpc, tokensRange, forceFull, triggerRefresh, cfg, WalletNames);
  },
  
  // v4.12.1: getCachedWalletAssets now handles degraded mode state

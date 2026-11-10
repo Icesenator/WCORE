@@ -660,7 +660,10 @@ function REBUILD_WALLET_CACHE(wallet, chain) {
       refreshStatus = String(chainObj.getRefreshStatus(wallet, "", "", true, false) || "");
     }
     var result = chainObj.getCachedWalletAssets(wallet);
-    var refreshed = /^[0-9]{4}-[0-9]{2}-[0-9]{2} /.test(refreshStatus);
+    // Etats reels : succes = "WEB_SCAN_OK <date>" (ou une date seule) ; echec = erreur, blocage
+    // ou file refusee ; tout le reste (en file, reporte, pas du, degrade, preserve) = en attente.
+    var outcome = /^(WEB_SCAN_OK( |$)|[0-9]{4}-[0-9]{2}-[0-9]{2} )/.test(refreshStatus) ? "SUCCESS [OK]"
+      : (/WEB_SCAN_ERROR|BLOCKED|REFRESH_QUEUE_ERROR|REFRESH_QUEUE_FULL/.test(refreshStatus) ? "ERROR" : "PENDING");
     
     if (result && result.length > 2) {
       var assetCount = 0;
@@ -671,12 +674,12 @@ function REBUILD_WALLET_CACHE(wallet, chain) {
       }
       
       return [
-        ["Status", refreshed ? "SUCCESS [OK]" : "PENDING"],
+        ["Status", outcome],
         ["Chain", chain],
         ["Wallet", wallet],
         ["Assets Found", assetCount],
         ["Refresh", refreshStatus || "UNKNOWN"],
-        ["Action", refreshed ? "Cache rebuilt. Refresh your sheet." : "Refresh queued or deferred: the previous cache is shown."]
+        ["Action", outcome === "SUCCESS [OK]" ? "Cache rebuilt. Refresh your sheet." : (outcome === "ERROR" ? "Collection failed: the previous cache is shown." : "Refresh queued or deferred: the previous cache is shown.")]
       ];
     }
     

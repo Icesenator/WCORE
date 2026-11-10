@@ -2095,6 +2095,8 @@ test("a token already shown in the tab stays at unknown value when its price is 
   await app.register(gsheetPlugin, {
     token: "secret",
     cacheStore: { get: async () => null },
+    // Service de prix deterministe : aucun prix disponible (panne simulee).
+    priceBatcher: async () => ({ prices: {}, fxRate: 0.88 }),
     scanRunner: async () => ({
       ok: true,
       chain: "ELYSIUM",
@@ -2125,6 +2127,7 @@ test("a token already shown in the tab stays at unknown value when its price is 
   const symbols = body.tokens.map((t: { symbol: string }) => t.symbol);
   assert.deepEqual(symbols, ["BARAN"], "held unpriced token kept, new one filtered, held scam filtered");
   assert.equal(body.tokens[0].priceEur, null, "unknown stays unknown, never zero");
+  assert.equal(body.tokens[0].valueEur, null, "and so does its value");
   assert.equal(body.cacheStats.noMarketFiltered, 1);
 
   const bad = await app.inject({

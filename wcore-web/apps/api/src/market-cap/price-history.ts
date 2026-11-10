@@ -67,6 +67,19 @@ export async function withHistoryChanges(
   return changes;
 }
 
+/**
+ * Variations d'une ligne de classement. Une ligne perimee (dernier cours connu) n'en a aucune :
+ * ni celles de la source, ni celles de l'historique, meme memorisees pour un instantane servi
+ * frais auparavant (revue Codex du 11/11/2026).
+ */
+export function rowChanges(
+  stale: boolean,
+  source: { d1: number | null; w1: number | null; m1: number | null } | null | undefined,
+  history: PriceChanges | null | undefined,
+): PriceChanges | null {
+  return stale ? null : preferSourceChanges(source, history);
+}
+
 /** Par periode : la variation de la source (cours Yahoo) si elle existe, sinon celle de notre historique. */
 export function preferSourceChanges(
   source: { d1: number | null; w1: number | null; m1: number | null } | null | undefined,

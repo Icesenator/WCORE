@@ -34,7 +34,7 @@ import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
 import { CanonicalCryptoService } from "./crypto/crypto-listing-service.js";
 import { toCryptoMarketCapRow, toStockMarketCapRow } from "./market-cap/presentation.js";
-import { preferSourceChanges, withHistoryChanges } from "./market-cap/price-history.js";
+import { rowChanges, withHistoryChanges } from "./market-cap/price-history.js";
 import { allowForcedRefresh } from "./market-cap/forced-refresh.js";
 import { RealTPriceSource } from "@wcore/core";
 import { buildChainScan, findUnreachableChains, isAllowedCsrfOrigin, registerPostAuthRateLimit, requiresCsrfOriginCheck, validateChains, validateCustomToken } from "./server-helpers.js";
@@ -575,7 +575,7 @@ if (gsheetApiToken) {
         ok: true,
         generatedAt: snapshot.generatedAt,
         stale: snapshot.stale,
-        rows: snapshot.rows.map((r) => ({ ...toStockMarketCapRow(r), changes: preferSourceChanges(r.changes, changes.get(r.canonicalTicker)) })),
+        rows: snapshot.rows.map((r) => ({ ...toStockMarketCapRow(r), changes: rowChanges(r.stale, r.changes, changes.get(r.canonicalTicker)) })),
       };
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "cmc stocks failed");

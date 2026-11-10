@@ -216,12 +216,32 @@ test("atomic Lua operations work against TEST_REDIS_URL", { skip: !runRealRedisT
     try {
       await raw.connect();
       assert.ok((await raw.pttl("count")) > 0);
+
+      // Fenêtre fixe de incr sous trafic continu : un appel toutes les 700 ms avec une fenêtre de
+      // 2 s. L'échéance ne doit pas être repoussée : le compteur retombe à 1 pendant la série.
+      const counts: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        counts.push(await cache.incr!("window", 2));
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      assert.equal(counts[0], 1);
+      assert.ok(counts.slice(1).includes(1), `le compteur n'est jamais retombé : ${counts.join(",")}`);
+      assert.ok(Math.max(...counts) <= 3, `compteur trop haut : ${counts.join(",")}`);
+
+      // Clé restée sans durée de vie (EXPIRE perdu) : réparée au passage.
+      await raw.set("orphan", "5");
+      assert.equal(await raw.ttl("orphan"), -1);
+      assert.equal(await cache.incr!("orphan", 30), 6);
+      const repaired = await raw.ttl("orphan");
+      assert.ok(repaired > 0 && repaired <= 30, `ttl ${repaired}`);
     } finally {
       raw.disconnect();
     }
   } finally {
     await cache.delete("cas");
     await cache.delete("count");
+    await cache.delete("window");
+    await cache.delete("orphan");
   }
 });
 
@@ -259,4 +279,11 @@ test("MemoryCacheStore.incr resets after the window even under steady traffic", 
   } finally {
     Date.now = realNow;
   }
+});
+
+test("incr surfaces a store error instead of hiding it", async () => {
+  const client = new FakeRedisClient();
+  client.evalResults.push(new Error("EVAL refused"));
+  const cache = createRedisCacheStore(client);
+  await assert.rejects(cache.incr("rate_limit:catch_all:ip", 60), /EVAL refused/);
 });

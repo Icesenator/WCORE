@@ -880,8 +880,7 @@ async function fetchPricesEur(symbols) {
       if (row && row.symbol) tickerMap.set(String(row.symbol).toUpperCase(), parseAmount(row.price));
     }
   }
-  const eurUsd = tickerMap.get("EURUSDT") || tickerMap.get("EURUSDC") || 0;
-  const eurPerUsd = eurUsd > 0 ? eurUsd : 1.08;
+  const eurPerUsd = await eurPerUsdWithFallback(tickerMap.get("EURUSDT") || tickerMap.get("EURUSDC") || 0);
 
   for (const s of unique) {
     if (s === "EUR" || s === "EURI" || s === "EURC" || s === "BCPEUR") {
@@ -1007,7 +1006,7 @@ async function fetchBybitPricesEur(symbols) {
   const json = JSON.parse(text);
   const list = json && json.result && json.result.list;
   const eurUsdt = Array.isArray(list) ? list.find((r) => String(r && r.symbol).toUpperCase() === "EURUSDT") : null;
-  const eurPerUsd = parseAmount(eurUsdt && eurUsdt.lastPrice) || 1.08;
+  const eurPerUsd = await eurPerUsdWithFallback(parseAmount(eurUsdt && eurUsdt.lastPrice));
   return mapBybitTickerPricesEur(symbols, list, eurPerUsd);
 }
 
@@ -1048,7 +1047,7 @@ async function fetchCoinbasePricesEur(symbols) {
   const eurText = await eurResp.text();
   if (!eurResp.ok) throw new Error("Coinbase EUR rates HTTP " + eurResp.status + ": " + eurText.slice(0, 300));
   const eurJson = JSON.parse(eurText);
-  const eurUsd = parseAmount(eurJson && eurJson.data && eurJson.data.rates && eurJson.data.rates.USD) || 1.08;
+  const eurUsd = await eurPerUsdWithFallback(parseAmount(eurJson && eurJson.data && eurJson.data.rates && eurJson.data.rates.USD));
 
   const rates = {};
   await Promise.all(wanted.map(async (s) => {
@@ -1087,7 +1086,7 @@ async function fetchOkxPricesEur(symbols) {
   const json = JSON.parse(text);
   const list = json && json.data;
   const eurUsdt = Array.isArray(list) ? list.find((r) => String(r && r.instId).toUpperCase() === "EUR-USDT") : null;
-  const eurPerUsd = parseAmount(eurUsdt && eurUsdt.last) || 1.08;
+  const eurPerUsd = await eurPerUsdWithFallback(parseAmount(eurUsdt && eurUsdt.last));
   return mapOkxTickerPricesEur(symbols, list, eurPerUsd);
 }
 
@@ -1445,24 +1444,45 @@ async function yahooEurRate(pair) {
   return hit && hit.price > 0 ? hit.price : 0;
 }
 
+// Dollars pour un euro : Binance (EURUSDT/EURUSDC), sinon Yahoo (EURUSD=X). Plus de taux fixe
+// de secours : 1,08 quand Binance echouait, valeur fausse (audit du 10/11/2026). Sans taux, null :
+// les actions en dollars restent alors sans prix plutot qu'avec un prix faux.
+async function resolveEurPerUsd(binanceTickers, yahooRate) {
+  try {
+    const tickers = await binanceTickers();
+    if (Array.isArray(tickers)) {
+      for (const row of tickers) {
+        const symbol = String(row && row.symbol).toUpperCase();
+        if (symbol === "EURUSDT" || symbol === "EURUSDC") {
+          const v = parseAmount(row.price);
+          if (v > 0) return { rate: v, source: "binance" };
+        }
+      }
+    }
+  } catch (_e) { /* try Yahoo */ }
+  try {
+    const v = await yahooRate("EURUSD=X");
+    if (v > 0) return { rate: v, source: "yahoo" };
+  } catch (_e) { /* no rate */ }
+  return null;
+}
+
+// Meme regle pour les prix des CEX : taux de la plateforme, sinon Yahoo, sinon erreur (les
+// appelants rendent alors des prix inconnus). Plus de taux fixe de 1,08 (audit du 10/11/2026).
+async function eurPerUsdWithFallback(exchangeRate) {
+  if (exchangeRate > 0) return exchangeRate;
+  const fx = await resolveEurPerUsd(async () => [], (pair) => yahooEurRate(pair));
+  if (fx) return fx.rate;
+  throw new Error("EUR/USD rate unavailable: USD-based prices left unknown");
+}
+
 async function fetchStockPricesEur(symbols) {
   const unique = Array.from(new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)));
   const out = {};
   if (unique.length === 0) return out;
 
-  // EUR/USD from Binance ticker (reachable from relay), fallback 1.08.
-  let eurPerUsd = 1.08;
-  try {
-    const tickers = await publicGet("/api/v3/ticker/price", null).catch(() => []);
-    if (Array.isArray(tickers)) {
-      for (const row of tickers) {
-        if (row && (String(row.symbol).toUpperCase() === "EURUSDT" || String(row.symbol).toUpperCase() === "EURUSDC")) {
-          const v = parseAmount(row.price);
-          if (v > 0) { eurPerUsd = v; break; }
-        }
-      }
-    }
-  } catch (_e) { /* keep fallback */ }
+  const usdFx = await resolveEurPerUsd(() => publicGet("/api/v3/ticker/price", null), (pair) => yahooEurRate(pair));
+  const eurPerUsd = usdFx ? usdFx.rate : null;
 
   // Lazy-loaded non-USD EUR rates (per 1 EUR), cached for this request.
   const rates = {};
@@ -1481,7 +1501,7 @@ async function fetchStockPricesEur(symbols) {
       return r > 0 ? { eur: (price / 100) / r, tag: "gbx" } : null;
     }
     if (ccy === "EUR") return { eur: price, tag: "eur" };
-    if (ccy === "USD") return { eur: price / eurPerUsd, tag: "usd" };
+    if (ccy === "USD") return eurPerUsd > 0 ? { eur: price / eurPerUsd, tag: "usd" } : null;
     // GBP, CHF, KRW, JPY, etc. via EUR{CCY}=X (CCY per 1 EUR).
     const r = await rateFor(ccy);
     if (r > 0) return { eur: price / r, tag: ccy.toLowerCase() };
@@ -1881,7 +1901,10 @@ app.post("/binance/account", async (req, res) => {
     const flexibleAssets = new Set(flexible.map((r) => String(r[0]).toUpperCase()));
     const spot = await fetchSpotExact(creds, flexibleAssets);
     const allSymbols = spot.concat(flexible, locked).map((r) => r[0]);
-    const prices = await fetchPricesEur(allSymbols);
+    const prices = await fetchPricesEur(allSymbols).catch((errPrices) => {
+      console.log("binance price fetch skipped: " + (errPrices && errPrices.message ? errPrices.message : errPrices));
+      return {};
+    });
     res.json({
       ok: true,
       ts: new Date().toISOString(),
@@ -1911,6 +1934,7 @@ module.exports = {
   okxSign,
   okxPushRow,
   mergeOkxEarnBalances,
+  resolveEurPerUsd,
   okxMergeSubaccountBalances,
   okxCollectMainBalances,
   mapBybitTickerPricesEur,

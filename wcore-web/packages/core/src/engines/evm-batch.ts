@@ -27,7 +27,7 @@ import { DISCOVERY_CACHE_TTL_MS } from "../cache/index.js";
 import type { BalanceDecision, BalanceSource } from "../balances/index.js";
 import type { CacheStats } from "./types.js";
 import {
-  DEFAULT_LOG_SCAN_BLOCKS,
+  effectiveLogScanWindow,
   normalizeEvmAddress,
   normalizeChainKey,
   roundMoney,
@@ -138,7 +138,7 @@ export async function getEvmWalletsAssets(
 
   // Compute log range respecting chain's MAX_LOG_RANGE (e.g. BASE=2000 blocks).
   // Called once per chain ÔÇö the block number is cached for 30s across wallets.
-  const logBlockWindow = opts.logBlockRange ?? DEFAULT_LOG_SCAN_BLOCKS;
+  const logBlockWindow = effectiveLogScanWindow(chain, opts.logBlockRange);
   const chainMaxLogRange = typeof chain.RPC?.MAX_LOG_RANGE === "number" ? chain.RPC.MAX_LOG_RANGE : undefined;
   const logRange = await getRecentLogRange(dispatcher, rpc, effectiveEndpoints, logBlockWindow, [], key, chainMaxLogRange);
   const currentBlock = parseInt(logRange.toBlock, 16) || 0;
@@ -228,6 +228,7 @@ export async function getEvmWalletsAssets(
                 rpc,
                 fromBlock,
                 toBlock: logRange.toBlock,
+                chunkBlocks: chain.RPC?.LOG_CHUNK_BLOCKS as number | undefined,
               }),
               explorerDiscovery: () => discoverTokensFromExplorer(addr, key, undefined, opts.cache),
               trustExplorerWhenClean: hasExplorerDiscovery(key),

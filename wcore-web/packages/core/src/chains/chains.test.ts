@@ -46,23 +46,26 @@ test("Nexus Mainnet is registered with verified RPC metadata", () => {
   assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://mainnet.rpc.nexus.xyz/"]);
 });
 
-test("Elysium (Vulcan Forged, 1339) is registered with verified metadata and no borrowed price", () => {
+test("Elysium is Kinetiq's mainnet (99901), with HYPE priced like HyperEVM", () => {
   const chain = getChain("ELYSIUM");
 
   assert.ok(chain, "ELYSIUM chain should be registered");
   assert.equal(chain.vm, "EVM");
   assert.equal(chain.CHAIN?.NAME, "Elysium");
-  assert.equal(chain.CHAIN?.CHAIN_ID, 1339);
-  assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "LAVA");
+  assert.equal(chain.CHAIN?.CHAIN_ID, 99901);
+  // Never Kinetiq's testnet (99801) nor Vulcan Forged's Elysium (1339, LAVA).
+  assert.notEqual(chain.CHAIN?.CHAIN_ID, 99801);
+  assert.notEqual(chain.CHAIN?.CHAIN_ID, 1339);
+  assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "HYPE");
   assert.equal(chain.CHAIN?.NATIVE_DECIMALS, 18);
-  assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://rpc.elysiumchain.tech", "https://1339.rpc.thirdweb.com"]);
-  // The public RPC rejects eth_getLogs over 5,000 blocks and accepts 1,000.
-  assert.equal(chain.RPC?.MAX_LOG_RANGE, 1000);
-  // CoinGecko "lava-network" and DexScreener "elysium" are other projects: no price id at all.
-  assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, undefined);
-  assert.equal(chain.CHAIN?.NATIVE_LLAMA_ID, undefined);
-  assert.equal(chain.CHAIN?.DEX_SLUG, undefined);
-  assert.equal(chain.CHAIN?.GT_NETWORK, undefined);
+  assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://rpc.elysium.kinetiq.xyz"]);
+  assert.equal(chain.CHAIN?.NATIVE_LLAMA_ID, getChain("HYPEREVM")?.CHAIN?.NATIVE_LLAMA_ID);
+  assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, "hyperliquid");
+  assert.equal(chain.CHAIN?.DEX_SLUG, "elysium");
+  assert.equal(chain.RPC?.MAX_LOG_RANGE, undefined);
+  assert.equal(chain.RPC?.MIN_LOG_SCAN_BLOCKS, 500000);
+  assert.ok((chain.RPC?.LOG_CHUNK_BLOCKS as number) > (chain.RPC?.MIN_LOG_SCAN_BLOCKS as number), "one eth_getLogs call per direction: the RPC rate-limits 100 chunked calls");
+  assert.equal(chainList.some((c) => c.CHAIN?.CHAIN_ID === 1339 || c.CHAIN?.CHAIN_ID === 99801), false);
 });
 
 test("Lisk L2 (1135) stays in the registry so Chain Sentinel can still show held exposure", () => {

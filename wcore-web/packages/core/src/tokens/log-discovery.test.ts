@@ -94,3 +94,52 @@ test("discoverTokensByTransferLogs queries from/to directions concurrently", asy
 
   assert.equal(maxActive, 2);
 });
+
+function countingDiscovery() {
+  const ranges: Array<[string, string]> = [];
+  const dispatcher = {
+    async run<T>(_endpoints: ReadonlyArray<string>, call: (endpoint: string) => Promise<T>) {
+      const value = await call("https://rpc.example");
+      return { consensus: true, value, votes: 1, total: 1, attempts: [] };
+    },
+  };
+  const rpc = {
+    async call(_endpoint: string, _method: string, params: unknown[]): Promise<unknown> {
+      const filter = params[0] as { fromBlock: string; toBlock: string };
+      ranges.push([filter.fromBlock, filter.toBlock]);
+      return [];
+    },
+  };
+  return { ranges, dispatcher: dispatcher as never, rpc: rpc as never };
+}
+
+test("a 500,000-block window is split into 10,000-block chunks by default, its last block included", async () => {
+  const d = countingDiscovery();
+  await discoverTokensByTransferLogs({ address: OWNER, endpoints: ["https://rpc.example"], dispatcher: d.dispatcher, rpc: d.rpc, fromBlock: "0x0", toBlock: `0x${(500_000).toString(16)}` });
+  // 0..500,000 is 500,001 blocks: 50 full chunks plus the last block, which the old loop skipped.
+  assert.equal(d.ranges.length, 2 * 51);
+  assert.deepEqual(d.ranges.at(-1), ["0x7a120", "0x7a120"]);
+});
+
+test("a chain chunk size lets an RPC that serves the whole range answer in one call per direction", async () => {
+  const d = countingDiscovery();
+  await discoverTokensByTransferLogs({ address: OWNER, endpoints: ["https://rpc.example"], dispatcher: d.dispatcher, rpc: d.rpc, fromBlock: "0x0", toBlock: `0x${(500_000).toString(16)}`, chunkBlocks: 1_000_000 });
+  assert.deepEqual(d.ranges, [["0x0", "0x7a120"], ["0x0", "0x7a120"]]);
+});
+
+test("chunks cover the whole window without gaps or overlaps for any chunk size", async () => {
+  const d = countingDiscovery();
+  await discoverTokensByTransferLogs({ address: OWNER, endpoints: ["https://rpc.example"], dispatcher: d.dispatcher, rpc: d.rpc, fromBlock: "0x64", toBlock: `0x${(1_000_099).toString(16)}`, chunkBlocks: 300_000 });
+  const one = d.ranges.slice(0, d.ranges.length / 2).map(([a, b]) => [parseInt(a, 16), parseInt(b, 16)]);
+  assert.equal(one[0][0], 100);
+  assert.equal(one.at(-1)![1], 1_000_099);
+  for (let i = 1; i < one.length; i++) assert.equal(one[i][0], one[i - 1][1] + 1);
+});
+
+test("an invalid chain chunk size falls back to the default", async () => {
+  for (const bad of [0, -5, 1.5, Number.NaN]) {
+    const d = countingDiscovery();
+    await discoverTokensByTransferLogs({ address: OWNER, endpoints: ["https://rpc.example"], dispatcher: d.dispatcher, rpc: d.rpc, fromBlock: "0x0", toBlock: `0x${(50_000).toString(16)}`, chunkBlocks: bad });
+    assert.equal(d.ranges.length, 2 * 6, String(bad));
+  }
+});

@@ -10,17 +10,25 @@ export const ELYSIUM: ChainConfig = {
   CACHE_VERSION: 63,
   RPC: {
     ENDPOINTS: [
-      "https://rpc.elysiumchain.tech",
-      "https://1339.rpc.thirdweb.com",
+      "https://rpc.elysium.kinetiq.xyz",
     ],
-    MAX_LOG_RANGE: 1000,
+    MIN_LOG_SCAN_BLOCKS: 500000,
+    LOG_CHUNK_BLOCKS: 600000,
   },
   CHAIN: {
     NAME: "Elysium",
-    CHAIN_ID: 1339,
-    NATIVE_SYMBOL: "LAVA",
-    NATIVE_NAME: "LAVA",
+    CHAIN_ID: 99901,
+    NATIVE_SYMBOL: "HYPE",
+    NATIVE_NAME: "Hyperliquid",
     NATIVE_DECIMALS: 18,
+    NATIVE_LLAMA_ID: "coingecko:hyperliquid",
+    NATIVE_GECKO_ID: "hyperliquid",
+    DEX_SLUG: "elysium",
+  },
+  LLAMA_ID_MAP: {
+    HYPE: "coingecko:hyperliquid",
+    WHYPE: "coingecko:hyperliquid",
+    USDC: "coingecko:usd-coin",
   },
 } as Omit<ChainConfig, "key" | "vm">),
 };

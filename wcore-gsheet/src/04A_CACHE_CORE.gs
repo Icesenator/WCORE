@@ -363,11 +363,9 @@ CacheManager.safeSet = CacheManager.safeSet || function(key, value, ttlSeconds) 
  var l2Result = CacheManager._packedPut_(key, s);
  if (_debugL2) {
  _debugLog.push("L2=" + (l2Result ? "OK" : "FAILED"));
- // Store debug log
- try {
- var props = PropertiesService.getScriptProperties();
- props.setProperty("DEBUG_L2_" + Date.now(), _debugLog.join("|"));
- } catch (eLog) {}
+ // v4.16.68 : journal uniquement ; plus de cle DEBUG_L2_<ts> par ecriture
+ // (famille non bornee, jamais purgee avant ce correctif).
+ try { Logger.log("[DEBUG_L2] " + _debugLog.join("|")); } catch (eLog) {}
  }
  return l2Result;
  } else {
@@ -376,10 +374,7 @@ CacheManager.safeSet = CacheManager.safeSet || function(key, value, ttlSeconds) 
  } catch (e2) {
  if (_debugL2) {
  _debugLog.push("L2=EXCEPTION:" + e2.message);
- try {
- var props = PropertiesService.getScriptProperties();
- props.setProperty("DEBUG_L2_" + Date.now(), _debugLog.join("|"));
- } catch (eLog) {}
+ try { Logger.log("[DEBUG_L2] " + _debugLog.join("|")); } catch (eLog) {}
  }
  }
  
@@ -444,99 +439,129 @@ CacheManager._getStorageUsagePct = CacheManager._getStorageUsagePct || function(
   } catch (e) { return 100; }
 };
 
-CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(targetBytes) {
+// v4.16.68 (STORAGE_LOCAL_RECOVERY) : quota et classification des familles
+// ScriptProperties. Une seule source de verite pour la purge et le diagnostic.
+CacheManager._STORAGE_QUOTA_BYTES = 500 * 1024;
+
+/**
+ * Lecture unique du store : { all, total }. Un seul getProperties() global.
+ * Les appelants qui purgent passent ce snapshot a _emergencyPurge_ pour ne
+ * pas relire le store (la purge le met a jour en place).
+ */
+CacheManager._storageSnapshot_ = function() {
+ try {
+ CacheManager.init();
+ var all = CacheManager._props.getProperties() || {};
+ var total = 0;
+ for (var k in all) total += k.length + String(all[k] || "").length;
+ return { all: all, total: total };
+ } catch (e) { return null; }
+};
+
+/**
+ * v4.16.68 : purge restreinte aux familles jetables/reconstructibles.
+ * - targetBytes : octets a liberer (au minimum total - (QUOTA - 40 Ko), comme avant).
+ * - snapshot (optionnel) : { all, total } deja lu ; evite un getProperties()
+ *   supplementaire et est mis a jour en place.
+ * - targetBytes = { classifierOnly: true } : renvoie le classifieur, sans aucune
+ *   lecture ni ecriture (source unique pour DIAG_STORAGE_FAMILIES). La fonction
+ *   reste autonome car des tests l'extraient seule du fichier.
+ * Ne supprime JAMAIS une famille protegee (tier 0) : nonces, etat watchdog,
+ * compteurs HTTP actifs, packed wallet, caches wallet, prix, etat CEX.
+ * Retour : true si des octets ont ete liberes (ou rien a faire), false sinon.
+ */
+CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(targetBytes, snapshot) {
+ // Classe une cle. tier 0 = PROTEGEE (jamais purgee) ; tier >= 1 = purgeable,
+ // dans l'ordre croissant. Familles protegees : observations financieres
+ // (packed, caches wallet, prix), nonces, compteurs HTTP non expires, etat de
+ // recuperation watchdog / auto-heal / file d'activite, etat CEX et secrets.
+ function classify_(k, v, nowMs) {
+ k = String(k || "");
+ nowMs = nowMs || Date.now();
+ function httpDayExpired(key) {
+ var m = /^WCORE_HTTP_(?:DAY|HOST|TRIGGER|T0|MILE)_(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(key);
+ if (!m) return false;
+ var start = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 9);
+ return isFinite(start) && nowMs >= start + 2 * 24 * 3600000;
+ }
+ // --- Jetables / diagnostiques (tier 1) : jamais lus par une decision metier.
+ if (k.indexOf("DEBUG_L2_") === 0) return { fam: "DEBUG_L2", tier: 1, prio: 1 };
+ if (k.indexOf("GSHEET_WEB_SCAN_LAST_ERROR") === 0) return { fam: "WEB_SCAN_ERRORS", tier: 1, prio: 2 };
+ if (k === "WCORE_WD_LAST_DIAG" || k === "WCORE_WD_TRIGGER_SNAPSHOT" || k === "WCORE_AUTO_HEAL_LAST_RESULT" ||
+ k === "WCORE_SS_OPEN_ERR" || k === "CACHE_OPTIMIZER_STATS_v1" || k === "PRICING_WORKER_STATS" || k === "TEST_KEY" ||
+ k === "HTTP_CATEGORY_TRACKER_v1" || k === "HTTP_CATEGORY_DATE_v1" || k === "ACTIVITY_RPC_LOOKUP") {
+ return { fam: "DIAGNOSTIC", tier: 1, prio: 3 };
+ }
+ // --- Compteurs HTTP : proteges tant que non expires (fenetre 2 jours).
+ if (k.indexOf("WCORE_HTTP_") === 0) return httpDayExpired(k) ? { fam: "HTTP_COUNTERS_EXPIRED", tier: 2, prio: 5 } : { fam: "HTTP_COUNTERS", tier: 0 };
+ if (k.indexOf("OUTSNAP_") === 0) return { fam: "OUTSNAP", tier: 2, prio: 8 };
+ // --- Etat de recuperation : demandes de refresh recentes protegees.
+ if (k.indexOf("ACTIVITY_FORCE_") === 0) {
+ var reqAt = 0;
+ try { reqAt = Number(JSON.parse(v || "{}").requestedAt || 0); } catch (eAF) { reqAt = 0; }
+ return (!reqAt || (nowMs - reqAt) > 7200000) ? { fam: "ACTIVITY_FORCE_EXPIRED", tier: 2, prio: 12 } : { fam: "RECOVERY_STATE", tier: 0 };
+ }
+ if (k === "ACTIVITY_NONCE_MAP") return { fam: "NONCES", tier: 0 };
+ if (k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1") return { fam: "PACKED_WALLET", tier: 0 };
+ if (k === GLOBAL_CACHE_KEYS.GLOBAL_PRICES || k === "GLOBAL_PRICE_CACHE_V2") return { fam: "GLOBAL_PRICES", tier: 0 };
+ if (k === "ACTIVITY_PENDING_REFRESH" || k.indexOf("WD_") === 0 || k.indexOf("WATCHDOG") >= 0 ||
+ k.indexOf("WCORE_WD_") === 0 || k.indexOf("WCORE_AUTO_HEAL_") === 0 || k.indexOf("WCORE_ERROR_RETRY_") === 0 ||
+ k.indexOf("WCORE_RECOVERY_") === 0 || k.indexOf("WCORE_TRIGGER_REPAIR_LAST_") === 0 || k.indexOf("WCORE_QCB_") === 0 ||
+ k.indexOf("_LEASE") >= 0 || k.indexOf("_LOCK") >= 0) {
+ return { fam: "RECOVERY_STATE", tier: 0 };
+ }
+ if (k.indexOf("WALLET_") >= 0 || k.indexOf("_CACHE_WALLET_") >= 0) return { fam: "WALLET_CACHE", tier: 0 };
+ // Chaine retiree : jamais rafraichie, son cache paraitrait toujours le plus ancien ;
+ // conserve comme preuve (fonds potentiellement recuperables), jamais purge pour la place.
+ if (k.indexOf("_CACHE_") > 0 && typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(k.split("_CACHE_")[0])) return { fam: "RETIRED_CHAIN_EVIDENCE", tier: 0 };
+ // --- Reconstructibles (tier 3) : stats/sante/metadonnees, regenerees au cycle suivant.
+ if (k.indexOf("_DYNAMIC_BUDGET_STATS_") >= 0) return { fam: "BUDGET_STATS", tier: 3, prio: 10 };
+ if (k.indexOf("BUDGET_") === 0 || k.indexOf("_BUDGET_") >= 0) return { fam: "BUDGET_STATS", tier: 3, prio: 20 };
+ if (k.indexOf("RPC_HEALTH") >= 0) return { fam: "RPC_HEALTH", tier: 3, prio: 30 };
+ if (k.indexOf("META") >= 0) return { fam: "META", tier: 3, prio: 50 };
+ if (k.indexOf("_CACHE_") >= 0 && k.indexOf("GLOBAL_") < 0) return { fam: "OTHER_CACHE", tier: 3, prio: 60 };
+ // --- Tout le reste (CEX, Kraken, secrets, configuration, marqueurs) : protege.
+ if (/^(KRAKEN|BINANCE|BITFINEX|BITPANDA|BYBIT|COINBASE|OKX|CEX)_/.test(k) || k.indexOf("CRYPTO_CEX_") === 0) return { fam: "CEX_STATE_AND_SECRETS", tier: 0 };
+ return { fam: "OTHER", tier: 0 };
+ }
+ if (targetBytes && typeof targetBytes === "object" && targetBytes.classifierOnly) return classify_;
+
  try {
  CacheManager.init();
  var props = CacheManager._props;
  if (!props) return false;
 
- var all = props.getProperties();
+ var snap = (snapshot && snapshot.all) ? snapshot : null;
+ if (!snap) {
+ var all0 = props.getProperties() || {};
+ var total0 = 0;
+ for (var k0 in all0) total0 += k0.length + String(all0[k0] || "").length;
+ snap = { all: all0, total: total0 };
+ }
+ var all = snap.all;
  var keys = Object.keys(all);
  var nowMs = Date.now();
- var recentMs = 2 * 3600 * 1000; // 2 hours protection
+ var total = snap.total;
 
- var total = 0;
- for (var i = 0; i < keys.length; i++) {
- total += keys[i].length + String(all[keys[i]] || "").length;
- }
-
- var QUOTA = 500 * 1024;
+ var QUOTA = CacheManager._STORAGE_QUOTA_BYTES || (500 * 1024);
  var TARGET = QUOTA - 40 * 1024;
  var need = Math.max(targetBytes || 0, (total > TARGET ? (total - TARGET) : 0));
+ CacheManager._lastPurgeFreedBytes = 0;
  if (need <= 0) return true;
 
-  var cands = [];
-  function isExpiredHttpDay_(k) {
-    var m = /^WCORE_HTTP_(?:DAY|HOST|TRIGGER|T0|MILE)_(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(k);
-    if (!m) return false;
-    var start = Date.UTC(Number(m[1]), Number(m[2])-1, Number(m[3]), 9);
-    return isFinite(start) && nowMs >= start + 2 * 24 * 3600000;
-  }
-  function isProtectedKey_(k) {
-  return (k.indexOf("WCORE_HTTP_") === 0 && !isExpiredHttpDay_(k)) || k === GLOBAL_CACHE_KEYS.GLOBAL_WALLET || k === "GLOBAL_WALLET_CACHE_V1" ||
-    k === "WCORE_WATCHDOG_LEASE" || k === "WCORE_AUTO_HEAL_LEASE";
-  }
-  function pushIf(matchFn, prio) {
-  for (var j = 0; j < keys.length; j++) {
-  var kk = keys[j];
-  if (isProtectedKey_(kk)) continue;
-  if (!kk || !matchFn(kk)) continue;
-  cands.push({ k: kk, size: kk.length + String(all[kk] || "").length, prio: prio });
-  }
-  }
-
- // Priority: HTTP counters(5) > OUTSNAP(8) > expired activity force flags(12)
- // > pending activity queue(15) > recent activity force flags(16) > BUDGET(20) > RPC(30) > WD(40) > META(50) > global price cache(55)
- // > other caches(60) > old wallets(90)
- // v4.15.62: WCORE_HTTP_* daily counters and OUTSNAP_* output snapshots accumulate
- // without bound and were the overflow tipping ScriptProperties past 500KB
- // (2026-06-01 storage-quota freeze). Purge them FIRST — they are reconstructible.
-  pushIf(function(k){ return k.indexOf("WCORE_HTTP_") === 0; }, 5);
-  pushIf(function(k){ return k.indexOf("OUTSNAP_") === 0; }, 8);
-  // v4.15.100: stale activity data stored in ScriptProperties (should be SheetCache/memory)
-  // HTTP category tracker from Feb 2026 (4+ months stale, reconstructible)
-  pushIf(function(k){ return k === "HTTP_CATEGORY_TRACKER_v1" || k === "HTTP_CATEGORY_DATE_v1"; }, 5);
-  // Old RPC_LOOKUP (now memory-only, ~28KB wasted quota)
-  pushIf(function(k){ return k === "ACTIVITY_RPC_LOOKUP"; }, 45);
-  // Large NONCE_MAP (15KB, can be rebuilt from scratch on next watchdog cycle)
-  pushIf(function(k){ return k === "ACTIVITY_NONCE_MAP"; }, 47);
- for (var af = 0; af < keys.length; af++) {
- var afk = keys[af];
- if (!afk || afk.indexOf("ACTIVITY_FORCE_") !== 0) continue;
- try {
- var afd = JSON.parse(all[afk] || "{}");
- var requestedAt = Number(afd.requestedAt || 0);
- var afExpired = (!requestedAt || (nowMs - requestedAt) > 7200000);
- cands.push({ k: afk, size: afk.length + String(all[afk] || "").length, prio: afExpired ? 12 : 16 });
- } catch (eAF) {
- cands.push({ k: afk, size: afk.length + String(all[afk] || "").length, prio: 12 });
- }
- }
- pushIf(function(k){ return k === "ACTIVITY_PENDING_REFRESH"; }, 15);
- pushIf(function(k){ return k.indexOf("_DYNAMIC_BUDGET_STATS_") >= 0; }, 10);
- pushIf(function(k){ return k.indexOf("BUDGET_") === 0 || k.indexOf("_BUDGET_") >= 0; }, 20);
- pushIf(function(k){ return k.indexOf("RPC_HEALTH") >= 0; }, 30);
- pushIf(function(k){ return k.indexOf("WD_") === 0 || k.indexOf("WATCHDOG") >= 0; }, 40);
- pushIf(function(k){ return k.indexOf("META") >= 0; }, 50);
- pushIf(function(k){ return k === GLOBAL_CACHE_KEYS.GLOBAL_PRICES || k === "GLOBAL_PRICE_CACHE_V2"; }, 55);
- pushIf(function(k){ return k.indexOf("_CACHE_") >= 0 && k.indexOf("WALLET_") < 0 && k.indexOf("GLOBAL_") < 0; }, 60);
- 
- // Wallets: only OLD ones (> 2h)
-  for (var w = 0; w < keys.length; w++) {
-  var wk = keys[w];
-  if (isProtectedKey_(wk)) continue;
-  if (!wk || (wk.indexOf("WALLET_") < 0 && wk.indexOf("_CACHE_WALLET_") < 0)) continue;
- var isRecent = false;
- try {
- var wobj = JSON.parse(all[wk]);
- var updAt = wobj.updatedAt || wobj.u || 0;
- if (updAt > 1e12) updAt = updAt;
- else if (updAt > 1e9) updAt = updAt * 1000;
- if (updAt > 0 && (nowMs - updAt) < recentMs) isRecent = true;
- } catch (eW) {}
- if (!isRecent) {
- cands.push({ k: wk, size: wk.length + String(all[wk] || "").length, prio: 90 });
- }
+ // v4.16.68 : liste blanche de familles purgeables, dans l'ordre :
+ // tier 1 jetables (DEBUG_L2, erreurs web scan, diagnostics) > tier 2 expires
+ // (HTTP > 2 j, OUTSNAP, ACTIVITY_FORCE > 2 h) > tier 3 reconstructibles
+ // (budget stats, RPC_HEALTH, META, autres caches). Les anciens tiers 15/16/40/47/55/90
+ // (file d'activite, WD_*, ACTIVITY_NONCE_MAP, prix globaux, wallets) sont retires :
+ // les purger relancait la decouverte de wallets et remettait le watchdog a zero.
+ var cands = [];
+ for (var j = 0; j < keys.length; j++) {
+ var kk = keys[j];
+ if (!kk) continue;
+ var cls = classify_(kk, all[kk], nowMs);
+ if (!cls || !cls.tier) continue;
+ cands.push({ k: kk, size: kk.length + String(all[kk] || "").length, prio: cls.tier * 100 + (cls.prio || 0) });
  }
 
  if (!cands.length) return false;
@@ -553,6 +578,8 @@ CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(target
  props.deleteProperty(cands[x].k);
  freed += cands[x].size;
  deletedKeys.push(cands[x].k);
+ delete all[cands[x].k];
+ snap.total -= cands[x].size;
  } catch (eDel) {}
  }
 
@@ -560,10 +587,19 @@ CacheManager._emergencyPurge_ = CacheManager._emergencyPurge_ || function(target
  if (deletedKeys.length) CacheService.getScriptCache().removeAll(deletedKeys);
  } catch (eC) {}
 
+ CacheManager._lastPurgeFreedBytes = freed;
+ if (deletedKeys.length) {
+ try { console.log("[Storage purge] freed=" + freed + "B keys=" + deletedKeys.length + " need=" + need + "B (familles protegees intactes)"); } catch (eLog) {}
+ }
  return freed > 0;
  } catch (e) {
  return false;
  }
+};
+
+// Classifieur partage (meme source que la purge) ; aucune E/S.
+CacheManager._storageClassify_ = function(k, v, nowMs) {
+ return CacheManager._emergencyPurge_({ classifierOnly: true })(k, v, nowMs);
 };
 
 // ============================================================
@@ -668,4 +704,64 @@ function DIAG_CLEAR_L2_DEBUG() {
  } catch (e) {
  return "Error: " + e.message;
  }
+}
+
+/**
+ * v4.16.68 : repartition du stockage ScriptProperties par famille.
+ * LECTURE SEULE : exactement un getProperties(), aucune ecriture, aucune
+ * suppression, aucun appel HTTP. N'expose jamais de valeur ni de nom de cle
+ * individuel (secrets, adresses) : seulement familles, nombres et tailles.
+ * @customfunction
+ */
+function DIAG_STORAGE_FAMILIES() {
+ var out = [["Famille", "Cles", "Octets", "% quota", "Purge"]];
+ try {
+ CacheManager.init();
+ var all = CacheManager._props.getProperties() || {};
+ var QUOTA = CacheManager._STORAGE_QUOTA_BYTES || (500 * 1024);
+ var nowMs = Date.now();
+ var fams = {};
+ var total = 0;
+ var packedRaw = null;
+ for (var k in all) {
+ var v = String(all[k] || "");
+ var size = k.length + v.length;
+ total += size;
+ var cls = CacheManager._storageClassify_(k, v, nowMs) || { fam: "OTHER", tier: 0 };
+ var f = fams[cls.fam] || (fams[cls.fam] = { n: 0, b: 0, tier: cls.tier });
+ f.n++;
+ f.b += size;
+ if (cls.fam === "PACKED_WALLET") packedRaw = v;
+ }
+ var names = Object.keys(fams).sort(function(a, b) { return fams[b].b - fams[a].b; });
+ for (var i = 0; i < names.length; i++) {
+ var fx = fams[names[i]];
+ out.push([names[i], fx.n, fx.b, Math.round(fx.b / QUOTA * 1000) / 10, fx.tier ? ("tier " + fx.tier) : "PROTEGEE"]);
+ }
+ out.push(["TOTAL", Object.keys(all).length, total, Math.round(total / QUOTA * 1000) / 10, "libre=" + (QUOTA - total)]);
+ if (packedRaw) {
+ try {
+ var p = JSON.parse(packedRaw);
+ var nEnt = 0, nBal = 0, bBal = 0, bNoBal = 0;
+ var m = (p && p.m) || {};
+ for (var h in m) {
+ var ents = Array.isArray(m[h]) ? m[h] : [m[h]];
+ for (var e = 0; e < ents.length; e++) {
+ var sz = JSON.stringify(ents[e] || null).length;
+ nEnt++;
+ if (CacheManager._packedEntryHasPositiveBalance_ && CacheManager._packedEntryHasPositiveBalance_(ents[e])) { nBal++; bBal += sz; }
+ else bNoBal += sz;
+ }
+ }
+ out.push(["PACKED_ENTRIES_WITH_BALANCE", nBal, bBal, Math.round(bBal / QUOTA * 1000) / 10, "jamais evincees"]);
+ out.push(["PACKED_ENTRIES_NO_BALANCE", nEnt - nBal, bNoBal, Math.round(bNoBal / QUOTA * 1000) / 10, "evincables (UNKNOWN)"]);
+ out.push(["PACKED_SOFT_CAP", "", CacheManager._PACKED_CACHE_MAX_BYTES || "", "", ""]);
+ } catch (eP) {
+ out.push(["PACKED_PARSE_ERROR", "", "", "", String(eP && eP.message || eP).substring(0, 80)]);
+ }
+ }
+ } catch (e) {
+ out.push(["ERROR", "", "", "", String(e && e.message || e).substring(0, 120)]);
+ }
+ return out;
 }

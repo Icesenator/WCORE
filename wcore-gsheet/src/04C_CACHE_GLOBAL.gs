@@ -1,7 +1,28 @@
 ﻿/************************************************************
  * 04C_CACHE_GLOBAL.gs - Global Caches (Price, FX, Meta)
  *
- * Version: v4.15.52
+ * Version: v4.15.53
+ *
+ * v4.15.53 - F1 (2026-11-08) FX : persistance datee du taux USD->EUR.
+ *   GlobalFxCache.save n'avait aucun appelant : le taux n'etait jamais persiste et
+ *   NativePriceStore (07) restait en FX_UNAVAILABLE. Le taux obtenu par la cascade
+ *   est desormais persiste (GlobalFxCache.persistRate) avec l'instant attesté de la
+ *   reponse reseau ; le cache L1 porte la meme date (taux|version|ts). Un taux n'est
+ *   frais que dans FX_TTL_MS (1 h) a compter de cette date ; la retention L1 de 4 h
+ *   ne prolonge rien. Relecture sans reestampillage, persistance monotone (jamais
+ *   une observation plus ancienne), renouvellement borne (pas de nouvel essai
+ *   reseau dans les 10 min suivant un echec). En echec, un taux de retention non
+ *   frais peut encore etre rendu aux appelants historiques, sans jamais etre
+ *   persiste ni redate. Chaque source FX recoit timeoutSeconds = 5 : FxRate est
+ *   aussi appele depuis des fonctions personnalisees (FOGO, TON) limitees a 30 s.
+ *   Durcissement : la cascade ne lance plus une source si son delai complet
+ *   depasserait 12 s depuis le debut (pire cas ~10 s) ; aucune cascade quand
+ *   HTTP.isBlocked() (disjoncteur de quota) ; FxRate.getUsdToEurInfo() rend le
+ *   resultat identifiable (FRESH_* ou RETAINED, observedAt, sources, date annoncee
+ *   par le fournisseur, jamais presentee comme un horodatage de cotation precis).
+ *   FxRate.peekFreshUsdToEur() : lecture SANS reseau d'un taux frais atteste
+ *   (memoire, L1 date, copie persistee), pour les chemins qui ne doivent pas
+ *   declencher la cascade (repli de sortie du scan EVM).
  *
  * v4.15.52 - WalletCache.save exposes written=false when persistence fails.
  *
@@ -119,7 +140,7 @@
  * 
  * DEPENDANCES: 04A_CACHE_CORE.gs, 04B_CACHE_WALLET.gs
  ************************************************************/
-var CACHE_GLOBAL_VERSION = "4.15.52";
+var CACHE_GLOBAL_VERSION = "4.15.53";
 
 // ============================================================
 // AUTO-REGISTRATION (v4.13.0)
@@ -513,22 +534,48 @@ var GlobalFxCache = GlobalFxCache || {};
  return entry.rate;
  };
 
- GFC.set = function(pair, rate, timer) {
+ GFC.set = function(pair, rate, timer, observedAt) {
  var cache = this.load(timer);
  if (!isFinite(rate) || rate <= 0) return;
+ // v4.15.53: ts = instant d'observation fourni par l'appelant (reponse reseau) ;
+ // a defaut, instant d'ecriture (comportement historique).
+ var obs = Number(observedAt);
+ var ts = (isFinite(obs) && obs > 0) ? obs : Date.now();
 
  if (!cache.rates) cache.rates = {};
- cache.rates[pair] = { rate: rate, ts: Date.now() };
+ cache.rates[pair] = { rate: rate, ts: ts };
  // Also set in old format for backward compat
- cache[pair] = { rate: rate, ts: Date.now() };
+ cache[pair] = { rate: rate, ts: ts };
  };
 
  GFC.save = function(timer) {
- if (!this._cache) return;
+ if (!this._cache) return false;
  try {
  this._cache.updatedAt = Date.now();
- CacheManager.safeSetJson(this._key, this._cache, null, 86400, timer);
- } catch (e) {}
+ return CacheManager.safeSetJson(this._key, this._cache, null, 86400, timer) === true;
+ } catch (e) { return false; }
+ };
+
+ /**
+ * v4.15.53 (F1): persiste un taux avec sa date d'observation, de facon monotone.
+ * Relit le stockage (pas la memoire de l'execution) : une observation egale ou
+ * plus ancienne que celle deja persistee n'ecrit rien. Aucune date n'est
+ * inventee : observedAt doit etre fourni, valide et non futur.
+ * @return {boolean} true seulement si l'ecriture a ete acceptee par le stockage
+ */
+ GFC.persistRate = function(pair, rate, observedAt, timer) {
+ var r = Number(rate), ts = Number(observedAt), now = Date.now();
+ if (!(isFinite(r) && r > 0) || !(isFinite(ts) && ts > 0) || ts > now + 5 * 60 * 1000) return false;
+ var stored = null;
+ try { CacheManager.init(); stored = CacheManager.safeGetJson(this._key, timer); } catch (eRead) { stored = null; }
+ if (!stored || typeof stored !== "object") stored = { rates: {} };
+ if (!stored.rates || typeof stored.rates !== "object") stored.rates = {};
+ var prevTs = Math.max(Number((stored.rates[pair] || {}).ts) || 0, Number((stored[pair] || {}).ts) || 0);
+ if (prevTs >= ts) { this._cache = stored; return false; }
+ stored.rates[pair] = { rate: r, ts: ts };
+ stored[pair] = { rate: r, ts: ts };
+ this._cache = stored;
+ return this.save(timer);
  };
 
  GFC.getUsdToEur = function(timer) {
@@ -602,6 +649,8 @@ FxRate._CURRENT_VERSION = "4.15.50"; // bump to force cache invalidation on depl
 FxRate._TTL_MS = 3600000; // 1h
 FxRate._MIN_SOURCES = 1;
 FxRate._DISAGREE_THRESHOLD = 0.05; // 5% max delta for 2-source mean
+FxRate._HTTP_TIMEOUT_SEC = 5; // v4.15.53: delai par source (4 x 5 s < 30 s des fonctions personnalisees)
+FxRate._CASCADE_BUDGET_MS = 12000; // v4.15.53: pas de nouvelle source si son delai complet depasse ce budget
 
 /**
  * FX sources — must match @wcore/shared/cache-key-registry web side
@@ -669,17 +718,21 @@ FxRate._median = function(arr) {
 FxRate._fetchAllSources = function(timer) {
  var results = [];
  var sources = FxRate._SOURCES;
+ var cascadeStart = Date.now();
  for (var i = 0; i < sources.length; i++) {
+ // v4.15.53: ne pas lancer une source dont le delai complet sortirait du budget.
+ if (i > 0 && (Date.now() - cascadeStart) + FxRate._HTTP_TIMEOUT_SEC * 1000 > FxRate._CASCADE_BUDGET_MS) break;
  try {
  var resp = UrlFetchApp.fetch(sources[i].url, {
  muteHttpExceptions: true,
+ timeoutSeconds: FxRate._HTTP_TIMEOUT_SEC,
  headers: { "Accept": "application/json" }
  });
  if (resp.getResponseCode() === 200) {
  var data = JSON.parse(resp.getContentText());
  var rate = sources[i].parse(data);
  if (rate != null && isFinite(rate) && rate > 0) {
- results.push({ source: sources[i].name, rate: rate });
+ results.push({ source: sources[i].name, rate: rate, fetchedAt: Date.now(), providerDate: FxRate._providerDate_(sources[i].name, data) });
  }
  }
  } catch (eSrc) {
@@ -715,60 +768,243 @@ FxRate._consensus = function(results) {
  * @param {Object} timer - Optional timer object
  * @param {boolean} forceRefresh - Force fetch
  */
-FxRate.getUsdToEur = FxRate.getUsdToEur || function(timer, forceRefresh) {
- var L1_KEY = "FX:USD_EUR";
- var now = Date.now();
+FxRate._RENEW_BACKOFF_MS = 10 * 60 * 1000; // v4.15.53: pas de nouvel essai reseau avant 10 min apres un echec
+FxRate._FUTURE_SKEW_MS = 5 * 60 * 1000;
+FxRate._L1_KEY = "FX:USD_EUR";
+FxRate._L1_FAIL_KEY = "FX:USD_EUR:RENEW_FAIL";
+FxRate._cachedObservedAt = FxRate._cachedObservedAt || 0;
 
- // 0) Memory cache — invalidated when code version changes
- if (!forceRefresh && FxRate._cached && FxRate._cachedVersion === FxRate._CURRENT_VERSION && (now - FxRate._cachedTs) < FxRate._TTL_MS) {
+/** Fenetre de fraicheur du taux : contrat GlobalFxCache (FX_TTL_MS, 1 h). */
+FxRate._freshTtlMs_ = function() {
+ return (typeof GLOBAL_CACHE_CONFIG !== "undefined" && Number(GLOBAL_CACHE_CONFIG.FX_TTL_MS) > 0) ? Number(GLOBAL_CACHE_CONFIG.FX_TTL_MS) : 3600000;
+};
+
+/** Vrai si l'observation datee ts est dans la fenetre de fraicheur (jamais une date future). */
+FxRate._isFresh_ = function(ts, now) {
+ var t = Number(ts);
+ return isFinite(t) && t > 0 && t <= now + FxRate._FUTURE_SKEW_MS && (now - t) <= FxRate._freshTtlMs_();
+};
+
+/** L1 : "taux|version|ts" (v4.15.53) ou "taux|version" (historique, sans date). */
+FxRate._parseL1_ = function(v) {
+ var parts = String(v || "").split("|");
+ return { rate: parseFloat(parts[0]), ver: parts[1] || "", ts: parts.length >= 3 ? Number(parts[2]) : NaN };
+};
+
+/** Ecriture L1 datee et monotone : n'ecrase jamais une observation plus recente. */
+FxRate._writeL1_ = function(rate, ts) {
+ try {
+ var cur = CacheManager.l1Get(FxRate._L1_KEY);
+ if (cur) {
+ var p = FxRate._parseL1_(cur);
+ if (p.ver === FxRate._CURRENT_VERSION && isFinite(p.ts) && p.ts >= ts) return false;
+ }
+ return CacheManager.l1Set(FxRate._L1_KEY, String(rate) + "|" + FxRate._CURRENT_VERSION + "|" + String(ts), CACHE_L1_TTL_FX_SEC);
+ } catch (e) { return false; }
+};
+
+/**
+ * Date annoncee par le fournisseur, quand elle existe. Ce n'est pas un horodatage
+ * de cotation precis : frankfurter = jour de reference BCE ; open-er-api = derniere
+ * publication ; defillama-eurc = horodatage du prix EURC ; coinbase = aucune.
+ */
+FxRate._providerDate_ = function(name, data) {
+ try {
+ if (name === "frankfurter" && data && /^\d{4}-\d{2}-\d{2}$/.test(String(data.date || ""))) return { value: String(data.date), granularity: "DAY" };
+ if (name === "open-er-api" && data && Number(data.time_last_update_unix) > 0) return { value: new Date(Number(data.time_last_update_unix) * 1000).toISOString(), granularity: "PROVIDER_PUBLICATION" };
+ if (name === "defillama-eurc") {
+ var e = data && data.coins && data.coins["coingecko:euro-coin"];
+ if (e && Number(e.timestamp) > 0) return { value: new Date(Number(e.timestamp) * 1000).toISOString(), granularity: "PRICE_OBSERVATION" };
+ }
+ } catch (eD) {}
+ return null;
+};
+
+FxRate._L1_META_KEY = "FX:USD_EUR:META";
+FxRate._lastResult = FxRate._lastResult || null;
+
+FxRate._selectionOf_ = function(n) { return n >= 3 ? "median" : (n === 2 ? "mean2" : (n === 1 ? "single" : "none")); };
+
+/** Provenance de la recuperation reseau, conservee a cote du taux (L1 distinct, monotone). */
+FxRate._writeMeta_ = function(observedAt, results) {
+ try {
+ var cur = CacheManager.l1Get(FxRate._L1_META_KEY);
+ if (cur) { var m0 = JSON.parse(cur); if (m0 && Number(m0.observedAt) >= observedAt) return false; }
+ var meta = { observedAt: observedAt, selection: FxRate._selectionOf_(results.length),
+ sources: results.map(function(r) { return { source: r.source, fetchedAt: r.fetchedAt || null, providerDate: r.providerDate || null }; }) };
+ return CacheManager.l1Set(FxRate._L1_META_KEY, JSON.stringify(meta), CACHE_L1_TTL_FX_SEC);
+ } catch (e) { return false; }
+};
+
+/**
+ * Dernier resultat rendu par getUsdToEur dans cette execution.
+ * kind : FRESH_MEMORY | FRESH_L1 | FRESH_PERSISTED | FRESH_NETWORK | RETAINED | UNAVAILABLE.
+ * fresh = observation datee < FX_TTL_MS ; un taux RETAINED n'est jamais frais.
+ */
+FxRate._setLast_ = function(kind, rate, observedAt, now, results, reason) {
+ var obs = Number(observedAt), hasObs = isFinite(obs) && obs > 0;
+ var meta = null;
+ if (results && results.length) {
+ meta = { selection: FxRate._selectionOf_(results.length), sources: results.map(function(r) { return { source: r.source, fetchedAt: r.fetchedAt || null, providerDate: r.providerDate || null }; }) };
+ } else if (hasObs) {
+ try { var m = JSON.parse(CacheManager.l1Get(FxRate._L1_META_KEY) || "null"); if (m && Number(m.observedAt) === obs) meta = m; } catch (eM) {}
+ }
+ FxRate._lastResult = {
+ rate: (rate != null && isFinite(Number(rate)) && Number(rate) > 0) ? Number(rate) : null,
+ kind: kind,
+ fresh: kind !== "RETAINED" && kind !== "UNAVAILABLE" && hasObs && FxRate._isFresh_(obs, now),
+ observedAt: hasObs ? obs : null,
+ observedAtMeaning: "NETWORK_RESPONSE_INSTANT",
+ evaluatedAt: now,
+ ttlMs: FxRate._freshTtlMs_(),
+ selection: meta ? meta.selection : null,
+ sources: meta ? meta.sources : null,
+ reason: reason || ""
+ };
+ return FxRate._lastResult;
+};
+
+/**
+ * Variante identifiable de getUsdToEur : ne leve jamais. Un appelant qui exige un FX
+ * frais doit tester info.fresh === true ; info.kind === "RETAINED" designe un taux
+ * de retention (non frais) rendu seulement pour compatibilite.
+ */
+FxRate.getUsdToEurInfo = function(timer) {
+ try { FxRate.getUsdToEur(timer); }
+ catch (e) { return FxRate._setLast_("UNAVAILABLE", null, null, Date.now(), null, String(e && e.message || e)); }
+ return JSON.parse(JSON.stringify(FxRate._lastResult));
+};
+
+FxRate._remember_ = function(rate, observedAt, now) {
+ FxRate._cached = rate;
+ FxRate._cachedTs = now;
+ FxRate._cachedObservedAt = observedAt;
+ FxRate._cachedVersion = FxRate._CURRENT_VERSION;
+};
+
+/**
+ * v4.15.53 (F1 elargi): taux frais atteste lu sans aucun appel reseau.
+ * @return {{rate:number|null, observedAt:number|null, fresh:boolean, kind:string}}
+ */
+FxRate.peekFreshUsdToEur = function(nowMs) {
+ var now = Number(nowMs) || Date.now();
+ try {
+ if (FxRate._cached && FxRate._cachedVersion === FxRate._CURRENT_VERSION && FxRate._isFresh_(FxRate._cachedObservedAt, now)) {
+ return { rate: Number(FxRate._cached), observedAt: Number(FxRate._cachedObservedAt), fresh: true, kind: "FRESH_MEMORY" };
+ }
+ var v1 = CacheManager.l1Get(FxRate._L1_KEY);
+ if (v1) {
+ var p = FxRate._parseL1_(v1);
+ if (p.ver === FxRate._CURRENT_VERSION && isFinite(p.rate) && p.rate > 0 && FxRate._isFresh_(p.ts, now)) return { rate: p.rate, observedAt: p.ts, fresh: true, kind: "FRESH_L1" };
+ }
+ var g = GlobalFxCache.load(null) || {};
+ var e = (g.rates && g.rates.USD_EUR) || g.USD_EUR || null;
+ if (e && isFinite(Number(e.rate)) && Number(e.rate) > 0 && FxRate._isFresh_(e.ts, now)) return { rate: Number(e.rate), observedAt: Number(e.ts), fresh: true, kind: "FRESH_PERSISTED" };
+ } catch (ePeek) {}
+ return { rate: null, observedAt: null, fresh: false, kind: "UNAVAILABLE" };
+};
+
+FxRate.getUsdToEur = FxRate.getUsdToEur || function(timer, forceRefresh) {
+ var now = Date.now();
+ // Taux de retention (L1 date de plus de 1 h, ou L1 historique sans date) :
+ // jamais frais, jamais persiste ni redate ; rendu seulement si le
+ // renouvellement echoue, comme le faisait le L1 de 4 h auparavant.
+ var retained = null, retainedTs = null;
+
+ // 0) Memory cache — valid only while the observation itself is fresh
+ if (!forceRefresh && FxRate._cached && FxRate._cachedVersion === FxRate._CURRENT_VERSION && FxRate._isFresh_(FxRate._cachedObservedAt, now)) {
  try { FxRate._postTelemetry_(FxRate._cached, (FxRate._cachedSources || []).map(function(s) { return { source: s }; })); } catch (eTel) { /* ignore */ }
+ // Meme observation deja decrite dans cette execution : conserver sa provenance.
+ if (FxRate._lastResult && FxRate._lastResult.observedAt === FxRate._cachedObservedAt && FxRate._lastResult.rate === FxRate._cached && FxRate._lastResult.kind !== "RETAINED") {
+ FxRate._lastResult.evaluatedAt = now; FxRate._lastResult.fresh = true;
+ } else {
+ FxRate._setLast_("FRESH_MEMORY", FxRate._cached, FxRate._cachedObservedAt, now);
+ }
  return FxRate._cached;
  }
 
- // 1) L1 CacheService — also tagged with version for cross-deploy invalidation
+ // 1) L1 CacheService — dated; retention (4 h) does not extend freshness (1 h)
  try {
  if (!forceRefresh) {
- var v1 = CacheManager.l1Get(L1_KEY);
+ var v1 = CacheManager.l1Get(FxRate._L1_KEY);
  if (v1) {
- var parts = String(v1).split("|");
- var v1Rate = parseFloat(parts[0]);
- var v1Ver = parts[1] || "";
- if (isFinite(v1Rate) && v1Rate > 0 && v1Ver === FxRate._CURRENT_VERSION) {
- FxRate._cached = v1Rate;
- FxRate._cachedTs = now;
- FxRate._cachedVersion = FxRate._CURRENT_VERSION;
- try { FxRate._postTelemetry_(v1Rate, []); } catch (eTel) { /* ignore */ }
- return v1Rate;
+ var p1 = FxRate._parseL1_(v1);
+ if (isFinite(p1.rate) && p1.rate > 0 && p1.ver === FxRate._CURRENT_VERSION) {
+ if (FxRate._isFresh_(p1.ts, now)) {
+ FxRate._remember_(p1.rate, p1.ts, now);
+ // Copie persistante absente ou plus ancienne : la realimenter avec la
+ // date d'observation reelle (aucun reestampillage).
+ try {
+ var g1 = GlobalFxCache.load(timer) || {};
+ var e1 = (g1.rates && g1.rates.USD_EUR) || g1.USD_EUR || null;
+ if (!e1 || !(Number(e1.ts) >= p1.ts)) GlobalFxCache.persistRate("USD_EUR", p1.rate, p1.ts, timer);
+ } catch (ePersist1) {}
+ try { FxRate._postTelemetry_(p1.rate, []); } catch (eTel) { /* ignore */ }
+ FxRate._setLast_("FRESH_L1", p1.rate, p1.ts, now);
+ return p1.rate;
+ }
+ retained = p1.rate;
+ retainedTs = isFinite(p1.ts) && p1.ts > 0 ? p1.ts : null;
  }
  }
  }
  } catch (e0) {}
 
- // 2) GlobalFxCache (ScriptProperties)
+ // 2) GlobalFxCache (ScriptProperties) — dated observation inside FX_TTL_MS
  try {
- var cached = GlobalFxCache.get("USD_EUR");
- if (!forceRefresh && cached && isFinite(cached) && cached > 0) {
- try { CacheManager.l1Set(L1_KEY, String(cached) + "|" + FxRate._CURRENT_VERSION, CACHE_L1_TTL_FX_SEC); } catch (e1) {}
- FxRate._cached = cached;
- FxRate._cachedTs = now;
- FxRate._cachedVersion = FxRate._CURRENT_VERSION;
- try { FxRate._postTelemetry_(cached, []); } catch (eTel) { /* ignore */ }
- return cached;
+ if (!forceRefresh) {
+ var g2 = GlobalFxCache.load(timer) || {};
+ var e2 = (g2.rates && g2.rates.USD_EUR) || g2.USD_EUR || null;
+ if (e2 && isFinite(Number(e2.rate)) && Number(e2.rate) > 0 && FxRate._isFresh_(e2.ts, now)) {
+ var r2 = Number(e2.rate), t2 = Number(e2.ts);
+ FxRate._writeL1_(r2, t2);
+ FxRate._remember_(r2, t2, now);
+ try { FxRate._postTelemetry_(r2, []); } catch (eTel) { /* ignore */ }
+ FxRate._setLast_("FRESH_PERSISTED", r2, t2, now);
+ return r2;
  }
- } catch (e2) {}
+ }
+ } catch (e2x) {}
 
- // 3) Fetch live cascade (all 4 sources in parallel)
+ // 3) Renewal: live cascade (4 sources), bounded after a failure
+ // v4.15.53: disjoncteur de quota actif => aucun appel reseau.
+ var httpBlocked = false;
+ try { httpBlocked = (typeof HTTP !== "undefined" && HTTP && typeof HTTP.isBlocked === "function" && HTTP.isBlocked() === true); } catch (eHb) { httpBlocked = false; }
+ if (httpBlocked) {
+ if (retained != null) { FxRate._setLast_("RETAINED", retained, retainedTs, now, null, "HTTP_BLOCKED"); return retained; }
+ FxRate._setLast_("UNAVAILABLE", null, null, now, null, "HTTP_BLOCKED");
+ throw new Error("FX cascade: HTTP blocked (quota)");
+ }
+ if (!forceRefresh) {
+ var inBackoff = false;
+ try {
+ var lastFail = Number(CacheManager.l1Get(FxRate._L1_FAIL_KEY));
+ inBackoff = isFinite(lastFail) && lastFail > 0 && now >= lastFail && (now - lastFail) < FxRate._RENEW_BACKOFF_MS;
+ } catch (eBk) { inBackoff = false; }
+ if (inBackoff) {
+ if (retained != null) {
+ try { FxRate._postTelemetry_(retained, []); } catch (eTel) { /* ignore */ }
+ FxRate._setLast_("RETAINED", retained, retainedTs, now, null, "RENEW_BACKOFF");
+ return retained;
+ }
+ FxRate._setLast_("UNAVAILABLE", null, null, now, null, "RENEW_BACKOFF");
+ throw new Error("FX cascade: renewal deferred after a recent failure");
+ }
+ }
  try {
  var results = FxRate._fetchAllSources(timer);
  var rate = FxRate._consensus(results);
  if (isFinite(rate) && rate > 0) {
- // Save to all caches (with version stamp for cross-deploy invalidation)
- GlobalFxCache.set("USD_EUR", rate);
- try { CacheManager.l1Set(L1_KEY, String(rate) + "|" + FxRate._CURRENT_VERSION, CACHE_L1_TTL_FX_SEC); } catch (e3) {}
- FxRate._cached = rate;
- FxRate._cachedTs = now;
- FxRate._cachedVersion = FxRate._CURRENT_VERSION;
+ // Instant attesté de la reponse reseau (apres la derniere source).
+ var observedAt = Date.now();
+ GlobalFxCache.set("USD_EUR", rate, timer, observedAt);
+ try { GlobalFxCache.persistRate("USD_EUR", rate, observedAt, timer); } catch (ePersist3) {}
+ FxRate._writeL1_(rate, observedAt);
+ try { CacheManager.l1Remove(FxRate._L1_FAIL_KEY); } catch (eClr) {}
+ FxRate._remember_(rate, observedAt, observedAt);
  FxRate._cachedSources = results.map(function(r) { return r.source; });
+ FxRate._writeMeta_(observedAt, results);
+ FxRate._setLast_("FRESH_NETWORK", rate, observedAt, Date.now(), results);
 
  // Cross-runtime telemetry: post the gsheet rate to web so /api/diag/fx-parity
  // can detect drift between the two runtimes. Fire-and-forget — never let
@@ -780,8 +1016,12 @@ FxRate.getUsdToEur = FxRate.getUsdToEur || function(timer, forceRefresh) {
  }
  throw new Error("FX cascade: consensus returned invalid rate");
  } catch (e4) {
- // No fixed fallback — propagate error to caller
+ try { CacheManager.l1Set(FxRate._L1_FAIL_KEY, String(Date.now()), CACHE_L1_TTL_FX_SEC); } catch (eMark) {}
  try { Logger.log("[FxRate] " + (e4 && e4.message ? e4.message : String(e4))); } catch (eLog) {}
+ // No fixed fallback. A retained (non-fresh) rate is returned to historical
+ // callers only; it is never persisted nor re-dated.
+ if (retained != null) { FxRate._setLast_("RETAINED", retained, retainedTs, now, null, "RENEW_FAILED"); return retained; }
+ FxRate._setLast_("UNAVAILABLE", null, null, now, null, "RENEW_FAILED");
  throw e4;
  }
 };
@@ -1113,10 +1353,10 @@ WalletCache = (function(existing) {
  last_cache_update: lastCacheUpdate,
  assets: expandedAssets,
   priceMap: priceMap,
- priceTsMap: compact.pt || {},
- balanceTsMap: compact.bt || {},
- attemptTsMap: compact.at || {},
- purgedTsMap: compact.pg || {},
+ priceTsMap: compact.pt || compact.priceTsMap || {},
+ balanceTsMap: compact.bt || compact.balanceTsMap || {},
+ attemptTsMap: compact.at || compact.attemptTsMap || {},
+ purgedTsMap: compact.pg || compact.purgedTsMap || {},
  usd_to_eur_rate: fx,
  fxMetadata: compact.fm || compact.fxMetadata || null,
  rrCursor: compact.rc || 0,
@@ -1517,16 +1757,10 @@ WalletCache = (function(existing) {
    } catch (eLog) {}
     return { preserved: true, written: preservedWritten, reason: preserve.reason, prevAssetsCount: preserve.prevAssetsCount || 0, newAssetsCount: preserve.newAssetsCount || 0, mergedPrices: mergedPrices };
    }
-   // v4.15.33: Pre-check storage before save — if above 85%, purge expired/stale entries
-   // to prevent silent ScriptProperties write failures that cause "No cache available"
-   try {
-     var _pct = typeof CacheManager !== 'undefined' && CacheManager._getStorageUsagePct ? CacheManager._getStorageUsagePct() : 0;
-     if (_pct > 85 && typeof CacheManager !== 'undefined' && CacheManager._emergencyPurge_) {
-       if (CacheManager._emergencyPurge_(65536)) {
-         Logger.log("[WalletCache.save] Pre-save purge: storage " + _pct + "% -> " + (CacheManager._getStorageUsagePct ? CacheManager._getStorageUsagePct() : '?') + "%");
-       }
-     }
-   } catch (ePre) {}
+   // v4.16.68 : le pre-controle a 85 % (getProperties() x3 + purge de 64 Ko a
+   // chaque save, nonces et etat watchdog compris) est retire. Le budget de
+   // stockage est gere une seule fois dans CacheManager._savePackedWalletCache_
+   // (cles virtualisees) ; les cles non virtualisees purgent sur echec reel (safeSet).
 
    // v4.15.22: per-token merge before persisting â€” keep cached tokens the new scan did not report.
   try { cacheObj = _mergeAssetsPreservingCached(existingCache, cacheObj, config); } catch (eMerge) {}

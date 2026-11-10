@@ -635,7 +635,7 @@ CosmosEngine.getRefreshStatus = function(address, arg2, arg3, arg4, arg5, arg6, 
     }
     if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(address, cfg, cosmosCacheBefore, forceFull, arg5)) {
       var cosmosFreshTs = WalletCache.getLastRunUpdateStr(cosmosCacheBefore) || WalletCache.getLastUpdateStr(cosmosCacheBefore);
-      return cosmosFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + cosmosFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+      return cosmosFreshTs ? BaseEngine.wrapCacheOnlyMarker(cosmosFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
     }
   } catch (ePreLatch) {}
      try {

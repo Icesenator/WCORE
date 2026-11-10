@@ -1,6 +1,16 @@
 /************************************************************
  * 11_EVM_ENGINE.gs - EVM Chain Engine (v4.15.28)
  *
+ * F1 elargi (2026-11-08) - integrite de la valorisation EUR.
+ *   Le scan obtient le FX par BaseEngine.getFxRateStrict (provenance, jamais 0,85).
+ *   Une conversion nouvelle (natif, jetons, repli) n'est retenue que si le FX est
+ *   frais et atteste ; sa date persistee est le composant le plus ancien (prix USD,
+ *   FX). Sinon prix, dates et quantites en cache restent intacts. Au rendu, un prix
+ *   du magasin natif exige aussi la date FX de son entree. Le repli de sortie ne
+ *   revalorise le natif qu'avec un FX frais lu sans reseau.
+ *   r2 : fxMetadata n'est PAS persiste (INFO_FX ne peut pas garantir la fraicheur du FX
+ *   de chaque valeur affichee) ; INFO_NATIVE porte fxFreshness pour le chemin du magasin.
+ *
  * v4.15.28 - CACHE-ONLY: repair impossible micro balances for tokens with
  *   explicit RPC.TOKEN_DECIMALS before rendering/saving cached Ledger output.
  *   Prevents stale fallback=18 artifacts (WBTC/AICC/SNAP) from reappearing
@@ -258,6 +268,13 @@ var EvmConfigBuilder = {
 // ============================================================
 // EVM ENGINE - Main execution engine (v4.12.2 with fullCycleComplete fix)
 // ============================================================
+
+/** F1X-r2 : fraicheur du FX d'une valeur du magasin natif (contrat FX_TTL_MS, 1 h). */
+function _evmNpsFxFresh_(fxAt, nowMs) {
+ var t = Number(fxAt), now = Number(nowMs) || Date.now();
+ var ttl = (typeof GLOBAL_CACHE_CONFIG !== "undefined" && Number(GLOBAL_CACHE_CONFIG.FX_TTL_MS) > 0) ? Number(GLOBAL_CACHE_CONFIG.FX_TTL_MS) : 3600000;
+ return isFinite(t) && t > 0 && t <= now + 5 * 60 * 1000 && (now - t) < ttl;
+}
 
 var EvmEngine = {
  
@@ -717,8 +734,10 @@ var EvmEngine = {
  // ============================================================
  state._tPriceStart = Date.now();
  
- // === BASEENGINE: Get FX rate with fallback ===
- BaseEngine.getFxRate(state, cache);
+ // === BASEENGINE: Get FX rate with provenance (F1 elargi) ===
+ // Interface stricte : aucune valorisation nouvelle sans FX frais atteste, jamais 0,85.
+ if (typeof BaseEngine.getFxRateStrict === "function") BaseEngine.getFxRateStrict(state, cache);
+ else BaseEngine.getFxRate(state, cache);
  
  if (budget.allowPrices && !config.FLAGS.DISABLE_LIVE_PRICES) {
  // v4.15.7 FIX: on ne supprime plus state.priceMap/priceTsMap préventivement.
@@ -851,12 +870,31 @@ var EvmEngine = {
  state.priceMap, state.priceTsMap, state.attemptTsMap,
  state.nowMs, state.timer, budget, config
  );
+ // F1 elargi: une conversion nouvelle exige un FX frais atteste ; sinon le prix en
+ // cache garde sa date d'origine (repli historique ci-dessous), rien n'est redate.
+ var pNatMeta0 = (typeof PriceManager !== "undefined") ? PriceManager._lastPriceMeta : null;
+ var pNatFxOk = (typeof BaseEngine !== "undefined" && typeof BaseEngine.fxEffectiveTs === "function") && BaseEngine.fxEffectiveTs(state, state.nowMs) != null;
+ if (Num.isValidPositive(pNat) && !(pNatMeta0 && pNatMeta0.src === 'CACHE') && !pNatFxOk) pNat = null;
  if (Num.isValidPositive(pNat)) {
- state.priceMap[config.KEYS.NATIVE_PRICE] = pNat;
- state.priceTsMap[config.KEYS.NATIVE_PRICE] = state.nowMs;
- state.priceMap['native'] = pNat;
- state.priceTsMap['native'] = state.nowMs;
+ // v4.16.77: persist the source's observation time, never "now" for a
+ // reused or unattested price (UNKNOWN freshness must stay detectable).
+ var pNatMeta = (typeof PriceManager !== "undefined") ? PriceManager._lastPriceMeta : null;
  natAsset.price_eur = pNat;
+ if (pNatMeta && pNatMeta.src === 'CACHE') {
+ // Reused cached observation: maps already hold it with its own timestamp.
+ } else if (pNatMeta && pNatMeta.observedAt === null) {
+ // Unattested observation (legacy L1 entry without timestamp): valued for
+ // this scan only, not persisted as fresh.
+ } else {
+ var pNatObs = (pNatMeta && isFinite(Number(pNatMeta.observedAt)) && Number(pNatMeta.observedAt) > 0 && Number(pNatMeta.observedAt) <= state.nowMs)
+ ? Number(pNatMeta.observedAt) : state.nowMs;
+ // F1 elargi: date effective = composant le plus ancien (prix USD, FX).
+ var pNatEff = BaseEngine.fxEffectiveTs(state, pNatObs);
+ state.priceMap[config.KEYS.NATIVE_PRICE] = pNat;
+ state.priceTsMap[config.KEYS.NATIVE_PRICE] = pNatEff;
+ state.priceMap['native'] = pNat;
+ state.priceTsMap['native'] = pNatEff;
+ }
  applied++;
  }
  // v4.10.5 FIX: Preserve cached native price on fetch failure
@@ -876,9 +914,11 @@ var EvmEngine = {
  var px = priceUsdMap[keyL];
  if (px && Num.isValidPositive(px.priceUsd) && Num.isValidPositive(state.fxRate)) {
  var pE = px.priceUsd * state.fxRate;
- if (Num.isValidPositive(pE)) {
+ // F1 elargi: retenue seulement avec un FX frais atteste ; date = composant le plus ancien.
+ var pETs = (Num.isValidPositive(pE) && typeof BaseEngine.fxEffectiveTs === "function") ? BaseEngine.fxEffectiveTs(state, state.nowMs) : null;
+ if (Num.isValidPositive(pE) && pETs != null) {
  state.priceMap[keyL] = pE;
- state.priceTsMap[keyL] = state.nowMs;
+ state.priceTsMap[keyL] = pETs;
  aP.price_eur = pE;
  if (!aP.symbol && px.symbol) aP.symbol = px.symbol;
  if (!aP.name && px.name) aP.name = px.name;
@@ -911,13 +951,18 @@ var EvmEngine = {
  af, kk, {}, state.fxRate, state.priceMap, state.priceTsMap,
  state.attemptTsMap, state.nowMs, state.timer, budget, config
  );
+ // F1 elargi: une conversion nouvelle exige un FX frais atteste (date = composant le
+ // plus ancien) ; un prix reutilise du cache (src CACHE) garde sa propre date.
+ var pFMeta = (typeof PriceManager !== "undefined") ? PriceManager._lastPriceMeta : null;
+ var pFTs = (Num.isValidPositive(pF) && typeof BaseEngine.fxEffectiveTs === "function") ? BaseEngine.fxEffectiveTs(state, state.nowMs) : null;
+ if (Num.isValidPositive(pF) && pFTs == null && !(pFMeta && pFMeta.src === 'CACHE')) pF = null;
  if (Num.isValidPositive(pF)) {
  state.priceMap[kk] = pF;
  // v4.13.9: Only refresh timestamp if price actually changed (>0.1% delta)
  // Prevents stale prices from being perpetually "fresh" when computePriceEur
  // returns the cached value from step 0 without fetching a new price
- if (!Num.isValidPositive(oldPriceEur) || Math.abs(pF - oldPriceEur) / oldPriceEur > 0.001) {
- state.priceTsMap[kk] = state.nowMs;
+ if (pFTs != null && (!Num.isValidPositive(oldPriceEur) || Math.abs(pF - oldPriceEur) / oldPriceEur > 0.001)) {
+ state.priceTsMap[kk] = pFTs;
  }
  af.price_eur = pF;
  usedFb++;
@@ -1609,6 +1654,7 @@ var EvmEngine = {
  var cachedPriceMap = (cache && cache.priceMap) ? cache.priceMap : {};
  var cachedPriceTsMap = cache.priceTsMap || {};
  var cachedNativePriceUnknown = false;
+ var cachedNativeProvenance = null;
  var cachedPriceNow = Date.now();
  var cachedPriceMaxAge = (config.CACHE && config.CACHE.PRICE_STALE_MS) || 3600000;
  
@@ -1627,6 +1673,33 @@ var EvmEngine = {
  var pk = nativePriceKeys[nk];
  var pts = Number(cachedPriceTsMap[pk]);
  if (Num.isValidPositive(cachedPriceMap[pk]) && isFinite(pts) && pts > 0 && cachedPriceNow >= pts && cachedPriceNow - pts < cachedPriceMaxAge) { eur = Number(cachedPriceMap[pk]); break; }
+ }
+ // v4.16.77: wallet price stale -> native price observed independently of the
+ // wallet scan (NativePriceStore), accepted only inside the same window and
+ // with the source's own observation timestamp. No HTTP, no extension.
+ if (eur == null) {
+ try {
+ // A fresh price must not turn an outdated balance into a current value:
+ // the native balance needs its own attested timestamp inside the wallet
+ // cache contract (WALLET_TTL_MS, 6 h); otherwise the total stays UNKNOWN.
+ var npsBalTs = Number(cache.balanceTsMap && cache.balanceTsMap["native"]);
+ var npsBalMax = (typeof WCORE_CACHE_CONFIG !== "undefined" && Number(WCORE_CACHE_CONFIG.WALLET_TTL_MS) > 0) ? Number(WCORE_CACHE_CONFIG.WALLET_TTL_MS) : 21600000;
+ var npsBalOk = isFinite(npsBalTs) && npsBalTs > 0 && npsBalTs <= cachedPriceNow && (cachedPriceNow - npsBalTs) < npsBalMax;
+ if (npsBalOk && typeof NativePriceStore !== "undefined" && NativePriceStore.get && config.CHAIN && config.CHAIN.NATIVE_LLAMA_ID) {
+ var npsStore = (typeof NativePriceStore.load === "function") ? NativePriceStore.load() : null;
+ var nps = NativePriceStore.get(config.CHAIN.NATIVE_LLAMA_ID, cachedPriceMaxAge, cachedPriceNow, npsStore || undefined);
+ // F1 elargi: le prix EUR du magasin depend aussi de son FX ; date effective =
+ // composant le plus ancien (observation native, collecte FX), dans la meme fenetre.
+ var npsFxAt = null;
+ try {
+ var npsEntry = (npsStore && npsStore.entries) ? npsStore.entries[String(config.CHAIN.NATIVE_LLAMA_ID)] : null;
+ npsFxAt = npsEntry ? Number(npsEntry.fxCollectedAt) : null;
+ } catch (eNpsFx) { npsFxAt = null; }
+ var npsFxOk = !!nps && isFinite(npsFxAt) && npsFxAt > 0 && npsFxAt <= cachedPriceNow + 5 * 60 * 1000 &&
+ (cachedPriceNow - Math.min(Number(nps.observedAt), npsFxAt)) < cachedPriceMaxAge;
+ if (nps && Num.isValidPositive(nps.eur) && npsFxOk) { eur = Number(nps.eur); cachedNativeProvenance = nps; cachedNativeProvenance.balanceObservedAt = npsBalTs; cachedNativeProvenance.fxCollectedAt = npsFxAt; }
+ }
+ } catch (eNps) {}
  }
  row[5] = eur == null ? "" : eur;
  row[6] = eur != null && bal != null && !isNaN(bal) ? bal * eur : "";
@@ -1661,6 +1734,9 @@ var EvmEngine = {
  rr0[0] = chainName;
  }
  if (rr0[1] === "INFO_FX") rr0[2] = _fxMetadataLabel_(cache.usd_to_eur_rate || cache.usd_to_eur || cache.fx, cache.fxMetadata || cache.fm);
+ if (rr0[1] === "INFO_NATIVE" && cachedNativeProvenance) {
+ try { rr0[2] = String(rr0[2] || "") + " | price=" + cachedNativeProvenance.src + " observedAt=" + new Date(cachedNativeProvenance.observedAt).toISOString() + " balanceAt=" + new Date(cachedNativeProvenance.balanceObservedAt).toISOString() + " fxAt=" + new Date(cachedNativeProvenance.fxCollectedAt).toISOString() + " fxFreshness=" + (_evmNpsFxFresh_(cachedNativeProvenance.fxCollectedAt, cachedPriceNow) ? "FRESH" : "STALE"); } catch (eNpsInfo) {}
+ }
  // Patch INFO_TOTAL with recalculated value
  if (rr0[1] === "INFO_TOTAL") {
  rr0[6] = recalcTotal;
@@ -1803,6 +1879,13 @@ var EvmEngine = {
       }
     } catch (e) {}
 
+    // v4.16.91 (restaure 4.16.86) : un ACK de la file n'est valide que pour cette révision de
+    // requête et le cache relu par cette exécution ; un reçu seul ne vaut jamais succès.
+    if (typeof _webScanQueueDraining_ === "function" && _webScanQueueDraining_()) _WCORE_WEB_SCAN_QUEUE_PROOF = null;
+    if (typeof _webScanQueueAck_ === "function" && !_webScanQueueDraining_() &&
+        _webScanQueueAck_(addrLower, _webScanTokenList_(tokensRange), _webScanForce_(forceFull), config, triggerRefresh, beforeTs)) {
+      return "WEB_SCAN_OK " + Format.datetime(_webScanQueueTimestamp_(beforeTs));
+    }
     var _cacheStatusTs = _evmCacheStatusDatetime_(cacheBefore, beforeTs);
     var statusChainKey = "";
     try { statusChainKey = (typeof _webScanChainKey_ === "function") ? _webScanChainKey_(config) : ""; } catch (eChainKey) {}
@@ -1863,6 +1946,16 @@ var EvmEngine = {
         if (typeof _webScanWallet_ === "function") {
           var webScan = _webScanWallet_(addrLower, tokensRange, forceFull, config);
           if (webScan && webScan.ok && webScan.status) {
+            // v4.16.91 (restaure 4.16.86) : preuve pour la file — le cache a été réécrit et relu.
+            if (typeof _webScanQueueDraining_ === "function" && _webScanQueueDraining_()) {
+              try {
+                var persisted = WalletCache.load(addrLower, null, config);
+                var persistedTs = _webScanQueueTimestamp_(persisted && persisted.updatedAt);
+                var previousTs = _webScanQueueTimestamp_(beforeTs);
+                _WCORE_WEB_SCAN_QUEUE_PROOF = { before: previousTs, stamp: persistedTs,
+                  advanced: persistedTs > previousTs };
+              } catch (eProof) { _WCORE_WEB_SCAN_QUEUE_PROOF = null; }
+            }
             if (typeof _statusPhaseMark_ === "function") _statusPhaseMark_(statusChainKey, "SYNC_SCAN_RETURN");
             if (webScan.quotaBlocked && BaseEngine.rememberRefreshTriggerAttempt) {
               BaseEngine.rememberRefreshTriggerAttempt(addrLower, config, cacheBefore, triggerRefresh);
@@ -1948,9 +2041,13 @@ var EvmEngine = {
  if (!out || !config || !config.CHAIN) return;
  if (config.CHAIN.NATIVE_SYMBOL === "ETH") return;
  
- var fx = (state.cache && Num.isValidPositive(state.cache.usd_to_eur_rate)) 
- ? state.cache.usd_to_eur_rate 
- : state.fxRate;
+ // F1 elargi: revalorisation seulement avec un FX frais atteste, lu sans reseau ;
+ // un taux de cache d'age inconnu ne revalorise plus la ligne native.
+ var fx = null;
+ try {
+ var fxPeek = (typeof FxRate !== "undefined" && FxRate && typeof FxRate.peekFreshUsdToEur === "function") ? FxRate.peekFreshUsdToEur(Date.now()) : null;
+ if (fxPeek && fxPeek.fresh === true && Num.isValidPositive(fxPeek.rate)) fx = Number(fxPeek.rate);
+ } catch (eFxPeek) { fx = null; }
  var eurNat = null;
  
  try {

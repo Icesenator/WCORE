@@ -129,6 +129,15 @@ export function formatChange(change: number | null): string {
   return `${change >= 0 ? "+" : "-"}${Math.abs(v).toFixed(1)}%`;
 }
 
+/**
+ * Identité d'une bulle. Le symbole ne suffit pas : 308 symboles sont partagés par plusieurs
+ * actifs dans les 5 000 cryptos (5 « BTC »). L'adresse du logo contient l'identifiant de
+ * l'actif chez la source (CoinMarketCap, CompaniesMarketCap) ; à défaut, symbole + nom + rang.
+ */
+export function bubbleKey(row: MarketCapRow): string {
+  return row.logoUrl || `${row.symbol}|${row.name}|${row.rank}`;
+}
+
 /** Positions initiales ; une bulle déjà affichée garde sa place (pas de saut au rafraîchissement). */
 export function createBubbles(
   rows: readonly MarketCapRow[],
@@ -141,9 +150,10 @@ export function createBubbles(
   const prev = new Map(previous.map((b) => [b.id, b]));
   return rows.map((row, i) => {
     const r = radii[i] ?? 10;
-    const old = prev.get(row.symbol);
+    const id = bubbleKey(row);
+    const old = prev.get(id);
     if (old) return { ...old, r };
-    return { id: row.symbol, r, vx: 0, vy: 0, x: r + random() * Math.max(1, width - 2 * r), y: r + random() * Math.max(1, height - 2 * r) };
+    return { id, r, vx: 0, vy: 0, x: r + random() * Math.max(1, width - 2 * r), y: r + random() * Math.max(1, height - 2 * r) };
   });
 }
 

@@ -16,6 +16,12 @@ export interface StockNativeQuote {
   yahooTicker: string;
   source: string;
   changes?: StockQuoteChanges;
+  /**
+   * false : cotation dans une devise que WCORE ne convertit pas en euros (roupie, baht...).
+   * Le cours ne sert alors jamais au prix ; seule sa variation, qui est un pourcentage
+   * independant de la devise, peut etre reprise. Absent = cours utilisable pour le prix.
+   */
+  pricing?: false;
 }
 
 export function parseStockQuoteChanges(value: unknown): StockQuoteChanges | null {
@@ -144,18 +150,23 @@ export async function fetchStockQuotesViaRelay(symbols: string[], deps: StockRel
       const expectedCurrency = security.expectedCurrency ? normalizeStockCurrency(security.expectedCurrency) : null;
       if (
         typeof quote.priceNative !== "number" || !Number.isFinite(quote.priceNative) || quote.priceNative <= 0
-        || !STOCK_QUOTE_CURRENCIES.has(currency)
+        || !/^[A-Z]{3}$/.test(currency)
         || (expectedCurrency !== null && currency !== expectedCurrency)
         || !allowedCandidates.has(yahooTicker)
         || source !== "yahoo:relay"
       ) continue;
+      const changes = parseStockQuoteChanges(quote.changes);
+      if (!STOCK_QUOTE_CURRENCIES.has(currency)) {
+        // Devise non convertible : on ne garde le cours que pour sa variation, marque non tarifable.
+        if (changes) out[normalizedSymbol] = { priceNative: quote.priceNative, currency, yahooTicker, source: "yahoo:relay", changes, pricing: false };
+        continue;
+      }
       out[normalizedSymbol] = {
         priceNative: quote.priceNative,
         currency,
         yahooTicker,
         source: "yahoo:relay",
       };
-      const changes = parseStockQuoteChanges(quote.changes);
       if (changes) out[normalizedSymbol].changes = changes;
     }
     return out;

@@ -216,8 +216,8 @@ export class CanonicalStockService {
     }
 
     const mappedSources = sourceRows.map((source) => ({ source, mapping: mapTopMarketCapTicker(source.sourceTicker) }));
-    const [quotes, lastGoods] = await Promise.all([
-      this.fetchQuotesChunked(sourceRows.map((row) => row.sourceTicker)),
+    const [{ quotes, changesOnly }, lastGoods] = await Promise.all([
+      this.fetchQuotesAndChanges(sourceRows.map((row) => row.sourceTicker)),
       this.readPrices(mappedSources.map(({ mapping }) => mapping.canonicalTicker)),
     ]);
     const currencies = distinctFxCurrencies(Object.values(quotes).map((quote) => quote.currency));
@@ -264,6 +264,9 @@ export class CanonicalStockService {
       };
       // Les variations ne valent que pour le cours Yahoo du moment : pas pour un repli ni un prix perime.
       if (quote?.changes && resolved.priceSource === "yahoo:relay" && !resolved.stale) row.changes = quote.changes;
+      // Cotation dans une devise non convertible : le prix vient d'ailleurs, mais la variation
+      // Yahoo du meme titre reste juste (pourcentage). Seulement si le prix affiche est frais.
+      else if (!quote && changesOnly[source.sourceTicker] && resolved.priceEur !== null && !resolved.stale) row.changes = changesOnly[source.sourceTicker];
       rows.push(row);
     }
     const correctedTickers = rows.filter((row) => row.capCorrected).map((row) => row.sourceTicker);
@@ -299,15 +302,30 @@ export class CanonicalStockService {
     await this.persistRowsFallback(writes);
   }
 
+  /** Cours utilisables pour le prix uniquement (les cours marques pricing:false sont ecartes). */
   private async fetchQuotesChunked(symbols: string[]): Promise<StockNativeQuoteMap> {
+    return (await this.fetchQuotesAndChanges(symbols)).quotes;
+  }
+
+  /**
+   * Un seul appel au relais : les cours tarifables d'un cote, et de l'autre les variations des
+   * cotations dans une devise que WCORE ne convertit pas (elles ne touchent jamais au prix).
+   */
+  private async fetchQuotesAndChanges(symbols: string[]): Promise<{ quotes: StockNativeQuoteMap; changesOnly: Record<string, StockQuoteChanges> }> {
     const batches: string[][] = [];
     for (let index = 0; index < symbols.length; index += STOCK_QUOTE_BATCH_SIZE) {
       batches.push(symbols.slice(index, index + STOCK_QUOTE_BATCH_SIZE));
     }
     const results = await mapWithConcurrencyLimit(batches, STOCK_QUOTE_CONCURRENCY, (batch) => this.fetchQuotes(batch));
-    const output: StockNativeQuoteMap = {};
-    for (const result of results) Object.assign(output, result);
-    return output;
+    const quotes: StockNativeQuoteMap = {};
+    const changesOnly: Record<string, StockQuoteChanges> = {};
+    for (const result of results) {
+      for (const [symbol, quote] of Object.entries(result)) {
+        if (quote.pricing === false) { if (quote.changes) changesOnly[symbol] = quote.changes; }
+        else quotes[symbol] = quote;
+      }
+    }
+    return { quotes, changesOnly };
   }
 
   private async readPrices(tickers: string[]): Promise<Array<ResolvedStockPrice | undefined>> {

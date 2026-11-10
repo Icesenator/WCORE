@@ -214,3 +214,19 @@ function separate(bubbles: Bubble[], impulse: number): void {
     }
   }
 }
+
+/**
+ * Etat de fraicheur affiche avec les bulles. La date est toujours complete (jour et heure) : une
+ * heure seule ne dit pas si l'instantane date d'hier. Avertissements : instantane perime (reponse
+ * reussie mais source indisponible) et echec de la derniere relecture.
+ */
+export function freshnessNote(generatedAt: string, stale: boolean, reloadFailed: boolean): { when: string; warnings: string[] } {
+  const date = new Date(generatedAt);
+  const when = Number.isFinite(date.getTime())
+    ? date.toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : "unknown time";
+  const warnings: string[] = [];
+  if (stale) warnings.push("stale data");
+  if (reloadFailed) warnings.push("reload failed");
+  return { when, warnings };
+}

@@ -35,6 +35,8 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   const periods: BubblePeriod[] = kind === "stock" ? ["d1", "w1", "m1"] : ["h1", "d1", "w1", "m1"];
   const [snapshot, setSnapshot] = useState<MarketCapResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Echec de la derniere relecture alors que des bulles sont deja affichees : signale discretement.
+  const [reloadFailed, setReloadFailed] = useState(false);
   const [period, setPeriod] = useState<BubblePeriod>("d1");
   const [mode, setMode] = useState<BubbleMode>("change");
   const [count, setCount] = useState<number>(100);
@@ -68,11 +70,12 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
       setSnapshot(parseMarketCapResponse(await response.json()));
       hasDataRef.current = true;
       setError(null);
+      setReloadFailed(false);
     } catch (cause) {
       if ((cause as { name?: string })?.name === "AbortError") return;
       // Une relecture ratée ne doit pas barrer des bulles déjà affichées : on garde les données
       // et on réessaie au prochain passage. L'erreur n'est montrée que s'il n'y a rien à afficher.
-      if (hasDataRef.current) return;
+      if (hasDataRef.current) { setReloadFailed(true); return; }
       setError(cause instanceof Error ? cause.message : "Unable to load market data");
     }
   }, [endpoint]);
@@ -295,7 +298,8 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
           <div className="pointer-events-none absolute z-10 min-w-44 rounded-lg border border-border bg-bg/95 p-3 text-xs shadow-lg"
             style={{ left: hover.left, top: hover.top }}>
             <p className="font-semibold text-fg">#{hover.row.rank} {hover.row.name} <span className="text-muted">{hover.row.symbol}</span></p>
-            <p className="mt-1 text-muted">Price <span className="text-fg">{formatEur(hover.row.priceEur)}</span></p>
+            <p className="mt-1 text-muted">Price <span className="text-fg">{formatEur(hover.row.priceEur)}</span>
+              {hover.row.stale ? <span className="ml-1 text-amber-500">(last known)</span> : null}</p>
             <p className="text-muted">Market cap <span className="text-fg">{formatEur(hover.row.marketCapEur)}</span></p>
             <p className="text-muted">{PERIOD_LABELS[period]}{" "}
               <span className={hoverChange === null ? "text-muted" : hoverChange >= 0 ? "text-green-500" : "text-red-500"}>{formatChange(hoverChange)}</span>
@@ -303,8 +307,15 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
           </div>
         ) : null}
       </div>
+      {popup && snapshot ? (
+        <p className="pointer-events-none fixed bottom-1 left-2 z-10 rounded bg-bg/70 px-1.5 text-[10px] text-muted">
+          {new Date(snapshot.generatedAt).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })}
+          {reloadFailed ? <span className="ml-1 text-amber-500">· reload failed</span> : null}
+        </p>
+      ) : null}
       <p className={popup ? "hidden" : "mt-2 text-xs text-muted"}>
         {snapshot ? `Snapshot ${new Date(snapshot.generatedAt).toLocaleString("en")} · ` : ""}
+        {reloadFailed ? <span className="text-amber-500">Last reload failed, showing the previous data · </span> : null}
         {kind === "crypto" ? "Rankings refresh hourly" : "Rankings refresh daily"}; this page re-reads them every 5 minutes. Drag a bubble to move it.
       </p>
     </main>

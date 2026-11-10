@@ -73,3 +73,9 @@ test("toCryptoMarketCapRow exposes the period changes when the row has them", ()
   const mapped = toCryptoMarketCapRow({ id: 1, rank: 1, symbol: "BTC", name: "Bitcoin", priceEur: 1, marketCapEur: 1, changes: { h1: 1, d1: 2, w1: 3, m1: 4 } });
   assert.deepEqual(mapped.changes, { h1: 1, d1: 2, w1: 3, m1: 4 });
 });
+
+test("toStockMarketCapRow flags a last-known (stale) price and stays unchanged otherwise", () => {
+  const base = { rank: 1, canonicalTicker: "AAPL", company: "Apple", priceEur: 200, marketCapEur: 3e12, country: "United States", sourceTicker: "AAPL" };
+  assert.equal("stale" in toStockMarketCapRow({ ...base, stale: false } as never), false);
+  assert.equal(toStockMarketCapRow({ ...base, stale: true } as never).stale, true);
+});

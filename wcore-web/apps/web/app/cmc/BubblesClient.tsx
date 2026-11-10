@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, periodChange, selectBubbleRows, stepBubbles,
+  bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -14,6 +14,10 @@ interface BubblesClientProps {
   title: string;
   kind: MarketKind;
   tablePath: string;
+  /** Fenêtre détachée : pas de titre ni de menu, les bulles occupent toute la fenêtre. */
+  popup?: boolean;
+  /** Adresse de la version détachée, ouverte par le bouton « Pop out ». */
+  popupPath?: string;
 }
 
 const PERIOD_LABELS: Record<BubblePeriod, string> = { h1: "Hour", d1: "Day", w1: "Week", m1: "Month" };
@@ -26,7 +30,7 @@ const formatEur = (v: number | null) => (v !== null && Number.isFinite(v) ? eur.
 
 interface Hover { row: MarketCapRow; left: number; top: number }
 
-export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClientProps) {
+export function BubblesClient({ endpoint, title, kind, tablePath, popup = false, popupPath }: BubblesClientProps) {
   const periods: BubblePeriod[] = kind === "stock" ? ["d1", "w1", "m1"] : ["h1", "d1", "w1", "m1"];
   const [snapshot, setSnapshot] = useState<MarketCapResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +38,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
   const [mode, setMode] = useState<BubbleMode>("change");
   const [count, setCount] = useState<number>(100);
   const [search, setSearch] = useState("");
+  const [hideStables, setHideStables] = useState(false);
   const [hover, setHover] = useState<Hover | null>(null);
   const [frameHeight, setFrameHeight] = useState(480);
 
@@ -71,7 +76,21 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
     return () => { controller.abort(); clearInterval(timer); };
   }, [load]);
 
-  const rows = useMemo(() => selectBubbleRows(snapshot?.rows ?? [], count), [snapshot, count]);
+  // Choix mémorisé dans le navigateur (lu après le montage : identique au rendu serveur).
+  useEffect(() => {
+    try { if (localStorage.getItem("wcore_bubbles_hide_stables") === "1") setHideStables(true); } catch { /* stockage indisponible */ }
+  }, []);
+  function chooseStables(value: string) {
+    const hide = value === "hide";
+    setHideStables(hide);
+    try { localStorage.setItem("wcore_bubbles_hide_stables", hide ? "1" : "0"); } catch { /* stockage indisponible */ }
+  }
+
+  // Les stablecoins sont retirés avant le classement : « Top 100 » reste 100 bulles.
+  const rows = useMemo(() => {
+    const all = snapshot?.rows ?? [];
+    return selectBubbleRows(kind === "crypto" && hideStables ? all.filter((r) => !isStablecoinRow(r)) : all, count);
+  }, [snapshot, count, kind, hideStables]);
   const knownChanges = useMemo(() => rows.filter((r) => periodChange(r, period) !== null).length, [rows, period]);
 
   // Aucune variation connue sur la période (ex. actions avant le premier jour d'historique) :
@@ -108,7 +127,10 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
     if (!wrap || !canvas) return;
     const resize = () => {
       const w = Math.max(320, wrap.clientWidth);
-      const h = Math.max(380, Math.min(window.innerHeight - 240, Math.round(w * 0.62)));
+      // Fenêtre détachée : toute la hauteur restante sous les commandes.
+      const h = popup
+        ? Math.max(240, Math.floor(window.innerHeight - wrap.getBoundingClientRect().top - 30))
+        : Math.max(380, Math.min(window.innerHeight - 240, Math.round(w * 0.62)));
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
       // Le cadre change de taille (hydratation, rotation, fenêtre) : on garde la disposition en
@@ -125,8 +147,10 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
     resize();
     const observer = new ResizeObserver(resize);
     observer.observe(wrap);
-    return () => observer.disconnect();
-  }, [rebuild]);
+    // La hauteur d'une fenêtre détachée peut changer sans que la largeur du cadre bouge.
+    window.addEventListener("resize", resize);
+    return () => { observer.disconnect(); window.removeEventListener("resize", resize); };
+  }, [rebuild, popup]);
 
   // Boucle d'animation : physique + dessin. requestAnimationFrame se met en pause onglet masqué.
   useEffect(() => {
@@ -176,10 +200,18 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
 
   const hoverChange = hover ? periodChange(hover.row, period) : null;
 
+  function openPopup() {
+    if (!popupPath) return;
+    const w = Math.min(1600, window.screen.availWidth), h = Math.min(950, window.screen.availHeight);
+    window.open(popupPath, `wcore-bubbles-${kind}`, `popup=yes,width=${w},height=${h}`);
+  }
+
   return (
-    <main className="w-full px-4 py-5 sm:px-6 sm:py-7">
-      <header className="mb-4 flex flex-col gap-4 border-b border-border pb-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
+    <main className={popup ? "w-full px-2 pb-1 pt-2" : "w-full px-4 py-5 sm:px-6 sm:py-7"}>
+      <header className={popup
+        ? "mb-2 flex flex-wrap items-end justify-between gap-2"
+        : "mb-4 flex flex-col gap-4 border-b border-border pb-4 lg:flex-row lg:items-end lg:justify-between"}>
+        <div className={popup ? "hidden" : undefined}>
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">
             {kind === "stock" ? "Public companies" : "Crypto assets"} · bubbles
           </p>
@@ -189,6 +221,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
             <Link href={tablePath} className="text-accent underline-offset-2 hover:underline">Table view</Link>
           </p>
         </div>
+        {popup ? <p className="self-center text-sm font-semibold text-fg">{title}</p> : null}
         <div className="flex flex-wrap items-end gap-2">
           <Segmented label="Period" value={period} onChange={(v) => setPeriod(v as BubblePeriod)}
             options={periods.map((p) => ({ value: p, label: PERIOD_LABELS[p] }))} />
@@ -196,11 +229,21 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
             options={[{ value: "change", label: "Change" }, { value: "marketcap", label: "Market cap" }]} />
           <Segmented label="Top" value={String(count)} onChange={(v) => setCount(Number(v))}
             options={COUNTS.map((c) => ({ value: String(c), label: String(c) }))} />
+          {kind === "crypto" ? (
+            <Segmented label="Stablecoins" value={hideStables ? "hide" : "show"} onChange={chooseStables}
+              options={[{ value: "show", label: "Show" }, { value: "hide", label: "Hide" }]} />
+          ) : null}
           <label className="flex flex-col gap-1 text-xs font-medium text-muted">
             Find
             <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or ticker"
               className="h-9 w-40 rounded-lg border border-border bg-card px-3 text-sm text-fg outline-none focus:border-accent" />
           </label>
+          {!popup && popupPath ? (
+            <button type="button" onClick={openPopup} title="Open the bubbles in their own window"
+              className="h-9 rounded-lg border border-border bg-card px-3 text-sm text-fg transition hover:border-accent hover:text-accent">
+              Pop out
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -238,7 +281,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath }: BubblesClien
           </div>
         ) : null}
       </div>
-      <p className="mt-2 text-xs text-muted">
+      <p className={`${popup ? "mt-1 truncate" : "mt-2"} text-xs text-muted`}>
         {snapshot ? `Snapshot ${new Date(snapshot.generatedAt).toLocaleString("en")} · ` : ""}
         {kind === "crypto" ? "Rankings refresh hourly" : "Rankings refresh daily"}; this page re-reads them every minute. Drag a bubble to move it.
       </p>

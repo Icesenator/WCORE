@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { Logo } from "@/components/Logo";
@@ -44,6 +45,10 @@ export function SidebarLayout({ children, coverage }: { children: ReactNode; cov
   const handleCloseSidebar = useCallback(() => {
     setSidebarOpen(false);
   }, []);
+
+  // Fenêtres détachées (bulles) : la page seule, sans menu, barre ni pied de page.
+  const pathname = usePathname();
+  if (pathname?.endsWith("/bubbles/popup")) return <>{children}</>;
 
   return (
     <>

@@ -94,3 +94,13 @@ describe("simulation", () => {
     assert.equal(periods.length, 4);
   });
 });
+
+test("isStablecoinRow hides pegged stablecoins only", async () => {
+  const { isStablecoinRow } = await import("../lib/market-bubbles");
+  const row = (symbol: string, priceEur: number | null) => ({ rank: 1, symbol, name: symbol, priceEur, marketCapEur: 1 }) as never;
+  assert.equal(isStablecoinRow(row("USDT", 0.86)), true);
+  assert.equal(isStablecoinRow(row("eurc", 1)), true);
+  assert.equal(isStablecoinRow(row("USDC", 0.0013)), false, "un homonyme loin de la parité reste visible");
+  assert.equal(isStablecoinRow(row("XAUT", 3500)), false);
+  assert.equal(isStablecoinRow(row("BTC", 60000)), false);
+});

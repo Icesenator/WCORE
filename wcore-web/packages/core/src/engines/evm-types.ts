@@ -30,6 +30,18 @@ export interface EvmWalletAssets extends WalletAssetsCommon<EvmWalletToken> {
 }
 
 export const DEFAULT_LOG_SCAN_BLOCKS = 5_000;
+
+/**
+ * Log discovery window for one scan. A block window is a time window only through the block
+ * time: 5,000 blocks are hours on most chains but minutes on fast ones, while Ledger scans run
+ * hours apart. A chain may declare RPC.MIN_LOG_SCAN_BLOCKS, a floor that widens the requested
+ * window (never narrows it). RPC.MAX_LOG_RANGE still caps the range afterwards.
+ */
+export function effectiveLogScanWindow(chain: { RPC?: { MIN_LOG_SCAN_BLOCKS?: unknown } & Record<string, unknown> }, requested: number | undefined): number {
+  const base = requested ?? DEFAULT_LOG_SCAN_BLOCKS;
+  const floor = chain.RPC?.MIN_LOG_SCAN_BLOCKS;
+  return typeof floor === "number" && Number.isSafeInteger(floor) && floor > 0 ? Math.max(base, floor) : base;
+}
 export const _DEEP_LOG_SCAN_BLOCKS = 50_000;
 
 export interface BalanceCacheEntry {

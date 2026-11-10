@@ -44,6 +44,7 @@ const EXPLORERS: Record<string, string> = {
   shibarium: "https://shibariumscan.io",
   degen: "https://explorer.degen.tips",
   beam: "https://subnets.avax.network/beam",
+  elysium: "https://elysium.kinetiq.xyz/explorer",
   ronin: "https://app.roninchain.com",
   opbnb: "https://opbnbscan.com",
   lisk: "https://blockscout.lisk.com",

@@ -42,6 +42,7 @@ import { DYDX } from "./DYDX.js";
 import { EDEN } from "./EDEN.js";
 import { EDGELESS } from "./EDGELESS.js";
 import { EDU_CHAIN } from "./EDU_CHAIN.js";
+import { ELYSIUM } from "./ELYSIUM.js";
 import { ENDURANCE } from "./ENDURANCE.js";
 import { ETHEREUM } from "./ETHEREUM.js";
 import { ETHEREUM_CLASSIC } from "./ETHEREUM_CLASSIC.js";
@@ -201,6 +202,7 @@ export const chains = {
   EDEN,
   EDGELESS,
   EDU_CHAIN,
+  ELYSIUM,
   ENDURANCE,
   ETHEREUM,
   ETHEREUM_CLASSIC,

@@ -223,6 +223,7 @@ describe("market cap public labels", () => {
       "Market Cap Stock",
       "GM",
       "Leaderboard",
+      "Chain Sentinel",
       "Support",
       "About",
     ]);

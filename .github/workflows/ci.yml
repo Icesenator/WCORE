@@ -138,8 +138,11 @@ jobs:
       - name: API tests against isolated PostgreSQL and Redis
         run: pnpm --filter @wcore/api test
       # Les scripts Lua du cache (fenetre fixe du limiteur, verrous) contre le Redis jetable du job.
+      # --test-force-exit : le magasin Redis cree par le test n'expose pas de fermeture, sa connexion
+      # garderait le processus en vie apres les assertions (revue Codex du 11/11/2026).
       - name: Core cache Lua scripts against the disposable Redis
-        run: pnpm --filter @wcore/core exec tsx --test src/cache/redis-store.test.ts
+        timeout-minutes: 5
+        run: pnpm --filter @wcore/core exec tsx --test --test-force-exit src/cache/redis-store.test.ts
         env:
           WCORE_ALLOW_TEST_REDIS: "1"
           WCORE_TEST_REDIS_EPHEMERAL: "1"

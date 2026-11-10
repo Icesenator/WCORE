@@ -325,3 +325,26 @@ test("fetchStockQuotesViaRelay keeps bounded changes and drops unusable ones", a
   assert.deepEqual(quotes.HYXS!.changes, { d1: 1.25, w1: null, m1: null });
   for (const quote of Object.values(quotes)) if (quote.yahooTicker !== "SKHY") assert.equal("changes" in quote, false);
 });
+
+test("fetchStockQuotesViaRelay keeps the change of a non-convertible currency, flagged as not priceable", async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    json: async () => ({
+      ok: true,
+      quotes: {
+        "RELIANCE.NS": { priceNative: 1324.4, currency: "INR", yahooTicker: "RELIANCE.NS", source: "yahoo:relay", changes: { d1: -0.8, w1: 1.2, m1: 3.4 } },
+        "PTT.BK": { priceNative: 33, currency: "THB", yahooTicker: "PTT.BK", source: "yahoo:relay" },
+        "BAD.NS": { priceNative: 10, currency: "inr$", yahooTicker: "BAD.NS", source: "yahoo:relay", changes: { d1: 1, w1: 1, m1: 1 } },
+      },
+    }),
+  }) as Response;
+
+  const quotes = await fetchStockQuotesViaRelay(["RELIANCE.NS", "PTT.BK", "BAD.NS"], { fetchImpl, relayUrl: "https://relay.example", relayToken: "secret" });
+
+  assert.deepEqual(quotes["RELIANCE.NS"], {
+    priceNative: 1324.4, currency: "INR", yahooTicker: "RELIANCE.NS", source: "yahoo:relay",
+    changes: { d1: -0.8, w1: 1.2, m1: 3.4 }, pricing: false,
+  });
+  assert.equal(quotes["PTT.BK"], undefined, "without a change there is nothing to keep");
+  assert.equal(quotes["BAD.NS"], undefined, "a malformed currency is still rejected");
+});

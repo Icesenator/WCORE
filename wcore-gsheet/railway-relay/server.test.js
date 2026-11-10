@@ -6,6 +6,7 @@ const {
   app,
   collectStockFxQuotes,
   collectStockNativeQuotes,
+  stockChangesFromChart,
   normalizeStockFxCurrencies,
   normalizeStockQuoteSymbols,
   normalizeCoinbasePrivateKeyPem,
@@ -837,4 +838,51 @@ test("relay rate limit caps a flood and never throttles the health probe", async
     if (previousLimit == null) delete process.env.RELAY_RATE_LIMIT;
     else process.env.RELAY_RATE_LIMIT = previousLimit;
   }
+});
+// --- Variations actions depuis un mois de clotures Yahoo ---
+const DAY = 86400;
+function chartFixture() {
+  const marketTime = 40 * DAY + 20 * 3600; // jour 40, seance en cours
+  const stamps = [], closes = [];
+  for (let d = 9; d <= 40; d++) { stamps.push(d * DAY + 14 * 3600); closes.push(100 + d); }
+  return {
+    meta: { regularMarketPrice: 150, regularMarketTime: marketTime, chartPreviousClose: 100, gmtoffset: 0, currency: "USD" },
+    timestamp: stamps,
+    indicators: { quote: [{ close: closes }] },
+  };
+}
+
+test("stockChangesFromChart derives day, week and month from past daily closes", () => {
+  const chart = chartFixture();
+  const changes = stockChangesFromChart(chart, chart.meta.regularMarketTime);
+  assert.ok(Math.abs(changes.d1 - (150 / 139 - 1) * 100) < 1e-9); // veille = jour 39
+  assert.ok(Math.abs(changes.w1 - (150 / 133 - 1) * 100) < 1e-9); // jour 33
+  assert.ok(Math.abs(changes.m1 - (150 / 110 - 1) * 100) < 1e-9); // jour 10
+});
+
+test("stockChangesFromChart ignores the current session bar and null closes", () => {
+  const chart = chartFixture();
+  chart.indicators.quote[0].close[chart.timestamp.length - 2] = null; // veille manquante
+  const changes = stockChangesFromChart(chart, chart.meta.regularMarketTime);
+  assert.ok(Math.abs(changes.d1 - (150 / 138 - 1) * 100) < 1e-9);
+});
+
+test("stockChangesFromChart falls back to chartPreviousClose for the month and never invents zero", () => {
+  const chart = chartFixture();
+  chart.timestamp = chart.timestamp.slice(-10);
+  chart.indicators.quote[0].close = chart.indicators.quote[0].close.slice(-10);
+  const changes = stockChangesFromChart(chart, chart.meta.regularMarketTime);
+  assert.ok(Math.abs(changes.m1 - 50) < 1e-9);
+  assert.deepEqual(stockChangesFromChart({ meta: { regularMarketPrice: 150, regularMarketTime: 40 * DAY } }, 40 * DAY), { d1: null, w1: null, m1: null });
+  assert.deepEqual(stockChangesFromChart(chartFixture(), 60 * DAY), { d1: null, w1: null, m1: null }); // cours trop ancien
+});
+
+test("collectStockNativeQuotes forwards bounded changes and omits them when unknown", async () => {
+  const quotes = await collectStockNativeQuotes(["AAPL", "MSFT"], {
+    fetchQuote: async (candidate) => candidate === "AAPL"
+      ? { price: 10, currency: "USD", currencyRaw: "USD", changes: { d1: 1.5, w1: 5000, m1: null } }
+      : { price: 20, currency: "USD", currencyRaw: "USD", changes: { d1: null, w1: null, m1: null } },
+  });
+  assert.deepEqual(quotes.AAPL.changes, { d1: 1.5, w1: null, m1: null });
+  assert.equal("changes" in quotes.MSFT, false);
 });

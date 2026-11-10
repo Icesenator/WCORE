@@ -62,3 +62,17 @@ export async function withHistoryChanges(
   memo = { kind, generatedAt: snapshot.generatedAt, changes };
   return changes;
 }
+
+/** Par periode : la variation de la source (cours Yahoo) si elle existe, sinon celle de notre historique. */
+export function preferSourceChanges(
+  source: { d1: number | null; w1: number | null; m1: number | null } | null | undefined,
+  history: PriceChanges | null | undefined,
+): PriceChanges | null {
+  if (!source) return history ?? null;
+  return {
+    h1: history?.h1 ?? null,
+    d1: source.d1 ?? history?.d1 ?? null,
+    w1: source.w1 ?? history?.w1 ?? null,
+    m1: source.m1 ?? history?.m1 ?? null,
+  };
+}

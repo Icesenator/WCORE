@@ -1134,6 +1134,69 @@ async function yahooChartPrice(candidate, options) {
   return { price: price, currency: stockQuoteCurrency(rawCcy), currencyRaw: rawCcy };
 }
 
+// Variations jour / semaine / mois d'une action, en pourcentage dans sa devise de cotation,
+// calculees depuis un mois de clotures journalieres Yahoo. Inconnu = null, jamais zero.
+const STOCK_CHANGE_STALE_SECONDS = 5 * 86400;
+
+function stockChangesFromChart(result, nowSeconds) {
+  const none = { d1: null, w1: null, m1: null };
+  const meta = result && result.meta;
+  const price = meta && meta.regularMarketPrice;
+  const marketTime = meta && meta.regularMarketTime;
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(marketTime)) return none;
+  const now = Number.isFinite(nowSeconds) ? nowSeconds : Date.now() / 1000;
+  // Cotation suspendue ou titre radie : le dernier cours est trop ancien pour parler de variation.
+  if (now - marketTime > STOCK_CHANGE_STALE_SECONDS) return none;
+  const offset = Number.isFinite(meta.gmtoffset) ? meta.gmtoffset : 0;
+  const day = (ts) => Math.floor((ts + offset) / 86400);
+  const currentDay = day(marketTime);
+  const stamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+  const quote = result.indicators && Array.isArray(result.indicators.quote) ? result.indicators.quote[0] : null;
+  const closes = quote && Array.isArray(quote.close) ? quote.close : [];
+  const past = [];
+  for (let i = 0; i < stamps.length; i++) {
+    const ts = stamps[i], close = closes[i];
+    if (Number.isFinite(ts) && Number.isFinite(close) && close > 0 && day(ts) < currentDay) past.push({ ts: ts, close: close });
+  }
+  const pct = (ref) => (Number.isFinite(ref) && ref > 0 ? (price / ref - 1) * 100 : null);
+  const lastAtOrBefore = (limit) => {
+    for (let i = past.length - 1; i >= 0; i--) if (past[i].ts <= limit) return past[i].close;
+    return null;
+  };
+  const monthRef = lastAtOrBefore(marketTime - 30 * 86400);
+  return {
+    d1: pct(past.length ? past[past.length - 1].close : null),
+    w1: pct(lastAtOrBefore(marketTime - 7 * 86400)),
+    // Pas de barre assez ancienne : Yahoo donne la cloture qui precede le debut de la plage d'un mois.
+    m1: pct(monthRef !== null ? monthRef : (past.length ? meta.chartPreviousClose : null)),
+  };
+}
+
+// Comme yahooChartPrice, avec un mois de clotures pour en tirer les variations (un seul appel).
+async function yahooChartQuoteWithChanges(candidate, options) {
+  const url = "https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(candidate) + "?range=1mo&interval=1d";
+  const resp = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (WCORE relay)" },
+    signal: options && options.signal,
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const result = data && data.chart && data.chart.result && data.chart.result[0];
+  const meta = result && result.meta;
+  const price = meta && meta.regularMarketPrice;
+  if (!price || price <= 0) return null;
+  const rawCcy = meta && typeof meta.currency === "string" ? meta.currency.trim() : "";
+  if (!rawCcy) return null;
+  return { price: price, currency: stockQuoteCurrency(rawCcy), currencyRaw: rawCcy, changes: stockChangesFromChart(result) };
+}
+
+function stockQuoteChanges(changes) {
+  if (!changes || typeof changes !== "object") return null;
+  const pick = (v) => (typeof v === "number" && Number.isFinite(v) && v > -100 && v < 1000 ? v : null);
+  const out = { d1: pick(changes.d1), w1: pick(changes.w1), m1: pick(changes.m1) };
+  return out.d1 === null && out.w1 === null && out.m1 === null ? null : out;
+}
+
 const STOCK_QUOTE_MAX_SYMBOLS = 300;
 const STOCK_QUOTE_CONCURRENCY = 8;
 const STOCK_QUOTE_TIMEOUT_MS = 8000;
@@ -1246,7 +1309,7 @@ async function collectStockNativeQuotes(symbols, options) {
   const unique = normalizeStockQuoteSymbols(symbols);
   if (!unique || unique.length === 0) return {};
   const opts = options || {};
-  const fetchQuote = opts.fetchQuote || yahooChartPrice;
+  const fetchQuote = opts.fetchQuote || yahooChartQuoteWithChanges;
   const concurrency = Math.max(1, Math.floor(opts.concurrency || STOCK_QUOTE_CONCURRENCY));
   const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs || STOCK_QUOTE_TIMEOUT_MS));
   const requestSignal = opts.signal;
@@ -1268,6 +1331,8 @@ async function collectStockNativeQuotes(symbols, options) {
             yahooTicker: candidate,
             source: "yahoo:relay",
           };
+          const changes = stockQuoteChanges(hit.changes);
+          if (changes) quotes[symbol].changes = changes;
           break;
         } catch (_e) { /* try next candidate */ }
         finally { combined.cleanup(); }
@@ -1803,6 +1868,7 @@ module.exports = {
   enrichOkxRowsWithUsdPrices,
   collectStockFxQuotes,
   collectStockNativeQuotes,
+  stockChangesFromChart,
   normalizeStockFxCurrencies,
   normalizeStockQuoteSymbols,
 };

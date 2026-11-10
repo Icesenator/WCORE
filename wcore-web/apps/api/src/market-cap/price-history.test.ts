@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MemoryCacheStore } from "@wcore/core";
-import { changesFromHistory, dailyCloseKey, recordDailyCloses, withHistoryChanges } from "./price-history.js";
+import { changesFromHistory, dailyCloseKey, preferSourceChanges, recordDailyCloses, withHistoryChanges } from "./price-history.js";
 
 const day = (iso: string) => new Date(`${iso}T15:00:00.000Z`);
 
@@ -55,4 +55,12 @@ test("a cache failure never breaks the page: changes are null", async () => {
   } as never;
   const changes = await withHistoryChanges(broken, "stock", { generatedAt: "g-broken", rows: [{ symbol: "AAPL", priceEur: 1 }] }, day("2026-11-10"));
   assert.deepEqual(changes.get("AAPL"), { h1: null, d1: null, w1: null, m1: null });
+});
+
+test("preferSourceChanges takes the source per period and falls back to history", () => {
+  const history = { h1: null, d1: 1, w1: 2, m1: 3 };
+  assert.deepEqual(preferSourceChanges({ d1: 9, w1: null, m1: null }, history), { h1: null, d1: 9, w1: 2, m1: 3 });
+  assert.deepEqual(preferSourceChanges(undefined, history), history);
+  assert.deepEqual(preferSourceChanges({ d1: 9, w1: null, m1: null }, undefined), { h1: null, d1: 9, w1: null, m1: null });
+  assert.equal(preferSourceChanges(undefined, undefined), null);
 });

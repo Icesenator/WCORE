@@ -2086,3 +2086,53 @@ test("a fake stablecoin is filtered even when the GSheet sends it back as a cust
   assert.ok(contracts.includes(real), "the real USDC stays");
   await app.close();
 });
+
+test("a token already shown in the tab stays at unknown value when its price is missing; new unpriced tokens stay filtered", async () => {
+  const app = Fastify();
+  const held = "0x0dfd116f3b94062de121836550559836efdfec4f";
+  const fresh = "0xa973bc7ff3a4b05a8fde036b33a4431e3bc582c4";
+  const heldScam = "0x00000000000000000000000000000000000f4e01";
+  await app.register(gsheetPlugin, {
+    token: "secret",
+    cacheStore: { get: async () => null },
+    scanRunner: async () => ({
+      ok: true,
+      chain: "ELYSIUM",
+      chainName: "Elysium",
+      vm: "EVM",
+      timestamp: new Date().toISOString(),
+      native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+      tokens: [
+        { symbol: "BARAN", name: "Baran Bakery", contract: held, balance: 1000, decimals: 18, priceEur: null, valueEur: null },
+        { symbol: "Surprise", name: "Surprise", contract: fresh, balance: 224253, decimals: 18, priceEur: null, valueEur: null },
+        { symbol: "USDC", name: "United States Digital Coin", contract: heldScam, balance: 3, decimals: 6, priceEur: 0.0013, valueEur: 0.0039 },
+      ],
+      totalValueEur: 0,
+      errors: ["BARAN price: NO_PRICE", "Surprise price: NO_PRICE"],
+      degraded: false,
+      fxRate: 0.88,
+      scanMs: 1,
+    }),
+  });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/gsheet/scan",
+    headers: { "x-gsheet-token": "secret" },
+    payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "ELYSIUM", heldContracts: [held, heldScam] },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  const symbols = body.tokens.map((t: { symbol: string }) => t.symbol);
+  assert.deepEqual(symbols, ["BARAN"], "held unpriced token kept, new one filtered, held scam filtered");
+  assert.equal(body.tokens[0].priceEur, null, "unknown stays unknown, never zero");
+  assert.equal(body.cacheStats.noMarketFiltered, 1);
+
+  const bad = await app.inject({
+    method: "POST",
+    url: "/api/gsheet/scan",
+    headers: { "x-gsheet-token": "secret" },
+    payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "ELYSIUM", heldContracts: "nope" },
+  });
+  assert.equal(bad.statusCode, 400);
+  await app.close();
+});

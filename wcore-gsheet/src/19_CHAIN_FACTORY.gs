@@ -38,7 +38,7 @@
  * function GET_WALLET_ASSETS_BASE(a,r,t,f,g){return _BASE.getWalletAssets(a,r,t,f,g);}
  ************************************************************/
 
-var CHAIN_FACTORY_VERSION = "4.15.51";
+var CHAIN_FACTORY_VERSION = "4.15.52";
 
 var ChainFactory = ChainFactory || {};
 
@@ -47,14 +47,35 @@ var ChainFactory = ChainFactory || {};
  * Rejette toute création, enregistrement, planification ou scan sans migration
  * ni purge destructrice de l'historique de cache existant.
  */
+// B3 Mainnet (8333) : reseau ferme, retraits fermes le 2026-10-31 (decision operateur).
+// Le cache et l'onglet Ledger sont conserves comme preuves ; seul le traitement actif
+// s'arrete. Le token B3 sur Base (0xb3b3...b3b3) et la chaine B2 ne sont pas concernes.
+var WCORE_REMOVED_CHAINS = [
+  { label: "SUPERSEED (5330)", ids: ["5330", "SUPERSEED", "SSEED", "0X14D2", "LEDGER - SUPERSEED", "LEDGER - SUPERSEED CRYPTO"] },
+  { label: "B3 (8333)", ids: ["8333", "B3", "0X208D", "LEDGER - B3", "LEDGER - B3 CRYPTO"] },
+  // Gravity Alpha Mainnet (1625) : reseau arrete le 2026-11-01 (Galxe), plus aucun transfert.
+  // Cache et onglet conserves comme preuves de detention (P0-DATA-GRAVITY-ALPHA-FUNDS).
+  // Gravity L1 (127001) est un reseau distinct, NON concerne : ne jamais l ajouter ici.
+  { label: "Gravity Alpha (1625)", ids: ["1625", "GRAVITY", "GRAVITY_ALPHA", "0X659", "LEDGER - GRAVITY", "LEDGER - GRAVITY CRYPTO"] },
+  // v4.15.52 - Lisk L2 (1135) : reseau arrete le 2026-11-02 (Portal et Bridge fermes) ; reclamation
+  // manuelle annoncee pour janvier 2027. Onglet "Ledger - Lisk" supprime et archive hors LIVE ;
+  // le cache WalletCache LISK est conserve (aucune purge). Le token LSK sur Ethereum n est PAS
+  // concerne : seuls les identifiants de la chaine 1135 figurent ici, jamais "LSK".
+  { label: "Lisk (1135)", ids: ["1135", "LISK", "0X46F", "LEDGER - LISK", "LEDGER - LISK CRYPTO"] }
+];
+
+function _wcoreRemovedChainLabel_(input) {
+  if (input === null || input === undefined) return "";
+  var upper = String(input).trim().toUpperCase();
+  if (!upper) return "";
+  for (var i = 0; i < WCORE_REMOVED_CHAINS.length; i++) {
+    if (WCORE_REMOVED_CHAINS[i].ids.indexOf(upper) >= 0) return WCORE_REMOVED_CHAINS[i].label;
+  }
+  return "";
+}
+
 function _wcoreRemovedChain_(input) {
-  if (input === null || input === undefined) return false;
-  var s = String(input).trim();
-  if (!s) return false;
-  if (s === "5330" || input === 5330) return true;
-  var upper = s.toUpperCase();
-  if (upper === "SUPERSEED" || upper === "SSEED" || upper === "0X14D2") return true;
-  return upper === "LEDGER - SUPERSEED" || upper === "LEDGER - SUPERSEED CRYPTO";
+  return _wcoreRemovedChainLabel_(input) !== "";
 }
 
 // ============================================================
@@ -134,7 +155,7 @@ ChainFactory.getCacheVersion = function(vmType) {
 
 ChainFactory.createEvmChain = function(chainName, chainConfig) {
  if (_wcoreRemovedChain_(chainName) || _wcoreRemovedChain_(chainConfig && chainConfig.CHAIN && chainConfig.CHAIN.CHAIN_ID)) {
-   throw new Error("CHAIN_REMOVED: SUPERSEED (5330)");
+   throw new Error("CHAIN_REMOVED: " + (_wcoreRemovedChainLabel_(chainName) || _wcoreRemovedChainLabel_(chainConfig && chainConfig.CHAIN && chainConfig.CHAIN.CHAIN_ID) || "SUPERSEED (5330)"));
  }
  var _config = null;
  var name = String(chainName).toUpperCase();

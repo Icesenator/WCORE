@@ -3,6 +3,13 @@
  *
  * Version: v4.15.74
  *
+ * F1 elargi (2026-11-08): BaseEngine.getFxRateStrict / buildFxMetadata / fxEffectiveTs.
+ *   Interface stricte de valorisation pour l'EVM : taux avec provenance (FRESH_*,
+ *   RETAINED, CACHE_HISTORICAL, UNAVAILABLE), jamais le taux fixe FX_FALLBACK ; la
+ *   date effective d'une valeur EUR est le composant le plus ancien (prix USD, FX) et
+ *   elle n'existe que si le FX est frais et atteste. getFxRate (partage SVM/Cosmos)
+ *   reste inchange.
+ *
  * v4.15.74: Emit deterministic [CACHE_ONLY] markers for cache-served status.
  *
  * v4.15.73: Treat stale B1 timestamps as sheet recalculations, not refresh
@@ -1156,6 +1163,73 @@ BaseEngine.getFxRate = function(state, cache) {
  
  state.fxRate = fx;
  return fx;
+};
+
+/**
+ * F1 elargi (2026-11-08): interface stricte de valorisation (scan EVM).
+ * Ne remplace pas getFxRate (partage avec SVM/Cosmos, comportement historique conserve).
+ * Renseigne :
+ * - state.fxRate : taux disponible (frais, ou historique explicitement signale), jamais
+ *   le taux fixe DEFAULTS.FX_FALLBACK ; null si aucun taux ;
+ * - state.fxFresh : true seulement pour une observation datee de moins de FX_TTL_MS ;
+ * - state.fxObservedAt : instant atteste de la reponse reseau du taux (null si inconnu) ;
+ * - state.fxKind : FRESH_* | RETAINED | CACHE_HISTORICAL | UNAVAILABLE ;
+ * - state.fxMetadata : metadonnees 04E (null sans observation datee).
+ * @returns {number|null}
+ */
+BaseEngine.getFxRateStrict = function(state, cache) {
+ var info = null;
+ try {
+ if (typeof FxRate !== "undefined" && FxRate && typeof FxRate.getUsdToEurInfo === "function") info = FxRate.getUsdToEurInfo(state && state.timer);
+ } catch (eInfo) { info = null; }
+ var rate = null, fresh = false, observedAt = null, kind = "UNAVAILABLE", reason = "";
+ if (info && Num.isValidPositive(info.rate)) {
+ rate = Number(info.rate);
+ kind = String(info.kind || "UNKNOWN");
+ reason = String(info.reason || "");
+ observedAt = (isFinite(Number(info.observedAt)) && Number(info.observedAt) > 0) ? Number(info.observedAt) : null;
+ fresh = info.fresh === true && observedAt != null;
+ } else if (cache && Num.isValidPositive(cache.usd_to_eur_rate)) {
+ // Taux du cache wallet : historique, date inconnue, jamais frais.
+ rate = Number(cache.usd_to_eur_rate);
+ kind = "CACHE_HISTORICAL";
+ reason = String((info && info.reason) || "FX_UNAVAILABLE");
+ } else {
+ reason = String((info && info.reason) || "FX_UNAVAILABLE");
+ }
+ state.fxRate = rate;
+ state.fxFresh = fresh;
+ state.fxObservedAt = observedAt;
+ state.fxKind = kind;
+ state.fxReason = reason;
+ state.fxMetadata = BaseEngine.buildFxMetadata(info, rate, fresh);
+ return rate;
+};
+
+/** Metadonnees FX au format 04E (_fxMetadataLabel_), seulement pour une observation datee. */
+BaseEngine.buildFxMetadata = function(info, rate, applied) {
+ if (!info || !Num.isValidPositive(rate) || Number(info.rate) !== Number(rate)) return null;
+ var obs = Number(info.observedAt);
+ if (!(isFinite(obs) && obs > 0)) return null;
+ var sources = [];
+ try { sources = (info.sources || []).map(function(s) { return { source: String((s && s.source) || "UNKNOWN") }; }); } catch (eS) { sources = []; }
+ return { rate: Number(rate), sources: sources, selection: String(info.selection || "UNKNOWN"),
+ sourceCollectedAt: obs, cacheWrittenAt: obs, ttlMs: Number(info.ttlMs) > 0 ? Number(info.ttlMs) : 3600000,
+ applied: applied === true, kind: String(info.kind || "") };
+};
+
+/**
+ * Date effective d'une valeur EUR : le composant le plus ancien (prix USD, taux FX).
+ * null quand le FX n'est pas frais et atteste : la valeur ne doit alors pas etre
+ * persistee comme fraiche (aucune nouvelle valorisation).
+ */
+BaseEngine.fxEffectiveTs = function(state, usdTs) {
+ if (!state || state.fxFresh !== true) return null;
+ var fxTs = Number(state.fxObservedAt), u = Number(usdTs);
+ var now = Number(state.nowMs) || Date.now();
+ if (!(isFinite(fxTs) && fxTs > 0 && fxTs <= now + 5 * 60 * 1000)) return null;
+ if (!(isFinite(u) && u > 0)) return null;
+ return Math.min(u, fxTs);
 };
 
 // ============================================================

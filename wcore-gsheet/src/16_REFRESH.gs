@@ -1,7 +1,27 @@
 /************************************************************
  * 16_REFRESH.gs - Watchdog & Cache Management
  *
- * Version: v4.16.81
+ * Version: v4.16.91
+ * v4.16.91 (2026-11-10): restaure 4.16.87 + 4.16.89 (effaces du LIVE le 07/11) :
+ *   impulsion B1 apres le drain des lignes dont le scan OK/DEGRADED est prouve.
+ *   P-PROP, palier prioritaire et le reste du LIVE inchanges.
+ * v4.16.89: a DEGRADED scan that rewrote the cache (proven reread) is pulsed
+ *   too. Without it the cells kept the pre-scan values and I1 the old cache
+ *   date for hours, although the cache was fresh. No ACK for DEGRADED: the
+ *   pulse re-enqueues it and I1 shows [REFRESH_QUEUED] <new cache date>.
+ * v4.16.87: ACK pulse. A queued scan only reaches I1 when B1 is pulsed again
+ *   inside the 45 min ACK window, but [REFRESH_QUEUED] rows compete for 10
+ *   pulses per run (~2h per row with 110+ rows): the ACK always expired and
+ *   every row stayed [REFRESH_QUEUED]. After the drain, B1 of the rows whose
+ *   scan was proven OK is pulsed at once so I1 reads the ACK.
+ * P-PROP (2026-11-08, P1-DATA-NATIVE-PRICE-FRESHNESS) : propagation bornee des prix
+ *   natifs. Quand une generation de NativePriceStore est etablie (ecritures > 0,
+ *   refreshedAt relu dans le CacheService egal a l'instant du passage), le watchdog
+ *   ajoute un bump J1 (+1 s) pour les feuilles EVM en NATIVE_PRICE_UNKNOWN dont
+ *   l'identifiant natif a une entree admissible, dans la capacite RESIDUELLE du
+ *   budget J1 existant (20, apres les synchronisations), au plus une fois par
+ *   feuille et par generation (latch sous verrou). Aucun HTTP, aucun scan, aucun
+ *   changement de cooldown ; les dates de prix et de solde ne sont pas touchees.
  * v4.16.81: idempotent A2 recovery latch across watchdog and fast J1 sync.
  *
  * v4.16.71: hold-aware recovery sweep (piste 3). Pendant le post-trip scan
@@ -157,6 +177,10 @@ var WD_PROBE_SIZE_MIN = 5;
 var WD_PROBE_SIZE_MAX = 20;
 var WD_MAX_PULSES_PER_RUN = 10;
 var WD_CYCLE_SLOTS_PER_RUN = 7;
+// 2026-11-09 (P1-REC-QUEUE-FRESHNESS) : places reservees, avant les voies cycle/urgente, aux sources
+// dont la donnee approche l'objectif de 6 h (>= WD_STALE_I1_HOURS) ou dont la mise en file a echoue
+// (QUEUE_ERROR/DEFERRED/FULL). Plafond < WD_MAX_PULSES_PER_RUN : la rotation garde toujours 2 places.
+var WD_PRIORITY_SLOTS_PER_RUN = 8;
 var WD_WEB_ERROR_BACKOFF_MS = [30 * 60000, 2 * 3600000, 6 * 3600000, 24 * 3600000];
 var WD_WEB_BACKOFF_MAX_ENTRIES = 200;
 var WD_WEB_BACKOFF_RETENTION_MS = 48 * 3600000;
@@ -169,6 +193,11 @@ var P_WD_RUNS = "WD_RUNS";
 var P_WD_PARTIAL_LAST = "WD_PARTIAL_LAST";  // v4.5.11: Last partial cycle pulse timestamps
 var P_WD_J1_CURSOR = "WD_J1_CURSOR";
 var P_SYNC_J1_CURSOR = "SYNC_J1_CURSOR";
+var P_WD_PPROP_GEN = "WD_PPROP_GEN";      // P-PROP : derniere generation etablie du magasin natif
+var P_WD_PPROP_LATCH = "WD_PPROP_LATCH";  // P-PROP : {gen, sheets:{feuille: {g, n}}} (une fois par generation, rotation)
+var WD_PPROP_RENDER_MARGIN_MS = 10 * 60 * 1000; // entree encore admissible au rendu qui suit le bump
+var WD_PPROP_MAX_PER_RUN = 5; // sous-plafond du budget J1 partage : limite la rafale de recalculs cache seul
+var WD_PPROP_MAX_INEFFECTIVE = 2; // bumps consecutifs sans disparition du NPU avant arret conservateur
 
 var REFRESH_VERSION = "4.16.71";
 
@@ -440,7 +469,9 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
         if (typeof _webScanQueueDrain_ === "function" && typeof _webScanQueueEnabled_ === "function" && _webScanQueueEnabled_()) {
           var _qRemaining = 300000 - (Date.now() - t0) - 30000;
           if (_qRemaining > GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS) {
-            var _qRes = _webScanQueueDrain_({ maxItems: 3, budgetMs: Math.min(_qRemaining, 180000) });
+            try { stats.scanQueueDepthBefore = _webScanQueueRead_().length; } catch (eQd0) {}
+            var _qRes = _webScanQueueDrain_({ maxItems: (typeof GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN === "number" ? GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN : 3), budgetMs: Math.min(_qRemaining, 180000) });
+            try { stats.scanQueueDepthAfter = _webScanQueueRead_().length; } catch (eQd1) {}
             stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
             stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
             stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome }; });
@@ -1012,6 +1043,7 @@ function _wd_rollbackPulseReservations_(failedActions, nowMs) {
 function _wd_applySpreadsheetActions_(ss, actions, nowMs, maxPulses) {
   var result = { pulses: 0, partialPulses: 0, synced: 0, errors: 0 };
   var failedPulses = [];
+  var failedPprop = [];
   maxPulses = Number(maxPulses || WD_MAX_PULSES_PER_RUN);
   for (var i = 0; i < (actions || []).length; i++) {
     var action = actions[i] || {};
@@ -1024,6 +1056,7 @@ function _wd_applySpreadsheetActions_(ss, actions, nowMs, maxPulses) {
       if (!targetSheet) {
         result.errors++;
         if (action.type === "pulse") failedPulses.push(action);
+        if (action.reason === "native_price_store") failedPprop.push(action);
         continue;
       }
       var range = targetSheet.getRange(action.range);
@@ -1038,10 +1071,13 @@ function _wd_applySpreadsheetActions_(ss, actions, nowMs, maxPulses) {
     } catch (eWrite) {
       result.errors++;
       if (action.type === "pulse") failedPulses.push(action);
+      if (action.reason === "native_price_store") failedPprop.push(action);
     }
   }
   var rollback = _wd_rollbackPulseReservations_(failedPulses, nowMs);
   result.stateErrors = rollback.errors;
+  // P-PROP : une demande dont l'ecriture J1 a echoue n'est pas acquittee (nouvel essai au passage suivant).
+  if (failedPprop.length) result.stateErrors += _wd_ppropRollback_(failedPprop);
   return result;
 }
 
@@ -1267,6 +1303,59 @@ function _wd_shouldPulseB1_(b1DisplayValue, nowMs, cooldownMin) {
   return (nowMs - t) >= cooldown * 60000;
 }
 
+// v4.16.87: rows to pulse right after a drain so I1 reads the fresh ACK.
+// Only proven OK scans carry an ACK. v4.16.89: a proven DEGRADED scan is pulsed
+// as well so the cells read the rewritten cache; it re-enqueues (no ACK), which
+// keeps retrying the degraded source. PRESERVED wrote nothing and is never
+// pulsed. Force rows (C1 TRUE) are skipped: their revision
+// includes the B1 trigger, so a new B1 can never match the ACK.
+// Rows are matched on the queue's opaque source label, never on raw addresses.
+function _wd_ackPulseProven_(r) {
+  return !!(r && (r.outcome === "OK" || r.outcome === "DEGRADED") && r.cacheWriteReread === true && r.queueCommitted === true);
+}
+
+function _wd_ackPulseTargets_(results, rows) {
+  var sources = {};
+  (results || []).forEach(function(r) {
+    if (_wd_ackPulseProven_(r) && r.source) sources[r.source] = true;
+  });
+  if (!Object.keys(sources).length) return [];
+  var out = [];
+  (rows || []).forEach(function(row) {
+    if (!row || /^TRUE$/i.test(_wd_norm_(row.vC1 || ""))) return;
+    var m = String(row.formula || "").match(/^\s*=\s*([A-Za-z0-9_]+)_REFRESH_STATUS\s*\(\s*"([^"]+)"/);
+    if (!m) return;
+    var id = m[1].toUpperCase() + "|" + String(m[2]).trim().toLowerCase();
+    if (sources[_webScanQueueOpaque_(id)]) out.push(row.name);
+  });
+  return out;
+}
+
+function _wd_ackPulseDrained_(ss, results, sheetData, nowStr, deadlineMs) {
+  var out = { targets: 0, pulsed: 0, reason: "OK" };
+  if (typeof _webScanQueueOpaque_ !== "function") { out.reason = "QUEUE_UNAVAILABLE"; return out; }
+  var proven = (results || []).filter(_wd_ackPulseProven_);
+  if (!proven.length) { out.reason = "NO_OK"; return out; }
+  var rows = (sheetData || []).filter(function(d) { return d && d.name && !_wd_isCexSheet_(d.name); });
+  if (!rows.length || Date.now() >= deadlineMs) { out.reason = rows.length ? "BUDGET" : "NO_ROWS"; return out; }
+  var ranges = rows.map(function(d) { return "'" + d.name.replace(/'/g, "''") + "'!I1"; });
+  var data = Sheets.Spreadsheets.Values.batchGet(ss.getId(), { ranges: ranges, valueRenderOption: "FORMULA" });
+  if (!data || !data.valueRanges || data.valueRanges.length !== rows.length) { out.reason = "FORMULAS_UNAVAILABLE"; return out; }
+  var targets = _wd_ackPulseTargets_(proven, rows.map(function(d, i) {
+    var v = data.valueRanges[i].values;
+    return { name: d.name, vC1: d.vC1, formula: v && v[0] ? v[0][0] : "" };
+  }));
+  out.targets = targets.length;
+  for (var i = 0; i < targets.length; i++) {
+    if (Date.now() >= deadlineMs) { out.reason = "BUDGET"; break; }
+    var sh = ss.getSheetByName(targets[i]);
+    if (!sh) continue;
+    sh.getRange("B1").setValue(nowStr);
+    out.pulsed++;
+  }
+  return out;
+}
+
 function _wd_staleAgeMs_(vI1, nowMs) {
   try {
     var ts = _wd_extractTimestamp_(vI1);
@@ -1301,6 +1390,43 @@ function _wd_isCexSheet_(name) {
           n.indexOf("kraken") >= 0 ||
           n.indexOf("bybit") >= 0 ||
           (n.indexOf("binance") >= 0 && n.indexOf("web3") < 0));
+}
+
+// 2026-11-08 (P1-REC-QUEUE-FRESHNESS) : objectif de fraicheur de 6 h (TTL du cache et de la file).
+// C'est un OBJECTIF, pas une garantie : le debit est borne (10 impulsions et 8 scans par passage).
+// Un depassement est signale dans le diagnostic du watchdog (stats.freshnessBreach), jamais masque.
+var WD_FRESHNESS_TARGET_HOURS = 6;
+
+/** Statuts I1 dont la date est celle du cache persiste (11_EVM getRefreshStatus, 41 _webScanWallet_). */
+function _wd_i1CarriesCacheDate_(i1Norm) {
+  return /^(?:\[(?:CACHE_ONLY|REFRESH_QUEUED|REFRESH_QUEUE_ERROR|REFRESH_QUEUE_DEFERRED|REFRESH_QUEUE_FULL|REFRESH_COOLDOWN|REFRESH_NOT_DUE|WEB_SCAN_DEGRADED)\]|WEB_SCAN_OK\s|TON_SCAN_OK\s)/.test(String(i1Norm || ""));
+}
+
+/**
+ * Compte les sources dont la DONNEE (et non l'impulsion) depasse l'objectif. Une date absente ou
+ * portant l'heure d'un controle (PRESERVED, ERROR, NO_CACHE...) est INCONNUE, jamais comptee fraiche.
+ */
+function _wd_trackFreshness_(stats, sheetName, i1Norm, i1Ms, nowMs) {
+  var dated = _wd_i1CarriesCacheDate_(i1Norm) && isFinite(i1Ms) && i1Ms > 0 && i1Ms <= nowMs;
+  var res = { dataAgeMs: dated ? nowMs - i1Ms : null, breach: dated && nowMs - i1Ms >= WD_FRESHNESS_TARGET_HOURS * 3600000,
+    // Seuil de prevention (5 h) distinct de l'alerte (6 h) : la source est impulsee avant le depassement.
+    atRisk: dated && nowMs - i1Ms >= WD_STALE_I1_HOURS * 3600000 };
+  if (!stats) return res;
+  var fb = stats.freshnessBreach;
+  if (!fb) fb = stats.freshnessBreach = { targetHours: WD_FRESHNESS_TARGET_HOURS, count: 0, unknownCount: 0, datedCount: 0, oldestDataAgeMin: null, sheets: [], status: "UNKNOWN" };
+  if (!_wd_i1CarriesCacheDate_(i1Norm) || !isFinite(i1Ms) || i1Ms <= 0 || i1Ms > nowMs) {
+    fb.unknownCount++;
+  } else {
+    fb.datedCount++;
+    var ageMin = Math.floor((nowMs - i1Ms) / 60000);
+    if (fb.oldestDataAgeMin === null || ageMin > fb.oldestDataAgeMin) fb.oldestDataAgeMin = ageMin;
+    if (ageMin >= WD_FRESHNESS_TARGET_HOURS * 60) {
+      fb.count++;
+      if (fb.sheets.length < 10) fb.sheets.push(String(sheetName || ""));
+    }
+  }
+  fb.status = fb.count > 0 ? "BREACH" : (fb.datedCount > 0 && fb.unknownCount === 0 ? "WITHIN_TARGET" : (fb.datedCount > 0 ? "WITHIN_TARGET_PARTIAL" : "UNKNOWN"));
+  return res;
 }
 
 function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, partialCandidates) {
@@ -1377,7 +1503,12 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     var needsA2Recalc = _wd_a2NeedsRecalc_(vA2Norm) &&
       _wd_isLastUpdateFormat_(extractedI1) && _wd_shouldSyncJ1_(d.vI1 || "", "");
     var cooldownMin = refreshCheck.useBlockedCooldown ? WD_PULSE_MIN_BLOCKED : WD_PULSE_MIN;
-    var canPulseNormally = !needsA2Recalc && !suppressB1Pulses && webErrorAllowed &&
+    // 2026-11-06 (C3) : un total Recap vide peut etre une valorisation UNKNOWN (fail-closed),
+    // pas une erreur de formule. Une ligne PERIMEE ne doit jamais perdre son pulse B1 a cause
+    // de ce signal (sinon : total UNKNOWN faute de scan, et pas de scan faute de total).
+    // Le bump J1 a2_error_recalc reste applique ensuite, inchange.
+    var a2BlocksPulse = needsA2Recalc && !(refreshCheck.needsPulse && refreshCheck.reason === "stale");
+    var canPulseNormally = !a2BlocksPulse && !suppressB1Pulses && webErrorAllowed &&
       refreshCheck.blockedReason !== "QUOTA" &&
       _wd_shouldPulseB1_(d.vB1 || "", nowMs, cooldownMin);
     var cycleAgeMs = Number.MAX_SAFE_INTEGER;
@@ -1386,6 +1517,13 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     var cycleLatestMs = Math.max(isFinite(cycleI1Ms) ? cycleI1Ms : 0, isFinite(cycleB1Ms) ? cycleB1Ms : 0);
     // v4.16.46: [CACHE_ONLY] stays stale even when B1 is refreshed.
     // Use I1 as the age anchor so the wallet doesn't look "recently serviced".
+    // 2026-11-08 (Mitosis) : palier de depassement. Une source dont la DONNEE persistee (date de cache
+    // portee par I1) depasse l'objectif de 6 h passe devant les autres, meme juste apres une impulsion B1
+    // sans scan persiste (preserve, evince, echecs, cooldown). L'ordre tournant max(I1,B1) est conserve
+    // A L'INTERIEUR de chaque palier : ancrer tout l'ordre sur I1 affamait les sources moins anciennes
+    // quand les scans echouent durablement (test de famine sur 12 passages).
+    var freshness = typeof _wd_trackFreshness_ === "function"
+      ? _wd_trackFreshness_(stats, sheetName, i1Norm, cycleI1Ms, nowMs) : { dataAgeMs: null, breach: false };
     if (i1Norm.indexOf("[CACHE_ONLY]") === 0 && isFinite(cycleI1Ms) && isFinite(cycleB1Ms) && cycleB1Ms > cycleI1Ms) {
       cycleLatestMs = cycleI1Ms;
     }
@@ -1404,6 +1542,11 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
         priority: _wd_refreshReasonPriority_(pulseReason),
         staleAgeMs: _wd_staleAgeMs_(d.vI1 || "", nowMs),
         cycleAgeMs: cycleAgeMs,
+        dataAgeMs: freshness.dataAgeMs,
+        freshnessBreach: freshness.breach,
+        freshnessAtRisk: !!freshness.atRisk,
+        // Une admission perdue ne doit pas attendre une rotation complete (~2,5 h).
+        lostAdmission: /^\[REFRESH_QUEUE_(?:ERROR|DEFERRED|FULL)\]/.test(i1Norm),
         webError: isWebError,
         pendingWebBackoffEntry: stagedWebBackoffEntry
       };
@@ -1509,10 +1652,12 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
   urgentCandidates = Object.keys(urgentByTarget).map(function(key) { return urgentByTarget[key]; });
 
   cycleCandidates.sort(function(a, b) {
+    if (!!a.freshnessBreach !== !!b.freshnessBreach) return a.freshnessBreach ? -1 : 1;
     if (a.cycleAgeMs !== b.cycleAgeMs) return b.cycleAgeMs - a.cycleAgeMs;
     return String(a.sheetName || "").localeCompare(String(b.sheetName || ""));
   });
   urgentCandidates.sort(function(a, b) {
+    if (!!a.freshnessBreach !== !!b.freshnessBreach) return a.freshnessBreach ? -1 : 1;
     var aAge = isFinite(Number(a.cycleAgeMs)) ? Number(a.cycleAgeMs) : Number(a.staleAgeMs || 0);
     var bAge = isFinite(Number(b.cycleAgeMs)) ? Number(b.cycleAgeMs) : Number(b.staleAgeMs || 0);
     if (aAge !== bAge) return bAge - aAge;
@@ -1531,10 +1676,29 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
     }
   }
 
-  takeNextDistinct_(cycleCandidates, Math.min(WD_CYCLE_SLOTS_PER_RUN, WD_MAX_PULSES_PER_RUN));
+  // 2026-11-09 : palier prioritaire commun aux deux voies, borne et tournant (max(I1,B1)) pour ne pas
+  // affamer les autres sources si les scans echouent durablement ; cooldown B1 deja applique en amont.
+  var priorityCandidates = cycleCandidates.concat(urgentCandidates).filter(function(candidate) {
+    return !!candidate.freshnessAtRisk || !!candidate.lostAdmission;
+  });
+  priorityCandidates.sort(function(a, b) {
+    var aTier = a.freshnessAtRisk ? 0 : 1, bTier = b.freshnessAtRisk ? 0 : 1;
+    if (aTier !== bTier) return aTier - bTier;
+    var aAge = isFinite(Number(a.cycleAgeMs)) ? Number(a.cycleAgeMs) : 0;
+    var bAge = isFinite(Number(b.cycleAgeMs)) ? Number(b.cycleAgeMs) : 0;
+    if (aAge !== bAge) return bAge - aAge;
+    return String(a.sheetName || "").localeCompare(String(b.sheetName || ""));
+  });
+  var prioritySlots = typeof WD_PRIORITY_SLOTS_PER_RUN === "number" ? WD_PRIORITY_SLOTS_PER_RUN : 0;
+  takeNextDistinct_(priorityCandidates, Math.min(prioritySlots, WD_MAX_PULSES_PER_RUN));
+  var priorityTaken = selectedPulses.length;
+  takeNextDistinct_(cycleCandidates, Math.min(Math.max(WD_CYCLE_SLOTS_PER_RUN, priorityTaken + 1), WD_MAX_PULSES_PER_RUN));
   var cycleSelected = selectedPulses.length;
   takeNextDistinct_(urgentCandidates, Math.min(WD_MAX_PULSES_PER_RUN, selectedPulses.length + 1));
   if (cycleSelected < WD_CYCLE_SLOTS_PER_RUN) takeNextDistinct_(urgentCandidates, WD_MAX_PULSES_PER_RUN);
+  // Palier actif : le budget restant va d'abord aux sources en attente (voie urgente), pas aux sources
+  // saines du cycle ; le budget de WD_MAX_PULSES_PER_RUN est toujours complete. Sans palier : ordre LIVE inchange.
+  if (priorityTaken > 0) takeNextDistinct_(urgentCandidates, WD_MAX_PULSES_PER_RUN);
   takeNextDistinct_(cycleCandidates, WD_MAX_PULSES_PER_RUN);
 
   var allPulseTargets = {};
@@ -1548,8 +1712,222 @@ function _wd_collectGlobalRefreshActions_(items, nowMs, staleMs, nowStr, stats, 
   stats.stateErrors = Number(stats.stateErrors || 0) + reservation.errors;
   stats.b1Planned = selectedPulses.length;
   stats.globalPulseCandidates = Object.keys(allPulseTargets).length;
+  var ppropPendingSync = {};
+  for (var psi = 0; psi < syncActions.length; psi++) {
+    if (syncActions[psi] && syncActions[psi].sheetName) ppropPendingSync[syncActions[psi].sheetName] = true;
+  }
   syncActions = _wd_selectFairJ1Actions_(syncActions, items.length, P_WD_J1_CURSOR, stats);
-  return syncActions.concat(selectedPulses);
+  // P-PROP : seulement la capacite residuelle du budget J1 existant (jamais une nouvelle enveloppe).
+  var ppropActions = [];
+  try {
+    ppropActions = _wd_ppropCollect_(items, ppropPendingSync, Number(SYNC_J1_MAX_SYNCS_PER_RUN || 20) - syncActions.length, nowMs, stats);
+  } catch (ePprop) {
+    stats.ppropError = String((ePprop && ePprop.message) || ePprop).substring(0, 80);
+    ppropActions = [];
+  }
+  return syncActions.concat(ppropActions, selectedPulses);
+}
+
+// ============================================================
+// P-PROP (2026-11-08) : propagation bornee NativePriceStore -> Ledgers
+// ============================================================
+
+/**
+ * Generation utilisable du magasin natif, ou null.
+ * Nouvelle generation : ce passage a ecrit des prix (written > 0) ET le magasin relu
+ * depuis le CacheService porte refreshedAt === nowMs (la sauvegarde a reussi).
+ * Generation en cours : la derniere generation etablie (propriete) est toujours celle
+ * du magasin relu. NOT_DUE, written=0, FX_UNAVAILABLE ou un refreshedAt inconnu
+ * n'etablissent rien.
+ */
+function _wd_ppropGeneration_(nativePrices, nowMs, stats) {
+  stats = stats || {};
+  if (typeof NativePriceStore === "undefined" || !NativePriceStore || typeof NativePriceStore.load !== "function") return null;
+  var store = NativePriceStore.load();
+  var refreshedAt = Number(store && store.refreshedAt);
+  if (!(isFinite(refreshedAt) && refreshedAt > 0) || !store.entries) return null;
+  var props = PropertiesService.getScriptProperties();
+  var np = nativePrices || {};
+  if (Number(np.written) > 0 && refreshedAt === Number(nowMs)) {
+    try { props.setProperty(P_WD_PPROP_GEN, String(refreshedAt)); }
+    catch (eGen) { stats.stateErrors = Number(stats.stateErrors || 0) + 1; return null; }
+    stats.ppropGen = "NEW";
+    return { id: String(refreshedAt), store: store };
+  }
+  var known = props.getProperty(P_WD_PPROP_GEN);
+  if (known && String(refreshedAt) === String(known)) {
+    stats.ppropGen = "PENDING";
+    return { id: String(known), store: store };
+  }
+  return null;
+}
+
+/** Libelle de chaine d'une feuille : apres le dernier " - ", sans suffixe " Crypto". */
+function _wd_ppropChainLabel_(sheetName) {
+  var name = String(sheetName || "");
+  var sep = name.lastIndexOf(" - ");
+  if (sep < 0) return "";
+  return name.substring(sep + 3).replace(/ Crypto$/, "").trim().toLowerCase();
+}
+
+/** Index des chaines EVM actives : libelle -> {id, flags} (registre ChainFactory). */
+function _wd_ppropChainIndex_() {
+  var out = {};
+  try {
+    var reg = (typeof ChainFactory !== "undefined" && ChainFactory.getRegistry) ? ChainFactory.getRegistry() : {};
+    for (var key in reg) {
+      if (!Object.prototype.hasOwnProperty.call(reg, key)) continue;
+      var cfg = null;
+      try { cfg = (reg[key] && typeof reg[key].getConfig === "function") ? reg[key].getConfig() : null; } catch (eCfg) { cfg = null; }
+      if (!cfg || !cfg.CHAIN || !/_EVM_v/.test(String(cfg.VERSION || ""))) continue; // seul le rendu EVM consulte le magasin
+      var id = cfg.CHAIN.NATIVE_LLAMA_ID;
+      var label = String(cfg.CHAIN.NAME || "").trim().toLowerCase();
+      if (!label || typeof id !== "string" || !id) continue;
+      var flags = cfg.FLAGS || {};
+      out[label] = { id: id, disabled: flags.DISABLE_CHAIN === true,
+        noDirectNative: !!(flags.NATIVE_BALANCE_TOKEN_CONTRACT || flags.DISABLE_NATIVE_BALANCE) };
+    }
+  } catch (eReg) {}
+  return out;
+}
+
+/** "7361 sec" -> 7361 ; sinon null. */
+function _wd_ppropParseAgeSec_(v) {
+  var m = String(v || "").match(/^(\d+)\s*sec$/);
+  return m ? Number(m[1]) : null;
+}
+
+/** Meme regle que le rendu 11_EVM : entree attestee, FX date, min(obs, FX) dans la fenetre, avec marge. */
+function _wd_ppropStoreAdmissible_(store, id, nowMs) {
+  try {
+    var maxAge = (typeof WCORE_CACHE_CONFIG !== "undefined" && Number(WCORE_CACHE_CONFIG.PRICE_STALE_MS) > 0) ? Number(WCORE_CACHE_CONFIG.PRICE_STALE_MS) : 5400000;
+    var e = NativePriceStore.get(id, maxAge, nowMs, store);
+    if (!e || !(Number(e.eur) > 0)) return false;
+    var raw = store.entries[String(id)] || {};
+    var fxAt = Number(raw.fxCollectedAt);
+    if (!(isFinite(fxAt) && fxAt > 0 && fxAt <= nowMs + 5 * 60 * 1000)) return false;
+    return (nowMs - Math.min(Number(e.observedAt), fxAt)) < (maxAge - WD_PPROP_RENDER_MARGIN_MS);
+  } catch (eAdm) { return false; }
+}
+
+function _wd_ppropSheetEligible_(d, pendingSync, chains, store, nowMs) {
+  var name = String((d && (d.name || d.sheetName)) || "");
+  if (!name || d.vErr === undefined || d.vAge === undefined) return null;   // donnees Recap absentes : refus
+  if (/ Action$/.test(name)) return null;                                     // vues Action : projection, INFO_TOTAL statique
+  if (_wd_isCexSheet_(name)) return null;
+  if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(name)) return null;
+  if (pendingSync[name]) return null;                                         // une synchro J1 recalculera deja
+  var vI1 = _wd_norm_(d.vI1 || "");
+  if (_wd_isBlocked_(vI1).blocked || /CHAIN_DISABLED|CHAIN_REMOVED|NO_CACHE/.test(vI1)) return null;
+  if (String(d.vErr || "").indexOf("NATIVE_PRICE_UNKNOWN") !== 0) return null;
+  var ageSec = _wd_ppropParseAgeSec_(d.vAge);
+  var walletTtl = (typeof WCORE_CACHE_CONFIG !== "undefined" && Number(WCORE_CACHE_CONFIG.WALLET_TTL_MS) > 0) ? Number(WCORE_CACHE_CONFIG.WALLET_TTL_MS) : 21600000;
+  if (ageSec == null || ageSec * 1000 >= walletTtl) return null;              // cache (borne du solde) >= 6 h : refus
+  if (!_wd_isLastUpdateFormat_(_wd_norm_(d.vJ1 || ""))) return null;
+  var ch = chains[_wd_ppropChainLabel_(name)];
+  if (!ch || ch.disabled || ch.noDirectNative) return null;
+  if (!_wd_ppropStoreAdmissible_(store, ch.id, nowMs)) return null;
+  return { name: name, id: ch.id, vJ1: _wd_norm_(d.vJ1 || "") };
+}
+
+/**
+ * Selection P-PROP : au plus `capacity` bumps (capacite residuelle du budget J1),
+ * une seule fois par feuille et par generation (latch persiste AVANT l'ecriture, sous
+ * verrou). Verrou indisponible ou latch non persistable : aucune demande.
+ */
+function _wd_ppropCollect_(items, pendingSync, capacity, nowMs, stats) {
+  stats = stats || {};
+  var cap = Math.max(0, Math.min(Number(capacity) || 0, Number(SYNC_J1_MAX_SYNCS_PER_RUN || 20), WD_PPROP_MAX_PER_RUN));
+  // Sans colonnes C/AS lues (fallback Sheets API, FORCE_WATCHDOG_PARTIAL_CHECK avec items=[]) : P-PROP inactif, latch intact.
+  var hasNpuData = false;
+  for (var h = 0; h < (items || []).length; h++) { if (items[h] && items[h].vErr !== undefined && items[h].vAge !== undefined) { hasNpuData = true; break; } }
+  if (!hasNpuData) return [];
+  // La generation est enregistree meme sans capacite : les feuilles differees restent eligibles.
+  var gen = _wd_ppropGeneration_(stats.nativePrices, nowMs, stats);
+  if (!gen || cap === 0 || stats.j1ClaimBusy) return [];
+  var chains = _wd_ppropChainIndex_();
+  var candidates = [];
+  for (var i = 0; i < (items || []).length; i++) {
+    var c = _wd_ppropSheetEligible_(items[i] || {}, pendingSync || {}, chains, gen.store, nowMs);
+    if (c) candidates.push(c);
+  }
+  stats.ppropCandidates = candidates.length;
+  // Sans candidat, le verrou n est pris que pour elaguer un latch existant (episodes NPU clos).
+  if (!candidates.length && !PropertiesService.getScriptProperties().getProperty(P_WD_PPROP_LATCH)) return [];
+  var out = [], lock = null, locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) { stats.ppropLockBusy = true; return []; }
+    locked = true;
+    var props = PropertiesService.getScriptProperties();
+    var latch = null;
+    try { latch = JSON.parse(props.getProperty(P_WD_PPROP_LATCH) || "null"); } catch (eParse) { latch = null; }
+    if (!latch || !latch.sheets || typeof latch.sheets !== "object") latch = { gen: gen.id, sheets: {} };
+    // Entree par feuille : {g: generation du dernier bump, n: bumps consecutifs sans disparition du NPU}.
+    // Une feuille lue sans NPU est oubliee (episode NPU clos) ;
+    // celles de la generation courante sont conservees (pas de rebump pendant la resynchronisation).
+    // Episode NPU clos seulement si la feuille est lue sans NPU (une exclusion temporaire, ex. resynchro, ne le clot pas).
+    var cands = {}, kept = {};
+    for (var q = 0; q < (items || []).length; q++) { var it = items[q] || {};
+      if (it.name && /^NATIVE_PRICE_UNKNOWN/.test(String(it.vErr == null ? "" : it.vErr).trim())) cands[it.name] = true; }
+    var before = 0;
+    for (var nm in latch.sheets) {
+      before++;
+      if (!Object.prototype.hasOwnProperty.call(latch.sheets, nm)) continue;
+      var en = latch.sheets[nm];
+      if (en && typeof en === "object" && (cands[nm] || en.g === gen.id)) kept[nm] = { g: String(en.g || ""), n: Number(en.n) || 0 };
+    }
+    latch = { gen: gen.id, sheets: kept };
+    // Rotation : jamais traitee d'abord, puis la generation de bump la plus ancienne ; ordre du Recap sinon.
+    var order = candidates.map(function (cnd, idx) { var e0 = kept[cnd.name]; return { c: cnd, idx: idx, g: e0 ? Number(e0.g) || 0 : 0 }; });
+    order.sort(function (x, y) { return (x.g - y.g) || (x.idx - y.idx); });
+    var already = 0, exhausted = 0, changed = Object.keys(kept).length !== before;
+    for (var k = 0; k < order.length; k++) {
+      var cand = order[k].c, prev = kept[cand.name];
+      if (prev && prev.g === gen.id) { already++; continue; }
+      if (prev && prev.n >= WD_PPROP_MAX_INEFFECTIVE) { exhausted++; continue; } // 2 bumps sans effet : arret conservateur
+      if (out.length >= cap) continue;
+      var bumped = _wd_bumpTimestampSeconds_(cand.vJ1, 1);
+      if (!bumped) continue;
+      out.push({ sheet: null, sheetName: cand.name, range: "J1", value: bumped, type: "sync", reason: "native_price_store", ppropGen: gen.id });
+      kept[cand.name] = { g: gen.id, n: (prev ? prev.n : 0) + 1 };
+      changed = true;
+    }
+    stats.ppropAlready = already;
+    stats.ppropExhausted = exhausted;
+    stats.ppropDeferred = Math.max(0, candidates.length - already - exhausted - out.length);
+    if (changed) props.setProperty(P_WD_PPROP_LATCH, JSON.stringify(latch));
+  } catch (eLatch) {
+    stats.stateErrors = Number(stats.stateErrors || 0) + 1;
+    out = [];
+  } finally {
+    if (locked && lock) { try { lock.releaseLock(); } catch (eRel) {} }
+  }
+  stats.ppropSelected = out.length;
+  return out;
+}
+
+/** Retire du latch les demandes dont l'ecriture J1 a echoue. Renvoie le nombre d'erreurs d'etat. */
+function _wd_ppropRollback_(failed) {
+  var lock = null, locked = false;
+  try {
+    lock = LockService.getScriptLock();
+    if (!lock.tryLock(250)) return 1;
+    locked = true;
+    var props = PropertiesService.getScriptProperties();
+    var latch = JSON.parse(props.getProperty(P_WD_PPROP_LATCH) || "null");
+    if (!latch || !latch.sheets) return 0;
+    for (var i = 0; i < failed.length; i++) {
+      var a = failed[i] || {};
+      var en = a.sheetName ? latch.sheets[a.sheetName] : null;
+      if (!en || typeof en !== "object" || en.g !== a.ppropGen) continue;
+      if (Number(en.n) <= 1) delete latch.sheets[a.sheetName];
+      else latch.sheets[a.sheetName] = { g: "", n: Number(en.n) - 1 }; // ecriture non acquittee : de nouveau eligible
+    }
+    props.setProperty(P_WD_PPROP_LATCH, JSON.stringify(latch));
+    return 0;
+  } catch (eRb) { return 1; }
+  finally { if (locked && lock) { try { lock.releaseLock(); } catch (eRel) {} } }
 }
 
 // v4.16.81: keep an A2 recovery bump stable across both J1 writers.
@@ -1854,6 +2232,16 @@ function WATCHDOG_FROM_RECAP() {
     const t0 = Date.now();
     const nowMs = t0;
 
+    // v4.16.77: prix natifs observes independamment des scans complets
+    // (au plus 2 appels groupes toutes les 25 min, bornes par WATCHDOG_BUDGET_MS ;
+    // le drainage de la file deduit ce temps de son propre budget).
+    var _wdNativePrices = null;
+    try {
+      if (typeof NativePriceStore !== "undefined" && NativePriceStore.refreshIfDue) {
+        _wdNativePrices = NativePriceStore.refreshIfDue({ nowMs: nowMs, budgetMs: NativePriceStore.CONFIG.WATCHDOG_BUDGET_MS });
+      }
+    } catch (eNps) { _wdNativePrices = { ran: false, reason: "ERROR" }; }
+
     let stats = {
       ts: new Date().toISOString(),
       mode: "API_BATCH_v4.5.11_PARTIAL_DETECT",
@@ -1869,7 +2257,8 @@ function WATCHDOG_FROM_RECAP() {
       b1Error: 0,
       b1Blocked: 0,
       b1Partial: 0,  // v4.5.11
-      staleThresholdHours: WD_STALE_I1_HOURS
+      staleThresholdHours: WD_STALE_I1_HOURS,
+      nativePrices: _wdNativePrices
     };
 
     try {
@@ -1926,6 +2315,15 @@ function WATCHDOG_FROM_RECAP() {
       var recapA2 = recap.getRange(2, 2, lastRow - 1, 1).getDisplayValues(); // col B = total
       var recapB1 = recap.getRange(2, 4, lastRow - 1, 1).getDisplayValues(); // col D = B1
       var recapC1 = recap.getRange(2, 5, lastRow - 1, 1).getDisplayValues(); // col E = C1
+      // P-PROP : ERROR (col C) et Cache.age_sec (col AS), seulement si les en-tetes sont ceux attendus.
+      var recapErr = null, recapAge = null;
+      try {
+        var ppropHdr = recap.getRange(1, 1, 1, 45).getDisplayValues()[0] || [];
+        if (_wd_norm_(String(ppropHdr[2] || "")) === "ERROR" && _wd_norm_(String(ppropHdr[44] || "")) === "Cache.age_sec") {
+          recapErr = recap.getRange(2, 3, lastRow - 1, 1).getDisplayValues();
+          recapAge = recap.getRange(2, 45, lastRow - 1, 1).getDisplayValues();
+        }
+      } catch (ePpropRead) { recapErr = null; recapAge = null; }
 
       // Build sheetData from ALL Recap Chain values (no formula recalc).
       // v4.15.76: stale/error rows must be considered globally. The previous
@@ -1941,7 +2339,9 @@ function WATCHDOG_FROM_RECAP() {
           vI1: _wd_norm_(String((recapI1[ri] && recapI1[ri][0]) || "")),
           vJ1: _wd_norm_(String((recapJ1[ri] && recapJ1[ri][0]) || "")),
           vB1: _wd_norm_(String((recapB1[ri] && recapB1[ri][0]) || "")),
-          vC1: _wd_norm_(String((recapC1[ri] && recapC1[ri][0]) || ""))
+          vC1: _wd_norm_(String((recapC1[ri] && recapC1[ri][0]) || "")),
+          vErr: recapErr ? _wd_norm_(String((recapErr[ri] && recapErr[ri][0]) || "")) : undefined,
+          vAge: recapAge ? _wd_norm_(String((recapAge[ri] && recapAge[ri][0]) || "")) : undefined
         });
       }
 
@@ -1976,10 +2376,19 @@ function WATCHDOG_FROM_RECAP() {
         if (typeof _webScanQueueDrain_ === "function" && typeof _webScanQueueEnabled_ === "function" && _webScanQueueEnabled_()) {
           var _qRemaining = 300000 - (Date.now() - t0) - 30000;
           if (_qRemaining > GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS) {
-            var _qRes = _webScanQueueDrain_({ maxItems: 3, budgetMs: Math.min(_qRemaining, 180000) });
+            try { stats.scanQueueDepthBefore = _webScanQueueRead_().length; } catch (eQd0) {}
+            var _qRes = _webScanQueueDrain_({ maxItems: (typeof GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN === "number" ? GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN : 3), budgetMs: Math.min(_qRemaining, 180000) });
+            try { stats.scanQueueDepthAfter = _webScanQueueRead_().length; } catch (eQd1) {}
             stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
             stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
             stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome }; });
+            // v4.16.87/89: let I1 read the ACK (OK) or the rewritten cache (DEGRADED) at once.
+            try {
+              var _ackNowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm:ss");
+              stats.ackPulse = _wd_ackPulseDrained_(ss, (_qRes && _qRes.results) || [], sheetData, _ackNowStr, t0 + 300000);
+            } catch (eAckPulse) {
+              stats.ackPulse = { reason: "ERROR", error: String(eAckPulse && (eAckPulse.message || eAckPulse) || eAckPulse).substring(0, 120) };
+            }
           } else {
             stats.scanQueueReason = "WATCHDOG_BUDGET";
           }

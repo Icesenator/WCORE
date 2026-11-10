@@ -136,3 +136,27 @@ describe("post-auth rate-limit applies the authenticated bucket when req.user is
     assert.equal(await cache.get("rate_limit:scan:ip:127.0.0.1"), undefined);
   });
 });
+
+describe("rate-limit counter failure", () => {
+  test("a store that fails to increment rejects the request and never falls back to get/set", async () => {
+    const calls: string[] = [];
+    const cache = new MemoryCacheStore();
+    cache.incr = async () => { calls.push("incr"); throw new Error("EVAL refused"); };
+    const get = cache.get.bind(cache), set = cache.set.bind(cache);
+    cache.get = (async (...args: Parameters<typeof get>) => { calls.push("get"); return get(...args); }) as typeof cache.get;
+    cache.set = (async (...args: Parameters<typeof set>) => { calls.push("set"); return set(...args); }) as typeof cache.set;
+    const reply = makeReply();
+    const req = { method: "GET", url: "/api/cmc/crypto", ip: "127.0.0.1", headers: {} };
+    const realError = console.error;
+    const logged: unknown[][] = [];
+    console.error = (...args: unknown[]) => { logged.push(args); };
+    try {
+      await applyPostAuthRateLimit(req as never, reply as never, { ...baseDeps, sharedCache: cache });
+    } finally {
+      console.error = realError;
+    }
+    assert.equal(reply.statusCode, 429);
+    assert.deepEqual(calls, ["incr"]);
+    assert.equal(logged.length, 1, "the failure must be observable");
+  });
+});

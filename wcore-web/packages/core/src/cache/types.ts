@@ -15,9 +15,10 @@ export interface CacheStore {
   add<T>(key: string, value: T, ttlMs?: number): Promise<boolean>;
   /**
    * Atomically increment the numeric value at `key`, setting it to 1 if absent
-   * or expired. Returns the NEW count. `ttlSec` resets the key's expiry on each
-   * increment. Used by the rate-limit counter (Redis `INCR + EXPIRE`, in-memory
-   * event-loop-atomic read-then-write).
+   * or expired. Returns the NEW count. Fixed window: `ttlSec` is applied when the
+   * key is created and is NOT pushed back by later increments (a key found without
+   * expiry is repaired). Used by the rate-limit counter (Redis Lua `INCR` + `EXPIRE`
+   * on first hit, in-memory event-loop-atomic read-then-write). Throws on store error.
    */
   incr?(key: string, ttlSec: number): Promise<number>;
   /** Atomically consume weighted capacity without exceeding `limit`. */

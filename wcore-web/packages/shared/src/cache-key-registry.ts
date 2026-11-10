@@ -132,6 +132,13 @@ export const CACHE_KEY_REGISTRY = {
     storage: "web-only" as const,
     ttl: "30d",
   },
+  marketForcedRefresh: {
+    vars: ["kind"],
+    gsheet: null,
+    web: "market:forced-refresh:{kind}",
+    storage: "web-only" as const,
+    ttl: "10m",
+  },
   marketDailyClose: {
     vars: ["kind", "date"],
     gsheet: null,

@@ -43,15 +43,48 @@ export function computeRadii(
   if (sumSq <= 0) return values.map(() => minR);
   // Échelle telle que somme(pi * (k * root)^2) = fill * surface.
   // Plafonnée pour que seule la plus grosse touche le rayon maximal : l'ordre des tailles reste lisible.
-  let k = Math.min(Math.sqrt((fill * width * height) / (Math.PI * sumSq)), maxR / Math.max(...roots));
+  const target = fill * width * height;
+  const maxRoot = Math.max(...roots);
+  const kFill = Math.sqrt(target / (Math.PI * sumSq));
+  if (kFill > maxR / maxRoot) {
+    // Quelques géants plafonnés au rayon maximal laisseraient le cadre presque vide (ex. BTC face
+    // au reste en capitalisation). On resserre alors les écarts : rayon = maxR * (root/max)^p, avec
+    // p cherché entre 0 et 1 pour atteindre la surface visée. L'ordre des tailles est conservé.
+    const at = (p: number) => roots.map((r) => (r > 0 ? Math.max(minR, maxR * (r / maxRoot) ** p) : minR));
+    const area = (list: number[]) => list.reduce((sum, r) => sum + Math.PI * r * r, 0);
+    let lo = 0.02, hi = 1;
+    if (area(at(lo)) <= target) return at(lo);
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2;
+      if (area(at(mid)) > target) lo = mid; else hi = mid;
+    }
+    return at(hi);
+  }
+  let k = kFill;
   const radii = () => roots.map((r) => (r > 0 ? Math.min(maxR, Math.max(minR, k * r)) : minR));
   // Les bornes changent la surface réelle : on réduit l'échelle jusqu'à rester sous la cible.
   for (let i = 0; i < 20; i++) {
     const area = radii().reduce((s, r) => s + Math.PI * r * r, 0);
-    if (area <= fill * width * height) break;
+    if (area <= target) break;
     k *= 0.95;
   }
   return radii();
+}
+
+// Stablecoins indexés sur le dollar ou l'euro. L'or tokenisé (XAUT, PAXG) n'en fait pas partie.
+const STABLECOIN_SYMBOLS = new Set([
+  "USDT", "USDC", "DAI", "USDE", "USDS", "USD1", "FDUSD", "PYUSD", "TUSD", "USDD", "FRAX", "BUSD", "USDG", "RLUSD",
+  "USD0", "GUSD", "USDP", "LUSD", "CRVUSD", "GHO", "USDB", "BFUSD", "USDTB", "USDF", "USDX", "USDY", "USDA", "DOLA",
+  "SUSD", "EURC", "EURS", "EURT", "EURCV", "AEUR",
+]);
+
+/**
+ * Vrai pour un stablecoin connu dont le prix est bien proche de la parité (0,7 à 1,3 EUR) :
+ * un homonyme qui vaut autre chose n'est pas masqué.
+ */
+export function isStablecoinRow(row: MarketCapRow): boolean {
+  if (!STABLECOIN_SYMBOLS.has(row.symbol.toUpperCase())) return false;
+  return row.priceEur === null || (row.priceEur > 0.7 && row.priceEur < 1.3);
 }
 
 /** Vert en hausse, rouge en baisse, gris si inconnu ; l'opacité croît avec l'ampleur. */

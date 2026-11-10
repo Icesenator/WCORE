@@ -13,6 +13,8 @@ export interface TransferLogDiscoveryParams {
   rpc: EvmRpc;
   fromBlock?: string;
   toBlock?: string;
+  /** Blocks per eth_getLogs call (chain RPC.LOG_CHUNK_BLOCKS); invalid or absent = LOG_CHUNK_SIZE. */
+  chunkBlocks?: number;
 }
 
 export interface TransferLogDiscoveryResult {
@@ -66,7 +68,10 @@ export async function discoverTokensByTransferLogs(params: TransferLogDiscoveryP
   // If block range is numeric and large, chunk it to avoid RPC rejection
   const fromNum = parseInt(String(fromBlock), 16);
   const toNum = parseInt(String(toBlock), 16);
-  const shouldChunk = !isNaN(fromNum) && !isNaN(toNum) && toNum - fromNum > LOG_CHUNK_SIZE;
+  const chunkSize = typeof params.chunkBlocks === "number" && Number.isSafeInteger(params.chunkBlocks) && params.chunkBlocks > 0
+    ? params.chunkBlocks
+    : LOG_CHUNK_SIZE;
+  const shouldChunk = !isNaN(fromNum) && !isNaN(toNum) && toNum - fromNum > chunkSize;
 
   async function discoverForTopicIndex(topicIndex: 1 | 2): Promise<{ contracts: string[]; errors: string[] }> {
     const topicFound = new Set<string>();
@@ -77,8 +82,8 @@ export async function discoverTokensByTransferLogs(params: TransferLogDiscoveryP
 
     if (shouldChunk) {
       const chunks: Array<[string, string]> = [];
-      for (let chunkFrom = fromNum; chunkFrom < toNum; chunkFrom += LOG_CHUNK_SIZE) {
-        const chunkTo = Math.min(chunkFrom + LOG_CHUNK_SIZE - 1, toNum);
+      for (let chunkFrom = fromNum; chunkFrom <= toNum; chunkFrom += chunkSize) {
+        const chunkTo = Math.min(chunkFrom + chunkSize - 1, toNum);
         chunks.push([`0x${chunkFrom.toString(16)}`, `0x${chunkTo.toString(16)}`]);
       }
       // Process chunks in parallel groups of LOG_CHUNK_CONCURRENCY

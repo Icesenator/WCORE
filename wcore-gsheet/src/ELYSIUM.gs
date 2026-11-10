@@ -1,39 +1,45 @@
 /**
- * ELYSIUM.gs - Elysium Mainnet (Vulcan Forged, chainId 1339)
+ * ELYSIUM.gs - Elysium Mainnet de Kinetiq (chainId 99901 = 0x1863d), gaz HYPE
  * ChainFactory pattern with explicit function declarations
  *
- * Verifie le 2026-11-10 (RPC en direct) :
- *  - rpc.elysiumchain.tech et 1339.rpc.thirdweb.com repondent eth_chainId = 0x53b = 1339,
- *    blocs frais (~6 s). elysium-rpc.vulcanforged.com et explorer.elysiumchain.tech ne
- *    resolvent plus ; rpc.elysiumchain.us repond 503 : non retenus.
- *  - eth_getLogs : plage de 1 000 blocs acceptee, 5 000 blocs refusee (timeout 10 s du RPC).
- *    D'ou MAX_LOG_RANGE = 1000 (meme reglage que Somnia, TAC, B3, Citrea). LIMITE CONNUE : la
- *    decouverte de tokens par journaux ne couvre que les ~1 000 derniers blocs (~1 h 40) ; un
- *    transfert ERC-20 plus ancien que la fenetre et anterieur au premier scan n est pas
- *    decouvert. Le solde natif LAVA (eth_getBalance) reste exact. L explorateur Blockscout est
- *    auto-heberge (hors Blockscout Pro API) : il ne sert pas encore a la decouverte.
- *  - Explorateur Blockscout v2 : https://elysiumscan.com (blockscout.elysiumchain.tech y redirige).
- *  - Natif : LAVA, 18 decimales (registre chainlist, chainId 1339).
+ * Reseau retenu (decision operateur du 2026-11-10) : Elysium de KINETIQ, mainnet 99901.
+ * NE PAS confondre avec :
+ *  - Elysium Testnet de Kinetiq (99801) ;
+ *  - Elysium de Vulcan Forged (1339, natif LAVA) et son testnet (1338).
+ * Le controle eth_chainId de chaque endpoint (99901) rejette tout RPC d un autre reseau.
  *
- * PRIX : aucune source fiable. Ne PAS renseigner NATIVE_GECKO_ID / NATIVE_LLAMA_ID / DEX_SLUG /
- * GT_NETWORK : CoinGecko "lava-network" est un autre projet (Lava Network) ; le reseau
- * "elysium" de DexScreener est l Elysium de Kinetiq (chainId 99801, gaz HYPE) ; GeckoTerminal
- * "elysium" n a aucun pool. Le solde LAVA est donc affiche sans valeur (UNKNOWN), jamais
- * valorise a un prix emprunte.
+ * Verifie le 2026-11-10 au RPC https://rpc.elysium.kinetiq.xyz :
+ *  - eth_chainId = 0x1863d = 99901, blocs frais, temps de bloc moyen ~0,49 s ;
+ *  - eth_getBalance et eth_getTransactionCount repondent ;
+ *  - eth_getLogs filtre par portefeuille : toute la chaine (~3,8 M blocs) en un appel (~0,4 s),
+ *    aucun plafond de plage observe, d ou l absence de MAX_LOG_RANGE.
+ *  - MIN_LOG_SCAN_BLOCKS = 500 000 (~68 h) : la fenetre par defaut du Web (5 000 blocs) ne
+ *    couvre que ~41 min sur cette chaine ; sans plancher, un token recu entre deux scans
+ *    espaces de plusieurs heures ne serait jamais decouvert.
+ *  - LOG_CHUNK_BLOCKS = 600 000 : un seul eth_getLogs par sens de transfert. Avec le decoupage
+ *    par defaut (10 000 blocs), la fenetre de 500 000 blocs faisait 100 appels et le RPC
+ *    repondait HTTP 429 (mesure le 2026-11-10) : la decouverte echouait.
+ *  - Explorateur : https://elysium.kinetiq.xyz/explorer.
  *
- * Ne pas confondre avec Elysium Testnet (1338) ni avec l Elysium de Kinetiq (99801).
+ * Prix : HYPE comme sur HyperEVM (DefiLlama coingecko:hyperliquid, puis CoinGecko), verifie
+ * date le 2026-11-10. DEX_SLUG "elysium" = reseau DexScreener de Kinetiq (paires HYPE natives et
+ * USDC 0xb47c...0b65). GeckoTerminal non renseigne (aucun pool, reseau non identifie).
  */
 
 var _ELYSIUM = ChainFactory.createEvmChain("ELYSIUM", {
  CACHE_VERSION: 63,
- RPC: { ENDPOINTS: ["https://rpc.elysiumchain.tech", "https://1339.rpc.thirdweb.com"], MAX_LOG_RANGE: 1000 },
+ RPC: { ENDPOINTS: ["https://rpc.elysium.kinetiq.xyz"], MIN_LOG_SCAN_BLOCKS: 500000, LOG_CHUNK_BLOCKS: 600000 },
  CHAIN: {
  NAME: "Elysium",
- CHAIN_ID: 1339,
- NATIVE_SYMBOL: "LAVA",
- NATIVE_NAME: "LAVA",
- NATIVE_DECIMALS: 18
- }
+ CHAIN_ID: 99901,
+ NATIVE_SYMBOL: "HYPE",
+ NATIVE_NAME: "Hyperliquid",
+ NATIVE_DECIMALS: 18,
+ NATIVE_LLAMA_ID: "coingecko:hyperliquid",
+ NATIVE_GECKO_ID: "hyperliquid",
+ DEX_SLUG: "elysium"
+ },
+ LLAMA_ID_MAP: { "HYPE":"coingecko:hyperliquid", "WHYPE":"coingecko:hyperliquid", "USDC":"coingecko:usd-coin" }
 });
 
 // Main functions

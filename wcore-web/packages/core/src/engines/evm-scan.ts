@@ -31,7 +31,7 @@ import type { CacheStore } from "../cache/index.js";
 import { DISCOVERY_CACHE_TTL_MS } from "../cache/index.js";
 import type { BalanceDecision, BalanceSource } from "../balances/index.js";
 import {
-  DEFAULT_LOG_SCAN_BLOCKS,
+  effectiveLogScanWindow,
   normalizeEvmAddress,
   normalizeChainKey,
   roundMoney,
@@ -192,7 +192,7 @@ export async function getEvmWalletAssets(
   const tokenDiscovery = opts.tokenDiscovery ?? registryTokenDiscovery;
   if (!opts.fxRate) throw new Error("FX rate required in opts (use getEurUsdRate from ./fx.js)");
   const fxRate: number = opts.fxRate;
-  const logBlockWindow = opts.logBlockRange ?? DEFAULT_LOG_SCAN_BLOCKS;
+  const logBlockWindow = effectiveLogScanWindow(chain, opts.logBlockRange);
   const errors: string[] = [];
 
   const startTime = Date.now();
@@ -320,6 +320,7 @@ export async function getEvmWalletAssets(
           rpc,
           fromBlock: logRange.fromBlock,
           toBlock: logRange.toBlock,
+          chunkBlocks: chain.RPC?.LOG_CHUNK_BLOCKS as number | undefined,
         }),
         explorerDiscovery: () => discoverTokensFromExplorer(normalizedAddress, key, undefined, cache),
         trustExplorerWhenClean: hasExplorerDiscovery(key),

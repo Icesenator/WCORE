@@ -948,6 +948,8 @@ test("okxCollectMainBalances succeeds with empty but readable pockets", async ()
     (ccy) => pushed.push(["funding", ccy]),
   );
   assert.deepEqual(pushed, [["funding", "ETH"]]);
+});
+
 const { resolveEurPerUsd } = require("./server.js");
 
 test("resolveEurPerUsd prefers Binance, falls back to Yahoo, and never invents a fixed rate", async () => {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, stepBubbles,
+  bubbleMetric, bubbleShade, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -333,6 +333,8 @@ function paintBubbles(
   const dpr = canvas.width / w;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   for (const b of bubbles) {
     const row = rows.get(b.id);
     if (!row) continue;
@@ -353,13 +355,14 @@ function paintBubbles(
     ctx.lineWidth = dragId === b.id ? 3 : 1.25;
     ctx.strokeStyle = shade.rim;
     ctx.stroke();
-    drawLabel(ctx, b, row, change, logos);
+    drawLabel(ctx, b, row, change, logos, dpr);
   }
   ctx.globalAlpha = 1;
 }
 
-function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, change: number | null, logos: Map<string, HTMLImageElement | null>) {
-  const logo = loadLogo(row, logos);
+function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, change: number | null, logos: Map<string, HTMLImageElement | null>, dpr: number) {
+  // Taille réelle du logo à l'écran, en pixels physiques : elle décide de la définition demandée.
+  const logo = loadLogo(row, logos, (b.r < 14 ? b.r * 1.25 : b.r * 0.55) * dpr);
   if (b.r < 14) {
     // Trop petite pour un texte lisible : le logo seul, plutôt qu'un disque muet.
     if (logo && b.r >= 7) {
@@ -391,15 +394,21 @@ function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, 
   ctx.shadowBlur = 0;
 }
 
-function loadLogo(row: MarketCapRow, logos: Map<string, HTMLImageElement | null>): HTMLImageElement | null {
+function loadLogo(row: MarketCapRow, logos: Map<string, HTMLImageElement | null>, pixels: number): HTMLImageElement | null {
   if (!row.logoUrl) return null;
-  const cached = logos.get(row.logoUrl);
-  if (cached !== undefined) return cached && cached.complete && cached.naturalWidth > 0 ? cached : null;
+  const ready = (img: HTMLImageElement | null | undefined) => (img && img.complete && img.naturalWidth > 0 ? img : null);
+  const url = sharpLogoUrl(row.logoUrl, pixels);
+  const cached = logos.get(url);
+  // En attendant la version nette (ou si elle manque), on garde le logo de base déjà chargé.
+  if (cached !== undefined) return ready(cached) ?? (url === row.logoUrl ? null : ready(logos.get(row.logoUrl)));
   const img = new Image();
   img.decoding = "async";
   img.referrerPolicy = "no-referrer";
-  img.onerror = () => logos.set(row.logoUrl!, null);
-  img.src = row.logoUrl;
-  logos.set(row.logoUrl, img);
-  return null;
+  img.onerror = () => {
+    logos.set(url, null);
+    if (url !== row.logoUrl && logos.get(row.logoUrl!) === undefined) loadLogo(row, logos, 64);
+  };
+  img.src = url;
+  logos.set(url, img);
+  return url === row.logoUrl ? null : ready(logos.get(row.logoUrl));
 }

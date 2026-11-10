@@ -104,3 +104,15 @@ test("isStablecoinRow hides pegged stablecoins only", async () => {
   assert.equal(isStablecoinRow(row("XAUT", 3500)), false);
   assert.equal(isStablecoinRow(row("BTC", 60000)), false);
 });
+
+test("sharpLogoUrl asks for a larger logo only when the bubble needs it", async () => {
+  const { sharpLogoUrl } = await import("../lib/market-bubbles");
+  const cmc = "https://s2.coinmarketcap.com/static/img/coins/64x64/1.png";
+  const stock = "https://companiesmarketcap.com/img/company-logos/64/AAPL.png";
+  assert.equal(sharpLogoUrl(cmc, 40), cmc);
+  assert.equal(sharpLogoUrl(cmc, 100), "https://s2.coinmarketcap.com/static/img/coins/128x128/1.png");
+  assert.equal(sharpLogoUrl(cmc, 180), "https://s2.coinmarketcap.com/static/img/coins/200x200/1.png");
+  assert.equal(sharpLogoUrl(stock, 100), "https://companiesmarketcap.com/img/company-logos/128/AAPL.png");
+  assert.equal(sharpLogoUrl(stock, 300), "https://companiesmarketcap.com/img/company-logos/256/AAPL.png");
+  assert.equal(sharpLogoUrl("https://example.org/logo.png", 300), "https://example.org/logo.png");
+});

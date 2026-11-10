@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { MemoryCacheStore } from "@wcore/core";
 import { CanonicalStockService, StockServiceUnavailableError } from "./stock-service.js";
+import type { StockNativeQuoteMap } from "../cex/stock-relay.js";
 
 function csv(count = 300): string {
   const special = [
@@ -851,3 +852,31 @@ test("leaves CompaniesMarketCap caps untouched once the source converges with th
   assert.equal(tencent.marketCapUsd, verifiedCap);
   assert.equal(tencent.rank, 1);
 })
+
+test("takes the change of a non-convertible quote without ever pricing from it", async () => {
+  const fxRequests: string[][] = [];
+  const service = new CanonicalStockService({
+    cache: new MemoryCacheStore(),
+    fetchImpl: async () => new Response(csv()),
+    fetchStockQuotes: async (symbols): Promise<StockNativeQuoteMap> => (symbols.includes("TEST10") ? {
+      // Roupie : cours a 1 324 INR, jamais convertible ; seule la variation doit etre reprise.
+      TEST10: { priceNative: 1324.4, currency: "INR", yahooTicker: "TEST10", source: "yahoo:relay", pricing: false, changes: { d1: -0.8, w1: 1.2, m1: null } },
+      TEST11: { priceNative: 10, currency: "USD", yahooTicker: "TEST11", source: "yahoo:relay", changes: { d1: 2, w1: null, m1: null } },
+    } : {}),
+    fetchStockFxQuotes: async (currencies) => { fxRequests.push(currencies); return {}; },
+    getUsdToEur: async () => 0.9,
+    now: () => new Date("2026-07-11T10:00:00.000Z"),
+  });
+
+  const snapshot = await service.getTopMarketCapSnapshot();
+  const inr = snapshot.rows.find((row) => row.sourceTicker === "TEST10")!;
+  const usd = snapshot.rows.find((row) => row.sourceTicker === "TEST11")!;
+
+  assert.deepEqual(inr.changes, { d1: -0.8, w1: 1.2, m1: null });
+  assert.equal(inr.priceSource, "companiesmarketcap", "the price never comes from the INR quote");
+  assert.equal(inr.priceEur, 10 * 0.9);
+  assert.equal(inr.priceNative, null);
+  assert.deepEqual(usd.changes, { d1: 2, w1: null, m1: null });
+  assert.equal(usd.priceSource, "yahoo:relay");
+  assert.equal(fxRequests.flat().includes("INR"), false, "INR is never sent to the FX relay");
+});

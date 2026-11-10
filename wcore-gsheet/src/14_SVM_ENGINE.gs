@@ -909,7 +909,7 @@ var SvmEngine = {
       }
       if (BaseEngine.shouldSkipNoTriggerRecentScan && BaseEngine.shouldSkipNoTriggerRecentScan(_svmWalletKey(addr), config, svmCacheBefore, forceFull, triggerRefresh)) {
         var svmFreshTs = (WalletCache.getLastRunUpdateStr ? WalletCache.getLastRunUpdateStr(svmCacheBefore) : "") || WalletCache.getLastUpdateStr(svmCacheBefore);
-        return svmFreshTs ? BaseEngine.wrapCacheOnlyMarker("[FRESH] " + svmFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
+        return svmFreshTs ? BaseEngine.wrapCacheOnlyMarker(svmFreshTs, _httpBefore) : ("[NO_CACHE] " + Format.now());
       }
     } catch (eLatch) {}
 

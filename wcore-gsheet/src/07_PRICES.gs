@@ -163,6 +163,7 @@ PriceRunCache.reset = PriceRunCache.reset || function() {
  PriceRunCache.onChainV3 = {};
  PriceRunCache.llamaCoins = {};
  PriceRunCache.llama = {};
+ PriceRunCache.llamaTs = {};
  PriceRunCache.fx = null;
  try { if (typeof LlamaFlushBuffer !== 'undefined' && LlamaFlushBuffer.reset) LlamaFlushBuffer.reset(); } catch (eLfbReset) {}
 };
@@ -1301,6 +1302,8 @@ PriceSources.gtTokenPriceUsd = PriceSources.gtTokenPriceUsd || function(contract
 PriceSources.llamaPriceUsd = PriceSources.llamaPriceUsd || function(llamaId, timer, config) {
  if (!llamaId) return null;
  var id = String(llamaId);
+ // v4.16.77: observation timestamp travels with the price (null = unattested).
+ if (!PriceRunCache.llamaTs) PriceRunCache.llamaTs = {};
  if (PriceRunCache.llama[id] !== undefined) return PriceRunCache.llama[id];
 
  // L1 CacheService hit (2h min)
@@ -1310,6 +1313,7 @@ PriceSources.llamaPriceUsd = PriceSources.llamaPriceUsd || function(llamaId, tim
  var h1 = _pxL1GetJson(_pxL1Key("LLAMA", config, id));
  if (h1 && _pxIsFinitePos(h1.u)) {
  PriceRunCache.llama[id] = Number(h1.u);
+ PriceRunCache.llamaTs[id] = (isFinite(Number(h1.t)) && Number(h1.t) > 0) ? Number(h1.t) : null;
  return PriceRunCache.llama[id];
  }
  } catch (eL1) {}
@@ -1325,20 +1329,26 @@ PriceSources.llamaPriceUsd = PriceSources.llamaPriceUsd || function(llamaId, tim
  });
 
  var usd = null;
+ var obsMs = null;
  try {
  if (json && json.coins && json.coins[id] && json.coins[id].price != null) {
  usd = Number(json.coins[id].price);
+ var tsSec = Number(json.coins[id].timestamp);
+ // Source-provided observation time only; without it the observation stays
+ // unattested (null), never the request time.
+ obsMs = (isFinite(tsSec) && tsSec > 0) ? Math.round(tsSec * 1000) : null;
  }
  } catch (e) {}
 
- if (!_pxIsFinitePos(usd)) usd = null;
+ if (!_pxIsFinitePos(usd)) { usd = null; obsMs = null; }
 
  // L1 CacheService store (2h min)
  try {
- if (_pxIsFinitePos(usd)) _pxL1SetJson(_pxL1Key("LLAMA", config, id), { u: Number(usd) }, PX_L1_TTL_MIN_SEC);
+ if (_pxIsFinitePos(usd)) _pxL1SetJson(_pxL1Key("LLAMA", config, id), { u: Number(usd), t: obsMs }, PX_L1_TTL_MIN_SEC);
  } catch (eL1b) {}
 
  PriceRunCache.llama[id] = usd;
+ PriceRunCache.llamaTs[id] = obsMs;
  return usd;
 };
 
@@ -2613,6 +2623,9 @@ PriceManager._sanitizeStableEur_ = PriceManager._sanitizeStableEur_ || function(
  * - ERC20/SPL uses priceUsdMap first, then (optional) fallbacks.
  */
 PriceManager.computePriceEur = PriceManager.computePriceEur || function(asset, key, priceUsdMap, fxRate, priceMap, priceTsMap, attemptTsMap, nowMs, timer, budget, config) {
+ // v4.16.77: provenance of the returned price for callers that persist a
+ // timestamp. null after the call = legacy behaviour (observed now).
+ PriceManager._lastPriceMeta = null;
  if (!asset || !key) return null;
  if (!_pxIsFinitePos(fxRate)) return null;
 
@@ -2658,6 +2671,8 @@ PriceManager.computePriceEur = PriceManager.computePriceEur || function(asset, k
  var eur = (priceMap && Num.isValidPositive(priceMap[k])) ? priceMap[k] : null;
  var staleMs = (config && config.CACHE && config.CACHE.PRICE_STALE_MS) ? config.CACHE.PRICE_STALE_MS : 3600000;
  if (eur != null && ts != null && (nowMs - ts) >= 0 && (nowMs - ts) < staleMs) {
+ // Cached reuse: the observation keeps its original timestamp.
+ PriceManager._lastPriceMeta = { src: 'CACHE', observedAt: Number(ts) };
  return eur;
  }
  } catch (e0) {}
@@ -2697,7 +2712,11 @@ PriceManager.computePriceEur = PriceManager.computePriceEur || function(asset, k
  if (_pxIsFinitePos(usdNat)) {
  var eurNat = Number(usdNat) * Number(fxRate);
  eurNat = PriceManager._sanitizeStableEur_(eurNat, asset, priceMap, k);
- if (_pxIsFinitePos(eurNat)) return eurNat;
+ if (_pxIsFinitePos(eurNat)) {
+ var llamaObs = (PriceRunCache.llamaTs && PriceRunCache.llamaTs[String(llamaId)] !== undefined) ? PriceRunCache.llamaTs[String(llamaId)] : null;
+ PriceManager._lastPriceMeta = { src: 'LLAMA', observedAt: llamaObs };
+ return eurNat;
+ }
  }
  }
 
@@ -2711,7 +2730,9 @@ PriceManager.computePriceEur = PriceManager.computePriceEur || function(asset, k
  if (_pxIsFinitePos(usdPx)) {
  var eurPx = Number(usdPx) * Number(fxRate);
  eurPx = PriceManager._sanitizeStableEur_(eurPx, asset, priceMap, k);
- if (_pxIsFinitePos(eurPx)) return eurPx;
+ // Replis natifs : ces sources ne fournissent aucune date (direct ou L1 de
+ // 2 h) => observation non attestee, jamais persistee comme fraiche.
+ if (_pxIsFinitePos(eurPx)) { PriceManager._lastPriceMeta = { src: 'GT_PROXY', observedAt: null }; return eurPx; }
  }
  // Try DexScreener bulk tokens endpoint
  try {
@@ -2720,7 +2741,7 @@ PriceManager.computePriceEur = PriceManager.computePriceEur || function(asset, k
  if (rec && _pxIsFinitePos(rec.priceUsd)) {
  var eurDx = Number(rec.priceUsd) * Number(fxRate);
  eurDx = PriceManager._sanitizeStableEur_(eurDx, asset, priceMap, k);
- if (_pxIsFinitePos(eurDx)) return eurDx;
+ if (_pxIsFinitePos(eurDx)) { PriceManager._lastPriceMeta = { src: 'DEX_PROXY', observedAt: null }; return eurDx; }
  }
  } catch (eProxy) {}
  }
@@ -2736,7 +2757,7 @@ PriceManager.computePriceEur = PriceManager.computePriceEur || function(asset, k
  if (_pxIsFinitePos(usdCg)) {
  var eurCg = Number(usdCg) * Number(fxRate);
  eurCg = PriceManager._sanitizeStableEur_(eurCg, asset, priceMap, k);
- if (_pxIsFinitePos(eurCg)) return eurCg;
+ if (_pxIsFinitePos(eurCg)) { PriceManager._lastPriceMeta = { src: 'COINGECKO', observedAt: null }; return eurCg; }
  }
  }
  return null;
@@ -2927,3 +2948,212 @@ function PURGE_CHAIN_PRICES(contracts, chainSlug, gtNetwork) {
  }
  return results;
 }
+
+// ============================================================
+// NATIVE PRICE STORE (v4.16.77, ex-07N) - integre a 07_PRICES
+// ============================================================
+/**
+ * 07N_NATIVE_PRICE_STORE.gs - v4.16.77
+ *
+ * Prix natifs observes, independants des scans complets de wallet.
+ *
+ * Probleme (2026-11-07) : le rendu exige un prix natif attesté < PRICE_STALE_MS
+ * (90 min), mais ce prix n'est observe qu'au scan complet, dont la cadence va
+ * jusqu'a 5-6 h. Entre les deux, le total devient UNKNOWN.
+ *
+ * Contrat :
+ * - un seul appel DefiLlama groupe pour tous les NATIVE_LLAMA_ID des chaines
+ *   actives (FLAGS.DISABLE_CHAIN !== true), au plus toutes les MIN_INTERVAL_MS ;
+ * - la date retenue est l'horodatage d'observation FOURNI par la source
+ *   (`timestamp`, en secondes), jamais l'heure locale ; sans horodatage valide
+ *   ou avec une confiance < 0.6, aucune entree n'est ecrite ;
+ * - l'EUR est calcule au moment de l'observation avec le FX disponible et le
+ *   taux utilise est conserve ;
+ * - get() ne renvoie une entree que si son observation a moins de maxAgeMs :
+ *   aucune prolongation de validite, UNKNOWN reste UNKNOWN.
+ */
+var NativePriceStore = (typeof NativePriceStore !== "undefined" && NativePriceStore) ? NativePriceStore : {};
+
+NativePriceStore.CONFIG = {
+  STORE_KEY: "WCORE_NATIVE_PRICE_STORE_V1",
+  STORE_TTL_SEC: 21600,
+  MIN_INTERVAL_MS: 25 * 60 * 1000,
+  MIN_CONFIDENCE: 0.6,
+  CHUNK: 60,
+  HTTP_TIMEOUT_MS: 8000,
+  HTTP_TIMEOUT_MARGIN_MS: 1000,
+  // Part maximale du passage watchdog consacree aux prix natifs (2 lots).
+  WATCHDOG_BUDGET_MS: 20000,
+  FUTURE_SKEW_MS: 5 * 60 * 1000,
+  BASE_URL: "https://coins.llama.fi/prices/current/"
+};
+
+NativePriceStore._cacheGet = function() {
+  try {
+    if (typeof CacheService === "undefined") return null;
+    var raw = CacheService.getScriptCache().get(this.CONFIG.STORE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+};
+
+NativePriceStore._cachePut = function(obj) {
+  try {
+    if (typeof CacheService === "undefined") return false;
+    CacheService.getScriptCache().put(this.CONFIG.STORE_KEY, JSON.stringify(obj), this.CONFIG.STORE_TTL_SEC);
+    return true;
+  } catch (e) { return false; }
+};
+
+NativePriceStore.load = function() {
+  var s = this._cacheGet();
+  if (!s || typeof s !== "object" || !s.entries || typeof s.entries !== "object") return { v: 1, refreshedAt: 0, entries: {} };
+  return s;
+};
+
+/** NATIVE_LLAMA_ID distincts des chaines actives du registre. */
+NativePriceStore.collectIds = function() {
+  var ids = {};
+  try {
+    var reg = (typeof ChainFactory !== "undefined" && ChainFactory.getRegistry) ? ChainFactory.getRegistry() : {};
+    for (var name in reg) {
+      if (!Object.prototype.hasOwnProperty.call(reg, name)) continue;
+      var api = reg[name];
+      var cfg = null;
+      try { cfg = (api && typeof api.getConfig === "function") ? api.getConfig() : (api && api.config) || null; } catch (eCfg) { cfg = null; }
+      if (!cfg || !cfg.CHAIN) continue;
+      if (cfg.FLAGS && cfg.FLAGS.DISABLE_CHAIN === true) continue;
+      var id = cfg.CHAIN.NATIVE_LLAMA_ID;
+      if (typeof id === "string" && /^[a-z0-9-]+:[A-Za-z0-9._-]+$/.test(id)) ids[id] = true;
+    }
+  } catch (e) {}
+  return Object.keys(ids).sort();
+};
+
+/**
+ * Integre une reponse /prices/current dans le magasin. Fonction pure (testable).
+ * @return {number} nombre d'entrees ecrites
+ */
+/**
+ * FX USD->EUR depuis GlobalFxCache seulement, dans son contrat FX_TTL_MS.
+ * @return {null|{rate:number, collectedAt:number}}
+ */
+NativePriceStore._cachedFx = function(nowMs) {
+  try {
+    if (typeof GlobalFxCache === "undefined" || !GlobalFxCache.load) return null;
+    var c = GlobalFxCache.load(null) || {};
+    var e = (c.rates && c.rates.USD_EUR) || c.USD_EUR || null;
+    if (!e) return null;
+    var rate = Number(e.rate), ts = Number(e.ts);
+    var ttl = (typeof GLOBAL_CACHE_CONFIG !== "undefined" && Number(GLOBAL_CACHE_CONFIG.FX_TTL_MS) > 0) ? Number(GLOBAL_CACHE_CONFIG.FX_TTL_MS) : 21600000;
+    if (!(isFinite(rate) && rate > 0) || !(isFinite(ts) && ts > 0) || ts > nowMs + this.CONFIG.FUTURE_SKEW_MS || (nowMs - ts) > ttl) return null;
+    return { rate: rate, collectedAt: ts };
+  } catch (e2) { return null; }
+};
+
+NativePriceStore.ingest = function(store, json, fxRate, nowMs, fxCollectedAt) {
+  var written = 0;
+  if (!store || !store.entries || !json || !json.coins) return 0;
+  var fx = Number(fxRate);
+  if (!(isFinite(fx) && fx > 0)) return 0;
+  for (var id in json.coins) {
+    if (!Object.prototype.hasOwnProperty.call(json.coins, id)) continue;
+    var rec = json.coins[id];
+    if (!rec) continue;
+    var usd = Number(rec.price);
+    var tsSec = Number(rec.timestamp);
+    if (!(isFinite(usd) && usd > 0)) continue;
+    if (!(isFinite(tsSec) && tsSec > 0)) continue;
+    if (rec.confidence != null && Number(rec.confidence) < this.CONFIG.MIN_CONFIDENCE) continue;
+    var observedAt = Math.round(tsSec * 1000);
+    if (observedAt > nowMs + this.CONFIG.FUTURE_SKEW_MS) continue;
+    var prev = store.entries[id];
+    if (prev && Number(prev.observedAt) >= observedAt) continue;
+    store.entries[id] = { usd: usd, eur: usd * fx, fx: fx, fxCollectedAt: (isFinite(Number(fxCollectedAt)) && Number(fxCollectedAt) > 0) ? Number(fxCollectedAt) : null, observedAt: observedAt, fetchedAt: nowMs, src: "llama-native" };
+    written++;
+  }
+  return written;
+};
+
+/**
+ * Rafraichissement leger, borne et idempotent. Ne leve jamais.
+ * @return {Object} diagnostic {ran, ids, written, http, reason}
+ */
+NativePriceStore.refreshIfDue = function(opts) {
+  var out = { ran: false, ids: 0, written: 0, http: 0, reason: "", ms: 0 };
+  var startMs = Date.now();
+  try {
+    opts = opts || {};
+    var nowMs = Number(opts.nowMs) || Date.now();
+    // Budget de temps de l'appelant (watchdog) : un lot n'est lance que si le
+    // temps restant couvre un delai HTTP complet plus une marge.
+    var budgetMs = Number(opts.budgetMs);
+    if (!(isFinite(budgetMs) && budgetMs > 0)) budgetMs = Infinity;
+    var perCallMs = this.CONFIG.HTTP_TIMEOUT_MS + this.CONFIG.HTTP_TIMEOUT_MARGIN_MS;
+    // Seul parametre de delai documente par UrlFetchApp.fetch (en secondes) ;
+    // timeoutMs reste transmis pour le calcul de `deadline` du wrapper HTTP.
+    var timeoutSeconds = Math.ceil(this.CONFIG.HTTP_TIMEOUT_MS / 1000);
+    var store = this.load();
+    if (!opts.force && store.refreshedAt && (nowMs - store.refreshedAt) < this.CONFIG.MIN_INTERVAL_MS) { out.reason = "NOT_DUE"; return out; }
+    var ids = (opts.ids && opts.ids.length) ? opts.ids.slice() : this.collectIds();
+    out.ids = ids.length;
+    if (!ids.length) { out.reason = "NO_IDS"; return out; }
+    // FX lu depuis le cache global uniquement (aucune cascade HTTP ici) ; sa
+    // date de collecte est conservee avec chaque entree.
+    var fxInfo = this._cachedFx(nowMs);
+    if (!fxInfo) { out.reason = "FX_UNAVAILABLE"; return out; }
+    var fx = fxInfo.rate;
+    if (budgetMs < perCallMs) { out.reason = "BUDGET"; out.ms = Date.now() - startMs; return out; }
+    out.ran = true;
+    var stop = "";
+    for (var i = 0; i < ids.length; i += this.CONFIG.CHUNK) {
+      if (i > 0 && (budgetMs - (Date.now() - startMs)) < perCallMs) { stop = "BUDGET_PARTIAL"; break; }
+      var chunk = ids.slice(i, i + this.CONFIG.CHUNK);
+      var json = null;
+      try {
+        out.http++;
+        json = HTTP.getJson(this.CONFIG.BASE_URL + chunk.join(","), {
+          timeoutMs: this.CONFIG.HTTP_TIMEOUT_MS,
+          timeoutSeconds: timeoutSeconds,
+          headers: { accept: "application/json", "User-Agent": "Mozilla/5.0" },
+          muteHttpExceptions: true
+        });
+      } catch (eHttp) { json = null; }
+      // Reponse en echec (code HTTP, expiration, JSON invalide) : aucun prix
+      // ecrit et aucun lot supplementaire dans ce passage ; prochain essai
+      // apres MIN_INTERVAL_MS (pas de nouvel essai immediat).
+      if (!json || !json.coins) { stop = "HTTP_FAILED"; break; }
+      out.written += this.ingest(store, json, fx, nowMs, fxInfo.collectedAt);
+    }
+    store.refreshedAt = nowMs;
+    this._cachePut(store);
+    out.reason = stop || (out.written ? "OK" : "NO_VALID_PRICE");
+  } catch (e) {
+    out.reason = "ERROR";
+  }
+  out.ms = Date.now() - startMs;
+  return out;
+};
+
+/**
+ * Entree attestee et fraiche, ou null. Aucune prolongation.
+ * @return {null|{eur:number, observedAt:number, src:string}}
+ */
+NativePriceStore.get = function(llamaId, maxAgeMs, nowMs, store) {
+  try {
+    if (!llamaId) return null;
+    var s = store || this.load();
+    var e = s && s.entries ? s.entries[String(llamaId)] : null;
+    if (!e) return null;
+    var now = Number(nowMs) || Date.now();
+    var obs = Number(e.observedAt);
+    var max = Number(maxAgeMs);
+    if (!(isFinite(obs) && obs > 0) || !(isFinite(max) && max > 0)) return null;
+    if (obs > now + this.CONFIG.FUTURE_SKEW_MS) return null;
+    if (now - obs >= max) return null;
+    var eur = Number(e.eur);
+    if (!(isFinite(eur) && eur > 0)) return null;
+    return { eur: eur, observedAt: obs, src: e.src || "llama-native" };
+  } catch (err) { return null; }
+};
+
+try { if (typeof ModuleRegistry !== "undefined" && ModuleRegistry.register) ModuleRegistry.register("NATIVE_PRICE_STORE", "4.16.77"); } catch (eReg) {}

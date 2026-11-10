@@ -14,11 +14,25 @@ function _rwaLookupRow_(chainKey, row) {
 
 function _rwaRecomputeTotal_(out) {
   var total = 0;
+  // UNKNOWN != 0 : un INFO_TOTAL source vide, ou un solde natif non nul sans
+  // valeur, rend le total de la vue inconnu (meme contrat que le moteur source).
+  var unknown = false;
+  for (var k = 1; k < out.length; k++) {
+    if (out[k] && out[k][1] === "INFO_TOTAL" && (out[k][6] === "" || out[k][6] === null || out[k][6] === undefined)) unknown = true;
+  }
   for (var i = 1; i < out.length; i++) {
     if (!out[i] || out[i][0] === "META" || String(out[i][1] || "").indexOf("INFO") === 0) continue;
-    var v = Number(out[i][6]);
+    var cell = out[i][6];
+    var empty = cell === "" || cell === null || cell === undefined || typeof cell === "boolean";
+    if (empty) {
+      var bal = Number(out[i][4]);
+      if (String(out[i][3]) === "native" && out[i][4] !== "" && isFinite(bal) && bal !== 0) unknown = true;
+      continue;
+    }
+    var v = Number(cell);
     if (isFinite(v)) total += v;
   }
+  if (unknown) total = "";
   for (var j = 0; j < out.length; j++) {
     if (out[j] && out[j][1] === "INFO_TOTAL") out[j][6] = total;
   }

@@ -440,6 +440,9 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  Obj.forEach(packed.m, function(h, ent) {
  function isExpired(e) {
  if (!e || typeof e !== "object") return false;
+ // Chaine retiree : entree conservee comme preuve, jamais expiree par TTL.
+ var ekTtl = e.k ? String(e.k) : "";
+ if (ekTtl.indexOf("_CACHE_") > 0 && typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(ekTtl.split("_CACHE_")[0])) return false;
  if (CacheManager._packedEntryHasPositiveBalance_(e)) {
  protectedBalanceTtl++;
  return false;
@@ -486,7 +489,9 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  var arr = [];
  Obj.forEach(packed.m, function(h, ent) {
  function classifyEntry(e) {
- return { hasBalance: CacheManager._packedEntryHasPositiveBalance_(e) };
+ var ek = (e && typeof e === "object" && e.k) ? String(e.k) : "";
+ var retired = ek.indexOf("_CACHE_") > 0 && typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(ek.split("_CACHE_")[0]);
+ return { hasBalance: CacheManager._packedEntryHasPositiveBalance_(e), retired: !!retired };
  }
  
  if (Array.isArray(ent)) {
@@ -494,12 +499,12 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  var e = ent[i];
  var ts = (e && typeof e === "object") ? (e.ts || e.t || 0) : 0;
  var cls = classifyEntry(e);
- arr.push({ h: h, ts: ts, k: e && e.k ? e.k : null, isRecent: ts >= recentCutoff, hasBalance: cls.hasBalance });
+ arr.push({ h: h, ts: ts, k: e && e.k ? e.k : null, isRecent: ts >= recentCutoff, hasBalance: cls.hasBalance, retired: cls.retired });
  }
  } else {
  var ts2 = (ent && typeof ent === "object") ? (ent.ts || ent.t || 0) : 0;
  var cls2 = classifyEntry(ent);
- arr.push({ h: h, ts: ts2, k: ent && ent.k ? ent.k : null, isRecent: ts2 >= recentCutoff, hasBalance: cls2.hasBalance });
+ arr.push({ h: h, ts: ts2, k: ent && ent.k ? ent.k : null, isRecent: ts2 >= recentCutoff, hasBalance: cls2.hasBalance, retired: cls2.retired });
  }
  });
 
@@ -518,9 +523,11 @@ CacheManager._prunePackedWalletCache_ = function(packed, maxBytes) {
  var removed = 0;
  var protectedRecent = 0;
  var protectedBalance = 0;
+ var protectedRetired = 0;
  for (var j = 0; j < arr.length; j++) {
  if (CacheManager._jsonSizeBytes_(packed) <= maxBytes) break;
  var item = arr[j];
+ if (item.retired) { protectedRetired++; continue; }
  if (item.hasBalance) { protectedBalance++; continue; }
  if (item.isRecent) { protectedRecent++; continue; }
  
@@ -691,10 +698,12 @@ CacheManager._packedEntryDataTs_ = function(e) {
  } catch (err) { return 0; }
 };
 
-CacheManager._mergePackedWalletCache_ = function(incoming) {
+CacheManager._mergePackedWalletCache_ = function(incoming, currentRaw) {
  try {
   if (!incoming || !incoming.m) incoming = { v: 2, m: {} };
-  var raw = CacheManager._props.getProperty(GLOBAL_CACHE_KEYS.GLOBAL_WALLET);
+  // v4.16.68 : currentRaw fourni par le snapshot de la sauvegarde (null = absent)
+  // evite une relecture ; undefined = comportement historique.
+  var raw = (currentRaw !== undefined) ? currentRaw : CacheManager._props.getProperty(GLOBAL_CACHE_KEYS.GLOBAL_WALLET);
   if (!raw) return incoming;
   var current = JSON.parse(raw);
   if (!current || !current.m) return incoming;
@@ -746,32 +755,78 @@ CacheManager._mergePackedWalletCache_ = function(incoming) {
  return incoming;
 };
 
+// v4.16.68 (STORAGE_LOCAL_RECOVERY) : budget de stockage avec hysteresis.
+// - Declenchement si l'ecriture laisserait moins de MIN_FREE octets libres.
+// - Cible apres action : RESERVE octets libres pour les petits ecrivains
+//   (nonces, etat watchdog, compteurs HTTP) qui n'ont pas de purge propre.
+// - Ordre : (1) familles jetables/reconstructibles uniquement ; (2) plafond
+//   dynamique du packed, qui n'evince que des entrees SANS solde et non recentes
+//   (regle v4.13.4 inchangee) : elles redeviennent NO_CACHE (UNKNOWN), jamais zero.
+// - Les entrees avec solde ne sont jamais evincees : si rien ne tient,
+//   l'ecriture echoue (CACHE_WRITE_FAILED) sans rien detruire.
+CacheManager._PACKED_STORAGE_MIN_FREE_BYTES = 16 * 1024;
+CacheManager._PACKED_STORAGE_RESERVE_BYTES = 32 * 1024;
+CacheManager._PACKED_DYNAMIC_FLOOR_BYTES = 380000;
+
 CacheManager._savePackedWalletCache_ = function(packed) {
   CacheManager.init();
+  var GW = GLOBAL_CACHE_KEYS.GLOBAL_WALLET;
   var maxBytes = CacheManager._PACKED_CACHE_MAX_BYTES || 495000;
-  var retry = 0;
-  while (retry <= 1) {
+  var QUOTA = CacheManager._STORAGE_QUOTA_BYTES || (500 * 1024);
+  var MIN_FREE = CacheManager._PACKED_STORAGE_MIN_FREE_BYTES || 16384;
+  var RESERVE = CacheManager._PACKED_STORAGE_RESERVE_BYTES || 32768;
+  var FLOOR = CacheManager._PACKED_DYNAMIC_FLOOR_BYTES || 380000;
+
+  // Un seul getProperties() par sauvegarde (au lieu de 2 a 5 auparavant).
+  var snap = CacheManager._storageSnapshot_ ? CacheManager._storageSnapshot_() : null;
+  function othersBytes() {
+    if (!snap) return null;
+    var cur = snap.all[GW];
+    return snap.total - ((cur !== undefined && cur !== null) ? (GW.length + String(cur).length) : 0);
+  }
+  function purge(needBytes) {
+    if (!snap || !CacheManager._emergencyPurge_ || needBytes <= 0) return 0;
+    try { CacheManager._emergencyPurge_(needBytes, snap); } catch (eP) {}
+    return CacheManager._lastPurgeFreedBytes || 0;
+  }
+
   try {
-  if (retry === 1) {
-  if (CacheManager._emergencyPurge_ && CacheManager._emergencyPurge_(65536)) {
-  console.log("[Packed Cache] Emergency purge completed before retry.");
-  } else { break; }
-  }
-  // v4.15.33: Pre-check storage before writing to avoid silent failures
-  if (retry === 0 && CacheManager._getStorageUsagePct && CacheManager._getStorageUsagePct() > 85) {
-  console.log("[Packed Cache] Storage > 85%, running pre-emptive purge...");
-  if (CacheManager._emergencyPurge_ && CacheManager._emergencyPurge_(65536)) {
-  console.log("[Packed Cache] Pre-emptive purge OK, storage now at " + (CacheManager._getStorageUsagePct ? CacheManager._getStorageUsagePct() : '?') + "%");
-  }
-  }
-  packed = CacheManager._mergePackedWalletCache_(packed || { v: 2, m: {} });
-  packed = CacheManager._prunePackedWalletCache_(packed || { v: 1, m: {} }, maxBytes);
+    var curRaw = snap ? (Object.prototype.hasOwnProperty.call(snap.all, GW) ? snap.all[GW] : null) : undefined;
+    packed = CacheManager._mergePackedWalletCache_(packed || { v: 2, m: {} }, curRaw);
+    packed = CacheManager._prunePackedWalletCache_(packed || { v: 1, m: {} }, maxBytes);
+  } catch (ePrep) {}
   var s = JSON.stringify(packed || { v: 1, m: {} });
-  CacheManager._props.setProperty(GLOBAL_CACHE_KEYS.GLOBAL_WALLET, s);
-  try { CacheManager._cache.put(GLOBAL_CACHE_KEYS.GLOBAL_WALLET, s, 21600); } catch (e2) {}
-  return true;
-  } catch (e) { retry++; }
+
+  var others = othersBytes();
+  if (others !== null && others + GW.length + s.length > QUOTA - MIN_FREE) {
+    var target = QUOTA - RESERVE;
+    var freed = purge(others + GW.length + s.length - target);
+    others = othersBytes();
+    if (others + GW.length + s.length > target) {
+      var dyn = Math.max(FLOOR, Math.min(maxBytes, target - others - GW.length));
+      if (dyn < s.length) {
+        packed = CacheManager._prunePackedWalletCache_(packed, dyn);
+        s = JSON.stringify(packed || { v: 1, m: {} });
+      }
+    }
+    console.log("[Packed Cache] storage budget: freed=" + freed + "B packed=" + s.length + "B free_after=" + (QUOTA - others - GW.length - s.length) + "B");
   }
+
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      CacheManager._props.setProperty(GW, s);
+      try { CacheManager._cache.put(GW, s, 21600); } catch (e2) {}
+      return true;
+    } catch (e) {
+      if (attempt > 0) break;
+      // Echec reel : relire une fois, ne purger que les familles jetables, puis reessayer.
+      snap = CacheManager._storageSnapshot_ ? CacheManager._storageSnapshot_() : null;
+      var o2 = othersBytes();
+      if (o2 !== null) purge(Math.max(4096, o2 + GW.length + s.length - (QUOTA - 4096)));
+      console.log("[Packed Cache] write failed (" + String(e && e.message || e).substring(0, 80) + "), retry after protected-safe purge");
+    }
+  }
+  console.log("[Packed Cache] CACHE_WRITE_FAILED: packed=" + s.length + "B ; familles protegees conservees");
   return false;
 };
 

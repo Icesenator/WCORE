@@ -934,7 +934,10 @@ function _webScanAcquireAdmissionV2_(address, chainKey, forceFull) {
 
 function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
   if (typeof _wcoreRemovedChain_ === "function" && (_wcoreRemovedChain_(_webScanChainKey_(config)) || _wcoreRemovedChain_(config && config.CHAIN && config.CHAIN.CHAIN_ID))) {
-    return { ok: false, error: "CHAIN_REMOVED", status: "[CHAIN_REMOVED] SUPERSEED (5330)" };
+    var removedLabel = typeof _wcoreRemovedChainLabel_ === "function"
+      ? (_wcoreRemovedChainLabel_(_webScanChainKey_(config)) || _wcoreRemovedChainLabel_(config && config.CHAIN && config.CHAIN.CHAIN_ID))
+      : "";
+    return { ok: false, error: "CHAIN_REMOVED", status: "[CHAIN_REMOVED] " + (removedLabel || "SUPERSEED (5330)") };
   }
   try {
     if (!_webScanEnabled_()) return null;

@@ -1,6 +1,10 @@
 /************************************************************
  * 41A_WEB_SCAN_QUEUE.gs - Bounded status path for delegated scans
  *
+ * v4.16.91 - 2026-11-10 : restaure 4.16.86 (fenetre d'ACK 45 min, recu b/s) et
+ *   4.16.89 (DEGRADED prouve : q=0, nx=+30 min), effaces du LIVE le 07/11, sur la base
+ *   LIVE 4.16.90 (verrou 3000 ms) + C1 (plafond 8, reserve de quota) inchangee.
+ * v4.16.89 - Back off proven DEGRADED scans and reset their admission age.
  * v4.16.85 - Root cause of the 2026-10-22 Ethereum/Gnosis outage:
  *   REFRESH_STATUS is a custom function with a 30 s hard deadline. It performed
  *   a synchronous POST to /api/gsheet/scan (discovery + balances + pricing) and
@@ -25,16 +29,66 @@
  *     backoff and a cooldown after terminal failure.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.85-scheduling";
+var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.91-ack-degraded-restore";
+// 2026-11-09 : retablit 4.16.88 (efface du LIVE avant le 07/11). Le watchdog impulse ~10 B1 a la fois ;
+// leurs cellules s'inscrivent en parallele pendant que le drain tient le ScriptLock. Avec 250 ms
+// (GSHEET_WEB_SCAN_LOCK_WAIT_MS du scan), elles perdaient le verrou : [REFRESH_QUEUE_ERROR], puis
+// une rotation complete perdue. Une mutation de file est minuscule ; une fonction personnalisee a 30 s.
+var GSHEET_WEB_SCAN_QUEUE_LOCK_WAIT_MS = 3000;
 var GSHEET_WEB_SCAN_QUEUE_KEY = "WCORE_WEB_SCAN_QUEUE_V1";
 var GSHEET_WEB_SCAN_QUEUE_MAX_ITEMS = 40;
 var GSHEET_WEB_SCAN_QUEUE_TTL_SEC = 6 * 3600;
 var GSHEET_WEB_SCAN_QUEUE_MAX_ATTEMPTS = 3;
 var GSHEET_WEB_SCAN_QUEUE_BACKOFF_MS = 5 * 60 * 1000;
+// v4.16.89: delay retries after a proven degraded cache rewrite.
+var GSHEET_WEB_SCAN_QUEUE_DEGRADED_RETRY_MS = 30 * 60 * 1000;
 var GSHEET_WEB_SCAN_QUEUE_FAILURE_COOLDOWN_MS = 15 * 60 * 1000;
 var GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS = 20 * 1000;
+// v4.16.86: I1 recalculates only on the next B1 pulse (WD_PULSE_MIN = 30 min, one watchdog
+// cycle of slack). A shorter window expired before any cell could read the ACK.
+var GSHEET_WEB_SCAN_QUEUE_ACK_WINDOW_MS = 45 * 60 * 1000;
+// 2026-11-07 (C1) : plafond par passage de drain, 3 -> 8. Le budget de temps reste la vraie
+// borne : aucun scan n'est lance si le temps restant est inferieur a MIN_SCAN_MS ou a 1,5 fois
+// le scan le plus long deja observe dans ce passage ; un refus de quota arrete le passage.
+var GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN = 8;
 var GSHEET_WEB_SCAN_QUEUE_DRAIN_TRIGGER = "QUEUE_DRAIN";
 var _WCORE_WEB_SCAN_QUEUE_DRAINING = false;
+// Set by the EVM status path (11_EVM_ENGINE) after a drained scan rereads the cache.
+var _WCORE_WEB_SCAN_QUEUE_PROOF = null;
+
+// Opaque source label (FNV-1a), no wallet in diagnostics or watchdog output.
+function _webScanQueueOpaque_(value) {
+  var h = 2166136261, s = String(value || "");
+  for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(16);
+}
+function _webScanQueueRevision_(tokens, force, trigger) {
+  return JSON.stringify([tokens || [], force ? 1 : 0, force ? String(trigger || "") : ""]);
+}
+// Packed cache dates are script-timezone strings with second precision.
+// Parse local format via GAS Utilities, never Date.parse/local host assumptions.
+function _webScanQueueTimestamp_(raw) {
+  var ts = 0;
+  try {
+    if (typeof raw === "number") ts = raw;
+    else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+      var parsed = Utilities.parseDate(raw, Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
+      ts = parsed.getTime();
+      if (Format.datetime(ts) !== raw) return 0;
+    } else if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(raw)) ts = new Date(raw).getTime();
+  } catch (eStamp) { return 0; }
+  return isFinite(ts) && ts > 0 && ts <= Date.now() ? ts : 0;
+}
+function _webScanQueueAck_(address, tokens, force, config, trigger, stamp) {
+  var id = _webScanChainKey_(config).toUpperCase() + "|" + String(address).toLowerCase();
+  var receipt = _webScanQueueReceipt_(id);
+  // Read-only, idempotent hint shared by all cells with this revision. Never
+  // write a consumed flag: CacheService get/put is not an atomic consumption.
+  // Force requests have the same conservative expiry; a new trigger changes v.
+  return !!(receipt && receipt.l === "OK" && receipt.q > 0 && receipt.s >= Math.floor(receipt.q / 1000) * 1000 &&
+    receipt.s > receipt.b && receipt.s === _webScanQueueTimestamp_(stamp) && receipt.v === _webScanQueueRevision_(tokens, force, trigger) &&
+    receipt.nx > Date.now());
+}
 var _WCORE_STATUS_PHASE_TTL_SEC = 3600;
 
 function _webScanQueueEnabled_() {
@@ -85,7 +139,8 @@ function _webScanQueueRead_() {
       nx: Number(it.nx) || 0,
       l: String(it.l || "").substring(0, 120),
       d: Number(it.d) || 0,
-      x: Number(it.x) || 0
+      x: Number(it.x) || 0,
+      v: String(it.v || "")
     });
   }
   return out;
@@ -111,7 +166,7 @@ function _webScanQueueMutate_(mutator) {
   var acquired = false;
   try {
     lock = LockService.getScriptLock();
-    if (!lock || !lock.tryLock(GSHEET_WEB_SCAN_LOCK_WAIT_MS)) return { ok: false, reason: "QUEUE_LOCK_BUSY" };
+    if (!lock || !lock.tryLock(GSHEET_WEB_SCAN_QUEUE_LOCK_WAIT_MS)) return { ok: false, reason: "QUEUE_LOCK_BUSY" };
     acquired = true;
     var list = _webScanQueueRead_();
     var result = mutator(list);
@@ -170,7 +225,7 @@ function _webScanQueueCompare_(a, b, now) {
   return (dataB + ageB) - (dataA + ageA) || a.q - b.q;
 }
 
-function _webScanQueueEnqueue_(address, tokenList, forceFull, config, reason, dataTimestamp) {
+function _webScanQueueEnqueue_(address, tokenList, forceFull, config, reason, dataTimestamp, trigger) {
   if (!_webScanQueueEnabled_()) return { ok: false, reason: "QUEUE_DISABLED" };
   var chainKey = "";
   try { chainKey = _webScanChainKey_(config); } catch (eChain) {}
@@ -182,21 +237,31 @@ function _webScanQueueEnqueue_(address, tokenList, forceFull, config, reason, da
   try { tokens = Array.isArray(tokenList) ? tokenList.slice(0, 200) : _webScanTokenList_(tokenList); } catch (eTokens) {}
   var force = _webScanForce_(forceFull) ? 1 : 0;
   var id = chainKey.toUpperCase() + "|" + addr.toLowerCase();
+  var revision = _webScanQueueRevision_(tokens, force, trigger);
   return _webScanQueueMutate_(function (list) {
     var now = Date.now();
     for (var i = 0; i < list.length; i++) {
       if (_webScanQueueEntryId_(list[i]) !== id) continue;
       // A force escalation does not reset attempts, a backoff or an in-flight claim.
-      if (force && !list[i].f) { list[i].f = 1; return { ok: true, changed: true, deduped: true }; }
+      if ((force && !list[i].f) || (!list[i].f && list[i].v !== revision) ||
+          (force && list[i].v !== revision)) {
+        list[i].f = force || list[i].f ? 1 : 0;
+        list[i].t = tokens; list[i].v = revision;
+        return { ok: true, changed: true, deduped: true };
+      }
       return { ok: true, changed: false, deduped: true };
     }
     var ticket = _webScanQueueReceipt_(id) || {};
-    if (!force && ticket.l === "OK" && ticket.nx > now) return { ok: false, reason: "QUEUE_NOT_DUE" };
+    if (!force && ticket.l === "OK" && ticket.nx > now && ticket.v === revision &&
+        ticket.q > 0 && ticket.s >= ticket.q && ticket.s === Number(dataTimestamp)) {
+      return { ok: false, reason: "QUEUE_NOT_DUE" };
+    }
+    if (ticket.l === "OK") ticket = {};
     var data = Number(dataTimestamp) || 0;
     if (data <= 0 || data > now) data = 0;
     var entry = { c: chainKey.toUpperCase(), a: addr, f: force, t: tokens,
       r: String(reason || "AUTO").substring(0, 40), q: Number(ticket.q) || now,
-      d: data, n: Number(ticket.n) || 0, nx: Number(ticket.nx) || 0, x: 0, l: String(ticket.l || "") };
+      d: data, n: Number(ticket.n) || 0, nx: Number(ticket.nx) || 0, x: 0, l: String(ticket.l || ""), v: revision };
     var evicted = "";
     if (list.length >= GSHEET_WEB_SCAN_QUEUE_MAX_ITEMS) {
       var worst = -1;
@@ -264,15 +329,16 @@ function _webScanQueueClassifyStatus_(status) {
 function _webScanQueueDrain_(opts) {
   opts = opts || {};
   if (!_webScanQueueEnabled_()) return { ran: false, reason: "QUEUE_DISABLED", results: [] };
-  var maxItems = Math.max(1, Math.min(3, Number(opts.maxItems) || 1));
+  var maxItems = Math.max(1, Math.min(GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN, Number(opts.maxItems) || 1));
   var budgetMs = Math.max(0, Number(opts.budgetMs) || 120000);
   var startedAt = Date.now();
   var results = [];
+  var longestScanMs = 0;
   var finish = function (reason) {
     return { ran: true, reason: reason, results: results, elapsedMs: Date.now() - startedAt };
   };
   for (var i = 0; i < maxItems; i++) {
-    if (budgetMs - (Date.now() - startedAt) < GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS) return finish("BUDGET_EXHAUSTED");
+    if (budgetMs - (Date.now() - startedAt) < Math.max(GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS, Math.ceil(longestScanMs * 1.5))) return finish("BUDGET_EXHAUSTED");
     if (_webScanQueueDraining_()) return finish("REENTRANT");
     var entry = null;
     var claim = _webScanQueueMutate_(function (list) {
@@ -292,27 +358,35 @@ function _webScanQueueDrain_(opts) {
     var status = null;
     var thrown = null;
     var attemptAt = Date.now();
+    _WCORE_WEB_SCAN_QUEUE_PROOF = null;
     _WCORE_WEB_SCAN_QUEUE_DRAINING = true;
     try {
       if (api) status = api.getRefreshStatus(entry.a, null, entry.t, entry.f === 1, null);
     } catch (eScan) { thrown = String(eScan && (eScan.message || eScan) || eScan); }
     finally { _WCORE_WEB_SCAN_QUEUE_DRAINING = false; }
     var outcome = !api ? "UNRESOLVED_CHAIN" : thrown ? "THROWN" : _webScanQueueClassifyStatus_(status);
+    var proof = _WCORE_WEB_SCAN_QUEUE_PROOF;
+    var proven = !!(proof && proof.advanced && proof.stamp > proof.before &&
+      proof.stamp >= Math.floor(entry.q / 1000) * 1000 && proof.stamp <= Date.now());
     var attempts = Number(entry.n) + 1;
     var duration = Date.now() - attemptAt;
+    if (duration > longestScanMs) longestScanMs = duration;
     var retry = !(outcome === "OK" || outcome === "DEGRADED" || outcome === "PRESERVED");
     var result = { chain: entry.c, outcome: outcome, attempts: attempts, durationMs: duration,
+      source: _webScanQueueOpaque_(_webScanQueueEntryId_(entry)), cacheWriteReread: proven,
+      cacheStamp: proven ? proof.stamp : 0,
       status: String(status || "").substring(0, 120) };
     var forcePending = false;
+    var receiptPending = null;
     var commit = _webScanQueueMutate_(function (queue) {
       for (var k = 0; k < queue.length; k++) {
-        if (_webScanQueueEntryId_(queue[k]) !== _webScanQueueEntryId_(entry) || queue[k].x !== entry.x) continue;
+        if (_webScanQueueEntryId_(queue[k]) !== _webScanQueueEntryId_(entry) || queue[k].x !== entry.x || queue[k].q !== entry.q) continue;
         queue[k].n = attempts;
         queue[k].x = 0;
         queue[k].l = outcome;
         // The captured auto request cannot acknowledge a concurrent force escalation.
         // Preserve it for the next drain, without bypassing failure backoff/cooldown.
-        if (entry.f !== 1 && queue[k].f === 1) {
+        if ((entry.f !== 1 && queue[k].f === 1) || queue[k].v !== entry.v) {
           forcePending = true;
           if (retry) {
             queue[k].nx = Date.now() + GSHEET_WEB_SCAN_QUEUE_BACKOFF_MS * attempts;
@@ -330,26 +404,35 @@ function _webScanQueueDrain_(opts) {
         if (!retry || attempts >= GSHEET_WEB_SCAN_QUEUE_MAX_ATTEMPTS) {
           if (retry) _webScanQueueSetCooldown_(entry.c, entry.a);
           // Only verified OK gets a short pulse suppression; degraded/preserved are not freshness.
-          _webScanQueueReceipt_(_webScanQueueEntryId_(entry), { q: 0, n: 0,
-            nx: outcome === "OK" ? Date.now() + 2 * GSHEET_WEB_SCAN_QUEUE_BACKOFF_MS : 0, l: outcome });
+          // v4.16.86: proven OK keeps an ACK receipt for 45 min (b/s = cache write proof).
+          // v4.16.89: proven DEGRADED resets the admission age (q=0) and backs off 30 min.
+          receiptPending = { q: outcome === "DEGRADED" && proven ? 0 : entry.q, n: 0, v: entry.v,
+            b: proven ? proof.before : 0, s: outcome === "OK" && proven ? proof.stamp : 0,
+            nx: outcome === "OK" && proven ? Date.now() + GSHEET_WEB_SCAN_QUEUE_ACK_WINDOW_MS :
+              outcome === "DEGRADED" && proven ? Date.now() + GSHEET_WEB_SCAN_QUEUE_DEGRADED_RETRY_MS : 0, l: outcome };
           queue.splice(k, 1);
         } else queue[k].nx = Date.now() + GSHEET_WEB_SCAN_QUEUE_BACKOFF_MS * attempts;
         return { ok: true, changed: true };
       }
       return { ok: false, reason: "QUEUE_CLAIM_LOST" };
     });
+    // Publish ACK only AFTER the queue write/removal was confirmed successful.
+    // A failed queue commit must never leave a consumable success receipt.
+    if (commit.ok && receiptPending) _webScanQueueReceipt_(_webScanQueueEntryId_(entry), receiptPending);
     result.queueCommitted = commit.ok;
     results.push(result);
     try { _webScanQueueCache_().put("WCORE_WEB_SCAN_QUEUE_LAST", JSON.stringify(result), GSHEET_WEB_SCAN_QUEUE_TTL_SEC); } catch (eLast) {}
     if (!commit.ok) return finish(commit.reason);
     if (forcePending) return finish("FORCE_PENDING");
+    // Reserve de quota insuffisante : ne pas consommer les tentatives des entrees suivantes.
+    if (outcome === "BLOCKED_QUOTA") return finish("QUOTA_BLOCKED");
   }
   return finish("MAX_ITEMS");
 }
 
 /** Admin/trigger entry point. Not usable as a spreadsheet custom function. */
 function WCORE_WEB_SCAN_QUEUE_DRAIN() {
-  var res = _webScanQueueDrain_({ maxItems: 3, budgetMs: 240000 });
+  var res = _webScanQueueDrain_({ maxItems: GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN, budgetMs: 240000 });
   return [["Metric", "Value"]]
     .concat([["ran", String(res && res.ran)]])
     .concat([["reason", String(res && res.reason || "")]])

@@ -3,7 +3,9 @@
  *
  * SIMPLE & STABLE - Cache via ScriptProperties
  *
- * Version : LISTING_v4.5.18
+ * Version : LISTING_v4.5.19
+ * v4.5.19 - FIX: an added Ledger tab grows the Recap by one row; that new last row now gets the
+ *   B:BZ formulas (copied in R1C1 from row 2), as every other row. Only blank cells are written.
  * v4.15.104 - PER-CELL auto-link on user edit of Portefeuille Crypto Details column E (bridges watchdog-pulse gap)
  * v4.5.18 - FEAT: link Portefeuille Crypto Details column E to matching sheets via RichTextValue
  * v4.5.17 - FIX: label Recap I1 status column and clarify B1 as pulse timestamp
@@ -174,15 +176,55 @@ function _recapPortfolioVerifRowFormula_(row) {
   var cexBranch = _recapVerifBranchFormula_("cex", ref);
   var actionBranch = _recapVerifBranchFormula_("action", ref);
   var cryptoBranch = _recapVerifBranchFormula_("crypto", ref);
+  // P0-DATA-GRAVITY-ALPHA-FUNDS (2026-11-07) : un onglet retire n'est ni une anomalie ni un succes.
+  // - CHAIN_REMOVED : reconnu UNIQUEMENT par le marqueur publie par le GAS en tete de A2 de l'onglet
+  //   source ("[CHAIN_REMOVED] ...", casse exacte via EXACT), jamais par le nom, un total vide ou une panne RPC.
+  // - Erreur (SOURCE_UNAVAILABLE) : l'onglet nomme en colonne A n'existe plus (ISREF faux). Reste une
+  //   erreur visible pour les controles Strat qui cherchent "Erreur".
+  // - Sinon : branches existantes strictement inchangees. Une erreur en A2 d'un onglet actif (ex. debordement
+  //   bloque des onglets Action) est absorbee par IFERROR et ne change jamais le resultat.
+  var a1 = 'INDIRECT("\'"&' + ref + '&"\'!A1")';
+  var a2Marker = 'IFERROR(LEFT(TO_TEXT(INDIRECT("\'"&' + ref + '&"\'!A2"));15);"")';
   return "=IF(" + ref + '="";"";'
     + "IF(" + excluded + ';"";'
+    + 'IF(NOT(ISREF(' + a1 + '));"Erreur (SOURCE_UNAVAILABLE)";'
+    + 'IF(EXACT(' + a2Marker + ';"[CHAIN_REMOVED]");"CHAIN_REMOVED";'
     + 'IF(LEFT(' + ref + ';6)="CEX - ";' + cexBranch + ';'
     + 'IF(RIGHT(' + ref + ';7)=" Action";' + actionBranch + ";" + cryptoBranch + ")"
-    + ")))";
+    + ")))))";
 }
 
 function _recapPortfolioVerifFormula_() {
   return _recapPortfolioVerifRowFormula_(2);
+}
+
+// v4.5.19 - Recap rows read their source tab through INDIRECT($A<row>) in B:BZ (CA is rebuilt by
+// _repairRecapPortfolioVerif_). When a tab is added, column A grows by one row and that last row
+// stays without formulas: its tab then shows nothing in the Recap. Row 2 is the template; in R1C1
+// every data row has the same formulas. A row is missing when its PULSE column (D) has no formula;
+// only its blank cells are written, so a value placed by a script (CEX totals in B) is never replaced.
+var RECAP_ROW_FORMULA_FIRST_COL = 2;   // B
+var RECAP_ROW_FORMULA_WIDTH = 77;      // B..BZ
+function _recapFillMissingRowFormulas_(recap, lastDataRow) {
+  if (!recap || !(lastDataRow >= 3)) return 0;
+  var width = RECAP_ROW_FORMULA_WIDTH, first = RECAP_ROW_FORMULA_FIRST_COL;
+  var template = recap.getRange(2, first, 1, width).getFormulasR1C1()[0];
+  if (!template || !template[2]) return 0;  // no template formula in D: nothing safe to copy
+  var block = recap.getRange(3, first, lastDataRow - 2, width);
+  var formulas = block.getFormulasR1C1();
+  var values = block.getValues();
+  var filled = 0;
+  for (var r = 0; r < formulas.length; r++) {
+    if (formulas[r][2]) continue;            // D has its formula: row is complete
+    for (var c = 0; c < width; c++) {
+      if (formulas[r][c] || (values[r][c] !== "" && values[r][c] !== null)) continue;
+      if (!template[c]) continue;
+      recap.getRange(r + 3, first + c).setFormulaR1C1(template[c]);
+      filled++;
+    }
+  }
+  if (filled) Logger.log("[17_LISTING] filled " + filled + " missing Recap formula cell(s)");
+  return filled;
 }
 
 function _repairRecapPortfolioVerif_(ss) {
@@ -256,6 +298,9 @@ function _setRecapHyperlinks_(ss, names, map) {
   if (lastRow > newLastRow) {
    recap.getRange(newLastRow + 1, 1, lastRow - newLastRow, 10).clearContent();
   }
+
+  // v4.5.19: adding a tab grows the list by one row; that row has no B:BZ formulas yet.
+  _recapFillMissingRowFormulas_(recap, newLastRow);
 
   // v4.16.x: re-emit the Vérif MAP so the column keeps surfacing
   // "Erreur (0 V)" / "Erreur (X présent)" for every Recap row.

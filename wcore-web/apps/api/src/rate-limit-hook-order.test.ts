@@ -160,3 +160,32 @@ describe("rate-limit counter failure", () => {
     assert.equal(logged.length, 1, "the failure must be observable");
   });
 });
+
+describe("nonce requests are capped per IP across targets", () => {
+  test("rotating the target address cannot exceed the per-IP cap", async () => {
+    const { NONCE_IP_LIMIT_FACTOR } = await import("./server-helpers.js");
+    const cache = new MemoryCacheStore();
+    let target = 0;
+    const deps = { ...baseDeps, sharedCache: cache, nonceTargetAddress: () => `0x${String(++target).padStart(40, "0")}` };
+    const cap = baseDeps.rateLimits.auth * NONCE_IP_LIMIT_FACTOR;
+    let accepted = 0;
+    for (let i = 0; i < cap + 10; i++) {
+      const reply = makeReply();
+      await applyPostAuthRateLimit({ method: "GET", url: "/api/auth/nonce?address=x", ip: "10.0.0.9", headers: {} } as never, reply as never, deps);
+      if (reply.statusCode === null) accepted++;
+    }
+    assert.equal(accepted, cap, "every distinct target is accepted until the per-IP cap, then rejected");
+  });
+
+  test("the per-target cap still applies to one address", async () => {
+    const cache = new MemoryCacheStore();
+    const deps = { ...baseDeps, sharedCache: cache, nonceTargetAddress: () => "0xsame" };
+    let accepted = 0;
+    for (let i = 0; i < baseDeps.rateLimits.auth + 5; i++) {
+      const reply = makeReply();
+      await applyPostAuthRateLimit({ method: "GET", url: "/api/wallets/nonce?address=x", ip: "10.0.0.10", headers: {} } as never, reply as never, deps);
+      if (reply.statusCode === null) accepted++;
+    }
+    assert.equal(accepted, baseDeps.rateLimits.auth);
+  });
+});

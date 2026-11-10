@@ -520,8 +520,10 @@ test("POST /stock/quotes uses the canonical TSFA Taiwan ticker without changing 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: "relay-test-token", symbols: ["TSFA"] }),
       });
-      assert.ok(yahooUrls[0].includes("2330.TW"));
-      assert.ok(yahooUrls[1].includes("TSM"));
+      // Binance ne donne pas de taux ici : le relais demande EURUSD=X a Yahoo (secours), hors sujet.
+      const stockUrls = yahooUrls.filter((u) => !u.includes("EURUSD%3DX") && !u.includes("EURUSD=X"));
+      assert.ok(stockUrls[0].includes("2330.TW"));
+      assert.ok(stockUrls[1].includes("TSM"));
     });
   } finally {
     global.fetch = previousFetch;
@@ -946,4 +948,13 @@ test("okxCollectMainBalances succeeds with empty but readable pockets", async ()
     (ccy) => pushed.push(["funding", ccy]),
   );
   assert.deepEqual(pushed, [["funding", "ETH"]]);
+const { resolveEurPerUsd } = require("./server.js");
+
+test("resolveEurPerUsd prefers Binance, falls back to Yahoo, and never invents a fixed rate", async () => {
+  const yahoo = async () => 1.118;
+  assert.deepEqual(await resolveEurPerUsd(async () => [{ symbol: "EURUSDT", price: "1.12" }], yahoo), { rate: 1.12, source: "binance" });
+  assert.deepEqual(await resolveEurPerUsd(async () => { throw new Error("451"); }, yahoo), { rate: 1.118, source: "yahoo" });
+  assert.deepEqual(await resolveEurPerUsd(async () => [{ symbol: "BTCUSDT", price: "60000" }], yahoo), { rate: 1.118, source: "yahoo" });
+  assert.equal(await resolveEurPerUsd(async () => [], async () => null), null);
+  assert.equal(await resolveEurPerUsd(async () => { throw new Error("down"); }, async () => { throw new Error("down"); }), null);
 });

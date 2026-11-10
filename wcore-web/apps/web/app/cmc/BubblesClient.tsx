@@ -22,8 +22,9 @@ interface BubblesClientProps {
 
 const PERIOD_LABELS: Record<BubblePeriod, string> = { h1: "Hour", d1: "Day", w1: "Week", m1: "Month" };
 const COUNTS = [50, 100, 200, 500] as const;
-// Le serveur garde l'instantané en cache : relire toutes les 60 s ne coûte aucun appel au fournisseur.
-const AUTO_REFRESH_MS = 60_000;
+// Les classements changent toutes les heures (cryptos) ou une fois par jour (actions) :
+// relire toutes les 5 minutes suffit. Le serveur sert son instantané en cache.
+const AUTO_REFRESH_MS = 300_000;
 
 const eur = new Intl.NumberFormat("en", { style: "currency", currency: "EUR", notation: "compact", maximumFractionDigits: 2 });
 const formatEur = (v: number | null) => (v !== null && Number.isFinite(v) ? eur.format(v) : "-");
@@ -52,6 +53,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const logosRef = useRef<Map<string, HTMLImageElement | null>>(new Map());
   const viewRef = useRef({ period, search: "" });
+  const hasDataRef = useRef(false);
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -64,9 +66,13 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
       const response = await fetch(`${getApiUrl()}${endpoint}`, { signal });
       if (!response.ok) throw new Error(`Request failed with HTTP ${response.status}`);
       setSnapshot(parseMarketCapResponse(await response.json()));
+      hasDataRef.current = true;
       setError(null);
     } catch (cause) {
       if ((cause as { name?: string })?.name === "AbortError") return;
+      // Une relecture ratée ne doit pas barrer des bulles déjà affichées : on garde les données
+      // et on réessaie au prochain passage. L'erreur n'est montrée que s'il n'y a rien à afficher.
+      if (hasDataRef.current) return;
       setError(cause instanceof Error ? cause.message : "Unable to load market data");
     }
   }, [endpoint]);
@@ -299,7 +305,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
       </div>
       <p className={popup ? "hidden" : "mt-2 text-xs text-muted"}>
         {snapshot ? `Snapshot ${new Date(snapshot.generatedAt).toLocaleString("en")} · ` : ""}
-        {kind === "crypto" ? "Rankings refresh hourly" : "Rankings refresh daily"}; this page re-reads them every minute. Drag a bubble to move it.
+        {kind === "crypto" ? "Rankings refresh hourly" : "Rankings refresh daily"}; this page re-reads them every 5 minutes. Drag a bubble to move it.
       </p>
     </main>
   );

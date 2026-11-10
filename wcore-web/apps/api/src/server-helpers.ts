@@ -255,6 +255,15 @@ export interface PostAuthRateLimitDeps {
  * Atomically increment a rate-limit counter and return whether the request
  * is still under the cap. Mirrors the logic previously inlined in server.ts.
  * Atomic INCR + EXPIRE avoids get-then-set races under SCAN_CONCURRENCY=50.
+ *
+ * Fenêtre fixe de 60 s (voir CacheStore.incr) : autour d'une frontière de fenêtre, un client peut
+ * passer jusqu'à deux fois le plafond en peu de temps ; le plafond n'est pas garanti sur toute
+ * minute glissante. C'est le compromis retenu contre l'ancien comportement, qui bloquait
+ * indéfiniment un client régulier resté sous le débit autorisé.
+ *
+ * Si le magasin sait incrémenter mais échoue, la requête est refusée (fail-closed, comme
+ * consumeScanBudget) et l'échec est journalisé. On ne retombe pas sur get/set : sur la même clé,
+ * ce repli mélangeait un nombre et un objet {count}, repoussait l'échéance et n'était pas atomique.
  */
 async function incrRateLimit(
   sharedCache: CacheStore,
@@ -265,10 +274,12 @@ async function incrRateLimit(
     try {
       const newCount = await sharedCache.incr(key, 60);
       return newCount <= limit;
-    } catch {
-      // Fall through to get-then-set fallback
+    } catch (err) {
+      console.error("rate limit counter failed, request rejected:", err instanceof Error ? err.message : String(err));
+      return false;
     }
   }
+  // Magasin sans incr (aucun en production) : repli historique get/set.
   const entry = await sharedCache.get<{ count: number }>(key);
   if (!entry) { await sharedCache.set(key, { count: 1 }, 60_000); return true; }
   const newCount = entry.count + 1;

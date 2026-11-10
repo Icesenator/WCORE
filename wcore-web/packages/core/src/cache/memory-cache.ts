@@ -47,8 +47,9 @@ export class MemoryCacheStore implements CacheStore {
     const now = Date.now();
     const entry = this.store.get(key);
     if (entry && now <= entry.expiresAt) {
+      // Fenêtre fixe : l'échéance posée à la création n'est pas repoussée.
       const next = (entry.value as number) + 1;
-      this.store.set(key, { value: next, expiresAt: now + ttlSec * 1000 });
+      this.store.set(key, { value: next, expiresAt: entry.expiresAt });
       return next;
     }
     this.store.set(key, { value: 1, expiresAt: now + ttlSec * 1000 });

@@ -107,6 +107,35 @@ function readJsonAt(repo, sha, path) {
   }
 }
 
+// What a commit must contain to claim a trust model. The table belongs to the deployer, not to
+// the commit: a manifest names a model, it cannot weaken what the name requires. Markers catch a
+// wrong or stale commit (the positional attestation presented for code that trusts the public
+// entries at every hop); they are not a defence against a commit written to deceive.
+export const TRUST_PROXY_MODELS = {
+  "wcore.trust-proxy.positional/v1": {
+    model: "positional",
+    sourceMarkers: {
+      "wcore-web/apps/api/src/server.ts": ["positionalTrustProxy(apiConfig.server.trustProxy)", "const trustProxy = trustProxyScope.trust;"],
+      "wcore-web/apps/api/src/trust-proxy.ts": ["export function positionalTrustProxy("],
+    },
+  },
+};
+
+function resolveTrustProxyModel(repo, sha, entry) {
+  if (!Object.hasOwn(entry, "trustProxyModel")) return "uniform";
+  const fail = (reason) => { throw new DeployError("E_TRUST_PROXY_MODEL", `trustProxyModel is not usable at ${sha}: ${reason}`); };
+  const declared = entry.trustProxyModel;
+  if (typeof declared !== "string" || !Object.hasOwn(TRUST_PROXY_MODELS, declared)) fail("unknown model");
+  const { model, sourceMarkers } = TRUST_PROXY_MODELS[declared];
+  for (const [path, markers] of Object.entries(sourceMarkers)) {
+    // A path missing at the SHA prints nothing, so every marker is reported missing.
+    const shown = capture("git", ["show", `${sha}:${path}`], repo);
+    const missing = markers.filter((marker) => !shown.stdout.includes(marker));
+    if (missing.length > 0) fail(`${path} does not carry ${JSON.stringify(missing)}`);
+  }
+  return model;
+}
+
 export function loadServicePlan(repo, sha, service) {
   const { json: manifest } = readJsonAt(repo, sha, "wcore-web/railway/deploy-manifest.json");
   const entry = manifest.services?.[service];
@@ -128,6 +157,7 @@ export function loadServicePlan(repo, sha, service) {
     dockerfile,
     ignore: [...(manifest.commonIgnore ?? []), ...(entry.ignore ?? [])],
     trustProxyPreflight: entry.trustProxyPreflight === true,
+    trustProxyModel: resolveTrustProxyModel(repo, sha, entry),
     productionEnvironment: manifest.productionEnvironment,
     configSource: manifest.configSource,
   };
@@ -295,20 +325,35 @@ export function writeGenerated(contextDir, plan, { sha, ref, environment }) {
 // Déclaration humaine locale uniquement : ni identité authentifiée, ni preuve runtime.
 // Aucun appel de variables, aucune génération de déclaration, aucun fallback réseau.
 const ATTESTATION_KEYS = ["schema", "version", "project", "service", "environment", "sha", "observedAt", "reviewedAt", "issuedAt", "expiresAt", "classification", "topologyVerified", "operatorConfirmed", "validationRules", "driftAcknowledgement"];
+// Version 1 : chaque entrée de TRUST_PROXY est un proxy vérifié, quel que soit le code déployé.
+// Version 2 : la valeur contient des adresses publiques, qui sont les bords de la plateforme ; elle
+// n'est recevable que pour un commit dont le code ne leur fait confiance qu'au saut 1 (modèle
+// "positional" du plan, vérifié au SHA). Elle ajoute deux clés et ne remplace aucun contrôle.
+const ATTESTATION_VERSIONS = {
+  1: { keys: ATTESTATION_KEYS, classification: "VALID_VERIFIED_PROXY", validationRules: "wcore.trust-proxy.release/v1", models: null, extra: {},
+    mode: "OPERATOR_DECLARATIVE_ATTESTATION" },
+  2: { keys: [...ATTESTATION_KEYS, "trustModel", "publicEntriesAreEdgesOnly"], classification: "VALID_POSITIONAL_PROXY", validationRules: "wcore.trust-proxy.release/v2",
+    models: ["positional"], extra: { trustModel: "wcore.trust-proxy.positional/v1", publicEntriesAreEdgesOnly: true },
+    mode: "OPERATOR_DECLARATIVE_ATTESTATION_POSITIONAL" },
+};
 function attestationError() {
   return new DeployError("E_TRUST_PROXY_ATTESTATION", "Déclaration opérateur absente, invalide ou expirée ; aucune vérification technique du runtime n'est revendiquée.");
 }
-function validateAttestation(value, target, now) {
+function validateAttestation(value, target, now, model) {
   const fail = () => { throw attestationError(); };
-  if (!value || Array.isArray(value) || typeof value !== "object" ||
-      Object.keys(value).length !== ATTESTATION_KEYS.length || ATTESTATION_KEYS.some((key) => !Object.hasOwn(value, key))) fail();
-  if (value.schema !== "wcore.trust-proxy-attestation" || value.version !== 1 ||
+  if (!value || Array.isArray(value) || typeof value !== "object" || !Object.hasOwn(value, "version") ||
+      typeof value.version !== "number" || !Object.hasOwn(ATTESTATION_VERSIONS, value.version)) fail();
+  const spec = ATTESTATION_VERSIONS[value.version];
+  if (Object.keys(value).length !== spec.keys.length || spec.keys.some((key) => !Object.hasOwn(value, key))) fail();
+  if (spec.models && !spec.models.includes(model)) fail();
+  if (Object.entries(spec.extra).some(([key, expected]) => value[key] !== expected)) fail();
+  if (value.schema !== "wcore.trust-proxy-attestation" ||
       target.service !== "api" || value.service !== target.service ||
       typeof target.project !== "string" || !target.project || value.project !== target.project ||
       typeof target.environment !== "string" || !target.environment || value.environment !== target.environment ||
       !SHA.test(target.sha ?? "") || value.sha !== target.sha ||
-      value.classification !== "VALID_VERIFIED_PROXY" || value.topologyVerified !== true || value.operatorConfirmed !== true ||
-      value.validationRules !== "wcore.trust-proxy.release/v1" || value.driftAcknowledgement !== "wcore.post-observation-drift/v1") fail();
+      value.classification !== spec.classification || value.topologyVerified !== true || value.operatorConfirmed !== true ||
+      value.validationRules !== spec.validationRules || value.driftAcknowledgement !== "wcore.post-observation-drift/v1") fail();
   const times = ["observedAt", "reviewedAt", "issuedAt", "expiresAt"].map((key) => {
     const text = value[key];
     if (typeof text !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(text)) fail();
@@ -318,11 +363,12 @@ function validateAttestation(value, target, now) {
   });
   const [observed, reviewed, issued, expires] = times;
   if (!Number.isFinite(now) || !(observed <= reviewed && reviewed <= issued && issued <= now && now < expires) || expires - observed > 30 * 60_000) fail();
+  return spec;
 }
 
 export function checkTrustProxy(plan, options, repo, now = Date.now()) {
   if (!plan.trustProxyPreflight) return null;
-  let value;
+  let value, spec;
   try {
     if (options.acceptSharedClientIp || typeof options.trustProxyAttestation !== "string") throw attestationError();
     const path = resolve(options.trustProxyAttestation);
@@ -346,15 +392,16 @@ export function checkTrustProxy(plan, options, repo, now = Date.now()) {
       // Schéma plat : chaque clé doit apparaître une seule fois, y compris les clés
       // échappées. Toute structure imbriquée est ensuite refusée par le schéma.
       const keys = [...text.matchAll(/"((?:[^"\\]|\\.)*)"\s*:/g)].map((match) => JSON.parse(`"${match[1]}"`));
-      if (keys.length !== ATTESTATION_KEYS.length || new Set(keys).size !== keys.length) throw attestationError();
+      // Le nombre exact de clés de la version déclarée est contrôlé par validateAttestation.
+      if (new Set(keys).size !== keys.length || keys.length !== Object.keys(value ?? {}).length) throw attestationError();
     } finally {
       closeSync(fd);
     }
-    validateAttestation(value, options, now);
+    spec = validateAttestation(value, options, now, plan.trustProxyModel);
   } catch {
     throw attestationError(); // Jamais le contenu, le chemin ou l'erreur système.
   }
-  return { mode: "OPERATOR_DECLARATIVE_ATTESTATION", revalidate: (time) => validateAttestation(value, options, time) };
+  return { mode: spec.mode, revalidate: (time) => validateAttestation(value, options, time, plan.trustProxyModel) };
 }
 
 export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log = console.error, inspect, now = Date.now(), clock = Date.now, lockOptions = {} } = {}) {

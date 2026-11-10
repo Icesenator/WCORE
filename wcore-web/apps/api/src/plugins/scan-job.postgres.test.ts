@@ -34,7 +34,7 @@ const progress: ScanJobProgress = {
 async function waitForDone(queue: PostgresScanJobQueue, jobId: string): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    const result = await queue.getOwned(jobId, undefined, "127.0.0.1");
+    const result = await queue.getOwned(jobId, undefined, "127.0.0.1", true);
     if (result?.status === "done") return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
+import { SentinelNotificationBell } from "@/components/SentinelNotificationBell";
 
 const icons = {
   home: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
@@ -14,6 +15,7 @@ const icons = {
   messages: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
   info: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>,
   table: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>,
+  shield: <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>,
 };
 
 const NAV_LINKS = [
@@ -24,6 +26,7 @@ const NAV_LINKS = [
   { href: "/cmc/stocks", label: "Market Cap Stock", icon: "table" as const },
   { href: "/gm", label: "GM", icon: "flame" as const },
   { href: "/leaderboard", label: "Leaderboard", icon: "trophy" as const },
+  { href: "/sentinel", label: "Chain Sentinel", icon: "shield" as const },
   { href: "/support", label: "Support", icon: "messages" as const },
   { href: "/about", label: "About", icon: "info" as const },
 ];
@@ -89,6 +92,8 @@ export function Sidebar({ collapsed, onToggle, onClose, mobileOpen = false }: Si
           </Link>
         ))}
       </nav>
+
+      <SentinelNotificationBell collapsed={collapsed} />
 
       <button
         type="button"

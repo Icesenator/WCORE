@@ -53,6 +53,49 @@ Exactly these 15 keys, once each, flat; times in UTC with milliseconds. The depl
 
 **Limits.** This is a declaration, not a proof: anyone who can write the file can forge it, it authenticates nobody, and the value Railway actually runs with can change after `observedAt`. The API itself still refuses to start on an invalid `TRUST_PROXY` (the healthcheck then keeps the previous deployment serving); an unset or loopback value only logs a warning, so check `req.remoteAddress` in the API logs after every deploy.
 
+#### Version 2: public edge addresses, trusted by hop position
+
+Version 1 says that **every** entry of `TRUST_PROXY` is a verified proxy. It cannot be issued for a value that lists public addresses: code that trusts an entry at any position of `X-Forwarded-For` lets a client whose own address falls in such a range have a forged entry adopted.
+
+Since `wcore.trust-proxy.positional/v1` the API binds trust to the hop (`apps/api/src/trust-proxy.ts`, `positionalTrustProxy`): the directly connected peer is believed only if it is in non-public space, the address that peer appended only if it is a listed public entry (the platform edge), and nothing beyond. For such a commit, and only for it, the operator may issue version 2:
+
+```json
+{
+  "schema": "wcore.trust-proxy-attestation",
+  "version": 2,
+  "project": "<railway project id>",
+  "service": "api",
+  "environment": "production",
+  "sha": "<full 40-character commit the deploy resolves -Ref to>",
+  "observedAt": "2026-10-27T10:00:00.000Z",
+  "reviewedAt": "2026-10-27T10:02:00.000Z",
+  "issuedAt": "2026-10-27T10:03:00.000Z",
+  "expiresAt": "2026-10-27T10:25:00.000Z",
+  "classification": "VALID_POSITIONAL_PROXY",
+  "topologyVerified": true,
+  "operatorConfirmed": true,
+  "validationRules": "wcore.trust-proxy.release/v2",
+  "driftAcknowledgement": "wcore.post-observation-drift/v1",
+  "trustModel": "wcore.trust-proxy.positional/v1",
+  "publicEntriesAreEdgesOnly": true
+}
+```
+
+Exactly these 17 keys. What the operator states, beyond version 1's binding to project, environment, service, commit and time window:
+
+- `classification: VALID_POSITIONAL_PROXY` — the value is acceptable **because** the deployed code is positional; it is not a claim that the value would be safe under uniform trust;
+- `topologyVerified` — the chain client -> public edge -> internal proxy -> container was observed (procedure: `docs/cloud/TRUST_PROXY_SECURITY.md`);
+- `publicEntriesAreEdgesOnly` — every public entry is an address range of the platform's own edge, none is a range that ordinary clients connect from.
+
+What the deployer checks itself, in addition, before accepting version 2:
+
+- the manifest **at the deployed commit** declares `"trustProxyModel": "wcore.trust-proxy.positional/v1"` for the service;
+- the sources at that commit carry the markers the deployer holds for that model (`TRUST_PROXY_MODELS` in `railway-deploy.mjs`): the positional function exists and its result is what `server.ts` hands to Fastify. A missing marker stops the deploy with `E_TRUST_PROXY_MODEL`, whatever attestation is presented.
+
+A commit without `trustProxyModel` (every commit before the positional fix) is `uniform`: version 2 is refused for it and version 1 remains the only accepted form. Version 1 stays valid for a positional commit. The markers catch a wrong or stale commit; they are not a defence against a commit written to deceive, and the 30-minute window, the refusal of `-AcceptSharedClientIp` and the absence of any variable read are unchanged.
+
+After a version 2 deploy, read the API startup log: it must show `TRUST_PROXY scope: mode=positional ... publicSpace=edge-hop-only`, with the `internal` and `edges` counts the operator expects (the line never contains an address).
+
 ### ⚠️ Do not run `railway up` directly
 
 Bare `railway up` deploys the working tree, uncommitted files included, to the currently linked service with whatever `dockerfilePath` is in `railway.json`. Running it from the wrong directory can also exclude `wcore-gsheet/dist`, breaking `@wcore/chains`. Always use `wcore-web/scripts/deploy.ps1`.

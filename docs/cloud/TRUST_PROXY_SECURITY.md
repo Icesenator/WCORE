@@ -43,3 +43,20 @@ Valeurs admissibles pour le service API, dans l'ordre de préférence :
 Mesure opérateur, sans exposer de secret : déployer d'abord sur un environnement de staging sans `TRUST_PROXY`, envoyer quelques requêtes `GET /health`, puis lire dans les logs Railway du service le champ `req.remoteAddress` des entrées `incoming request` (avec le repli `loopback`, c'est l'adresse du pair direct). Répéter sur plusieurs déploiements et plusieurs heures : si les adresses varient hors d'une plage étroite, garder l'option 2. Vérifier ensuite, toujours en staging, qu'un `X-Forwarded-For` fourni par le client ne change pas l'identité retenue.
 
 Le déployeur (`wcore-web/scripts/railway-deploy.mjs`) ne lit plus `TRUST_PROXY` : `railway variable list` renvoie toutes les variables du service, secrets compris. Pour l'API, il exige une attestation déclarative de l'opérateur, liée au projet, à l'environnement et au commit, valable 30 minutes au plus (format et limites : `wcore-web/DEPLOY.md`, section « TRUST_PROXY attestation »). L'opérateur vérifie la valeur et la topologie en privé avant de l'émettre ; l'API refuse toujours de démarrer sur une valeur invalide.
+
+## Confiance liée à la position du saut et attestation version 2 (9 novembre 2026)
+
+Mesure faite en production sans lire aucune variable, en comparant sur les mêmes requêtes l'adresse source vue par la plateforme (`srcIp` du flux HTTP) et l'adresse retenue par l'API (`remoteAddress` du journal Fastify) : la chaîne est client -> bord public de la plateforme -> proxy interne (espace non public) -> conteneur. Le pair direct du conteneur seul ne suffit pas à juger une liste de confiance.
+
+Conséquences :
+
+- les adresses publiques de bord doivent rester dans `TRUST_PROXY`, sinon l'adresse du bord devient l'identité de tous les visiteurs qu'il relaie ;
+- leur faire confiance à toutes les positions de `X-Forwarded-For` permettrait à un client dont l'adresse réelle tombe dans une de ces plages de faire adopter une adresse forgée.
+
+Le code lie donc la confiance à la position (`positionalTrustProxy`) : saut 0, une entrée non publique seulement ; saut 1, une entrée publique seulement ; au-delà, jamais. Une entrée qui mêle espace public et non public ne garde que sa partie non publique. La ligne de démarrage `TRUST_PROXY scope: mode=positional ...` donne les comptes sans aucune adresse.
+
+L'ordre de préférence de la section précédente devient, pour un commit positionnel : (1) le proxy interne mesuré, en espace non public, plus les bords publics mesurés ; (2) à défaut, l'absence de valeur ; (3) jamais `true`, un nombre, ni une plage couvrant Internet. Un bord absent de la liste n'ouvre aucune usurpation : ses visiteurs partagent seulement son adresse comme identité.
+
+L'attestation version 1 (« chaque entrée est un proxy vérifié ») ne peut pas être émise pour une valeur qui contient des adresses publiques. La version 2 (`VALID_POSITIONAL_PROXY`, règles `wcore.trust-proxy.release/v2`) existe pour ce cas : le déployeur ne l'accepte que si le commit déployé déclare le modèle positionnel dans son manifeste et porte ce code au SHA cible, et l'opérateur y déclare en plus que chaque entrée publique est un bord de la plateforme. Format, contrôles et limites : `wcore-web/DEPLOY.md`, « Version 2 ». Elle reste une déclaration humaine : elle n'est ni générée ni préremplie par un outil ou un agent.
+
+Risque résiduel accepté par cette politique : un pair qui se connecte directement au conteneur depuis l'espace non public listé, et qui connaît une adresse de bord listée, peut choisir l'adresse retenue pour lui. Cela touche la limitation de débit par adresse ; la lecture des scans anonymes exige en plus un jeton propre au scan et n'en dépend pas.

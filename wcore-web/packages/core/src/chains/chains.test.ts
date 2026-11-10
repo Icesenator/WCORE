@@ -11,7 +11,7 @@ test("every published chain satisfies the runtime schema", () => {
       : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
   });
 
-  assert.equal(chainList.length, 157, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(chainList.length, 158, "registry count changed: update the verified roadmaps with the same commit");
 
   assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
   assert.deepEqual(failures, []);
@@ -44,6 +44,35 @@ test("Nexus Mainnet is registered with verified RPC metadata", () => {
   assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "NEX");
   assert.equal(chain.CHAIN?.NATIVE_DECIMALS, 18);
   assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://mainnet.rpc.nexus.xyz/"]);
+});
+
+test("Elysium is Kinetiq's mainnet (99901), with HYPE priced like HyperEVM", () => {
+  const chain = getChain("ELYSIUM");
+
+  assert.ok(chain, "ELYSIUM chain should be registered");
+  assert.equal(chain.vm, "EVM");
+  assert.equal(chain.CHAIN?.NAME, "Elysium");
+  assert.equal(chain.CHAIN?.CHAIN_ID, 99901);
+  // Never Kinetiq's testnet (99801) nor Vulcan Forged's Elysium (1339, LAVA).
+  assert.notEqual(chain.CHAIN?.CHAIN_ID, 99801);
+  assert.notEqual(chain.CHAIN?.CHAIN_ID, 1339);
+  assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "HYPE");
+  assert.equal(chain.CHAIN?.NATIVE_DECIMALS, 18);
+  assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://rpc.elysium.kinetiq.xyz"]);
+  assert.equal(chain.CHAIN?.NATIVE_LLAMA_ID, getChain("HYPEREVM")?.CHAIN?.NATIVE_LLAMA_ID);
+  assert.equal(chain.CHAIN?.NATIVE_GECKO_ID, "hyperliquid");
+  assert.equal(chain.CHAIN?.DEX_SLUG, "elysium");
+  assert.equal(chain.RPC?.MAX_LOG_RANGE, undefined);
+  assert.equal(chain.RPC?.MIN_LOG_SCAN_BLOCKS, 500000);
+  assert.ok((chain.RPC?.LOG_CHUNK_BLOCKS as number) > (chain.RPC?.MIN_LOG_SCAN_BLOCKS as number), "one eth_getLogs call per direction: the RPC rate-limits 100 chunked calls");
+  assert.equal(chainList.some((c) => c.CHAIN?.CHAIN_ID === 1339 || c.CHAIN?.CHAIN_ID === 99801), false);
+});
+
+test("Lisk L2 (1135) stays in the registry so Chain Sentinel can still show held exposure", () => {
+  // The network is shut down and the GAS tombstone stops every Sheets scan, but Chain Sentinel
+  // reads exposure through this registry: removing Lisk here would turn a held claim
+  // (manual claims announced for January 2027) into NOT_COVERED. Same treatment as Gravity.
+  assert.equal(getChain("LISK")?.CHAIN?.CHAIN_ID, 1135);
 });
 
 test("Abstract native ETH pricing uses the Ethereum oracle ids", () => {

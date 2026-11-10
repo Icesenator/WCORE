@@ -64,3 +64,13 @@ test("preferSourceChanges takes the source per period and falls back to history"
   assert.deepEqual(preferSourceChanges({ d1: 9, w1: null, m1: null }, undefined), { h1: null, d1: 9, w1: null, m1: null });
   assert.equal(preferSourceChanges(undefined, undefined), null);
 });
+
+test("a snapshot is recorded on its own day, not on the day it is viewed", async () => {
+  const cache = new MemoryCacheStore();
+  await recordDailyCloses(cache, "stock", [{ symbol: "AAPL", priceEur: 100 }], day("2026-11-08"));
+  // Instantane du 09/11 servi (cache, panne de reconstruction) et consulte le 10/11.
+  const changes = await withHistoryChanges(cache, "stock", { generatedAt: "2026-11-09T21:00:00.000Z", rows: [{ symbol: "AAPL", priceEur: 105 }] }, day("2026-11-10"));
+  assert.deepEqual(await cache.get(dailyCloseKey("stock", "2026-11-09")), { AAPL: 105 });
+  assert.equal(await cache.get(dailyCloseKey("stock", "2026-11-10")), undefined, "today gets no artificial close");
+  assert.equal(Math.round(changes.get("AAPL")!.d1! * 100) / 100, 5, "the change compares with the day before the snapshot");
+});

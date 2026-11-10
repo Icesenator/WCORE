@@ -916,3 +916,34 @@ test("okxMergeSubaccountBalances leaves main balances intact when the key cannot
   assert.equal(count, 0);
   assert.equal(rows.length, 1);
 });
+
+const { okxCollectMainBalances } = require("./server.js");
+
+test("okxCollectMainBalances throws when trading or funding cannot be read (no partial list)", async () => {
+  for (const failing of ["/api/v5/account/balance", "/api/v5/asset/balances"]) {
+    const pushed = [];
+    await assert.rejects(
+      okxCollectMainBalances(
+        async (path) => {
+          if (path === failing) throw new Error("OKX code 50011");
+          return path === "/api/v5/account/balance"
+            ? { data: [{ details: [{ ccy: "BTC", cashBal: "1" }] }] }
+            : { data: [{ ccy: "ETH", bal: "2" }] };
+        },
+        (ccy) => pushed.push(["trading", ccy]),
+        (ccy) => pushed.push(["funding", ccy]),
+      ),
+      /OKX collection incomplete .*unavailable/,
+    );
+  }
+});
+
+test("okxCollectMainBalances succeeds with empty but readable pockets", async () => {
+  const pushed = [];
+  await okxCollectMainBalances(
+    async (path) => (path === "/api/v5/account/balance" ? { data: [{ details: [] }] } : { data: [{ ccy: "ETH", bal: "2" }] }),
+    (ccy) => pushed.push(["trading", ccy]),
+    (ccy) => pushed.push(["funding", ccy]),
+  );
+  assert.deepEqual(pushed, [["funding", "ETH"]]);
+});

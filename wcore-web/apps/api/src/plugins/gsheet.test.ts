@@ -2046,3 +2046,43 @@ describe("applyStakedPriceMirrors", () => {
     assert.equal(collateral?.contract.toLowerCase(), WRSETH_CTOKEN.toLowerCase(), "Comp wrsETH must display the cToken contract for Sheet users");
   });
 });
+
+test("a fake stablecoin is filtered even when the GSheet sends it back as a custom token", async () => {
+  const app = Fastify();
+  const fake = "0x00000000000000000000000000000000000f4e01";
+  const real = "0xb47c4c8f73f009cc0c0d3f92b388d13e293f0b65";
+  await app.register(gsheetPlugin, {
+    token: "secret",
+    cacheStore: { get: async () => null },
+    scanRunner: async () => ({
+      ok: true,
+      chain: "ELYSIUM",
+      chainName: "Elysium",
+      vm: "EVM",
+      timestamp: new Date().toISOString(),
+      native: { symbol: "HYPE", balance: 0, priceEur: null, valueEur: null },
+      tokens: [
+        { contract: fake, symbol: "USDC", name: "United States Digital Coin", balance: 3, priceEur: 0.0013, valueEur: 0.0039 },
+        { contract: real, symbol: "USDC", name: "USDC", balance: 0.11, priceEur: 0.9, valueEur: 0.099 },
+      ],
+      totalValueEur: 0.1,
+      errors: [],
+      degraded: false,
+      fxRate: 0.89,
+      scanMs: 1,
+    }),
+  });
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/gsheet/scan",
+    headers: { "x-gsheet-token": "secret" },
+    payload: { address: "0x17d518736Ee9341dcDc0A2498e013D33cFcDD080", chain: "ELYSIUM", customTokens: [fake, real] },
+  });
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  const contracts = body.tokens.map((t: { contract?: string }) => t.contract?.toLowerCase());
+  assert.equal(contracts.includes(fake), false, "the fake USDC is filtered despite customTokens");
+  assert.ok(body.blockedContracts.includes(fake), "and reported so the GSheet purges its cache");
+  assert.ok(contracts.includes(real), "the real USDC stays");
+  await app.close();
+});

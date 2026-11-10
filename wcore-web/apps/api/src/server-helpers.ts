@@ -320,6 +320,13 @@ export async function consumeScanBudget(
   }
 }
 
+/**
+ * Plafond global par IP des demandes de nonce, toutes cibles confondues, en multiple du plafond
+ * par cible. Sans lui, changer d'adresse cible a chaque appel contournait la limite (audit du
+ * 10/11/2026). Un multiple (et non le meme plafond) garde de la marge pour une IP partagee.
+ */
+export const NONCE_IP_LIMIT_FACTOR = 3;
+
 export async function applyPostAuthRateLimit(
   req: FastifyRequest,
   reply: FastifyReply,
@@ -341,7 +348,10 @@ export async function applyPostAuthRateLimit(
   const id = deps.rateLimitIdentity(req);
   const suffix = nonceAddr ? `${id}|${nonceAddr}` : id;
   const key = `rate_limit:${bucket}:${suffix}`;
-  if (!await incrRateLimit(deps.sharedCache, key, limit)) {
+  // Nonces : un second compteur par IP seule, independant de la cible demandee.
+  const ipCapExceeded = nonceAddr !== null
+    && !await incrRateLimit(deps.sharedCache, `rate_limit:${bucket}_ip:${id}`, limit * NONCE_IP_LIMIT_FACTOR);
+  if (ipCapExceeded || !await incrRateLimit(deps.sharedCache, key, limit)) {
     deps.metrics.recordRateLimit(bucket === "gm_read" ? "gm" : bucket === "scan_poll" ? "scan" : bucket);
     const message = bucket === "scan" ? "Too many scans. Wait 1 minute." : "Too many requests.";
     return reply.code(429).send({ error: "rate_limited", message });

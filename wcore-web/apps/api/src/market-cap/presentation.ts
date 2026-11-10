@@ -28,5 +28,7 @@ export function toStockMarketCapRow(row: StockSnapshotRow) {
     logoUrl: ticker
       ? `https://companiesmarketcap.com/img/company-logos/64/${ticker}.png`
       : undefined,
+    // Dernier cours connu (source indisponible) : la ligne le dit, au lieu de passer pour fraiche.
+    ...(row.stale ? { stale: true as const } : {}),
   };
 }

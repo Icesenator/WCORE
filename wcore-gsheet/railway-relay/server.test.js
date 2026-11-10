@@ -886,3 +886,33 @@ test("collectStockNativeQuotes forwards bounded changes and omits them when unkn
   assert.deepEqual(quotes.AAPL.changes, { d1: 1.5, w1: null, m1: null });
   assert.equal("changes" in quotes.MSFT, false);
 });
+
+const { okxMergeSubaccountBalances, okxPushRow: okxPushRowForSub } = require("./server.js");
+
+test("okxMergeSubaccountBalances adds trading and funding balances of each sub-account", async () => {
+  const rows = [], seen = {};
+  okxPushRowForSub(rows, seen, "ETH", "10", "funding");
+  const calls = [];
+  const count = await okxMergeSubaccountBalances(
+    async (path, params) => {
+      calls.push(path + (params && params.subAcct ? ":" + params.subAcct : ""));
+      if (path === "/api/v5/users/subaccount/list") return { data: [{ subAcct: "sub1" }, { subAcct: "bad name!" }] };
+      if (path === "/api/v5/account/subaccount/balances") return { data: [{ details: [{ ccy: "BTC", cashBal: "0.5", eqUsd: "30000" }] }] };
+      return { data: [{ ccy: "ETH", bal: "25" }] };
+    },
+    (ccy, amount, eqUsd) => okxPushRowForSub(rows, seen, ccy, amount, "trading", { valueUsd: eqUsd }),
+    (ccy, amount) => okxPushRowForSub(rows, seen, ccy, amount, "funding"),
+  );
+  assert.equal(count, 1);
+  assert.deepEqual(calls, ["/api/v5/users/subaccount/list", "/api/v5/account/subaccount/balances:sub1", "/api/v5/asset/subaccount/balances:sub1"]);
+  assert.equal(rows.find((r) => r[0] === "ETH" && r[2] === "funding")[1], 35);
+  assert.equal(rows.find((r) => r[0] === "BTC" && r[2] === "trading")[1], 0.5);
+});
+
+test("okxMergeSubaccountBalances leaves main balances intact when the key cannot list sub-accounts", async () => {
+  const rows = [], seen = {};
+  okxPushRowForSub(rows, seen, "ETH", "10", "funding");
+  const count = await okxMergeSubaccountBalances(async () => { throw new Error("OKX code 50030"); }, () => assert.fail(), () => assert.fail());
+  assert.equal(count, 0);
+  assert.equal(rows.length, 1);
+});

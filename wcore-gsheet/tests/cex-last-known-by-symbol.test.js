@@ -119,6 +119,47 @@ test('an asset absent from the previous tab gets no borrowed value', () => {
   assert.equal(out.total, 5000);
 });
 
+test('an explicit zero from the price source still wins over the last known price', () => {
+  // webPrices carries the symbol with a null price: the source says the asset is worth nothing.
+  const out = run({
+    previous: PREVIOUS,
+    balances: [['DOGE', 500, 'spot'], ['BTC', 0.05, 'spot']],
+    webPrices: { BTC: 100000, DOGE: null },
+  });
+  assert.equal(out.written.DOGE, 0, 'authoritative zero is never replaced by the last known price');
+  assert.equal(out.total, 5000);
+});
+
+test('a first run on an empty tab invents nothing and does not fail', () => {
+  const out = run({ previous: [], balances: [['DOGE', 500, 'spot'], ['BTC', 0.05, 'spot']], webPrices: { BTC: 100000 } });
+  assert.equal(out.written.DOGE, 0);
+  assert.equal(out.total, 5000);
+});
+
+test('the same asset held in two places is valued with the same last known price', () => {
+  const previous = [
+    PREVIOUS[0], PREVIOUS[1],
+    ['DOGE', 500, 'spot', '2026-11-10 22:00:00', 50, '', ''],
+    ['DOGE', 100, 'earn', '2026-11-10 22:00:00', 10, '', ''],
+    ['.', 'INFO_TOTAL', 'test', '2026-11-10 22:00:00', '', '', 60],
+  ];
+  const out = run({ previous, balances: [['DOGE', 100, 'earn'], ['DOGE', 500, 'spot']], webPrices: {} });
+  assert.equal(out.total, 60, '500 and 100 DOGE at the last known 0.10');
+});
+
+test('a previous cell that holds no usable figure gives no last known price', () => {
+  const previous = [
+    PREVIOUS[0], PREVIOUS[1],
+    ['DOGE', 500, 'spot', '2026-11-10 22:00:00', 'n/a', '', ''],
+    ['PEPE', 0, 'spot', '2026-11-10 22:00:00', 12, '', ''],
+    ['BTC', 0.05, 'spot', '2026-11-10 22:00:00', '5000', '', ''],
+  ];
+  const out = run({ previous, balances: [['DOGE', 500, 'spot'], ['PEPE', 3, 'spot'], ['BTC', 0.05, 'spot']], webPrices: {} });
+  assert.equal(out.written.DOGE, 0, 'text is not a value');
+  assert.equal(out.written.PEPE, 0, 'no previous balance, no unit price');
+  assert.equal(out.written.BTC, 5000, 'a number stored as text is read');
+});
+
 test('the positional read is gone from the function', () => {
   assert.equal(/prevValues/.test(BODY), false);
   assert.match(BODY, /prevPriceBySymbol\[symbol\]/);

@@ -13,6 +13,38 @@ import { lookup } from "node:dns/promises";
 const PRIVATE_HOSTNAME = /^(localhost|.*\.local|.*\.internal|.*\.localhost)$/i;
 
 /**
+ * Reads an IPv6 address into its eight 16-bit groups, or null when it is malformed.
+ * Accepts the compressed form (::) and a dotted IPv4 tail (::ffff:1.2.3.4).
+ */
+function parseIpv6Groups(ip: string): number[] | null {
+  let text = ip;
+  const dotted = text.match(/^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (dotted) {
+    const bytes = dotted.slice(2, 6).map(Number) as [number, number, number, number];
+    if (bytes.some((byte) => byte > 255)) return null;
+    text = `${dotted[1]}${((bytes[0] << 8) | bytes[1]).toString(16)}:${((bytes[2] << 8) | bytes[3]).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (part === "") return [];
+    const groups: number[] = [];
+    for (const group of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+      groups.push(parseInt(group, 16));
+    }
+    return groups;
+  };
+  const head = parse(halves[0]!);
+  const tail = halves.length === 2 ? parse(halves[1]!) : [];
+  if (!head || !tail) return null;
+  if (halves.length === 1) return head.length === 8 ? head : null;
+  const missing = 8 - head.length - tail.length;
+  if (missing < 1) return null;
+  return [...head, ...new Array<number>(missing).fill(0), ...tail];
+}
+
+/**
  * True for any address that must never be reached from the API.
  *
  * Written as explicit ranges rather than a regex because the previous regex missed
@@ -21,11 +53,6 @@ const PRIVATE_HOSTNAME = /^(localhost|.*\.local|.*\.internal|.*\.localhost)$/i;
  */
 export function isPrivateAddress(rawIp: string): boolean {
   const ip = rawIp.trim().replace(/^\[|\]$/g, "").toLowerCase();
-
-  // IPv4-mapped and IPv4-compatible IPv6 (::ffff:169.254.169.254) must be judged
-  // on the embedded IPv4 address, not on the IPv6 prefix.
-  const mapped = ip.match(/^::(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/);
-  if (mapped) return isPrivateAddress(mapped[1]!);
 
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
     const parts = ip.split(".").map(Number);
@@ -45,11 +72,20 @@ export function isPrivateAddress(rawIp: string): boolean {
   }
 
   if (ip.includes(":")) {
-    if (ip === "::" || ip === "::1") return true;    // unspecified, loopback
-    if (/^f[cd]/.test(ip)) return true;              // fc00::/7 unique-local
-    if (/^fe[89ab]/.test(ip)) return true;           // fe80::/10 link-local
-    if (/^ff/.test(ip)) return true;                 // multicast
-    if (ip.startsWith("64:ff9b:")) return true;      // NAT64, can wrap a private v4
+    const groups = parseIpv6Groups(ip);
+    if (!groups) return true;                        // malformed → refuse
+    const [g0, g1, , , , g5, g6, g7] = groups as [number, number, number, number, number, number, number, number];
+    // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d) addresses are judged on
+    // the embedded IPv4 address, whatever their spelling. The URL parser rewrites
+    // [::ffff:169.254.169.254] to [::ffff:a9fe:a9fe], which a dotted-only pattern let through.
+    // This also covers :: (0.0.0.0) and ::1 (0.0.0.1), both refused.
+    if (groups.slice(0, 5).every((group) => group === 0) && (g5 === 0 || g5 === 0xffff)) {
+      return isPrivateAddress(`${g6 >> 8}.${g6 & 255}.${g7 >> 8}.${g7 & 255}`);
+    }
+    if ((g0 & 0xfe00) === 0xfc00) return true;       // fc00::/7 unique-local
+    if ((g0 & 0xffc0) === 0xfe80) return true;       // fe80::/10 link-local
+    if ((g0 & 0xff00) === 0xff00) return true;       // multicast
+    if (g0 === 0x64 && g1 === 0xff9b) return true;   // NAT64, can wrap a private v4
     return false;
   }
 

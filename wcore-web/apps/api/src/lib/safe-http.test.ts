@@ -192,3 +192,26 @@ test("safeFetch applies fetch redirect method semantics", async () => {
     assert.deepEqual(methods, ["POST", expectedMethod], `status ${status}`);
   }
 });
+
+test("isPrivateAddress judges an IPv4 address embedded in IPv6 whatever its spelling", () => {
+  // The URL parser rewrites [::ffff:169.254.169.254] to its hexadecimal form.
+  assert.equal(new URL("http://[::ffff:169.254.169.254]/").hostname, "[::ffff:a9fe:a9fe]");
+  assert.equal(isPrivateAddress("::ffff:a9fe:a9fe"), true);            // metadata
+  assert.equal(isPrivateAddress("::ffff:7f00:1"), true);               // loopback
+  assert.equal(isPrivateAddress("::ffff:a00:1"), true);                // 10.0.0.1
+  assert.equal(isPrivateAddress("::a9fe:a9fe"), true);                 // IPv4-compatible
+  assert.equal(isPrivateAddress("0:0:0:0:0:ffff:a9fe:a9fe"), true);    // not compressed
+  assert.equal(isPrivateAddress("0000:0000:0000:0000:0000:ffff:c0a8:0001"), true);
+  // A public address stays public under the same spelling.
+  assert.equal(isPrivateAddress("::ffff:808:808"), false);
+  assert.equal(isPrivateAddress("::ffff:8.8.8.8"), false);
+  // Anything that is not a well-formed IPv6 address is refused.
+  assert.equal(isPrivateAddress("::ffff:zzzz:1"), true);
+  assert.equal(isPrivateAddress("1::2::3"), true);
+});
+
+test("assertPublicHttp refuses a private IPv4 written as IPv4-mapped IPv6", () => {
+  for (const host of ["[::ffff:169.254.169.254]", "[::ffff:127.0.0.1]", "[::ffff:10.0.0.1]", "[::ffff:a9fe:a9fe]"]) {
+    assert.throws(() => assertPublicHttp(`http://${host}/latest/meta-data`), UnsafeUrlError, host);
+  }
+});

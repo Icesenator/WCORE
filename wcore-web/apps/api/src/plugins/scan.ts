@@ -7,7 +7,7 @@ import { metrics } from "@wcore/core";
 import { AnyAddress } from "@wcore/shared";
 import type { ChainScan, ScanResult } from "@wcore/shared";
 import { ScanJobParamsSchema, ScanRequestBodySchema, BatchScanRequestBodySchema } from "../schemas.js";
-import { getScanResultCacheKey, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout, chainCircuitOutcome, applyChainCircuitOutcome } from "./scan-utils.js";
+import { getScanResultCacheKey, scanResultCacheFor, getEngineCacheForScan, hasCachedValue, isRetriableNonEvmResult, shouldCacheAssets, calcCleanChainValue, runWithTimeout, chainCircuitOutcome, applyChainCircuitOutcome } from "./scan-utils.js";
 import { getPostgresScanJobQueue, jobPrincipal, type ScanJobProgress, type ScanJobQueue } from "./scan-job.js";
 import { SCAN_POLL_TOKEN_HEADER, scanPollToken, verifyScanPollToken } from "./scan-poll-token.js";
 import { classifyScanError, consumeScanBudget, isUnreachableScan, scanRequestCost } from "../server-helpers.js";
@@ -128,6 +128,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const logBlockRange = deepScan ? 200_000 : 5_000;
     const requestedChains = chainValidation.chains;
     const customTokens = await resolveCustomTokens(req.user?.id, body.customTokens);
+    const resultCache = scanResultCacheFor(sharedCache, strictTokens, customTokens);
 
     const fxResult = await fetchFxRate(sharedCache);
     if (typeof fxResult !== "number") { reply.code(fxResult.code); return fxResult.body; }
@@ -158,7 +159,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     if (!forceRefresh) {
       let cachedEntries: ((WalletAssets & { ts: number }) | undefined)[] = [];
       try {
-        cachedEntries = await sharedCache.mget<WalletAssets & { ts: number }>(
+        cachedEntries = await resultCache.mget<WalletAssets & { ts: number }>(
           activeChains.map((chain) => getScanResultCacheKey(parsedAddress.data, chain)),
         );
       } catch { cachedEntries = []; }
@@ -203,7 +204,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
               const finalized = await finalizeDeFiAssets(chain, parsedAddress.data, assets);
               if (shouldCacheAssets(finalized)) {
                 const scanCacheKey = getScanResultCacheKey(parsedAddress.data, chain);
-                sharedCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+                resultCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
               }
             }).catch(() => {});
           }
@@ -223,7 +224,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     for (const result of finalizedRawResults) {
       if (shouldCacheAssets(result)) {
         const scanCacheKey = getScanResultCacheKey(parsedAddress.data, result.chain);
-        sharedCache.set(scanCacheKey, { ...result, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+        resultCache.set(scanCacheKey, { ...result, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
       }
     }
 
@@ -330,6 +331,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
     const logBlockRange = deepScan ? 200_000 : 5_000;
     const requestedChains = chainValidation.chains;
     const customTokens = await resolveCustomTokens(req.user?.id, body.customTokens);
+    const resultCache = scanResultCacheFor(sharedCache, strictTokens, customTokens);
 
     const fxResult = await fetchFxRate(sharedCache);
     if (typeof fxResult !== "number") { reply.code(fxResult.code); return fxResult.body; }
@@ -372,7 +374,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       for (const chain of evmChains) for (const addr of addresses) pairs.push({ chain, addr });
       let cachedEntries: ((WalletAssets & { ts: number }) | undefined)[] = [];
       try {
-        cachedEntries = await sharedCache.mget<WalletAssets & { ts: number }>(
+        cachedEntries = await resultCache.mget<WalletAssets & { ts: number }>(
           pairs.map(({ chain, addr }) => getScanResultCacheKey(addr, chain)),
         );
       } catch { cachedEntries = []; }
@@ -439,7 +441,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
                 const finalized = await finalizeDeFiAssets(chain, address, assets);
                 if (shouldCacheAssets(finalized)) {
                   const scanCacheKey = getScanResultCacheKey(address, chain);
-                  sharedCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+                  resultCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
                 }
               }
             }).catch(() => {});
@@ -460,7 +462,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
         // Write scan result cache so the next batch scan can skip this RPC call
         if (shouldCacheAssets(assets)) {
           const scanCacheKey = getScanResultCacheKey(address, chain);
-          sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+          resultCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
         }
       }
     }
@@ -483,7 +485,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
         for (const addr of addresses) for (const chain of nonEvmChains) pairs.push({ chain, addr });
         let cachedEntries: ((WalletAssets & { ts: number }) | undefined)[] = [];
         try {
-          cachedEntries = await sharedCache.mget<WalletAssets & { ts: number }>(
+          cachedEntries = await resultCache.mget<WalletAssets & { ts: number }>(
             pairs.map(({ chain, addr }) => getScanResultCacheKey(addr, chain)),
           );
         } catch { cachedEntries = []; }
@@ -536,7 +538,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
           // Write scan result cache so future scans can skip this (addr, chain) pair
           if (shouldCacheAssets(assets)) {
             const scanCacheKey = getScanResultCacheKey(addr, chain);
-            sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+            resultCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
           }
         }))
       ));
@@ -602,6 +604,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
   scanJobQueue.start(async ({ job, signal, publish }) => {
     const { getWalletAssets, RedisPricingCache, detectScam, getChain } = await import("@wcore/core");
     const { activeChains, forceRefresh, strictTokens, logBlockRange, customTokens, fxRate } = job.request;
+    const resultCache = scanResultCacheFor(sharedCache, strictTokens, customTokens);
     const progress = structuredClone(job.progress);
     const pricingCache = new RedisPricingCache(sharedCache);
     const asyncIntraScanCache = new Map<string, Promise<any>>();
@@ -665,7 +668,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
 
         if (shouldCacheAssets(assets)) {
           const scanCacheKey = getScanResultCacheKey(job.address, chain);
-          sharedCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+          resultCache.set(scanCacheKey, { ...assets, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
         }
         const outcome = chainCircuitOutcome({ errors: scanErrors, totalValueEur: assets.totalValueEur, tokens });
         applyChainCircuitOutcome(getCircuitBreaker(chain), { errors: scanErrors, totalValueEur: assets.totalValueEur, tokens });
@@ -682,7 +685,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
               const finalized = await finalizeDeFiAssets(chain, job.address, assets);
               if (shouldCacheAssets(finalized)) {
                 const scanCacheKey = getScanResultCacheKey(job.address, chain);
-                sharedCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
+                resultCache.set(scanCacheKey, { ...finalized, ts: Date.now() }, SCAN_RESULT_CACHE_TTL_MS).catch(() => {});
               }
             }).catch(() => {});
           }

@@ -20,14 +20,11 @@ function extractFunction(source, name) {
   }
   throw new Error(`Unclosed function ${name}`);
 }
-const context = {
-  Number, String, Array, isFinite,
-  XSTOCKS_SOLANA_EURC_MINT: 'EURC-MINT',
-  _xstocksIsInfoRow_: (row) => String(row[1] || '').indexOf('INFO') === 0,
-  _xstocksMetadata_: (row) => String(row[1] || '').endsWith('x'),
-};
+// The real row classifiers of the file, not stand-ins: META rows and xStocks metadata included.
+const context = { Number, String, Array, isFinite, XSTOCKS_SOLANA_EURC_MINT: 'EURC-MINT' };
 vm.createContext(context);
-vm.runInContext(extractFunction(SOURCE, '_xstocksProjectCryptoRows_'), context);
+vm.runInContext(['_xstocksIsInfoRow_', '_xstocksMetadata_', '_xstocksProjectCryptoRows_'].map((n) => extractFunction(SOURCE, n)).join(String.fromCharCode(10)), context);
+const XMETA = { xstockSymbol: 'TSLAx', underlyingSymbol: 'TSLA', rawBalance: 1, multiplier: 1, adjustedBalance: 1 };
 const HEADER = ['chain_name', 'token_ticker', 'token_name', 'contract_address', 'balance', 'price_eur', 'value_eur'];
 const total = (out) => out.find((r) => r[1] === 'INFO_TOTAL')[6];
 
@@ -35,7 +32,8 @@ test('known values are summed, xStocks and EURC rows left out', () => {
   const out = context._xstocksProjectCryptoRows_([HEADER,
     ['Ledger - Solana', 'SOL', 'Solana', 'native', 2, 150, 300],
     ['Ledger - Solana', 'JUP', 'Jupiter', 'JUPmint', 100, 0.5, 50],
-    ['Ledger - Solana', 'TSLAx', 'Tesla xStock', 'Xmint', 1, 300, 300],
+    ['Ledger - Solana', 'TSLAx', 'Tesla xStock', 'Xmint', 1, 300, 300, XMETA],
+    ['META', 'scan', 'v1', '', '', '', ''],
     ['Ledger - Solana', 'EURC', 'EURC', 'EURC-MINT', 10, 1, 10],
     ['Ledger - Solana', 'INFO_TOTAL', '', '', '', '', 660]]);
   assert.equal(total(out), 350);

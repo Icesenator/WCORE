@@ -322,3 +322,29 @@ test("flags a fake stablecoin only when the name is unbranded AND the price is f
 
   assert.ok(SCAM_RULES_VERSION >= 35);
 });
+
+test("a cashtag ticker alone is only a warning, never a removal", () => {
+  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x594159fac2ae4439162fe3a82678984b0483fffc");
+  assert.equal(r.level, "warning");
+  assert.ok(r.reasons.some((reason) => reason.startsWith("cashtag ticker")));
+});
+
+test("a cashtag ticker with a sub-scam GeckoTerminal score is a scam (Elysium $Montra)", () => {
+  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x594159fac2ae4439162fe3a82678984b0483fffc", {
+    gt: { available: true, gtScore: 39.8 },
+  } as never);
+  assert.equal(r.level, "scam");
+  assert.equal(r.score, 4);
+});
+
+test("a cashtag ticker with a healthy GeckoTerminal score stays a warning", () => {
+  const r = detectScam("$GOOD", "Good Project", 1000, 0.5, "0x00000000000000000000000000000000000c0de1", {
+    gt: { available: true, gtScore: 72 },
+  } as never);
+  assert.equal(r.level, "warning");
+});
+
+test("an ordinary ticker gets no cashtag signal", () => {
+  const r = detectScam("MONTRA", "Montrav2", 200000, 0.0000226, "0x594159fac2ae4439162fe3a82678984b0483fffc");
+  assert.equal(r.reasons.some((reason) => reason.startsWith("cashtag ticker")), false);
+});

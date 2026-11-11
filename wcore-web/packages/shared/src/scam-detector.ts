@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 37;
+export const SCAM_RULES_VERSION = 38;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -468,6 +468,13 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
   // a GeckoTerminal sub-scam score, already points the same way (Elysium $Montra, 2026-11-11).
   if (!isKnownToken(s.replace(/^\$+/, "").toUpperCase(), contract) && /^\$[A-Za-z0-9]/.test(s)) {
     signals.push({ reason: `cashtag ticker "${s}"`, weight: 1 });
+    // A cashtag token held in an exact round quantity (200 000, not 199 873.41) worth little was
+    // pushed to the wallet, not bought: a swap never lands on a multiple of 10 000. Elysium got
+    // three of them in two days ($Montra, $HYS; rules v38, 2026-11-11).
+    const value = priceEur == null ? 0 : balance * priceEur;
+    if (Number.isInteger(balance) && balance >= 10_000 && balance % 10_000 === 0 && value < 50) {
+      signals.push({ reason: `cashtag airdrop of a round ${balance} units`, weight: 3 });
+    }
   }
 
   // 14c. Non-latin ticker/name with no price: dust airdrop using CJK/emoji

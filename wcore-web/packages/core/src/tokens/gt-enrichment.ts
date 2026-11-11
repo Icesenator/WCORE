@@ -42,6 +42,10 @@ const CHAIN_TO_GT: Record<number, string> = {
   43114: "avax",
   8453: "base",
   480: "world-chain",
+  // Elysium (mainnet Kinetiq) : endpoint /tokens/{addr}/info verifie le 2026-11-11 (score fourni).
+  // Sans lui, le detecteur n'avait aucune donnee de marche sur cette chaine, ou arrivent des
+  // jetons envoyes sans demande (ep/acc, faux USDC, $Montra).
+  99901: "elysium",
 };
 
 export function gtNetworkForChain(chainId: number): string | undefined {

@@ -15,6 +15,7 @@ function gtInfoPayload(score: number): string {
 
 test("GT network slugs match the /v2/networks registry (verified 2026-08-27)", () => {
   assert.equal(gtNetworkForChain(1), "eth");
+  assert.equal(gtNetworkForChain(99901), "elysium");
   assert.equal(gtNetworkForChain(56), "bsc");
   assert.equal(gtNetworkForChain(137), "polygon_pos");
   assert.equal(gtNetworkForChain(10), "optimism");

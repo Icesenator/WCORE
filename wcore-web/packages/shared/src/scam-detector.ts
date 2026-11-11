@@ -3,7 +3,7 @@
 // disagrees with the totalEur computed by the API. Bump SCAM_RULES_VERSION whenever
 // rules change so consumers can invalidate their cached results.
 
-export const SCAM_RULES_VERSION = 35;
+export const SCAM_RULES_VERSION = 36;
 
 const SCAM_PATTERNS = [
   /claim/i, /airdrop/i, /reward/i, /gift/i, /giveaway/i,
@@ -456,6 +456,14 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
         signals.push({ reason: `vanity factory address (${contract.slice(-4)})`, weight: 3 });
       }
     }
+  }
+
+  // 14b-bis. Cashtag ticker: an on-chain symbol that starts with "$" ("$Montra") copies the
+  // social-media cashtag, a common trait of tokens pushed to wallets unsolicited. Weak alone
+  // (weight 1, warning): it only tips a token over the scam line when a market signal, such as
+  // a GeckoTerminal sub-scam score, already points the same way (Elysium $Montra, 2026-11-11).
+  if (!isKnownToken(s.replace(/^\$+/, "").toUpperCase(), contract) && /^\$[A-Za-z0-9]/.test(s)) {
+    signals.push({ reason: `cashtag ticker "${s}"`, weight: 1 });
   }
 
   // 14c. Non-latin ticker/name with no price: dust airdrop using CJK/emoji

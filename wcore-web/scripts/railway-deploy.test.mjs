@@ -66,6 +66,7 @@ const entry = { args };
 if (args[0] === "status") process.stdout.write(process.env.FAKE_STATUS ?? JSON.stringify({ id: "${PROJECT}", name: "WCORE" }));
 if (args[0] === "variable") process.stdout.write(process.env.FAKE_VARS ?? "{}");
 if (args[0] === "deployment") process.stdout.write(process.env.FAKE_DEPLOYMENTS ?? JSON.stringify([{ id: "d0", status: "SUCCESS" }]));
+if (args[0] === "config" && args[1] === "pull") { if (process.env.FAKE_PULL_EXIT) process.exit(Number(process.env.FAKE_PULL_EXIT)); process.stdout.write(process.env.FAKE_PULL ?? "{}"); }
 if (args[0] === "up") {
   const root = args[1], files = [];
   const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); e.isDirectory() ? walk(f) : files.push(path.relative(root, f).split(path.sep).join("/")); } };
@@ -428,6 +429,122 @@ test("the railway up exit code is returned and the temporary context is removed"
     assert.equal(result.published, false);
     const leaked = readdirSync(tmpdir()).filter((name) => name.startsWith("wcore-api-") && !before.has(name));
     assert.deepEqual(leaked, []);
+  } finally {
+    f.cleanup();
+  }
+});
+
+// --- configSource "service-settings" (migration before the 2026-12-01 cutoff) ---------------
+function useServiceSettings(f, extra = {}) {
+  const path = join(f.repo, "wcore-web/railway/deploy-manifest.json");
+  const manifest = JSON.parse(readFileSync(path, "utf8"));
+  manifest.configSource = "service-settings";
+  writeFileSync(path, JSON.stringify(manifest, null, 2));
+  write(f.repo, "wcore-web/railway.json", '{"build":{"dockerfilePath":"wcore-web/apps/api/Dockerfile.railway"}}');
+  write(f.repo, "wcore-gsheet/railway-relay/railway.toml", "[build]\n");
+  for (const [k, v] of Object.entries(extra)) write(f.repo, k, v);
+  sh(f.repo, "add", "-A");
+  sh(f.repo, "commit", "--quiet", "-m", "service-settings");
+  sh(f.repo, "push", "--quiet", "origin", "master");
+}
+
+const pulled = (service, build, deploy = {}) => JSON.stringify({ project: { name: "WCORE" }, resources: [
+  { type: "service", name: service, variables: { JWT_SECRET: "never-logged" }, build, deploy },
+  { type: "service", name: "other", build: { builder: "RAILPACK" }, deploy: {} },
+] });
+const WEB_OK = pulled("web", { builder: "DOCKERFILE", dockerfilePath: "wcore-web/apps/web/Dockerfile.railway", watchPatterns: ["wcore-web/**"] });
+const WEB_PROD = ["--service", "web", "--ref", "origin/master", "--environment", "production", "--project", PROJECT];
+
+test("service-settings: uploads no railway.json at all once Railway holds the matching settings", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f);
+    const result = await f.run(WEB_PROD, { FAKE_PULL: WEB_OK, OMIT_ATTESTATION: "1" });
+    assert.equal(result.published, true);
+    const [up] = ups(f);
+    assert.equal(up.files.some((file) => /(^|\/)railway\.(json|toml)$/.test(file)), false, "no config file can take authority over the stored settings");
+    assert.equal("railway.json" in up.read, false);
+    assert.ok(up.files.includes("wcore-web/build-info.json"));
+    const pull = f.calls().find((call) => call.args[0] === "config");
+    assert.deepEqual(pull.args, ["config", "pull", "--json", "--environment", "production"]);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("service-settings: any drift between Railway and the commit stops the deploy before upload", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f);
+    const cases = [
+      pulled("web", { builder: "RAILPACK" }),
+      pulled("web", { builder: "DOCKERFILE", dockerfilePath: "wcore-web/apps/api/Dockerfile.railway", watchPatterns: ["wcore-web/**"] }),
+      pulled("web", { builder: "DOCKERFILE", dockerfilePath: "wcore-web/apps/web/Dockerfile.railway", watchPatterns: [] }),
+    ];
+    for (const pull of cases) {
+      await rejectsWith(f.run(WEB_PROD, { FAKE_PULL: pull, OMIT_ATTESTATION: "1" }), "E_SETTINGS_DRIFT");
+    }
+    assert.equal(ups(f).length, 0);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("service-settings: the healthcheck of the committed config is required on Railway", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f, { "wcore-web/railway/web.json": JSON.stringify({ build: { builder: "DOCKERFILE", dockerfilePath: "wcore-web/apps/web/Dockerfile.railway", watchPatterns: ["wcore-web/**"] }, deploy: { healthcheckPath: "/healthz", healthcheckTimeout: 120 } }) });
+    const build = { builder: "DOCKERFILE", dockerfilePath: "wcore-web/apps/web/Dockerfile.railway", watchPatterns: ["wcore-web/**"] };
+    await rejectsWith(f.run(WEB_PROD, { FAKE_PULL: pulled("web", build), OMIT_ATTESTATION: "1" }), "E_SETTINGS_DRIFT");
+    await rejectsWith(f.run(WEB_PROD, { FAKE_PULL: pulled("web", build, { healthcheckPath: "/healthz", healthcheckTimeout: 30 }), OMIT_ATTESTATION: "1" }), "E_SETTINGS_DRIFT");
+    const ok = await f.run(WEB_PROD, { FAKE_PULL: pulled("web", build, { healthcheckPath: "/healthz", healthcheckTimeout: 120 }), OMIT_ATTESTATION: "1" });
+    assert.equal(ok.published, true);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("service-settings: unreadable settings or a missing service fail closed", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f);
+    await rejectsWith(f.run(WEB_PROD, { FAKE_PULL_EXIT: "1", OMIT_ATTESTATION: "1" }), "E_SETTINGS_UNKNOWN");
+    await rejectsWith(f.run(WEB_PROD, { FAKE_PULL: "not json", OMIT_ATTESTATION: "1" }), "E_SETTINGS_UNKNOWN");
+    await rejectsWith(f.run(WEB_PROD, { FAKE_PULL: pulled("api", { builder: "DOCKERFILE" }), OMIT_ATTESTATION: "1" }), "E_SETTINGS_UNKNOWN");
+    assert.equal(ups(f).length, 0);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("service-settings: no variable value ever appears in an error", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f);
+    await assert.rejects(f.run(WEB_PROD, { FAKE_PULL: pulled("web", { builder: "RAILPACK" }), OMIT_ATTESTATION: "1" }), (error) => {
+      assert.equal(error.message.includes("never-logged"), false);
+      return true;
+    });
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("configSource: service-settings keeps working after the cutoff, config-as-code does not, an unknown value never does", async () => {
+  const f = fixture();
+  try {
+    const AFTER = Date.parse("2026-12-02T00:00:00Z");
+    await rejectsWith(f.run(WEB_PROD, { OMIT_ATTESTATION: "1" }, { now: AFTER, clock: () => AFTER }), "E_CONFIG_SOURCE");
+    useServiceSettings(f);
+    const ok = await f.run(WEB_PROD, { FAKE_PULL: WEB_OK, OMIT_ATTESTATION: "1" }, { now: AFTER, clock: () => AFTER });
+    assert.equal(ok.published, true);
+    const path = join(f.repo, "wcore-web/railway/deploy-manifest.json");
+    const manifest = JSON.parse(readFileSync(path, "utf8"));
+    manifest.configSource = "iac";
+    writeFileSync(path, JSON.stringify(manifest, null, 2));
+    sh(f.repo, "commit", "--quiet", "-am", "unknown source");
+    sh(f.repo, "push", "--quiet", "origin", "master");
+    await rejectsWith(f.run(WEB_PROD, { OMIT_ATTESTATION: "1" }), "E_CONFIG_SOURCE");
   } finally {
     f.cleanup();
   }

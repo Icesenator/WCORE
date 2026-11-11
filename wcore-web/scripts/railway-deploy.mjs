@@ -259,10 +259,68 @@ export function checkRemoteIdle(project, service, environment, repo) {
   }
 }
 
+// configSource:
+// - "config-as-code": the uploaded railway.json decides the build. Railway stops reading it on
+//   2026-12-01; from then on this mode is refused.
+// - "service-settings": the build is decided by the settings stored on the Railway service
+//   (builder, Dockerfile, watch patterns, healthcheck). No railway.json is uploaded, and the
+//   stored settings must match wcore-web/railway/<service>.json before anything is published.
+export const CONFIG_SOURCES = new Set(["config-as-code", "service-settings"]);
+
 export function assertConfigSourceUsable(configSource, now = Date.now()) {
-  if (configSource === "config-as-code" && now >= CONFIG_AS_CODE_CUTOFF) {
-    throw new DeployError("E_CONFIG_SOURCE", "Railway no longer reads railway.json since 2026-12-01: the Dockerfile of the service is no longer set by this upload. Migrate to Infrastructure as Code first (docs/cloud/RAILWAY_CONFIG_MIGRATION.md)");
+  if (!CONFIG_SOURCES.has(configSource)) {
+    throw new DeployError("E_CONFIG_SOURCE", `unknown configSource ${JSON.stringify(configSource)} in deploy-manifest.json`);
   }
+  if (configSource === "config-as-code" && now >= CONFIG_AS_CODE_CUTOFF) {
+    throw new DeployError("E_CONFIG_SOURCE", "Railway no longer reads railway.json since 2026-12-01: the Dockerfile of the service is no longer set by this upload. Switch to configSource service-settings (docs/cloud/RAILWAY_CONFIG_MIGRATION.md)");
+  }
+}
+
+// The settings this deployer requires on the Railway service, taken from the committed config.
+export function expectedServiceSettings(configText) {
+  const config = JSON.parse(configText);
+  const expected = {
+    builder: config.build?.builder,
+    dockerfilePath: config.build?.dockerfilePath,
+    watchPatterns: [...(config.build?.watchPatterns ?? [])].sort(),
+  };
+  if (config.deploy?.healthcheckPath !== undefined) expected.healthcheckPath = config.deploy.healthcheckPath;
+  if (config.deploy?.healthcheckTimeout !== undefined) expected.healthcheckTimeout = config.deploy.healthcheckTimeout;
+  return expected;
+}
+
+// Compares the settings stored on the Railway service with the committed config. Reads
+// `railway config pull --json`, which writes nothing; its variables are never logged or kept.
+// Fails closed: an unreadable state, a missing service or any difference stops the deploy.
+export function checkServiceSettings(plan, environment, repo) {
+  const pulled = capture("railway", ["config", "pull", "--json", "--environment", environment], repo);
+  let resources;
+  try {
+    resources = pulled.status === 0 ? JSON.parse(pulled.stdout)?.resources : null;
+  } catch {
+    resources = null;
+  }
+  if (!Array.isArray(resources)) {
+    throw new DeployError("E_SETTINGS_UNKNOWN", `cannot read the Railway settings of ${plan.service} in ${environment}; refusing rather than building with unknown settings`);
+  }
+  const found = resources.filter((r) => r?.type === "service" && r?.name === plan.service);
+  if (found.length !== 1) throw new DeployError("E_SETTINGS_UNKNOWN", `expected one Railway service named ${plan.service}, found ${found.length}`);
+  const { build = {}, deploy = {} } = found[0];
+  const actual = {
+    builder: build.builder,
+    dockerfilePath: build.dockerfilePath,
+    watchPatterns: [...(build.watchPatterns ?? [])].sort(),
+    healthcheckPath: deploy.healthcheckPath,
+    healthcheckTimeout: deploy.healthcheckTimeout,
+  };
+  const expected = expectedServiceSettings(plan.configText);
+  const drift = Object.keys(expected).filter((key) => JSON.stringify(actual[key]) !== JSON.stringify(expected[key]));
+  if (drift.length > 0) {
+    // Names and values of build settings only: never variables.
+    const detail = drift.map((key) => `${key}: Railway ${JSON.stringify(actual[key])} != ${plan.configPath} ${JSON.stringify(expected[key])}`).join("; ");
+    throw new DeployError("E_SETTINGS_DRIFT", `${plan.service} settings on Railway do not match the commit: ${detail}`);
+  }
+  return expected;
 }
 
 function listFiles(root) {
@@ -313,8 +371,19 @@ export async function exportCommit(repo, sha, contextDir) {
   }
 }
 
+// Config files Railway would read from an upload. In service-settings mode none may reach the
+// upload: the root railway.json names the api Dockerfile and would build the wrong image.
+const CONFIG_AS_CODE_FILES = new Set(["railway.json", "railway.toml"]);
+
+export function removeConfigAsCodeFiles(contextDir) {
+  const removed = listFiles(contextDir).filter((path) => CONFIG_AS_CODE_FILES.has(path.split("/").pop()));
+  for (const path of removed) rmSync(join(contextDir, path), { force: true });
+  return removed;
+}
+
 export function writeGenerated(contextDir, plan, { sha, ref, environment }) {
-  writeFileSync(join(contextDir, "railway.json"), plan.configText);
+  if (plan.configSource === "service-settings") removeConfigAsCodeFiles(contextDir);
+  else writeFileSync(join(contextDir, "railway.json"), plan.configText);
   writeFileSync(join(contextDir, ".railwayignore"), [`# Generated by railway-deploy.mjs for ${plan.service} at ${sha}`, ...plan.ignore, ""].join("\n"));
   // Not secret: the repository is public. Read by the image so /health can name its commit.
   const buildInfo = { schema: 1, sha, ref, service: plan.service, environment, source: "railway-deploy.mjs" };
@@ -418,6 +487,7 @@ export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log 
   try {
     // After the lock: two runs on this machine cannot both pass this check and upload.
     checkRemoteIdle(options.project, options.service, options.environment, repo);
+    if (plan.configSource === "service-settings") checkServiceSettings(plan, options.environment, repo);
     contextDir = mkdtempSync(join(tmpdir(), `wcore-${options.service}-`));
     await exportCommit(repo, sha, contextDir);
     const buildInfo = writeGenerated(contextDir, plan, { sha, ref: options.ref, environment: options.environment });

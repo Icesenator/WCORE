@@ -324,17 +324,27 @@ test("flags a fake stablecoin only when the name is unbranded AND the price is f
 });
 
 test("a cashtag ticker alone is only a warning, never a removal", () => {
-  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x594159fac2ae4439162fe3a82678984b0483fffc");
+  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
   assert.equal(r.level, "warning");
   assert.ok(r.reasons.some((reason) => reason.startsWith("cashtag ticker")));
 });
 
 test("a cashtag ticker with a sub-scam GeckoTerminal score is a scam (Elysium $Montra)", () => {
-  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x594159fac2ae4439162fe3a82678984b0483fffc", {
+  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1", {
     gt: { available: true, gtScore: 39.8 },
   } as never);
   assert.equal(r.level, "scam");
   assert.equal(r.score, 4);
+});
+
+test("Elysium $Montra is a confirmed scam whatever its GeckoTerminal score", () => {
+  for (const gtScore of [39.8, 44.49, 80]) {
+    const r = detectScam("$Montra", "Montrav2", 200000, 0.0000372, "0x594159FAC2AE4439162FE3A82678984B0483FFFC", {
+      gt: { available: true, gtScore },
+    } as never);
+    assert.equal(r.level, "scam", `GT ${gtScore}`);
+  }
+  assert.equal(detectScam("$Montra", "Montrav2", 200000, 0.0000372, "0x594159fac2ae4439162fe3a82678984b0483fffc").level, "scam", "without market data too");
 });
 
 test("a cashtag ticker with a healthy GeckoTerminal score stays a warning", () => {
@@ -345,7 +355,7 @@ test("a cashtag ticker with a healthy GeckoTerminal score stays a warning", () =
 });
 
 test("an ordinary ticker gets no cashtag signal", () => {
-  const r = detectScam("MONTRA", "Montrav2", 200000, 0.0000226, "0x594159fac2ae4439162fe3a82678984b0483fffc");
+  const r = detectScam("MONTRA", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
   assert.equal(r.reasons.some((reason) => reason.startsWith("cashtag ticker")), false);
 });
 

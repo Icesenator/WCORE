@@ -193,6 +193,10 @@ const _BLOCKED_CONTRACTS = new Set([
   // couverte par l'enrichissement.
   "0x716da70796d502b3c9ceb5c4876ba60f511dd8a0", // Elysium: ep/acc "Elysium Pepe Acceleration", 120 000 unités non sollicitées, prix de pool ~413 EUR
   "0xd56786d59f898ab020f386bc21fc08bfd576a942", // Elysium: faux USDC "United States Digital Coin" (prix 0,0013 EUR, loin de la parité)
+  // 2026-11-11 — même onglet : $Montra "Montrav2", 200 000 unités non sollicitées. La règle cashtag
+  // ne le retirait qu'avec un score GeckoTerminal < 40 ; le score est remonté à 44 et le jeton est
+  // revenu avec un prix. Confirmé non sollicité par le propriétaire.
+  "0x594159fac2ae4439162fe3a82678984b0483fffc", // Elysium: $Montra "Montrav2", cashtag non sollicité
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([

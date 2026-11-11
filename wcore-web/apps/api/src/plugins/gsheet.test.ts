@@ -2071,7 +2071,7 @@ test("a token already shown in the tab stays at unknown value when its price is 
 });
 
 test("a cashtag token with a sub-scam GeckoTerminal score is removed from the tab, unless the tab declared it", async () => {
-  const montra = "0x594159fac2ae4439162fe3a82678984b0483fffc";
+  const montra = "0x00000000000000000000000000000000000ca5a1";
   const run = async (gtScore: number | null, customTokens: string[]) => {
     const app = Fastify();
     await app.register(gsheetPlugin, {

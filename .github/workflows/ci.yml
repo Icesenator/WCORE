@@ -39,6 +39,10 @@ jobs:
       - name: Graph artifact guard (sources suivies uniquement)
         run: node scripts/graph-artifact-guard.test.cjs
 
+      # Publication du script Google : `npm run push` refuse, un seul acces clasp suivi.
+      - name: Publication guard (acces clasp unique, push racine refuse)
+        run: node --test scripts/refuse-root-push.test.cjs
+
       # Garde-fous de deploiement Railway : aucun appel a Railway, un faux `railway` est
       # place en tete du PATH. Parite service -> Dockerfile -> watchPatterns -> upload.
       - name: Railway deploy guards

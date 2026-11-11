@@ -1748,13 +1748,27 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   }
 
-  // 0. Read existing column E before clearing (last-known fallback).
-  var prevValues = null;
-  if (opt_values && sh && opt_values.length >= 2) {
-    var _clearRows = Math.max(opt_values.length, Math.min(sh.getMaxRows(), opt_values.length));
-    if (_clearRows >= 2) {
-      try { prevValues = sh.getRange(2, 5, Math.max(1, _clearRows - 1), 1).getValues(); } catch (ePrev) {}
-    }
+  // 0. Last-known price of each asset, read BY SYMBOL from the tab before it is cleared.
+  //    v4.16.95: it used to be read by position (row i of the old tab for asset i of the new
+  //    answer) although the tab is sorted by value, so an asset whose pricing failed received
+  //    the value of another asset, added to the total (audit of 2026-11-11). The old value is
+  //    turned back into a unit price (value / balance) and applied to the current balance.
+  var prevPriceBySymbol = {};
+  if (opt_values && sh) {
+    try {
+      var prevLastRow = Math.min(sh.getMaxRows(), sh.getLastRow());
+      if (prevLastRow >= 3) {
+        var prevRows = sh.getRange(3, 1, prevLastRow - 2, 5).getValues();
+        for (var pr = 0; pr < prevRows.length; pr++) {
+          var prevSym = String(prevRows[pr][0] || "").trim().toUpperCase();
+          var prevBal = Number(prevRows[pr][1] || 0);
+          var prevEur = Number(prevRows[pr][4] || 0);
+          if (!prevSym || prevSym === ".") continue; // INFO_TOTAL row
+          if (!(isFinite(prevBal) && prevBal > 0) || !(isFinite(prevEur) && prevEur > 0)) continue;
+          if (prevPriceBySymbol[prevSym] == null) prevPriceBySymbol[prevSym] = prevEur / prevBal;
+        }
+      }
+    } catch (ePrev) {}
   }
 
   // ---- Phase 1: PRICE EVERYTHING (before touching the sheet) ----
@@ -1863,13 +1877,10 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       eValues.push([0]); skipped++;
     } else {
       if (symbol && balance > 0) {
-        var prevVal = 0;
-        if (prevValues && i < prevValues.length) {
-          var pv = Number(prevValues[i][0] || 0);
-          if (isFinite(pv) && pv > 0) prevVal = pv;
-        }
+        var prevPrice = Number(prevPriceBySymbol[symbol] || 0);
+        var prevVal = isFinite(prevPrice) && prevPrice > 0 ? Math.round(balance * prevPrice * 100) / 100 : 0;
         if (prevVal > 0) {
-          Logger.log("[CEX_TOTAL] pricing-failed " + symbol + " — using last-known price " + prevVal + " EUR in " + sheetName);
+          Logger.log("[CEX_TOTAL] pricing-failed " + symbol + " — using last-known price " + prevPrice + " EUR in " + sheetName);
           eValues.push([prevVal]); total += prevVal; valued++;
         } else {
           Logger.log("[CEX_TOTAL] skip no-price: " + symbol + " in " + sheetName);

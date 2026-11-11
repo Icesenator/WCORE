@@ -195,6 +195,20 @@ export function stepBubbles(
   }
 }
 
+/**
+ * Vrai quand plus aucune bulle ne bouge de facon visible : l'animation peut s'arreter et l'image
+ * rester figee (aucun calcul ni dessin tant que rien ne change).
+ */
+export function bubblesSettled(bubbles: readonly Bubble[], maxSpeed = 0.03): boolean {
+  for (const b of bubbles) if (Math.abs(b.vx) > maxSpeed || Math.abs(b.vy) > maxSpeed) return false;
+  return true;
+}
+
+/** Cadence plafonnee : vrai si assez de temps s'est ecoule depuis la derniere image dessinee. */
+export function frameDue(now: number, last: number, fps = 30): boolean {
+  return now - last >= 1000 / fps - 1;
+}
+
 function separate(bubbles: Bubble[], impulse: number): void {
   for (let i = 0; i < bubbles.length; i++) {
     const a = bubbles[i]!;

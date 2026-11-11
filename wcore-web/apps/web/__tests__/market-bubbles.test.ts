@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { parseMarketCapResponse, type MarketCapRow } from "../app/cmc/market-cap";
 import {
-  bubbleColor, bubbleKey, bubbleMetric, computeRadii, createBubbles, formatChange, selectBubbleRows, stepBubbles,
+  bubbleColor, bubbleKey, bubbleMetric, bubblesSettled, computeRadii, createBubbles, formatChange, frameDue, selectBubbleRows, stepBubbles,
   type Bubble, type BubblePeriod,
 } from "../lib/market-bubbles";
 
@@ -76,6 +76,25 @@ describe("simulation", () => {
     for (let i = 0; i < 60; i++) stepBubbles(b, 400, 300);
     const d = Math.hypot(b[0]!.x - b[1]!.x, b[0]!.y - b[1]!.y);
     assert.ok(d >= 59, `distance ${d}`);
+  });
+  test("sans dérive, 100 bulles serrées finissent immobiles : l'animation peut s'arrêter", () => {
+    const radii = computeRadii(Array.from({ length: 100 }, (_, i) => 100 - i), 900, 600, { fill: 0.64, minRadius: 10 });
+    const rows = Array.from({ length: 100 }, (_, i) => row(i + 1, 1000 - i));
+    let seed = 1;
+    const b = createBubbles(rows, radii, 900, 600, [], () => ((seed = (seed * 16807) % 2147483647) / 2147483647));
+    for (let i = 0; i < 240; i++) stepBubbles(b, 900, 600, { time: i * 33 });
+    assert.equal(bubblesSettled(b), false, "pendant la dérive les bulles bougent");
+    let steps = 0;
+    while (!bubblesSettled(b) && steps < 600) { stepBubbles(b, 900, 600); steps++; }
+    assert.ok(bubblesSettled(b), `immobiles après ${steps} pas`);
+    assert.ok(steps < 600);
+  });
+  test("cadence plafonnée à 30 images/s", () => {
+    assert.equal(frameDue(1000, 1000 - 16.7, 30), false);
+    assert.equal(frameDue(1000, 1000 - 33.3, 30), true);
+    let drawn = 0, last = -Infinity;
+    for (let t = 0; t < 1000; t += 1000 / 144) if (frameDue(t, last, 30)) { drawn++; last = t; }
+    assert.ok(drawn <= 31 && drawn >= 25, `${drawn} images en 1 s sur un écran 144 Hz`);
   });
   test("les bulles restent dans le cadre", () => {
     const b: Bubble[] = [{ id: "a", x: -50, y: 900, vx: -40, vy: 40, r: 20 }];

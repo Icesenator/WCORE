@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  bubbleKey, bubbleMetric, bubbleShade, freshnessNote, computeRadii, createBubbles, formatChange, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
+  bubbleKey, bubbleMetric, bubbleShade, bubblesSettled, freshnessNote, computeRadii, createBubbles, formatChange, frameDue, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -25,6 +25,15 @@ const COUNTS = [50, 100, 200, 500] as const;
 // Les classements changent toutes les heures (cryptos) ou une fois par jour (actions) :
 // relire toutes les 5 minutes suffit. Le serveur sert son instantané en cache.
 const AUTO_REFRESH_MS = 300_000;
+// Sobriete (mesure du 11/11 : 212 % de CPU dans Brave avec les deux fenetres ouvertes).
+// - 30 images/s au plus ;
+// - la derive douce ne dure que DRIFT_MS apres un changement, puis les bulles se posent et
+//   l'animation s'arrete : une image figee ne coute rien ;
+// - chaque bulle est dessinee une fois dans une petite image (degrade, texte, logo) puis
+//   simplement recopiee tant que son aspect ne change pas ;
+// - rien ne tourne quand la page est masquee.
+const MAX_FPS = 30;
+const DRIFT_MS = 6_000;
 
 const eur = new Intl.NumberFormat("en", { style: "currency", currency: "EUR", notation: "compact", maximumFractionDigits: 2 });
 const formatEur = (v: number | null) => (v !== null && Number.isFinite(v) ? eur.format(v) : "-");
@@ -56,11 +65,24 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   const logosRef = useRef<Map<string, HTMLImageElement | null>>(new Map());
   const viewRef = useRef({ period, search: "" });
   const hasDataRef = useRef(false);
+  const spritesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  // Relance l'animation (drift = vrai : nouvelle periode de derive douce). Remplacee par la boucle.
+  const wakeRef = useRef<(drift?: boolean) => void>(() => {});
+  const paintRef = useRef<() => void>(() => {});
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (canvas && ctx) paintBubbles(ctx, canvas, sizeRef.current, bubblesRef.current, rowsRef.current, viewRef.current, dragRef.current?.id ?? null, logosRef.current);
+    if (canvas && ctx) paintBubbles(ctx, canvas, sizeRef.current, bubblesRef.current, rowsRef.current, viewRef.current, dragRef.current?.id ?? null, logosRef.current, spritesRef.current, () => paintRef.current());
   }, []);
+  // Plusieurs logos arrivent souvent ensemble : un seul redessin par image.
+  const logoPaintPending = useRef(false);
+  useEffect(() => {
+    paintRef.current = () => {
+      if (logoPaintPending.current) return;
+      logoPaintPending.current = true;
+      requestAnimationFrame(() => { logoPaintPending.current = false; paint(); });
+    };
+  }, [paint]);
   useEffect(() => { viewRef.current = { period, search: search.trim().toLowerCase() }; paint(); }, [period, search, paint]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -128,6 +150,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
     bubblesRef.current = next;
     rowsRef.current = new Map(rows.map((r) => [bubbleKey(r), r]));
     paint();
+    wakeRef.current(true);
   }, [rows, sizeMode, period, paint]);
 
   useEffect(() => { rebuild(); }, [rebuild]);
@@ -163,16 +186,37 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
     return () => { observer.disconnect(); window.removeEventListener("resize", resize); };
   }, [rebuild, popup, controlsHidden]);
 
-  // Boucle d'animation : physique + dessin. requestAnimationFrame se met en pause onglet masqué.
+  // Boucle d'animation bornee : elle ne tourne que page visible, pendant une derive courte apres
+  // un changement, un glisser ou tant que les bulles bougent encore ; ensuite l'image reste figee.
   useEffect(() => {
-    let frame = 0;
-    const draw = () => {
-      stepBubbles(bubblesRef.current, sizeRef.current.w, sizeRef.current.h, { time: performance.now() });
-      paint();
-      frame = requestAnimationFrame(draw);
+    let frame = 0, last = 0, running = false;
+    let driftUntil = performance.now() + DRIFT_MS;
+    const stop = () => { if (frame) cancelAnimationFrame(frame); frame = 0; running = false; };
+    const loop = (now: number) => {
+      frame = 0;
+      if (document.visibilityState !== "visible") { running = false; return; }
+      if (frameDue(now, last, MAX_FPS)) {
+        last = now;
+        const drifting = now < driftUntil;
+        stepBubbles(bubblesRef.current, sizeRef.current.w, sizeRef.current.h, drifting ? { time: now } : {});
+        paint();
+        if (!drifting && !dragRef.current && bubblesSettled(bubblesRef.current)) { running = false; return; }
+      }
+      frame = requestAnimationFrame(loop);
     };
-    frame = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frame);
+    const wake = (drift = false) => {
+      if (drift) driftUntil = performance.now() + DRIFT_MS;
+      if (running || document.visibilityState !== "visible") return;
+      running = true;
+      frame = requestAnimationFrame(loop);
+    };
+    wakeRef.current = wake;
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") { paint(); wake(); } else stop();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    wake(true);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVisibility); wakeRef.current = () => {}; };
   }, [paint]);
 
   const hitTest = (x: number, y: number) => {
@@ -194,20 +238,21 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
     if (!b) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = { id: b.id, dx: x - b.x, dy: y - b.y };
+    wakeRef.current();
   }
   function onPointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
     const { x, y } = localPoint(event);
     const drag = dragRef.current;
     if (drag) {
       const b = bubblesRef.current.find((item) => item.id === drag.id);
-      if (b) { b.vx = (x - drag.dx - b.x) * 0.3; b.vy = (y - drag.dy - b.y) * 0.3; b.x = x - drag.dx; b.y = y - drag.dy; }
+      if (b) { b.vx = (x - drag.dx - b.x) * 0.3; b.vy = (y - drag.dy - b.y) * 0.3; b.x = x - drag.dx; b.y = y - drag.dy; wakeRef.current(); }
     }
     const hit = hitTest(x, y);
     const row = hit ? rowsRef.current.get(hit.id) : undefined;
     setHover(row ? { row, left: Math.max(8, Math.min(x + 14, sizeRef.current.w - 190)), top: Math.max(8, y - 10) } : null);
     event.currentTarget.style.cursor = hit ? (drag ? "grabbing" : "grab") : "default";
   }
-  function onPointerUp() { dragRef.current = null; }
+  function onPointerUp() { dragRef.current = null; wakeRef.current(); }
 
   const hoverChange = hover ? periodChange(hover.row, period) : null;
   const freshness = snapshot ? freshnessNote(snapshot.generatedAt, snapshot.stale === true, reloadFailed) : null;
@@ -346,42 +391,69 @@ function Segmented({ label, value, options, onChange, compact = false }: {
 function paintBubbles(
   ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, size: { w: number; h: number }, bubbles: readonly Bubble[],
   rows: Map<string, MarketCapRow>, view: { period: BubblePeriod; search: string }, dragId: string | null,
-  logos: Map<string, HTMLImageElement | null>,
+  logos: Map<string, HTMLImageElement | null>, sprites: Map<string, HTMLCanvasElement>, onLogo: () => void,
 ) {
-  const { w, h } = size;
-  const dpr = canvas.width / w;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
+  const dpr = canvas.width / size.w;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const used = new Set<string>();
   for (const b of bubbles) {
     const row = rows.get(b.id);
     if (!row) continue;
     const change = periodChange(row, view.period);
     const q = view.search;
     const dim = q !== "" && !row.symbol.toLowerCase().includes(q) && !row.name.toLowerCase().includes(q);
-    ctx.globalAlpha = dim ? 0.15 : 1;
-    ctx.beginPath();
-    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    const sprite = bubbleSprite(b, row, change, dim, dragId === b.id, dpr, logos, sprites, onLogo);
+    if (!sprite) continue;
+    used.add(sprite.key);
+    // Recopie a l'echelle 1 et sur un pixel entier : pas de reechantillonnage couteux.
+    ctx.drawImage(sprite.canvas, Math.round((b.x - sprite.half) * dpr), Math.round((b.y - sprite.half) * dpr));
+  }
+  // Les images qui ne servent plus (bulle retiree, autre periode) sont liberees.
+  if (sprites.size > used.size * 2 + 64) for (const key of [...sprites.keys()]) if (!used.has(key)) sprites.delete(key);
+}
+
+// Une bulle dessinee une fois dans sa propre image, a la definition de l'ecran.
+function bubbleSprite(
+  b: Bubble, row: MarketCapRow, change: number | null, dim: boolean, dragged: boolean, dpr: number,
+  logos: Map<string, HTMLImageElement | null>, sprites: Map<string, HTMLCanvasElement>, onLogo: () => void,
+): { canvas: HTMLCanvasElement; half: number; key: string } | null {
+  if (!(b.r > 0)) return null;
+  const logo = loadLogo(row, logos, (b.r < 14 ? b.r * 1.25 : b.r * 0.55) * dpr, onLogo);
+  const half = b.r + 3;
+  const key = `${b.id}|${b.r.toFixed(2)}|${dpr}|${formatChange(change)}|${dim ? 1 : 0}|${dragged ? 1 : 0}|${logo?.src ?? ""}`;
+  let canvas = sprites.get(key);
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    const px = Math.ceil(half * 2 * dpr);
+    canvas.width = px; canvas.height = px;
+    const sctx = canvas.getContext("2d");
+    if (!sctx) return null;
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = "high";
+    const at: Bubble = { ...b, x: half, y: half };
+    sctx.globalAlpha = dim ? 0.15 : 1;
+    sctx.beginPath();
+    sctx.arc(at.x, at.y, at.r, 0, Math.PI * 2);
     // Relief : reflet décalé vers le haut à gauche, bord plus sombre.
     const shade = bubbleShade(change);
-    const gradient = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.4, b.r * 0.05, b.x, b.y, b.r);
+    const gradient = sctx.createRadialGradient(at.x - at.r * 0.35, at.y - at.r * 0.4, at.r * 0.05, at.x, at.y, at.r);
     gradient.addColorStop(0, shade.light);
     gradient.addColorStop(0.55, shade.base);
     gradient.addColorStop(1, shade.dark);
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.lineWidth = dragId === b.id ? 3 : 1.25;
-    ctx.strokeStyle = shade.rim;
-    ctx.stroke();
-    drawLabel(ctx, b, row, change, logos, dpr);
+    sctx.fillStyle = gradient;
+    sctx.fill();
+    sctx.lineWidth = dragged ? 3 : 1.25;
+    sctx.strokeStyle = shade.rim;
+    sctx.stroke();
+    drawLabel(sctx, at, row, change, logo);
+    sprites.set(key, canvas);
   }
-  ctx.globalAlpha = 1;
+  return { canvas, half, key };
 }
 
-function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, change: number | null, logos: Map<string, HTMLImageElement | null>, dpr: number) {
-  // Taille réelle du logo à l'écran, en pixels physiques : elle décide de la définition demandée.
-  const logo = loadLogo(row, logos, (b.r < 14 ? b.r * 1.25 : b.r * 0.55) * dpr);
+function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, change: number | null, logo: HTMLImageElement | null) {
   if (b.r < 14) {
     // Trop petite pour un texte lisible : le logo seul, plutôt qu'un disque muet.
     if (logo && b.r >= 7) {
@@ -413,7 +485,9 @@ function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, 
   ctx.shadowBlur = 0;
 }
 
-function loadLogo(row: MarketCapRow, logos: Map<string, HTMLImageElement | null>, pixels: number): HTMLImageElement | null {
+// Taille réelle du logo à l'écran, en pixels physiques : elle décide de la définition demandée.
+// onLoad redessine l'image figée quand un logo arrive (l'animation peut être arrêtée).
+function loadLogo(row: MarketCapRow, logos: Map<string, HTMLImageElement | null>, pixels: number, onLoad?: () => void): HTMLImageElement | null {
   if (!row.logoUrl) return null;
   const ready = (img: HTMLImageElement | null | undefined) => (img && img.complete && img.naturalWidth > 0 ? img : null);
   const url = sharpLogoUrl(row.logoUrl, pixels);
@@ -423,9 +497,10 @@ function loadLogo(row: MarketCapRow, logos: Map<string, HTMLImageElement | null>
   const img = new Image();
   img.decoding = "async";
   img.referrerPolicy = "no-referrer";
+  img.onload = () => onLoad?.();
   img.onerror = () => {
     logos.set(url, null);
-    if (url !== row.logoUrl && logos.get(row.logoUrl!) === undefined) loadLogo(row, logos, 64);
+    if (url !== row.logoUrl && logos.get(row.logoUrl!) === undefined) loadLogo(row, logos, 64, onLoad);
   };
   img.src = url;
   logos.set(url, img);

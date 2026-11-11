@@ -94,9 +94,11 @@ function _xstocksProjectActionRows_(rows) {
    if (_xstocksIsInfoRow_(row)) continue;
    var mint = String(row[3] || "");
    if (mint === XSTOCKS_SOLANA_EURC_MINT) {
-    var balance = Number(row[4]);
-    if (!isFinite(balance)) balance = 0;
-    out.push(["Ledger - Solana Action", "EURC", "EURC", mint, balance, 1, balance, balance, 1]);
+    // v4.16.99 - an unreadable EURC balance is unknown, not a safe 0 (it now feeds INFO_TOTAL).
+    var rawEurc = row[4];
+    var balance = (rawEurc === "" || rawEurc === null || rawEurc === undefined || typeof rawEurc === "boolean") ? NaN : Number(rawEurc);
+    if (isFinite(balance)) out.push(["Ledger - Solana Action", "EURC", "EURC", mint, balance, 1, balance, balance, 1]);
+    else out.push(["Ledger - Solana Action", "EURC", "EURC", mint, "", 1, "", "", 1]);
     continue;
    }
    var meta = _xstocksMetadata_(row);

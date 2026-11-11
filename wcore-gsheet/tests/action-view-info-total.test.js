@@ -29,7 +29,7 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext([
-  extractFunction(A, '_rwaIsDiagnosticRow_'), extractFunction(A, '_rwaLookupRow_'), extractFunction(A, '_rwaAppendActionTotal_'),
+  extractFunction(A, '_rwaIsDiagnosticRow_'), extractFunction(A, '_rwaLookupRow_'), extractFunction(A, '_rwaDiagnosticInvalidatesTotal_'), extractFunction(A, '_rwaAppendActionTotal_'),
   extractFunction(A, '_rwaProjectActionRows_'), extractFunction(X, '_xstocksIsInfoRow_'), extractFunction(X, '_xstocksMetadata_'),
   extractFunction(X, '_xstocksProjectActionRows_'),
 ].join(String.fromCharCode(10)), context);
@@ -70,4 +70,29 @@ test('Solana Action: EURC is valued, an unvalued xStock makes the total unknown'
   assert.equal(total(withXstock), '');
   const empty = context._xstocksProjectActionRows_([HEADER]);
   assert.equal(total(empty), 0);
+});
+
+test('a healthy web scan line (INFO_ROT ... degraded=false) keeps the total known', () => {
+  const out = context._rwaProjectActionRows_('BASE', 'Ledger - Base Action', [HEADER,
+    ['Ledger - Base', 'INFO_ROT', 'chain=BASE; rot=WEB; profile=WCORE_WEB; degraded=false', '', '', '', '']]);
+  assert.equal(total(out), 0);
+});
+
+test('a degraded scan or a preserved stale cache makes the total unknown', () => {
+  for (const message of ['chain=BASE; rot=WEB; profile=WCORE_WEB; degraded=true', 'cache stalePreserved=YES']) {
+    const out = context._rwaProjectActionRows_('BASE', 'Ledger - Base Action', [HEADER, ['Ledger - Base', 'INFO_ROT', message, '', '', '', '']]);
+    assert.equal(total(out), '', message);
+  }
+});
+
+test('the NATIVE_PRICE_UNKNOWN exception only covers an ERROR row that starts with it', () => {
+  const out = context._rwaProjectActionRows_('BASE', 'Ledger - Base Action', [HEADER, ['Ledger - Base', 'ERROR', 'balances failed; NATIVE_PRICE_UNKNOWN too', '', '', '', '']]);
+  assert.equal(total(out), '');
+});
+
+test('an unreadable EURC balance is unknown, not 0', () => {
+  for (const bad of ['', 'n/a', null]) {
+    const out = context._xstocksProjectActionRows_([HEADER, ['Ledger - Solana', 'EURC', 'EURC', 'EURC-MINT', bad, 1, '']]);
+    assert.equal(total(out), '', JSON.stringify(bad));
+  }
 });

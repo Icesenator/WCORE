@@ -63,6 +63,20 @@ function _rwaProjectCryptoRows_(chainKey, cryptoSheetName, rows) {
 //  - "" (UNKNOWN) when an asset has no value (the view does not price it) or when a diagnostic
 //    row says the source scan is unavailable or degraded. An unknown NATIVE price alone does
 //    not touch tokenised assets and keeps the total known.
+// A diagnostic row decides the total only when it really says the source is unavailable or
+// degraded: the web scan replays "INFO_ROT ...; degraded=false" on every healthy cache, and an
+// ERROR that starts with NATIVE_PRICE_UNKNOWN only concerns the native price.
+function _rwaDiagnosticInvalidatesTotal_(row) {
+  var key = String(row[1] || "");
+  var message = String(row[2] || "");
+  if (key === "ERROR" && /^NATIVE_PRICE_UNKNOWN/i.test(message)) return false;
+  if (key === "ERROR" || key === "INFO_ERROR" || key === "INFO_QUOTA") return true;
+  if (key === "INFO" || key === "INFO_ROT") {
+    return /ERROR|NO_CACHE|DEGRADED|FALLBACK|UNAVAILABLE|MISSING|WAITING|STALE|BLOCKED|QUOTA/i.test(message.replace(/degraded\s*=\s*false/ig, ""));
+  }
+  return false;
+}
+
 function _rwaAppendActionTotal_(out, actionSheetName) {
   var total = 0;
   var unknown = false;
@@ -70,7 +84,7 @@ function _rwaAppendActionTotal_(out, actionSheetName) {
     var row = out[i];
     if (!row) continue;
     if (_rwaIsDiagnosticRow_(row)) {
-      if (!/NATIVE_PRICE_UNKNOWN/i.test(String(row[2] || ""))) unknown = true;
+      if (_rwaDiagnosticInvalidatesTotal_(row)) unknown = true;
       continue;
     }
     if (String(row[1] || "").indexOf("INFO") === 0) continue;

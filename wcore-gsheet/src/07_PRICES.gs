@@ -2985,7 +2985,11 @@ NativePriceStore.CONFIG = {
   // Part maximale du passage watchdog consacree aux prix natifs (2 lots).
   WATCHDOG_BUDGET_MS: 20000,
   FUTURE_SKEW_MS: 5 * 60 * 1000,
-  BASE_URL: "https://coins.llama.fi/prices/current/"
+  BASE_URL: "https://coins.llama.fi/prices/current/",
+  // v4.17.0 - Repli CoinGecko (un seul lot) pour les ids "coingecko:<slug>" que DefiLlama
+  // n'a pas fournis dans ce passage (prix absent ou lot en echec).
+  CG_BASE_URL: "https://api.coingecko.com/api/v3/simple/price",
+  CG_CHUNK: 50
 };
 
 NativePriceStore._cacheGet = function() {
@@ -3075,6 +3079,36 @@ NativePriceStore.ingest = function(store, json, fxRate, nowMs, fxCollectedAt) {
 };
 
 /**
+ * Integre une reponse CoinGecko /simple/price (include_last_updated_at) sous les ids
+ * "coingecko:<slug>". Fonction pure (testable). Memes regles que ingest : prix et date
+ * valides, pas de date future, jamais plus ancien que l'entree existante.
+ * @return {number} nombre d'entrees ecrites
+ */
+NativePriceStore.ingestCoingecko = function(store, json, fxRate, nowMs, fxCollectedAt) {
+  var written = 0;
+  if (!store || !store.entries || !json || typeof json !== "object") return 0;
+  var fx = Number(fxRate);
+  if (!(isFinite(fx) && fx > 0)) return 0;
+  for (var slug in json) {
+    if (!Object.prototype.hasOwnProperty.call(json, slug)) continue;
+    var rec = json[slug];
+    if (!rec || typeof rec !== "object") continue;
+    var usd = Number(rec.usd);
+    var tsSec = Number(rec.last_updated_at);
+    if (!(isFinite(usd) && usd > 0)) continue;
+    if (!(isFinite(tsSec) && tsSec > 0)) continue;
+    var observedAt = Math.round(tsSec * 1000);
+    if (observedAt > nowMs + this.CONFIG.FUTURE_SKEW_MS) continue;
+    var id = "coingecko:" + slug;
+    var prev = store.entries[id];
+    if (prev && Number(prev.observedAt) >= observedAt) continue;
+    store.entries[id] = { usd: usd, eur: usd * fx, fx: fx, fxCollectedAt: (isFinite(Number(fxCollectedAt)) && Number(fxCollectedAt) > 0) ? Number(fxCollectedAt) : null, observedAt: observedAt, fetchedAt: nowMs, src: "coingecko-native" };
+    written++;
+  }
+  return written;
+};
+
+/**
  * Rafraichissement leger, borne et idempotent. Ne leve jamais.
  * @return {Object} diagnostic {ran, ids, written, http, reason}
  */
@@ -3124,6 +3158,29 @@ NativePriceStore.refreshIfDue = function(opts) {
       if (!json || !json.coins) { stop = "HTTP_FAILED"; break; }
       out.written += this.ingest(store, json, fx, nowMs, fxInfo.collectedAt);
     }
+    // Repli CoinGecko pour les ids sans entree ecrite dans ce passage.
+    var missing = [];
+    for (var m = 0; m < ids.length; m++) {
+      var me = store.entries[ids[m]];
+      if (/^coingecko:/.test(ids[m]) && !(me && Number(me.fetchedAt) === nowMs)) missing.push(ids[m]);
+    }
+    out.cgMissing = missing.length;
+    if (missing.length && (budgetMs - (Date.now() - startMs)) >= perCallMs) {
+      var slugs = missing.slice(0, this.CONFIG.CG_CHUNK).map(function(x) { return x.substring(10); });
+      var cg = null;
+      try {
+        out.http++;
+        cg = HTTP.getJson(this.CONFIG.CG_BASE_URL + "?ids=" + encodeURIComponent(slugs.join(",")) + "&vs_currencies=usd&include_last_updated_at=true", {
+          timeoutMs: this.CONFIG.HTTP_TIMEOUT_MS,
+          timeoutSeconds: timeoutSeconds,
+          headers: { accept: "application/json", "User-Agent": "Mozilla/5.0" },
+          muteHttpExceptions: true
+        });
+      } catch (eCg) { cg = null; }
+      var cgWritten = this.ingestCoingecko(store, cg, fx, nowMs, fxInfo.collectedAt);
+      out.cgWritten = cgWritten;
+      out.written += cgWritten;
+    }
     store.refreshedAt = nowMs;
     this._cachePut(store);
     out.reason = stop || (out.written ? "OK" : "NO_VALID_PRICE");
@@ -3156,4 +3213,4 @@ NativePriceStore.get = function(llamaId, maxAgeMs, nowMs, store) {
   } catch (err) { return null; }
 };
 
-try { if (typeof ModuleRegistry !== "undefined" && ModuleRegistry.register) ModuleRegistry.register("NATIVE_PRICE_STORE", "4.16.77"); } catch (eReg) {}
+try { if (typeof ModuleRegistry !== "undefined" && ModuleRegistry.register) ModuleRegistry.register("NATIVE_PRICE_STORE", "4.17.0"); } catch (eReg) {}

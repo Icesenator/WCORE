@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  bubbleKey, bubbleMetric, bubbleShade, bubblesSettled, freshnessNote, computeRadii, createBubbles, formatChange, frameDue, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
+  animationDone, bubbleKey, bubbleMetric, bubbleShade, bubblesSettled, freshnessNote, computeRadii, createBubbles, formatChange, frameDue, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -34,6 +34,9 @@ const AUTO_REFRESH_MS = 300_000;
 // - rien ne tourne quand la page est masquee.
 const MAX_FPS = 30;
 const DRIFT_MS = 6_000;
+// Au plus 4 s de stabilisation apres la derive ou un glisser, puis l'image est figee quoi qu'il arrive.
+const SETTLE_MS = 4_000;
+const PHYSICS_STEPS_PER_FRAME = 2;
 
 const eur = new Intl.NumberFormat("en", { style: "currency", currency: "EUR", notation: "compact", maximumFractionDigits: 2 });
 const formatEur = (v: number | null) => (v !== null && Number.isFinite(v) ? eur.format(v) : "-");
@@ -191,6 +194,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   useEffect(() => {
     let frame = 0, last = 0, running = false;
     let driftUntil = performance.now() + DRIFT_MS;
+    let settleBy = driftUntil + SETTLE_MS;
     const stop = () => { if (frame) cancelAnimationFrame(frame); frame = 0; running = false; };
     const loop = (now: number) => {
       frame = 0;
@@ -198,14 +202,22 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
       if (frameDue(now, last, MAX_FPS)) {
         last = now;
         const drifting = now < driftUntil;
-        stepBubbles(bubblesRef.current, sizeRef.current.w, sizeRef.current.h, drifting ? { time: now } : {});
+        // Deux pas de physique par image : à 30 img/s, la dérive et le dégagement gardent la vitesse
+        // d'un écran à 60 Hz (un seul pas les rendait ~5 fois plus lents qu'avant).
+        // Au-delà de 200 bulles, un seul pas : la séparation coûte n² par pas.
+        const steps = bubblesRef.current.length > 200 ? 1 : PHYSICS_STEPS_PER_FRAME;
+        for (let i = 0; i < steps; i++) stepBubbles(bubblesRef.current, sizeRef.current.w, sizeRef.current.h, drifting ? { time: now + i * 16 } : {});
         paint();
-        if (!drifting && !dragRef.current && bubblesSettled(bubblesRef.current)) { running = false; return; }
+        const dragging = dragRef.current !== null;
+        if (dragging) settleBy = Math.max(settleBy, now + SETTLE_MS);
+        if (animationDone({ now, driftUntil, settleBy, dragging, settled: !drifting && bubblesSettled(bubblesRef.current) })) { running = false; return; }
       }
       frame = requestAnimationFrame(loop);
     };
     const wake = (drift = false) => {
-      if (drift) driftUntil = performance.now() + DRIFT_MS;
+      const now = performance.now();
+      if (drift) driftUntil = now + DRIFT_MS;
+      settleBy = Math.max(settleBy, driftUntil + SETTLE_MS, now + SETTLE_MS);
       if (running || document.visibilityState !== "visible") return;
       running = true;
       frame = requestAnimationFrame(loop);
@@ -245,7 +257,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
     const drag = dragRef.current;
     if (drag) {
       const b = bubblesRef.current.find((item) => item.id === drag.id);
-      if (b) { b.vx = (x - drag.dx - b.x) * 0.3; b.vy = (y - drag.dy - b.y) * 0.3; b.x = x - drag.dx; b.y = y - drag.dy; wakeRef.current(); }
+      if (b) { b.vx = (x - drag.dx - b.x) * 0.3; b.vy = (y - drag.dy - b.y) * 0.3; b.x = x - drag.dx; b.y = y - drag.dy; wakeRef.current(); paintRef.current(); }
     }
     const hit = hitTest(x, y);
     const row = hit ? rowsRef.current.get(hit.id) : undefined;
@@ -406,11 +418,11 @@ function paintBubbles(
     const sprite = bubbleSprite(b, row, change, dim, dragId === b.id, dpr, logos, sprites, onLogo);
     if (!sprite) continue;
     used.add(sprite.key);
-    // Recopie a l'echelle 1 et sur un pixel entier : pas de reechantillonnage couteux.
-    ctx.drawImage(sprite.canvas, Math.round((b.x - sprite.half) * dpr), Math.round((b.y - sprite.half) * dpr));
+    // Recopie a l'echelle 1 (position non arrondie : glissement fluide meme lent).
+    ctx.drawImage(sprite.canvas, (b.x - sprite.half) * dpr, (b.y - sprite.half) * dpr);
   }
-  // Les images qui ne servent plus (bulle retiree, autre periode) sont liberees.
-  if (sprites.size > used.size * 2 + 64) for (const key of [...sprites.keys()]) if (!used.has(key)) sprites.delete(key);
+  // Les images qui ne servent plus (bulle retiree, autre periode, nouvelle taille) sont liberees.
+  if (sprites.size > used.size) for (const key of [...sprites.keys()]) if (!used.has(key)) sprites.delete(key);
 }
 
 // Une bulle dessinee une fois dans sa propre image, a la definition de l'ecran.

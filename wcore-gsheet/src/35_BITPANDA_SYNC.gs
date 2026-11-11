@@ -678,6 +678,40 @@ function _cexRunManualJob_(job) {
   return kind + "=" + result;
 }
 
+// v4.16.98 - Episode of answers without any asset on a CEX tab (audit of 2026-11-11, G1).
+var CEX_EMPTY_CONFIRM_MIN_MS = 45 * 60 * 1000;
+var CEX_EMPTY_EPISODE_MAX_MS = 48 * 60 * 60 * 1000;
+
+function _cexEmptyAnswerKey_(sheetName) {
+  return "CEX_EMPTY_STREAK|" + String(sheetName || "");
+}
+
+function _cexEmptyAnswerProps_() {
+  try {
+    return (typeof PropertiesService !== "undefined") ? PropertiesService.getScriptProperties() : null;
+  } catch (e) {
+    Logger.log("[CEX_EMPTY_COUNTER_ERROR] properties unavailable: " + (e && e.message ? e.message : e));
+    return null;
+  }
+}
+
+/** Start time (ms) of the current episode of answers without any asset, or null if none. */
+function _cexEmptyAnswerHeldSince_(sheetName, nowMs) {
+  var props = _cexEmptyAnswerProps_();
+  if (!props) return null;
+  var raw = null;
+  try { raw = props.getProperty(_cexEmptyAnswerKey_(sheetName)); }
+  catch (e) { Logger.log("[CEX_EMPTY_COUNTER_ERROR] " + sheetName + " : " + (e && e.message ? e.message : e)); return null; }
+  if (!raw) return null;
+  var st = null;
+  try { st = JSON.parse(raw); } catch (eParse) { st = null; }
+  var ts = st && Number(st.ts);
+  if (!isFinite(ts) || ts <= 0) return null;
+  var now = isFinite(nowMs) ? nowMs : Date.now();
+  if (now - ts > CEX_EMPTY_EPISODE_MAX_MS) return null; // too old: the episode starts over
+  return ts;
+}
+
 function _cexWriteManualJobStatus_(job, result) {
   try {
     var ss = _bpGetSpreadsheet_();
@@ -695,8 +729,12 @@ function _cexWriteManualJobStatus_(job, result) {
         // P2-OBS-CEX-STATUS-STALE-LABEL: un echec porte un horodatage lisible en
         // tete pour qu'un echec fige ne puisse plus passer pour un etat courant.
         // Le corps brut reste exact (aucune donnee inventee, aucun succes fabrique).
+        // v4.16.98: a held answer without any asset is not a fresh success (G1).
+        var heldSince = (isSuccess && job.sheetName && typeof _cexEmptyAnswerHeldSince_ === "function") ? _cexEmptyAnswerHeldSince_(job.sheetName) : null;
         var display = isSuccess
-          ? String(job.kind || "") + " OK: " + _bpFmtStamp_()
+          ? (heldSince != null
+            ? String(job.kind || "") + " EMPTY_ANSWER_HELD: " + _bpFmtStamp_() + " (onglet conservé depuis " + Utilities.formatDate(new Date(heldSince), "Europe/Paris", "yyyy-MM-dd HH:mm") + ")"
+            : String(job.kind || "") + " OK: " + _bpFmtStamp_())
           : failureLabel;
         statusSheet.getRange(job.statusCell).setValue(display).setNumberFormat("@");
       }
@@ -1739,7 +1777,8 @@ function _cexSymbolToGeckoId_(symbol) {
  * @param {Array<[string, number, string, string]>} balances - rows [symbol, balance, source, stamp]
  * @param {string} provider - e.g. "binance", "kraken", "bitpanda"
  * @param {Array<Array>} opt_values - optional, full A:D values to write before pricing
- * @returns {number} total value in EUR written to the TOTAL row
+ * @returns {number|null} total value in EUR written to the TOTAL row; when an answer without any
+ *   asset is held (see below), the previous INFO_TOTAL, or null when it is unknown
  */
 function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_values) {
   var sh = ss.getSheetByName(sheetName);
@@ -1755,7 +1794,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   //    turned back into a unit price (value / balance) and applied to the current balance.
   var prevPriceBySymbol = {};
   var prevHeldCount = 0;
-  var prevInfoTotal = null;
+  var prevInfoTotal = null; // unknown stays null, never a fresh zero
   if (opt_values && sh) {
     try {
       var prevLastRow = Math.min(sh.getMaxRows(), sh.getLastRow());
@@ -1778,23 +1817,34 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     } catch (ePrev) {}
   }
 
-  // v4.16.98 - An empty answer never wipes a tab that held assets on its first occurrence
-  // (audit of 2026-11-11, G1). An exchange or relay hiccup could return zero rows: the tab was
-  // cleared and a zero total stamped "now". The tab and its date are now kept (the Recap sees
-  // stale data, not a fresh zero); a second consecutive empty answer is accepted as real.
-  var emptyKey = "CEX_EMPTY_STREAK|" + String(sheetName || "");
-  var props = null;
-  try { props = (typeof PropertiesService !== "undefined") ? PropertiesService.getScriptProperties() : null; } catch (eProps) { props = null; }
-  if (nb === 0 && prevHeldCount > 0 && opt_values) {
-    var streak = 0;
-    try { streak = Number(props ? props.getProperty(emptyKey) : 0) || 0; } catch (eGet) { streak = 0; }
-    if (streak < 1) {
-      try { if (props) props.setProperty(emptyKey, String(streak + 1)); } catch (eSet) {}
-      Logger.log("[CEX_EMPTY_ANSWER_HELD] " + sheetName + " : empty answer while " + prevHeldCount + " asset(s) were held; tab kept, accepted only if the next answer is empty too");
-      return prevInfoTotal != null ? prevInfoTotal : 0;
+  // v4.16.98 - An answer holding no asset never wipes a tab that held assets at once (audit
+  // of 2026-11-11, G1). An exchange or relay hiccup could return no row, or rows all at zero:
+  // the tab was cleared and a zero total stamped "now". The tab, its date and its total are
+  // now kept (the Recap sees stale data, not a fresh zero, and the status cell says
+  // EMPTY_ANSWER_HELD). The emptiness is accepted as real only when it is still there at least
+  // CEX_EMPTY_CONFIRM_MIN_MS after the first empty answer; an episode older than
+  // CEX_EMPTY_EPISODE_MAX_MS starts over. Any answer holding an asset clears the episode.
+  var heldNow = 0;
+  for (var hb = 0; hb < nb; hb++) {
+    var hbBal = Number(String(balances[hb] && balances[hb][1] != null ? balances[hb][1] : 0).replace(",", "."));
+    if (isFinite(hbBal) && hbBal > 0) heldNow++;
+  }
+  var hasEmptyGuard = typeof _cexEmptyAnswerHeldSince_ === "function";
+  var emptyKey = hasEmptyGuard ? _cexEmptyAnswerKey_(sheetName) : null;
+  var props = hasEmptyGuard ? _cexEmptyAnswerProps_() : null;
+  if (hasEmptyGuard && heldNow === 0 && prevHeldCount > 0 && opt_values) {
+    var nowMs = Date.now();
+    var since = _cexEmptyAnswerHeldSince_(sheetName, nowMs);
+    if (since == null || nowMs - since < CEX_EMPTY_CONFIRM_MIN_MS) {
+      if (since == null) {
+        try { props.setProperty(emptyKey, JSON.stringify({ ts: nowMs })); }
+        catch (eSet) { Logger.log("[CEX_EMPTY_COUNTER_ERROR] " + sheetName + " : " + (eSet && eSet.message ? eSet.message : eSet)); }
+      }
+      Logger.log("[CEX_EMPTY_ANSWER_HELD] " + sheetName + " : answer without any asset while " + prevHeldCount + " asset(s) were held; tab kept until the emptiness is confirmed");
+      return prevInfoTotal;
     }
   }
-  try { if (props) props.deleteProperty(emptyKey); } catch (eDel) {}
+  try { if (props && emptyKey) props.deleteProperty(emptyKey); } catch (eDel) {}
 
   // ---- Phase 1: PRICE EVERYTHING (before touching the sheet) ----
 

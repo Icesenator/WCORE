@@ -22,7 +22,10 @@ function extractFunction(source, name) {
   throw new Error(`Unclosed function ${name}`);
 }
 
-const BODY = extractFunction(SOURCE, '_cexComputeAndAppendTotal_');
+const BODY = ['_cexEmptyAnswerKey_', '_cexEmptyAnswerProps_', '_cexEmptyAnswerHeldSince_', '_cexComputeAndAppendTotal_']
+  .map((name) => extractFunction(SOURCE, name)).join('\n')
+  + '\nvar CEX_EMPTY_CONFIRM_MIN_MS = 45 * 60 * 1000; var CEX_EMPTY_EPISODE_MAX_MS = 48 * 60 * 60 * 1000;';
+assert.ok(SOURCE.includes('var CEX_EMPTY_CONFIRM_MIN_MS = 45 * 60 * 1000;') && SOURCE.includes('var CEX_EMPTY_EPISODE_MAX_MS = 48 * 60 * 60 * 1000;'), 'constants in the source match the harness');
 
 function makeSheet(rows) {
   const grid = rows.map((row) => row.slice());
@@ -49,8 +52,10 @@ function harness(previous) {
   const sheet = makeSheet(previous);
   const store = new Map();
   const logs = [];
+  const clock = { now: Date.parse('2026-11-11T17:00:00Z') };
+  class FakeDate extends Date { constructor(...a) { super(...(a.length ? a : [clock.now])); } static now() { return clock.now; } }
   const context = {
-    Math, Number, String, Array, Object, JSON, isFinite, Date,
+    Math, Number, String, Array, Object, JSON, isFinite, Date: FakeDate,
     Logger: { log: (m) => logs.push(String(m)) },
     Utilities: { formatDate: () => '2026-11-11 18:00:00' },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: (k, v) => store.set(k, v), deleteProperty: (k) => store.delete(k) }) },
@@ -68,7 +73,8 @@ function harness(previous) {
       .concat(balances.map((row) => [row[0], row[1], row[2], '2026-11-11 18:00:00']));
     return context._cexComputeAndAppendTotal_({ getSheetByName: () => sheet }, 'CEX - Test', balances, 'test', values);
   };
-  return { sheet, store, logs, run };
+  const later = (minutes) => { clock.now += minutes * 60 * 1000; };
+  return { sheet, store, logs, run, later };
 }
 
 const PREVIOUS = [
@@ -88,23 +94,46 @@ test('a first empty answer keeps the tab, its date and its total', () => {
   assert.ok(h.logs.some((m) => m.includes('[CEX_EMPTY_ANSWER_HELD]')));
 });
 
-test('a second consecutive empty answer is accepted as real', () => {
+test('rows that all carry a zero balance are held like an empty answer', () => {
+  const h = harness(PREVIOUS);
+  const total = h.run([['BTC', '0', 'spot'], ['EUR', 0, 'fiat']]);
+  assert.equal(total, 5000);
+  assert.equal(h.sheet.grid[2][1], 0.05, 'the held asset is still there');
+});
+
+test('a second empty answer a few minutes later, in the same incident, is still held', () => {
   const h = harness(PREVIOUS);
   h.run([]);
+  h.later(10);
+  assert.equal(h.run([]), 5000);
+  assert.equal(h.sheet.grid[2][1], 0.05);
+});
+
+test('emptiness still there 45 minutes after the first empty answer is accepted as real', () => {
+  const h = harness(PREVIOUS);
+  h.run([]);
+  h.later(50);
   const total = h.run([]);
   assert.equal(total, 0);
   assert.equal(h.sheet.grid[0][1], '2026-11-11 18:00:00', 'the tab is rewritten with the new date');
   assert.ok(!h.sheet.grid.slice(2).some((row) => row[0] === 'BTC' && row[1] > 0), 'the held asset is gone');
-  assert.equal(h.store.size, 0, 'the counter is cleared once accepted');
+  assert.equal(h.store.size, 0, 'the episode is cleared once accepted');
 });
 
-test('a non-empty answer between two empty ones resets the count', () => {
+test('an episode older than 48 hours starts over instead of confirming the emptiness', () => {
+  const h = harness(PREVIOUS);
+  h.run([]);
+  h.later(49 * 60);
+  assert.equal(h.run([]), 5000, 'held again: a lone empty answer after a long silence proves nothing');
+});
+
+test('an answer holding an asset clears the episode', () => {
   const h = harness(PREVIOUS);
   h.run([]);
   h.run([['BTC', 0.05, 'spot']]);
   assert.equal(h.store.size, 0);
-  const total = h.run([]);
-  assert.equal(total, 5000, 'the next empty answer is again only held');
+  h.later(50);
+  assert.equal(h.run([]), 5000, 'the next empty answer opens a new episode and is held');
 });
 
 test('an empty answer on a tab that held nothing is written as before', () => {
@@ -112,4 +141,14 @@ test('an empty answer on a tab that held nothing is written as before', () => {
   const total = h.run([]);
   assert.equal(total, 0);
   assert.equal(h.store.size, 0);
+});
+
+test('a held answer with no known previous total reports null, never a fresh zero', () => {
+  const h = harness(PREVIOUS.slice(0, 3));
+  assert.equal(h.run([]), null);
+});
+
+test('the status cell of a held answer says EMPTY_ANSWER_HELD, not OK', () => {
+  assert.ok(/EMPTY_ANSWER_HELD/.test(extractFunction(SOURCE, '_cexWriteManualJobStatus_')));
+  assert.ok(/_cexEmptyAnswerHeldSince_\(job\.sheetName\)/.test(extractFunction(SOURCE, '_cexWriteManualJobStatus_')));
 });

@@ -359,6 +359,17 @@ function _webScanIsScamToken_(tokenObj, blockedSet) {
   return false;
 }
 
+// v4.16.96: observation time of a price, as the API reports it. A price served from the API's
+// stale cache (priceStale) keeps its own observation time (priceTs, epoch ms), or 0 when the API
+// gave none. Stamping it with the scan time made the freshness guards downstream (native price
+// window of 11_EVM_ENGINE, global price merge, pruning) treat an outdated price as fresh
+// (audits of 2026-11-10 and 2026-11-11).
+function _webScanPriceObservedAt_(item, now) {
+  if (!item || item.priceStale !== true) return now;
+  var ts = Number(item.priceTs);
+  return isFinite(ts) && ts > 0 && ts <= now ? ts : 0;
+}
+
 function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   if (!payload || payload.ok !== true) return null;
   var now = Date.now();
@@ -371,6 +382,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   var filteredOut = 0;
   var scamFiltered = 0;
   var missingPrices = 0;
+  var stalePrices = 0;
   var cleanTotalEur = 0;
   var priorityAssets = [];
   var extraAssets = [];
@@ -387,7 +399,8 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
   if (_webScanNum_(nativeAsset.value_eur, 0) > 0) cleanTotalEur += _webScanNum_(nativeAsset.value_eur, 0);
   if (nativeAsset.price_eur != null) {
     priceMap.native = nativeAsset.price_eur;
-    priceTsMap.native = now;
+    priceTsMap.native = _webScanPriceObservedAt_(payload.native, now);
+    if (priceTsMap.native !== now) stalePrices++;
   }
   balanceTsMap.native = now;
 
@@ -418,7 +431,8 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     if (_webScanNum_(asset.value_eur, 0) !== 0) cleanTotalEur += _webScanNum_(asset.value_eur, 0);
     if (asset.price_eur != null) {
       priceMap[asset.contract] = asset.price_eur;
-      priceTsMap[asset.contract] = now;
+      priceTsMap[asset.contract] = _webScanPriceObservedAt_(tokenForCache, now);
+      if (priceTsMap[asset.contract] !== now) stalePrices++;
     } else {
       missingPrices++;
     }
@@ -487,6 +501,7 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
       totalContracts: Math.max(0, assets.length - 1),
       scannedCount: Math.max(0, assets.length - 1),
       missingPrices: missingPrices,
+      stalePrices: stalePrices,
       missingMeta: 0
     },
     lastInfoMetaRows: [

@@ -8,7 +8,12 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 
 const prompt = read("docs/prompts/supervisor-wcore-cm.md");
 const agents = read("AGENTS.md");
-const roadmap = read("ROADMAP.md");
+// ROADMAP.md n'est plus suivi par Git (depot public, audit du 11/11/2026) : il n'existe que sur le
+// disque du projet. Present, il est controle comme avant ; absent (clone neuf, CI), ses controles
+// sont neutres au lieu de faire echouer le test.
+const roadmapPath = path.join(ROOT, "ROADMAP.md");
+const roadmap = fs.existsSync(roadmapPath) ? fs.readFileSync(roadmapPath, "utf8") : null;
+const roadmapHas = (text) => roadmap === null || roadmap.includes(text);
 // Source DURABLE WCORE-owned : le prompt canonique est un miroir regenerable par un amont externe.
 // Les marqueurs de routage sont donc lus dans AGENTS.md (suivi git) EN PLUS du prompt.
 const canon = prompt + "\n" + agents;
@@ -161,23 +166,23 @@ check("CAS15", "reformulation par GPT Supervisor => INVALID",
 // ---- Controles transversaux ----
 check("ID", "ID canonique = P1-GOV-INTERAGENT-ROUTING",
   canon.includes("INTERAGENT_ROUTING_PRIORITY_ID=P1-GOV-INTERAGENT-ROUTING")
-  && agents.includes("P1-GOV-INTERAGENT-ROUTING") && roadmap.includes("P1-GOV-INTERAGENT-ROUTING"), "ID absent");
+  && agents.includes("P1-GOV-INTERAGENT-ROUTING") && roadmapHas("P1-GOV-INTERAGENT-ROUTING"), "ID absent");
 check("EXEC", "contrat executor present",
   canon.includes("PART3_MUST_BE_EXECUTOR_PROMPT=TRUE") && canon.includes("PART3_ROUTING_MEMO_ONLY=FORBIDDEN")
   && canon.includes("PART3_MUST_NOT_REQUIRE_GPT_SUPERVISOR_INTERPRETATION=TRUE")
   && canon.includes("PART3_REQUIRED_STRUCTURE=9_SECTIONS"), "marqueurs executor absents");
 check("SUPERSEDE", "ID precedents superseded (historique preserve)",
   /SUPERSEDED_PRIORITY_IDS=.*P1-GOV-SUPERVISOR-PART3-EXECUTOR-PROMPT/.test(canon)
-  && roadmap.includes("SUPERSEDED") && roadmap.includes("superseded_by"), "supersession non tracee");
+  && roadmapHas("SUPERSEDED") && roadmapHas("superseded_by"), "supersession non tracee");
 check("REV", "revision prompt >= R-041", /SUPERVISOR_PROMPT_REVISION=R-0(4[1-9]|[5-9][0-9])/.test(prompt), "revision non montee");
 check("NONHANDOFF", "PARTIE 3 != handoff / gate / ACK",
   prompt.includes("PART3_IS_NOT_HANDOFF=TRUE") && prompt.includes("PART3_IS_NOT_PERMISSION_GATE=TRUE")
   && prompt.includes("PART3_DOES_NOT_REQUIRE_TARGET_ACK=TRUE") && prompt.includes("PART3_DOES_NOT_STOP_SOURCE_AGENT=TRUE"), "invariants absents");
 check("DEDUP", "dedup inter-agent active", prompt.includes("INTERAGENT_MESSAGE_DEDUP=ENABLED"), "dedup absente");
 
-const activeGpt = (prompt + agents + roadmap).match(/DESTINATAIRE:\s+GPT Supervisor/g) || [];
+const activeGpt = (prompt + agents + (roadmap || "")).match(/DESTINATAIRE:\s+GPT Supervisor/g) || [];
 check("GPT0", "GPT_SUPERVISOR_TARGET_ACTIVE_OCCURRENCES=0", activeGpt.length === 0, activeGpt.length + " occurrence(s)");
-check("OLD0", "OLD_TITLE_ACTIVE_OCCURRENCES=0", !prompt.includes(TITLE_OLD) && !agents.includes(TITLE_OLD) && !roadmap.includes(TITLE_OLD), "ancien titre present");
+check("OLD0", "OLD_TITLE_ACTIVE_OCCURRENCES=0", !prompt.includes(TITLE_OLD) && !agents.includes(TITLE_OLD) && !(roadmap || "").includes(TITLE_OLD), "ancien titre present");
 
 console.log(`\n${failed === 0 ? "ALL PASS" : failed + " FAIL"}  (CAS1-15 + ID/EXEC/SUPERSEDE/REV/NONHANDOFF/DEDUP/GPT0/OLD0)`);
 process.exit(failed === 0 ? 0 : 1);

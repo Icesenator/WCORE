@@ -35,6 +35,10 @@ function _xstocksMetadata_(row) {
 function _xstocksProjectCryptoRows_(rows) {
  var out = [];
  var total = 0;
+ // v4.16.99 - UNKNOWN != 0 (same contract as _rwaRecomputeTotal_, 44A) : an empty source
+ // INFO_TOTAL, or a non-zero native balance without a value, makes the view total unknown.
+ // Number("") is 0, so an unknown value used to count as zero and the total looked complete.
+ var unknown = false;
  rows = Array.isArray(rows) ? rows : [];
  for (var i = 0; i < rows.length; i++) {
   var row = rows[i];
@@ -44,13 +48,22 @@ function _xstocksProjectCryptoRows_(rows) {
   var mint = String(row[3] || "");
   if (!isHeader && !isInfo && (mint === XSTOCKS_SOLANA_EURC_MINT || _xstocksMetadata_(row))) continue;
   var copy = row.slice(0, 7);
+  if (!isHeader && isInfo && copy[1] === "INFO_TOTAL" && (copy[6] === "" || copy[6] === null || copy[6] === undefined)) unknown = true;
   if (!isHeader && !isInfo) {
    copy[0] = "Ledger - Solana Crypto";
-   var value = Number(copy[6]);
-   if (isFinite(value)) total += value;
+   var cell = copy[6];
+   var empty = cell === "" || cell === null || cell === undefined || typeof cell === "boolean";
+   if (empty) {
+    var bal = Number(copy[4]);
+    if (String(copy[3]) === "native" && copy[4] !== "" && isFinite(bal) && bal !== 0) unknown = true;
+   } else {
+    var value = Number(cell);
+    if (isFinite(value)) total += value;
+   }
   }
   out.push(copy);
  }
+ if (unknown) total = "";
  for (var j = 0; j < out.length; j++) {
   if (out[j] && out[j][1] === "INFO_TOTAL") out[j][6] = total;
  }

@@ -148,7 +148,46 @@ test('a held answer with no known previous total reports null, never a fresh zer
   assert.equal(h.run([]), null);
 });
 
-test('the status cell of a held answer says EMPTY_ANSWER_HELD, not OK', () => {
-  assert.ok(/EMPTY_ANSWER_HELD/.test(extractFunction(SOURCE, '_cexWriteManualJobStatus_')));
-  assert.ok(/_cexEmptyAnswerHeldSince_\(job\.sheetName\)/.test(extractFunction(SOURCE, '_cexWriteManualJobStatus_')));
+test('an empty INFO_TOTAL cell is unknown, not zero', () => {
+  const previous = PREVIOUS.slice(0, 3).concat([['.', 'INFO_TOTAL', 'test', '2026-11-10 22:00:00', '', '', '']]);
+  const h = harness(previous);
+  assert.equal(h.run([]), null);
+});
+
+function statusHarness(heldTs) {
+  const cells = {};
+  const store = new Map();
+  if (heldTs != null) store.set('CEX_EMPTY_STREAK|CEX - Binance', JSON.stringify({ ts: heldTs }));
+  const sheet = (name) => ({
+    getRange: (a1) => ({
+      setValue(v) { cells[name + '!' + a1] = v; return this; },
+      setNumberFormat() { return this; },
+    }),
+  });
+  const now = Date.parse('2026-11-11T17:10:00Z');
+  class FakeDate extends Date { constructor(...a) { super(...(a.length ? a : [now])); } static now() { return now; } }
+  const context = {
+    Math, Number, String, JSON, isFinite, Date: FakeDate,
+    Logger: { log: () => {} },
+    Utilities: { formatDate: (d) => new Date(d).toISOString().slice(0, 16).replace('T', ' ') },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: (k, v) => store.set(k, v), deleteProperty: (k) => store.delete(k) }) },
+    _bpGetSpreadsheet_: () => ({ getSheetByName: (n) => sheet(n) }),
+    _bpFmtStamp_: () => '2026-11-11 18:10:00',
+    _bpExtractStampText_: (v) => v,
+    _bpGetSheetCellText_: () => '2026-11-10 22:00:00',
+    _bpSetSheetStatus_: () => {},
+  };
+  vm.createContext(context);
+  vm.runInContext(['_cexEmptyAnswerKey_', '_cexEmptyAnswerProps_', '_cexEmptyAnswerHeldSince_', '_cexWriteManualJobStatus_']
+    .map((n) => extractFunction(SOURCE, n)).join('\n') + '\nvar CEX_EMPTY_CONFIRM_MIN_MS = 45 * 60 * 1000; var CEX_EMPTY_EPISODE_MAX_MS = 48 * 60 * 60 * 1000;', context);
+  context._cexWriteManualJobStatus_({ kind: 'BINANCE', sheetName: 'CEX - Binance', statusSheetName: 'Portefeuille Crypto', statusCell: 'U2' }, '{"ok":true,"rows":0}');
+  return cells;
+}
+
+test('the status cell says EMPTY_ANSWER_HELD while an episode is open, and OK once it is cleared', () => {
+  const held = statusHarness(Date.parse('2026-11-11T17:00:00Z'));
+  assert.match(held['Portefeuille Crypto!U2'], /^BINANCE EMPTY_ANSWER_HELD: 2026-11-11 18:10:00 \(onglet conservé depuis /);
+  assert.equal(held['CEX - Binance!B1'], '2026-11-10 22:00:00', 'B1 keeps the date of the data, not now');
+  const cleared = statusHarness(null);
+  assert.equal(cleared['Portefeuille Crypto!U2'], 'BINANCE OK: 2026-11-11 18:10:00');
 });

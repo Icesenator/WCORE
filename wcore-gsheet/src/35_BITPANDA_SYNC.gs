@@ -1805,7 +1805,8 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
           var prevBal = Number(prevRows[pr][1] || 0);
           var prevEur = Number(prevRows[pr][4] || 0);
           if (prevSym === "." && String(prevRows[pr][1]) === "INFO_TOTAL") {
-            var pt = Number(prevRows[pr][6]);
+            var ptRaw = prevRows[pr][6];
+            var pt = (ptRaw === "" || ptRaw == null) ? NaN : Number(ptRaw);
             if (isFinite(pt)) prevInfoTotal = pt;
           }
           if (!prevSym || prevSym === ".") continue; // INFO_TOTAL row

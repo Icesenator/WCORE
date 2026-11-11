@@ -29,6 +29,9 @@ class TestCache {
   async set(key: string, value: unknown, ttlMs: number): Promise<void> {
     this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
+  async mget<T>(keys: string[]): Promise<(T | undefined)[]> {
+    return Promise.all(keys.map((key) => this.get<T>(key)));
+  }
 }
 
 function makeAssets(overrides: Partial<WalletAssets> = {}): WalletAssets {
@@ -273,10 +276,29 @@ describe("scanResultCacheFor", () => {
     assert.deepEqual(await store.get("full"), { tokens: 12 }, "the existing entry is left untouched");
   });
 
-  it("uses the shared cache for every scan that returns the whole wallet", () => {
+  it("answers a plain scan from any entry, without its bookkeeping field", async () => {
     const store = new TestCache();
-    assert.equal(scanResultCacheFor(store as never, false, []), store);
-    assert.equal(scanResultCacheFor(store as never, false, [TOKEN]), store, "custom tokens alone only add rows");
-    assert.equal(scanResultCacheFor(store as never, true, []), store, "strict without a token list filters nothing");
+    const custom = scanResultCacheFor(store as never, false, [TOKEN]);
+    await custom.set("k", { tokens: 3 }, 60_000);
+    assert.deepEqual(await store.get("k"), { tokens: 3, scannedCustomTokens: [TOKEN] }, "the entry records what was looked up");
+    const plain = scanResultCacheFor(store as never, false, []);
+    assert.deepEqual(await plain.mget(["k", "missing"]), [{ tokens: 3 }, undefined]);
+    // Strict without a token list filters nothing: it is a plain scan.
+    assert.deepEqual(await scanResultCacheFor(store as never, true, []).mget(["k"]), [{ tokens: 3 }]);
+  });
+
+  it("answers a custom token scan only from an entry that looked up every requested token", async () => {
+    const store = new TestCache();
+    const OTHER = "0x00000000000000000000000000000000000000bb";
+    await scanResultCacheFor(store as never, false, []).set("plain", { tokens: 2 }, 60_000);
+    await scanResultCacheFor(store as never, false, [TOKEN.toUpperCase().replace("0X", "0x"), OTHER]).set("both", { tokens: 4 }, 60_000);
+    await store.set("legacy", { tokens: 9 }, 60_000); // written before this field existed
+
+    const wantsOne = scanResultCacheFor(store as never, false, [TOKEN]);
+    assert.deepEqual(await wantsOne.mget(["plain", "both", "legacy"]), [undefined, { tokens: 4 }, undefined]);
+    const wantsBoth = scanResultCacheFor(store as never, false, [OTHER, TOKEN]);
+    assert.deepEqual(await wantsBoth.mget(["both"]), [{ tokens: 4 }], "order and case do not matter");
+    const wantsMore = scanResultCacheFor(store as never, false, [TOKEN, "0x00000000000000000000000000000000000000cc"]);
+    assert.deepEqual(await wantsMore.mget(["both"]), [undefined], "one token never looked up is enough to rescan");
   });
 });

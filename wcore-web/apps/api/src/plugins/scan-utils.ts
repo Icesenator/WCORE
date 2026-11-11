@@ -132,14 +132,39 @@ const NO_SCAN_RESULT_CACHE: ScanResultCache = {
   async set(): Promise<void> { /* a partial result is never shared */ },
 };
 
+/** Bookkeeping field of a cached entry: the custom tokens the scan that wrote it looked up. */
+const SCANNED_CUSTOM_TOKENS = "scannedCustomTokens";
+
 /**
  * The scan result cache is keyed by (address, chain) and shared by every caller for hours.
- * A strict token scan (strictTokens with a token list) returns only part of the wallet on
- * purpose: its result must neither enter that cache, where every later scan of the address
- * would read a truncated wallet, nor be answered from it. Any other scan uses the cache.
+ * What a scan returns also depends on the tokens the caller asked for, so the cache is
+ * reached through this guard:
+ *
+ * - a strict token scan (strictTokens with a token list) returns only part of the wallet on
+ *   purpose. Its result neither enters the cache, where every later scan of the address
+ *   would read a truncated wallet, nor is answered from it;
+ * - a scan with custom tokens is answered from the cache only by an entry written by a scan
+ *   that looked up every one of those tokens. Each entry records that list, which is removed
+ *   again on the way out;
+ * - a plain scan accepts any entry: one written with custom tokens only holds more rows.
  */
 export function scanResultCacheFor(cache: CacheStore, strictTokens: boolean, customTokens: readonly string[]): ScanResultCache {
-  return strictTokens && customTokens.length > 0 ? NO_SCAN_RESULT_CACHE : cache;
+  const requested = [...new Set(customTokens.map((token) => token.trim().toLowerCase()).filter(Boolean))].sort();
+  if (strictTokens && requested.length > 0) return NO_SCAN_RESULT_CACHE;
+  return {
+    async mget<T>(keys: string[]): Promise<(T | undefined)[]> {
+      const entries = await cache.mget<T>(keys);
+      return entries.map((entry) => {
+        if (!entry || typeof entry !== "object") return entry;
+        const { [SCANNED_CUSTOM_TOKENS]: covered, ...result } = entry as Record<string, unknown>;
+        const scanned = new Set(Array.isArray(covered) ? covered.map(String) : []);
+        return requested.every((token) => scanned.has(token)) ? (result as T) : undefined;
+      });
+    },
+    async set<T>(key: string, value: T, ttlMs?: number): Promise<void> {
+      await cache.set(key, { ...(value as Record<string, unknown>), [SCANNED_CUSTOM_TOKENS]: requested }, ttlMs);
+    },
+  };
 }
 
 export function getEngineCacheForScan(forceRefresh: boolean, vm: string | undefined, cache: CacheStore): CacheStore | undefined {

@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { parseMarketCapResponse, type MarketCapRow } from "../app/cmc/market-cap";
 import {
-  animationDone, bubbleColor, bubbleKey, bubbleMetric, bubblesSettled, computeRadii, createBubbles, formatChange, frameDue, selectBubbleRows, stepBubbles,
+  animationDone, bubbleColor, bubbleGlow, bubbleSymbolSize, bubbleKey, bubbleMetric, bubblesSettled, computeRadii, createBubbles, formatChange, frameDue, selectBubbleRows, stepBubbles,
   type Bubble, type BubblePeriod,
 } from "../lib/market-bubbles";
 
@@ -63,6 +63,22 @@ describe("tailles et couleurs", () => {
     assert.equal(formatChange(3.456), "+3.5%");
     assert.equal(formatChange(-0.04), "-0.0%");
     assert.equal(formatChange(null), "—");
+  });
+});
+
+describe("lisibilité", () => {
+  test("intérieur sombre quelle que soit la variation, halo plus fort pour une grosse variation", () => {
+    const lum = (c: string) => { const [r, g, b] = c.match(/\d+/g)!.map(Number); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!; };
+    for (const ch of [-30, -1, 0, 1, 30, null]) assert.ok(lum(bubbleGlow(ch).core) < 40, `cœur sombre pour ${ch}`);
+    assert.ok(bubbleGlow(20).glow > bubbleGlow(1).glow);
+    assert.ok(bubbleGlow(-20).glow > bubbleGlow(-1).glow);
+    assert.match(bubbleGlow(5).rim, /^rgba\(34, 197, 94,/);
+    assert.match(bubbleGlow(-5).rim, /^rgba\(239, 68, 68,/);
+  });
+  test("le symbole grandit avec la bulle bien au-delà de l'ancien plafond de 26 px", () => {
+    assert.equal(bubbleSymbolSize(10), 9);
+    assert.ok(bubbleSymbolSize(120) > 50);
+    assert.ok(bubbleSymbolSize(400) <= 72);
   });
 });
 

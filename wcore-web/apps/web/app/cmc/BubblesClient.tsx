@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  animationDone, bubbleKey, bubbleMetric, bubbleShade, bubblesSettled, freshnessNote, computeRadii, createBubbles, formatChange, frameDue, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
+  animationDone, bubbleGlow, bubbleKey, bubbleMetric, bubbleSymbolSize, bubblesSettled, freshnessNote, computeRadii, createBubbles, formatChange, frameDue, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -432,7 +432,9 @@ function bubbleSprite(
 ): { canvas: HTMLCanvasElement; half: number; key: string } | null {
   if (!(b.r > 0)) return null;
   const logo = loadLogo(row, logos, (b.r < 14 ? b.r * 1.25 : b.r * 0.55) * dpr, onLogo);
-  const half = b.r + 3;
+  const style = bubbleGlow(change);
+  // Marge autour du disque pour le halo lumineux du bord.
+  const half = b.r + style.glow + 3;
   const key = `${b.id}|${b.r.toFixed(2)}|${dpr}|${formatChange(change)}|${dim ? 1 : 0}|${dragged ? 1 : 0}|${logo?.src ?? ""}`;
   let canvas = sprites.get(key);
   if (!canvas) {
@@ -448,17 +450,21 @@ function bubbleSprite(
     sctx.globalAlpha = dim ? 0.15 : 1;
     sctx.beginPath();
     sctx.arc(at.x, at.y, at.r, 0, Math.PI * 2);
-    // Relief : reflet décalé vers le haut à gauche, bord plus sombre.
-    const shade = bubbleShade(change);
-    const gradient = sctx.createRadialGradient(at.x - at.r * 0.35, at.y - at.r * 0.4, at.r * 0.05, at.x, at.y, at.r);
-    gradient.addColorStop(0, shade.light);
-    gradient.addColorStop(0.55, shade.base);
-    gradient.addColorStop(1, shade.dark);
+    // Interieur sombre, couleur montant vers le bord : le texte blanc reste lisible partout.
+    const gradient = sctx.createRadialGradient(at.x, at.y, at.r * 0.35, at.x, at.y, at.r);
+    gradient.addColorStop(0, style.core);
+    gradient.addColorStop(0.72, style.core);
+    gradient.addColorStop(1, style.edge);
     sctx.fillStyle = gradient;
     sctx.fill();
-    sctx.lineWidth = dragged ? 3 : 1.25;
-    sctx.strokeStyle = shade.rim;
+    // Bord lumineux : son halo dit l'ampleur de la variation.
+    sctx.shadowColor = style.glowColor;
+    sctx.shadowBlur = style.glow * dpr;
+    sctx.lineWidth = dragged ? 3.5 : Math.max(1.5, Math.min(4, at.r * 0.045));
+    sctx.strokeStyle = style.rim;
     sctx.stroke();
+    sctx.shadowBlur = 0;
+    sctx.shadowColor = "transparent";
     drawLabel(sctx, at, row, change, logo);
     sprites.set(key, canvas);
   }
@@ -478,23 +484,29 @@ function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, 
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const showLogo = logo && b.r >= 30;
-  const symbolSize = Math.max(9, Math.min(26, b.r * 0.36));
-  const changeSize = Math.max(8, symbolSize * 0.72);
-  let y = b.y - (showLogo ? b.r * 0.08 : changeSize * 0.45);
+  const symbol = row.symbol.slice(0, 8);
+  // Symbole aussi grand que la bulle le permet, reduit seulement s'il deborde de sa largeur.
+  let symbolSize = bubbleSymbolSize(b.r) * (showLogo ? 0.9 : 1);
+  ctx.font = `800 ${symbolSize}px system-ui, sans-serif`;
+  const maxWidth = b.r * 1.62;
+  const measured = ctx.measureText(symbol).width;
+  if (measured > maxWidth) {
+    symbolSize = Math.max(8, symbolSize * maxWidth / measured);
+    ctx.font = `800 ${symbolSize}px system-ui, sans-serif`;
+  }
+  const changeSize = Math.max(8, Math.min(symbolSize * 0.66, b.r * 0.3));
+  let y = b.y - (showLogo ? b.r * 0.04 : changeSize * 0.5);
   if (showLogo) {
-    const s = b.r * 0.55;
-    try { ctx.drawImage(logo, b.x - s / 2, b.y - b.r * 0.72, s, s); } catch { /* logo illisible : ignoré */ }
-    y = b.y + b.r * 0.12;
+    const s = b.r * 0.46;
+    try { ctx.drawImage(logo, b.x - s / 2, b.y - b.r * 0.74, s, s); } catch { /* logo illisible : ignoré */ }
+    y = b.y + b.r * 0.1;
   }
-  // Ombre portée du texte, seulement sur les bulles assez grandes (coût de rendu).
-  if (b.r >= 26) { ctx.shadowColor = "rgba(0, 0, 0, 0.6)"; ctx.shadowBlur = 4; }
-  ctx.font = `700 ${symbolSize}px system-ui, sans-serif`;
-  ctx.fillText(row.symbol.slice(0, 8), b.x, y, b.r * 1.7);
+  ctx.fillText(symbol, b.x, y, maxWidth);
   if (b.r >= 20) {
-    ctx.font = `600 ${changeSize}px system-ui, sans-serif`;
-    ctx.fillText(formatChange(change), b.x, y + symbolSize * 0.95, b.r * 1.7);
+    ctx.font = `700 ${changeSize}px system-ui, sans-serif`;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+    ctx.fillText(formatChange(change), b.x, y + symbolSize * 0.5 + changeSize * 0.75, maxWidth);
   }
-  ctx.shadowBlur = 0;
 }
 
 // Taille réelle du logo à l'écran, en pixels physiques : elle décide de la définition demandée.

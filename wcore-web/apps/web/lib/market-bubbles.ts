@@ -111,6 +111,35 @@ export function bubbleShade(change: number | null): { light: string; base: strin
 }
 
 /**
+ * Rendu lisible : interieur sombre (le texte blanc y contraste toujours), couleur portee par un
+ * bord lumineux dont l'intensite croit avec l'ampleur de la variation. glow = flou du halo en px.
+ */
+export function bubbleGlow(change: number | null): { core: string; edge: string; rim: string; glow: number; glowColor: string } {
+  if (change === null) {
+    return { core: "rgba(24, 24, 27, 0.92)", edge: "rgba(82, 82, 91, 0.55)", rim: "rgba(161, 161, 170, 0.75)", glow: 3, glowColor: "rgba(161, 161, 170, 0.35)" };
+  }
+  const s = Math.min(1, Math.abs(change) / 12);
+  const up = change >= 0;
+  const [r, g, b] = up ? [34, 197, 94] : [239, 68, 68];
+  const core = up ? "rgba(6, 22, 12, 0.94)" : "rgba(26, 7, 7, 0.94)";
+  return {
+    core,
+    edge: `rgba(${r}, ${g}, ${b}, ${(0.28 + 0.42 * s).toFixed(3)})`,
+    rim: `rgba(${r}, ${g}, ${b}, ${(0.6 + 0.4 * s).toFixed(3)})`,
+    glow: Math.round(4 + 12 * s),
+    glowColor: `rgba(${r}, ${g}, ${b}, ${(0.35 + 0.5 * s).toFixed(3)})`,
+  };
+}
+
+/**
+ * Taille du symbole dans une bulle de rayon r : proportionnelle, sans plafond bas, pour que les
+ * grandes bulles restent lisibles de loin (l'ajustement a la largeur se fait au dessin).
+ */
+export function bubbleSymbolSize(r: number): number {
+  return Math.max(9, Math.min(72, r * 0.44));
+}
+
+/**
  * Les classements fournissent des logos de 64 px, flous une fois agrandis dans une bulle.
  * Les deux sources connues servent aussi des tailles supérieures : on choisit la plus petite
  * qui couvre `pixels` (taille réelle à l'écran). Une adresse inconnue est rendue telle quelle.

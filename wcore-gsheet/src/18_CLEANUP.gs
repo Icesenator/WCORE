@@ -711,7 +711,10 @@ function REBUILD_WALLET_CACHE(wallet, chain) {
  *
  * @customfunction
  */
-function REHYDRATE_WALLET_CACHE_FROM_LEDGER_SHEETS() {
+function REHYDRATE_WALLET_CACHE_FROM_LEDGER_SHEETS(confirm) {
+  // v4.16.95: explicit confirmation. This rewrites every wallet cache from what the tabs
+  // display and dates it now, so stale figures would look fresh (audit of 2026-11-11).
+  if (confirm !== true) return [["USAGE", "REHYDRATE_WALLET_CACHE_FROM_LEDGER_SHEETS(TRUE)", "Rewrites every wallet cache from the displayed tabs, dated now. Nothing was changed.", ""]];
   var out = [["sheet", "chain", "assets", "status"]];
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -980,7 +983,11 @@ function TEST_PROPERTIES() {
  * Reset ALL ScriptProperties (DANGER!)
  * @customfunction
  */
-function RESET_ALL_PROPERTIES() {
+function RESET_ALL_PROPERTIES(confirm) {
+  // v4.16.95: explicit confirmation, like COMPACT_PACKED_WALLET_CACHE. A bare call (a formula
+  // typed in a cell, the wrong function picked in the editor) used to erase every script
+  // property at once: caches, settings and tokens (audit of 2026-11-11).
+  if (confirm !== true) return "Usage: RESET_ALL_PROPERTIES(TRUE) - erases ALL script properties (caches, settings, tokens). Nothing was erased.";
   try {
     var props = PropertiesService.getScriptProperties();
     props.deleteAllProperties();

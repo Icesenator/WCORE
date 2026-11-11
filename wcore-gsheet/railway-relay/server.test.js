@@ -960,3 +960,168 @@ test("resolveEurPerUsd prefers Binance, falls back to Yahoo, and never invents a
   assert.equal(await resolveEurPerUsd(async () => [], async () => null), null);
   assert.equal(await resolveEurPerUsd(async () => { throw new Error("down"); }, async () => { throw new Error("down"); }), null);
 });
+
+// --- Audit du 11/11/2026 : appels sortants bornes, limiteur avant lecture du corps ---------
+const { relayFetch, fetchStockPricesEur } = require("./server.js");
+
+test("every outbound call carries a deadline, and a caller signal still aborts it", async () => {
+  const previousFetch = global.fetch;
+  const seen = [];
+  global.fetch = async (_url, options) => { seen.push(options); return { ok: true, status: 200, json: async () => ({}) }; };
+  try {
+    await relayFetch("https://example.invalid/a");
+    await relayFetch("https://example.invalid/b", { method: "POST" });
+    const controller = new AbortController();
+    await relayFetch("https://example.invalid/c", { signal: controller.signal });
+    assert.equal(seen.length, 3);
+    for (const options of seen) assert.ok(options.signal instanceof AbortSignal, "no outbound call without a deadline");
+    assert.equal(seen[1].method, "POST", "the caller options are kept");
+    assert.equal(seen[2].signal.aborted, false);
+    controller.abort();
+    assert.equal(seen[2].signal.aborted, true, "the caller signal still aborts the call");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("no outbound call in the relay bypasses the bounded fetch", () => {
+  const withoutWrapper = SERVER_SRC.replace(/function fetch\(url, options\) \{[\s\S]*?\n\}/, "");
+  assert.notEqual(withoutWrapper, SERVER_SRC, "the bounded fetch wrapper exists");
+  assert.equal(/global(This)?\.fetch\(/.test(withoutWrapper), false, "only the wrapper may reach the global fetch");
+});
+
+// A peer that never answers: the mock settles only when the signal it was given aborts.
+function hangUntilAborted(signal) {
+  return new Promise((_resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    // AbortSignal.timeout runs on an unref'd timer. Without a ref'd one the event loop would
+    // drain and Node would cancel the test before the abort it is waiting for ever fires.
+    const keepEventLoopAlive = setInterval(() => {}, 5);
+    signal.addEventListener("abort", () => { clearInterval(keepEventLoopAlive); reject(signal.reason); }, { once: true });
+  });
+}
+
+async function withFetchCap(ms, run) {
+  const previous = process.env.RELAY_FETCH_TIMEOUT_MS;
+  process.env.RELAY_FETCH_TIMEOUT_MS = String(ms);
+  try {
+    return await run();
+  } finally {
+    if (previous == null) delete process.env.RELAY_FETCH_TIMEOUT_MS;
+    else process.env.RELAY_FETCH_TIMEOUT_MS = previous;
+  }
+}
+
+test("the bounded fetch gives up on a peer that never sends its headers", async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (_url, options) => hangUntilAborted(options.signal);
+  try {
+    const started = Date.now();
+    await withFetchCap(40, () => assert.rejects(relayFetch("https://example.invalid/silent"), /Timeout|aborted/i));
+    assert.ok(Date.now() - started < 2000, "the call ends at the cap, not after minutes");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("the bounded fetch also gives up while the body is being read", async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (_url, options) => ({ ok: true, status: 200, text: () => hangUntilAborted(options.signal) });
+  try {
+    const started = Date.now();
+    await withFetchCap(40, async () => {
+      const response = await relayFetch("https://example.invalid/slow-body");
+      await assert.rejects(response.text(), /Timeout|aborted/i);
+    });
+    assert.ok(Date.now() - started < 2000);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("the cap still applies when the caller passes its own signal", async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (_url, options) => hangUntilAborted(options.signal);
+  try {
+    const caller = new AbortController(); // never aborted: only the cap can end the call
+    const started = Date.now();
+    await withFetchCap(40, () => assert.rejects(relayFetch("https://example.invalid/silent", { signal: caller.signal }), /Timeout|aborted/i));
+    assert.ok(Date.now() - started < 2000);
+    assert.equal(caller.signal.aborted, false);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+function yahooQuote(price, currency) {
+  return { ok: true, status: 200, json: async () => ({ chart: { result: [{ meta: { regularMarketPrice: price, currency: currency } }] } }) };
+}
+
+test("stock prices return at the request deadline and keep what was already priced", async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    const text = String(url);
+    if (text.includes("/api/v3/ticker/price")) return { ok: true, status: 200, text: async () => JSON.stringify([{ symbol: "EURUSDT", price: "1.10" }]) };
+    if (text.includes("/chart/AAPL")) return yahooQuote(220, "USD");
+    return hangUntilAborted(options.signal); // every other quote never answers
+  };
+  try {
+    const started = Date.now();
+    const prices = await fetchStockPricesEur(["AAPL", "MSFT", "NVDA"], { timeoutMs: 200 });
+    const elapsed = Date.now() - started;
+    assert.deepEqual(Object.keys(prices), ["AAPL"], "the price obtained before the deadline is kept, nothing is invented for the rest");
+    assert.equal(Math.round(prices.AAPL.priceEur), 200);
+    assert.ok(elapsed < 2000, "one deadline for the whole request, not one wait per symbol (elapsed " + elapsed + " ms)");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("the request deadline also interrupts a currency conversion in flight", async () => {
+  const previousFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    const text = String(url);
+    if (text.includes("/api/v3/ticker/price")) return { ok: true, status: 200, text: async () => JSON.stringify([{ symbol: "EURUSDT", price: "1.10" }]) };
+    if (text.includes("EURCHF")) return hangUntilAborted(options.signal); // the conversion rate never answers
+    return yahooQuote(100, "CHF");
+  };
+  try {
+    const started = Date.now();
+    const prices = await fetchStockPricesEur(["NESN"], { timeoutMs: 200 });
+    assert.deepEqual(prices, {}, "no rate, no price: the amount is never converted with a made-up rate");
+    assert.ok(Date.now() - started < 2000);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("the exchange-rate lookup that opens the request is bounded by the same deadline", async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (_url, options) => hangUntilAborted(options.signal); // Binance and Yahoo both silent
+  try {
+    const started = Date.now();
+    const prices = await fetchStockPricesEur(["AAPL"], { timeoutMs: 200 });
+    assert.deepEqual(prices, {});
+    assert.ok(Date.now() - started < 2000);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("a throttled caller is refused before its body is parsed", async () => {
+  const previousLimit = process.env.RELAY_RATE_LIMIT;
+  process.env.RELAY_RATE_LIMIT = "1";
+  try {
+    await withServer(async (baseUrl) => {
+      const statuses = [];
+      for (let i = 0; i < 3; i++) {
+        const response = await fetch(baseUrl + "/stock/quotes", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{not json" });
+        statuses.push(response.status);
+      }
+      assert.equal(statuses[2], 429, "past the cap, a malformed body is never parsed (" + statuses.join(",") + ")");
+    });
+  } finally {
+    if (previousLimit == null) delete process.env.RELAY_RATE_LIMIT;
+    else process.env.RELAY_RATE_LIMIT = previousLimit;
+  }
+});

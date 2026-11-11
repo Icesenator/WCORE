@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "server.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.3"
   },
   "scripts": {
     "start": "node server.js",
@@ -15,6 +15,6 @@
     "express": "^4.21.2"
   },
   "overrides": {
-    "body-parser": "1.20.6"
+    "body-parser": "1.20.9"
   }
 }

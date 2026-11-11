@@ -50,7 +50,6 @@ app.use((req, res, next) => {
   });
   next();
 });
-app.use(express.json({ limit: "16kb" }));
 
 // Per-IP request cap.
 //
@@ -102,6 +101,30 @@ app.use((req, res, next) => {
   next();
 });
 
+// Parsed after the cap, so a throttled caller costs no body parsing at all.
+app.use(express.json({ limit: "16kb" }));
+
+// Every outbound call is bounded. Node's built-in fetch otherwise waits about five minutes
+// on a silent peer: a caller that gave up after 30 s left this process working for nothing,
+// and a slow exchange could pile up requests (audit of 2026-11-11).
+//
+// The cap covers one request and the reading of its body. It is not a limit on a whole
+// paginated collection, and a legitimate answer slower than the cap is cut off: the real
+// calls take under two seconds. A signal passed by the caller still applies, alongside the
+// cap; AbortSignal.any needs Node 20.3 (see "engines"), the image runs Node 22. The global
+// is read at call time, so tests that replace global.fetch keep working, and the cap is
+// read per call so it can be tuned from the Railway variables without a redeploy.
+function relayFetchTimeoutMs() {
+  return Math.max(1, Number(process.env.RELAY_FETCH_TIMEOUT_MS || 15_000));
+}
+
+function fetch(url, options) {
+  const opts = options || {};
+  const cap = AbortSignal.timeout(relayFetchTimeoutMs());
+  const signal = opts.signal ? AbortSignal.any([opts.signal, cap]) : cap;
+  return globalThis.fetch(url, { ...opts, signal: signal });
+}
+
 const BASE_URL = "https://api.binance.com";
 const COINBASE_BASE_URL = "https://api.coinbase.com";
 const OKX_BASE_URL = process.env.OKX_BASE_URL || "https://my.okx.com";
@@ -145,9 +168,9 @@ async function signedGet(path, params, creds) {
   return JSON.parse(text);
 }
 
-async function publicGet(path, params) {
+async function publicGet(path, params, options) {
   const qs = params ? "?" + toQuery(params) : "";
-  const resp = await fetch(BASE_URL + path + qs, { method: "GET" });
+  const resp = await fetch(BASE_URL + path + qs, { method: "GET", signal: options && options.signal });
   const text = await resp.text();
   if (!resp.ok) {
     throw new Error("Binance " + path + " HTTP " + resp.status + ": " + text.slice(0, 300));
@@ -1439,8 +1462,8 @@ const STOCK_RECEIPT_MULTIPLIER = { SSU: 25, SMSN: 25 };
 
 // Per-EUR rate for non-USD currencies. e.g. EURCHF=X price = CHF per 1 EUR,
 // so priceEur = priceCcy / rate. GBp = pence (1/100 GBP).
-async function yahooEurRate(pair) {
-  const hit = await yahooChartPrice(pair).catch(() => null);
+async function yahooEurRate(pair, options) {
+  const hit = await yahooChartPrice(pair, options).catch(() => null);
   return hit && hit.price > 0 ? hit.price : 0;
 }
 
@@ -1476,12 +1499,21 @@ async function eurPerUsdWithFallback(exchangeRate) {
   throw new Error("EUR/USD rate unavailable: USD-based prices left unknown");
 }
 
-async function fetchStockPricesEur(symbols) {
+// The API waits 30 s for this route. Symbols are priced one after the other, so a slow
+// source could keep the loop running long after the caller left. One deadline covers the
+// whole request: it interrupts the call in flight (exchange rate, quote or currency
+// conversion) and stops the loop. Prices already obtained are kept; the remaining symbols
+// are left without a price (unknown, never zero).
+const STOCK_PRICES_REQUEST_TIMEOUT_MS = 25_000;
+
+async function fetchStockPricesEur(symbols, options) {
   const unique = Array.from(new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter(Boolean)));
   const out = {};
   if (unique.length === 0) return out;
+  const deadline = AbortSignal.timeout(Math.max(1, Math.floor((options && options.timeoutMs) || STOCK_PRICES_REQUEST_TIMEOUT_MS)));
+  const bounded = { signal: deadline };
 
-  const usdFx = await resolveEurPerUsd(() => publicGet("/api/v3/ticker/price", null), (pair) => yahooEurRate(pair));
+  const usdFx = await resolveEurPerUsd(() => publicGet("/api/v3/ticker/price", null, bounded), (pair) => yahooEurRate(pair, bounded));
   const eurPerUsd = usdFx ? usdFx.rate : null;
 
   // Lazy-loaded non-USD EUR rates (per 1 EUR), cached for this request.
@@ -1489,7 +1521,7 @@ async function fetchStockPricesEur(symbols) {
   async function rateFor(ccy) {
     if (rates[ccy] != null) return rates[ccy];
     const pair = "EUR" + ccy + "=X";
-    rates[ccy] = await yahooEurRate(pair);
+    rates[ccy] = await yahooEurRate(pair, bounded);
     return rates[ccy];
   }
 
@@ -1509,10 +1541,12 @@ async function fetchStockPricesEur(symbols) {
   }
 
   for (const sym of unique) {
+    if (deadline.aborted) break;
     let result = null;
     for (const candidate of stockYahooCandidates(sym)) {
+      if (deadline.aborted) break;
       try {
-        const hit = await yahooChartPrice(candidate);
+        const hit = await yahooChartPrice(candidate, bounded);
         if (!hit) continue;
         const conv = await toEur(hit.price, hit.currency, hit.currencyRaw);
         if (!conv) continue;
@@ -1951,6 +1985,8 @@ module.exports = {
   stockChangesFromChart,
   normalizeStockFxCurrencies,
   normalizeStockQuoteSymbols,
+  relayFetch: fetch,
+  fetchStockPricesEur,
 };
 
 // v4.16.30 — Bulk CEX endpoint: runs all legacy relay-based CEXs in one HTTP call.

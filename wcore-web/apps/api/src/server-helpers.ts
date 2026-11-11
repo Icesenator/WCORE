@@ -221,7 +221,8 @@ export function buildChainScan(chainKey: string, assets: WalletAssets, fxRate?: 
     errors: errors.map(e => ({ chainKey, message: e, stage: "scan" as const })),
     degraded: hasDegradingErrors(errors), fxRate: fxRate ?? 0,
     scanMs: assets.scanMs ?? 0,
-    phases: extractPhases(assets), cachedAt: null, scriptVersion: CORE_VERSION,
+    // Set only for a result served from the scan-result cache: its observation time.
+    phases: extractPhases(assets), cachedAt: typeof assets.cachedAt === "string" ? assets.cachedAt : null, scriptVersion: CORE_VERSION,
   };
 }
 

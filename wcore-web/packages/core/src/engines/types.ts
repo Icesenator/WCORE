@@ -10,6 +10,11 @@ export interface WalletAssetsCommon<TToken = Record<string, unknown>> {
   phases?: ScanPhases;
   /** Cache efficiency stats for this chain scan. */
   cacheStats?: CacheStats;
+  /**
+   * ISO time the result was observed, set only when it is served from the scan-result cache
+   * (up to SCAN_RESULT_CACHE_TTL_MS old). Absent on a result scanned for this request.
+   */
+  cachedAt?: string;
 }
 
 /** Cache efficiency metrics returned per-chain in scan results. */

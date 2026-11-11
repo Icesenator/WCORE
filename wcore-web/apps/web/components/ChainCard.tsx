@@ -22,6 +22,7 @@ import { getCexProviderMeta } from "@/lib/cex-display";
 import { chainCurrentValue, type LastKnownEntry } from "@/lib/refresh-outcome";
 import { LastKnownChainNotice } from "./LastKnownChainNotice";
 import { SentinelChainBadge } from "./SentinelChainBadge";
+import { cacheAgeLabel } from "@/lib/scan-cache-age";
 
 import { getActiveFactoryChains } from "@wcore/shared";
 
@@ -163,6 +164,11 @@ function ChainCardInner({ chain, walletLabel, walletAddress, onRefresh, connecte
             <div className="flex items-center gap-2">
               {cexProviderMeta ? <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">CEX</span> : <VmBadge vm={chain.vm} />}
                 {walletLabel ? <span className="text-xs text-muted">{walletLabel}</span> : null}
+                {!cexProviderMeta && cacheAgeLabel(chain.cachedAt) ? (
+                  <span className="text-[10px] text-muted" title={`Balances and prices observed at ${new Date(chain.cachedAt as string).toLocaleString()}; refresh the chain for a new scan`}>
+                    {cacheAgeLabel(chain.cachedAt)}
+                  </span>
+                ) : null}
                 {onRefresh && !cexProviderMeta ? (
                   <button
                     type="button"

@@ -266,13 +266,16 @@ describe("POST /api/scan", () => {
   });
 
   test("serves a fresh cached result without calling the engine (mget path)", async () => {
-    await sharedCache.set(scanCacheKey(ADDR_A, FAKE_CHAIN), seedableAssets(FAKE_CHAIN, 2000));
+    const seeded = seedableAssets(FAKE_CHAIN, 2000);
+    seeded.ts = Date.now() - 2 * 60 * 60 * 1000;
+    await sharedCache.set(scanCacheKey(ADDR_A, FAKE_CHAIN), seeded);
     const res = await app.inject({ method: "POST", url: "/api/scan", payload: { address: ADDR_A, chains: [FAKE_CHAIN] } });
     assert.equal(res.statusCode, 200);
     const body = res.json();
     assert.equal(body.chains.length, 1);
     assert.equal(body.chains[0].errors.length, 0, "cached result should carry no engine errors");
     assert.equal(body.totals.valueEur, 2000);
+    assert.equal(body.chains[0].cachedAt, new Date(seeded.ts).toISOString(), "a cached result says when it was observed");
     await sharedCache.delete(scanCacheKey(ADDR_A, FAKE_CHAIN));
   });
 
@@ -378,7 +381,8 @@ describe("POST /api/scan/batch", () => {
     // BASE is a real EVM chain: with every (addr, chain) pair cached, the
     // uncached-pairs list is empty and getEvmWalletsAssets is never invoked,
     // so no network access happens.
-    await sharedCache.set(scanCacheKey(ADDR_A, "BASE"), seedableAssets("BASE", 100));
+    const seededA = seedableAssets("BASE", 100);
+    await sharedCache.set(scanCacheKey(ADDR_A, "BASE"), seededA);
     await sharedCache.set(scanCacheKey(ADDR_B, "BASE"), seedableAssets("BASE", 250));
     const res = await app.inject({ method: "POST", url: "/api/scan/batch", payload: { addresses: [ADDR_A, ADDR_B], chains: ["BASE"] } });
     assert.equal(res.statusCode, 200);
@@ -388,6 +392,8 @@ describe("POST /api/scan/batch", () => {
     );
     assert.equal(byAddr.get(ADDR_A)!.totals.valueEur, 100);
     assert.equal(byAddr.get(ADDR_B)!.totals.valueEur, 250);
+    const walletA = (body.wallets as Array<{ address: string; chains: Array<{ cachedAt: string | null }> }>).find((w) => w.address === ADDR_A)!;
+    assert.equal(walletA.chains[0]!.cachedAt, new Date(seededA.ts).toISOString(), "batch EVM path keeps the cache date");
     await sharedCache.delete(scanCacheKey(ADDR_A, "BASE"));
     await sharedCache.delete(scanCacheKey(ADDR_B, "BASE"));
   });
@@ -402,6 +408,9 @@ describe("POST /api/scan/batch", () => {
     );
     assert.equal(byAddr.get(ADDR_A)!.totals.valueEur, 75, "wallet A served from cache");
     assert.ok(byAddr.get(ADDR_B)!.chains[0]!.errors.length > 0, "wallet B hit the engine and errored");
+    const wallets = body.wallets as Array<{ address: string; chains: Array<{ cachedAt: string | null }> }>;
+    assert.equal(typeof wallets.find((w) => w.address === ADDR_A)!.chains[0]!.cachedAt, "string", "non-EVM cached result keeps its date");
+    assert.equal(wallets.find((w) => w.address === ADDR_B)!.chains[0]!.cachedAt, null, "a result scanned now has no cache date");
     await sharedCache.delete(scanCacheKey(ADDR_A, FAKE_CHAIN));
   });
 });

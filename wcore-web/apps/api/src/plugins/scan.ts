@@ -19,6 +19,17 @@ import type { PortfolioEnrichmentScanStep } from "../integrations/portfolio-enri
 const SCAN_CONCURRENCY = apiConfig.scan.scanConcurrency;
 const NON_EVM_SCAN_CONCURRENCY = apiConfig.scan.nonEvmScanConcurrency;
 const SCAN_RESULT_CACHE_TTL_MS = apiConfig.scan.scanResultCacheTtlMs;
+
+// A result served from the scan-result cache keeps the time it was observed, so the response
+// says how old its balances and prices are instead of presenting them as just scanned.
+export function withCacheStamp(assets: WalletAssets, ts: unknown): WalletAssets {
+  const observed = typeof ts === "number" && Number.isFinite(ts) ? new Date(ts) : null;
+  if (!observed || Number.isNaN(observed.getTime())) {
+    const { cachedAt: _drop, ...rest } = assets as WalletAssets & { cachedAt?: string };
+    return rest as WalletAssets;
+  }
+  return { ...assets, cachedAt: observed.toISOString() } as WalletAssets;
+}
 const CHAIN_TIMEOUT_MS = apiConfig.scan.chainTimeoutMs;
 const BATCH_CHAIN_TIMEOUT_MS = apiConfig.scan.batchChainTimeoutMs;
 
@@ -169,8 +180,8 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       activeChains.forEach((chain, i) => {
         const cached = cachedEntries[i];
         if (cached && Date.now() - cached.ts < SCAN_RESULT_CACHE_TTL_MS) {
-          const { ts: _ts, ...result } = cached;
-          const assets = result as WalletAssets;
+          const { ts, ...result } = cached;
+          const assets = withCacheStamp(result as WalletAssets, ts);
           if (hasCachedValue(assets) && !hasUnfinalizedDeFiAssets(chain, assets)) {
             cachedChains.push(assets);
             return;
@@ -387,8 +398,8 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       pairs.forEach(({ chain, addr }, i) => {
         const cached = cachedEntries[i];
         if (cached && Date.now() - cached.ts < SCAN_RESULT_CACHE_TTL_MS) {
-          const { ts: _ts, ...result } = cached;
-          const assets = result as WalletAssets;
+          const { ts, ...result } = cached;
+          const assets = withCacheStamp(result as WalletAssets, ts);
           if (hasCachedValue(assets) && !hasUnfinalizedDeFiAssets(chain, assets)) {
             if (!cachedEvmByAddr.has(addr)) cachedEvmByAddr.set(addr, new Map());
             cachedEvmByAddr.get(addr)!.set(chain, assets);
@@ -497,8 +508,8 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
         pairs.forEach(({ chain, addr }, i) => {
           const cached = cachedEntries[i];
           if (!cached || Date.now() - cached.ts >= SCAN_RESULT_CACHE_TTL_MS) return;
-          const { ts: _ts, ...result } = cached;
-          const assets = result as WalletAssets;
+          const { ts, ...result } = cached;
+          const assets = withCacheStamp(result as WalletAssets, ts);
           // A cached result carrying no value is skipped and rescanned.
           if (!hasCachedValue(assets)) return;
           walletChainResults.get(addr)?.set(chain, assets);

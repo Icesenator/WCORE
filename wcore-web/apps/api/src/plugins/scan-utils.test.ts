@@ -11,6 +11,7 @@ import {
   readBalanceCache,
   BALANCE_CACHE_TTL_MS,
   runWithTimeout,
+  scanResultCacheFor,
 } from "./scan-utils.js";
 import { listenerCount } from "node:events";
 import type { WalletAssets } from "@wcore/core";
@@ -256,5 +257,26 @@ describe("runWithTimeout parent signal", () => {
     // ambient typing here only describes EventEmitter.
     const attached = listenerCount(parent.signal as unknown as Parameters<typeof listenerCount>[0], "abort");
     assert.equal(attached, 0, "every linked listener must be removed once its chain settles");
+  });
+});
+
+describe("scanResultCacheFor", () => {
+  const TOKEN = "0x00000000000000000000000000000000000000aa";
+
+  it("keeps a strict token scan out of the shared scan result cache, both ways", async () => {
+    const store = new TestCache();
+    await store.set("full", { tokens: 12 }, 60_000);
+    const strict = scanResultCacheFor(store as never, true, [TOKEN]);
+    assert.deepEqual(await strict.mget(["full"]), [undefined], "a strict scan is not served from the shared cache");
+    await strict.set("partial", { tokens: 1 }, 60_000);
+    assert.equal(await store.get("partial"), undefined, "a partial result never enters the shared cache");
+    assert.deepEqual(await store.get("full"), { tokens: 12 }, "the existing entry is left untouched");
+  });
+
+  it("uses the shared cache for every scan that returns the whole wallet", () => {
+    const store = new TestCache();
+    assert.equal(scanResultCacheFor(store as never, false, []), store);
+    assert.equal(scanResultCacheFor(store as never, false, [TOKEN]), store, "custom tokens alone only add rows");
+    assert.equal(scanResultCacheFor(store as never, true, []), store, "strict without a token list filters nothing");
   });
 });

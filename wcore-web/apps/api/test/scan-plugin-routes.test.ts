@@ -103,7 +103,8 @@ function makeDeps(): ScanPluginDeps {
       if (!Array.isArray(input) || input.length === 0) return { ok: false, error: "chains must be a non-empty array" };
       return { ok: true, chains: input.map((c) => String(c).toUpperCase()) };
     },
-    resolveCustomTokens: async () => [],
+    // Comme en production : les jetons valides de la requete sont repris.
+    resolveCustomTokens: async (_userId: string | undefined, requestTokens: unknown) => (Array.isArray(requestTokens) ? requestTokens.map(String) : []),
     buildChainScan,
     getScanLimit: async () => 120,
     MAX_CHAINS_PER_SCAN: 120,
@@ -234,6 +235,31 @@ describe("POST /api/scan", () => {
       "forceRefresh must hit the engine, not the cache",
     );
     await sharedCache.delete(scanCacheKey(ADDR_A, FAKE_CHAIN));
+  });
+
+  test("a strict token scan is not served from the shared scan result cache", async () => {
+    await sharedCache.set(scanCacheKey(ADDR_A, FAKE_CHAIN), seedableAssets(FAKE_CHAIN, 2000));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/scan",
+      payload: { address: ADDR_A, chains: [FAKE_CHAIN], strictTokens: true, customTokens: ["0x00000000000000000000000000000000000000aa"] },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.ok(
+      res.json().chains[0].errors.some((e: { message: string }) => e.message.includes("unknown chain")),
+      "a strict scan must hit the engine: the shared entry describes the whole wallet",
+    );
+    const kept = await sharedCache.get<{ totalValueEur: number }>(scanCacheKey(ADDR_A, FAKE_CHAIN));
+    assert.equal(kept?.totalValueEur, 2000, "the shared entry is left as it was");
+    await sharedCache.delete(scanCacheKey(ADDR_A, FAKE_CHAIN));
+  });
+
+  test("every scan result cache access goes through the strict-scan guard", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(new URL("../src/plugins/scan.ts", import.meta.url), "utf8");
+    assert.equal(/sharedCache\.set\(scanCacheKey/.test(source), false, "writes must use the guarded cache");
+    assert.equal(/sharedCache\.mget<WalletAssets/.test(source), false, "reads must use the guarded cache");
+    assert.equal((source.match(/scanResultCacheFor\(/g) || []).length, 3, "sync, batch and async scans each build their guard");
   });
 
   test("persists walletScan history fire-and-forget for authenticated users", async () => {

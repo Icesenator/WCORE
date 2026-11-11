@@ -124,6 +124,24 @@ export function getScanResultCacheKey(address: string, chain: string): string {
   return cacheKey("scanResult", { address: address.toLowerCase(), chainKey: chain.toLowerCase() });
 }
 
+/** The two operations a scan performs on the shared scan result cache. */
+export type ScanResultCache = Pick<CacheStore, "mget" | "set">;
+
+const NO_SCAN_RESULT_CACHE: ScanResultCache = {
+  async mget<T>(keys: string[]): Promise<(T | undefined)[]> { return keys.map(() => undefined); },
+  async set(): Promise<void> { /* a partial result is never shared */ },
+};
+
+/**
+ * The scan result cache is keyed by (address, chain) and shared by every caller for hours.
+ * A strict token scan (strictTokens with a token list) returns only part of the wallet on
+ * purpose: its result must neither enter that cache, where every later scan of the address
+ * would read a truncated wallet, nor be answered from it. Any other scan uses the cache.
+ */
+export function scanResultCacheFor(cache: CacheStore, strictTokens: boolean, customTokens: readonly string[]): ScanResultCache {
+  return strictTokens && customTokens.length > 0 ? NO_SCAN_RESULT_CACHE : cache;
+}
+
 export function getEngineCacheForScan(forceRefresh: boolean, vm: string | undefined, cache: CacheStore): CacheStore | undefined {
   if (forceRefresh && (vm === "EVM" || vm === "SVM" || vm === "COSMOS" || vm === "TON")) {
     // Wrap the cache so the engines treat short-circuit keys (empty:*, bal_cache:*)

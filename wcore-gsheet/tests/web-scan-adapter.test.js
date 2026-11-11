@@ -1261,6 +1261,16 @@ for (const file of ['11_EVM_ENGINE.gs', '14_SVM_ENGINE.gs', '15_COSMOS_ENGINE.gs
     native: { symbol: 'ETH', balance: 0.01, priceEur: 2100, valueEur: 21 },
     tokens: [{ symbol: 'AAA', name: 'Fresh', contract: FRESH, balance: 10, decimals: 18, priceEur: 1, valueEur: 10, priceStale: false, priceTs: twoHoursAgo }],
   }, config, []);
+  // A stale price observed a few minutes ago keeps that date too: it is still inside the one-hour
+  // window of the native price guard, which can therefore go on accepting it.
+  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+  const recent = ctx._webScanConvertToWalletCache_({
+    ...base,
+    native: { symbol: 'ETH', balance: 0.01, priceEur: 2100, valueEur: 21, priceStale: true, priceTs: tenMinutesAgo },
+    tokens: [],
+  }, config, []);
+  assert.equal(recent.priceTsMap.native, tenMinutesAgo);
+  assert.ok(Date.now() - recent.priceTsMap.native < 3600000, 'a recent stale price stays acceptable to the guard');
   assert.equal(fresh.scanStats.stalePrices, 0);
   assert.ok(fresh.priceTsMap.native >= before, 'unchanged behaviour when nothing is stale');
   assert.ok(fresh.priceTsMap[FRESH] >= before, 'priceTs alone, without priceStale, changes nothing');

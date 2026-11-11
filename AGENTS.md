@@ -282,8 +282,8 @@ détail nécessaire à un état exhaustif :
 PAUSE_IS_NOT_HANDOFF=TRUE ; NO_USEFUL_ACTION_NOW_IS_NOT_HANDOFF=TRUE ; NO_USEFUL_ACTION_NOW_IS_NOT_SESSION_DONE=TRUE ; REPORT_IS_TELEMETRY_NOT_HANDOFF=TRUE ; NO_FAKE_WORK_FOR_ACTIVITY=TRUE ; AGGRESSIVE_POLLING_FORBIDDEN=TRUE ; PERSISTENT_OWNER_REQUIRED_FOR_AUTOMATIC_RECHECK=TRUE ; MODEL_TURN_END_IS_NOT_HANDOFF=TRUE ; SUPERVISOR_POLICY_GENERATION=R-029 ; SUPERVISOR_PROMPT_REVISION=R-046.
 WORK_AVAILABLE_NOW => ACT ; NO_USEFUL_ACTION_NOW + RESPONSABILITE_ACTIVE => BOUNDED_PAUSE_OR_BACKOFF -> AUTOMATIC_RECHECK (JAMAIS HANDOFF ni SESSION_DONE). Aucun etat normal STOPPED_WAITING_FOR_SUPERVISOR. Cadence deduite du projet (EVENT_DRIVEN sinon BOUNDED_BACKOFF) ; TIGHT_POLLING_LOOP interdit ; aucun travail artificiel. AUTOMATIC_RECHECK revendique seulement si un PERSISTENT_CONTINUITY_OWNER project-owned est prouve, sinon AUTOMATIC_RECHECK=NOT_YET_PROVEN.
 
-## Routing inter-AGENT OpenCode — PARTIE 3 = PROMPT EXÉCUTEUR (P1-GOV-INTERAGENT-ROUTING)
-Architecture canonique : `PART1_TARGET=HUMAN_OPERATOR` ; `PART2_TARGET=LOCAL_OPENCODE_AGENT` ; `PART3_TARGET=OTHER_OPENCODE_AGENT_ONLY`. `PART3_TO_GPT_SUPERVISOR=FORBIDDEN` — aucun bus GPT→GPT ; le destinataire opérationnel d'une PARTIE 3 est **toujours un AUTRE agent OpenCode**, jamais un GPT Supervisor. Règle de revue **Supervisor** (pas de l'agent CM) : `INTERAGENT_ROUTING_REVIEW=MANDATORY_EVERY_TURN` — à chaque revue, évaluer « une information ou action MATÉRIELLE issue de cette revue doit-elle devenir un PROMPT EXÉCUTEUR pour un AUTRE agent OpenCode ? » → OUI = `## PARTIE 3 — PROMPT POUR UN AUTRE AGENT OPENCODE` (après PARTIE 2) ; NON = PARTIE 3 omise. **PARTIE 3 = prompt exécutable, pas un memo** : `PART3_MUST_BE_EXECUTOR_PROMPT=TRUE` ; `PART3_ROUTING_MEMO_ONLY=FORBIDDEN` ; `PART3_MUST_BE_DIRECTLY_PASTEABLE_IN_TARGET_OPENCODE_CONVERSATION=TRUE` ; `PART3_MUST_NOT_REQUIRE_GPT_SUPERVISOR_INTERPRETATION=TRUE` ; `PART3_REQUIRED_STRUCTURE=9_SECTIONS` — en-tête `DESTINATAIRE: Agent OpenCode <projet>` + `ROUTING_TOPIC:` + `PRIORITÉ SUGGÉRÉE:` puis les 9 sections exactes (1 Contexte / 2 Objectif / 3 Étapes exactes / 4 Contraintes et interdits / 5 Preuve attendue / 6 Autonomie & contexte / 7 Invariants à préserver / 8 Assumptions / 9 Continuité, escalade et rendu de main exceptionnel). Le travail de l'agent OpenCode WCORE local reste en PARTIE 2 (`LOCAL_AGENT_WORK_STAYS_IN_PART2=TRUE` ; `PART3_TARGET_IS_LOCAL_AGENT_FORBIDDEN=TRUE`). `PART3_IS_NOT_HANDOFF=TRUE` ; `PART3_IS_NOT_PERMISSION_GATE=TRUE` ; `PART3_DOES_NOT_STOP_SOURCE_AGENT=TRUE` ; `PART3_DOES_NOT_REQUIRE_TARGET_ACK=TRUE` ; `RECEIVED_PART3_IS_NOT_SOURCE_OF_TRUTH=TRUE` ; `VERIFY_MATERIAL_CLAIMS_BEFORE_ACTION=TRUE` ; `UNVERIFIED_SIGNAL_REQUIRES_PRIMARY_EVIDENCE=TRUE` ; `UNVERIFIED_SIGNAL_CANNOT_TRIGGER_DESTRUCTIVE_ACTION=TRUE` ; `INTERAGENT_MESSAGE_DEDUP=ENABLED`. Politique normative unique CURRENT : `docs/prompts/supervisor-wcore-cm.md` L602 (R-046 ; **supersede** `P1-GOV-SUPERVISOR-PART3-EXECUTOR-PROMPT`, R-039/`P1-GOV-SUPERVISOR-INTERSUPERVISOR-PART3-ROUTING` et `P1-GOV-INTERSUPERVISOR-ROUTING`, historique préservé pour audit, force normative retirée) — aucun doublon. Ne bloque jamais la boucle CM.
+## Routing inter-AGENT — PARTIE 3 (P1-GOV-INTERAGENT-ROUTING) — RETIRÉ le 11/11/2026
+HISTORIQUE, sans force normative. Florian a retiré le 11/11/2026 la chaîne des prompts GPT Supervisor (générateur, prompts, clean-start, packs) et OpenCode. C'est Codex qui supervise, en lisant le dossier (section « Consultation du Codex Supervisor »). Le contrat PARTIE 1/2/3, le prompt `docs/prompts/supervisor-wcore-cm.md`, `docs/SUPERVISOR-CLEAN-START.md` et le test `scripts/gov-interagent-routing.test.cjs` sont supprimés du dépôt. Les marqueurs `PART*_TARGET`, `PART3_*` et `INTERAGENT_*` qui subsistent ailleurs dans ce fichier sont historiques. Les échanges entre agents passent par les signaux de boîte (`Supervision/data/codex-supervisor/inbox/<projet>/`) et par les messages entre sessions.
 
 <!-- P1-GOV-SUPERVISOR-CONTEXT-FILTERS -->
 ## Filtres Windows Search — corpus GPT Supervisor (P1-GOV-SUPERVISOR-CONTEXT-FILTERS)
@@ -336,15 +336,8 @@ System.FileExtension:=.md NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\
 Le bloc annonce uniquement END_OF_USER_VISIBLE_RESPONSE, jamais END_OF_OPERATIONAL_OWNERSHIP,
 et n'est ni un HANDOFF ni un OPERATIONAL_AGENT_STOP.
 
-<!-- P1-GOV-INTERAGENT-ROUTING — marqueurs DURABLES WCORE-owned -->
-INTERAGENT_ROUTING_SOURCE_OF_TRUTH=DURABLE_WCORE_OWNED (AGENTS.md)
-ROUTING_MARKERS_DURABILITY_NOTE: le fichier `docs/prompts/supervisor-wcore-cm.md` est un MIROIR
-regenerable par un amont externe (constate 2026-09-16 : re-publie 4x, mtime/SHA changes) ; les
-marqueurs normatifs de routage inter-agent sont donc aussi portes ICI, dans un fichier WCORE-owned
-suivi par git, pour que `scripts/gov-interagent-routing.test.cjs` ne depende plus du miroir.
-MERGE_INTO_PART2=TRUE
-INTERAGENT_ROUTING_PRIORITY_ID=P1-GOV-INTERAGENT-ROUTING
-SUPERSEDED_PRIORITY_IDS=P1-GOV-SUPERVISOR-PART3-EXECUTOR-PROMPT
+<!-- P1-GOV-INTERAGENT-ROUTING — RETIRÉ le 11/11/2026 (voir la section « Routing inter-AGENT ») -->
+INTERAGENT_ROUTING_STATUS=RETIRED_20261111 ; prompt CM, clean-start et garde gov-interagent-routing supprimés du dépôt.
 
 <!-- CHILD_SIDE_FRESHNESS_GUARD (WCORE-owned, durable) -->
 IN_TURN_CONTINUITY_REQUIRED=TRUE

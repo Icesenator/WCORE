@@ -70,13 +70,14 @@ function harness(previous) {
   };
   vm.createContext(context);
   vm.runInContext(BODY, context);
+  let provider = 'binance';
   const run = (balances) => {
     const values = [['', '2026-11-11 18:00:00', '', ''], ['symbol', 'balance', 'source', 'updated_at']]
       .concat(balances.map((row) => [row[0], row[1], row[2], '2026-11-11 18:00:00']));
-    return context._cexComputeAndAppendTotal_({ getSheetByName: () => sheet }, 'CEX - Test', balances, 'test', values);
+    return context._cexComputeAndAppendTotal_({ getSheetByName: () => sheet }, 'CEX - Test', balances, provider, values);
   };
   const later = (minutes) => { clock.now += minutes * 60 * 1000; };
-  return { sheet, store, logs, run, later };
+  return { sheet, store, logs, run, later, setProvider: (p) => { provider = p; }, failWrites: () => { context.PropertiesService.getScriptProperties = () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: () => { throw new Error('quota'); }, deleteProperty: (k) => store.delete(k), getKeys: () => [...store.keys()] }); } };
 }
 
 
@@ -118,6 +119,10 @@ test('an asset moved to another source is not counted twice', () => {
   const eths = h.sheet.grid.slice(2).filter((row) => row[0] === 'ETH' && Number(row[1]) > 0);
   assert.equal(eths.length, 1);
   assert.equal(eths[0][2], 'spot');
+  assert.equal(h.store.size, 0, 'nothing carried, no episode opened (no false PARTIAL_ANSWER_HELD)');
+  h.later(50);
+  h.run([['BTC', 0.05, 'spot'], ['ETH', 2, 'spot']]);
+  assert.equal(h.store.size, 0);
 });
 
 test('a source back in the answer closes its episode', () => {
@@ -132,4 +137,47 @@ test('the status cell says PARTIAL_ANSWER_HELD while a source episode is open', 
   const S = extractFunction(SOURCE, '_cexWriteManualJobStatus_');
   assert.ok(/PARTIAL_ANSWER_HELD/.test(S) && /_cexPartialAnswerHeldSince_\(job\.sheetName\)/.test(S));
   assert.ok(/props\.getKeys\(\)/.test(extractFunction(SOURCE, '_cexPartialAnswerHeldSince_')));
+});
+
+test('only the shortfall of a symbol still held elsewhere is carried (OKX earn read failed)', () => {
+  const previous = [
+    ['', '2026-11-10 22:00:00', '', '', '', '', ''],
+    ['symbol', 'balance', 'source', 'updated_at', 'value_eur', 'Vérif', ''],
+    ['USDT', 5000, 'earn', '2026-11-10 22:00:00', 4600, '=V', ''],
+    ['USDT', 20, 'funding', '2026-11-10 22:00:00', 18, '=V', ''],
+    ['.', 'INFO_TOTAL', 'okx', '2026-11-10 22:00:00', '', '', 4618],
+  ];
+  const h = harness(previous);
+  h.setProvider('okx');
+  h.run([['USDT', 20, 'funding']]);
+  const earn = h.sheet.grid.slice(2).find((row) => row[0] === 'USDT' && row[2] === 'earn');
+  assert.ok(earn, 'the earn USDT is kept');
+  assert.equal(earn[1], 5000);
+  const info = h.sheet.grid.find((row) => row[1] === 'INFO_TOTAL');
+  assert.match(String(info[2]), /PARTIAL_ANSWER_HELD/, 'the tab itself shows the carry-over');
+});
+
+test('Bitpanda and providers without real sources are left alone', () => {
+  const h = harness(PREVIOUS);
+  h.setProvider('bitpanda');
+  h.run([['BTC', 0.05, 'spot']]);
+  assert.ok(!held(h, 'ETH'));
+  assert.equal(h.store.size, 0);
+});
+
+test('nothing is carried when the episode cannot be recorded', () => {
+  const h = harness(PREVIOUS);
+  h.failWrites();
+  h.run([['BTC', 0.05, 'spot']]);
+  assert.ok(!held(h, 'ETH'), 'a carry-over that could never end is not started');
+  assert.ok(h.logs.some((m) => m.includes('[CEX_EMPTY_COUNTER_ERROR]')));
+});
+
+test('an episode older than 48 hours confirms the disappearance instead of starting over', () => {
+  const h = harness(PREVIOUS);
+  h.run([['BTC', 0.05, 'spot']]);
+  h.later(49 * 60);
+  h.run([['BTC', 0.05, 'spot']]);
+  assert.ok(!held(h, 'ETH'));
+  assert.equal(h.store.size, 0);
 });

@@ -1865,68 +1865,109 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   if (hasEmptyGuard && heldNow === 0 && prevHeldCount > 0 && opt_values) {
     var nowMs = Date.now();
     var since = _cexEmptyAnswerHeldSince_(sheetName, nowMs);
-    if (since == null || nowMs - since < CEX_EMPTY_CONFIRM_MIN_MS) {
-      if (since == null) {
-        try { props.setProperty(emptyKey, JSON.stringify({ ts: nowMs })); }
-        catch (eSet) { Logger.log("[CEX_EMPTY_COUNTER_ERROR] " + sheetName + " : " + (eSet && eSet.message ? eSet.message : eSet)); }
-      }
+    var recorded = since != null;
+    if (since == null) {
+      // The episode must be recorded to be able to end: if it cannot be, the tab is not held
+      // (otherwise it would be held forever) and the failure is logged.
+      try { props.setProperty(emptyKey, JSON.stringify({ ts: nowMs })); recorded = true; }
+      catch (eSet) { Logger.log("[CEX_EMPTY_COUNTER_ERROR] " + sheetName + " : " + (eSet && eSet.message ? eSet.message : eSet) + " ; answer written as received"); }
+    }
+    if (recorded && (since == null || nowMs - since < CEX_EMPTY_CONFIRM_MIN_MS)) {
       Logger.log("[CEX_EMPTY_ANSWER_HELD] " + sheetName + " : answer without any asset while " + prevHeldCount + " asset(s) were held; tab kept until the emptiness is confirmed");
       return prevInfoTotal;
     }
   }
   try { if (props && emptyKey) props.deleteProperty(emptyKey); } catch (eDel) {}
+  if (props && emptyKey && heldNow === 0) {
+    // Emptiness confirmed (or nothing was held): no source episode of this tab stays open.
+    try {
+      var emptyKeys = props.getKeys();
+      for (var ek = 0; ek < emptyKeys.length; ek++) if (emptyKeys[ek].indexOf(emptyKey + "|") === 0) props.deleteProperty(emptyKeys[ek]);
+    } catch (eEmptyKeys) {}
+  }
 
   // v4.17.0 - A partial answer does not silently lower the total (P2-DATA-CEX-PARTIAL-RESPONSE).
-  // When a whole source of the previous tab (spot, earn-flexible, fiat, ...) is missing from an
-  // answer that still holds other assets, its previous rows are carried over with their old date
-  // (the date column shows they are not fresh), unless the same symbol is now held elsewhere (an
-  // asset moved from earn to spot is not counted twice). The disappearance is accepted only when
-  // it is still there CEX_EMPTY_CONFIRM_MIN_MS after it was first seen.
-  if (hasEmptyGuard && heldNow > 0 && opt_values && prevHeldRows.length) {
+  // Only for exchanges whose column C is a real, stable source (Binance: spot, earn-flexible,
+  // earn-locked; OKX: trading, funding, earn); elsewhere it names the trigger (Bitpanda) or is
+  // always "spot". When a whole source of the previous tab is missing from an answer that still
+  // holds assets, the shortfall of each of its symbols (previous total of the symbol minus its
+  // current total, at most the previous row) is carried over with the previous date, so an asset
+  // moved to another source is not counted twice. The disappearance is accepted when it is still
+  // there CEX_EMPTY_CONFIRM_MIN_MS after it was first seen; nothing is carried when the episode
+  // cannot be recorded. Carried rows mark the INFO_TOTAL row (PARTIAL_ANSWER_HELD).
+  var partialProviders = { binance: true, okx: true };
+  var carriedRows = 0;
+  if (hasEmptyGuard && props && heldNow > 0 && opt_values && prevHeldRows.length && partialProviders[String(provider || "").toLowerCase()]) {
     var nowSrcMs = Date.now();
+    var srcPrefix = emptyKey + "|";
     var currentSources = {};
-    var currentSymbols = {};
+    var currentBySymbol = {};
+    var prevBySymbol = {};
+    var numOf = function (v) { var n = Number(String(v != null ? v : 0).replace(",", ".")); return isFinite(n) ? n : 0; };
     for (var cs = 0; cs < nb; cs++) {
       var csRow = balances[cs] || [];
-      var csBal = Number(String(csRow[1] != null ? csRow[1] : 0).replace(",", "."));
-      if (!(isFinite(csBal) && csBal > 0)) continue;
+      var csBal = numOf(csRow[1]);
+      if (!(csBal > 0)) continue;
       currentSources[String(csRow[2] || "")] = true;
-      currentSymbols[String(csRow[0] || "").trim().toUpperCase()] = true;
+      var csSym = String(csRow[0] || "").trim().toUpperCase();
+      currentBySymbol[csSym] = (currentBySymbol[csSym] || 0) + csBal;
     }
-    // A source present again in the real answer (before any carry-over) closes its episode.
-    try {
-      var srcPrefix = emptyKey + "|";
-      var openKeys = props.getKeys();
-      for (var ok = 0; ok < openKeys.length; ok++) {
-        if (openKeys[ok].indexOf(srcPrefix) === 0 && currentSources[openKeys[ok].substring(srcPrefix.length)]) props.deleteProperty(openKeys[ok]);
+    for (var pb = 0; pb < prevHeldRows.length; pb++) {
+      var pbSym = String(prevHeldRows[pb][0] || "").trim().toUpperCase();
+      prevBySymbol[pbSym] = (prevBySymbol[pbSym] || 0) + numOf(prevHeldRows[pb][1]);
+    }
+    var openKeys = [];
+    try { openKeys = props.getKeys(); } catch (eKeys) { openKeys = []; }
+    for (var ok = 0; ok < openKeys.length; ok++) {
+      // A source present again in the real answer closes its episode.
+      if (openKeys[ok].indexOf(srcPrefix) === 0 && currentSources[openKeys[ok].substring(srcPrefix.length)]) {
+        try { props.deleteProperty(openKeys[ok]); } catch (eDelOpen) {}
       }
-    } catch (eKeys) {}
+    }
     var missingSources = {};
     for (var ph = 0; ph < prevHeldRows.length; ph++) {
-      var phSrc = prevHeldRows[ph][2];
-      if (!currentSources[phSrc]) missingSources[phSrc] = true;
+      if (!currentSources[prevHeldRows[ph][2]]) missingSources[prevHeldRows[ph][2]] = true;
     }
+    var shortfall = {};
+    for (var sy in prevBySymbol) shortfall[sy] = Math.max(0, prevBySymbol[sy] - (currentBySymbol[sy] || 0));
     for (var msrc in missingSources) {
-      var srcKey = emptyKey + "|" + msrc;
-      var srcSince = _cexEmptyAnswerHeldSinceKey_(srcKey, nowSrcMs);
-      if (srcSince != null && nowSrcMs - srcSince >= CEX_EMPTY_CONFIRM_MIN_MS) {
-        try { props.deleteProperty(srcKey); } catch (eSrcDel) {}
-        continue; // the source is really gone
-      }
-      if (srcSince == null) {
-        try { props.setProperty(srcKey, JSON.stringify({ ts: nowSrcMs })); }
-        catch (eSrcSet) { Logger.log("[CEX_EMPTY_COUNTER_ERROR] " + sheetName + " : " + (eSrcSet && eSrcSet.message ? eSrcSet.message : eSrcSet)); }
-      }
-      var carried = 0;
+      var srcKey = srcPrefix + msrc;
+      var toCarry = [];
       for (var cr = 0; cr < prevHeldRows.length; cr++) {
         var prevRow = prevHeldRows[cr];
         if (prevRow[2] !== msrc) continue;
-        if (currentSymbols[String(prevRow[0] || "").trim().toUpperCase()]) continue;
-        balances.push([prevRow[0], prevRow[1], prevRow[2], prevRow[3]]);
-        opt_values.push([prevRow[0], prevRow[1], prevRow[2], prevRow[3]]);
-        carried++;
+        var crSym = String(prevRow[0] || "").trim().toUpperCase();
+        var qty = Math.min(numOf(prevRow[1]), shortfall[crSym] || 0);
+        if (!(qty > 0)) continue;
+        shortfall[crSym] -= qty;
+        toCarry.push([prevRow[0], qty, prevRow[2], prevRow[3]]);
       }
-      if (carried) Logger.log("[CEX_PARTIAL_ANSWER_HELD] " + sheetName + " : source " + msrc + " missing from the answer; " + carried + " row(s) kept with their previous date");
+      if (!toCarry.length) {
+        try { props.deleteProperty(srcKey); } catch (eNoCarry) {}
+        continue;
+      }
+      var raw = null;
+      try { raw = props.getProperty(srcKey); } catch (eGetSrc) { raw = null; }
+      var srcSince = null;
+      try { var parsed = raw ? JSON.parse(raw) : null; srcSince = parsed && isFinite(Number(parsed.ts)) ? Number(parsed.ts) : null; } catch (eParseSrc) { srcSince = null; }
+      // An episode older than the confirmation delay (even beyond 48 h) confirms the disappearance.
+      if (srcSince != null && nowSrcMs - srcSince >= CEX_EMPTY_CONFIRM_MIN_MS) {
+        try { props.deleteProperty(srcKey); } catch (eSrcDel) {}
+        continue;
+      }
+      if (srcSince == null) {
+        try { props.setProperty(srcKey, JSON.stringify({ ts: nowSrcMs })); }
+        catch (eSrcSet) {
+          Logger.log("[CEX_EMPTY_COUNTER_ERROR] " + sheetName + " : " + (eSrcSet && eSrcSet.message ? eSrcSet.message : eSrcSet) + " ; source " + msrc + " not carried");
+          continue;
+        }
+      }
+      for (var tc = 0; tc < toCarry.length; tc++) {
+        balances.push(toCarry[tc].slice());
+        opt_values.push(toCarry[tc].slice());
+        carriedRows++;
+      }
+      Logger.log("[CEX_PARTIAL_ANSWER_HELD] " + sheetName + " : source " + msrc + " missing from the answer; " + toCarry.length + " row(s) kept with their previous date");
     }
     nb = balances.length;
   }
@@ -2087,7 +2128,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       base.push("");
       fullValues.push(base);
     }
-    fullValues.push([".", "INFO_TOTAL", String(provider || "").toLowerCase(), stamp, "", "", Math.round(total * 100) / 100]);
+    fullValues.push([".", "INFO_TOTAL", String(provider || "").toLowerCase() + (carriedRows > 0 ? " [PARTIAL_ANSWER_HELD]" : ""), stamp, "", "", Math.round(total * 100) / 100]);
     sh.getRange(1, 1, fullValues.length, 7).setValues(fullValues);
     sh.getRange("A1").insertCheckboxes().setValue(false);
     sh.getRange("B1:D1").setNumberFormat("@");
@@ -2096,7 +2137,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     if (nb > 0) sh.getRange(3, 5, nb, 1).setNumberFormat("0.00");
     sh.getRange(totalRow, 5, 1, 1).setNumberFormat("0.00");
   } else {
-    sh.getRange(totalRow, 1, 1, 7).setValues([[".", "INFO_TOTAL", String(provider || "").toLowerCase(), stamp, "", "", Math.round(total * 100) / 100]]);
+    sh.getRange(totalRow, 1, 1, 7).setValues([[".", "INFO_TOTAL", String(provider || "").toLowerCase() + (carriedRows > 0 ? " [PARTIAL_ANSWER_HELD]" : ""), stamp, "", "", Math.round(total * 100) / 100]]);
     _cexWriteVerifMap_(sh, sheetName);
   }
 

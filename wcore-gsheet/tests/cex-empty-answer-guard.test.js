@@ -74,7 +74,7 @@ function harness(previous) {
     return context._cexComputeAndAppendTotal_({ getSheetByName: () => sheet }, 'CEX - Test', balances, 'test', values);
   };
   const later = (minutes) => { clock.now += minutes * 60 * 1000; };
-  return { sheet, store, logs, run, later };
+  return { sheet, store, logs, run, later, failWrites: () => { context.PropertiesService.getScriptProperties = () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: () => { throw new Error('quota'); }, deleteProperty: (k) => store.delete(k), getKeys: () => [...store.keys()] }); } };
 }
 
 const PREVIOUS = [
@@ -190,4 +190,11 @@ test('the status cell says EMPTY_ANSWER_HELD while an episode is open, and OK on
   assert.equal(held['CEX - Binance!B1'], '2026-11-10 22:00:00', 'B1 keeps the date of the data, not now');
   const cleared = statusHarness(null);
   assert.equal(cleared['Portefeuille Crypto!U2'], 'BINANCE OK: 2026-11-11 18:10:00');
+});
+
+test('an empty answer is written as received when its episode cannot be recorded', () => {
+  const h = harness(PREVIOUS);
+  h.failWrites();
+  assert.equal(h.run([]), 0, 'held forever would be worse than the empty answer');
+  assert.ok(h.logs.some((m) => m.includes('[CEX_EMPTY_COUNTER_ERROR]')));
 });

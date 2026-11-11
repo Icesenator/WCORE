@@ -55,6 +55,35 @@ function _rwaProjectCryptoRows_(chainKey, cryptoSheetName, rows) {
   return _rwaRecomputeTotal_(out);
 }
 
+// v4.16.99 - INFO_TOTAL computed by the projection of every "Ledger - * Action" view
+// (P1-DATA-ACTION-VIEW-STATIC-TOTAL). The Recap reads G of the first INFO_TOTAL row of column B;
+// it used to find a static row typed on 2026-08-27 with G = 0, so any tokenised asset appearing
+// in a view would have been reported as 0 EUR. The projection now ends with its own INFO_TOTAL:
+//  - sum of value_eur when every asset row carries a value, 0 when the view holds no asset;
+//  - "" (UNKNOWN) when an asset has no value (the view does not price it) or when a diagnostic
+//    row says the source scan is unavailable or degraded. An unknown NATIVE price alone does
+//    not touch tokenised assets and keeps the total known.
+function _rwaAppendActionTotal_(out, actionSheetName) {
+  var total = 0;
+  var unknown = false;
+  for (var i = 1; i < out.length; i++) {
+    var row = out[i];
+    if (!row) continue;
+    if (_rwaIsDiagnosticRow_(row)) {
+      if (!/NATIVE_PRICE_UNKNOWN/i.test(String(row[2] || ""))) unknown = true;
+      continue;
+    }
+    if (String(row[1] || "").indexOf("INFO") === 0) continue;
+    var cell = row[6];
+    if (cell === "" || cell === null || cell === undefined || typeof cell === "boolean") { unknown = true; continue; }
+    var v = Number(cell);
+    if (!isFinite(v)) { unknown = true; continue; }
+    total += v;
+  }
+  out.push([actionSheetName, "INFO_TOTAL", "Total portefeuille (sum value_eur).", "", "", "", unknown ? "" : total, "", ""]);
+  return out;
+}
+
 function _rwaProjectActionRows_(chainKey, actionSheetName, rows) {
   var out = [["chain_name", "token_ticker", "token_name", "contract_address", "balance", "price_eur", "value_eur", "raw_balance", "multiplier"]];
   rows = Array.isArray(rows) ? rows : [];
@@ -84,5 +113,5 @@ function _rwaProjectActionRows_(chainKey, actionSheetName, rows) {
     var underlying = String(entry.u || "").toUpperCase();
     out.push([actionSheetName, underlying, String(entry.n || underlying), String(row[3]).trim(), adjusted, "", "", raw, multiplier]);
   }
-  return out;
+  return _rwaAppendActionTotal_(out, actionSheetName);
 }

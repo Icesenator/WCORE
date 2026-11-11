@@ -103,7 +103,8 @@ function _xstocksProjectActionRows_(rows) {
    if (!meta) continue;
    out.push(["Ledger - Solana Action", meta.underlyingSymbol.toUpperCase(), row[2] || meta.underlyingSymbol.toUpperCase(), mint, meta.adjustedBalance, "", "", meta.rawBalance, meta.multiplier]);
   }
-  return out;
+  // v4.16.99 - computed INFO_TOTAL, same rule as every Action view (44A, _rwaAppendActionTotal_).
+  return _rwaAppendActionTotal_(out, "Ledger - Solana Action");
 }
 
 function _xstocksProjectActionMeta_(rows) {

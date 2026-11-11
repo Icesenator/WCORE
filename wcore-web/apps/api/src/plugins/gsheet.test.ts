@@ -2069,3 +2069,42 @@ test("a token already shown in the tab stays at unknown value when its price is 
   assert.equal(bad.statusCode, 400);
   await app.close();
 });
+
+test("a cashtag token with a sub-scam GeckoTerminal score is removed from the tab, unless the tab declared it", async () => {
+  const montra = "0x594159fac2ae4439162fe3a82678984b0483fffc";
+  const run = async (gtScore: number | null, customTokens: string[]) => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.88 }),
+      scamEnrichment: {
+        loader: async () => new Map(gtScore == null ? [] : [[montra, { gt: { available: true, gtScore } }]]),
+        logDecision: () => {},
+      },
+      scanRunner: async () => ({
+        ok: true, chain: "ETHEREUM", chainName: "Ethereum", vm: "EVM", timestamp: new Date().toISOString(),
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2000, valueEur: 20 },
+        tokens: [{ contract: montra, symbol: "$Montra", name: "Montrav2", balance: 200000, decimals: 18, priceEur: 0.0000226, valueEur: 4.53 }],
+        totalValueEur: 24.53, errors: [], degraded: false, fxRate: 0.88, scanMs: 1,
+      }),
+    });
+    const res = await app.inject({
+      method: "POST", url: "/api/gsheet/scan", headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x1111111111111111111111111111111111111111", chain: "ETHEREUM", customTokens, strictTokens: customTokens.length > 0 },
+    });
+    await app.close();
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    return {
+      kept: body.tokens.some((t: { contract?: string }) => t.contract?.toLowerCase() === montra),
+      blocked: (body.blockedContracts || []).includes(montra),
+    };
+  };
+  const scam = await run(39.8, []);
+  assert.deepEqual([scam.kept, scam.blocked], [false, true], "cashtag + GT 39.8 = scam: removed and reported as blocked");
+  const noGt = await run(null, []);
+  assert.deepEqual([noGt.kept, noGt.blocked], [true, false], "without market data the cashtag alone removes nothing");
+  const declared = await run(39.8, [montra]);
+  assert.deepEqual([declared.kept, declared.blocked], [true, false], "a token the tab declared needs structural or strong proof");
+});

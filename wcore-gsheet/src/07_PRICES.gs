@@ -3139,6 +3139,7 @@ NativePriceStore.refreshIfDue = function(opts) {
     if (budgetMs < perCallMs) { out.reason = "BUDGET"; out.ms = Date.now() - startMs; return out; }
     out.ran = true;
     var stop = "";
+    var llamaPriced = {}; // ids that DefiLlama answered with a usable price in this pass
     for (var i = 0; i < ids.length; i += this.CONFIG.CHUNK) {
       if (i > 0 && (budgetMs - (Date.now() - startMs)) < perCallMs) { stop = "BUDGET_PARTIAL"; break; }
       var chunk = ids.slice(i, i + this.CONFIG.CHUNK);
@@ -3157,13 +3158,28 @@ NativePriceStore.refreshIfDue = function(opts) {
       // apres MIN_INTERVAL_MS (pas de nouvel essai immediat).
       if (!json || !json.coins) { stop = "HTTP_FAILED"; break; }
       out.written += this.ingest(store, json, fx, nowMs, fxInfo.collectedAt);
+      for (var lid in json.coins) {
+        if (!Object.prototype.hasOwnProperty.call(json.coins, lid)) continue;
+        var lrec = json.coins[lid];
+        if (lrec && Number(lrec.price) > 0 && Number(lrec.timestamp) > 0) llamaPriced[lid] = true;
+      }
     }
-    // Repli CoinGecko pour les ids sans entree ecrite dans ce passage.
+    // Repli CoinGecko pour les ids que DefiLlama n'a pas prices dans ce passage (absents de la
+    // reponse ou lot en echec). Un seul appel ; les ids dont l'entree est la plus ancienne passent
+    // en premier, et une entree ecrite par le repli passe en dernier au passage suivant (rotation
+    // au-dela de CG_CHUNK).
     var missing = [];
     for (var m = 0; m < ids.length; m++) {
-      var me = store.entries[ids[m]];
-      if (/^coingecko:/.test(ids[m]) && !(me && Number(me.fetchedAt) === nowMs)) missing.push(ids[m]);
+      if (/^coingecko:/.test(ids[m]) && !llamaPriced[ids[m]]) missing.push(ids[m]);
     }
+    if (!store.cgAskedAt || typeof store.cgAskedAt !== "object") store.cgAskedAt = {};
+    var entryAge = function(id) {
+      var e = store.entries[id];
+      var f = e ? Number(e.fetchedAt) : 0;
+      var a = Number(store.cgAskedAt[id]);
+      return Math.max(isFinite(f) ? f : 0, isFinite(a) ? a : 0);
+    };
+    missing.sort(function(a, b) { return entryAge(a) - entryAge(b) || (a < b ? -1 : a > b ? 1 : 0); });
     out.cgMissing = missing.length;
     if (missing.length && (budgetMs - (Date.now() - startMs)) >= perCallMs) {
       var slugs = missing.slice(0, this.CONFIG.CG_CHUNK).map(function(x) { return x.substring(10); });
@@ -3178,6 +3194,8 @@ NativePriceStore.refreshIfDue = function(opts) {
         });
       } catch (eCg) { cg = null; }
       var cgWritten = this.ingestCoingecko(store, cg, fx, nowMs, fxInfo.collectedAt);
+      // Every id asked is stamped, priced or not, so the next pass rotates to the others.
+      for (var sl = 0; sl < slugs.length; sl++) store.cgAskedAt["coingecko:" + slugs[sl]] = nowMs;
       out.cgWritten = cgWritten;
       out.written += cgWritten;
     }

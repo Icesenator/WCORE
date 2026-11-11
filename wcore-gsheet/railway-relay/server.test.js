@@ -960,3 +960,67 @@ test("resolveEurPerUsd prefers Binance, falls back to Yahoo, and never invents a
   assert.equal(await resolveEurPerUsd(async () => [], async () => null), null);
   assert.equal(await resolveEurPerUsd(async () => { throw new Error("down"); }, async () => { throw new Error("down"); }), null);
 });
+
+// --- Audit du 11/11/2026 : appels sortants bornes, limiteur avant lecture du corps ---------
+const { relayFetch, fetchStockPricesEur } = require("./server.js");
+
+test("every outbound call carries a deadline, and a caller signal still aborts it", async () => {
+  const previousFetch = global.fetch;
+  const seen = [];
+  global.fetch = async (_url, options) => { seen.push(options); return { ok: true, status: 200, json: async () => ({}) }; };
+  try {
+    await relayFetch("https://example.invalid/a");
+    await relayFetch("https://example.invalid/b", { method: "POST" });
+    const controller = new AbortController();
+    await relayFetch("https://example.invalid/c", { signal: controller.signal });
+    assert.equal(seen.length, 3);
+    for (const options of seen) assert.ok(options.signal instanceof AbortSignal, "no outbound call without a deadline");
+    assert.equal(seen[1].method, "POST", "the caller options are kept");
+    assert.equal(seen[2].signal.aborted, false);
+    controller.abort();
+    assert.equal(seen[2].signal.aborted, true, "the caller signal still aborts the call");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("no outbound call in the relay bypasses the bounded fetch", () => {
+  const withoutWrapper = SERVER_SRC.replace(/function fetch\(url, options\) \{[\s\S]*?\n\}/, "");
+  assert.notEqual(withoutWrapper, SERVER_SRC, "the bounded fetch wrapper exists");
+  assert.equal(/global(This)?\.fetch\(/.test(withoutWrapper), false, "only the wrapper may reach the global fetch");
+});
+
+test("stock prices stop at the request deadline and leave the rest unknown", async () => {
+  const previousFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls++;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return { ok: false, status: 503, json: async () => ({}), text: async () => "" };
+  };
+  try {
+    const prices = await fetchStockPricesEur(["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META"], { timeoutMs: 1 });
+    assert.deepEqual(prices, {}, "no price is invented for a symbol that was not reached");
+    assert.ok(calls <= 3, "the loop stops at the deadline instead of trying every symbol (calls=" + calls + ")");
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test("a throttled caller is refused before its body is parsed", async () => {
+  const previousLimit = process.env.RELAY_RATE_LIMIT;
+  process.env.RELAY_RATE_LIMIT = "1";
+  try {
+    await withServer(async (baseUrl) => {
+      const statuses = [];
+      for (let i = 0; i < 3; i++) {
+        const response = await fetch(baseUrl + "/stock/quotes", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{not json" });
+        statuses.push(response.status);
+      }
+      assert.equal(statuses[2], 429, "past the cap, a malformed body is never parsed (" + statuses.join(",") + ")");
+    });
+  } finally {
+    if (previousLimit == null) delete process.env.RELAY_RATE_LIMIT;
+    else process.env.RELAY_RATE_LIMIT = previousLimit;
+  }
+});

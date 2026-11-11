@@ -966,6 +966,23 @@ const samplePayload = JSON.stringify({
   assert.equal(saved.balanceTsMap[btcb], 111, 'old balance date kept, never a confirmed zero');
   assert.equal(saved.balanceTsMap[sol], 111);
   assert.equal(saved.scanStats.webRequestedUnreadKept, 2);
+
+  // The next answer is not degraded and still omits them: a confirmed zero, the rows go.
+  const cleanPayload = JSON.stringify(Object.assign(JSON.parse(bscPartialPayload), { errors: [], degraded: false }));
+  const ctxClean = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: saved,
+  }, cleanPayload);
+  const resClean = ctxClean._webScanWallet_('0x00000000000000000000000000000000000d0006', [[btcb], [sol]], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.equal(resClean.ok, true);
+  assert.equal(ctxClean.__saved.length, 1);
+  const cleanSaved = ctxClean.__saved[0].cache;
+  assert.equal(cleanSaved.assets.find((t) => t.contract === btcb), undefined, 'a clean answer that omits BTCB removes it');
+  assert.equal(cleanSaved.assets.find((t) => t.contract === sol), undefined);
+  assert.equal(cleanSaved.balanceTsMap[btcb], 0, 'and records a confirmed zero');
   assert.equal(saved.priceMap[btcb], undefined, 'absurd cached BTCB priceMap entry must be purged');
   assert.equal(saved.priceMap[sol], undefined, 'absurd cached SOL priceMap entry must be purged');
 }

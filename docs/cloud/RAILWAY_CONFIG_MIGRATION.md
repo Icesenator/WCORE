@@ -20,6 +20,8 @@ Railway cesse de lire les fichiers `railway.json` / `railway.toml` le 2026-12-01
 5. Preuves par service : Dockerfile utilisé dans le build, commit dans `build-info.json`, sondes de santé, et pour le site HTTPS sur `wcore.xyz`.
 6. Retirer les anciens `railway.json` du dépôt seulement après ces trois livraisons.
 
+État au 2026-11-11 : étapes 1 à 6 faites. Relais et site livrés au commit `4c87f594`, API au commit `b1c435d8`, chacun construit avec le Dockerfile lu dans les réglages du service. Les quatre `railway.json` du dépôt sont retirés, et un test empêche leur retour.
+
 ## Retour arrière
 
 Le retour durable est le dernier jeu de réglages `DOCKERFILE` validé plus le précédent déploiement sain (redéploiement depuis Railway). Revenir à `config-as-code` n'est possible qu'avant la coupure.

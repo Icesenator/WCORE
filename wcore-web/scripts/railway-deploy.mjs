@@ -242,6 +242,16 @@ export function checkLinkedProject(project, repo) {
 // Refuses while Railway reports a build or rollout in progress for this service, whoever
 // started it. Fails closed when the state cannot be read. There is still a window between
 // this check and `railway up`; Railway itself does not offer a lock.
+function listDeployments(project, service, environment, repo) {
+  const listed = capture("railway", ["deployment", "list", "--project", project, "--service", service, "--environment", environment, "--json", "--limit", "20"], repo);
+  try {
+    const deployments = listed.status === 0 ? JSON.parse(listed.stdout) : null;
+    return Array.isArray(deployments) && deployments.every((d) => typeof d?.status === "string") ? deployments : null;
+  } catch {
+    return null;
+  }
+}
+
 export function checkRemoteIdle(project, service, environment, repo) {
   const listed = capture("railway", ["deployment", "list", "--project", project, "--service", service, "--environment", environment, "--json", "--limit", "20"], repo);
   let deployments;
@@ -257,6 +267,55 @@ export function checkRemoteIdle(project, service, environment, repo) {
   if (active.length > 0) {
     throw new DeployError("E_REMOTE_BUSY", `${service} in ${environment} has a deployment in progress (${active.map((d) => `${d.id ?? "?"} ${d.status}`).join(", ")})`);
   }
+  return deployments;
+}
+
+// When no watched file changed since the last deployment, Railway records the new deployment
+// as SKIPPED and keeps the running image, but `railway up --ci` keeps waiting forever. Once the
+// CLI announces the skip, the deployer looks for a deployment that did not exist before the
+// upload and is SKIPPED; only then it stops the CLI and reports "skipped" (nothing published).
+export const SKIP_ANNOUNCEMENT = /no changes detected in watch paths|build will skip/i;
+
+function stopProcessTree(child) {
+  if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+  else child.kill("SIGTERM");
+}
+
+export function runUpload(line, { project, service, environment, repo, before = [], pollMs = 5000, maxWaitMs = 180000, log = console.error }) {
+  const known = new Set(before.map((d) => d?.id).filter(Boolean));
+  return new Promise((resolvePromise) => {
+    const child = spawn(line.command, line.args, { stdio: ["inherit", "pipe", "pipe"], shell: line.shell });
+    let tail = "", watching = false, settled = false, timer;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolvePromise(result);
+    };
+    const watchForSkip = (startedAt) => {
+      const skipped = (listDeployments(project, service, environment, repo) ?? [])
+        .find((d) => d?.id && !known.has(d.id) && String(d.status).toUpperCase() === "SKIPPED");
+      if (skipped) {
+        log(`skipped: Railway recorded deployment ${skipped.id} as SKIPPED (no watched file changed); the running image is unchanged`);
+        finish({ status: 0, published: false, skipped: true, deploymentId: skipped.id });
+        stopProcessTree(child);
+        return;
+      }
+      if (Date.now() - startedAt < maxWaitMs) timer = setTimeout(() => watchForSkip(startedAt), pollMs);
+    };
+    const onData = (stream) => (chunk) => {
+      stream.write(chunk);
+      tail = (tail + chunk.toString("utf8")).slice(-4096);
+      if (!watching && SKIP_ANNOUNCEMENT.test(tail)) {
+        watching = true;
+        watchForSkip(Date.now());
+      }
+    };
+    child.stdout.on("data", onData(process.stdout));
+    child.stderr.on("data", onData(process.stderr));
+    child.on("error", () => finish({ status: 1, published: false }));
+    child.on("close", (code) => finish({ status: code ?? 1, published: code === 0 }));
+  });
 }
 
 // configSource:
@@ -493,7 +552,7 @@ export function checkTrustProxy(plan, options, repo, now = Date.now()) {
   return { mode: spec.mode, revalidate: (time) => validateAttestation(value, options, time, plan.trustProxyModel) };
 }
 
-export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log = console.error, inspect, now = Date.now(), clock = Date.now, lockOptions = {} } = {}) {
+export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log = console.error, inspect, now = Date.now(), clock = Date.now, lockOptions = {}, uploadOptions = {} } = {}) {
   const options = parseArgs(argv);
   const repo = resolve(options.repo ?? defaultRepo);
   const sha = resolveCommit(repo, options.ref);
@@ -506,7 +565,7 @@ export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log 
   let contextDir;
   try {
     // After the lock: two runs on this machine cannot both pass this check and upload.
-    checkRemoteIdle(options.project, options.service, options.environment, repo);
+    const before = checkRemoteIdle(options.project, options.service, options.environment, repo);
     if (plan.configSource === "service-settings") checkServiceSettings(plan, options.environment, repo);
     contextDir = mkdtempSync(join(tmpdir(), `wcore-${options.service}-`));
     await exportCommit(repo, sha, contextDir);
@@ -517,8 +576,8 @@ export async function deploy(argv, { repo: defaultRepo, lockDir = tmpdir(), log 
     if (options.dryRun) return { status: 0, sha, buildInfo, published: false };
     const line = commandLine("railway", ["up", contextDir, "--path-as-root", "--project", options.project, "--environment", options.environment,
       "--service", options.service, "--ci", "--message", `wcore ${options.service} ${sha}`]);
-    const result = spawnSync(line.command, line.args, { stdio: "inherit", shell: line.shell });
-    return { status: result.status ?? 1, sha, buildInfo, published: result.status === 0 };
+    const result = await runUpload(line, { project: options.project, service: options.service, environment: options.environment, repo, before, log, ...uploadOptions });
+    return { ...result, sha, buildInfo };
   } finally {
     if (contextDir) rmSync(contextDir, { recursive: true, force: true });
     release();

@@ -95,7 +95,7 @@ wcore-web/
 | `DATABASE_URL` / `REDIS_URL` | Railway viaduct.proxy (not internal `postgres.railway.internal`) |
 | 159 chain configs | 12 disabled via `FLAGS.DISABLE_CHAIN=true` |
 
-**PSA** : `railway.json` controls which Dockerfile deploys. Never `edit railway.json` + `railway up` manually â€” always use `scripts/deploy.ps1`. Never run two deploys in parallel (race condition).
+**PSA** : the build settings stored on each Railway service decide the Dockerfile (configSource service-settings, 2026-11-11; no railway.json in the repository). Never `railway up` manually â€” always use `scripts/deploy.ps1`. Never run two deploys in parallel (race condition).
 
 ---
 

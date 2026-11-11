@@ -47,8 +47,15 @@ cp.spawnSync = (cmd, args = []) => {
   return { status: 0, stdout, stderr: '' };
 };
 cp.spawn = (cmd, args) => {
+  // `railway up` passe par spawn (sortie suivie pour détecter un build sauté).
+  if (cmd.startsWith('railway ')) { args = [...cmd.matchAll(/"([^"]*)"/g)].map(m => m[1]); cmd = 'railway'; }
   calls.push({ cmd, args });
-  const child = new EventEmitter(); child.stdout = new PassThrough(); child.stdin = new PassThrough();
+  const child = new EventEmitter(); child.stdout = new PassThrough(); child.stdin = new PassThrough(); child.stderr = new PassThrough();
+  if (cmd === 'railway') {
+    assert.equal(args[0], 'up');
+    queueMicrotask(() => child.emit('close', 0));
+    return child;
+  }
   if (cmd === 'tar') {
     const dest = args.at(-1);
     for (const [p, content] of Object.entries(files)) { mkdirSync(dirname(join(dest, p)), { recursive: true }); writeFileSync(join(dest, p), content); }

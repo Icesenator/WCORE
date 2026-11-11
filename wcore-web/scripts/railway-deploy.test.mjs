@@ -65,7 +65,8 @@ const log = fs.existsSync(${JSON.stringify(capture)}) ? JSON.parse(fs.readFileSy
 const entry = { args };
 if (args[0] === "status") process.stdout.write(process.env.FAKE_STATUS ?? JSON.stringify({ id: "${PROJECT}", name: "WCORE" }));
 if (args[0] === "variable") process.stdout.write(process.env.FAKE_VARS ?? "{}");
-if (args[0] === "deployment") process.stdout.write(process.env.FAKE_DEPLOYMENTS ?? JSON.stringify([{ id: "d0", status: "SUCCESS" }]));
+const uploaded = path.join(path.dirname(${JSON.stringify(capture)}), "uploaded.flag");
+if (args[0] === "deployment") process.stdout.write(fs.existsSync(uploaded) && process.env.FAKE_DEPLOYMENTS_AFTER_UP ? process.env.FAKE_DEPLOYMENTS_AFTER_UP : (process.env.FAKE_DEPLOYMENTS ?? JSON.stringify([{ id: "d0", status: "SUCCESS" }])));
 if (args[0] === "config" && args[1] === "pull") { if (process.env.FAKE_PULL_EXIT) process.exit(Number(process.env.FAKE_PULL_EXIT)); process.stdout.write(process.env.FAKE_PULL ?? "{}"); }
 if (args[0] === "up") {
   const root = args[1], files = [];
@@ -76,7 +77,9 @@ if (args[0] === "up") {
 }
 log.push(entry);
 fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify(log));
-process.exit(args[0] === "up" ? Number(process.env.FAKE_UP_EXIT ?? 0) : 0);
+if (args[0] === "up") fs.writeFileSync(uploaded, "1");
+if (args[0] === "up" && process.env.FAKE_UP_SKIP) { process.stdout.write("no changes detected in watch paths, build will skip\\n"); setTimeout(() => process.exit(0), Number(process.env.FAKE_UP_HANG_MS ?? 60000)); }
+else process.exit(args[0] === "up" ? Number(process.env.FAKE_UP_EXIT ?? 0) : 0);
 `);
   chmodSync(join(bin, "railway"), 0o755);
   // Windows resolves commands through PATHEXT, so the fake also needs a .cmd shim.
@@ -566,6 +569,40 @@ test("configSource: service-settings keeps working after the cutoff, config-as-c
     sh(f.repo, "commit", "--quiet", "-am", "unknown source");
     sh(f.repo, "push", "--quiet", "origin", "master");
     await rejectsWith(f.run(WEB_PROD, { OMIT_ATTESTATION: "1" }), "E_CONFIG_SOURCE");
+  } finally {
+    f.cleanup();
+  }
+});
+
+// --- a build Railway skips (no watched file changed) -----------------------------------------
+test("skipped build: the deployer stops waiting once Railway records a new SKIPPED deployment", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f);
+    const started = Date.now();
+    const result = await f.run(WEB_PROD, {
+      FAKE_PULL: WEB_OK, OMIT_ATTESTATION: "1", FAKE_UP_SKIP: "1",
+      FAKE_DEPLOYMENTS_AFTER_UP: JSON.stringify([{ id: "d1", status: "SKIPPED" }, { id: "d0", status: "SUCCESS" }]),
+    }, { uploadOptions: { pollMs: 50, maxWaitMs: 5000 } });
+    assert.equal(result.status, 0);
+    assert.equal(result.published, false);
+    assert.equal(result.skipped, true);
+    assert.equal(result.deploymentId, "d1");
+    assert.ok(Date.now() - started < 30000);
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("skipped build: an older SKIPPED deployment is not taken for this upload", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f);
+    const list = JSON.stringify([{ id: "old", status: "SKIPPED" }, { id: "d0", status: "SUCCESS" }]);
+    const result = await f.run(WEB_PROD, { FAKE_PULL: WEB_OK, OMIT_ATTESTATION: "1", FAKE_UP_SKIP: "1", FAKE_UP_HANG_MS: "1500", FAKE_DEPLOYMENTS: list, FAKE_DEPLOYMENTS_AFTER_UP: list },
+      { uploadOptions: { pollMs: 50, maxWaitMs: 5000 } });
+    assert.notEqual(result.skipped, true, "without a new SKIPPED deployment the CLI keeps the decision");
+    assert.equal(result.status, 0);
   } finally {
     f.cleanup();
   }

@@ -1,6 +1,0 @@
-{
-  "build": {
-    "builder": "DOCKERFILE",
-    "dockerfilePath": "wcore-web/apps/api/Dockerfile.railway"
-  }
-}

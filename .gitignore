@@ -16,7 +16,6 @@ node_modules/
 backups/
 /invest-gas/
 nul
-!opencode.json
 .obsidian/workspace*.json
 
 # Graphify local inputs and Obsidian export

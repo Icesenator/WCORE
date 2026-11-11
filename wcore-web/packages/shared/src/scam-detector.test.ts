@@ -324,13 +324,13 @@ test("flags a fake stablecoin only when the name is unbranded AND the price is f
 });
 
 test("a cashtag ticker alone is only a warning, never a removal", () => {
-  const r = detectScam("$Montra", "Montrav2", 199873.41, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
+  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
   assert.equal(r.level, "warning");
   assert.ok(r.reasons.some((reason) => reason.startsWith("cashtag ticker")));
 });
 
 test("a cashtag ticker with a sub-scam GeckoTerminal score is a scam (Elysium $Montra)", () => {
-  const r = detectScam("$Montra", "Montrav2", 199873.41, 0.0000226, "0x00000000000000000000000000000000000ca5a1", {
+  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1", {
     gt: { available: true, gtScore: 39.8 },
   } as never);
   assert.equal(r.level, "scam");
@@ -364,17 +364,13 @@ test("a known token written as a cashtag gets no cashtag signal ($WIF)", () => {
   assert.equal(r.reasons.some((reason) => reason.startsWith("cashtag ticker")), false);
 });
 
-test("a cashtag token held in an exact round quantity worth little is a scam (Elysium $HYS)", () => {
-  const r = detectScam("$HYS", "Hypesium", 200000, 0.000013635057, "0x00000000000000000000000000000000000ca5a2");
-  assert.equal(r.level, "scam");
-});
-
-test("a cashtag token bought in a non-round quantity stays a warning", () => {
-  const r = detectScam("$HYS", "Hypesium", 199873.41, 0.000013635057, "0x00000000000000000000000000000000000ca5a2");
-  assert.equal(r.level, "warning");
-});
-
-test("a round cashtag holding worth 50 EUR or more is not flagged as an airdrop", () => {
-  const r = detectScam("$HYS", "Hypesium", 200000, 0.001, "0x00000000000000000000000000000000000ca5a2");
-  assert.equal(r.level, "warning");
+test("Elysium $HYS is a blocked contract, while the same profile elsewhere stays a warning", () => {
+  const blocked = detectScam("$HYS", "Hypesium", 200000, 0.000013635057, "0x79A4EAC490AFAD2B6E0296431AE2F7E30A3571AF");
+  assert.equal(blocked.level, "scam");
+  // A round cashtag holding is not a scam by itself: a real purchase can land on a round quantity.
+  for (const price of [0.000013635057, null]) {
+    const other = detectScam("$HYS", "Hypesium", 200000, price, "0x00000000000000000000000000000000000ca5a2");
+    assert.notEqual(other.level, "scam", `price ${price}`);
+  }
+  assert.ok(SCAM_RULES_VERSION >= 38);
 });

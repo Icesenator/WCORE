@@ -197,6 +197,11 @@ const _BLOCKED_CONTRACTS = new Set([
   // ne le retirait qu'avec un score GeckoTerminal < 40 ; le score est remonté à 44 et le jeton est
   // revenu avec un prix. Confirmé non sollicité par le propriétaire.
   "0x594159fac2ae4439162fe3a82678984b0483fffc", // Elysium: $Montra "Montrav2", cashtag non sollicité
+  // 2026-11-11 (soir) — même onglet : $HYS "Hypesium", 200 000 unités, même profil que $Montra
+  // (cashtag, quantité ronde, quelques euros) et absent des positions déclarées du propriétaire
+  // (colonne Vérif à X). Une règle générale sur la quantité ronde a été écartée : un achat réel
+  // peut tomber sur une quantité ronde.
+  "0x79a4eac490afad2b6e0296431ae2f7e30a3571af", // Elysium: $HYS "Hypesium", cashtag non sollicité
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([
@@ -468,13 +473,6 @@ export function detectScam(symbol: string, name: string, balance: number, priceE
   // a GeckoTerminal sub-scam score, already points the same way (Elysium $Montra, 2026-11-11).
   if (!isKnownToken(s.replace(/^\$+/, "").toUpperCase(), contract) && /^\$[A-Za-z0-9]/.test(s)) {
     signals.push({ reason: `cashtag ticker "${s}"`, weight: 1 });
-    // A cashtag token held in an exact round quantity (200 000, not 199 873.41) worth little was
-    // pushed to the wallet, not bought: a swap never lands on a multiple of 10 000. Elysium got
-    // three of them in two days ($Montra, $HYS; rules v38, 2026-11-11).
-    const value = priceEur == null ? 0 : balance * priceEur;
-    if (Number.isInteger(balance) && balance >= 10_000 && balance % 10_000 === 0 && value < 50) {
-      signals.push({ reason: `cashtag airdrop of a round ${balance} units`, weight: 3 });
-    }
   }
 
   // 14c. Non-latin ticker/name with no price: dust airdrop using CJK/emoji

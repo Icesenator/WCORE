@@ -158,21 +158,6 @@ export interface GsheetStockPortfolioSnapshot {
   };
 }
 
-const GSHEET_WALLET_LABELS: Record<string, string> = {
-  "0x00000000000000000000000000000000000d0003": "Layer3 Wallet",
-  "0x17d518736ee9341dcdc0a2498e013d33cfcdd080": "Ledger",
-  "0x00000000000000000000000000000000000d0006": "Binance Web3 Wallet",
-  "0x00000000000000000000000000000000000d0001": "Smart Wallet",
-  "0x00000000000000000000000000000000000d0007": "Ethos",
-  "0x00000000000000000000000000000000000d0004": "SafePal",
-  "0x00000000000000000000000000000000000d0008": "Startale",
-  "0x00000000000000000000000000000000000d0005": "UniSwap",
-  "0x00000000000000000000000000000000000d0002": "Warpcast",
-  "11111111111111111111111111111114k": "Layer3",
-  "AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4": "Ledger",
-  "11111111111111111111111111111114n": "Seeker",
-};
-
 export async function mapWithConcurrencyLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
@@ -443,15 +428,6 @@ function tokenStringField(obj: unknown, key: string): string {
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function labelGsheetWalletScan(result: GsheetScanResult, address: string): GsheetScanResult {
-  const rawAddress = String(address || "").trim();
-  const wallet = GSHEET_WALLET_LABELS[rawAddress] || GSHEET_WALLET_LABELS[rawAddress.toLowerCase()];
-  if (!wallet) return result;
-  const chainName = String(result.chainName || result.chain || "").trim();
-  if (!chainName || chainName.toLowerCase().startsWith(`${wallet.toLowerCase()} - `)) return result;
-  return { ...result, chainName: `${wallet} - ${chainName}` };
 }
 
 function isNonPortfolioGsheetToken(token: unknown, protectedContracts?: Set<string>): boolean {
@@ -1159,7 +1135,9 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
       const sanitizeStartedAt = Date.now();
       const sanitized = await sanitizeGsheetScanResult(mirrored, parsed.input.chain, parsed.input.customTokens, opts.scamEnrichment, parsed.input.heldContracts);
       const sanitizeMs = Date.now() - sanitizeStartedAt;
-      const labeled = labelGsheetWalletScan(sanitized, parsed.input.address);
+      // Le nom de l'onglet (« Portefeuille - Chaine ») est applique par le script Google lui-meme
+      // (12_WALLET_NAMES) : aucune table d'adresses privees cote API (audit du 11/11/2026).
+      const labeled = sanitized;
       const out = await injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);
       // Phase timings: the GSheet custom function that consumes this route dies
       // at 30s, so a slow phase here freezes a whole chain tab (incident

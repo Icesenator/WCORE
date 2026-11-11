@@ -89,6 +89,11 @@ function makeWalletNamesContext() {
     Object,
     String,
     Addr: { normalize: (v) => String(v || '').toLowerCase() },
+    // Registre prive (fichier present seulement en ligne), simule avec des adresses de test.
+    WALLET_REGISTRY_PRIVATE: {
+      '0x00000000000000000000000000000000000a11ce': 'UniSwap',
+      '0x0000000000000000000000000000000000000b0b': 'Warpcast',
+    },
   };
   vm.createContext(context);
   vm.runInContext(walletNamesSource, context);
@@ -216,12 +221,12 @@ const samplePayload = JSON.stringify({
 {
   const ctx = makeWalletNamesContext();
   assert.equal(
-    ctx.WalletNames.get('0x00000000000000000000000000000000000d0005', 'Base'),
+    ctx.WalletNames.get('0x00000000000000000000000000000000000A11CE', 'Base'),
     'UniSwap - Base',
     'wallet registry labels checksum/mixed-case addresses with Wallet - Chain'
   );
   assert.equal(
-    ctx.WalletNames.get('0x00000000000000000000000000000000000d0002', 'Base'),
+    ctx.WalletNames.get('0x0000000000000000000000000000000000000B0B', 'Base'),
     'Warpcast - Base',
     'wallet registry labels Warpcast checksum address with Wallet - Chain'
   );

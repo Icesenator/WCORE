@@ -70,3 +70,10 @@ graphify-out/20*/
 /docs/superpowers/
 /mechanica-0x17d080.png
 tmp-worker-build
+
+# Audit du 11/11/2026 : le depot est public. Suivi de projet et registre des portefeuilles
+# restent sur disque, hors Git (ils contiennent montants et adresses).
+/review-context.md
+/ROADMAP.md
+/docs/archive/2026-10-04-ledger-blast-archive.json
+wcore-gsheet/src/12B_WALLET_REGISTRY_PRIVATE.gs

@@ -1219,6 +1219,53 @@ for (const file of ['11_EVM_ENGINE.gs', '14_SVM_ENGINE.gs', '15_COSMOS_ENGINE.gs
   );
 }
 
+// v4.16.96 - A price the API serves from its stale cache keeps its own observation time.
+// The adapter used to stamp every price with the scan time, so the freshness guards downstream
+// (native price window, pruning) took an outdated price for a fresh one.
+{
+  const ctx = makeContext({});
+  const config = { CHAIN: { NAME: 'Base', NATIVE_SYMBOL: 'ETH' }, CACHE_VERSION: 7 };
+  const FRESH = '0x0000000000000000000000000000000000000001';
+  const STALE = '0x0000000000000000000000000000000000000002';
+  const UNDATED = '0x0000000000000000000000000000000000000003';
+  const FUTURE = '0x0000000000000000000000000000000000000004';
+  const twoHoursAgo = Date.now() - 2 * 3600 * 1000;
+  const base = { ok: true, chain: 'BASE', chainName: 'Base', vm: 'EVM', timestamp: new Date().toISOString(), totalValueEur: 0, errors: [], degraded: false, fxRate: 0.86, scanMs: 1 };
+
+  const before = Date.now();
+  const cache = ctx._webScanConvertToWalletCache_({
+    ...base,
+    native: { symbol: 'ETH', balance: 0.01, priceEur: 2100, valueEur: 21, priceStale: true, priceTs: twoHoursAgo },
+    tokens: [
+      { symbol: 'AAA', name: 'Fresh', contract: FRESH, balance: 10, decimals: 18, priceEur: 1, valueEur: 10 },
+      { symbol: 'BBB', name: 'Stale', contract: STALE, balance: 10, decimals: 18, priceEur: 2, valueEur: 20, priceStale: true, priceTs: twoHoursAgo },
+      { symbol: 'CCC', name: 'Stale without a date', contract: UNDATED, balance: 10, decimals: 18, priceEur: 3, valueEur: 30, priceStale: true },
+      { symbol: 'DDD', name: 'Stale dated in the future', contract: FUTURE, balance: 10, decimals: 18, priceEur: 4, valueEur: 40, priceStale: true, priceTs: Date.now() + 3600 * 1000 },
+    ],
+  }, config, []);
+  const after = Date.now();
+
+  assert.equal(cache.priceTsMap.native, twoHoursAgo, 'a stale native price keeps the time the API observed it');
+  assert.equal(cache.priceTsMap[STALE], twoHoursAgo, 'a stale token price keeps the time the API observed it');
+  assert.equal(cache.priceTsMap[UNDATED], 0, 'a stale price without a date has an unattested age, never the scan time');
+  assert.equal(cache.priceTsMap[FUTURE], 0, 'a date in the future is not an observation time');
+  assert.ok(cache.priceTsMap[FRESH] >= before && cache.priceTsMap[FRESH] <= after, 'a fresh price is still dated at the scan');
+  assert.equal(cache.priceMap.native, 2100, 'the price itself is kept: only its date changes');
+  assert.equal(cache.priceMap[STALE], 2);
+  assert.equal(cache.scanStats.stalePrices, 4, 'the scan reports how many prices were stale');
+  // Balances were read by this scan: their date stays the scan time.
+  assert.ok(cache.balanceTsMap.native >= before && cache.balanceTsMap[STALE] >= before);
+
+  const fresh = ctx._webScanConvertToWalletCache_({
+    ...base,
+    native: { symbol: 'ETH', balance: 0.01, priceEur: 2100, valueEur: 21 },
+    tokens: [{ symbol: 'AAA', name: 'Fresh', contract: FRESH, balance: 10, decimals: 18, priceEur: 1, valueEur: 10, priceStale: false, priceTs: twoHoursAgo }],
+  }, config, []);
+  assert.equal(fresh.scanStats.stalePrices, 0);
+  assert.ok(fresh.priceTsMap.native >= before, 'unchanged behaviour when nothing is stale');
+  assert.ok(fresh.priceTsMap[FRESH] >= before, 'priceTs alone, without priceStale, changes nothing');
+}
+
 console.log('web scan engine integration OK');
 
 {

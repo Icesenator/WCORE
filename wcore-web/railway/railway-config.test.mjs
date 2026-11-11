@@ -85,9 +85,7 @@ test("a web-only change cannot trigger the API service, and the reverse", () => 
 // decided by the settings stored on Railway and checked by the deployer. A railway.json or
 // railway.toml back in the repository would be read by Railway until 2026-12-01 and could build
 // the wrong image (the old root file named the API Dockerfile for every service).
-test("no Railway config-as-code file is tracked anywhere in the repository", async () => {
-  const { execFileSync } = await import("node:child_process");
-  const tracked = execFileSync("git", ["ls-files"], { cwd: new URL("../..", import.meta.url), encoding: "utf8" }).split(/\r?\n/);
+test("no Railway config-as-code file is tracked anywhere in the repository", () => {
   assert.deepEqual(tracked.filter((file) => /(^|\/)railway\.(json|toml)$/.test(file)), []);
   assert.equal(manifest.configSource, "service-settings");
 });

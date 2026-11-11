@@ -2,13 +2,13 @@
 
 ## 2026-09-02 - CEX crypto: prix ticker-first Bitpanda (authoritative null pour APP/GODL/etc)
 
-Incident boucle : `CEX - Bitpanda Crypto` valorisait APP (26,18 × ~268 € = ~7 022 €) sur le cours AppLovin (Nasdaq) alors que Bitpanda a deliste APP (ticker public EUR 0.0000). Le prix n'etait pas "frais de la journee" : c'etait une boucle de feedback structurelle — `priceMap[APP] = Portefeuille Crypto!C (formule rank 5002) = Details!D (formule SUMIFS E/B) = balance × priceMap[APP]`. Sans cle explicite `{priceEur:null, source:"bitpanda-ticker"}` dans la reponse API, le fallback priceMap etait toujours actif.
+Incident boucle : `CEX - Bitpanda Crypto` valorisait APP (26,18 × <montant> = <montant>) sur le cours AppLovin (Nasdaq) alors que Bitpanda a deliste APP (ticker public EUR 0.0000). Le prix n'etait pas "frais de la journee" : c'etait une boucle de feedback structurelle — `priceMap[APP] = Portefeuille Crypto!C (formule rank 5002) = Details!D (formule SUMIFS E/B) = balance × priceMap[APP]`. Sans cle explicite `{priceEur:null, source:"bitpanda-ticker"}` dans la reponse API, le fallback priceMap etait toujours actif.
 
 - **apps/api/src/plugins/cex.ts** : `priceSymbolsViaBitpandaTicker(symbols)` (cache 60 s du ticker public) ; dans GET /api/cex/prices, si `provider=bitpanda`, chaque symbole present dans le ticker resout la-bas : EUR>0 → `{priceEur, source:"bitpanda-ticker"}`, EUR=0 (micro-cap delistee) → `{priceEur:null, source:"bitpanda-ticker"}` (authoritative null). Symbole absent du ticker → DefiLlama inchange.
 - **wcore-gsheet/src/35_BITPANDA_SYNC.gs `_cexComputeAndAppendTotal_`** : branche `authoritativeZero` (v4.16.35) — si `webPrices[sym] == null` avec `hasOwnProperty` (cle presente, valeur null = ticker a 0), ecrit `eValues.push([0])` et **bypasse** le last-known `prevVal` (qui re-inflait le prix fantome).
 - **wcore-gsheet/src/35_BITPANDA_SYNC.gs `_cexFetchWebPrices_`** : la moitie GAS du fix dcdeb923 (L1838-1840) etait preservee mais inoperante cote API ; elle redevient le chainon determinant.
 - Tests : `cex-ticker-first.test.ts` 4/4 (listed-priced, listed-zero authoritative null, absent-not-authoritative, failure empty map) ; typecheck API OK ; validate:static GAS OK ; 61/62 tests GAS (kraken-stocks.test.js fail preexistant d'une autre session sur xStocks Kraken).
-- Deploiement : Railway API 13:49 UTC, safe-push GAS 13:50 UTC, `clasp run UPDATE_BITPANDA_CRYPTO_FIAT` 11:59:49 UTC → CEX - Bitpanda Crypto E(APP) = 0,00 € (ligne 130), Portefeuille Crypto C(APP) = 0,00 € (rank 5002), total crypto bornes retombe sous 7 k€.
+- Deploiement : Railway API 13:49 UTC, safe-push GAS 13:50 UTC, `clasp run UPDATE_BITPANDA_CRYPTO_FIAT` 11:59:49 UTC → CEX - Bitpanda Crypto E(APP) = <montant> (ligne 130), Portefeuille Crypto C(APP) = <montant> (rank 5002), total crypto bornes retombe sous <montant>.
 
 ## 2026-09-02 - Stocks: correction auto-desengante de la cap CompaniesMarketCap doublee (Tencent)
 
@@ -28,7 +28,7 @@ Incident : Portefeuille Action affichait pour TCEHY (Tencent) une Market Cap EUR
 Implementation du design docs/superpowers/specs/2026-08-23-scam-detector-auto-blocking-design.md - fin des ajouts manuels systematiques pour les campagnes dusting/honeypot.
 
 - detectScam enrichi (packages/shared) : parametre optionnel enrichment?: ScamEnrichment (retrocompatibilite totale). Nouvelles regles :
-  - Screen pool (+2) : prix > 1 EUR ET liquidite < $10k ET volume 24h < $500 ET 0 achat - aurait attrape automatiquement Bad Dad ($5.7k/vol 0) et YOM ($194/$0.50).
+  - Screen pool (+2) : prix > <montant> ET liquidite < $10k ET volume 24h < $500 ET 0 achat - aurait attrape automatiquement Bad Dad ($5.7k/vol 0) et YOM ($194/$0.50).
   - Poids GoPlus prudents (divises par 2 vs design initial) : honeypot +2, blacklist anti-sell +1, take-back ownership +1, slippage modifiable +1, owner >50% supply +2.
 - Client GoPlus batche (packages/core/tokens/goplus-enrichment.ts) : <=30 contrats/appel, timeout AbortController 5s, parsing string-bools, fail-graceful (available:false, jamais persiste comme clean).
 - Persistance (packages/db) : tables scam_verdicts (PK composite chainId+address, TTL logique 30j cote lecture, verdicts admin permanents) + scam_scan_logs (audit 90j des decisions suspicious/scam). Migration 20260823120000_add_scam_verdicts_and_logs.
@@ -113,7 +113,7 @@ Implementation du design docs/superpowers/specs/2026-08-23-scam-detector-auto-bl
 - **Fixes** : le Web batch reutilise la finalisation GSheet pour suffixes `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee. Compound est decouvert une fois par batch EVM; les appels `collateralBalanceOf(user, asset)` ciblent le Comet, tandis que l'actif collatéral fournit pricing/logo/sortie et `AssetInfo.scale` fournit les decimales. Le flag `DEFI` traverse l'API et fait autorite pour l'agregation API et le rendu TokenTable. L'agregation frontend wallet continue d'appeler `detectScam`; les contrats Optimism officiels actuels y sont proteges par l'allowlist dediee. Les nets signes sont preserves et un `NO_PRICE` long-tail ne degrade plus le scan.
 - **Commits** : `6accdda1` (`fix: finalize DeFi positions in web scans`) et `95b91591` (`fix: keep missing token prices non-degrading`).
 - **Production** : deploys Railway sequentiels API `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`, puis Web `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Aucun nouveau `clasp push` pour ce fix Web final.
-- **Smoke Optimism** : `/api/scan/batch`, `forceRefresh=true`, `degraded=false`, `errors=[]`; WCT Claimable `[Flex]` `0,47 EUR`, WCT Stake `[Flex]` `2,61 EUR`, Comp wrsETH `[Flex]` `12,69 EUR`, Comp WETH Borrow `[Flex]` `-10,21 EUR`; net signe `10,43 EUR`.
+- **Smoke Optimism** : `/api/scan/batch`, `forceRefresh=true`, `degraded=false`, `errors=[]`; WCT Claimable `[Flex]` `<montant>`, WCT Stake `[Flex]` `<montant>`, Comp wrsETH `[Flex]` `<montant>`, Comp WETH Borrow `[Flex]` `-<montant>`; net signe `<montant>`.
 - **Verification** : shared 21 tests, core 290 tests, Web 161 tests, 104 tests API cibles, typecheck global, lint cible et builds production API/Web.
 
 ## 2026-07-17 — Market Cap production launch + X cycle
@@ -182,7 +182,7 @@ Implementation du design docs/superpowers/specs/2026-08-23-scam-detector-auto-bl
 - **`_BLOCKED_CONTRACTS` étendu** (1 nouvelle entrée):
   - `0x37cff256e4aed256493060669a04b59d87d509d1` (World Chain: `XDoge` "XDogeCoin" — variante Dogecoin, generic airdrop)
 - **Tests** : 12/12 passent dans `apps/web/__tests__/scam-detector.test.ts`. SCAM_RULES_VERSION bump 11 → 12.
-- **Effet** : `XDoge` est maintenant flagged `scam level=10` au lieu de `suspicious` (générique + valeur > 10 EUR). Même pattern que LUCKY (World Chain airdrop scam).
+- **Effet** : `XDoge` est maintenant flagged `scam level=10` au lieu de `suspicious` (générique + valeur > <montant>). Même pattern que LUCKY (World Chain airdrop scam).
 
 ## 2026-06-29 — Compound V3 on-chain discoverer (cToken address, no suffix)
 
@@ -274,7 +274,7 @@ Implementation du design docs/superpowers/specs/2026-08-23-scam-detector-auto-bl
 - **Fix cache scan utile mais d├®grad├®** : `shouldCacheAssets()` accepte maintenant les scans qui contiennent de la valeur exploitable malgr├® des erreurs non critiques (`NO_PRICE` long-tail, cooldown explorer/RPC), apr├¿s les garde-fous critiques existants. Cela permet ├á un `forceRefresh=true` de remplacer un ancien snapshot sans prix au lieu de laisser l'UI resservir un vieux cache.
 - **Garde-fous conserv├®s** : refus de cache si natif positif sans prix, token majeur priceable positif sans prix (`WBTC`, `WETH`, `USDC`, `USDT`, `stETH`, etc.), wallet vide douteux, ou erreurs critiques SVM/Cosmos (`token accounts: no data`, balances fetch/HTTP, native balance failed on all).
 - **Namespace Redis renomm├®** : cache r├®sultat haut niveau `scan:v2:{address}:{chain}` ÔåÆ `scan:result:{address}:{chain}` via `packages/shared/src/cache-key-registry.ts`. Les docs/UI/tests ont ├®t├® align├®s.
-- **Validation Ethereum prod** : wallet `0x17d518736ee9341dcdc0a2498e013d33cfcdd080`, `forceRefresh=true` puis scan normal. `WBTC` valoris├® (`139.02 EUR`, prix `54556.02 EUR`), `stETH`, `PENDLE`, `ETHFI` pric├®s, scan non-forc├® servi depuis cache en `256 ms` puis `791 ms` apr├¿s red├®ploiement final API.
+- **Validation Ethereum prod** : wallet `0x17d518736ee9341dcdc0a2498e013d33cfcdd080`, `forceRefresh=true` puis scan normal. `WBTC` valoris├® (`<montant>`, prix `<montant>`), `stETH`, `PENDLE`, `ETHFI` pric├®s, scan non-forc├® servi depuis cache en `256 ms` puis `791 ms` apr├¿s red├®ploiement final API.
 - **Validation Base prod** : m├¬me wallet, Base natif `ETH` confirm├® pric├® apr├¿s red├®ploiement final (`priceEur=1486.27`, `valueEur=1.59`) et scan non-forc├® servi en `267 ms`. Si l'UI affiche encore `ÔÇö` pour Base native apr├¿s ce d├®ploiement, rafra├«chir la carte/onglet pour recharger le cache serveur `scan:result`.
 - **Railway parent-context** : le repo actif est le parent `C:\Users\strau\WCORE\wcore-web` contenant `wcore-web/` et `wcore-gsheet/`. `scripts/deploy.ps1` ├®crit le `railway.json` parent, lance `railway up <parent> --path-as-root --service api|web --ci`, restaure le JSON et propage le code de sortie.
 - **Dockerfiles Railway d├®di├®s** : `apps/api/Dockerfile.railway` et `apps/web/Dockerfile.railway` incluent `wcore-gsheet/dist`, compilent `@wcore/chains` en JS, puis patchent aussi `node_modules/@wcore/chains/package.json`. Sans ├ºa, Node 22 crashe en prod avec `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` sur `node_modules/@wcore/chains/chains/index.ts`.
@@ -1290,7 +1290,7 @@ Audit transversal post-v0.2.29 (correctness, s├®curit├®, tests, hygi├¿n
 - `com.docker.service` may stop spontaneously in sandbox, requiring Docker Desktop restart to bring Postgres/Redis back up.
 
 ### Scam Detection
-- **ETHG scam token filtered**: Ethereum Games (2M tokens x 0.25 EUR = 497k EUR) was inflating scan totals. Rule #9 added: unknown token + value > 1000 EUR + supply > 100k ÔåÆ scam (weight 3). Rule #6 also covers game-themed tokens with inflated supply.
+- **ETHG scam token filtered**: Ethereum Games (2M tokens x <montant> = <montant>) was inflating scan totals. Rule #9 added: unknown token + value > <montant> + supply > 100k ÔåÆ scam (weight 3). Rule #6 also covers game-themed tokens with inflated supply.
 - `SCAM_RULES_VERSION` bumped to 5 (core + frontend) to invalidate cached scam results.
 - `detectScam` now applied in the API backend before computing scan notification totals, so the SSE notification no longer shows inflated scam-included amounts.
 

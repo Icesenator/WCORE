@@ -7,13 +7,13 @@ dernier état connu est celui du dernier scan réussi, indiqué ci-dessous.
 
 | Chaîne | chainId | Dernier scan réussi | Actif figé | Montant figé | Cause du retrait |
 |---|---|---|---|---|---|
-| Botanix | 3637 | 2026-08-17 15:11:04 | 7,61433952857e-7 BTC | 0,04 € | Tous endpoints 404 (3 testés le 2026-09-30). Projet arrêté. |
-| Degen | 666666666 | 2026-09-02 08:59:37 | 144,82090080404 DEGEN | 0,12 € | `rpc.degen.tips` HTTP 530, autres 404. **Sunset officiel 2026-08-31.** |
-| DuckChain | 5545 | 2026-07-31 02:48:44 | 0,5807962711891891 GRAM | 0,72 € | `rpc.duckchain.io` HTTP 521, autres 404. Déjà `DISABLE_CHAIN=true`. |
-| Superposition | 55244 | 2026-09-08 11:57:14 | 8,0082430953107e-5 ETH | 0,17 € | `rpc.superposition.so` injoignable. Seul `55244.rpc.thirdweb.com` répond, et **uniquement sur `eth_chainId`** ; toutes les méthodes réelles (`eth_getBalance`, `eth_blockNumber`) renvoient `-32603`. Wind down terminé. |
-| RACE | 6805 | 2026-09-14 18:35:44 | 7,73747056560817e-4 ETH | 1,69 € | **Les domaines de la chaîne ne résolvent plus en DNS** (`racemainnet.io` et `racescan.io` : NXDOMAIN). Seul `6805.rpc.thirdweb.com` répond, et seulement sur `eth_chainId`. Retraitée le 2026-09-30. |
+| Botanix | 3637 | 2026-08-17 15:11:04 | 7,61433952857e-7 BTC | <montant> | Tous endpoints 404 (3 testés le 2026-09-30). Projet arrêté. |
+| Degen | 666666666 | 2026-09-02 08:59:37 | 144,82090080404 DEGEN | <montant> | `rpc.degen.tips` HTTP 530, autres 404. **Sunset officiel 2026-08-31.** |
+| DuckChain | 5545 | 2026-07-31 02:48:44 | 0,5807962711891891 GRAM | <montant> | `rpc.duckchain.io` HTTP 521, autres 404. Déjà `DISABLE_CHAIN=true`. |
+| Superposition | 55244 | 2026-09-08 11:57:14 | 8,0082430953107e-5 ETH | <montant> | `rpc.superposition.so` injoignable. Seul `55244.rpc.thirdweb.com` répond, et **uniquement sur `eth_chainId`** ; toutes les méthodes réelles (`eth_getBalance`, `eth_blockNumber`) renvoient `-32603`. Wind down terminé. |
+| RACE | 6805 | 2026-09-14 18:35:44 | 7,73747056560817e-4 ETH | <montant> | **Les domaines de la chaîne ne résolvent plus en DNS** (`racemainnet.io` et `racescan.io` : NXDOMAIN). Seul `6805.rpc.thirdweb.com` répond, et seulement sur `eth_chainId`. Retraitée le 2026-09-30. |
 
-**Total retiré : 2,74 €** (valeurs figées, non récupérables).
+**Total retiré : <montant>** (valeurs figées, non récupérables).
 
 ## Récupération des fonds : impossible, et documenté
 
@@ -39,8 +39,8 @@ LlamaRPC, NodeReal, blastapi). Aucun ne sert ces chaînes.
 
 ## Portefeuille
 
-- Avant : **7 673,17 €**
-- Après : **7 670,43 €**
+- Avant : **<montant>**
+- Après : **<montant>**
 
 ## Wallet
 
@@ -94,6 +94,6 @@ Conservé :
 - le cache WalletCache B3 est **exclu de la purge d'urgence** de ScriptProperties (`04A_CACHE_CORE`) : n'étant plus rafraîchi, il serait sinon le premier candidat ;
 - `DIAG_B3_CACHE_ASSETS(adresse)` reste disponible en lecture seule (aucun réseau, aucune écriture) pour consulter le cache conservé ; les autres diagnostics B3 (RPC, purge du cache) sont retirés.
 
-**Effet sur le Recap tant que la ligne B3 n'est pas retirée** : l'onglet n'affiche plus de nombre. Un total en `SUM` comptera B3 pour 0 € sans le signaler ; une formule en `+` ou en `INDEX` peut afficher `#VALUE!` ou `#REF!`. Le retrait de la ligne B3 du Recap doit donc accompagner la publication GAS.
+**Effet sur le Recap tant que la ligne B3 n'est pas retirée** : l'onglet n'affiche plus de nombre. Un total en `SUM` comptera B3 pour <montant> sans le signaler ; une formule en `+` ou en `INDEX` peut afficher `#VALUE!` ou `#REF!`. Le retrait de la ligne B3 du Recap doit donc accompagner la publication GAS.
 
 Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter sur GO distinct, dans l'ordre : copie complète (valeurs et formules) vers une archive privée et relecture ; retrait de la ligne B3 des totaux du Recap ; publication GAS ; aucune suppression d'onglet avant validation de l'archive.

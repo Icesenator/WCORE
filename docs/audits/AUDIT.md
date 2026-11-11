@@ -60,7 +60,7 @@ les statuts declares. Chacun a ete corrige, teste et deploye.
 
 ### Perte de donnees utilisateur
 
-- RESOLU - Apres epuisement des tentatives, le rafraichissement Web fabriquait une chaine a zero et **remplacait** le resultat valide precedent: un portefeuille affiche a 10 000 EUR tombait a 0 pendant une coupure reseau. Les actifs anterieurs sont desormais conserves et marques degrades.
+- RESOLU - Apres epuisement des tentatives, le rafraichissement Web fabriquait une chaine a zero et **remplacait** le resultat valide precedent: un portefeuille affiche a <montant> tombait a 0 pendant une coupure reseau. Les actifs anterieurs sont desormais conserves et marques degrades.
 - RESOLU - L'orchestrateur envoyait toutes les adresses d'une VM dans une seule requete alors que le serveur en accepte 20. Au-dela de 20 wallets, **chaque** lot repondait `400` et le defaut precedent transformait ensuite tout le portefeuille en zeros. Les requetes sont decoupees a 20 adresses.
 - RESOLU - Une adresse locale invalide contaminait le lot entier: le serveur validait tout avant de scanner, donc un `my wallet` saisi a cote de wallets valides faisait echouer les wallets valides. Les adresses invalides sont exclues avant l'appel.
 - RESOLU - Les moteurs SVM et Cosmos ecrasaient un cache positif des qu'un endpoint repondait vide avec succes, et un test Cosmos exigeait ce zero destructeur. Une reponse vide non corroboree preserve desormais le cache en mode degrade.
@@ -345,7 +345,7 @@ position suivie ni infrastructure publique exploitable.
 | `/api/metrics/errors` anonyme | 401 |
 | `/api/health/detailed` anonyme | 401 |
 | Relais `/binance` et `/all` sans token | 401 |
-| FX Web | 0,868269 EUR/USD lors du controle |
+| FX Web | <montant>/USD lors du controle |
 | Parite FX GSheet/Web | `ok=true`, drift ~0,010% |
 | Auth bearer production | variable explicitement configuree a `false` |
 | Secrets CEX/JWT/relais/GSheet | variables presentes; valeurs non lues dans le rapport |

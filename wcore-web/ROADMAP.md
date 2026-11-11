@@ -61,7 +61,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Finalisation Web + GSheet** : `/api/scan/batch` applique maintenant la meme finalisation que GSheet: suffixes `[Flex]`/`[Lock]`, pricing miroir, labels lisibles et dette signee. Le flag `DEFI` traverse l'API et fait autorite pour l'agregation API et le rendu TokenTable. L'agregation frontend wallet appelle encore `detectScam`; les lignes Optimism officielles actuelles y restent propres via l'allowlist de contrats proteges. Les totaux nets signes sont conserves et un `NO_PRICE` long-tail ne degrade pas le scan.
 - **Compound V3 corrige** : discovery une seule fois par batch EVM; `collateralBalanceOf(user, asset)` cible le Comet, tandis que le contrat collatéral sert au pricing, logo et contrat de sortie. Les decimales viennent de `AssetInfo.scale`. Fixes `6accdda1` et `95b91591`.
 - **Deploiement final sequentiel** : API Railway `81f8df8f-b6a9-45ba-8aed-81070a70bc2f`; Web Railway `58cbefc7-c45d-4804-9b53-2e4e815bc44b`. Aucun nouveau `clasp push` pour ce fix Web final.
-- **Validation live** : smoke Optimism `/api/scan/batch` avec `forceRefresh=true`: `degraded=false`, `errors=[]`; WCT Claimable `[Flex]` `0,47 EUR`, WCT Stake `[Flex]` `2,61 EUR`, Comp wrsETH `[Flex]` `12,69 EUR`, Comp WETH Borrow `[Flex]` `-10,21 EUR`, total net signe `10,43 EUR`.
+- **Validation live** : smoke Optimism `/api/scan/batch` avec `forceRefresh=true`: `degraded=false`, `errors=[]`; WCT Claimable `[Flex]` `<montant>`, WCT Stake `[Flex]` `<montant>`, Comp wrsETH `[Flex]` `<montant>`, Comp WETH Borrow `[Flex]` `-<montant>`, total net signe `<montant>`.
 
 ### Session 2026-07-07 — Cycle X read-only + post "Read first. Sign later."
 
@@ -144,7 +144,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Cause racine** : les prix Ethereum live ├®taient corrects en `forceRefresh=true`, mais le cache r├®sultat n'├®tait pas r├®├®crit quand un scan utile contenait des erreurs non critiques (`NO_PRICE` long-tail, rate-limit RPC). R├®sultat : l'UI pouvait continuer ├á servir un ancien snapshot sans prix pour `WBTC`, `stETH`, `PENDLE`, `ETHFI`.
 - **Fix API** : `shouldCacheAssets()` accepte maintenant les scans d├®grad├®s mais utiles apr├¿s les garde-fous critiques existants. Les scans avec wallet vide douteux, natif positif sans prix, token majeur positif sans prix, ou erreurs critiques SVM/Cosmos restent refus├®s.
 - **Namespace Redis** : le cache r├®sultat haut niveau est renomm├® de `scan:v2:{address}:{chain}` vers `scan:result:{address}:{chain}` via la cache-key registry. `forceRefresh=true` bypass ce cache haut niveau.
-- **Validation prod** : scan Ethereum `0x17d518736ee9341dcdc0a2498e013d33cfcdd080` apr├¿s d├®ploiement : `WBTC` price `54556.02 EUR`, value `139.02 EUR`; total Ethereum `169.84 EUR`; scan non-forc├® suivant servi en `791 ms` avec `tokenCount=65`, `pricedCount=39`.
+- **Validation prod** : scan Ethereum `0x17d518736ee9341dcdc0a2498e013d33cfcdd080` apr├¿s d├®ploiement : `WBTC` price `<montant>`, value `<montant>`; total Ethereum `<montant>`; scan non-forc├® suivant servi en `791 ms` avec `tokenCount=65`, `pricedCount=39`.
 
 ### Ô£à D├®ploiement Railway parent-context stabilis├®
 
@@ -183,8 +183,8 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 
 ### Ô£à FX cascade EUR/USD sans fallback fixe (v0.2.47)
 
-- **Cause racine** : le code historique avait un `0.92` hardcod├® (gsheet `04C_CACHE_GLOBAL.gs:647` `return FxRate._cached || 0.92`) et un `1.08` dans 4 engines web (per audit 2026-05-27) qui corrompaient silencieusement les prix quand les sources FX ├®chouaient. Bug constat├® le 2026-06-17 : web ETH = 1623.96 EUR (FX 0.918 stale) vs gsheet 1539.64 EUR (FX 0.854 stale) ÔÇö d├®rive de 5.5% sans aucun signe visible c├┤t├® UI.
-- **Cascade 4 sources** : Frankfurter (ECB), open.er-api.com, Coinbase exchange-rates, DefiLlama EURC oracle. Toutes free, sans cl├®, sans auth. Frankfurter et DefiLlama invers├®s (retournent `1 EUR = X USD`, on veut `1 USD = X EUR`).
+- **Cause racine** : le code historique avait un `0.92` hardcod├® (gsheet `04C_CACHE_GLOBAL.gs:647` `return FxRate._cached || 0.92`) et un `1.08` dans 4 engines web (per audit 2026-05-27) qui corrompaient silencieusement les prix quand les sources FX ├®chouaient. Bug constat├® le 2026-06-17 : web ETH = <montant> (FX 0.918 stale) vs gsheet <montant> (FX 0.854 stale) ÔÇö d├®rive de 5.5% sans aucun signe visible c├┤t├® UI.
+- **Cascade 4 sources** : Frankfurter (ECB), open.er-api.com, Coinbase exchange-rates, DefiLlama EURC oracle. Toutes free, sans cl├®, sans auth. Frankfurter et DefiLlama invers├®s (retournent `<montant> = X USD`, on veut `1 USD = X EUR`).
 - **Consensus m├®dian** : ÔëÑ3 sources ÔåÆ m├®diane (rejette outliers), 2 sources ÔåÆ moyenne si delta < 5% sinon throw, 1 source ÔåÆ retour, 0 source ÔåÆ **throw explicite** (plus de fallback fixe).
 - **Convention unifi├®e** : `priceEur = priceUsd * fxRate` o├╣ `fxRate = EUR per 1 USD`. Source unique : `packages/core/src/pricing/cascade.ts:202`.
 - **Cache** : `cacheKey("fxEurUsd", {})` = `fx:eur:usd` (web) / `FX_EUR_USD` (gsheet). TTL 1h en m├®moire, Redis optionnel. Version stamp gsheet (`FxRate._CURRENT_VERSION = "4.15.50"`) pour invalider apr├¿s deploy.
@@ -638,8 +638,8 @@ Core-4/5, FE-8/9/10, INFRA-7/8, API-7 (voir doc).
 
 ## ├ëtat courant : v0.2.36 ­ƒƒó ÔÇö SVM/Cosmos robustesse (2026-05-29)
 
-### Ô£à Fix SVM/Cosmos affichant 0 EUR ÔÇö 3 niveaux
-Les wallets SVM/Cosmos affichaient 0 EUR pendant les gros scans alors que le backend retournait les bonnes donn├®es en isolation (v├®rifi├® : SVM 7.28Ôé¼, Injective 0.57Ôé¼). Cause : les RPCs non-EVM (lents, sans consensus, throttl├®s) ├®taient noy├®s par le flot EVM (concurrence 50) et fail-once ÔåÆ 0.
+### Ô£à Fix SVM/Cosmos affichant <montant> ÔÇö 3 niveaux
+Les wallets SVM/Cosmos affichaient <montant> pendant les gros scans alors que le backend retournait les bonnes donn├®es en isolation (v├®rifi├® : SVM 7.28Ôé¼, Injective 0.57Ôé¼). Cause : les RPCs non-EVM (lents, sans consensus, throttl├®s) ├®taient noy├®s par le flot EVM (concurrence 50) et fail-once ÔåÆ 0.
 
 - **Niveau 1 (frontend)** : pool d├®di├® non-EVM scann├® EN PREMIER, avant le flot EVM ÔåÆ acc├¿s RPC propre. WalletContent.tsx.
 - **Niveau 2 (backend)** : retry-on-degradation. Si un scan SVM/Cosmos revient d├®grad├® + 0, l API relance jusqu ├á 3├ù (NON_EVM_SCAN_RETRIES) avec backoff. Un r├®sultat avec valeur n est jamais retent├®. scan.ts + isRetriableNonEvmResult().

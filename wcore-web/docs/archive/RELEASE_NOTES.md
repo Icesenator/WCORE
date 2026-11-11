@@ -14,7 +14,7 @@
 - Staging DB already had schema without Prisma migration history, so local validation used `prisma db push --accept-data-loss` against the staging database, then seed.
 
 ### Scam Detection
-- **ETHG / Ethereum Games** (2M tokens x 0.25 EUR = 497k EUR) was inflating scan totals. Added scam rule #9 to core `detectScam`: unknown token + value > 1000 EUR + supply > 100k → scam (weight 3). Rule #6 covers game-themed tokens.
+- **ETHG / Ethereum Games** (2M tokens x <montant> = <montant>) was inflating scan totals. Added scam rule #9 to core `detectScam`: unknown token + value > <montant> + supply > 100k → scam (weight 3). Rule #6 covers game-themed tokens.
 - `SCAM_RULES_VERSION` bumped to 5 across core + frontend.
 - `detectScam` now runs in the API backend (`server.ts`) to filter scam tokens from scan notifications and totals before returning results.
 

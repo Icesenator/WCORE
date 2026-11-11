@@ -643,12 +643,12 @@ Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette a
 
 ## FX cascade (v4.15.50, 2026-06-17)
 
-- **4 sources canoniques** : Frankfurter (ECB), open.er-api.com, Coinbase exchange-rates, DefiLlama EURC oracle. Toutes free, sans clé, sans auth. Frankfurter et DefiLlama EURC retournent `1 EUR = X USD` nativement → **inversés** dans le parseur pour obtenir `1 USD = X EUR` (convention `priceEur = priceUsd * fxRate`).
+- **4 sources canoniques** : Frankfurter (ECB), open.er-api.com, Coinbase exchange-rates, DefiLlama EURC oracle. Toutes free, sans clé, sans auth. Frankfurter et DefiLlama EURC retournent `<montant> = X USD` nativement → **inversés** dans le parseur pour obtenir `1 USD = X EUR` (convention `priceEur = priceUsd * fxRate`).
 - **Consensus médian** : ≥3 sources → médiane (rejette outliers), 2 sources → moyenne si delta < 5% sinon throw, 1 source → retour, 0 source → **throw** explicite. **Plus aucun fallback fixe** (`0.92` supprimé). Si toutes les sources tombent, le scan throw `FX cascade: only 0 source(s) succeeded, need 1` — pas de corruption silencieuse.
 - **Version stamp cross-deploy** : `FxRate._CURRENT_VERSION = "4.15.50"` stampé dans memory + L1 CacheService. Bumper la version force un fresh fetch après deploy (évite d'attendre 1h de TTL). **Bump obligatoire** à chaque changement de cascade.
 - **Cross-runtime telemetry** : `FxRate._postTelemetry_(rate, results)` POST après chaque fetch réussi à `https://api-production-b5bf.up.railway.app/api/gsheet/fx-telemetry` (auth `x-gsheet-token`, `WCORE_WEB_API_URL` et `GSHEET_API_TOKEN` set par onOpen). Drift détectable via `GET /api/diag/fx-parity`. Drift > 2% = drift runtime, > 5% = bug.
 - **Callers durcis** : `10_OUTPUT.gs:212`, `15_COSMOS_ENGINE.gs:113`, `FOGO.gs:110,218`, `26_OPTIMIZATIONS.gs:331` wrappent `FxRate.getUsdToEur()` en try/catch + traitent l'échec comme `null` (au lieu des fallbacks hardcodés `0.86`/`0.92` historiques). L'engine valide ensuite `isValidPositive(fxRate)` et return `null` proprement.
-- **Repro du bug originel** (sans cascade) : web ETH = 1623.96 EUR (FX 0.918 stale), web WBTC = 154.05 EUR, gsheet ETH = 1539.64 EUR (FX 0.854 stale), gsheet WBTC = 142.38 EUR. Dérive 5.5% intra-runtime, 8.2% cross-runtime, **sans aucun signe visible UI**. La cascade élimine cette classe de bug.
+- **Repro du bug originel** (sans cascade) : web ETH = <montant> (FX 0.918 stale), web WBTC = <montant>, gsheet ETH = <montant> (FX 0.854 stale), gsheet WBTC = <montant>. Dérive 5.5% intra-runtime, 8.2% cross-runtime, **sans aucun signe visible UI**. La cascade élimine cette classe de bug.
 - **Symptôme post-deploy** : après un deploy FX, les scan results cachés en `scan:v2:*` (Redis web, TTL 5min) peuvent encore utiliser l'ancien FX. ETH et WBTC scannés à des moments différents montrent des prix incohérents. Fix : `WALLET_SCAN_CACHE_VERSION` bump ou `forceRefresh=true` sur les chaînes concernées. Le cache FX lui-même est invalidé immédiatement par la version stamp.
 
 ## Gotcha CRITIQUE — triggers "présents mais mal autorisés" (freeze 2026-06-01, v4.15.61)
@@ -785,9 +785,9 @@ Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette a
 
 ### Mapping contrat BSC OWL (BSC.gs)
 
-- **Problème** : le token OWL (`0x51e667e91b4b8cb8e6e0528757f248406bd34b57`) sur BSC n'avait pas de mapping contrat DefiLlama explicite → prix live jamais résolu → cache stale à 0.09 €/token.
+- **Problème** : le token OWL (`0x51e667e91b4b8cb8e6e0528757f248406bd34b57`) sur BSC n'avait pas de mapping contrat DefiLlama explicite → prix live jamais résolu → cache stale à <montant>/token.
 - **Fix** : ajout `LLAMA_CONTRACT_MAP: { "0x51e...": "bsc:0x51e..." }` dans `BSC.gs`.
-- **Prix réel** (DefiLlama/GT) : ~0.0012 USD → ~0.0011 EUR.
+- **Prix réel** (DefiLlama/GT) : ~0.0012 USD → <montant>.
 
 - **Web scan preservation bloque DISABLE_NATIVE_BALANCE chains (v4.16.29, 2026-07-14)** : `_webScanShouldPreserveExistingCache_` (41_GSHEET_WEB_SCAN.gs:389) traitait `native_balance=0` comme une corruption nécessitant préservation. Sur les chaînes où `DISABLE_NATIVE_BALANCE=true` (ex: Tempo, sentinel eth_getBalance), le native est **toujours 0 par conception** → chaque scan dégradé déclenchait le chemin de préservation. Sans cache existant, le merge échouait → `[WEB_SCAN_PRESERVED]` retourné SANS sauvegarder le cache → `NO_CACHE_WAITING_REFRESH` perpétuel. **Fix** : passer `config` à la fonction et skip le check `native_balance=0` quand `DISABLE_NATIVE_BALANCE` est activé. Fichiers : `41_GSHEET_WEB_SCAN.gs:385-413`, `11_EVM_ENGINE.gs:1720`.
 
@@ -824,12 +824,12 @@ Ne pas copier manuellement `src/*.gs` vers un dossier `wcore-web/src/` : cette a
 - 9 contrats RealToken ajoutés dans `I2:I5:I13` de `Ledger - Gnosis` (ex: Vervana, 11222 E 7 Mile, 11300 E 7 Mile, 11766 College, etc.).
 - Les formules `H3:H15` mises à jour pour whitelister ces contrats dans le OR de vérification.
 - **Prix** : le premier cycle forceFull a détecté les balances mais pas les prix (`cycle:partial price_missing:9`). Les prix se résolvent sur les cycles watchdog suivants via l'API `realtoken.community`.
-- **Total estimé** : ~1083 € (web total clean Gnosis = 1088.14 €, final avant ajout = 4.58 €).
+- **Total estimé** : <montant> (web total clean Gnosis = <montant>, final avant ajout = <montant>).
 
 ### Faux positifs — tokens à prix gonflés
 
-- **Scroll** : `ethscroll` (`0x94b5...`) — balance 1, prix web 1653 € → non compté dans le clean total web (écart final/web = 0.20 € seulement).
-- **World Chain** : Ramen, SATOSHI, ROBIN, Moon, PIZZA — prix web gonflés (6-138 €/token) → non comptés dans le clean total web (écart = 0.27 €).
+- **Scroll** : `ethscroll` (`0x94b5...`) — balance 1, prix web <montant> → non compté dans le clean total web (écart final/web = <montant> seulement).
+- **World Chain** : Ramen, SATOSHI, ROBIN, Moon, PIZZA — prix web gonflés (6-<montant>/token) → non comptés dans le clean total web (écart = <montant>).
 - **Règle** : un token absent de `I2:I` dont la valeur dépasse largement l'écart web−final est un faux positif scam/prix. Ne jamais l'ajouter sans vérification externe.
 
 

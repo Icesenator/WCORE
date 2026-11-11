@@ -81,18 +81,15 @@ test("a web-only change cannot trigger the API service, and the reverse", () => 
   assert.notEqual(api.dockerfilePath, web.dockerfilePath);
 });
 
-// Any service whose dashboard leaves the config path at its default reads the root
-// railway.json (or wcore-web/railway.json when its root directory is wcore-web). Both
-// build the API image: a web service left on the default would serve the API.
-test("the default railway.json files build the API image and watch every API source", () => {
-  const apiSources = copySources(JSON.parse(read(manifest.services.api.config)).build.dockerfilePath);
-  for (const path of ["railway.json", "wcore-web/railway.json"]) {
-    const build = JSON.parse(read(path)).build;
-    assert.equal(build.dockerfilePath, "wcore-web/apps/api/Dockerfile.railway", path);
-    if (build.watchPatterns) {
-      assert.deepEqual(apiSources.filter((source) => !GENERATED.has(source) && !build.watchPatterns.some((pattern) => covers(pattern, source))), [], path);
-    }
-  }
+// Since the move to configSource "service-settings" (2026-11-11), the build of each service is
+// decided by the settings stored on Railway and checked by the deployer. A railway.json or
+// railway.toml back in the repository would be read by Railway until 2026-12-01 and could build
+// the wrong image (the old root file named the API Dockerfile for every service).
+test("no Railway config-as-code file is tracked anywhere in the repository", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const tracked = execFileSync("git", ["ls-files"], { cwd: new URL("../..", import.meta.url), encoding: "utf8" }).split(/\r?\n/);
+  assert.deepEqual(tracked.filter((file) => /(^|\/)railway\.(json|toml)$/.test(file)), []);
+  assert.equal(manifest.configSource, "service-settings");
 });
 
 // The API trusts TRUST_PROXY by hop position (apps/api/src/trust-proxy.ts). The manifest says so,

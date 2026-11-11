@@ -449,7 +449,7 @@ function useServiceSettings(f, extra = {}) {
 }
 
 const pulled = (service, build, deploy = {}) => JSON.stringify({ project: { name: "WCORE" }, resources: [
-  { type: "service", name: service, variables: { JWT_SECRET: "never-logged" }, build, deploy },
+  { type: "service", name: service, variables: { JWT_SECRET: { type: "preserve" } }, build, deploy },
   { type: "service", name: "other", build: { builder: "RAILPACK" }, deploy: {} },
 ] });
 const WEB_OK = pulled("web", { builder: "DOCKERFILE", dockerfilePath: "wcore-web/apps/web/Dockerfile.railway", watchPatterns: ["wcore-web/**"] });
@@ -517,14 +517,35 @@ test("service-settings: unreadable settings or a missing service fail closed", a
   }
 });
 
-test("service-settings: no variable value ever appears in an error", async () => {
+test("service-settings: settings are read without variable values, and a read that carries one is refused", async () => {
   const f = fixture();
   try {
     useServiceSettings(f);
-    await assert.rejects(f.run(WEB_PROD, { FAKE_PULL: pulled("web", { builder: "RAILPACK" }), OMIT_ATTESTATION: "1" }), (error) => {
+    const withValue = JSON.parse(WEB_OK);
+    withValue.resources[1].variables = { TOKEN: { type: "value", value: "never-logged" } };
+    await assert.rejects(f.run(WEB_PROD, { FAKE_PULL: JSON.stringify(withValue), OMIT_ATTESTATION: "1" }), (error) => {
+      assert.equal(error.code, "E_SETTINGS_UNKNOWN");
       assert.equal(error.message.includes("never-logged"), false);
       return true;
     });
+    assert.equal(ups(f).length, 0);
+    for (const call of f.calls().filter((c) => c.args[0] === "config")) {
+      assert.equal(call.args.includes("--include-variables"), false);
+    }
+  } finally {
+    f.cleanup();
+  }
+});
+
+test("service-settings: a start or pre-deploy command stored on Railway is refused (it would replace the Dockerfile CMD)", async () => {
+  const f = fixture();
+  try {
+    useServiceSettings(f);
+    const build = { builder: "DOCKERFILE", dockerfilePath: "wcore-web/apps/web/Dockerfile.railway", watchPatterns: ["wcore-web/**"] };
+    await rejectsWith(f.run(WEB_PROD, { FAKE_PULL: pulled("web", build, { startCommand: "node evil.js" }), OMIT_ATTESTATION: "1" }), "E_SETTINGS_DRIFT");
+    await rejectsWith(f.run(WEB_PROD, { FAKE_PULL: pulled("web", build, { preDeployCommand: "x" }), OMIT_ATTESTATION: "1" }), "E_SETTINGS_DRIFT");
+    const ok = await f.run(WEB_PROD, { FAKE_PULL: pulled("web", build, { startCommand: null }), OMIT_ATTESTATION: "1" });
+    assert.equal(ok.published, true);
   } finally {
     f.cleanup();
   }

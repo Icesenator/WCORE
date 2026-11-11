@@ -286,23 +286,41 @@ export function expectedServiceSettings(configText) {
   };
   if (config.deploy?.healthcheckPath !== undefined) expected.healthcheckPath = config.deploy.healthcheckPath;
   if (config.deploy?.healthcheckTimeout !== undefined) expected.healthcheckTimeout = config.deploy.healthcheckTimeout;
+  // A command stored on the service would replace the CMD of the Dockerfile: absent unless declared.
+  expected.startCommand = config.deploy?.startCommand ?? null;
+  expected.preDeployCommand = config.deploy?.preDeployCommand ?? null;
   return expected;
 }
 
 // Compares the settings stored on the Railway service with the committed config. Reads
-// `railway config pull --json`, which writes nothing; its variables are never logged or kept.
+// `railway config pull --json`, which writes nothing. Without --include-variables Railway
+// returns variable names with a {"type":"preserve"} marker and no value; any other entry
+// (a value) makes the read refused, and variables are dropped before anything else is done.
 // Fails closed: an unreadable state, a missing service or any difference stops the deploy.
+export function stripVariables(resources) {
+  return resources.map((resource) => {
+    const { variables, ...rest } = resource ?? {};
+    const entries = variables && typeof variables === "object" ? Object.values(variables) : [];
+    if (entries.some((entry) => JSON.stringify(entry) !== '{"type":"preserve"}')) {
+      throw new DeployError("E_SETTINGS_UNKNOWN", "railway config pull returned variable values; refusing to read settings that way");
+    }
+    return rest;
+  });
+}
+
 export function checkServiceSettings(plan, environment, repo) {
   const pulled = capture("railway", ["config", "pull", "--json", "--environment", environment], repo);
   let resources;
   try {
     resources = pulled.status === 0 ? JSON.parse(pulled.stdout)?.resources : null;
+    pulled.stdout = "";
   } catch {
     resources = null;
   }
   if (!Array.isArray(resources)) {
     throw new DeployError("E_SETTINGS_UNKNOWN", `cannot read the Railway settings of ${plan.service} in ${environment}; refusing rather than building with unknown settings`);
   }
+  resources = stripVariables(resources);
   const found = resources.filter((r) => r?.type === "service" && r?.name === plan.service);
   if (found.length !== 1) throw new DeployError("E_SETTINGS_UNKNOWN", `expected one Railway service named ${plan.service}, found ${found.length}`);
   const { build = {}, deploy = {} } = found[0];
@@ -312,6 +330,8 @@ export function checkServiceSettings(plan, environment, repo) {
     watchPatterns: [...(build.watchPatterns ?? [])].sort(),
     healthcheckPath: deploy.healthcheckPath,
     healthcheckTimeout: deploy.healthcheckTimeout,
+    startCommand: deploy.startCommand ?? null,
+    preDeployCommand: deploy.preDeployCommand ?? null,
   };
   const expected = expectedServiceSettings(plan.configText);
   const drift = Object.keys(expected).filter((key) => JSON.stringify(actual[key]) !== JSON.stringify(expected[key]));

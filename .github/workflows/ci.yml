@@ -256,6 +256,19 @@ jobs:
             pnpm audit --prod --audit-level=high
           fi
 
+      # L'historique public a ete reecrit le 2026-11-11 pour en retirer des donnees privees. Un commit
+      # qui descend encore de l'ancienne racine les reintroduirait : il est refuse ici. Le remettre
+      # sur le master actuel (cherry-pick ou nouvelle branche), jamais fusionner l'ancien historique.
+      - name: history root guard
+        working-directory: .
+        run: |
+          set -euo pipefail
+          old_root=6f72c47c8beb592491102ef3eed5d2f1300abde5
+          if git rev-list --max-parents=0 HEAD | grep -qx "$old_root"; then
+            echo "::error::this commit descends from the pre-2026-11-11 history (private data removed); rebuild it on the current master"
+            exit 1
+          fi
+
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v3
         env:

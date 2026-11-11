@@ -1754,22 +1754,47 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
   //    the value of another asset, added to the total (audit of 2026-11-11). The old value is
   //    turned back into a unit price (value / balance) and applied to the current balance.
   var prevPriceBySymbol = {};
+  var prevHeldCount = 0;
+  var prevInfoTotal = null;
   if (opt_values && sh) {
     try {
       var prevLastRow = Math.min(sh.getMaxRows(), sh.getLastRow());
       if (prevLastRow >= 3) {
-        var prevRows = sh.getRange(3, 1, prevLastRow - 2, 5).getValues();
+        var prevRows = sh.getRange(3, 1, prevLastRow - 2, 7).getValues();
         for (var pr = 0; pr < prevRows.length; pr++) {
           var prevSym = String(prevRows[pr][0] || "").trim().toUpperCase();
           var prevBal = Number(prevRows[pr][1] || 0);
           var prevEur = Number(prevRows[pr][4] || 0);
+          if (prevSym === "." && String(prevRows[pr][1]) === "INFO_TOTAL") {
+            var pt = Number(prevRows[pr][6]);
+            if (isFinite(pt)) prevInfoTotal = pt;
+          }
           if (!prevSym || prevSym === ".") continue; // INFO_TOTAL row
+          if (isFinite(prevBal) && prevBal > 0) prevHeldCount++;
           if (!(isFinite(prevBal) && prevBal > 0) || !(isFinite(prevEur) && prevEur > 0)) continue;
           if (prevPriceBySymbol[prevSym] == null) prevPriceBySymbol[prevSym] = prevEur / prevBal;
         }
       }
     } catch (ePrev) {}
   }
+
+  // v4.16.98 - An empty answer never wipes a tab that held assets on its first occurrence
+  // (audit of 2026-11-11, G1). An exchange or relay hiccup could return zero rows: the tab was
+  // cleared and a zero total stamped "now". The tab and its date are now kept (the Recap sees
+  // stale data, not a fresh zero); a second consecutive empty answer is accepted as real.
+  var emptyKey = "CEX_EMPTY_STREAK|" + String(sheetName || "");
+  var props = null;
+  try { props = (typeof PropertiesService !== "undefined") ? PropertiesService.getScriptProperties() : null; } catch (eProps) { props = null; }
+  if (nb === 0 && prevHeldCount > 0 && opt_values) {
+    var streak = 0;
+    try { streak = Number(props ? props.getProperty(emptyKey) : 0) || 0; } catch (eGet) { streak = 0; }
+    if (streak < 1) {
+      try { if (props) props.setProperty(emptyKey, String(streak + 1)); } catch (eSet) {}
+      Logger.log("[CEX_EMPTY_ANSWER_HELD] " + sheetName + " : empty answer while " + prevHeldCount + " asset(s) were held; tab kept, accepted only if the next answer is empty too");
+      return prevInfoTotal != null ? prevInfoTotal : 0;
+    }
+  }
+  try { if (props) props.deleteProperty(emptyKey); } catch (eDel) {}
 
   // ---- Phase 1: PRICE EVERYTHING (before touching the sheet) ----
 

@@ -1,6 +1,10 @@
 /************************************************************
  * 41A_WEB_SCAN_QUEUE.gs - Bounded status path for delegated scans
  *
+ * v4.16.97 - 2026-11-11 : une demande forcee (C1) passe devant les demandes automatiques,
+ *   a l'admission comme au drain. File pleine de 40 entrees AUTO plus anciennes : la
+ *   demande forcee d'un onglet scanne recemment etait reportee (QUEUE_DEFERRED) sans fin.
+ *   La regle anti-famine (attente > TTL : FIFO) reste prioritaire.
  * v4.16.91 - 2026-11-10 : restaure 4.16.86 (fenetre d'ACK 45 min, recu b/s) et
  *   4.16.89 (DEGRADED prouve : q=0, nx=+30 min), effaces du LIVE le 07/11, sur la base
  *   LIVE 4.16.90 (verrou 3000 ms) + C1 (plafond 8, reserve de quota) inchangee.
@@ -29,7 +33,7 @@
  *     backoff and a cooldown after terminal failure.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.91-ack-degraded-restore";
+var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.97-force-priority";
 // 2026-11-09 : retablit 4.16.88 (efface du LIVE avant le 07/11). Le watchdog impulse ~10 B1 a la fois ;
 // leurs cellules s'inscrivent en parallele pendant que le drain tient le ScriptLock. Avec 250 ms
 // (GSHEET_WEB_SCAN_LOCK_WAIT_MS du scan), elles perdaient le verrou : [REFRESH_QUEUE_ERROR], puis
@@ -220,6 +224,8 @@ function _webScanQueueCompare_(a, b, now) {
   if (ageA >= starve || ageB >= starve) {
     if (ageA !== ageB) return ageB - ageA;
   }
+  // A manual force (C1) is an explicit request: it goes before automatic refreshes.
+  if (!a.f !== !b.f) return a.f ? -1 : 1;
   var dataA = a.d > 0 ? now - a.d : starve;
   var dataB = b.d > 0 ? now - b.d : starve;
   return (dataB + ageB) - (dataA + ageA) || a.q - b.q;

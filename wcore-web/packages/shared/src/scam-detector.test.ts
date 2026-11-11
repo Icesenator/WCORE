@@ -348,3 +348,8 @@ test("an ordinary ticker gets no cashtag signal", () => {
   const r = detectScam("MONTRA", "Montrav2", 200000, 0.0000226, "0x594159fac2ae4439162fe3a82678984b0483fffc");
   assert.equal(r.reasons.some((reason) => reason.startsWith("cashtag ticker")), false);
 });
+
+test("a known token written as a cashtag gets no cashtag signal ($WIF)", () => {
+  const r = detectScam("$WIF", "dogwifhat", 5000, 2.4, "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm");
+  assert.equal(r.reasons.some((reason) => reason.startsWith("cashtag ticker")), false);
+});

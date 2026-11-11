@@ -121,3 +121,14 @@ test('without force a second pass within 25 minutes makes no call, after 25 minu
   h.store.refreshIfDue({ ids: IDS, nowMs: NOW + 26 * 60000 });
   assert.ok(h.calls.length > n);
 });
+
+test('a DefiLlama price refused for low confidence or a future date still gets the CoinGecko fallback', () => {
+  for (const bad of [{ price: 0.00002, timestamp: SEC, confidence: 0.1 }, { price: 0.00002, timestamp: SEC + 3600 }]) {
+    const h = harness((url) => isLlama(url)
+      ? { coins: { 'coingecko:ethereum': { price: 3000, timestamp: SEC }, 'coingecko:pulsechain': bad } }
+      : { pulsechain: { usd: 0.00002, last_updated_at: SEC } });
+    const out = h.store.refreshIfDue({ ids: IDS, force: true, nowMs: NOW });
+    assert.equal(out.cgMissing, 1, JSON.stringify(bad));
+    assert.equal(h.store.get('coingecko:pulsechain', 3600000, NOW).src, 'coingecko-native');
+  }
+});

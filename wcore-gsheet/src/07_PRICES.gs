@@ -3054,6 +3054,18 @@ NativePriceStore._cachedFx = function(nowMs) {
   } catch (e2) { return null; }
 };
 
+/** Admission rules of a DefiLlama record (price, date, confidence, no future date). */
+NativePriceStore._llamaAdmissible = function(rec, nowMs) {
+  if (!rec) return false;
+  var usd = Number(rec.price);
+  var tsSec = Number(rec.timestamp);
+  if (!(isFinite(usd) && usd > 0)) return false;
+  if (!(isFinite(tsSec) && tsSec > 0)) return false;
+  if (rec.confidence != null && Number(rec.confidence) < this.CONFIG.MIN_CONFIDENCE) return false;
+  if (Math.round(tsSec * 1000) > nowMs + this.CONFIG.FUTURE_SKEW_MS) return false;
+  return true;
+};
+
 NativePriceStore.ingest = function(store, json, fxRate, nowMs, fxCollectedAt) {
   var written = 0;
   if (!store || !store.entries || !json || !json.coins) return 0;
@@ -3062,14 +3074,9 @@ NativePriceStore.ingest = function(store, json, fxRate, nowMs, fxCollectedAt) {
   for (var id in json.coins) {
     if (!Object.prototype.hasOwnProperty.call(json.coins, id)) continue;
     var rec = json.coins[id];
-    if (!rec) continue;
+    if (!this._llamaAdmissible(rec, nowMs)) continue;
     var usd = Number(rec.price);
-    var tsSec = Number(rec.timestamp);
-    if (!(isFinite(usd) && usd > 0)) continue;
-    if (!(isFinite(tsSec) && tsSec > 0)) continue;
-    if (rec.confidence != null && Number(rec.confidence) < this.CONFIG.MIN_CONFIDENCE) continue;
-    var observedAt = Math.round(tsSec * 1000);
-    if (observedAt > nowMs + this.CONFIG.FUTURE_SKEW_MS) continue;
+    var observedAt = Math.round(Number(rec.timestamp) * 1000);
     var prev = store.entries[id];
     if (prev && Number(prev.observedAt) >= observedAt) continue;
     store.entries[id] = { usd: usd, eur: usd * fx, fx: fx, fxCollectedAt: (isFinite(Number(fxCollectedAt)) && Number(fxCollectedAt) > 0) ? Number(fxCollectedAt) : null, observedAt: observedAt, fetchedAt: nowMs, src: "llama-native" };
@@ -3160,8 +3167,7 @@ NativePriceStore.refreshIfDue = function(opts) {
       out.written += this.ingest(store, json, fx, nowMs, fxInfo.collectedAt);
       for (var lid in json.coins) {
         if (!Object.prototype.hasOwnProperty.call(json.coins, lid)) continue;
-        var lrec = json.coins[lid];
-        if (lrec && Number(lrec.price) > 0 && Number(lrec.timestamp) > 0) llamaPriced[lid] = true;
+        if (this._llamaAdmissible(json.coins[lid], nowMs)) llamaPriced[lid] = true;
       }
     }
     // Repli CoinGecko pour les ids que DefiLlama n'a pas prices dans ce passage (absents de la

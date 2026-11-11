@@ -1712,11 +1712,20 @@ WalletCache = (function(existing) {
    var price = parseFloat(incomingPm[k]);
    if (!isFinite(price) || price <= 0) continue;
    var key = String(k);
+   // v4.16.96: a price and its date travel together. Since the web scan keeps the observation
+   // time of a stale price (or 0 when the API gave none), an incoming price can be older than
+   // the one already held, or of unattested age. It then must not replace the held price, and
+   // it must never inherit the date of the price it replaces (Codex review of 2026-11-11).
+   var hasTs = Object.prototype.hasOwnProperty.call(incomingPt, k);
+   var ts = hasTs ? parseInt(incomingPt[k], 10) : NaN;
+   var dated = isFinite(ts) && ts > 0;
+   var heldPrice = parseFloat(targetPm[key]);
+   var heldTs = parseInt(targetPt[key], 10);
+   var heldDated = isFinite(heldPrice) && heldPrice > 0 && isFinite(heldTs) && heldTs > 0;
+   if (hasTs && heldDated && (!dated || ts < heldTs)) continue;
    targetPm[key] = price;
-   if (Object.prototype.hasOwnProperty.call(incomingPt, k)) {
-   var ts = parseInt(incomingPt[k], 10);
-   if (isFinite(ts) && ts > 0) targetPt[key] = ts;
-   }
+   if (dated) targetPt[key] = ts;
+   else if (hasTs) targetPt[key] = 0;
    merged++;
    }
 

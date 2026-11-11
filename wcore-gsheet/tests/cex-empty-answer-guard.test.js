@@ -22,7 +22,7 @@ function extractFunction(source, name) {
   throw new Error(`Unclosed function ${name}`);
 }
 
-const BODY = ['_cexEmptyAnswerKey_', '_cexEmptyAnswerProps_', '_cexEmptyAnswerHeldSince_', '_cexComputeAndAppendTotal_']
+const BODY = ['_cexEmptyAnswerKey_', '_cexEmptyAnswerProps_', '_cexEmptyAnswerHeldSince_', '_cexEmptyAnswerHeldSinceKey_', '_cexComputeAndAppendTotal_']
   .map((name) => extractFunction(SOURCE, name)).join('\n')
   + '\nvar CEX_EMPTY_CONFIRM_MIN_MS = 45 * 60 * 1000; var CEX_EMPTY_EPISODE_MAX_MS = 48 * 60 * 60 * 1000;';
 assert.ok(SOURCE.includes('var CEX_EMPTY_CONFIRM_MIN_MS = 45 * 60 * 1000;') && SOURCE.includes('var CEX_EMPTY_EPISODE_MAX_MS = 48 * 60 * 60 * 1000;'), 'constants in the source match the harness');
@@ -58,7 +58,7 @@ function harness(previous) {
     Math, Number, String, Array, Object, JSON, isFinite, Date: FakeDate,
     Logger: { log: (m) => logs.push(String(m)) },
     Utilities: { formatDate: () => '2026-11-11 18:00:00' },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: (k, v) => store.set(k, v), deleteProperty: (k) => store.delete(k) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: (k, v) => store.set(k, v), deleteProperty: (k) => store.delete(k), getKeys: () => [...store.keys()] }) },
     WCORE_STABLECOINS: { getType: () => null },
     _cexGetPriceMap_: () => ({}),
     _cexFetchWebPrices_: () => ({ BTC: 100000 }),
@@ -170,7 +170,7 @@ function statusHarness(heldTs) {
     Math, Number, String, JSON, isFinite, Date: FakeDate,
     Logger: { log: () => {} },
     Utilities: { formatDate: (d) => new Date(d).toISOString().slice(0, 16).replace('T', ' ') },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: (k, v) => store.set(k, v), deleteProperty: (k) => store.delete(k) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (store.has(k) ? store.get(k) : null), setProperty: (k, v) => store.set(k, v), deleteProperty: (k) => store.delete(k), getKeys: () => [...store.keys()] }) },
     _bpGetSpreadsheet_: () => ({ getSheetByName: (n) => sheet(n) }),
     _bpFmtStamp_: () => '2026-11-11 18:10:00',
     _bpExtractStampText_: (v) => v,
@@ -178,7 +178,7 @@ function statusHarness(heldTs) {
     _bpSetSheetStatus_: () => {},
   };
   vm.createContext(context);
-  vm.runInContext(['_cexEmptyAnswerKey_', '_cexEmptyAnswerProps_', '_cexEmptyAnswerHeldSince_', '_cexWriteManualJobStatus_']
+  vm.runInContext(['_cexEmptyAnswerKey_', '_cexEmptyAnswerProps_', '_cexEmptyAnswerHeldSince_', '_cexEmptyAnswerHeldSinceKey_', '_cexPartialAnswerHeldSince_', '_cexWriteManualJobStatus_']
     .map((n) => extractFunction(SOURCE, n)).join('\n') + '\nvar CEX_EMPTY_CONFIRM_MIN_MS = 45 * 60 * 1000; var CEX_EMPTY_EPISODE_MAX_MS = 48 * 60 * 60 * 1000;', context);
   context._cexWriteManualJobStatus_({ kind: 'BINANCE', sheetName: 'CEX - Binance', statusSheetName: 'Portefeuille Crypto', statusCell: 'U2' }, '{"ok":true,"rows":0}');
   return cells;

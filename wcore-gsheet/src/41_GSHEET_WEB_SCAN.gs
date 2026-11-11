@@ -76,7 +76,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.16.68";
+var GSHEET_WEB_SCAN_VERSION = "4.17.0";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -647,7 +647,8 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
     var oldKey = _webScanAssetKey_(oldAsset);
     if (!oldKey) continue;
     if (_webScanIsScamToken_(oldAsset, blockedSet)) { purgedScams++; continue; }
-    if (requestedSet && requestedSet[oldKey]) continue;
+    // A degraded answer that omits a requested token does not prove a zero balance (its read may
+    // have failed): the old row stays, with its old balance date and no price (see below).
     if (!byKey[oldKey]) order.push(oldKey);
     byKey[oldKey] = oldAsset;
   }
@@ -668,10 +669,12 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   }
 
   var neutralizedPrices = 0;
+  var unreadRequested = {};
   for (var nk = 0; nk < order.length; nk++) {
     var preservedKey = order[nk];
     if (!preservedKey || updatedKeys[preservedKey] || preservedKey === "native") continue;
     if (!requestedSet || !requestedSet[preservedKey]) continue;
+    unreadRequested[preservedKey] = true;
     if (byKey[preservedKey] && (byKey[preservedKey].price_eur != null || byKey[preservedKey].value_eur != null)) neutralizedPrices++;
     _webScanNeutralizePrice_(byKey[preservedKey]);
   }
@@ -705,7 +708,11 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};
   purgeBlockedMapKeys(out.balanceTsMap);
   var newBalanceTsMap = incoming.balanceTsMap || {};
-  for (var btk in newBalanceTsMap) if (newBalanceTsMap[btk] != null) out.balanceTsMap[btk] = newBalanceTsMap[btk];
+  for (var btk in newBalanceTsMap) {
+    if (newBalanceTsMap[btk] == null) continue;
+    if (unreadRequested[btk]) continue; // keep the old balance date, never a confirmed zero
+    out.balanceTsMap[btk] = newBalanceTsMap[btk];
+  }
   out.scanStats = _webScanClone_(incoming.scanStats || existing.scanStats || {}) || {};
   out.scanStats.webMerged = true;
   out.scanStats.webMergeUpdatedAssets = updated;
@@ -713,6 +720,8 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.scanStats.webMergePurgedScamAssets = purgedScams;
   out.scanStats.webMergeNeutralizedPrices = neutralizedPrices;
   if (nativePreserved > 0) out.scanStats.webNativePreservedFromCache = nativePreserved;
+  var unreadCount = Object.keys(unreadRequested).length;
+  if (unreadCount > 0) out.scanStats.webRequestedUnreadKept = unreadCount;
   out.scanStats.totalValueEur = _webScanMergedTotal_(mergedAssets);
   out.lastInfoMetaRows = incoming.lastInfoMetaRows || existing.lastInfoMetaRows || [];
   try { delete out._webScanRequestedTokenSet; } catch (eTmp) {}

@@ -11,7 +11,7 @@ const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EV
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
 
-assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.16\.68["']/, 'web scan adapter version must advance to 4.16.68');
+assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.17\.0["']/, 'web scan adapter version must advance to 4.17.0');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
@@ -956,10 +956,16 @@ const samplePayload = JSON.stringify({
   const saved = ctx.__saved[0].cache;
   const savedBtcb = saved.assets.find((t) => t.contract === btcb);
   const savedSol = saved.assets.find((t) => t.contract === sol);
-  assert.equal(savedBtcb, undefined, 'explicitly requested BTCB must not be resurrected from stale cache when absent from Web payload');
-  assert.equal(savedSol, undefined, 'explicitly requested SOL must not be resurrected from stale cache when absent from Web payload');
-  assert.equal(saved.balanceTsMap[btcb], 0, 'strict requested BTCB absent from Web payload must be saved as confirmed zero');
-  assert.equal(saved.balanceTsMap[sol], 0, 'strict requested SOL absent from Web payload must be saved as confirmed zero');
+  // v4.17.0 - a degraded answer (RPC_TIMEOUT) that omits a requested token does not prove a zero:
+  // the old row stays with its old balance date, its stale price is not resurrected.
+  assert.ok(savedBtcb && savedSol, 'requested tokens absent from a degraded answer are kept');
+  assert.equal(savedBtcb.balance, 0.002034716466);
+  assert.equal(savedBtcb.price_eur, null, 'stale BTCB price is not resurrected');
+  assert.equal(savedBtcb.value_eur, null);
+  assert.equal(savedSol.value_eur, null);
+  assert.equal(saved.balanceTsMap[btcb], 111, 'old balance date kept, never a confirmed zero');
+  assert.equal(saved.balanceTsMap[sol], 111);
+  assert.equal(saved.scanStats.webRequestedUnreadKept, 2);
   assert.equal(saved.priceMap[btcb], undefined, 'absurd cached BTCB priceMap entry must be purged');
   assert.equal(saved.priceMap[sol], undefined, 'absurd cached SOL priceMap entry must be purged');
 }

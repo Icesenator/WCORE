@@ -61,6 +61,8 @@ export interface ScanPluginDeps {
   MAX_CHAINS_PER_SCAN: number;
   ANONYMOUS_MAX_CHAINS_PER_SCAN: number;
   scanJobQueue?: ScanJobQueue;
+  /** Scan engine. Defaults to the one of @wcore/core; a test injects one that answers without network. */
+  engine?: Partial<Pick<typeof import("@wcore/core"), "getWalletAssets" | "getEvmWalletsAssets">>;
   /**
    * WC-11 portfolio-enrichment seam. When omitted (default), enrichment is fully
    * disabled: no provider call, no RPC verification, byte-identical scan behavior.
@@ -143,7 +145,8 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       return { error: "circuit_open", message: `All ${openCircuits.length} requested chain(s) have open circuit breakers.` };
     }
 
-    const { getWalletAssets, metrics, detectScam, RedisPricingCache, getChain } = await import("@wcore/core");
+    const { getWalletAssets: coreGetWalletAssets, metrics, detectScam, RedisPricingCache, getChain } = await import("@wcore/core");
+    const getWalletAssets = deps.engine?.getWalletAssets ?? coreGetWalletAssets;
     const pricingCache = new RedisPricingCache(sharedCache);
     const intraScanPriceCache = new Map() as IntraScanCache;
 
@@ -346,7 +349,9 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       return { error: "circuit_open", message: `All ${openCircuits.length} requested chain(s) have open circuit breakers.` };
     }
 
-    const { getEvmWalletsAssets, getWalletAssets, metrics, detectScam, RedisPricingCache, getChain } = await import("@wcore/core");
+    const { getEvmWalletsAssets: coreGetEvmWalletsAssets, getWalletAssets: coreGetWalletAssets, metrics, detectScam, RedisPricingCache, getChain } = await import("@wcore/core");
+    const getEvmWalletsAssets = deps.engine?.getEvmWalletsAssets ?? coreGetEvmWalletsAssets;
+    const getWalletAssets = deps.engine?.getWalletAssets ?? coreGetWalletAssets;
     const pricingCache = new RedisPricingCache(sharedCache);
     const intraScanPriceCache = new Map<string, Promise<any>>();
 
@@ -602,7 +607,8 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
   const asyncScanPool = pLimit(SCAN_CONCURRENCY);
 
   scanJobQueue.start(async ({ job, signal, publish }) => {
-    const { getWalletAssets, RedisPricingCache, detectScam, getChain } = await import("@wcore/core");
+    const { getWalletAssets: coreGetWalletAssets, RedisPricingCache, detectScam, getChain } = await import("@wcore/core");
+    const getWalletAssets = deps.engine?.getWalletAssets ?? coreGetWalletAssets;
     const { activeChains, forceRefresh, strictTokens, logBlockRange, customTokens, fxRate } = job.request;
     const resultCache = scanResultCacheFor(sharedCache, strictTokens, customTokens);
     const progress = structuredClone(job.progress);

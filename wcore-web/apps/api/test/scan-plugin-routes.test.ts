@@ -83,6 +83,56 @@ class MemoryScanJobQueue implements ScanJobQueue {
 
 const scanJobQueue = new MemoryScanJobQueue();
 
+// Engine double. It answers without network for ENGINE_CHAIN (a non-EVM chain for the
+// plugin) and, while enabled, for BASE (the batched EVM path). Every other call goes to the
+// real engine, so the fake chain used above keeps failing deterministically.
+const ENGINE_CHAIN = "X_ENGINE_OK";
+const TOKEN_A = "0x00000000000000000000000000000000000000aa";
+const TOKEN_B = "0x00000000000000000000000000000000000000bb";
+const engineCalls: Array<{ path: "single" | "evm-batch"; address: string; chain: string }> = [];
+const fakeEvmEngine = { enabled: false };
+
+interface EngineOptions { customTokens?: string[]; strictTokens?: boolean }
+
+/** A wallet holding two tokens; a strict scan returns only the requested ones, as the real engine does. */
+function fakeWallet(chain: string, opts: EngineOptions): WalletAssets {
+  const all = [
+    { symbol: "AAA", name: "Token A", contract: TOKEN_A, balance: 10, decimals: 18, priceEur: 1, valueEur: 10 },
+    { symbol: "BBB", name: "Token B", contract: TOKEN_B, balance: 20, decimals: 18, priceEur: 1, valueEur: 20 },
+  ];
+  const strict = opts.strictTokens && opts.customTokens?.length ? new Set(opts.customTokens.map((token) => token.toLowerCase())) : null;
+  const tokens = strict ? all.filter((token) => strict.has(token.contract)) : all;
+  return {
+    chain,
+    chainName: chain,
+    native: { symbol: "ETH", balance: 1, priceEur: 100, valueEur: 100 },
+    tokens,
+    errors: [],
+    totalValueEur: 100 + tokens.reduce((sum, token) => sum + token.valueEur, 0),
+    scanMs: 1,
+  } as unknown as WalletAssets;
+}
+
+const testEngine: NonNullable<ScanPluginDeps["engine"]> = {
+  getWalletAssets: (async (address: string, chain: string, opts: EngineOptions) => {
+    if (chain !== ENGINE_CHAIN) return (await import("@wcore/core")).getWalletAssets(address, chain, opts as never);
+    engineCalls.push({ path: "single", address, chain });
+    return fakeWallet(chain, opts);
+  }) as never,
+  getEvmWalletsAssets: (async (addresses: string[], chain: string, opts: EngineOptions) => {
+    if (!fakeEvmEngine.enabled) return (await import("@wcore/core")).getEvmWalletsAssets(addresses, chain, opts as never);
+    for (const address of addresses) engineCalls.push({ path: "evm-batch", address, chain });
+    return { wallets: addresses.map((address) => ({ address, assets: fakeWallet(chain, opts) })) };
+  }) as never,
+};
+
+/** Tokens of the shared cache entry of (address, chain), or null when there is none. Cache writes are fire-and-forget. */
+async function cachedTokenCount(address: string, chain: string): Promise<number | null> {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const entry = await sharedCache.get<{ tokens: unknown[] }>(scanCacheKey(address, chain));
+  return entry ? entry.tokens.length : null;
+}
+
 function makeDeps(): ScanPluginDeps {
   return {
     prisma: prismaStub,
@@ -110,6 +160,7 @@ function makeDeps(): ScanPluginDeps {
     MAX_CHAINS_PER_SCAN: 120,
     ANONYMOUS_MAX_CHAINS_PER_SCAN: 20,
     scanJobQueue,
+    engine: testEngine,
   };
 }
 
@@ -352,6 +403,105 @@ describe("POST /api/scan/batch", () => {
     assert.equal(byAddr.get(ADDR_A)!.totals.valueEur, 75, "wallet A served from cache");
     assert.ok(byAddr.get(ADDR_B)!.chains[0]!.errors.length > 0, "wallet B hit the engine and errored");
     await sharedCache.delete(scanCacheKey(ADDR_A, FAKE_CHAIN));
+  });
+});
+
+// --- Shared scan result cache and partial scans, on every path ---------------
+//
+// With an engine that succeeds, each path is driven through the same sequence: a strict
+// token scan leaves no entry behind, a plain scan stores the whole wallet, and a later
+// strict scan neither reads that entry nor replaces it.
+
+describe("shared scan result cache and partial scans", () => {
+  const strict = { strictTokens: true, customTokens: [TOKEN_A] };
+
+  test("single scan: a strict scan is never stored nor served from the cache", async () => {
+    engineCalls.length = 0;
+    const scan = (extra: Record<string, unknown> = {}) => app.inject({ method: "POST", url: "/api/scan", payload: { address: ADDR_A, chains: [ENGINE_CHAIN], ...extra } });
+    try {
+      assert.equal((await scan(strict)).statusCode, 200);
+      assert.equal(await cachedTokenCount(ADDR_A, ENGINE_CHAIN), null, "a successful strict scan stores nothing");
+      assert.equal((await scan()).statusCode, 200);
+      assert.equal(await cachedTokenCount(ADDR_A, ENGINE_CHAIN), 2, "the plain scan stores the whole wallet");
+      assert.equal(engineCalls.length, 2);
+      const partial = await scan(strict);
+      assert.equal(partial.json().chains[0].tokens.length, 1, "the strict scan returns only the requested token");
+      assert.equal(engineCalls.length, 3, "the strict scan went to the engine, not to the cache");
+      assert.equal(await cachedTokenCount(ADDR_A, ENGINE_CHAIN), 2, "and left the whole-wallet entry in place");
+      const plain = await scan();
+      assert.equal(engineCalls.length, 3, "the plain scan is still answered from the cache");
+      assert.equal(plain.json().chains[0].tokens.length, 2, "with the whole wallet");
+    } finally {
+      await sharedCache.delete(scanCacheKey(ADDR_A, ENGINE_CHAIN));
+    }
+  });
+
+  test("single scan: custom tokens are answered only by an entry that looked them up", async () => {
+    engineCalls.length = 0;
+    const scan = (extra: Record<string, unknown> = {}) => app.inject({ method: "POST", url: "/api/scan", payload: { address: ADDR_A, chains: [ENGINE_CHAIN], ...extra } });
+    try {
+      await scan();
+      await cachedTokenCount(ADDR_A, ENGINE_CHAIN);
+      assert.equal(engineCalls.length, 1);
+      await scan({ customTokens: [TOKEN_B] });
+      assert.equal(engineCalls.length, 2, "the plain entry never looked up that token: rescan");
+      await cachedTokenCount(ADDR_A, ENGINE_CHAIN);
+      await scan({ customTokens: [TOKEN_B] });
+      assert.equal(engineCalls.length, 2, "now covered: answered from the cache");
+      const plain = await scan();
+      assert.equal(engineCalls.length, 2, "a plain scan accepts the richer entry");
+      assert.equal(plain.body.includes("scannedCustomTokens"), false, "the bookkeeping field never reaches the response");
+    } finally {
+      await sharedCache.delete(scanCacheKey(ADDR_A, ENGINE_CHAIN));
+    }
+  });
+
+  for (const [label, chain, path] of [["EVM batch", "BASE", "evm-batch"], ["non-EVM batch", ENGINE_CHAIN, "single"]] as const) {
+    test(`${label}: a strict scan is never stored nor served from the cache`, async () => {
+      engineCalls.length = 0;
+      fakeEvmEngine.enabled = true;
+      const scan = (extra: Record<string, unknown> = {}) => app.inject({ method: "POST", url: "/api/scan/batch", payload: { addresses: [ADDR_A, ADDR_B], chains: [chain], ...extra } });
+      try {
+        assert.equal((await scan(strict)).statusCode, 200);
+        assert.deepEqual([await cachedTokenCount(ADDR_A, chain), await cachedTokenCount(ADDR_B, chain)], [null, null], "a successful strict scan stores nothing");
+        assert.equal((await scan()).statusCode, 200);
+        assert.deepEqual([await cachedTokenCount(ADDR_A, chain), await cachedTokenCount(ADDR_B, chain)], [2, 2], "the plain scan stores both whole wallets");
+        assert.equal(engineCalls.length, 4);
+        assert.ok(engineCalls.every((call) => call.path === path), `this scenario runs on the ${label} path`);
+        assert.equal((await scan(strict)).statusCode, 200);
+        assert.equal(engineCalls.length, 6, "the strict scan went to the engine for both wallets");
+        assert.deepEqual([await cachedTokenCount(ADDR_A, chain), await cachedTokenCount(ADDR_B, chain)], [2, 2], "and left both entries in place");
+        const plain = await scan();
+        assert.equal(engineCalls.length, 6, "the plain scan is still answered from the cache");
+        for (const wallet of plain.json().wallets) assert.equal(wallet.chains[0].tokens.length, 2, "with the whole wallet");
+      } finally {
+        fakeEvmEngine.enabled = false;
+        await sharedCache.delete(scanCacheKey(ADDR_A, chain));
+        await sharedCache.delete(scanCacheKey(ADDR_B, chain));
+      }
+    });
+  }
+
+  test("async job: a strict scan is never stored, a plain one is", async () => {
+    engineCalls.length = 0;
+    const run = async (extra: Record<string, unknown> = {}) => {
+      const res = await app.inject({ method: "POST", url: "/api/scan/async", payload: { address: ADDR_A, chains: [ENGINE_CHAIN], forceRefresh: true, ...extra } });
+      assert.equal(res.statusCode, 200);
+      const { jobId, pollToken } = res.json() as { jobId: string; pollToken: string };
+      const settled = await waitForJobSettled(app, jobId, { pollToken });
+      assert.equal(settled.status, "done", JSON.stringify(settled.errors));
+    };
+    try {
+      await run(strict);
+      assert.equal(await cachedTokenCount(ADDR_A, ENGINE_CHAIN), null, "a successful strict job stores nothing");
+      await run();
+      assert.equal(await cachedTokenCount(ADDR_A, ENGINE_CHAIN), 2, "the plain job stores the whole wallet");
+      await run(strict);
+      assert.equal(await cachedTokenCount(ADDR_A, ENGINE_CHAIN), 2, "a later strict job leaves it in place");
+      assert.equal(engineCalls.length, 3);
+    } finally {
+      await sharedCache.delete(scanCacheKey(ADDR_A, ENGINE_CHAIN));
+    }
   });
 });
 

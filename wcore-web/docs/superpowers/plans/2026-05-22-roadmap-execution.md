@@ -219,7 +219,7 @@ Expected: 200, `access-control-allow-origin` présent et non-vide.
 
 - [ ] **Step 1: Construire l'URL de test**
 
-URL: `https://wcore.xyz/?addresses=0x17d518736ee9341dcdc0a2498e013d33cfcdd080,0xe39c0d6439a71d2bddfdeee94420601cdf8fd22d,0x6f6d5c6ecf999d330ef942b9288089b7746f0b60,0xd5b0dbd75056a30411be789775e40664ec858e51,AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4,9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5,GWLCYszJB8H5Pe3nYw6uoFTApoAqP9P7uzgTmbFm4Nqk,cosmos1nvfsmt48nemfullrkkxa6gze05c4xeypfslj7t,terra1nvfsmt48nemfullrkkxa6gze05c4xeyp059jut`
+URL: `https://wcore.xyz/?addresses=0x17d518736ee9341dcdc0a2498e013d33cfcdd080,0x00000000000000000000000000000000000d0007,0x00000000000000000000000000000000000d0004,0x00000000000000000000000000000000000d0006,AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4,11111111111111111111111111111114k,11111111111111111111111111111114n,cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxuuq9rsa,terra1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxa8jtk00`
 
 - [ ] **Step 2: Ouvrir dans Chrome CDP et observer**
 

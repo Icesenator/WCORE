@@ -6,7 +6,7 @@
  * 
  * v4.2.3 - Renommage pour coh?rence (_CORE suffix)
  ************************************************************/
-var WALLET_NAMES_VERSION = "4.2.5";
+var WALLET_NAMES_VERSION = "4.2.6";
 
 // ============================================================
 // D?FINITION CENTRALIS?E DES WALLETS
@@ -18,24 +18,23 @@ var WALLET_NAMES_VERSION = "4.2.5";
  * 
  * Format: "adresse": "Nom du wallet"
  */
-var WALLET_REGISTRY = {
- "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7": "Layer3 Wallet",
- "0x17d518736ee9341dcdc0a2498e013d33cfcdd080": "Ledger",
- "0xd5b0dbd75056a30411be789775e40664ec858e51": "Binance Web3 Wallet",
- "0x09875c42713f9525384afb83f95c2858d1cbccc4": "Smart Wallet",
- "0xe39c0d6439a71d2bddfdeee94420601cdf8fd22d": "Ethos",
- "0x6f6d5c6ecf999d330ef942b9288089b7746f0b60": "SafePal",
- "0xe9c01999dee7562c07a048ffe5c866dc1f337569": "Startale",
+// v4.2.6 (audit du 11/11/2026) : le registre reel (adresses et noms des portefeuilles du
+// proprietaire) n'est plus dans le depot Git, qui est public. Il vit dans un fichier present
+// seulement dans le script en ligne, 12B_WALLET_REGISTRY_PRIVATE.gs, qui definit
+// WALLET_REGISTRY_PRIVATE au meme format. Ce fichier est ignore par Git : ne jamais le commiter.
+var WALLET_REGISTRY = {};
 
- // Solana (SVM) wallets (base58, case-sensitive)
-  "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5": "Layer3",
-  "AxU68jEGjXMj3YGRPSPVXg4qpYmUWhoBUfsbuhrFyDe4": "Ledger",
-  "GWLCYszJB8H5Pe3nYw6uoFTApoAqP9P7uzgTmbFm4Nqk": "Seeker",
-   "0x9eb34b670f79491329f71080717edf071ff5353f": "UniSwap",
-   "0x18bbec24e4ff9c43d538121528c08a88cacd4e4c": "Warpcast",
-   "Bj56sLm3gMa4WNXuFAEdGJZtzoz85zejXGUXGyjAthh5": "Grass"
-   // Ajoutez vos wallets ici...
-};
+function _walletRegistry_() {
+ if (!_walletRegistry_.merged && typeof WALLET_REGISTRY_PRIVATE !== "undefined" && WALLET_REGISTRY_PRIVATE) {
+  for (var pa in WALLET_REGISTRY_PRIVATE) {
+   if (Object.prototype.hasOwnProperty.call(WALLET_REGISTRY_PRIVATE, pa) && !Object.prototype.hasOwnProperty.call(WALLET_REGISTRY, pa)) {
+    WALLET_REGISTRY[pa] = WALLET_REGISTRY_PRIVATE[pa];
+   }
+  }
+  _walletRegistry_.merged = true;
+ }
+ return WALLET_REGISTRY;
+}
 
 // ============================================================
 // WALLET NAME RESOLVER
@@ -62,15 +61,16 @@ var WalletNames = {
  }
  
  // 2. V?rifier le registre central
- if (WALLET_REGISTRY && WALLET_REGISTRY[norm]) {
- return WALLET_REGISTRY[norm] + " - " + chainName;
+ var registry = _walletRegistry_();
+ if (registry && registry[norm]) {
+ return registry[norm] + " - " + chainName;
  }
 
  // Defensive lookup for entries added with checksum/mixed-case keys.
- if (WALLET_REGISTRY) {
- for (var addr in WALLET_REGISTRY) {
- if (Object.prototype.hasOwnProperty.call(WALLET_REGISTRY, addr) && Addr.normalize(addr) === norm) {
- return WALLET_REGISTRY[addr] + " - " + chainName;
+ if (registry) {
+ for (var addr in registry) {
+ if (Object.prototype.hasOwnProperty.call(registry, addr) && Addr.normalize(addr) === norm) {
+ return registry[addr] + " - " + chainName;
  }
  }
  }
@@ -81,9 +81,10 @@ var WalletNames = {
  
  generateForChain: function(chainName) {
  var result = {};
- for (var addr in WALLET_REGISTRY) {
- if (Object.prototype.hasOwnProperty.call(WALLET_REGISTRY, addr)) {
- result[addr] = WALLET_REGISTRY[addr] + " - " + chainName;
+ var registry = _walletRegistry_();
+ for (var addr in registry) {
+ if (Object.prototype.hasOwnProperty.call(registry, addr)) {
+ result[addr] = registry[addr] + " - " + chainName;
  }
  }
  return result;
@@ -93,7 +94,7 @@ var WalletNames = {
  if (!wallets) return;
  for (var addr in wallets) {
  if (Object.prototype.hasOwnProperty.call(wallets, addr)) {
- WALLET_REGISTRY[Addr.normalize(addr)] = wallets[addr];
+ _walletRegistry_()[Addr.normalize(addr)] = wallets[addr];
  }
  }
  }

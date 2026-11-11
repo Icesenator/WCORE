@@ -461,7 +461,7 @@ describe("gsheetPlugin", () => {
     assert.deepEqual(JSON.parse(res.body), {
       ok: true,
       chain: "BASE",
-      chainName: "Ledger - Base",
+      chainName: "Base",
       vm: "EVM",
       timestamp: "2026-06-26T17:00:00.000Z",
       native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
@@ -474,76 +474,6 @@ describe("gsheetPlugin", () => {
       scanMs: 123,
       cacheStats: { hits: 1, misses: 2, stale: 0, skipped: 0 },
     });
-    await app.close();
-  });
-
-  test("labels registered gsheet wallets in web scan responses", async () => {
-    const app = Fastify();
-    await app.register(gsheetPlugin, {
-      token: "secret",
-      cacheStore: { get: async () => null },
-      chainbaseStakingProvider: noChainbaseStakingProvider,
-      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
-      scanRunner: async (input) => ({
-        ok: true,
-        chain: input.chain,
-        chainName: "Base",
-        vm: "EVM",
-        timestamp: "2026-06-26T17:00:00.000Z",
-        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
-        tokens: [],
-        totalValueEur: 21,
-        errors: [],
-        degraded: false,
-        fxRate: 0.86,
-        scanMs: 123,
-      }),
-    });
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/gsheet/scan",
-      headers: { "x-gsheet-token": "secret" },
-      payload: { address: "0x9eb34B670F79491329F71080717EdF071fF5353f", chain: "base" },
-    });
-    assert.equal(res.statusCode, 200);
-    const body = JSON.parse(res.body);
-    assert.equal(body.chain, "BASE");
-    assert.equal(body.chainName, "UniSwap - Base");
-    await app.close();
-  });
-
-  test("labels registered case-sensitive SVM gsheet wallets in web scan responses", async () => {
-    const app = Fastify();
-    await app.register(gsheetPlugin, {
-      token: "secret",
-      cacheStore: { get: async () => null },
-      chainbaseStakingProvider: noChainbaseStakingProvider,
-      priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
-      scanRunner: async (input) => ({
-        ok: true,
-        chain: input.chain,
-        chainName: "Fogo",
-        vm: "SVM",
-        timestamp: "2026-06-29T12:30:00.000Z",
-        native: { symbol: "FOGO", balance: 1, priceEur: 0.01, valueEur: 0.01 },
-        tokens: [],
-        totalValueEur: 0.01,
-        errors: [],
-        degraded: false,
-        fxRate: 0.8781,
-        scanMs: 123,
-      }),
-    });
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/gsheet/scan",
-      headers: { "x-gsheet-token": "secret" },
-      payload: { address: "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5", chain: "fogo" },
-    });
-    assert.equal(res.statusCode, 200);
-    const body = JSON.parse(res.body);
-    assert.equal(body.chain, "FOGO");
-    assert.equal(body.chainName, "Layer3 - Fogo");
     await app.close();
   });
 
@@ -936,7 +866,7 @@ describe("gsheetPlugin", () => {
       url: "/api/gsheet/scan",
       headers: { "x-gsheet-token": "secret" },
       payload: {
-        address: "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5",
+        address: "11111111111111111111111111111114k",
         chain: "fogo",
         customTokens: [usdcMint],
       },
@@ -977,7 +907,7 @@ describe("gsheetPlugin", () => {
       url: "/api/gsheet/scan",
       headers: { "x-gsheet-token": "secret" },
       payload: {
-        address: "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5",
+        address: "11111111111111111111111111111114k",
         chain: "fogo",
       },
     });
@@ -1949,7 +1879,7 @@ describe("applyStakedPriceMirrors", () => {
   test("WCT Stake flips to [Flex] when the on-chain lockUntil has passed", async () => {
     const WCT = "0xef4461891dfb3ac8572ccf7c794664a8dd927945";
     const WCT_STAKE = "0x521b4c065bbdbe3e20b3727340730936912dfa46";
-    const USER = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+    const USER = "0x00000000000000000000000000000000000d0003";
     // Inject a minimal RPC stub that returns a lockUntil timestamp 60s in the past
     // to simulate a fully unlocked WCT Stake position.
     const pastTimestamp = Math.floor(Date.now() / 1000) - 60;

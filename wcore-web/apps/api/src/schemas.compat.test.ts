@@ -100,7 +100,7 @@ test("expiresAt keeps the Zod 3 datetime-with-offset contract", () => {
 
 test("wallet address contract across VMs", () => {
   assert.equal(AnyAddress.parse(EVM), EVM.toLowerCase());
-  for (const value of ["9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5", "cosmos1r5v5srda7xfth3hn2s26txvrc77nt6kj45g3u8", "EQD4FPq-PRDieyQKkizFTRtSDyucUIqrj0v_zXJmqaDp6_0t"]) {
+  for (const value of ["11111111111111111111111111111114k", "cosmos1r5v5srda7xfth3hn2s26txvrc77nt6kj45g3u8", "EQD4FPq-PRDieyQKkizFTRtSDyucUIqrj0v_zXJmqaDp6_0t"]) {
     assert.equal(AnyAddress.parse(value), value);
   }
   for (const value of ["", "0xgggggggggggggggggggggggggggggggggggggggg", "9gjm5Hw5E6hLisCrCiewCnQv9mT1L4D", 42, null]) {

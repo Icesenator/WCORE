@@ -89,6 +89,11 @@ function makeWalletNamesContext() {
     Object,
     String,
     Addr: { normalize: (v) => String(v || '').toLowerCase() },
+    // Registre prive (fichier present seulement en ligne), simule avec des adresses de test.
+    WALLET_REGISTRY_PRIVATE: {
+      '0x00000000000000000000000000000000000a11ce': 'UniSwap',
+      '0x0000000000000000000000000000000000000b0b': 'Warpcast',
+    },
   };
   vm.createContext(context);
   vm.runInContext(walletNamesSource, context);
@@ -216,12 +221,12 @@ const samplePayload = JSON.stringify({
 {
   const ctx = makeWalletNamesContext();
   assert.equal(
-    ctx.WalletNames.get('0x9eb34B670F79491329F71080717EdF071fF5353f', 'Base'),
+    ctx.WalletNames.get('0x00000000000000000000000000000000000A11CE', 'Base'),
     'UniSwap - Base',
     'wallet registry labels checksum/mixed-case addresses with Wallet - Chain'
   );
   assert.equal(
-    ctx.WalletNames.get('0x18BBEC24e4ff9C43D538121528C08a88Cacd4e4c', 'Base'),
+    ctx.WalletNames.get('0x0000000000000000000000000000000000000B0B', 'Base'),
     'Warpcast - Base',
     'wallet registry labels Warpcast checksum address with Wallet - Chain'
   );
@@ -944,7 +949,7 @@ const samplePayload = JSON.stringify({
     GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
     __walletCache: oldCache,
   }, bscPartialPayload);
-  const res = ctx._webScanWallet_('0xd5b0dbd75056a30411be789775e40664ec858e51', [[btcb], [sol]], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  const res = ctx._webScanWallet_('0x00000000000000000000000000000000000d0006', [[btcb], [sol]], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
   assert.equal(res.ok, true);
   assert.match(res.status, /WEB_SCAN_DEGRADED/, 'partial BSC scan should merge with cache instead of deleting legitimate cached tokens');
   assert.equal(ctx.__saved.length, 1);
@@ -1065,7 +1070,7 @@ const samplePayload = JSON.stringify({
     GSHEET_API_TOKEN: 'secret',
     GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
   }, payloadWithBlockNumberConsensusError);
-  const res = ctx._webScanWallet_('0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7', [], false, { CHAIN: { KEY: 'OPTIMISM', NAME: 'Optimism', NATIVE_SYMBOL: 'ETH' } }, 'optimism_cache_key');
+  const res = ctx._webScanWallet_('0x00000000000000000000000000000000000d0003', [], false, { CHAIN: { KEY: 'OPTIMISM', NAME: 'Optimism', NATIVE_SYMBOL: 'ETH' } }, 'optimism_cache_key');
   assert.equal(res.ok, true, 'web scan must succeed even with blockNumber consensus error if payload has real data');
   assert.match(res.status, /WEB_SCAN_OK|WEB_SCAN_DEGRADED/, 'web scan with non-empty tokens + discovery-only errors must save');
   assert.equal(ctx.__saved.length, 1, 'web scan with non-empty tokens + discovery-only errors must overwrite the cache');

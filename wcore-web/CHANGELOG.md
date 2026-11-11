@@ -220,7 +220,7 @@ Implementation du design docs/superpowers/specs/2026-08-23-scam-detector-auto-bl
 
 ## 2026-06-29 — Fix label wallet SVM case-sensitive dans `/api/gsheet/scan`
 
-- **Bug** : `labelGsheetWalletScan()` dans `apps/api/src/plugins/gsheet.ts` faisait `address.toLowerCase()` pour lookup les wallets EVM. Les adresses Solana base58 sont case-sensitive (ex: `9gjm5Hw5E6hLisCrCiewCnQv9mT1L4DcM9w2AReX6pe5` ≠ `9gjm5hw5e6hliscrciewcnqv9mt1l4dcm9w2arex6pe5`). Résultat : les 3 wallets SVM (`Layer3`, `Ledger`, `Seeker` du `WALLET_REGISTRY` dans `12_WALLET_NAMES.gs`) n'étaient jamais reconnus, et `chainName` restait `Fogo` au lieu de `Layer3 - Fogo`.
+- **Bug** : `labelGsheetWalletScan()` dans `apps/api/src/plugins/gsheet.ts` faisait `address.toLowerCase()` pour lookup les wallets EVM. Les adresses Solana base58 sont case-sensitive (ex: `11111111111111111111111111111114k` ≠ `11111111111111111111111111111114k`). Résultat : les 3 wallets SVM (`Layer3`, `Ledger`, `Seeker` du `WALLET_REGISTRY` dans `12_WALLET_NAMES.gs`) n'étaient jamais reconnus, et `chainName` restait `Fogo` au lieu de `Layer3 - Fogo`.
 - **Fix** : lookup exact d'abord (`map[rawAddress]`), puis fallback lowercase pour les adresses EVM. Ajout des 3 entrées SVM dans `GSHEET_WALLET_LABELS` (`9gjm...`, `AxU6...`, `GWLC...`).
 - **Test** : nouveau test `labels registered case-sensitive SVM gsheet wallets in web scan responses` qui échouait avant le fix (assertion `chainName === "Layer3 - Fogo"` retournait `"Fogo"`) et passe après. 30/30 tests API `gsheet.test.ts` verts.
 - **Déployé** : API Railway redéployée avec succès. Build `pnpm --filter @wcore/api build` OK, `railway up --service api --ci` Deploy complete. `railway.json` parent restauré vers `wcore-web/apps/web/Dockerfile.railway` après deploy.

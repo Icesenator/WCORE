@@ -5,7 +5,7 @@ import { getCosmosWalletAssets } from "./cosmos.js";
 import { MemoryCacheStore } from "../cache/memory-cache.js";
 import type { PricingSourceSet } from "../pricing/index.js";
 
-const OWNER = "cosmos1nvfsmt48nemfullrkkxa6gze05c4xeypfslj7t";
+const OWNER = "cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxuuq9rsa";
 
 test("getCosmosWalletAssets returns native ATOM balance", async () => {
   const sources: PricingSourceSet = {

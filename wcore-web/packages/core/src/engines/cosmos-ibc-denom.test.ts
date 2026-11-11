@@ -4,7 +4,7 @@ import { getCosmosWalletAssets } from "./cosmos.js";
 import { MemoryCacheStore } from "../cache/index.js";
 import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 
-const ADDRESS = "cosmos1nvfsmt48nemfullrkkxa6gze05c4xeypfslj7t";
+const ADDRESS = "cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxuuq9rsa";
 const IBC_DENOM = "ibc/0025F8A87464A471E66B234C4F93AEC5B4DA3D42D7986451A059273426290DD5";
 const HASH = IBC_DENOM.slice(4);
 

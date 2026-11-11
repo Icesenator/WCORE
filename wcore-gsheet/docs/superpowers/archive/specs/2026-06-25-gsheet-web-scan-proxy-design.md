@@ -34,7 +34,7 @@ Approach 1 — proxy scan web optional. GSheet keeps its native engine by defaul
 **Body**:
 ```json
 {
-  "address": "0xd5b0DbD75056A30411Be789775E40664ec858E51",
+  "address": "0x00000000000000000000000000000000000d0006",
   "chain": "BSC",
   "forceRefresh": true,
   "strictTokens": true,

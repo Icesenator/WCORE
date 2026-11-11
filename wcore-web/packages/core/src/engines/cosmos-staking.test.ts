@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { getCosmosWalletAssets } from "./cosmos.js";
 import { MemoryCacheStore } from "../cache/index.js";
 
-const ADDRESS = "cosmos1nvfsmt48nemfullrkkxa6gze05c4xeypfslj7t";
+const ADDRESS = "cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxuuq9rsa";
 
 const DELEGATIONS = "/cosmos/staking/v1beta1/delegations/";
 const UNBONDING = "/unbonding_delegations";

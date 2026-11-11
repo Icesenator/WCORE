@@ -390,7 +390,7 @@ function DIAG_META_SAVE_TRACE_BASE() {
 // FROM: DIAG_MISSING_TOKEN.gs
 // ============================================================
 function DIAG_TOKEN_0xeA6b_RPC() {
- var wallet = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var wallet = "0x00000000000000000000000000000000000d0003";
  var token = "0xeA6b729919DB1ea6b046b722B1869EF746fa5d90";
  return TokenDiag.checkTokenBalance(BASE_CONFIG, wallet, token);
 }
@@ -399,7 +399,7 @@ function DIAG_TOKEN_0xeA6b_RPC() {
  * 2. Comparer les resultats entre tous les RPCs
  */
 function DIAG_TOKEN_0xeA6b_COMPARE_RPCS() {
- var wallet = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var wallet = "0x00000000000000000000000000000000000d0003";
  var token = "0xeA6b729919DB1ea6b046b722B1869EF746fa5d90";
  return TokenDiag.compareRpcs(BASE_CONFIG, wallet, token);
 }
@@ -408,7 +408,7 @@ function DIAG_TOKEN_0xeA6b_COMPARE_RPCS() {
  * 3. Verifier l'etat du token dans le cache
  */
 function DIAG_TOKEN_0xeA6b_CACHE_STATUS() {
- var wallet = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var wallet = "0x00000000000000000000000000000000000d0003";
  var token = Addr.normalize("0xeA6b729919DB1ea6b046b722B1869EF746fa5d90");
  
  var out = [["Metric", "Value", "Details"]];
@@ -492,7 +492,7 @@ function DIAG_TOKEN_0xeA6b_CACHE_STATUS() {
  * 4. Forcer le scan de ce token specifique (PRIORITY)
  */
 function DIAG_FORCE_SCAN_TOKEN_0xeA6b() {
- var wallet = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var wallet = "0x00000000000000000000000000000000000d0003";
  var token = "0xeA6b729919DB1ea6b046b722B1869EF746fa5d90";
  var tokenNorm = Addr.normalize(token);
  
@@ -917,7 +917,7 @@ function DIAG_TOKEN_POSITION_ARBITRUM_ONE(wallet, token, tokensRange) {
  */
 function DIAG_FLIPIT_POSITION(tokensRange) {
  return DIAG_TOKEN_POSITION_BASE(
- "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7",
+ "0x00000000000000000000000000000000000d0003",
  "0xeA6b729919DB1ea6b046b722B1869EF746fa5d90",
  tokensRange
  );
@@ -1497,7 +1497,7 @@ function DIAG_ACTIVITY_LOOKUP(chain, wallet) {
 function CLEANUP_TEST_TOKEN() {
  var out = [["Step", "Result"]];
  
- var walletAddr = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var walletAddr = "0x00000000000000000000000000000000000d0003";
  var config = { KEYS: { PREFIX: "BASE_CACHE_" } };
  
  try {
@@ -1551,7 +1551,7 @@ function DIAG_FAKE_TOKENS() {
  "0x560b0307ffe0efe72fe567f30faacc927a03d5f3"
  ];
  
- var walletAddr = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var walletAddr = "0x00000000000000000000000000000000000d0003";
  
  try {
  // Check if these are in tokensRange
@@ -1623,7 +1623,7 @@ function DIAG_FAKE_TOKENS() {
 function DIAG_VERIFY_REAL_BALANCES() {
  var out = [["Token", "Contract", "Cache Balance", "RPC Balance", "Match?"]];
  
- var walletAddr = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var walletAddr = "0x00000000000000000000000000000000000d0003";
  var rpc = "https://mainnet.base.org";
  
  // Tokens suspects
@@ -1694,7 +1694,7 @@ function DIAG_VERIFY_REAL_BALANCES() {
 function DIAG_RPC_ZOMBIE_TEST() {
  var out = [["RPC", "LOUDER", "IJN", "SWEET", "ONCHAIN", "Verdict"]];
  
- var walletAddr = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var walletAddr = "0x00000000000000000000000000000000000d0003";
  
  // Tokens zombies (RPC devrait retourner 0)
  var zombies = [

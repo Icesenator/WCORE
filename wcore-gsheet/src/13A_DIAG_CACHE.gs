@@ -1756,7 +1756,7 @@ function DIAG_TRACE_WALLET_SAVE(walletAddr, chainName) {
 function DIAG_SIMULATE_REAL_SAVE() {
  var out = [["Step", "Result", "Error"]];
  
- var walletAddr = "0x6a3530ad9e5b1779de37f5e6af82999c325ea3f7";
+ var walletAddr = "0x00000000000000000000000000000000000d0003";
  var chainName = "Base";
  
  // Simulate config like EVM_ENGINE builds it

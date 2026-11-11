@@ -46,7 +46,7 @@ Document unique de suivi de la migration de WCORE (Google Apps Script) vers une 
 - **Resolution IBC** : les denoms `ibc/<hash>` sont resolus via denom trace moderne puis legacy; le symbole, les decimals et la chaine d'origine resolus alimentent maintenant la cascade de pricing au lieu du hash IBC opaque.
 - **Resilience LCD** : les appels balances, denom trace et staking conservent leurs fallbacks; une erreur partielle reste degradee et ne remplace pas un cache sain par une valeur incomplete.
 - **Validation** : typechecks `@wcore/core` et `@wcore/api`, 9 tests IBC, 25 tests Cosmos et 56 tests API scan passants. Commit `4009d23c`, push `master`, deploy Railway API reussi; `/health` retourne `status=ok` et `chainCount=162`.
-- **Smoke production** : `cosmos1nvfsmt48nemfullrkkxa6gze05c4xeypfslj7t` retourne `1,937201 ATOM`, 10 actifs IBC et resout notamment `NTRN`, `STRD` et `USDC`; les seuls `NO_PRICE` restants sont des poussieres de liquid staking.
+- **Smoke production** : `cosmos1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxuuq9rsa` retourne `1,937201 ATOM`, 10 actifs IBC et resout notamment `NTRN`, `STRD` et `USDC`; les seuls `NO_PRICE` restants sont des poussieres de liquid staking.
 - **Dette de test connue** : la suite core globale rencontre encore l'assertion de registre `182 !== 162`, independante de ce correctif; aligner la fixture/source de registre avec les 162 configurations generees.
 
 ### Session 2026-08-10 - Parite pricing batch et staking Cosmos

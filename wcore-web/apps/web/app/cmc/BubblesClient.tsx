@@ -72,10 +72,12 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   // Relance l'animation (drift = vrai : nouvelle periode de derive douce). Remplacee par la boucle.
   const wakeRef = useRef<(drift?: boolean) => void>(() => {});
   const paintRef = useRef<() => void>(() => {});
-  const paint = useCallback(() => {
+  // snap: positions arrondies au pixel de l'ecran (image nette). Seules les images d'une animation
+  // en cours gardent des positions fractionnaires, pour un mouvement fluide.
+  const paint = useCallback((snap: boolean = true) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (canvas && ctx) paintBubbles(ctx, canvas, sizeRef.current, bubblesRef.current, rowsRef.current, viewRef.current, dragRef.current?.id ?? null, logosRef.current, spritesRef.current, () => paintRef.current());
+    if (canvas && ctx) paintBubbles(ctx, canvas, sizeRef.current, bubblesRef.current, rowsRef.current, viewRef.current, dragRef.current?.id ?? null, logosRef.current, spritesRef.current, () => paintRef.current(), snap);
   }, []);
   // Plusieurs logos arrivent souvent ensemble : un seul redessin par image.
   const logoPaintPending = useRef(false);
@@ -170,6 +172,10 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
         : Math.max(380, Math.min(window.innerHeight - 240, Math.round(w * 0.62)));
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      // Taille affichee = taille interne / devicePixelRatio, exactement : etire a 100 % d'un cadre
+      // de largeur fractionnaire, le canvas etait legerement mis a l'echelle et tout paraissait flou.
+      canvas.style.width = `${canvas.width / dpr}px`;
+      canvas.style.height = `${canvas.height / dpr}px`;
       // Le cadre change de taille (hydratation, rotation, fenêtre) : on garde la disposition en
       // la mettant à l'échelle, sinon les bulles resteraient groupées dans l'ancienne surface.
       const prev = sizeRef.current;
@@ -207,10 +213,15 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
         // Au-delà de 200 bulles, un seul pas : la séparation coûte n² par pas.
         const steps = bubblesRef.current.length > 200 ? 1 : PHYSICS_STEPS_PER_FRAME;
         for (let i = 0; i < steps; i++) stepBubbles(bubblesRef.current, sizeRef.current.w, sizeRef.current.h, drifting ? { time: now + i * 16 } : {});
-        paint();
         const dragging = dragRef.current !== null;
         if (dragging) settleBy = Math.max(settleBy, now + SETTLE_MS);
-        if (animationDone({ now, driftUntil, settleBy, dragging, settled: !drifting && bubblesSettled(bubblesRef.current) })) { running = false; return; }
+        if (animationDone({ now, driftUntil, settleBy, dragging, settled: !drifting && bubblesSettled(bubblesRef.current) })) {
+          // Derniere image : positions au pixel pres, l'image figee reste nette.
+          paint(true);
+          running = false;
+          return;
+        }
+        paint(false);
       }
       frame = requestAnimationFrame(loop);
     };
@@ -339,7 +350,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
           ref={canvasRef}
           role="img"
           aria-label={`${title}: ${rows.length} bubbles, ${PERIOD_LABELS[period]} change`}
-          className="absolute inset-0 block h-full w-full touch-none"
+          className="absolute left-0 top-0 block touch-none"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -404,6 +415,7 @@ function paintBubbles(
   ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, size: { w: number; h: number }, bubbles: readonly Bubble[],
   rows: Map<string, MarketCapRow>, view: { period: BubblePeriod; search: string }, dragId: string | null,
   logos: Map<string, HTMLImageElement | null>, sprites: Map<string, HTMLCanvasElement>, onLogo: () => void,
+  snap: boolean,
 ) {
   const dpr = canvas.width / size.w;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -419,7 +431,10 @@ function paintBubbles(
     if (!sprite) continue;
     used.add(sprite.key);
     // Recopie a l'echelle 1 (position non arrondie : glissement fluide meme lent).
-    ctx.drawImage(sprite.canvas, (b.x - sprite.half) * dpr, (b.y - sprite.half) * dpr);
+    // Image figee : copie au pixel entier, sans reechantillonnage (net). En mouvement : position
+    // fractionnaire, pour un glissement fluide.
+    const px = (b.x - sprite.half) * dpr, py = (b.y - sprite.half) * dpr;
+    ctx.drawImage(sprite.canvas, snap ? Math.round(px) : px, snap ? Math.round(py) : py);
   }
   // Les images qui ne servent plus (bulle retiree, autre periode, nouvelle taille) sont liberees.
   if (sprites.size > used.size) for (const key of [...sprites.keys()]) if (!used.has(key)) sprites.delete(key);

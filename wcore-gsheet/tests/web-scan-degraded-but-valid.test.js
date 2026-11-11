@@ -42,6 +42,7 @@ const NAMES = [
   "_webScanBlockedSet_", "_webScanPriorityTokenSet_", "_webScanMergeAsset_",
   "_webScanNeutralizePrice_", "_webScanMergedTotal_", "_webScanMergeWithExistingCache_",
   "_webScanConvertToWalletCache_", "_webScanShouldPreserveExistingCache_",
+  "_webScanPriceObservedAt_",
 ];
 
 const ctx = {

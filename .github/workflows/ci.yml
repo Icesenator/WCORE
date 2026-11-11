@@ -321,8 +321,16 @@ jobs:
       - run: pnpm --filter @wcore/web build
       - run: pnpm --filter @wcore/web postbuild
 
+      # --with-deps installs system libraries through apt. On 2026-11-11 the runners could not
+      # resolve the Ubuntu archive for hours and every e2e run failed before any test ran. The
+      # ubuntu-24.04 image already ships the libraries Chromium needs, so fall back to the
+      # browser alone; a library really missing then fails the tests themselves, visibly.
       - name: Install Playwright Chromium
-        run: pnpm --filter @wcore/web exec playwright install chromium --with-deps
+        run: |
+          if ! pnpm --filter @wcore/web exec playwright install chromium --with-deps; then
+            echo "::warning::apt dependencies unavailable; installing Chromium without system packages"
+            pnpm --filter @wcore/web exec playwright install chromium
+          fi
 
       - name: E2E tests (critical flows)
         run: pnpm --dir apps/web exec playwright test --config=playwright.ci.config.ts e2e/critical-flows.spec.ts

@@ -204,27 +204,63 @@ export function bubblesSettled(bubbles: readonly Bubble[], maxSpeed = 0.03): boo
   return true;
 }
 
+/**
+ * L'animation s'arrete hors glisser une fois la derive finie et les bulles immobiles, ou au plus
+ * tard a `settleBy` : dans une fenetre trop petite pour toutes les bulles, les collisions
+ * entretiennent un leger mouvement qui ne s'eteindrait jamais.
+ */
+export function animationDone(s: { now: number; driftUntil: number; settleBy: number; dragging: boolean; settled: boolean }): boolean {
+  if (s.dragging || s.now < s.driftUntil) return false;
+  return s.settled || s.now >= s.settleBy;
+}
+
 /** Cadence plafonnee : vrai si assez de temps s'est ecoule depuis la derniere image dessinee. */
 export function frameDue(now: number, last: number, fps = 30): boolean {
   return now - last >= 1000 / fps - 1;
 }
 
+function pushApart(a: Bubble, b: Bubble, impulse: number): void {
+  let dx = b.x - a.x, dy = b.y - a.y;
+  let d = Math.hypot(dx, dy);
+  const min = a.r + b.r;
+  if (d >= min) return;
+  if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
+  const push = (min - d) / 2;
+  const ux = dx / d, uy = dy / d;
+  a.x -= ux * push; a.y -= uy * push;
+  b.x += ux * push; b.y += uy * push;
+  a.vx -= ux * push * impulse; a.vy -= uy * push * impulse;
+  b.vx += ux * push * impulse; b.vy += uy * push * impulse;
+}
+
+// Au-dela de GRID_FROM bulles, comparer toutes les paires (n²) a chaque pas coute trop cher : une
+// grille de cases de la taille du plus grand diametre ne compare chaque bulle qu'a ses voisines.
+// Deux bulles qui se chevauchent sont toujours dans la meme case ou dans deux cases voisines.
+const GRID_FROM = 150;
+
 function separate(bubbles: Bubble[], impulse: number): void {
-  for (let i = 0; i < bubbles.length; i++) {
-    const a = bubbles[i]!;
-    for (let j = i + 1; j < bubbles.length; j++) {
-      const b = bubbles[j]!;
-      let dx = b.x - a.x, dy = b.y - a.y;
-      let d = Math.hypot(dx, dy);
-      const min = a.r + b.r;
-      if (d >= min) continue;
-      if (d < 1e-6) { dx = 1; dy = 0; d = 1; }
-      const push = (min - d) / 2;
-      const ux = dx / d, uy = dy / d;
-      a.x -= ux * push; a.y -= uy * push;
-      b.x += ux * push; b.y += uy * push;
-      a.vx -= ux * push * impulse; a.vy -= uy * push * impulse;
-      b.vx += ux * push * impulse; b.vy += uy * push * impulse;
+  const n = bubbles.length;
+  if (n < GRID_FROM) {
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) pushApart(bubbles[i]!, bubbles[j]!, impulse);
+    return;
+  }
+  let maxR = 0;
+  for (const b of bubbles) if (b.r > maxR) maxR = b.r;
+  const cell = Math.max(1, maxR * 2);
+  const cells = new Map<number, number[]>();
+  const keyOf = (x: number, y: number) => x * 100003 + y;
+  const cx = new Int32Array(n), cy = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    cx[i] = Math.floor(bubbles[i]!.x / cell); cy[i] = Math.floor(bubbles[i]!.y / cell);
+    const k = keyOf(cx[i]!, cy[i]!);
+    const list = cells.get(k);
+    if (list) list.push(i); else cells.set(k, [i]);
+  }
+  for (let i = 0; i < n; i++) {
+    for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+      const list = cells.get(keyOf(cx[i]! + ox, cy[i]! + oy));
+      if (!list) continue;
+      for (const j of list) if (j > i) pushApart(bubbles[i]!, bubbles[j]!, impulse);
     }
   }
 }

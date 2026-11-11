@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { parseMarketCapResponse, type MarketCapRow } from "../app/cmc/market-cap";
 import {
-  bubbleColor, bubbleKey, bubbleMetric, bubblesSettled, computeRadii, createBubbles, formatChange, frameDue, selectBubbleRows, stepBubbles,
+  animationDone, bubbleColor, bubbleKey, bubbleMetric, bubblesSettled, computeRadii, createBubbles, formatChange, frameDue, selectBubbleRows, stepBubbles,
   type Bubble, type BubblePeriod,
 } from "../lib/market-bubbles";
 
@@ -88,6 +88,35 @@ describe("simulation", () => {
     while (!bubblesSettled(b) && steps < 600) { stepBubbles(b, 900, 600); steps++; }
     assert.ok(bubblesSettled(b), `immobiles après ${steps} pas`);
     assert.ok(steps < 600);
+  });
+  test("fenêtre trop petite pour 500 bulles : le mouvement ne s'éteint pas, l'arrêt borné fige quand même l'image", () => {
+    const radii = computeRadii(Array.from({ length: 500 }, (_, i) => 500 - i), 320, 200, { fill: 0.68, minRadius: 6 });
+    let seed = 1;
+    const b = createBubbles(Array.from({ length: 500 }, (_, i) => row(i + 1, 1000 - i)), radii, 320, 200, [], () => ((seed = (seed * 16807) % 2147483647) / 2147483647));
+    const driftUntil = 6000, settleBy = driftUntil + 4000;
+    let t = 0, stoppedAt = -1;
+    for (; t < 20000; t += 33) {
+      stepBubbles(b, 320, 200, t < driftUntil ? { time: t } : {});
+      if (animationDone({ now: t, driftUntil, settleBy, dragging: false, settled: t >= driftUntil && bubblesSettled(b) })) { stoppedAt = t; break; }
+    }
+    assert.ok(stoppedAt >= driftUntil && stoppedAt <= settleBy + 33, `arrêt à ${stoppedAt} ms`);
+  });
+  test("500 bulles : la séparation par grille ne laisse pas de chevauchement notable", () => {
+    const radii = computeRadii(Array.from({ length: 500 }, (_, i) => 500 - i), 1600, 900, { fill: 0.68, minRadius: 6 });
+    let seed = 7;
+    const b = createBubbles(Array.from({ length: 500 }, (_, i) => row(i + 1, 1000 - i)), radii, 1600, 900, [], () => ((seed = (seed * 16807) % 2147483647) / 2147483647));
+    for (let i = 0; i < 300; i++) stepBubbles(b, 1600, 900);
+    let worst = 0;
+    for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
+      const o = b[i]!.r + b[j]!.r - Math.hypot(b[i]!.x - b[j]!.x, b[i]!.y - b[j]!.y);
+      if (o > worst) worst = o;
+    }
+    assert.ok(worst < 1.5, `chevauchement maximal ${worst.toFixed(2)} px`);
+  });
+  test("jamais d'arrêt pendant un glisser ou la dérive", () => {
+    assert.equal(animationDone({ now: 99999, driftUntil: 0, settleBy: 0, dragging: true, settled: true }), false);
+    assert.equal(animationDone({ now: 100, driftUntil: 6000, settleBy: 10000, dragging: false, settled: true }), false);
+    assert.equal(animationDone({ now: 7000, driftUntil: 6000, settleBy: 10000, dragging: false, settled: true }), true);
   });
   test("cadence plafonnée à 30 images/s", () => {
     assert.equal(frameDue(1000, 1000 - 16.7, 30), false);

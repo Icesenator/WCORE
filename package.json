@@ -16,7 +16,7 @@
     "validate:static": "npm --prefix wcore-gsheet run validate:static",
     "push": "node scripts/refuse-root-push.cjs",
     "pull": "powershell -File wcore-gsheet/pull-all.ps1",
-    "sync:chains": "npm --prefix wcore-gsheet run build:chains && node wcore-web/packages/core/src/chains/build-index.mjs",
+    "sync:chains": "npm --prefix wcore-gsheet run build:chains",
     "graphify:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.ps1 sync",
     "graphify:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.ps1 status",
     "test:graphify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/graphify-sync.test.ps1",

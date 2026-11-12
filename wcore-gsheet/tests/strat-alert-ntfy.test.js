@@ -205,3 +205,28 @@ test('a busy lock skips the pass without touching the state; the lock is always 
   h.state.locked = false;
   assert.equal(h.run().reason, 'SENT');
 });
+
+test('the occurrence is saved before the send: a lost final save still reuses it next pass', () => {
+  const h = harness();
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  const realSet = h.store.set.bind(h.store);
+  let writes = 0;
+  h.store.set = (k, v) => { writes++; if (writes === 2) throw new Error('quota'); return realSet(k, v); }; // final save fails
+  assert.equal(h.run().reason, 'ERROR');
+  assert.equal(h.posts.length, 1);
+  h.store.set = realSet;
+  h.tick(600000);
+  h.run();
+  assert.equal(h.posts.length, 2);
+  assert.equal(h.posts[1].payload.occurrence, h.posts[0].payload.occurrence, 'same occurrence: the API dedupes it');
+});
+
+test('if the pending occurrence cannot be saved, nothing is sent', () => {
+  const h = harness();
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.store.set = () => { throw new Error('quota'); };
+  assert.equal(h.run().reason, 'STATE_WRITE_FAILED');
+  assert.equal(h.posts.length, 0);
+});

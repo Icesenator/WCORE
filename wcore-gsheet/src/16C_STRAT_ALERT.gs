@@ -116,14 +116,30 @@ function _wcoreCheckStratAlert_(ss) {
     var occ = (last.occ && typeof last.occ === "object") ? last.occ : {};
     var next = { occ: {} };
     var failed = 0;
+    // 1) Decide the transitions and their occurrence ids, and persist them as pending BEFORE any
+    //    network call: if the pass dies after the send, the next one reuses the same id.
+    var todo = [];
+    var pre = { occ: {} };
     for (var j = 0; j < STRAT_ALERT_CELLS.length; j++) {
       var c = STRAT_ALERT_CELLS[j];
       var cur = now[c.cell];
       next[c.cell] = cur == null ? (last[c.cell] || null) : cur; // unreadable cell: keep the old state
-      if (cur == null && occ[c.cell]) next.occ[c.cell] = occ[c.cell];
+      pre[c.cell] = last[c.cell] || null;
+      if (cur == null && occ[c.cell]) { next.occ[c.cell] = occ[c.cell]; pre.occ[c.cell] = occ[c.cell]; }
       if (!(cur === "X" && last[c.cell] === "V")) continue;
-      out.newX++;
       var id = /^[A-Za-z0-9_-]{8,64}$/.test(String(occ[c.cell] || "")) ? occ[c.cell] : c.cell + "-" + Date.now();
+      pre.occ[c.cell] = id;
+      todo.push({ c: c, id: id });
+    }
+    if (todo.length) {
+      try { props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(pre)); }
+      catch (ePre) { out.newX = todo.length; out.reason = "STATE_WRITE_FAILED"; return out; } // nothing sent
+    }
+    // 2) Send.
+    for (var t = 0; t < todo.length; t++) {
+      c = todo[t].c;
+      id = todo[t].id;
+      out.newX++;
       var body = { event: "strat_rebalance", category: c.category, occurrence: id };
       var trade = _wcoreStratAlertTrade_(ss, c.tradeSheet);
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }

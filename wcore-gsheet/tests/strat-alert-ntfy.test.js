@@ -171,7 +171,7 @@ test('setup stores a valid topic only and never returns it; the test send uses i
   const h = harness({ props: {} });
   const ctx = vm.createContext({ JSON, Object, String, Number, Math, Logger: { log: () => {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (h.store.has(k) ? h.store.get(k) : null), setProperty: (k, v) => h.store.set(k, v) }) },
-    HTTP: { post: (url) => { h.posts.push({ url }); return { getResponseCode: () => 200 }; } } });
+    HTTP: { canFetchNow: () => true, post: (url) => { h.posts.push({ url }); return { getResponseCode: () => 200 }; } } });
   vm.runInContext(SRC, ctx);
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.WCORE_NTFY_SET_TOPIC('bad topic!'))), { ok: false, reason: 'INVALID_TOPIC' });
   assert.equal(JSON.stringify(ctx.WCORE_NTFY_TEST()), JSON.stringify({ ok: false, reason: 'NO_TOPIC' }));

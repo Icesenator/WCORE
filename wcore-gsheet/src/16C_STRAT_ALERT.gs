@@ -145,12 +145,18 @@ function WCORE_NTFY_SET_TOPIC(topic) {
 function WCORE_NTFY_TEST() {
   var topic = PropertiesService.getScriptProperties().getProperty("WCORE_NTFY_TOPIC");
   if (!topic || !/^[A-Za-z0-9_-]{8,64}$/.test(topic)) return { ok: false, reason: "NO_TOPIC" };
+  var diag = { mode: null, canFetch: null, error: null };
+  try { diag.mode = (typeof WcoreHttpMode !== "undefined" && WcoreHttpMode.getMode) ? WcoreHttpMode.getMode() : null; } catch (eMode) {}
+  try { diag.canFetch = HTTP.canFetchNow("Http.post"); } catch (eCan) { diag.canFetch = "ERROR"; }
   var resp = null;
   try {
     resp = HTTP.post(STRAT_ALERT_NTFY_BASE + topic, "WCORE : essai depuis le classeur, rien à faire.", {
       headers: { Title: "WCORE", Priority: "default" }, muteHttpExceptions: true, timeoutMs: 5000
     });
-  } catch (e) { resp = null; }
+  } catch (e) {
+    resp = null;
+    diag.error = String(e && e.message ? e.message : e).split(topic).join("<topic>").slice(0, 160);
+  }
   var code = resp && typeof resp.getResponseCode === "function" ? resp.getResponseCode() : 0;
-  return { ok: code >= 200 && code < 300, code: code };
+  return { ok: code >= 200 && code < 300, code: code, mode: diag.mode, canFetch: diag.canFetch, error: diag.error };
 }

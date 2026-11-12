@@ -44,8 +44,5 @@
     "google-auth-library": "^10.6.2",
     "googleapis": "^171.4.0",
     "playwright": "^1.58.2"
-  },
-  "devDependencies": {
-    "mcp-google-sheets": "^2.0.1"
   }
 }

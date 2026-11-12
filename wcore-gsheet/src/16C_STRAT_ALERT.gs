@@ -5,37 +5,60 @@
  * (every 10 min). Replaces the mails of the removed notification extension (decision of
  * 2026-11-11) without spending a Claude session per check.
  *
- * Cells: AY1 = crypto rebalancing, BE1 = stock rebalancing, BK1 = a portfolio tab in error,
- * BQ1 = gap in the Details tabs. A notification is sent only when a cell goes from V to X
+ * Cells: AY1 = crypto rebalancing, BE1 = stock rebalancing (Florian, 12/11: only the
+ * rebalancings go to the phone; tab errors and stale updates go to the WCORE session through
+ * its scheduled check). A notification is sent only when a cell goes from V to X
  * (a cell already at X on the first observation does not notify). A failed send keeps the
  * previous state, so the next pass tries again.
  *
  * Script properties (never in the repository, never logged):
  *   WCORE_NTFY_TOPIC  : the ntfy topic; absent = feature off.
- * The message names the category and, for a rebalancing, the trade to do (symbols from Q1/S1
- * of the portfolio tab, never an amount): explicit decision of Florian on 2026-11-12, who
+ * The message names the trade to do and its amounts: symbols from Q1/S1 of the portfolio tab
+ * and the gap (column P, real minus target, in euros) of the rows marked V and X in column R.
+ * Explicit decisions of Florian on 2026-11-12 (« oui, avec le trade », then the amounts), who
  * accepts that anyone knowing the topic can read it (exception to the common ProjetIA rule).
  * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X",...}.
  */
 
 var STRAT_ALERT_CELLS = [
   { cell: "AY1", col: 0, label: "rééquilibrage Crypto à faire", tradeSheet: "Portefeuille Crypto" },
-  { cell: "BE1", col: 6, label: "rééquilibrage Action à faire", tradeSheet: "Portefeuille Action" },
-  { cell: "BK1", col: 12, label: "un onglet du portefeuille est en erreur", tradeSheet: null },
-  { cell: "BQ1", col: 18, label: "écart dans les onglets Détails", tradeSheet: null }
+  { cell: "BE1", col: 6, label: "rééquilibrage Action à faire", tradeSheet: "Portefeuille Action" }
 ];
 var STRAT_ALERT_STATE_KEY = "WCORE_STRAT_ALERT_LAST";
 var STRAT_ALERT_NTFY_BASE = "https://ntfy.sh/";
 
-/** Trade to do from Q1 (above its target) and S1 (below): symbols only, never an amount. */
+/** Euros, rounded, French style ("1 234 €"); "" when not a finite number. */
+function _wcoreStratAlertEuros_(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return "";
+  var r = String(Math.round(Math.abs(n)));
+  return r.replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €";
+}
+
+/**
+ * Trade to do: Q1 (row above its target, marked V in column R) and S1 (row below, marked X),
+ * with their gap in euros from column P. Falls back to the symbols alone, then to nothing.
+ */
 function _wcoreStratAlertTrade_(ss, sheetName) {
   try {
     var sh = ss.getSheetByName(sheetName);
     if (!sh) return "";
-    var row = sh.getRange("Q1:S1").getValues()[0];
-    var sell = String(row[0] || "").trim(), buy = String(row[2] || "").trim();
+    var head = sh.getRange("Q1:S1").getValues()[0];
+    var sell = String(head[0] || "").trim(), buy = String(head[2] || "").trim();
     if (!/^[A-Za-z0-9.$_-]{1,15}$/.test(sell) || !/^[A-Za-z0-9.$_-]{1,15}$/.test(buy)) return "";
-    return " : alléger " + sell + ", renforcer " + buy;
+    var sellAmt = "", buyAmt = "";
+    try {
+      var last = sh.getLastRow();
+      if (last >= 3) {
+        var rows = sh.getRange(3, 16, last - 2, 3).getValues(); // P, Q, R
+        for (var k = 0; k < rows.length; k++) {
+          var sig = String(rows[k][2] || "").trim();
+          if (sig === "V" && !sellAmt && Number(rows[k][0]) > 0) sellAmt = _wcoreStratAlertEuros_(rows[k][0]);
+          if (sig === "X" && !buyAmt && Number(rows[k][0]) < 0) buyAmt = _wcoreStratAlertEuros_(rows[k][0]);
+        }
+      }
+    } catch (eAmt) { sellAmt = ""; buyAmt = ""; }
+    return " : alléger " + sell + (sellAmt ? " de " + sellAmt : "") + ", renforcer " + buy + (buyAmt ? " de " + buyAmt : "");
   } catch (e) { return ""; }
 }
 

@@ -20,10 +20,18 @@ function stratRow(cells) {
 function harness(opts = {}) {
   const store = new Map(Object.entries(opts.props || { WCORE_NTFY_TOPIC: TOPIC }));
   const posts = [];
-  const state = { strat: stratRow({}), trade: { 'Portefeuille Crypto': ['SOMI', '>', 'ETH'], 'Portefeuille Action': ['AAA', '>', 'BBB'] }, code: 200 };
+  const state = { strat: stratRow({}), code: 200,
+    trade: { 'Portefeuille Crypto': ['SOMI', '>', 'ETH'], 'Portefeuille Action': ['AAA', '>', 'BBB'] },
+    gaps: {
+      'Portefeuille Crypto': [[4.02, 'x', ''], [21.4, 'SOMI', 'V'], [-1234.6, 'ETH', 'X']],
+      'Portefeuille Action': [[30, 'AAA', 'V'], [-12.2, 'BBB', 'X']],
+    } };
   const sheet = (name) => {
     if (name === 'Strat') return { getRange: (r) => { assert.equal(r, 'AY1:BQ1'); return { getValues: () => [state.strat] }; } };
-    if (state.trade[name]) return { getRange: () => ({ getValues: () => [state.trade[name]] }) };
+    if (state.trade[name]) return {
+      getLastRow: () => 2 + (state.gaps[name] || []).length,
+      getRange: (a) => (a === 'Q1:S1' ? { getValues: () => [state.trade[name]] } : { getValues: () => state.gaps[name] || [] }),
+    };
     return null;
   };
   const ctx = {
@@ -74,7 +82,7 @@ test('a cell going from V to X sends one generic notification, once', () => {
   assert.equal(out.reason, 'SENT');
   assert.equal(h.posts.length, 1);
   assert.equal(h.posts[0].url, 'https://ntfy.sh/' + TOPIC);
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI, renforcer ETH.');
+  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI de 21 €, renforcer ETH de 1 235 €.');
   assert.equal(h.posts[0].options.headers.Title, 'WCORE');
   h.run();
   assert.equal(h.posts.length, 1, 'still X: no repeat');
@@ -85,12 +93,27 @@ test('a cell going from V to X sends one generic notification, once', () => {
   assert.equal(h.posts.length, 2, 'back to V re-arms the alert');
 });
 
-test('several new X are grouped, with the trade for a rebalancing only', () => {
+test('both rebalancings are grouped with their amounts; tab errors never go to the phone', () => {
   const h = harness();
   h.run();
-  h.state.strat = stratRow({ AY1: 'X', BE1: 'X', BK1: 'X' });
+  h.state.strat = stratRow({ AY1: 'X', BE1: 'X', BK1: 'X', BQ1: 'X' });
   h.run();
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI, renforcer ETH ; rééquilibrage Action à faire : alléger AAA, renforcer BBB ; un onglet du portefeuille est en erreur.');
+  assert.equal(h.posts.length, 1);
+  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI de 21 €, renforcer ETH de 1 235 € ; rééquilibrage Action à faire : alléger AAA de 30 €, renforcer BBB de 12 €.');
+  const only = harness();
+  only.run();
+  only.state.strat = stratRow({ BK1: 'X', BQ1: 'X' });
+  assert.equal(only.run().reason, 'NO_NEW_X');
+  assert.equal(only.posts.length, 0);
+});
+
+test('without a readable gap the trade keeps its symbols only', () => {
+  const h = harness();
+  h.state.gaps['Portefeuille Crypto'] = [[ 'n/a', 'SOMI', 'V'], [5, 'ETH', 'X']]; // wrong sign for X too
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.run();
+  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI, renforcer ETH.');
 });
 
 test('an unreadable or odd trade cell falls back to the category alone, never an amount', () => {
@@ -124,8 +147,8 @@ test('an unreadable cell keeps its old state and never notifies', () => {
   assert.equal(h.run().reason, 'SENT', 'V kept through the unreadable pass, so V -> X still alerts');
 });
 
-test('the trade reads symbols only, never the gap column', () => {
-  assert.ok(/getRange\("Q1:S1"\)/.test(SRC) && !/P1:P|P3:P|getRange\("P/.test(SRC));
+test('the amounts come from the gap column of the rows marked V and X only', () => {
+  assert.ok(/getRange\(3, 16, last - 2, 3\)/.test(SRC));
 });
 
 test('the real HTTP.post makes no transport when the quota breaker refuses', () => {

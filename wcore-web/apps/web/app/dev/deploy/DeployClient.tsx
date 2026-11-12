@@ -5,7 +5,7 @@ import { LogoSpinner } from "@/components/LogoSpinner";
 import { Logo } from "@/components/Logo";
 import { getActiveFactoryChains } from "@wcore/shared";
 import { buildAddEthereumChainParams } from "./chain-params";
-import { switchWalletChain } from "./chain-switch";
+import { getStoppedDeployChainMessage, switchWalletChain } from "./chain-switch";
 import { pickBuild, PARIS_BUILD_CHAINS, type BuildOutput } from "./build-selector";
 import { getGmWindDown } from "@/lib/gm-winddown";
 import { getGmRpcUnavailableMessage } from "@/lib/gm-rpc-error";
@@ -13,15 +13,19 @@ import { getGmRpcUnavailableMessage } from "@/lib/gm-rpc-error";
 const PLATFORM_OWNER = "0x17d518736Ee9341dcDc0A2498e013D33CFCDD080";
 
 // Guard both the legacy key and a custom numeric ID before touching the wallet.
-// Removed chains cannot be re-enabled by an alias or a custom deployment ID.
-function gmRpcUnavailableForSelection(
+// Removed chains cannot be re-enabled by an alias or a custom deployment ID, and
+// neither can a stopped network whose factory is only kept in GM_HISTORICAL_FACTORIES
+// (Gravity 1625): typing its id in the custom field is refused here.
+// Exported so the tests execute the real guard.
+export function gmRpcUnavailableForSelection(
   chainKey: string,
   chainIdHex: string,
   chains: readonly { key: string; chainIdNum: number }[],
 ): string | null {
   const id = Number.parseInt(chainIdHex, 16);
   const effectiveKey = Number.isNaN(id) ? chainKey : chains.find((c) => c.chainIdNum === id)?.key ?? chainKey;
-  return getGmRpcUnavailableMessage(chainKey) ?? getGmRpcUnavailableMessage(String(id)) ?? getGmRpcUnavailableMessage(effectiveKey);
+  return getGmRpcUnavailableMessage(chainKey) ?? getGmRpcUnavailableMessage(String(id)) ?? getGmRpcUnavailableMessage(effectiveKey)
+    ?? getStoppedDeployChainMessage(chainIdHex);
 }
 
 const DEPLOYED = new Set(getActiveFactoryChains());
@@ -160,6 +164,22 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
 
 type DeployBuildOutput = BuildOutput;
 
+// The chains offered by the deploy dropdown. Pure and exported so the tests read
+// the list the page really renders instead of this file's text.
+export function getDeployChains() {
+  return DEPLOY_CHAIN_KEYS.flatMap((coreKey) => {
+    const meta = CHAIN_META[coreKey];
+    if (!meta) return [];
+    return [{
+      key: coreKey.toLowerCase(),
+      name: meta.name,
+      chainId: "0x" + meta.chainId.toString(16),
+      chainIdNum: meta.chainId,
+      windDown: getGmWindDown(coreKey)?.announcedShutdown,
+    }];
+  });
+}
+
 export function DeployClient() {
   const [build, setBuild] = useState<DeployBuildOutput | null>(null);
   const [gmOnChainAddr, setGmOnChainAddr] = useState("");
@@ -177,19 +197,7 @@ export function DeployClient() {
       .catch(() => setError("Failed to load contract builds"));
   }, []);
 
-  const deployChains = useMemo(() => {
-    return DEPLOY_CHAIN_KEYS.flatMap((coreKey) => {
-      const meta = CHAIN_META[coreKey];
-      if (!meta) return [];
-      return [{
-        key: coreKey.toLowerCase(),
-        name: meta.name,
-        chainId: "0x" + meta.chainId.toString(16),
-        chainIdNum: meta.chainId,
-        windDown: getGmWindDown(coreKey)?.announcedShutdown,
-      }];
-    });
-  }, []);
+  const deployChains = useMemo(() => getDeployChains(), []);
   const chainInfo = deployChains.find((c) => c.key === chainKey);
   const chainId = customChainId || chainInfo?.chainId || "0x1";
 

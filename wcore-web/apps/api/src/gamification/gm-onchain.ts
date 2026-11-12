@@ -49,6 +49,10 @@ export async function registerGmOnchainRoutes(
     const txHash = onchainParsed.data.txHash.toLowerCase();
     const chainKey = canonicalChainKey(onchainParsed.data.chainKey);
     const gmContractAddress = onchainParsed.data.contractAddress?.toLowerCase();
+    // GM_FACTORIES is the single source of truth for "GM is possible on this chain":
+    // a chain whose factory was retired (Gravity 1625, ...) is refused like on the
+    // other GM routes, before any DB or RPC work.
+    if (!getFactory(chainKey)) return reply.code(400).send({ error: "unsupported_chain", chainKey });
     const rpcUrl = getChainRpc(chainKey);
     if (!rpcUrl) return reply.code(400).send({ error: "unsupported_chain", chainKey });
 

@@ -1,4 +1,4 @@
-import { getRetiredChainLabel, isRetiredChainId } from "@wcore/shared";
+import { GM_HISTORICAL_FACTORIES, getRetiredChainLabel, isRetiredChainId } from "@wcore/shared";
 import type { AddEthereumChainParams } from "./chain-params";
 
 export interface WalletRequest {
@@ -20,6 +20,38 @@ function getErrorCode(e: unknown): number | undefined {
     if (!Number.isNaN(n)) return n;
   }
   return undefined;
+}
+
+/**
+ * Deployment guard for stopped networks. A chain whose factory only sits in
+ * GM_HISTORICAL_FACTORIES (Gravity 1625, Degen, Superposition, B3) has no active
+ * GM factory any more: a new deployment there can only fail or strand funds.
+ * Returns the refusal message, or null when the chain id is not historical.
+ *
+ * Scope: this module is only used by /dev/deploy. Withdrawals from contracts that
+ * already exist go through lib/onchain-tx.ts and are not affected.
+ *
+ * A bare digit string is checked both as hex (how the page reads its custom
+ * chain id field) and as decimal, so "0x659", "659" and "1625" are all refused.
+ */
+export function getStoppedDeployChainMessage(chainId: number | string): string | null {
+  const candidates: number[] = [];
+  if (typeof chainId === "number") {
+    if (Number.isInteger(chainId)) candidates.push(chainId);
+  } else {
+    const raw = String(chainId ?? "").trim().toLowerCase();
+    if (/^0x[0-9a-f]+$/.test(raw)) candidates.push(parseInt(raw, 16));
+    else if (/^[0-9a-f]+$/.test(raw)) {
+      candidates.push(parseInt(raw, 16));
+      if (/^\d+$/.test(raw)) candidates.push(Number(raw));
+    }
+  }
+  for (const [key, factory] of Object.entries(GM_HISTORICAL_FACTORIES)) {
+    if (!candidates.includes(factory.chainId)) continue;
+    const name = key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, " ");
+    return `${name} (${factory.chainId}) is a stopped network. GM contract deployment is not supported.`;
+  }
+  return null;
 }
 
 /**
@@ -52,6 +84,9 @@ export async function switchWalletChain(
     const label = getRetiredChainLabel(String(parseInt(chainIdHex, 16))) ?? chainIdHex;
     throw Object.assign(new Error(`${label} has been removed from WCORE. Wallet and RPC actions are not supported.`), { code: "CHAIN_REMOVED" });
   }
+  // Stopped networks kept for history only (Gravity 1625, ...): refused at the same point.
+  const stopped = getStoppedDeployChainMessage(chainIdHex);
+  if (stopped) throw Object.assign(new Error(stopped), { code: "CHAIN_STOPPED" });
   if (!ethereum) return;
   try {
     await ethereum.request({

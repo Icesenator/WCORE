@@ -234,7 +234,7 @@ test('auto-réparation : un watchdog refusé à chaque passage devient visible (
     WCORE_WD_LAST_DIAG: JSON.stringify({ stats: { mode: 'SKIPPED_UNSAFE', reason: 'HTTP_COUNTER_UNATTESTED' } }),
   }), now);
   assert.equal(stale.status, 'STALE');
-  assert.match(stale.detail, /reason=HTTP_COUNTER_UNATTESTED/);
+  assert.match(stale.detail, /^watchdog refused since ageMin=\d+ reason=HTTP_COUNTER_UNATTESTED$/);
 });
 
 // The real WCORE_AUTO_HEAL, normal and forced: the admission row is produced in both, with its
@@ -285,13 +285,24 @@ test('auto-réparation : jamais admis mais dernier passage refusé ⇒ STALE ave
   const props = (o) => ({ getProperty: (k) => (k in o ? o[k] : null) });
   const never = ctx._wcoreAutoHealWatchdogAdmission_(props({ WCORE_WD_LAST_DIAG: JSON.stringify({ stats: { mode: 'SKIPPED_UNSAFE', reason: 'QUOTA' } }) }), now);
   assert.equal(never.status, 'STALE');
-  assert.match(never.detail, /never admitted reason=QUOTA/);
+  assert.match(never.detail, /^watchdog refused, never admitted reason=QUOTA$/);
   assert.equal(ctx._wcoreAutoHealWatchdogAdmission_(props({}), now).status, 'UNKNOWN');
   const old = ctx._wcoreAutoHealWatchdogAdmission_(props({ WCORE_WD_LAST_ADMITTED_MS: String(now - 2 * 3600000), WCORE_WD_LAST_DIAG: JSON.stringify({ stats: { mode: 'API_BATCH' } }) }), now);
   assert.equal(old.status, 'STALE');
   assert.match(old.detail, /^no admission since/);
   assert.match(HEAL, /var WCORE_AUTO_HEAL_WD_STALE_MS = 30 \* 60 \* 1000;/);
 });
-test('diagnostic du watchdog : les raisons de blocage du moteur sont nommées', () => {
-  assert.match(REF, /"COUNTER_UNATTESTED", "QUOTA", "DEGRADED", "GUARD"\]/);
+test('diagnostic du watchdog : la raison écrite est exécutée depuis le source, inconnue ⇒ UNKNOWN', () => {
+  // The expression that computes stats.reason is cut out of the real gate and run as is.
+  const start = REF.indexOf('reason: /^HTTP_BUDGET_');
+  const end = REF.indexOf('httpMode:', start);
+  assert.ok(start > 0 && end > start, 'expression trouvée dans la porte');
+  const expr = REF.slice(start + 'reason: '.length, end).trim().replace(/,\s*$/, '');
+  const run = (r) => vm.runInNewContext('(' + expr + ')', { _wdGateReason: r });
+  for (const r of ['QUOTA', 'DEGRADED', 'GUARD', 'HTTP_COUNTER_UNKNOWN', 'HTTP_COUNTER_UNATTESTED', 'HTTP_MODE_UNKNOWN', 'GATE_UNAVAILABLE', 'COUNTER_UNATTESTED', 'HTTP_MODE_CACHE_ONLY']) {
+    assert.equal(run(r), r, r);
+  }
+  assert.equal(run('HTTP_BUDGET_85%'), 'HTTP_BUDGET');
+  assert.equal(run('SOMETHING_ELSE'), 'UNKNOWN');
+  assert.equal(run(''), 'UNKNOWN');
 });

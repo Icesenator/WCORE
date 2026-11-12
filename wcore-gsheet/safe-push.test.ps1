@@ -15,10 +15,14 @@ function Test-SafePush {
         [string[]]$ExcludeRealSrc = @(),
         # Contenu du 19_CHAIN_FACTORY.js ramene par le pull simule (vide = aucun).
         [string]$RemoteFactory = "",
+        # Autres fichiers ramenes par le pull simule (nom .js -> contenu).
+        [hashtable]$RemoteFiles = @{},
         # Lance le safe-push.ps1 du depot (et non sa copie) depuis le dossier de test.
         [switch]$RunFromRepo,
         # Fichiers que la garde chaines retirees doit nommer (vide = aucun refus de la garde).
         [string[]]$ExpectRefusedFiles = @(),
+        # Fichiers en ligne que la garde doit signaler en avertissement (vide = aucun avertissement).
+        [string[]]$ExpectOnlineWarnings = @(),
         # Appels a clasp attendus, dans l'ordre, separes par des virgules ("*" = non verifie).
         [string]$ExpectClaspCalls = "*",
         # Expressions que la sortie doit contenir.
@@ -29,7 +33,7 @@ function Test-SafePush {
     $mockBin = Join-Path $testRoot "mock-bin"
     $pushMarker = Join-Path $testRoot "push-called.txt"
     $claspLog = Join-Path $testRoot "clasp-calls.txt"
-    $remoteFactoryFixture = Join-Path $testRoot "remote-factory.fixture"
+    $remoteFixtures = Join-Path $testRoot "remote-fixtures"
 
     try {
         New-Item -ItemType Directory -Path (Join-Path $testRoot "src") -Force | Out-Null
@@ -46,10 +50,15 @@ function Test-SafePush {
         foreach ($name in $SrcFiles.Keys) {
             Set-Content -LiteralPath (Join-Path $testRoot "src\$name") -Value $SrcFiles[$name]
         }
-        $pullFactoryLine = ""
-        if ($RemoteFactory) {
-            Set-Content -LiteralPath $remoteFactoryFixture -Value $RemoteFactory
-            $pullFactoryLine = "copy /y `"$remoteFactoryFixture`" 19_CHAIN_FACTORY.js >nul"
+        $remoteContents = @{} + $RemoteFiles
+        if ($RemoteFactory) { $remoteContents["19_CHAIN_FACTORY.js"] = $RemoteFactory }
+        $pullRemoteLine = ""
+        if ($remoteContents.Count -gt 0) {
+            New-Item -ItemType Directory -Path $remoteFixtures -Force | Out-Null
+            foreach ($name in $remoteContents.Keys) {
+                Set-Content -LiteralPath (Join-Path $remoteFixtures $name) -Value $remoteContents[$name]
+            }
+            $pullRemoteLine = "copy /y `"$remoteFixtures\*.js`" . >nul"
         }
 
         $mock = @"
@@ -67,7 +76,7 @@ exit /b $PullExitCode
 :pullsuccess
 echo {"oauthScopes":[]}>appsscript.json
 echo function remote^(^) { return true; }>Remote.js
-$pullFactoryLine
+$pullRemoteLine
 exit /b 0
 :push
 echo called>"$pushMarker"
@@ -100,6 +109,12 @@ exit /b 0
             throw "expected refused files=[$($expectedRefused -join ',')]; got [$($refusedFiles -join ',')]. Output: $($output -join ' | ')"
         }
 
+        $onlineWarnings = @($output | ForEach-Object { if ("$_" -match '^\s*\[WARN\] Fichier en ligne (\S+) appelle ChainFactory\.createEvmChain') { $Matches[1] } } | Sort-Object -Unique)
+        $expectedWarnings = @($ExpectOnlineWarnings | Sort-Object -Unique)
+        if (($onlineWarnings -join ',') -ne ($expectedWarnings -join ',')) {
+            throw "expected online warnings=[$($expectedWarnings -join ',')]; got [$($onlineWarnings -join ',')]. Output: $($output -join ' | ')"
+        }
+
         if ($ExpectClaspCalls -ne "*") {
             $claspCalls = ""
             if (Test-Path $claspLog) { $claspCalls = (@(Get-Content $claspLog) | ForEach-Object { $_.Trim() }) -join ',' }
@@ -116,6 +131,10 @@ exit /b 0
 
         if ($ExpectedExitCode -ne 0 -and (Test-Path (Join-Path $testRoot ".temp_push"))) {
             throw ".temp_push left behind after a refusal"
+        }
+        # Le verrou de deploiement doit etre libere, refus compris.
+        if (Test-Path (Join-Path $testRoot ".push.lock")) {
+            throw ".push.lock left behind"
         }
 
         $script:testsPassed++
@@ -203,7 +222,7 @@ var REMOVED_NAMES = ["OLDCHAIN", "GONE", "4242"];
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "OLDCHAIN.gs" = $fixtureRemovedChain } `
     -ExpectRefusedFiles @("OLDCHAIN.gs") `
-    -ExpectOutput @('createEvmChain\("OLDCHAIN"\): chaine retiree Old Chain \(4242\)', 'Retire ce fichier du dossier de publication') `
+    -ExpectOutput @('createEvmChain\("OLDCHAIN"\): chaine retiree Old Chain \(4242\)', 'Retire ce fichier du dossier de publication', 'Ce controle \(A\) suit la fabrique du dossier pousse ou du depot') `
     -Label "removed-chain file is refused before any clasp call"
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "GONE.gs" = $fixtureRemovedChainLoose; "ALIVE.gs" = $fixtureActiveChains } `
@@ -227,6 +246,30 @@ Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "--versio
 Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
     -SrcFiles @{ "ALIVE.gs" = $fixtureActiveChains; "TOMBSTONE.gs" = $fixtureMentionsOnly } -RemoteFactory $fixtureFactory `
     -Label "minimal folder: active-chain and tombstone files are pushed"
+
+# Fichiers presents seulement en ligne: safe-push ne les supprime jamais. Une
+# fabrique qui retire une chaine dont le fichier reste en ligne casserait le
+# chargement: avertissement visible, mais push tout de meme (un refus
+# empecherait de pousser une reparation).
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true -ExpectClaspCalls "--version,pull,push" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory } `
+    -RemoteFiles @{ "OLDCHAIN.js" = $fixtureRemovedChain; "ALIVE.js" = $fixtureActiveChains } `
+    -ExpectOnlineWarnings @("OLDCHAIN.js") `
+    -ExpectOutput @('Fichier en ligne OLDCHAIN\.js appelle ChainFactory\.createEvmChain\("OLDCHAIN"\): chaine retiree Old Chain \(4242\)', 'neutralise ou supprime dans le projet Apps Script avant ou avec cette publication', 'RAPPEL: fichier\(s\) en ligne de chaine retiree .*: OLDCHAIN\.js') `
+    -Label "online-only removed-chain file warns and the push still happens"
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
+    -SrcFiles @{ "ALIVE.gs" = $fixtureActiveChains } -RemoteFactory $fixtureFactory `
+    -RemoteFiles @{ "GONE.js" = $fixtureRemovedChainLoose } `
+    -ExpectOnlineWarnings @("GONE.js") `
+    -Label "minimal folder: online-only removed-chain file warns and the push still happens"
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory } `
+    -RemoteFiles @{ "ALIVE.js" = $fixtureActiveChains; "TOMBSTONE.js" = $fixtureMentionsOnly } `
+    -Label "healthy online files give no warning"
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "OLDCHAIN.gs" = $fixtureMentionsOnly } `
+    -RemoteFiles @{ "OLDCHAIN.js" = $fixtureRemovedChain } `
+    -Label "online removed-chain file replaced by a neutralized src file gives no warning"
 
 # Aucune liste lisible (ni src/, ni depot voisin, ni projet distant): la garde
 # avertit et ne refuse rien.

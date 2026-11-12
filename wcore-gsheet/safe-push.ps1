@@ -90,7 +90,17 @@ Write-Host ""
 #      (celle de src/ si elle est poussee, sinon celle du projet distant).
 #      C'est B qui couvre le dossier de publication minimal (un ou deux
 #      fichiers, sans la fabrique).
+# A suit donc la fabrique du dossier pousse ou du depot et peut etre plus
+# strict que l'etat en ligne; B suit la fabrique qui sera en ligne.
 # Liste absente ou illisible: avertissement, jamais de refus.
+#
+# Fichiers presents seulement en ligne: ce script ne supprime jamais un
+# fichier distant. Si la fabrique qui sera en ligne retire une chaine dont le
+# fichier reste en ligne (X.gs enleve de src/ mais X.js toujours distant), le
+# script publie leve CHAIN_REMOVED au chargement. B examine donc aussi les .js
+# ramenes par le pull qui ne viennent pas de src/, avec la meme detection, en
+# AVERTISSEMENT et non en refus: un refus empecherait de pousser une
+# reparation alors que la version en ligne est deja cassee.
 $JsCommentPattern = '/\*[\s\S]*?\*/|//[^\r\n]*'
 $JsStringPattern = '"(?:\\.|[^"\\\r\n])*"|''(?:\\.|[^''\\\r\n])*''|`(?:\\.|[^`\\])*`'
 $RemovedChainCallPattern = '\bChainFactory\s*\.\s*createEvmChain\s*\(\s*(?<q>["''`])(?<name>[^"''`\\\r\n]*)\k<q>'
@@ -118,17 +128,12 @@ function Get-RemovedChainIndex([string]$factoryPath) {
     return $index
 }
 
-# Retourne $true si un fichier doit etre refuse (les messages sont affiches).
+# Retourne les appels ChainFactory.createEvmChain(<nom retire>) trouves dans
+# les fichiers, sous la forme { File; Name; Label }.
 # Un commentaire ou une chaine est consomme avant l'appel par l'alternance:
 # un appel commente ou cite dans une chaine n'est donc jamais retenu.
-function Test-RemovedChainFiles([string]$factoryPath, $files, [string]$origin) {
-    $index = Get-RemovedChainIndex $factoryPath
-    if ($null -eq $index) {
-        Write-Host "[WARN] Garde chaines retirees: WCORE_REMOVED_CHAINS illisible dans $origin, controle ignore" -ForegroundColor Yellow
-        return $false
-    }
+function Find-RemovedChainCalls($files, $index) {
     $scanPattern = "(?<c>$JsCommentPattern)|$RemovedChainCallPattern|(?<s>$JsStringPattern)"
-    $refused = $false
     foreach ($file in $files) {
         try { $content = [System.IO.File]::ReadAllText($file.FullName) } catch { continue }
         foreach ($call in [regex]::Matches($content, $scanPattern)) {
@@ -136,9 +141,22 @@ function Test-RemovedChainFiles([string]$factoryPath, $files, [string]$origin) {
             $chainName = $call.Groups['name'].Value
             $chainId = $chainName.Trim().ToUpperInvariant()
             if (-not $index.ContainsKey($chainId)) { continue }
-            $refused = $true
-            Write-Host "[ERREUR] src\$($file.Name) appelle ChainFactory.createEvmChain(""$chainName""): chaine retiree $($index[$chainId])" -ForegroundColor Red
+            [pscustomobject]@{ File = $file.Name; Name = $chainName; Label = $index[$chainId] }
         }
+    }
+}
+
+# Retourne $true si un fichier doit etre refuse (les messages sont affiches).
+function Test-RemovedChainFiles([string]$factoryPath, $files, [string]$origin) {
+    $index = Get-RemovedChainIndex $factoryPath
+    if ($null -eq $index) {
+        Write-Host "[WARN] Garde chaines retirees: WCORE_REMOVED_CHAINS illisible dans $origin, controle ignore" -ForegroundColor Yellow
+        return $false
+    }
+    $hits = @(Find-RemovedChainCalls $files $index)
+    $refused = $hits.Count -gt 0
+    foreach ($hit in $hits) {
+        Write-Host "[ERREUR] src\$($hit.File) appelle ChainFactory.createEvmChain(""$($hit.Name)""): chaine retiree $($hit.Label)" -ForegroundColor Red
     }
     if ($refused) {
         Write-Host "  Liste WCORE_REMOVED_CHAINS lue dans $origin." -ForegroundColor Red
@@ -148,6 +166,29 @@ function Test-RemovedChainFiles([string]$factoryPath, $files, [string]$origin) {
         Write-Host "[OK] Aucun fichier de chaine retiree ($($index.Count) identifiants lus dans $origin)" -ForegroundColor Green
     }
     return $refused
+}
+
+# Avertit (sans refuser) pour chaque fichier present seulement en ligne qui
+# appelle la fabrique pour une chaine retiree. Retourne les appels trouves.
+function Show-RemovedChainOnlineWarnings([string]$factoryPath, $files) {
+    $index = Get-RemovedChainIndex $factoryPath
+    if ($null -eq $index) { return }
+    $hits = @(Find-RemovedChainCalls $files $index)
+    if ($hits.Count -eq 0) { return }
+    Write-Host ""
+    Write-Host "  ========================================" -ForegroundColor Yellow
+    Write-Host "  [WARN] FICHIER EN LIGNE DE CHAINE RETIREE" -ForegroundColor Red
+    foreach ($hit in $hits) {
+        Write-Host "  [WARN] Fichier en ligne $($hit.File) appelle ChainFactory.createEvmChain(""$($hit.Name)""): chaine retiree $($hit.Label)" -ForegroundColor Red
+    }
+    Write-Host "  Ce fichier n'est pas dans src/ et safe-push ne supprime jamais un fichier en ligne." -ForegroundColor Red
+    Write-Host "  Avec la fabrique qui sera en ligne, il leve CHAIN_REMOVED au chargement et bloque tout le script du classeur." -ForegroundColor Red
+    Write-Host "  Il doit etre neutralise ou supprime dans le projet Apps Script avant ou avec cette publication" -ForegroundColor Red
+    Write-Host "  (avec = sa version neutralisee dans src/). Sinon, fais-le juste apres ce push." -ForegroundColor Red
+    Write-Host "  Publication poursuivie: un refus empecherait de pousser une reparation." -ForegroundColor Yellow
+    Write-Host "  ========================================" -ForegroundColor Yellow
+    Write-Host ""
+    return $hits
 }
 
 # Controle A (local, avant clasp). Si src/ manque, les verifications plus bas
@@ -165,6 +206,8 @@ if (Test-Path -LiteralPath $guardFactoryPushed) {
     Write-Host "[INFO] Garde chaines retirees: 19_CHAIN_FACTORY.gs absent en local, controle refait apres le pull" -ForegroundColor Gray
 }
 if ($guardRefused) {
+    Write-Host "  Ce controle (A) suit la fabrique du dossier pousse ou du depot: il peut etre plus strict" -ForegroundColor Red
+    Write-Host "  que l'etat en ligne. Le controle B, apres le pull, suit la fabrique qui sera en ligne." -ForegroundColor Red
     Write-Host "  Aucun appel a clasp, aucune modification effectuee." -ForegroundColor Red
     exit 1
 }
@@ -333,8 +376,10 @@ if (-not (Test-Path $appsscriptPath)) {
 
 # Garde chaines retirees, controle B: meme regle que le controle A, avec la
 # liste de la fabrique qui sera reellement en ligne apres le push (celle de
-# src/ si elle est poussee, sinon celle que le pull vient de ramener). Seuls
-# les fichiers de src/ sont examines: les fichiers deja distants ne le sont pas.
+# src/ si elle est poussee, sinon celle que le pull vient de ramener). Un
+# fichier de src/ fautif est refuse; un fichier present seulement en ligne
+# (ramene par le pull, absent de src/) ne donne qu'un avertissement.
+$guardOnlineHits = @()
 $guardFactoryMerged = Join-Path $TempDir "19_CHAIN_FACTORY.js"
 if (Test-Path -LiteralPath $guardFactoryMerged) {
     if (Test-RemovedChainFiles $guardFactoryMerged $gsFiles "19_CHAIN_FACTORY apres fusion (fabrique qui serait en ligne)") {
@@ -342,6 +387,9 @@ if (Test-Path -LiteralPath $guardFactoryMerged) {
         if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
         exit 1
     }
+    $guardPushedJs = @($gsFiles | ForEach-Object { $_.Name -replace '\.gs$', '.js' })
+    $guardOnlineFiles = @(Get-ChildItem -Path $TempDir -Filter "*.js" -File | Where-Object { $guardPushedJs -notcontains $_.Name })
+    $guardOnlineHits = @(Show-RemovedChainOnlineWarnings $guardFactoryMerged $guardOnlineFiles)
 } else {
     Write-Host "  [WARN] Garde chaines retirees: 19_CHAIN_FACTORY absent du projet distant et de src/, controle ignore" -ForegroundColor Yellow
 }
@@ -512,6 +560,11 @@ Write-Host "  Fichiers push: $($gsFiles.Count)"
 Write-Host "  Taille: $([math]::Round($totalSize, 1)) KB"
 Write-Host "  Backup: $BackupFolder"
 Write-Host ""
+if ($guardOnlineHits.Count -gt 0) {
+    $guardOnlineNames = @($guardOnlineHits | ForEach-Object { $_.File } | Sort-Object -Unique) -join ", "
+    Write-Host "  [WARN] RAPPEL: fichier(s) en ligne de chaine retiree a neutraliser ou supprimer dans le projet Apps Script: $guardOnlineNames" -ForegroundColor Red
+    Write-Host ""
+}
 
 } finally {
     # Liberer le verrou: fermer le stream supprime le fichier si vide, sinon

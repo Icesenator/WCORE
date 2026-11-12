@@ -8,6 +8,7 @@ import { MemoryPricingCache, type PricingSourceSet } from "../pricing/index.js";
 import { gtConfirmMarkerKey } from "../pricing/markers.js";
 import type { DiscoveredToken, TokenDiscovery } from "../tokens/index.js";
 import { pushBalanceDecisionError } from "./evm-types.js";
+import { MemoryCacheStore } from "../cache/memory-cache.js";
 
 const OWNER = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
 const CUSTOM = "0x9999999999999999999999999999999999999999";
@@ -242,6 +243,60 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
   assert.equal(status[FAILED], "unknown");
   assert.equal(status["not-an-address"], "unknown");
   assert.deepEqual(result.tokens.map((t) => t.contract), [HELD]);
+});
+
+test("getEvmWalletAssets keeps a reverted requested token unknown in a non-degraded scan, also on the 24h skip", async () => {
+  const REVERTED = "0x4444444444444444444444444444444444444444";
+  const HELD = "0x1111111111111111111111111111111111111111";
+  const discovery: TokenDiscovery = { async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; } };
+  const dispatcher = {
+    async run<T>(_endpoints: ReadonlyArray<string>, call: (endpoint: string, opts: RpcCallOptions) => Promise<T>) {
+      try {
+        const value = await call("https://rpc.example", {});
+        return { consensus: true, value, votes: 1, total: 1, attempts: [{ ok: true, value, endpoint: "https://rpc.example" }] };
+      } catch (e) {
+        return { consensus: false, value: null, votes: 0, total: 1, attempts: [{ ok: false, error: String(e), endpoint: "https://rpc.example" }] };
+      }
+    },
+  };
+  const rpc = {
+    async getBalance(): Promise<bigint> { return 0n; },
+    async ethCall(_endpoint: string, to: string): Promise<string> {
+      const target = to.toLowerCase();
+      if (target === HELD) return "0x" + 1_000_000n.toString(16).padStart(64, "0");
+      if (target === REVERTED) throw new Error("execution reverted");
+      return "0x";
+    },
+  };
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: { getTokenPriceUsd: async () => 1 },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+  const cache = new MemoryCacheStore();
+  const scan = () => getEvmWalletAssets(OWNER, "base", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources,
+    tokenDiscovery: discovery,
+    cache,
+    customTokens: [HELD, REVERTED],
+    strictTokens: true,
+    forceRefresh: true,
+    sharedPriceCache: new MemoryPricingCache(),
+    fxRate: 1,
+  } as never);
+
+  for (const round of [1, 2]) {
+    const result = await scan();
+    const status = Object.fromEntries((result.requestedTokens ?? []).map((t) => [t.contract, t.status]));
+    assert.equal(status[REVERTED], "unknown", `round ${round}: a reverted read is never a confirmed zero`);
+    assert.equal(status[HELD], "held");
+    assert.equal(result.errors.some((e) => e.includes("[DEGRADED]")), false, `round ${round}: the scan itself is not degraded`);
+  }
 });
 
 test("getEvmWalletAssets preserves sub-cent token prices", async () => {

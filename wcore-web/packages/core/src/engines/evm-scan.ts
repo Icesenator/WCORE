@@ -430,7 +430,8 @@ export async function getEvmWalletAssets(
   }
   const recordRequested = (contract: string, balance: number, reliable: boolean, reason: string) => {
     const entry = requestedStatus.get(contract.toLowerCase());
-    if (!entry) return;
+    // A positive read is final: a second variant of the same contract never downgrades it.
+    if (!entry || entry.status === "held") return;
     if (balance > 0) {
       entry.status = "held";
       entry.reason = reason;

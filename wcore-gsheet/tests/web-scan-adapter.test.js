@@ -1064,6 +1064,9 @@ const samplePayload = JSON.stringify({
   assert.ok(merged.assets.find((t) => t.contract === btcb), 'unknown stays in a degraded merge');
   assert.equal(merged.assets.find((t) => t.contract === sol), undefined, 'confirmed zero leaves a degraded merge');
   assert.equal(merged.scanStats.webRequestedZeroDropped, 1);
+  assert.equal(merged.priceMap[sol], undefined, 'no stale price left for a confirmed zero');
+  assert.equal(merged.priceTsMap[sol], undefined);
+  assert.equal(merged.balanceTsMap[sol], 0);
   assert.equal(merged._webScanRequestedStatus, undefined);
 }
 

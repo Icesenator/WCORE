@@ -730,11 +730,12 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   var neutralizedPrices = 0;
   var unreadRequested = {};
   var confirmedZero = 0;
+  var zeroDropped = {};
   for (var nk = 0; nk < order.length; nk++) {
     var preservedKey = order[nk];
     if (!preservedKey || updatedKeys[preservedKey] || preservedKey === "native") continue;
     // v4.17.1: the API confirmed a zero balance with a reliable live read: the old row goes.
-    if (requestedStatus[preservedKey] === "zero") { delete byKey[preservedKey]; confirmedZero++; continue; }
+    if (requestedStatus[preservedKey] === "zero") { delete byKey[preservedKey]; zeroDropped[preservedKey] = true; confirmedZero++; continue; }
     if ((!requestedSet || !requestedSet[preservedKey]) && requestedStatus[preservedKey] !== "unknown") continue;
     unreadRequested[preservedKey] = true;
     if (byKey[preservedKey] && (byKey[preservedKey].price_eur != null || byKey[preservedKey].value_eur != null)) neutralizedPrices++;
@@ -761,12 +762,14 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   purgeBlockedMapKeys(out.priceMap);
   if (requestedSet) for (var rpk in requestedSet) if (rpk && !updatedKeys[rpk]) delete out.priceMap[rpk];
   for (var rsk in unreadRequested) delete out.priceMap[rsk];
+  for (var zpk in zeroDropped) delete out.priceMap[zpk];
   var newPriceMap = incoming.priceMap || {};
   for (var pk in newPriceMap) if (newPriceMap[pk] != null) out.priceMap[pk] = newPriceMap[pk];
   out.priceTsMap = _webScanClone_(existing.priceTsMap || {}) || {};
   purgeBlockedMapKeys(out.priceTsMap);
   if (requestedSet) for (var rptk in requestedSet) if (rptk && !updatedKeys[rptk]) delete out.priceTsMap[rptk];
   for (var rstk in unreadRequested) delete out.priceTsMap[rstk];
+  for (var zptk in zeroDropped) delete out.priceTsMap[zptk];
   var newPriceTsMap = incoming.priceTsMap || {};
   for (var ptk in newPriceTsMap) if (newPriceTsMap[ptk] != null) out.priceTsMap[ptk] = newPriceTsMap[ptk];
   out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};
@@ -777,6 +780,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
     if (unreadRequested[btk]) continue; // keep the old balance date, never a confirmed zero
     out.balanceTsMap[btk] = newBalanceTsMap[btk];
   }
+  for (var zbk in zeroDropped) out.balanceTsMap[zbk] = 0;
   out.scanStats = _webScanClone_(incoming.scanStats || existing.scanStats || {}) || {};
   out.scanStats.webMerged = true;
   out.scanStats.webMergeUpdatedAssets = updated;

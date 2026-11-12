@@ -165,6 +165,22 @@ function _wcoreAutoHealCreateManagedTriggers_() {
   return stats;
 }
 
+/** Status of the watchdog admission heartbeat (WCORE_WD_LAST_ADMITTED_MS). Testable. */
+function _wcoreAutoHealWatchdogAdmission_(props, nowMs) {
+  var raw = "";
+  try { raw = props.getProperty("WCORE_WD_LAST_ADMITTED_MS") || ""; } catch (e) { return { status: "UNKNOWN", detail: "admission heartbeat unreadable" }; }
+  var ms = Number(raw);
+  if (!raw || !isFinite(ms) || ms <= 0) return { status: "UNKNOWN", detail: "no admission heartbeat yet" };
+  var age = nowMs - ms;
+  if (age <= WCORE_AUTO_HEAL_WD_STALE_MS) return { status: "OK", detail: "ageMin=" + Math.round(age / 60000) };
+  var reason = "";
+  try {
+    var diag = JSON.parse(props.getProperty("WCORE_WD_LAST_DIAG") || "null");
+    if (diag && diag.stats && diag.stats.mode === "SKIPPED_UNSAFE") reason = String(diag.stats.reason || "");
+  } catch (eDiag) {}
+  return { status: "STALE", detail: "watchdog refused since ageMin=" + Math.round(age / 60000) + (reason ? " reason=" + reason : "") };
+}
+
 function _wcoreAutoHealWatchdogDiagAgeMs_(props) {
   try {
     var runMsRaw = props.getProperty("WCORE_WD_LAST_RUN_MS") || "";
@@ -344,6 +360,12 @@ function _wcoreAutoHealEnsureTriggers_(out, props, force) {
     } else {
       _wcoreAutoHealRow_(out, "Watchdog heartbeat", "OK", "ageMin=" + Math.round(wdAgeMs / 60000));
     }
+
+    // v4.17.0: the run heartbeat is written before the safety gate, so a watchdog refused at
+    // every pass (unreadable HTTP counter, for instance) still looks alive. The admission
+    // heartbeat shows it. Reinstalling triggers would not help: this row only reports.
+    var wdAdmission = _wcoreAutoHealWatchdogAdmission_(props, Date.now());
+    _wcoreAutoHealRow_(out, "Watchdog admission", wdAdmission.status, wdAdmission.detail);
 
     var cexStatus = _wcoreAutoHealCexStatus_(props);
     if (cexStatus == null) {

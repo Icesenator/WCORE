@@ -172,10 +172,11 @@ function attestCtx({ raw, valid = true, live = 100, quota = 20000, propsThrow = 
 }
 test('watchdog : compteur attesté quand les seaux sont numériques et le total sous 80 %', () => {
   assert.equal(attestCtx(), true);
+  assert.equal(attestCtx({ raw: null }), true, 'propriété absente = historique vide (premier lancement, remise à zéro)');
+  assert.equal(attestCtx({ raw: null, valid: false }), false, 'absente mais total non attesté : refus');
 });
 test('watchdog : tout doute refuse (seaux absents, illisibles, non numériques, total non valide ou trop haut)', () => {
   const hour = Math.floor(Date.now() / 3600000);
-  assert.equal(attestCtx({ raw: null }), false, 'propriété absente');
   assert.equal(attestCtx({ propsThrow: true }), false, 'stockage illisible');
   assert.equal(attestCtx({ raw: '{not json' }), false, 'JSON invalide');
   assert.equal(attestCtx({ raw: '[1,2]' }), false, 'tableau');
@@ -190,4 +191,49 @@ test('watchdog : tout doute refuse (seaux absents, illisibles, non numériques, 
 test('watchdog : la porte refuse sans verdict sûr et ne passe jamais sur une exception', () => {
   assert.match(REF, /try \{ safe = typeof WCORE_IS_SAFE === 'function' \? WCORE_IS_SAFE\("recovery"\) : null; \} catch \(eGate\) \{ safe = null; \}/);
   assert.match(REF, /if \(!safe \|\| safe\.safe !== true\) \{/);
+});
+
+// --- Bout en bout : vraie pile 03E + 26B + 01 + porte du watchdog (16) ---
+const HEAL = read('16B_AUTO_HEAL');
+function gateCtx(store) {
+  const ctx = realStack(memProps(store));
+  vm.runInContext(fn(REF, '_wdCounterAttested_') + `
+    function __gate() {
+      var safe = null;
+      try { safe = typeof WCORE_IS_SAFE === 'function' ? WCORE_IS_SAFE("recovery") : null; } catch (eGate) { safe = null; }
+      if (safe && safe.safe === true && (typeof _wdCounterAttested_ !== "function" || !_wdCounterAttested_())) safe = { safe: false, reason: "COUNTER_UNATTESTED" };
+      if (!safe || safe.safe !== true) { if (!safe || safe.safe !== false) safe = { safe: false, reason: "GATE_UNAVAILABLE" }; }
+      return safe;
+    }`, ctx);
+  return ctx;
+}
+test('bout en bout : propriétés vides (premier lancement ou remise à zéro) ⇒ watchdog admis', () => {
+  const r = gateCtx({}).__gate();
+  assert.equal(r.safe, true, JSON.stringify(r));
+});
+test('bout en bout : seaux corrompus ⇒ watchdog refusé, jamais admis sur un doute', () => {
+  const r = gateCtx({ WCORE_HTTP_BUCKETS_v1: '{bad' }).__gate();
+  assert.equal(r.safe, false);
+});
+test('la porte recopiée dans le test est bien celle du source', () => {
+  assert.match(REF, /if \(safe && safe\.safe === true && \(typeof _wdCounterAttested_ !== "function" \|\| !_wdCounterAttested_\(\)\)\) safe = \{ safe: false, reason: "COUNTER_UNATTESTED" \};/);
+  assert.match(REF, /setProperty\("WCORE_WD_LAST_ADMITTED_MS", String\(Date\.now\(\)\)\)/);
+  const admitted = REF.indexOf('WCORE_WD_LAST_ADMITTED_MS'), gate = REF.indexOf('reason: "GATE_UNAVAILABLE" };');
+  assert.ok(gate > 0 && admitted > gate, 'le battement d’admission est écrit après la porte');
+  for (const reason of ['HTTP_COUNTER_UNKNOWN', 'HTTP_COUNTER_UNATTESTED', 'HTTP_MODE_UNKNOWN']) assert.ok(REF.includes('"' + reason + '"'), reason + ' dans le diagnostic');
+});
+test('auto-réparation : un watchdog refusé à chaque passage devient visible (Watchdog admission STALE)', () => {
+  const ctx = vm.createContext({ JSON, Math, Number, String, isFinite, WCORE_AUTO_HEAL_WD_STALE_MS: 45 * 60000 });
+  vm.runInContext(fn(HEAL, '_wcoreAutoHealWatchdogAdmission_'), ctx);
+  const now = 1794470000000;
+  const props = (o) => ({ getProperty: (k) => (k in o ? o[k] : null) });
+  assert.equal(ctx._wcoreAutoHealWatchdogAdmission_(props({}), now).status, 'UNKNOWN');
+  assert.equal(ctx._wcoreAutoHealWatchdogAdmission_(props({ WCORE_WD_LAST_ADMITTED_MS: String(now - 10 * 60000) }), now).status, 'OK');
+  const stale = ctx._wcoreAutoHealWatchdogAdmission_(props({
+    WCORE_WD_LAST_ADMITTED_MS: String(now - 3 * 3600000),
+    WCORE_WD_LAST_DIAG: JSON.stringify({ stats: { mode: 'SKIPPED_UNSAFE', reason: 'HTTP_COUNTER_UNATTESTED' } }),
+  }), now);
+  assert.equal(stale.status, 'STALE');
+  assert.match(stale.detail, /reason=HTTP_COUNTER_UNATTESTED/);
+  assert.match(HEAL, /_wcoreAutoHealRow_\(out, "Watchdog admission", wdAdmission\.status, wdAdmission\.detail\)/);
 });

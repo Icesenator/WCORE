@@ -2207,7 +2207,10 @@ function _wdCounterAttested_() {
     if (typeof HttpCounter === "undefined" || typeof HttpCounter.isCountValid !== "function" || HttpCounter.isCountValid() !== true) return false;
     if (typeof HttpCallCounter === "undefined" || typeof HttpCallCounter.getToday !== "function" || typeof HttpCallCounter.getQuota !== "function") return false;
     var raw = PropertiesService.getScriptProperties().getProperty("WCORE_HTTP_BUCKETS_v1");
-    if (raw == null) return false;
+    // An absent key is an empty history (first run, counter reset), exactly as HttpCounter reads
+    // it: the attestation then rests on isCountValid(). Refusing here would freeze the watchdog
+    // until some other HTTP producer recreated the key.
+    if (raw == null) raw = "{}";
     var obj = JSON.parse(raw);
     if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
     var cutoff = Math.floor((Date.now() - 24 * 3600000) / 3600000), sum = 0;
@@ -2260,7 +2263,7 @@ function WATCHDOG_FROM_RECAP() {
               stats: {
                 mode: "SKIPPED_UNSAFE", ok: false,
                 reason: /^HTTP_BUDGET_[0-9]{1,3}%$/.test(_wdGateReason) ? "HTTP_BUDGET" :
-                  (["HTTP_MODE_CACHE_ONLY", "HTTP_MODE_NORMAL", "HTTP_MODE_DEGRADED", "HTTP_MODE_BLOCKED", "GATE_UNAVAILABLE", "COUNTER_UNATTESTED"].indexOf(_wdGateReason) >= 0 ? _wdGateReason : "UNKNOWN"),
+                  (["HTTP_MODE_CACHE_ONLY", "HTTP_MODE_NORMAL", "HTTP_MODE_DEGRADED", "HTTP_MODE_BLOCKED", "HTTP_MODE_UNKNOWN", "HTTP_COUNTER_UNKNOWN", "HTTP_COUNTER_UNATTESTED", "GATE_UNAVAILABLE", "COUNTER_UNATTESTED"].indexOf(_wdGateReason) >= 0 ? _wdGateReason : "UNKNOWN"),
                 httpMode: ["CACHE_ONLY", "NORMAL", "DEGRADED", "BLOCKED"].indexOf(_wdGateMode) >= 0 ? _wdGateMode : "UNKNOWN"
               }
             };
@@ -2276,6 +2279,9 @@ function WATCHDOG_FROM_RECAP() {
         }
       }
     }
+    // Admission heartbeat, distinct from the run heartbeat written before the gate: the
+    // auto-heal reads it to see a watchdog that runs but is refused at every pass.
+    try { PropertiesService.getScriptProperties().setProperty("WCORE_WD_LAST_ADMITTED_MS", String(Date.now())); } catch (eAdm) {}
 
     const t0 = Date.now();
     const nowMs = t0;

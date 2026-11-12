@@ -66,6 +66,15 @@ jobs:
         shell: pwsh
         run: ./wcore-web/scripts/deploy-ps1.test.ps1
 
+      # safe-push.ps1 publishes the Apps Script of the production workbook: its guards
+      # (clasp pull failure, refusals before any push) must fail the build if they regress.
+      # The test runs the script under Windows PowerShell 5.1 with a mocked clasp.
+      - name: safe-push.ps1 guards (Windows PowerShell)
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File ./wcore-gsheet/safe-push.test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Railway deploy guards on Windows
         run: node --test wcore-web/scripts/railway-deploy.test.mjs wcore-web/scripts/railway-trust-proxy-attestation.test.mjs wcore-web/scripts/verify-deployment.test.mjs
 

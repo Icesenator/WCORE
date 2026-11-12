@@ -1,0 +1,43 @@
+#!/bin/sh
+# WCORE pre-push : refuse de pousser une reference dont l'histoire ne descend pas de la
+# racine de master.
+#
+# Pourquoi : l'historique public a ete reecrit le 2026-11-11. D'anciens worktrees et
+# d'anciennes branches locales portent encore l'histoire d'avant, qui contenait des
+# donnees privees. Un push depuis l'un d'eux la renverrait vers le depot public.
+#
+# Installation (locale ; le dossier de hooks est partage par tous les worktrees) :
+#   cp scripts/git-hooks/pre-push "$(git rev-parse --git-common-dir)/hooks/pre-push"
+#
+# Git appelle ce script avec : $1 = nom du remote, $2 = son URL, et sur l'entree standard
+# une ligne par reference : <ref locale> <sha local> <ref distante> <sha distant>.
+
+remote="$1"
+
+root=$(git rev-list --max-parents=0 "refs/remotes/$remote/master" 2>/dev/null | head -n 1)
+if [ -z "$root" ]; then
+  root=$(git rev-list --max-parents=0 refs/remotes/origin/master 2>/dev/null | head -n 1)
+fi
+if [ -z "$root" ]; then
+  echo "[pre-push] REFUS : racine de master introuvable ($remote/master et origin/master absents)." >&2
+  echo "[pre-push] Lancer 'git fetch $remote' puis recommencer." >&2
+  exit 1
+fi
+
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -z "$local_sha" ] && continue
+  # Un sha local fait uniquement de zeros est la suppression d'une reference distante.
+  case "$local_sha" in
+    *[!0]*) ;;
+    *) continue ;;
+  esac
+  if ! git merge-base --is-ancestor "$root" "$local_sha" 2>/dev/null; then
+    echo "[pre-push] REFUS : $local_ref ne descend pas de la racine de master." >&2
+    echo "[pre-push] Cette reference porte une histoire d'avant la reecriture du 2026-11-11 (ou une histoire etrangere)." >&2
+    echo "[pre-push] Ne pas la pousser : reporter le travail sur une branche creee depuis origin/master." >&2
+    status=1
+  fi
+done
+
+exit $status

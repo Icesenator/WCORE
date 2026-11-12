@@ -88,7 +88,7 @@ if (graph && Array.isArray(graph.links) && Array.isArray(graph.nodes)) {
 // disparait de ce fichier, il revient dans .tmp/graphify-input puis dans le graphe au
 // prochain rebuild : le garder aligne avec les dossiers locaux connus.
 const EXCLUDE_FILE = path.join(ROOT, ".graphify-exclude");
-const SHARED_STAGER_LOCAL_DIRS = ["data", ".generated", "graft", "_vault", "invest-gas", ".worktrees", ".claude"];
+const SHARED_STAGER_LOCAL_DIRS = ["data", ".generated", "graft", "_vault", "invest-gas", ".worktrees", ".claude", "WCOREtmp", "claude-fix-", "claude-release-", "release-stage", ".agents", "WCORECM"];
 const excludeText = fs.existsSync(EXCLUDE_FILE) ? fs.readFileSync(EXCLUDE_FILE, "utf8") : "";
 const fragments = excludeText.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
 check("EXCL", ".graphify-exclude present (corpus propre a la source)", fragments.length > 0, `${fragments.length} fragment(s)`);

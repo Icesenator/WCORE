@@ -15,3 +15,12 @@
 \\invest-gas\\
 \\\.worktrees\\
 \\\.claude\\
+# 2026-10-30 (WCORE-GRAPHIFY-SYNC-FAILURE-20261030) : arbres locaux non suivis apparus
+# depuis le 24/10 (copies de staging et pulls live) + depot imbrique CM (owner distinct).
+# Ancres sur la racine du projet : un dossier tmp suivi ailleurs dans l'arbre reste indexe.
+\\WCORE\\tmp\\
+\\WCORE\\claude-fix-[^\\]+\\
+\\WCORE\\claude-release-[^\\]+\\
+\\WCORE\\release-stage\\
+\\WCORE\\\.agents\\
+\\WCORE\\CM\\

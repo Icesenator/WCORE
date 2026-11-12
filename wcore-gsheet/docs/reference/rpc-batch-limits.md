@@ -26,7 +26,7 @@ When `config.RPC.MAX_BATCH_SIZE` is set and > 0, `_scanBatch` (09_SIMPLE_ROTATIO
 Tested 2026-05-17 with 20-item batch requests:
 
 - **Limited**: Optimism (10), Unichain (10)
-- **OK (>=20)**: Zora, Mode, Blast, Metal L2, Fraxtal, Worldchain, Lisk, Redstone, Shape, Superseed, Ink, Polygon zkEVM, Abstract, Rari, Ancient8, BOB, Cyber, Duckchain, Openledger, Plume
+- **OK (>=20)**: Zora, Mode, Blast, Metal L2, Fraxtal, Worldchain, Lisk, Redstone, Shape, Ink, Polygon zkEVM, Abstract, Rari, Ancient8, BOB, Cyber, Duckchain, Openledger, Plume
 - **DNS timeout (not batch limit)**: Base, Swan, Camp, Zircuit — these failed at DNS level, not batch rejection
 
 ## Future Chains to Watch

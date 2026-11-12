@@ -3,3 +3,6 @@
 - Stack: Google Apps Script (clasp), Node.js, PostgreSQL (GSheet)
 - Commands: npm test, npm run lint, npm run typecheck
 - Conventions: Respect Karpathy Raw/Wiki workflow. All data local first.
+
+<!-- Claude Code ne lit pas AGENTS.md nativement : import officiel, sans copie. AGENTS.md reste la source Root. -->
+@AGENTS.md

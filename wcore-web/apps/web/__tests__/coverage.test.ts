@@ -35,4 +35,9 @@ describe("coverage stats", () => {
     assert.equal(stats.chainConfigCount, 158); // Superseed 5330 et B3 Mainnet 8333 retirés ; Elysium Kinetiq 99901 ajouté (2026-11-10).
     assert.notEqual(stats.chainConfigCount, 325);
   });
+
+  test("advertised chain coverage is the exposed core registry, retired chains excluded", async () => {
+    const { chainList } = await import("../../../packages/core/src/chains/index.js");
+    assert.equal(getCoverageStats().chainConfigCount, chainList.length);
+  });
 });

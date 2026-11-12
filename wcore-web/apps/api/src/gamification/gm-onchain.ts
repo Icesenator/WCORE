@@ -5,9 +5,10 @@ import { canonicalChainKey, getFactory } from "@wcore/shared";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
+import { createTtlCache } from "./ttl-cache.js";
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
-const statusOnchainCache = new Map<string, { value: boolean; expiresAt: number }>();
+const statusOnchainCache = createTtlCache<boolean>(STATUS_ONCHAIN_CACHE_TTL_MS);
 
 function statusOnchainCacheKey(chainKey: string, address: string, now = new Date()): string {
   const day = now.toISOString().slice(0, 10);
@@ -15,17 +16,11 @@ function statusOnchainCacheKey(chainKey: string, address: string, now = new Date
 }
 
 function getStatusOnchainCache(key: string): boolean | undefined {
-  const cached = statusOnchainCache.get(key);
-  if (!cached) return undefined;
-  if (Date.now() > cached.expiresAt) {
-    statusOnchainCache.delete(key);
-    return undefined;
-  }
-  return cached.value;
+  return statusOnchainCache.get(key);
 }
 
 function setStatusOnchainCache(key: string, value: boolean): void {
-  statusOnchainCache.set(key, { value, expiresAt: Date.now() + STATUS_ONCHAIN_CACHE_TTL_MS });
+  statusOnchainCache.set(key, value);
 }
 
 export async function registerGmOnchainRoutes(

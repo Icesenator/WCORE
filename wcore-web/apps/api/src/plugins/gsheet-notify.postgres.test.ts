@@ -58,3 +58,19 @@ test("an identical text is pending until sent, then a duplicate; a release admit
     await prisma.$disconnect();
   }
 });
+
+test("a permanently refused occurrence stays refused", { skip: !databaseUrl }, async () => {
+  const prisma = new PrismaClient();
+  try {
+    await prisma.opsEvent.deleteMany({ where: { type: "ntfy_notify" } });
+    const admit = createPrismaNotifyAdmission(prisma, 20);
+    const key = "fail-" + randomUUID();
+    const first = await admit(key);
+    assert.equal(first.admission, "ok");
+    await first.markFailed!();
+    assert.equal((await admit(key)).admission, "failed");
+  } finally {
+    await prisma.opsEvent.deleteMany({ where: { type: "ntfy_notify" } });
+    await prisma.$disconnect();
+  }
+});

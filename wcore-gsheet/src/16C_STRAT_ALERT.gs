@@ -1,5 +1,5 @@
 /**
- * 16C_STRAT_ALERT.gs - v4.17.2
+ * 16C_STRAT_ALERT.gs - v4.17.3
  *
  * Phone alert when a Strat rebalancing cell turns to X, called by WATCHDOG_FROM_RECAP (every
  * 10 min). Since 2026-11-12 the workbook never calls ntfy itself: ntfy.sh answers 429 to the
@@ -66,7 +66,10 @@ function _wcoreStratAlertTrade_(ss, sheetName) {
   } catch (e) { return null; }
 }
 
-/** Posts one event to the API; ok when the API accepted it (sent or already sent). */
+/**
+ * Posts one event to the API. ok = accepted (sent, or already sent); abandon = permanent refusal
+ * of this occurrence (422: ntfy refused it for good), so the workbook stops retrying it.
+ */
 function _wcoreStratAlertPost_(api, body) {
   var resp = null;
   try {
@@ -77,82 +80,107 @@ function _wcoreStratAlertPost_(api, body) {
     });
   } catch (e) { resp = null; }
   var code = resp && typeof resp.getResponseCode === "function" ? resp.getResponseCode() : 0;
-  return { ok: code === 200, code: code };
+  return { ok: code === 200, abandon: code === 422, code: code };
+}
+
+var STRAT_ALERT_OCC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Runs fn under the script lock, held only for this short state step (never during a send). */
+function _wcoreStratAlertLocked_(fn) {
+  var lock = null;
+  try { lock = LockService.getScriptLock(); } catch (eLock) { lock = null; }
+  if (lock && !lock.tryLock(2000)) return { locked: true };
+  try { return { locked: false, value: fn() }; }
+  finally { try { if (lock) lock.releaseLock(); } catch (eRel) {} }
 }
 
 /**
- * @return {Object} diagnostic {ran, reason, newX, sent}
+ * @return {Object} diagnostic {ran, reason, newX, sent, abandoned}
  */
 function _wcoreCheckStratAlert_(ss) {
-  var out = { ran: false, reason: "", newX: 0, sent: 0 };
-  var lock = null;
+  var out = { ran: false, reason: "", newX: 0, sent: 0, abandoned: 0 };
   try {
     var api = _wcoreStratAlertApi_();
     if (!api) { out.reason = "NO_API"; return out; }
-    // Overlapping watchdog runs: one check at a time (state read then written).
-    try { lock = LockService.getScriptLock(); } catch (eLock) { lock = null; }
-    if (lock && !lock.tryLock(2000)) { out.reason = "LOCKED"; lock = null; return out; }
     var props = PropertiesService.getScriptProperties();
     var strat = ss && ss.getSheetByName("Strat");
     if (!strat) { out.reason = "NO_STRAT"; return out; }
     var row = strat.getRange("AY1:BE1").getValues()[0];
     out.ran = true;
-
     var now = {};
     for (var i = 0; i < STRAT_ALERT_CELLS.length; i++) {
       var v = String(row[STRAT_ALERT_CELLS[i].col] || "").trim().toUpperCase();
       now[STRAT_ALERT_CELLS[i].cell] = (v === "X" || v === "V") ? v : null;
     }
-    var last = null;
-    try { last = JSON.parse(props.getProperty(STRAT_ALERT_STATE_KEY) || "null"); } catch (eParse) { last = null; }
-    if (!last || typeof last !== "object") {
-      props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(now)); // first observation: no alert
-      out.reason = "INIT";
-      return out;
-    }
 
-    // Occurrence id per V->X transition, kept until delivered and reused on every retry: the API
-    // deduplicates on it (never on the text, whose amounts move with prices).
-    var occ = (last.occ && typeof last.occ === "object") ? last.occ : {};
-    var next = { occ: {} };
-    var failed = 0;
-    // 1) Decide the transitions and their occurrence ids, and persist them as pending BEFORE any
-    //    network call: if the pass dies after the send, the next one reuses the same id.
-    var todo = [];
-    var pre = { occ: {} };
-    for (var j = 0; j < STRAT_ALERT_CELLS.length; j++) {
-      var c = STRAT_ALERT_CELLS[j];
-      var cur = now[c.cell];
-      next[c.cell] = cur == null ? (last[c.cell] || null) : cur; // unreadable cell: keep the old state
-      pre[c.cell] = last[c.cell] || null;
-      if (cur == null && occ[c.cell]) { next.occ[c.cell] = occ[c.cell]; pre.occ[c.cell] = occ[c.cell]; }
-      if (!(cur === "X" && last[c.cell] === "V")) continue;
-      var id = /^[A-Za-z0-9_-]{8,64}$/.test(String(occ[c.cell] || "")) ? occ[c.cell] : c.cell + "-" + Date.now();
-      pre.occ[c.cell] = id;
-      todo.push({ c: c, id: id });
-    }
-    if (todo.length) {
+    // Step 1 (under lock): read the state, decide the transitions and their occurrence ids, and
+    // save them as pending BEFORE any network call, so a pass that dies after a send makes the
+    // next one reuse the same id (the API deduplicates on it).
+    var plan = _wcoreStratAlertLocked_(function () {
+      var last = null;
+      try { last = JSON.parse(props.getProperty(STRAT_ALERT_STATE_KEY) || "null"); } catch (eParse) { last = null; }
+      if (!last || typeof last !== "object") {
+        props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(now)); // first observation: no alert
+        return { init: true };
+      }
+      var occ = (last.occ && typeof last.occ === "object") ? last.occ : {};
+      var pre = { occ: {} };
+      var todo = [];
+      var abandoned = 0;
+      for (var j = 0; j < STRAT_ALERT_CELLS.length; j++) {
+        var c = STRAT_ALERT_CELLS[j];
+        var cur = now[c.cell];
+        pre[c.cell] = last[c.cell] || null;
+        if (cur == null) { if (occ[c.cell]) pre.occ[c.cell] = occ[c.cell]; continue; } // unreadable: keep
+        if (cur === "V") { pre[c.cell] = "V"; continue; } // back to V: any pending occurrence is dropped
+        if (last[c.cell] !== "V") { pre[c.cell] = cur; continue; } // already X: nothing new
+        var id = /^[A-Za-z0-9_-]{8,64}$/.test(String(occ[c.cell] || "")) ? occ[c.cell] : c.cell + "-" + Date.now();
+        var born = Number(String(id).split("-").pop());
+        if (isFinite(born) && Date.now() - born > STRAT_ALERT_OCC_MAX_AGE_MS) { pre[c.cell] = "X"; abandoned++; continue; } // too old
+        pre.occ[c.cell] = id;
+        todo.push({ c: c, id: id });
+      }
       try { props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(pre)); }
-      catch (ePre) { out.newX = todo.length; out.reason = "STATE_WRITE_FAILED"; return out; } // nothing sent
-    }
-    // 2) Send.
+      catch (ePre) { return { writeFailed: true, count: todo.length }; } // nothing will be sent
+      return { todo: todo, abandoned: abandoned };
+    });
+    if (plan.locked) { out.reason = "LOCKED"; return out; }
+    if (plan.value && plan.value.init) { out.reason = "INIT"; return out; }
+    if (plan.value && plan.value.writeFailed) { out.newX = plan.value.count; out.reason = "STATE_WRITE_FAILED"; return out; }
+    var todo = plan.value.todo;
+    out.abandoned = plan.value.abandoned;
+    if (!todo.length) { out.reason = out.abandoned ? "ABANDONED" : "NO_NEW_X"; return out; }
+
+    // Step 2 (no lock): send.
+    var done = {};
     for (var t = 0; t < todo.length; t++) {
-      c = todo[t].c;
-      id = todo[t].id;
+      var c2 = todo[t].c;
       out.newX++;
-      var body = { event: "strat_rebalance", category: c.category, occurrence: id };
-      var trade = _wcoreStratAlertTrade_(ss, c.tradeSheet);
+      var body = { event: "strat_rebalance", category: c2.category, occurrence: todo[t].id };
+      var trade = _wcoreStratAlertTrade_(ss, c2.tradeSheet);
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }
       var res = _wcoreStratAlertPost_(api, body);
-      if (res.ok) { out.sent++; } else { failed++; next[c.cell] = "V"; next.occ[c.cell] = id; } // retried next pass, same id
+      if (res.ok) { out.sent++; done[c2.cell] = todo[t].id; }
+      else if (res.abandon) { out.abandoned++; done[c2.cell] = todo[t].id; }
     }
-    props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(next));
-    out.reason = !out.newX ? "NO_NEW_X" : (failed ? "PARTIAL_OR_FAILED" : "SENT");
-    if (out.newX) Logger.log("[STRAT_ALERT] " + out.reason + " newX=" + out.newX + " sent=" + out.sent);
+
+    // Step 3 (under lock): mark delivered or abandoned occurrences as X; the others stay pending
+    // (V + occ) and are retried next pass with the same id. A lost write only causes a retry,
+    // which the API answers as a duplicate.
+    _wcoreStratAlertLocked_(function () {
+      var st = null;
+      try { st = JSON.parse(props.getProperty(STRAT_ALERT_STATE_KEY) || "null"); } catch (eSt) { st = null; }
+      if (!st || typeof st !== "object") return;
+      st.occ = (st.occ && typeof st.occ === "object") ? st.occ : {};
+      for (var cell in done) {
+        if (st.occ[cell] === done[cell]) { st[cell] = "X"; delete st.occ[cell]; }
+      }
+      props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(st));
+    });
+    out.reason = out.sent === todo.length ? "SENT" : "PARTIAL_OR_FAILED";
+    Logger.log("[STRAT_ALERT] " + out.reason + " newX=" + out.newX + " sent=" + out.sent + " abandoned=" + out.abandoned);
   } catch (e) {
     out.reason = "ERROR";
-  } finally {
-    try { if (lock) lock.releaseLock(); } catch (eRel) {}
   }
   return out;
 }

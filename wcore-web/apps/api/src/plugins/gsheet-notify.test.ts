@@ -98,13 +98,16 @@ test("daily cap: 429; duplicate: 200 without send; pending: 409; admission down:
   }
 });
 
-test("429/408 from ntfy free the reservation; other refusals and 5xx keep it; a timeout keeps it", async () => {
-  for (const [status, freed] of [[429, 1], [408, 1], [400, 0], [403, 0], [413, 0], [500, 0], [504, 0]] as const) {
+test("429/408 free the reservation; other 4xx abandon the occurrence (422); 5xx and timeouts keep it", async () => {
+  for (const [status, freed, answer] of [[429, 1, 502], [408, 1, 502], [400, 0, 422], [403, 0, 422], [413, 0, 422], [500, 0, 502], [504, 0, 502]] as const) {
     const d = deps({ status });
-    assert.equal((await handleNotify(BODY, d.deps)).status, 502, String(status));
+    assert.equal((await handleNotify(BODY, d.deps)).status, answer, String(status));
     assert.equal(d.released(), freed, String(status));
     assert.equal(d.sent(), 0);
   }
+  const f = deps({ admission: "failed" });
+  assert.equal((await handleNotify(BODY, f.deps)).status, 422, "an abandoned occurrence stays abandoned");
+  assert.equal(f.calls.length, 0);
   const lost = deps({ throws: true });
   assert.equal((await handleNotify(BODY, lost.deps)).status, 502);
   assert.equal(lost.released(), 0);

@@ -40,14 +40,14 @@ function harness(opts = {}) {
     JSON, Object, String, Number, Math, isFinite,
     Date: { now: () => clock },
     Logger: { log: () => {} },
-    LockService: { getScriptLock: () => ({ tryLock: () => !state.locked, releaseLock: () => { state.released = (state.released || 0) + 1; } }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => { if (state.locked) return false; state.held = true; return true; }, releaseLock: () => { state.held = false; state.released = (state.released || 0) + 1; } }) },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (store.has(k) ? store.get(k) : null),
       setProperty: (k, v) => store.set(k, v),
       deleteProperty: (k) => store.delete(k),
     }) },
     HTTP: { post: (url, payload, options) => {
-      posts.push({ url, payload: JSON.parse(JSON.stringify(payload)), options });
+      posts.push({ url, payload: JSON.parse(JSON.stringify(payload)), options, heldLock: !!state.held });
       if (state.code === null) return null;
       return { getResponseCode: () => state.code };
     } },
@@ -229,4 +229,41 @@ test('if the pending occurrence cannot be saved, nothing is sent', () => {
   h.store.set = () => { throw new Error('quota'); };
   assert.equal(h.run().reason, 'STATE_WRITE_FAILED');
   assert.equal(h.posts.length, 0);
+});
+
+test('a 422 (ntfy refused for good) abandons the occurrence: no endless retry', () => {
+  const h = harness();
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.code = 422;
+  const r = h.run();
+  assert.equal(r.abandoned, 1);
+  h.state.code = 200;
+  h.tick(600000);
+  h.run();
+  assert.equal(h.posts.length, 1, 'not retried');
+  const st = JSON.parse(h.store.get('WCORE_STRAT_ALERT_LAST'));
+  assert.equal(st.AY1, 'X');
+  assert.deepEqual(st.occ, {});
+});
+
+test('an occurrence older than 24 h is abandoned without a send', () => {
+  const h = harness();
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.code = 502;
+  h.run();
+  h.state.code = 200;
+  h.tick(25 * 3600 * 1000);
+  assert.equal(h.run().reason, 'ABANDONED');
+  assert.equal(h.posts.length, 1);
+});
+
+test('the script lock is never held during a network call', () => {
+  const h = harness();
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X', BE1: 'X' });
+  h.run();
+  assert.equal(h.posts.length, 2);
+  assert.ok(h.posts.every((p) => p.heldLock === false));
 });

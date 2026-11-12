@@ -41,13 +41,15 @@ export const notifyBodySchema = z.union([
 ]);
 
 export type NotifyBody = z.infer<typeof notifyBodySchema>;
-export type NotifyAdmission = "ok" | "cap" | "duplicate" | "pending" | "unavailable";
+export type NotifyAdmission = "ok" | "cap" | "duplicate" | "pending" | "failed" | "unavailable";
 export interface NotifyReservation {
   admission: NotifyAdmission;
   /** Transient refusal (429, 408): frees the reservation so a retry is admitted. */
   release?: () => Promise<void>;
   /** Confirmed delivery: later requests for the same occurrence are duplicates. */
   markSent?: () => Promise<void>;
+  /** Permanent refusal (other 4xx): the occurrence is abandoned, never sent again. */
+  markFailed?: () => Promise<void>;
 }
 
 export interface NotifyDeps {
@@ -95,6 +97,7 @@ export function createPrismaNotifyAdmission(prisma: PrismaClient, dailyCap: numb
         });
         const same = recent.filter((e) => (e.data as { h?: unknown } | null)?.h === key);
         if (same.some((e) => (e.data as { s?: unknown } | null)?.s === "sent")) return { admission: "duplicate" as const };
+        if (same.some((e) => (e.data as { s?: unknown } | null)?.s === "failed")) return { admission: "failed" as const };
         if (same.some((e) => t - e.createdAt.getTime() < PENDING_WINDOW_MS)) return { admission: "pending" as const };
         if (recent.length >= dailyCap) return { admission: "cap" as const };
         const row = await tx.opsEvent.create({
@@ -109,6 +112,9 @@ export function createPrismaNotifyAdmission(prisma: PrismaClient, dailyCap: numb
               try { await prisma.opsEvent.update({ where: { id: row.id }, data: { data: { h: key, s: "sent" } } }); return; } catch { /* retried once */ }
             }
           },
+          markFailed: async () => {
+            try { await prisma.opsEvent.update({ where: { id: row.id }, data: { data: { h: key, s: "failed" } } }); } catch { /* stays pending */ }
+          },
         };
       });
     } catch {
@@ -119,7 +125,7 @@ export function createPrismaNotifyAdmission(prisma: PrismaClient, dailyCap: numb
 
 export type NotifyResult =
   | { status: 200; body: { ok: true; sent: boolean; duplicate?: boolean } }
-  | { status: 400 | 409 | 429 | 502 | 503; body: { ok: false; error: string } };
+  | { status: 400 | 409 | 422 | 429 | 502 | 503; body: { ok: false; error: string } };
 
 export async function handleNotify(raw: unknown, deps: NotifyDeps): Promise<NotifyResult> {
   if (!NTFY_TOPIC_PATTERN.test(deps.topic)) return { status: 503, body: { ok: false, error: "notify_disabled" } };
@@ -131,6 +137,7 @@ export async function handleNotify(raw: unknown, deps: NotifyDeps): Promise<Noti
   if (admission === "cap") return { status: 429, body: { ok: false, error: "daily_cap" } };
   if (admission === "duplicate") return { status: 200, body: { ok: true, sent: false, duplicate: true } };
   if (admission === "pending") return { status: 409, body: { ok: false, error: "pending" } };
+  if (admission === "failed") return { status: 422, body: { ok: false, error: "ntfy_refused" } };
   if (admission !== "ok") return { status: 503, body: { ok: false, error: "admission_unavailable" } };
   const doFetch = deps.fetchImpl ?? fetch;
   try {
@@ -142,9 +149,17 @@ export async function handleNotify(raw: unknown, deps: NotifyDeps): Promise<Noti
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (!res.ok) {
-      // 429/408 are transient refusals (nothing published): free the reservation so the next pass
-      // is admitted. Any other refusal keeps it, so the daily cap bounds the retries.
-      if ((res.status === 429 || res.status === 408) && reservation.release) await reservation.release();
+      // 429/408: transient refusal (nothing published), free the reservation so the next pass is
+      // admitted. Other 4xx: permanent refusal, the occurrence is abandoned (422 to the workbook,
+      // which stops retrying it). 5xx: ambiguous, the reservation stays pending.
+      if (res.status === 429 || res.status === 408) {
+        if (reservation.release) await reservation.release();
+        return { status: 502, body: { ok: false, error: "ntfy_" + res.status } };
+      }
+      if (res.status >= 400 && res.status < 500) {
+        if (reservation.markFailed) await reservation.markFailed();
+        return { status: 422, body: { ok: false, error: "ntfy_refused" } };
+      }
       return { status: 502, body: { ok: false, error: "ntfy_" + res.status } };
     }
     if (reservation.markSent) await reservation.markSent();

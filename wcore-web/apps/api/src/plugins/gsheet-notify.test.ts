@@ -10,6 +10,7 @@ const BODY = { event: "strat_rebalance", category: "crypto", sell: { symbol: "SO
 function deps(opts: { admission?: NotifyReservation["admission"]; status?: number; throws?: boolean } = {}) {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   let released = 0;
+  let sent = 0;
   const fetchImpl = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
     if (opts.throws) throw new Error("timeout");
@@ -18,10 +19,15 @@ function deps(opts: { admission?: NotifyReservation["admission"]; status?: numbe
   return {
     calls,
     released: () => released,
+    sent: () => sent,
     deps: {
       topic: TOPIC,
       fetchImpl,
-      admit: async () => ({ admission: opts.admission ?? "ok", release: async () => { released++; } }),
+      admit: async () => ({
+        admission: opts.admission ?? "ok",
+        release: async () => { released++; },
+        markSent: async () => { sent++; },
+      }),
     },
   };
 }
@@ -118,4 +124,25 @@ test("the test event composes a fixed text and takes no field", async () => {
   const d = deps();
   assert.equal((await handleNotify({ event: "test", category: "crypto" }, d.deps)).status, 400);
   assert.equal((await handleNotify({ event: "test" }, d.deps)).status, 200);
+});
+
+test("pending answers 409 without sending; a confirmed send is marked sent", async () => {
+  const p = deps({ admission: "pending" });
+  const r = await handleNotify(BODY, p.deps);
+  assert.equal(r.status, 409);
+  assert.equal(p.calls.length, 0);
+  const ok = deps();
+  await handleNotify(BODY, ok.deps);
+  assert.equal(ok.sent(), 1);
+  assert.equal(ok.released(), 0);
+});
+
+test("a 5xx from ntfy keeps the reservation pending; a 4xx frees it", async () => {
+  const s504 = deps({ status: 504 });
+  assert.equal((await handleNotify(BODY, s504.deps)).status, 502);
+  assert.equal(s504.released(), 0);
+  assert.equal(s504.sent(), 0);
+  const s400 = deps({ status: 400 });
+  await handleNotify(BODY, s400.deps);
+  assert.equal(s400.released(), 1);
 });

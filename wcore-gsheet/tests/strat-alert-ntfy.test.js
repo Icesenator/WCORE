@@ -122,7 +122,7 @@ test('an odd trade sends the category alone; an unreadable gap sends the symbols
 });
 
 test('a refused or failed post keeps the cell at V and retries next pass', () => {
-  for (const code of [429, 502, null]) {
+  for (const code of [409, 429, 502, null]) {
     const h = harness();
     h.run();
     h.state.strat = stratRow({ AY1: 'X' });

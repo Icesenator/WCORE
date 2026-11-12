@@ -436,6 +436,8 @@ export async function getEvmWalletAssets(
       entry.status = "held";
       entry.reason = reason;
     } else if (reliable) {
+      // Every variant must read zero: an unread or failed variant keeps the token unknown.
+      if (entry.status === "unknown" && entry.reason !== "not_read") return;
       entry.status = "zero";
       entry.reason = reason;
     } else {

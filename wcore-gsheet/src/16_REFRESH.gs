@@ -2267,6 +2267,10 @@ function WATCHDOG_FROM_RECAP() {
         stats = _wd_watchdogFromRecapViaSheetsApi_(nowMs);
         return;
       }
+      // v4.17.0: phone alert (ntfy) when a Strat control cell turns to X (16C_STRAT_ALERT.gs).
+      try {
+        if (typeof _wcoreCheckStratAlert_ === "function") stats.stratAlert = _wcoreCheckStratAlert_(ss);
+      } catch (eStratAlert) { stats.stratAlert = { ran: false, reason: "ERROR" }; }
       const recap = ss.getSheetByName(RECAP_SHEET_NAME);
       if (!recap) throw new Error("Sheet not found: " + RECAP_SHEET_NAME);
 

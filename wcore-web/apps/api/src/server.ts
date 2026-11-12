@@ -29,6 +29,7 @@ import { metricsPlugin } from "./plugins/metrics-plugin.js";
 import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics.js";
 import { sharePlugin } from "./plugins/share.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
+import { createPrismaNotifyAdmission } from "./plugins/gsheet-notify.js";
 import { createRpcBytecodeFetcher, createScamEnrichmentLoader, createScamDecisionLogger } from "./plugins/scam-enrichment.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
@@ -455,8 +456,10 @@ if (gsheetApiToken) {
     // @wcore/core not importable in this context (tests, etc.) — fall back to
     // registry-based static [Lock] determination.
   }
+  const ntfyTopic = apiConfig.integrations.ntfyTopic;
   await gsheetPlugin(app, {
     token: gsheetApiToken,
+    notify: ntfyTopic ? { topic: ntfyTopic, admit: createPrismaNotifyAdmission(prisma, apiConfig.integrations.ntfyDailyCap) } : undefined,
     cache: sharedCache,
     cacheStore: {
       get: async (key: string): Promise<string | null> => {

@@ -1,3 +1,4 @@
+import { handleNotify, type NotifyDeps } from "./gsheet-notify.js";
 import type { FastifyInstance } from "fastify";
 import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore, type WalletAssets } from "@wcore/core";
 import type { ScamEnrichment } from "@wcore/shared";
@@ -49,6 +50,8 @@ export interface GsheetPluginOptions {
   stockPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetStockPortfolioSnapshot>;
   cryptoPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetCryptoPortfolioSnapshot>;
   scamEnrichment?: GsheetScamEnrichment;
+  /** Phone notification relay (ntfy); absent = POST /api/gsheet/notify answers 503. */
+  notify?: NotifyDeps;
 }
 
 export interface GsheetPriceBatchInput {
@@ -1034,6 +1037,12 @@ async function defaultScanRunner(
 }
 
 async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOptions) {
+  app.post("/api/gsheet/notify", async (request, reply) => {
+    if (!opts.notify) return reply.code(503).send({ ok: false, error: "notify_disabled" });
+    const result = await handleNotify(request.body, opts.notify);
+    return reply.code(result.status).send(result.body);
+  });
+
   app.addHook("onRequest", async (req, reply) => {
     const header = req.headers["x-gsheet-token"];
     // Constant time: this hook is the only thing standing in front of /api/gsheet/*.

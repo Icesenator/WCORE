@@ -83,12 +83,21 @@ export interface ApiConfig {
     gsheetScanPriceRepairLimit: number;
     gsheetPriceBatchConcurrency: number;
     gsheetOwnerAddress: string | undefined;
+    /** ntfy topic for the GSheet notification relay; undefined = relay off. */
+    ntfyTopic: string | undefined;
+    ntfyDailyCap: number;
     internalApiUrl: string;
     publicUrl: string;
   };
 }
 
 const DEV_ENVS = new Set(["development", "test"]);
+
+/** ntfy topic of the GSheet notification relay: one safe URL segment, or undefined (relay off). */
+function readNtfyTopic(env: ApiEnv): string | undefined {
+  const t = env.NTFY_TOPIC?.trim();
+  return t && /^[A-Za-z0-9_-]{8,64}$/.test(t) ? t : undefined;
+}
 const DEV_JWT_SECRET = "wcore-dev-secret-change-in-prod";
 const MAX_TIMER_MS = 2_147_483_647;
 // Zerion ceilings equal the defaults: raising them would also widen the pre-parse
@@ -344,6 +353,8 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       gsheetScanPriceRepairLimit: readNumber(env, "GSHEET_SCAN_PRICE_REPAIR_LIMIT", 24, { min: 0 }),
       gsheetPriceBatchConcurrency: readNumber(env, "GSHEET_PRICE_BATCH_CONCURRENCY", 3, { min: 1 }),
       gsheetOwnerAddress: env.GSHEET_OWNER_ADDRESS?.trim().toLowerCase() || undefined,
+      ntfyTopic: readNtfyTopic(env),
+      ntfyDailyCap: readPositiveInteger(env, "NTFY_DAILY_CAP", 20, 200),
       internalApiUrl: env.INTERNAL_API_URL || "http://localhost:4000",
       publicUrl: env.PUBLIC_URL ?? "http://localhost:3000",
     },

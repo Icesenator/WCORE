@@ -1,4 +1,4 @@
-// v4.17.0 - Phone alert (ntfy) when a Strat control cell turns to X (16C_STRAT_ALERT.gs).
+// v4.17.1 - Rebalancing alert of Strat, relayed by the WCORE API (16C_STRAT_ALERT.gs).
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -7,18 +7,19 @@ const test = require('node:test');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', '16C_STRAT_ALERT.gs'), 'utf8');
 const REFRESH = fs.readFileSync(path.join(__dirname, '..', 'src', '16_REFRESH.gs'), 'utf8');
-const TOPIC = 'test-topic-abcdef123';
+const API = 'https://api.example.test';
+const TOKEN = 'secret-token';
 
-// Strat!AY1:BQ1 is 19 cells: AY1 at 0, BE1 at 6, BK1 at 12, BQ1 at 18.
+// Strat!AY1:BE1 is 7 cells: AY1 at 0, BE1 at 6.
 function stratRow(cells) {
-  const row = new Array(19).fill('');
-  const at = { AY1: 0, BE1: 6, BK1: 12, BQ1: 18 };
-  for (const k of Object.keys(at)) row[at[k]] = cells[k] || 'V';
+  const row = new Array(7).fill('');
+  row[0] = cells.AY1 || 'V';
+  row[6] = cells.BE1 || 'V';
   return row;
 }
 
 function harness(opts = {}) {
-  const store = new Map(Object.entries(opts.props || { WCORE_NTFY_TOPIC: TOPIC }));
+  const store = new Map(Object.entries(opts.props || { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN }));
   const posts = [];
   const state = { strat: stratRow({}), code: 200,
     trade: { 'Portefeuille Crypto': ['SOMI', '>', 'ETH'], 'Portefeuille Action': ['AAA', '>', 'BBB'] },
@@ -27,7 +28,7 @@ function harness(opts = {}) {
       'Portefeuille Action': [[30, 'AAA', 'V'], [-12.2, 'BBB', 'X']],
     } };
   const sheet = (name) => {
-    if (name === 'Strat') return { getRange: (r) => { assert.equal(r, 'AY1:BQ1'); return { getValues: () => [state.strat] }; } };
+    if (name === 'Strat') return { getRange: (r) => { assert.equal(r, 'AY1:BE1'); return { getValues: () => [state.strat] }; } };
     if (state.trade[name]) return {
       getLastRow: () => 2 + (state.gaps[name] || []).length,
       getRange: (a) => (a === 'Q1:S1' ? { getValues: () => [state.trade[name]] } : { getValues: () => state.gaps[name] || [] }),
@@ -35,14 +36,15 @@ function harness(opts = {}) {
     return null;
   };
   const ctx = {
-    JSON, Object, String, Number, Math,
+    JSON, Object, String, Number, Math, isFinite,
     Logger: { log: () => {} },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (store.has(k) ? store.get(k) : null),
       setProperty: (k, v) => store.set(k, v),
+      deleteProperty: (k) => store.delete(k),
     }) },
     HTTP: { post: (url, payload, options) => {
-      posts.push({ url, payload, options });
+      posts.push({ url, payload: JSON.parse(JSON.stringify(payload)), options });
       if (state.code === null) return null;
       return { getResponseCode: () => state.code };
     } },
@@ -50,18 +52,22 @@ function harness(opts = {}) {
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const ss = { getSheetByName: sheet };
-  return { run: () => ctx._wcoreCheckStratAlert_(ss), state, posts, store };
+  return { ctx, run: () => ctx._wcoreCheckStratAlert_(ss), state, posts, store };
 }
 
 test('the watchdog calls the check, guarded, right after opening the spreadsheet', () => {
-  assert.ok(/_wcoreCheckStratAlert_\(ss\)/.test(REFRESH));
   const i = REFRESH.indexOf('stats.stratAlert = _wcoreCheckStratAlert_(ss)');
   assert.ok(i > REFRESH.indexOf('const ss = _wcoreGetSpreadsheet_();') && i < REFRESH.indexOf('const recap = ss.getSheetByName(RECAP_SHEET_NAME);'));
 });
 
-test('no topic, no call', () => {
+test('the workbook never calls ntfy itself and never holds the topic', () => {
+  assert.ok(!/ntfy\.sh/.test(SRC.replace(/^\s*\*.*$/gm, '')), 'no ntfy URL outside comments');
+  assert.ok(!/getProperty\("WCORE_NTFY_TOPIC"\)/.test(SRC));
+});
+
+test('no API configuration, no call', () => {
   const h = harness({ props: {} });
-  assert.equal(h.run().reason, 'NO_TOPIC');
+  assert.equal(h.run().reason, 'NO_API');
   assert.equal(h.posts.length, 0);
 });
 
@@ -69,21 +75,19 @@ test('the first observation never notifies, even with a cell already at X', () =
   const h = harness();
   h.state.strat = stratRow({ AY1: 'X' });
   assert.equal(h.run().reason, 'INIT');
-  assert.equal(h.posts.length, 0);
   assert.equal(h.run().reason, 'NO_NEW_X');
   assert.equal(h.posts.length, 0);
 });
 
-test('a cell going from V to X sends one generic notification, once', () => {
+test('a crypto rebalancing posts a structured event with the trade and its amounts, once', () => {
   const h = harness();
   h.run();
   h.state.strat = stratRow({ AY1: 'X' });
-  const out = h.run();
-  assert.equal(out.reason, 'SENT');
+  assert.equal(h.run().reason, 'SENT');
   assert.equal(h.posts.length, 1);
-  assert.equal(h.posts[0].url, 'https://ntfy.sh/' + TOPIC);
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI de 21 €, renforcer ETH de 1 235 €.');
-  assert.equal(h.posts[0].options.headers.Title, 'WCORE');
+  assert.equal(h.posts[0].url, API + '/api/gsheet/notify');
+  assert.equal(h.posts[0].options.headers['x-gsheet-token'], TOKEN);
+  assert.deepEqual(h.posts[0].payload, { event: 'strat_rebalance', category: 'crypto', sell: { symbol: 'SOMI', eur: 21 }, buy: { symbol: 'ETH', eur: 1235 } });
   h.run();
   assert.equal(h.posts.length, 1, 'still X: no repeat');
   h.state.strat = stratRow({});
@@ -93,45 +97,37 @@ test('a cell going from V to X sends one generic notification, once', () => {
   assert.equal(h.posts.length, 2, 'back to V re-arms the alert');
 });
 
-test('both rebalancings are grouped with their amounts; tab errors never go to the phone', () => {
+test('both rebalancings post one event each', () => {
   const h = harness();
   h.run();
-  h.state.strat = stratRow({ AY1: 'X', BE1: 'X', BK1: 'X', BQ1: 'X' });
-  h.run();
-  assert.equal(h.posts.length, 1);
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI de 21 €, renforcer ETH de 1 235 € ; rééquilibrage Action à faire : alléger AAA de 30 €, renforcer BBB de 12 €.');
-  const only = harness();
-  only.run();
-  only.state.strat = stratRow({ BK1: 'X', BQ1: 'X' });
-  assert.equal(only.run().reason, 'NO_NEW_X');
-  assert.equal(only.posts.length, 0);
+  h.state.strat = stratRow({ AY1: 'X', BE1: 'X' });
+  assert.equal(h.run().sent, 2);
+  assert.deepEqual(h.posts.map((p) => p.payload.category), ['crypto', 'action']);
+  assert.deepEqual(h.posts[1].payload.sell, { symbol: 'AAA', eur: 30 });
 });
 
-test('without a readable gap the trade keeps its symbols only', () => {
-  const h = harness();
-  h.state.gaps['Portefeuille Crypto'] = [[ 'n/a', 'SOMI', 'V'], [5, 'ETH', 'X']]; // wrong sign for X too
-  h.run();
-  h.state.strat = stratRow({ AY1: 'X' });
-  h.run();
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI, renforcer ETH.');
-});
-
-test('an unreadable or odd trade cell falls back to the category alone, never an amount', () => {
+test('an odd trade sends the category alone; an unreadable gap sends the symbols alone', () => {
   const h = harness();
   h.state.trade['Portefeuille Crypto'] = ['1 234,56 €', '>', 'ETH'];
   h.run();
   h.state.strat = stratRow({ AY1: 'X' });
   h.run();
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire.');
+  assert.deepEqual(h.posts[0].payload, { event: 'strat_rebalance', category: 'crypto' });
+  const g = harness();
+  g.state.gaps['Portefeuille Crypto'] = [['n/a', 'SOMI', 'V'], [5, 'ETH', 'X']];
+  g.run();
+  g.state.strat = stratRow({ AY1: 'X' });
+  g.run();
+  assert.deepEqual(g.posts[0].payload, { event: 'strat_rebalance', category: 'crypto', sell: { symbol: 'SOMI' }, buy: { symbol: 'ETH' } });
 });
 
-test('a failed or refused send keeps the old state and retries next pass', () => {
-  for (const code of [500, null]) {
+test('a refused or failed post keeps the cell at V and retries next pass', () => {
+  for (const code of [429, 502, null]) {
     const h = harness();
     h.run();
     h.state.strat = stratRow({ AY1: 'X' });
     h.state.code = code;
-    assert.notEqual(h.run().reason, 'SENT');
+    assert.equal(h.run().reason, 'PARTIAL_OR_FAILED');
     h.state.code = 200;
     assert.equal(h.run().reason, 'SENT', 'retried');
     assert.equal(h.posts.length, 2);
@@ -144,11 +140,15 @@ test('an unreadable cell keeps its old state and never notifies', () => {
   h.state.strat = stratRow({ AY1: '#REF!' });
   assert.equal(h.run().reason, 'NO_NEW_X');
   h.state.strat = stratRow({ AY1: 'X' });
-  assert.equal(h.run().reason, 'SENT', 'V kept through the unreadable pass, so V -> X still alerts');
+  assert.equal(h.run().reason, 'SENT');
 });
 
-test('the amounts come from the gap column of the rows marked V and X only', () => {
-  assert.ok(/getRange\(3, 16, last - 2, 3\)/.test(SRC));
+test('clear removes the old topic property; the test event goes through the API', () => {
+  const h = harness({ props: { WCORE_WEB_API_URL: API, GSHEET_API_TOKEN: TOKEN, WCORE_NTFY_TOPIC: 'old-topic-123456' } });
+  assert.equal(h.ctx.WCORE_NTFY_CLEAR_TOPIC().ok, true);
+  assert.equal(h.store.has('WCORE_NTFY_TOPIC'), false);
+  assert.equal(h.ctx.WCORE_NTFY_TEST().ok, true);
+  assert.deepEqual(h.posts[0].payload, { event: 'test' });
 });
 
 test('the real HTTP.post makes no transport when the quota breaker refuses', () => {
@@ -159,25 +159,6 @@ test('the real HTTP.post makes no transport when the quota breaker refuses', () 
   vm.runInContext(httpSrc + '\nthis.__HTTP = (typeof HTTP !== "undefined") ? HTTP : Http;', ctx);
   const HTTP = ctx.__HTTP;
   HTTP.canFetchNow = () => false;
-  assert.equal(HTTP.post('https://ntfy.sh/' + TOPIC, 'x', { muteHttpExceptions: true }), null);
+  assert.equal(HTTP.post(API + '/api/gsheet/notify', { event: 'test' }, { muteHttpExceptions: true }), null);
   assert.equal(fetches, 0);
-  HTTP.canFetchNow = () => true;
-  HTTP._record = () => {};
-  HTTP.post('https://ntfy.sh/' + TOPIC, 'x', { muteHttpExceptions: true, timeoutMs: 5000 });
-  assert.equal(fetches, 1);
-});
-
-test('setup stores a valid topic only and never returns it; the test send uses it', () => {
-  const h = harness({ props: {} });
-  const ctx = vm.createContext({ JSON, Object, String, Number, Math, Logger: { log: () => {} },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (h.store.has(k) ? h.store.get(k) : null), setProperty: (k, v) => h.store.set(k, v) }) },
-    HTTP: { canFetchNow: () => true, post: (url) => { h.posts.push({ url }); return { getResponseCode: () => 200 }; } } });
-  vm.runInContext(SRC, ctx);
-  assert.deepEqual(JSON.parse(JSON.stringify(ctx.WCORE_NTFY_SET_TOPIC('bad topic!'))), { ok: false, reason: 'INVALID_TOPIC' });
-  assert.equal(JSON.stringify(ctx.WCORE_NTFY_TEST()), JSON.stringify({ ok: false, reason: 'NO_TOPIC' }));
-  const r = ctx.WCORE_NTFY_SET_TOPIC(TOPIC);
-  assert.equal(JSON.stringify(r), JSON.stringify({ ok: true }));
-  assert.ok(!JSON.stringify(r).includes(TOPIC));
-  assert.equal(ctx.WCORE_NTFY_TEST().ok, true);
-  assert.equal(h.posts[0].url, 'https://ntfy.sh/' + TOPIC);
 });

@@ -170,15 +170,21 @@ function _wcoreAutoHealWatchdogAdmission_(props, nowMs) {
   var raw = "";
   try { raw = props.getProperty("WCORE_WD_LAST_ADMITTED_MS") || ""; } catch (e) { return { status: "UNKNOWN", detail: "admission heartbeat unreadable" }; }
   var ms = Number(raw);
-  if (!raw || !isFinite(ms) || ms <= 0) return { status: "UNKNOWN", detail: "no admission heartbeat yet" };
-  var age = nowMs - ms;
-  if (age <= WCORE_AUTO_HEAL_WD_STALE_MS) return { status: "OK", detail: "ageMin=" + Math.round(age / 60000) };
-  var reason = "";
+  var known = !!raw && isFinite(ms) && ms > 0;
+  var age = known ? nowMs - ms : null;
+  if (known && age <= WCORE_AUTO_HEAL_WD_STALE_MS) return { status: "OK", detail: "ageMin=" + Math.round(age / 60000) };
+  // The last diagnostic tells whether the watchdog is being refused, and why.
+  var refused = false, reason = "";
   try {
     var diag = JSON.parse(props.getProperty("WCORE_WD_LAST_DIAG") || "null");
-    if (diag && diag.stats && diag.stats.mode === "SKIPPED_UNSAFE") reason = String(diag.stats.reason || "");
+    if (diag && diag.stats && diag.stats.mode === "SKIPPED_UNSAFE") { refused = true; reason = String(diag.stats.reason || ""); }
   } catch (eDiag) {}
-  return { status: "STALE", detail: "watchdog refused since ageMin=" + Math.round(age / 60000) + (reason ? " reason=" + reason : "") };
+  if (!known) {
+    // Never admitted since the heartbeat exists: UNKNOWN unless the last pass was a refusal.
+    return refused ? { status: "STALE", detail: "watchdog refused, never admitted" + (reason ? " reason=" + reason : "") }
+                   : { status: "UNKNOWN", detail: "no admission heartbeat yet" };
+  }
+  return { status: "STALE", detail: (refused ? "watchdog refused" : "no admission") + " since ageMin=" + Math.round(age / 60000) + (reason ? " reason=" + reason : "") };
 }
 
 function _wcoreAutoHealWatchdogDiagAgeMs_(props) {

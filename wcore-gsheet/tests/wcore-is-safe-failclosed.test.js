@@ -223,7 +223,7 @@ test('la porte recopiée dans le test est bien celle du source', () => {
   for (const reason of ['HTTP_COUNTER_UNKNOWN', 'HTTP_COUNTER_UNATTESTED', 'HTTP_MODE_UNKNOWN']) assert.ok(REF.includes('"' + reason + '"'), reason + ' dans le diagnostic');
 });
 test('auto-réparation : un watchdog refusé à chaque passage devient visible (Watchdog admission STALE)', () => {
-  const ctx = vm.createContext({ JSON, Math, Number, String, isFinite, WCORE_AUTO_HEAL_WD_STALE_MS: 45 * 60000 });
+  const ctx = vm.createContext({ JSON, Math, Number, String, isFinite, WCORE_AUTO_HEAL_WD_STALE_MS: 30 * 60000 });
   vm.runInContext(fn(HEAL, '_wcoreAutoHealWatchdogAdmission_'), ctx);
   const now = 1794470000000;
   const props = (o) => ({ getProperty: (k) => (k in o ? o[k] : null) });
@@ -276,4 +276,22 @@ test('auto-réparation réelle : la ligne « Watchdog admission » sort en mode 
 });
 test('le statut de l’auto-réparation affiche aussi l’admission', () => {
   assert.match(fn(HEAL, 'WCORE_AUTO_HEAL_STATUS'), /"WATCHDOG_FROM_RECAP admission"/);
+});
+
+test('auto-réparation : jamais admis mais dernier passage refusé ⇒ STALE avec la raison ; sans refus ⇒ libellé neutre', () => {
+  const ctx = vm.createContext({ JSON, Math, Number, String, isFinite, WCORE_AUTO_HEAL_WD_STALE_MS: 30 * 60000 });
+  vm.runInContext(fn(HEAL, '_wcoreAutoHealWatchdogAdmission_'), ctx);
+  const now = 1794470000000;
+  const props = (o) => ({ getProperty: (k) => (k in o ? o[k] : null) });
+  const never = ctx._wcoreAutoHealWatchdogAdmission_(props({ WCORE_WD_LAST_DIAG: JSON.stringify({ stats: { mode: 'SKIPPED_UNSAFE', reason: 'QUOTA' } }) }), now);
+  assert.equal(never.status, 'STALE');
+  assert.match(never.detail, /never admitted reason=QUOTA/);
+  assert.equal(ctx._wcoreAutoHealWatchdogAdmission_(props({}), now).status, 'UNKNOWN');
+  const old = ctx._wcoreAutoHealWatchdogAdmission_(props({ WCORE_WD_LAST_ADMITTED_MS: String(now - 2 * 3600000), WCORE_WD_LAST_DIAG: JSON.stringify({ stats: { mode: 'API_BATCH' } }) }), now);
+  assert.equal(old.status, 'STALE');
+  assert.match(old.detail, /^no admission since/);
+  assert.match(HEAL, /var WCORE_AUTO_HEAL_WD_STALE_MS = 30 \* 60 \* 1000;/);
+});
+test('diagnostic du watchdog : les raisons de blocage du moteur sont nommées', () => {
+  assert.match(REF, /"COUNTER_UNATTESTED", "QUOTA", "DEGRADED", "GUARD"\]/);
 });

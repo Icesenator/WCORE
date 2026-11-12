@@ -2263,7 +2263,7 @@ function WATCHDOG_FROM_RECAP() {
               stats: {
                 mode: "SKIPPED_UNSAFE", ok: false,
                 reason: /^HTTP_BUDGET_[0-9]{1,3}%$/.test(_wdGateReason) ? "HTTP_BUDGET" :
-                  (["HTTP_MODE_CACHE_ONLY", "HTTP_MODE_NORMAL", "HTTP_MODE_DEGRADED", "HTTP_MODE_BLOCKED", "HTTP_MODE_UNKNOWN", "HTTP_COUNTER_UNKNOWN", "HTTP_COUNTER_UNATTESTED", "GATE_UNAVAILABLE", "COUNTER_UNATTESTED"].indexOf(_wdGateReason) >= 0 ? _wdGateReason : "UNKNOWN"),
+                  (["HTTP_MODE_CACHE_ONLY", "HTTP_MODE_NORMAL", "HTTP_MODE_DEGRADED", "HTTP_MODE_BLOCKED", "HTTP_MODE_UNKNOWN", "HTTP_COUNTER_UNKNOWN", "HTTP_COUNTER_UNATTESTED", "GATE_UNAVAILABLE", "COUNTER_UNATTESTED", "QUOTA", "DEGRADED", "GUARD"].indexOf(_wdGateReason) >= 0 ? _wdGateReason : "UNKNOWN"),
                 httpMode: ["CACHE_ONLY", "NORMAL", "DEGRADED", "BLOCKED"].indexOf(_wdGateMode) >= 0 ? _wdGateMode : "UNKNOWN"
               }
             };

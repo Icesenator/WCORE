@@ -195,6 +195,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
   const ZERO = "0x2222222222222222222222222222222222222222";
   const FAILED = "0x3333333333333333333333333333333333333333";
   const EMPTY = "0x5555555555555555555555555555555555555555";
+  const TRUNC = "0x6666666666666666666666666666666666666666";
   const discovery: TokenDiscovery = {
     async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; },
   };
@@ -216,6 +217,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
       if (target === ZERO) return "0x" + "0".padStart(64, "0");
       if (target === FAILED) throw new Error("timeout");
       if (target === EMPTY) return "0x";
+      if (target === TRUNC) return "0x01";
       return "0x";
     },
   };
@@ -233,7 +235,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
     rpc: rpc as never,
     sources,
     tokenDiscovery: discovery,
-    customTokens: [HELD, ZERO, FAILED, EMPTY, "not-an-address"],
+    customTokens: [HELD, ZERO, FAILED, EMPTY, TRUNC, "not-an-address"],
     strictTokens: true,
     sharedPriceCache: new MemoryPricingCache(),
     fxRate: 1,
@@ -244,6 +246,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
   assert.equal(status[ZERO], "zero");
   assert.equal(status[FAILED], "unknown");
   assert.equal(status[EMPTY], "unknown", "an empty eth_call answer is never a confirmed zero");
+  assert.equal(status[TRUNC], "unknown", "a truncated word is never a confirmed zero");
   assert.equal(status["not-an-address"], "unknown");
   assert.deepEqual(result.tokens.map((t) => t.contract), [HELD]);
 });
@@ -299,6 +302,31 @@ test("getEvmWalletAssets keeps a reverted requested token unknown in a non-degra
     assert.equal(status[REVERTED], "unknown", `round ${round}: a reverted read is never a confirmed zero`);
     assert.equal(status[HELD], "held");
     assert.equal(result.errors.some((e) => e.includes("[DEGRADED]")), false, `round ${round}: the scan itself is not degraded`);
+  }
+});
+
+test("readErc20Balance never votes for nor caches a malformed answer", async () => {
+  const { readErc20Balance } = await import("./evm-balances.js");
+  for (const answer of ["0x", "0x01"]) {
+    const writes: string[] = [];
+    const cache = new MemoryCacheStore();
+    const spy = Object.assign(Object.create(cache), {
+      get: cache.get.bind(cache),
+      delete: cache.delete.bind(cache),
+      set: async (key: string, value: unknown, ttl?: number) => { writes.push(key); return cache.set(key, value as never, ttl); },
+    });
+    const dispatcher = {
+      async run() {
+        return { consensus: true, value: answer, votes: 2, total: 2, attempts: [
+          { ok: true, value: answer, endpoint: "https://rpc-a.example" },
+          { ok: true, value: answer, endpoint: "https://rpc-b.example" },
+        ] };
+      },
+    };
+    const res = await readErc20Balance(dispatcher as never, {} as never, ["https://rpc-a.example"], "0x7777777777777777777777777777777777777777", OWNER, "BASE", spy as never);
+    assert.equal(res.wellFormed, false, `${answer}: not a full ABI word`);
+    assert.equal(res.decision.votes.some((v) => v.source === "rpc" && v.confidence > 0), false, `${answer}: no live zero vote`);
+    assert.equal(writes.some((k) => k.startsWith("token:")), false, `${answer}: no balance cache written`);
   }
 });
 

@@ -170,6 +170,11 @@ export async function canServeEmptyCache(
   }
 }
 
+/** A balance answer is a full ABI word (32 bytes or more); anything shorter proves nothing. */
+export function isAbiWord(value: string): boolean {
+  return /^0x[0-9a-fA-F]{64,}$/.test(String(value).trim());
+}
+
 export async function readErc20Balance(
   dispatcher: RpcDispatcher,
   rpc: EvmRpc,
@@ -198,7 +203,10 @@ export async function readErc20Balance(
   const votes: BalanceVote[] = [];
   const decode = customSelector ? decodeUint256FirstWord : decodeUint256;
   for (const a of res.attempts) {
-    if (a.ok && a.value) {
+    if (a.ok && a.value && !isAbiWord(a.value)) {
+      // "0x" or a truncated word decodes to 0n but proves nothing: never a live vote.
+      votes.push(failedLiveVote("rpc", "malformed_balance_word"));
+    } else if (a.ok && a.value) {
       const raw = decode(a.value);
       votes.push(liveVote("rpc", raw, false, 0.9, a.endpoint));
     } else {
@@ -206,7 +214,8 @@ export async function readErc20Balance(
     }
   }
 
-  if (res.consensus && res.value) {
+  const consensusWellFormed = typeof res.value === "string" && isAbiWord(res.value);
+  if (res.consensus && res.value && consensusWellFormed) {
     const decoded = decode(res.value);
     if (res.attempts.length === 0) {
       // Backward-compat: synthesize a vote when attempts aren't populated (e.g. test mocks)
@@ -250,13 +259,13 @@ export async function readErc20Balance(
     for (const ep of endpoints) rpcHealth.recordFailure(chainKey, ep);
   }
 
-  // Persist cache on reliable live success, including confirmed zero balances.
-  if (!decision.degraded && decision.source !== "cache" && decision.confidence >= 0.65 && cache) {
+  // Persist cache on reliable live success, including confirmed zero balances, never from a
+  // malformed answer ("0x" or a truncated word).
+  if (consensusWellFormed && !decision.degraded && decision.source !== "cache" && decision.confidence >= 0.65 && cache) {
     const tcKey = erc20BalanceCacheKey(chainKey, contract, owner, customSelector, customSelectorExtraArgs);
     cache.set(tcKey, cacheEntry(decision), 3600_000).catch(() => {});
   }
 
   // A balance is only a full ABI word: "0x" or a short answer decodes to 0n but proves nothing.
-  const wellFormed = typeof res.value === "string" && /^0x[0-9a-fA-F]{64,}$/.test(res.value.trim());
-  return { decision, skipped: false, wellFormed };
+  return { decision, skipped: false, wellFormed: consensusWellFormed };
 }

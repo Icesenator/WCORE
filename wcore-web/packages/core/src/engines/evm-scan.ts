@@ -43,7 +43,7 @@ import {
   type EvmWalletToken,
   type EvmWalletAssets,
 } from "./evm-types.js";
-import { getRecentLogRange, readNativeBalance, canServeEmptyCache, readErc20Balance } from "./evm-balances.js";
+import { getRecentLogRange, readNativeBalance, canServeEmptyCache, readErc20Balance, isAbiWord } from "./evm-balances.js";
 import { sharedPriceCache, defaultSources, priceNative, priceToken, priceCacheKey } from "./evm-pricing.js";
 import { cacheKey } from "@wcore/shared";
 import type { RequestedTokenStatus } from "./types.js";
@@ -548,7 +548,7 @@ export async function getEvmWalletAssets(
     const missIndices: number[] = [];
     for (let i = 0; i < balanceResults.length; i++) {
       const r = balanceResults[i];
-      if (!r || !r.success || !r.returnData || r.returnData === "0x") missIndices.push(i);
+      if (!r || !r.success || !r.returnData || !isAbiWord(r.returnData)) missIndices.push(i);
     }
     if (missIndices.length > 0 && missIndices.length < balanceResults.length) {
       const retryCalls = missIndices.map((idx) => balanceCalls[idx]!);
@@ -556,7 +556,7 @@ export async function getEvmWalletAssets(
         const retry = await multicall(rpc, dispatcher, effectiveEndpoints, retryCalls);
         for (let i = 0; i < missIndices.length; i++) {
           const r = retry[i];
-          if (r?.success && r.returnData && r.returnData !== "0x") {
+          if (r?.success && r.returnData && isAbiWord(r.returnData)) {
             balanceResults[missIndices[i]!] = r;
           }
         }
@@ -576,10 +576,10 @@ export async function getEvmWalletAssets(
       let raw: bigint;
       let reliable: boolean;
       let reason = "multicall";
-      if (result?.success && result.returnData && result.returnData !== "0x") {
+      if (result?.success && result.returnData && isAbiWord(result.returnData)) {
         try {
           raw = decodeUint256(result.returnData);
-          reliable = /^0x[0-9a-fA-F]{64,}$/.test(result.returnData);
+          reliable = true;
           if (cache) {
             const decision: BalanceDecision = {
               raw,

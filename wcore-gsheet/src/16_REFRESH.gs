@@ -2198,6 +2198,30 @@ function _wd_tryUnblock_(blockedReason) {
  * 
  * v4.5.11: Now also checks for partial rotation cycles
  */
+// Recovery admission needs an independently attested HTTP total. The raw
+// rolling buckets must exist and be strictly numeric, the live counter must
+// report a valid read this execution, and the larger total must stay under
+// the unchanged recovery threshold. Any doubt refuses: never a default zero.
+function _wdCounterAttested_() {
+  try {
+    if (typeof HttpCounter === "undefined" || typeof HttpCounter.isCountValid !== "function" || HttpCounter.isCountValid() !== true) return false;
+    if (typeof HttpCallCounter === "undefined" || typeof HttpCallCounter.getToday !== "function" || typeof HttpCallCounter.getQuota !== "function") return false;
+    var raw = PropertiesService.getScriptProperties().getProperty("WCORE_HTTP_BUCKETS_v1");
+    if (raw == null) return false;
+    var obj = JSON.parse(raw);
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+    var cutoff = Math.floor((Date.now() - 24 * 3600000) / 3600000), sum = 0;
+    for (var k in obj) {
+      if (!obj.hasOwnProperty(k)) continue;
+      if (!/^[0-9]+$/.test(k) || !/^[0-9]{1,9}$/.test(String(obj[k]))) return false;
+      if (parseInt(k, 10) > cutoff) sum += parseInt(obj[k], 10);
+    }
+    var live = HttpCallCounter.getToday(), quota = HttpCallCounter.getQuota();
+    if (typeof live !== "number" || !isFinite(live) || live < 0 || typeof quota !== "number" || !isFinite(quota) || quota <= 0) return false;
+    return Math.max(sum, live) < quota * 0.80;
+  } catch (e) { return false; }
+}
+
 function WATCHDOG_FROM_RECAP() {
   try { HttpCallCounter.setTrigger('WATCHDOG_FROM_RECAP'); } catch(e){}
   var leaseOwner = _wcoreAcquireLease_(WCORE_WATCHDOG_LEASE_KEY, WCORE_WATCHDOG_LEASE_TTL_MS);
@@ -2218,15 +2242,39 @@ function WATCHDOG_FROM_RECAP() {
       _wdHbProps.setProperty("WCORE_WD_LAST_RUN_ISO", new Date().toISOString());
     } catch (eHb) {}
 
-    // Check if system is safe
-    if (typeof WCORE_IS_SAFE === 'function') {
-      try {
-        var safe = WCORE_IS_SAFE("recovery");
-        if (safe && safe.safe === false) {
+    // Check if system is safe. Admission is fail-closed: a missing gate, an
+    // exception, an indeterminate verdict or an unattested counter refuses.
+    {
+      {
+        var safe = null;
+        try { safe = typeof WCORE_IS_SAFE === 'function' ? WCORE_IS_SAFE("recovery") : null; } catch (eGate) { safe = null; }
+        if (safe && safe.safe === true && (typeof _wdCounterAttested_ !== "function" || !_wdCounterAttested_())) safe = { safe: false, reason: "COUNTER_UNATTESTED" };
+        if (!safe || safe.safe !== true) {
+          if (!safe || safe.safe !== false) safe = { safe: false, reason: "GATE_UNAVAILABLE" };
+          // Gate refusal is a current diagnostic, never evidence of cycle completion.
+          try {
+            var _wdGateReason = String(safe.reason || "");
+            var _wdGateMode = String(safe.mode || "");
+            var _wdGateDiag = {
+              lastRunTs: new Date().toISOString(),
+              stats: {
+                mode: "SKIPPED_UNSAFE", ok: false,
+                reason: /^HTTP_BUDGET_[0-9]{1,3}%$/.test(_wdGateReason) ? "HTTP_BUDGET" :
+                  (["HTTP_MODE_CACHE_ONLY", "HTTP_MODE_NORMAL", "HTTP_MODE_DEGRADED", "HTTP_MODE_BLOCKED", "GATE_UNAVAILABLE", "COUNTER_UNATTESTED"].indexOf(_wdGateReason) >= 0 ? _wdGateReason : "UNKNOWN"),
+                httpMode: ["CACHE_ONLY", "NORMAL", "DEGRADED", "BLOCKED"].indexOf(_wdGateMode) >= 0 ? _wdGateMode : "UNKNOWN"
+              }
+            };
+            if (typeof safe.used === "number" && isFinite(safe.used) && safe.used >= 0 &&
+                typeof safe.quota === "number" && isFinite(safe.quota) && safe.quota > 0 &&
+                typeof safe.threshold === "number" && isFinite(safe.threshold) && safe.threshold >= 0 && safe.threshold <= 1) {
+              _wdGateDiag.stats.budget = { used: safe.used, quota: safe.quota, threshold: safe.threshold };
+            }
+            PropertiesService.getScriptProperties().setProperty("WCORE_WD_LAST_DIAG", JSON.stringify(_wdGateDiag));
+          } catch (eGateDiag) {}
           Logger.log("[WATCHDOG] WCORE_IS_SAFE=false, skipping: " + (safe.reason || "UNKNOWN"));
           return;
         }
-      } catch (e) {}
+      }
     }
 
     const t0 = Date.now();

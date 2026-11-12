@@ -1781,8 +1781,8 @@ function _activityWatchdogPhaseCSignals_() {
   try {
     if (typeof WCORE_IS_SAFE === "function") {
       var phaseCSafe = WCORE_IS_SAFE("activity");
-      if (phaseCSafe && phaseCSafe.safe === false) {
-        Logger.log("[ACTIVITY_WATCHDOG] Phase C: system not safe, skipping: " + (phaseCSafe.reason || "UNKNOWN"));
+      if (!phaseCSafe || phaseCSafe.safe !== true) {
+        Logger.log("[ACTIVITY_WATCHDOG] Phase C: system not safe, skipping: " + ((phaseCSafe && phaseCSafe.reason) || "UNKNOWN"));
         return;
       }
     }
@@ -1986,8 +1986,8 @@ function ACTIVITY_WATCHDOG() {
     // Check system safety (quota OK)
     if (typeof WCORE_IS_SAFE === "function") {
       var safe = WCORE_IS_SAFE("activity");
-      if (safe && safe.safe === false) {
-        Logger.log("[ACTIVITY_WATCHDOG] System not safe, skipping: " + (safe.reason || "UNKNOWN"));
+      if (!safe || safe.safe !== true) {
+        Logger.log("[ACTIVITY_WATCHDOG] System not safe, skipping: " + ((safe && safe.reason) || "UNKNOWN"));
         return;
       }
     }

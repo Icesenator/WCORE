@@ -627,7 +627,12 @@ function WCORE_IS_SAFE(priority) {
       }
       if (!WcoreHttpMode.isAllowed(_prio)) return { safe: false, reason: "HTTP_MODE_" + mode, mode: mode };
     }
-  } catch (eMode) {}
+  } catch (eMode) {
+    // 29oct fail-closed: an unreadable HTTP mode refuses. Recovery keeps the
+    // previous behaviour: its watchdog gate (16) has its own counter attestation
+    // and must not be frozen by a mode read error.
+    if (String(priority || "normal").toLowerCase() !== "recovery") return { safe: false, reason: "HTTP_MODE_UNKNOWN" };
+  }
   // v4.13.5: Uses centralized BaseEngine check
   var reason = (typeof BaseEngine !== 'undefined' && BaseEngine.detectBlockReason) 
     ? BaseEngine.detectBlockReason() : "";
@@ -635,10 +640,22 @@ function WCORE_IS_SAFE(priority) {
     return { safe: false, reason: reason };
   }
   try {
-    if (typeof HttpCallCounter !== 'undefined' && HttpCallCounter.getToday && HttpCallCounter.getQuota) {
-      var used = HttpCallCounter.getToday();
-      var quota = HttpCallCounter.getQuota();
-      if (quota > 0) {
+    // 29oct fail-closed: no counter, an unattested total or a non-numeric
+    // reading is not a reliable zero. getToday() swallows storage errors and
+    // falls back to the in-memory count, so attestation is read after it.
+    if (typeof HttpCallCounter === 'undefined' || typeof HttpCallCounter.getToday !== 'function' || typeof HttpCallCounter.getQuota !== 'function') {
+      return { safe: false, reason: "HTTP_COUNTER_UNKNOWN" };
+    }
+    {
+      var used = Number(HttpCallCounter.getToday());
+      var quota = Number(HttpCallCounter.getQuota());
+      if (typeof HttpCounter === 'undefined' || typeof HttpCounter.isCountValid !== 'function' || HttpCounter.isCountValid() !== true) {
+        return { safe: false, reason: "HTTP_COUNTER_UNATTESTED" };
+      }
+      if (!isFinite(used) || used < 0 || !isFinite(quota) || quota <= 0) {
+        return { safe: false, reason: "HTTP_COUNTER_UNKNOWN" };
+      }
+      {
         var p = String(priority || "normal").toLowerCase();
         var threshold = 0.80;
         if (p === "critical") threshold = 0.99;
@@ -655,7 +672,7 @@ function WCORE_IS_SAFE(priority) {
         }
       }
     }
-  } catch (eBudget) {}
+  } catch (eBudget) { return { safe: false, reason: "HTTP_COUNTER_UNKNOWN" }; }
   return { safe: true, reason: "OK" };
 }
 

@@ -7,11 +7,11 @@ dernier état connu est celui du dernier scan réussi, indiqué ci-dessous.
 
 | Chaîne | chainId | Dernier scan réussi | Actif figé | Montant figé | Cause du retrait |
 |---|---|---|---|---|---|
-| Botanix | 3637 | 2026-08-17 15:11:04 | 7,61433952857e-7 BTC | <montant> | Tous endpoints 404 (3 testés le 2026-09-30). Projet arrêté. |
-| Degen | 666666666 | 2026-09-02 08:59:37 | 144,82090080404 DEGEN | <montant> | `rpc.degen.tips` HTTP 530, autres 404. **Sunset officiel 2026-08-31.** |
-| DuckChain | 5545 | 2026-07-31 02:48:44 | 0,5807962711891891 GRAM | <montant> | `rpc.duckchain.io` HTTP 521, autres 404. Déjà `DISABLE_CHAIN=true`. |
-| Superposition | 55244 | 2026-09-08 11:57:14 | 8,0082430953107e-5 ETH | <montant> | `rpc.superposition.so` injoignable. Seul `55244.rpc.thirdweb.com` répond, et **uniquement sur `eth_chainId`** ; toutes les méthodes réelles (`eth_getBalance`, `eth_blockNumber`) renvoient `-32603`. Wind down terminé. |
-| RACE | 6805 | 2026-09-14 18:35:44 | 7,73747056560817e-4 ETH | <montant> | **Les domaines de la chaîne ne résolvent plus en DNS** (`racemainnet.io` et `racescan.io` : NXDOMAIN). Seul `6805.rpc.thirdweb.com` répond, et seulement sur `eth_chainId`. Retraitée le 2026-09-30. |
+| Botanix | 3637 | 2026-08-17 15:11:04 | <quantité> BTC | <montant> | Tous endpoints 404 (3 testés le 2026-09-30). Projet arrêté. |
+| Degen | 666666666 | 2026-09-02 08:59:37 | <quantité> DEGEN | <montant> | `rpc.degen.tips` HTTP 530, autres 404. **Sunset officiel 2026-08-31.** |
+| DuckChain | 5545 | 2026-07-31 02:48:44 | <quantité> GRAM | <montant> | `rpc.duckchain.io` HTTP 521, autres 404. Déjà `DISABLE_CHAIN=true`. |
+| Superposition | 55244 | 2026-09-08 11:57:14 | <quantité> ETH | <montant> | `rpc.superposition.so` injoignable. Seul `55244.rpc.thirdweb.com` répond, et **uniquement sur `eth_chainId`** ; toutes les méthodes réelles (`eth_getBalance`, `eth_blockNumber`) renvoient `-32603`. Wind down terminé. |
+| RACE | 6805 | 2026-09-14 18:35:44 | <quantité> ETH | <montant> | **Les domaines de la chaîne ne résolvent plus en DNS** (`racemainnet.io` et `racescan.io` : NXDOMAIN). Seul `6805.rpc.thirdweb.com` répond, et seulement sur `eth_chainId`. Retraitée le 2026-09-30. |
 
 **Total retiré : <montant>** (valeurs figées, non récupérables).
 

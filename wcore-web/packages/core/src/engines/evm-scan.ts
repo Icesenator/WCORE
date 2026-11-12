@@ -572,7 +572,7 @@ export async function getEvmWalletAssets(
     const resolved = await Promise.all(group.map(async (known, offset) => {
       const result = balanceResults[i + offset];
       let raw: bigint;
-      let reliable = true;
+      let reliable: boolean;
       let reason = "multicall";
       if (result?.success && result.returnData && result.returnData !== "0x") {
         try {

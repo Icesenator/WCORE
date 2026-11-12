@@ -109,6 +109,72 @@ export interface GsheetScanResult {
   staking?: unknown;
   chainbaseStaking?: unknown;
   wallet?: string;
+  /**
+   * Un statut explicite par jeton demande (customTokens) : "held" (solde positif), "zero"
+   * (zero confirme par une lecture fiable) ou "unknown" (lecture en echec, vote non fiable,
+   * delai depasse). Le classeur ne retire un ancien jeton que sur "zero".
+   */
+  requestedTokens?: GsheetRequestedToken[];
+}
+
+export interface GsheetRequestedToken {
+  contract: string;
+  status: "held" | "zero" | "unknown";
+  reason?: string;
+}
+
+const REQUESTED_STATUSES = new Set(["held", "zero", "unknown"]);
+
+/**
+ * Contrat de reponse : une entree par jeton demande. Un jeton present dans la reponse finale
+ * est "held" ; un statut du coeur absent ou invalide devient "unknown" (jamais "zero" par
+ * defaut). Un moteur qui ne fournit aucun statut (non EVM) n'a d'entree que pour les jetons
+ * presents : le classeur garde alors son comportement anterieur pour les autres.
+ */
+export function buildGsheetRequestedTokens(
+  customTokens: string[],
+  coreStatuses: unknown,
+  presentContracts: Iterable<string>,
+  failureReason?: string,
+): GsheetRequestedToken[] | undefined {
+  if (customTokens.length === 0) return undefined;
+  const present = new Set([...presentContracts].map((c) => String(c).trim().toLowerCase()));
+  const core = new Map<string, GsheetRequestedToken>();
+  const coreProvided = Array.isArray(coreStatuses);
+  if (coreProvided) {
+    for (const entry of coreStatuses as unknown[]) {
+      const e = entry as { contract?: unknown; status?: unknown; reason?: unknown } | null;
+      const contract = typeof e?.contract === "string" ? e.contract.trim().toLowerCase() : "";
+      if (!contract) continue;
+      const status = typeof e?.status === "string" && REQUESTED_STATUSES.has(e.status) ? e.status as GsheetRequestedToken["status"] : "unknown";
+      core.set(contract, { contract, status, ...(typeof e?.reason === "string" ? { reason: e.reason.slice(0, 64) } : {}) });
+    }
+  }
+  const out: GsheetRequestedToken[] = [];
+  const seen = new Set<string>();
+  for (const raw of customTokens) {
+    const contract = raw.trim().toLowerCase();
+    if (!contract || seen.has(contract)) continue;
+    seen.add(contract);
+    if (present.has(contract)) { out.push({ contract, status: "held" }); continue; }
+    if (failureReason) { out.push({ contract, status: "unknown", reason: failureReason }); continue; }
+    const fromCore = core.get(contract);
+    if (fromCore) {
+      // Lu par le coeur puis retire par le filtrage (arnaque, sans marche) : le statut du solde
+      // reste vrai ; le classeur traite cette absence comme avant.
+      out.push(fromCore);
+    } else if (coreProvided) {
+      out.push({ contract, status: "unknown", reason: "no_status" });
+    }
+  }
+  return out;
+}
+
+function presentScanContracts(result: { tokens?: unknown }): string[] {
+  const tokens = Array.isArray(result.tokens) ? result.tokens : [];
+  return tokens
+    .map((t) => (t && typeof t === "object" && typeof (t as { contract?: unknown }).contract === "string") ? (t as { contract: string }).contract : "")
+    .filter(Boolean);
 }
 
 export interface GsheetStockPortfolioRow {
@@ -1033,6 +1099,7 @@ async function defaultScanRunner(
     phases: assets.phases,
     cacheStats: assets.cacheStats,
     staking: "staking" in assets ? assets.staking : undefined,
+    ...(Array.isArray((assets as { requestedTokens?: unknown }).requestedTokens) ? { requestedTokens: (assets as { requestedTokens: GsheetRequestedToken[] }).requestedTokens } : {}),
   };
 }
 
@@ -1160,7 +1227,8 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
         sanitizeMs,
         ...(phases ? { discoveryMs: phases.discoveryMs, balancesMs: phases.balancesMs, pricingMs: phases.pricingMs } : {}),
       }, "gsheet scan timing");
-      return out;
+      const requestedTokens = buildGsheetRequestedTokens(parsed.input.customTokens, result.requestedTokens, presentScanContracts(out as { tokens?: unknown }));
+      return requestedTokens ? { ...out, requestedTokens } : out;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       if (message === "chain_not_found") return reply.code(404).send({ error: "chain_not_found" });
@@ -1186,6 +1254,9 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
         fxRate: 0,
         scanMs: 0,
         cacheStats: { hits: 0, misses: 0, stale: 0, skipped: 0 },
+        ...(parsed.input.customTokens.length > 0
+          ? { requestedTokens: buildGsheetRequestedTokens(parsed.input.customTokens, [], [], "scan_failed") }
+          : {}),
       };
     }
   });

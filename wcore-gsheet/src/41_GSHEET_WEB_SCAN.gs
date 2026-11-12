@@ -1,6 +1,10 @@
 /************************************************************
  * 41_GSHEET_WEB_SCAN.gs - Delegated scans via WCORE Web
  *
+ * v4.17.1 - Honor the per-token status of the Web API (requestedTokens): a requested
+ *   token absent from the answer is dropped only on a confirmed "zero"; on "unknown"
+ *   (failed read, unreliable vote, timeout) its old row is kept with its old balance
+ *   date and no price, even when the answer is not degraded.
  * v4.16.68 - Post-trip scan hold: after an authoritative Google quota trip
  *   (BudgetHTTP.noteAuthoritativeTrip, armed by QuotaCircuitBreaker._trip),
  *   AUTO web scans degrade to cached output for 3h so the recovery sweep's
@@ -76,7 +80,7 @@
  * v4.16.0 - Add web scan adapter for EVM/SVM/Cosmos/TON refresh paths.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_VERSION = "4.17.0";
+var GSHEET_WEB_SCAN_VERSION = "4.17.1";
 var GSHEET_WEB_SCAN_AUTO_ATTEMPTS = 1;
 var GSHEET_WEB_SCAN_MANUAL_ATTEMPTS = 2;
 var GSHEET_WEB_SCAN_LEASE_SEC = 30;
@@ -518,8 +522,62 @@ function _webScanConvertToWalletCache_(payload, config, tokensRange) {
     ]
   };
   if (priority && priority.set) outCache._webScanRequestedTokenSet = priority.set;
+  var requestedStatus = _webScanRequestedStatusMap_(payload);
+  if (requestedStatus) outCache._webScanRequestedStatus = requestedStatus;
   outCache._webScanBlockedContractSet = blockedSet;
   return outCache;
+}
+
+// v4.17.1: per requested token, the API says "held", "zero" (confirmed by a reliable live
+// read) or "unknown". Returns { contractLower: status } or null when the API sent none.
+function _webScanRequestedStatusMap_(payload) {
+  var list = payload && Array.isArray(payload.requestedTokens) ? payload.requestedTokens : null;
+  if (!list) return null;
+  var out = {};
+  var count = 0;
+  for (var i = 0; i < list.length; i++) {
+    var entry = list[i] || {};
+    var key = String(entry.contract || "").trim().toLowerCase();
+    if (!key) continue;
+    var status = String(entry.status || "");
+    out[key] = (status === "held" || status === "zero") ? status : "unknown";
+    count++;
+  }
+  return count ? out : null;
+}
+
+// v4.17.1: an "unknown" requested token absent from the answer keeps its old row (old balance,
+// old balance date, no price), whatever the degraded flag. Mutates and returns the count kept.
+function _webScanKeepUnknownRequested_(existing, incoming) {
+  var statusMap = incoming && incoming._webScanRequestedStatus;
+  if (!statusMap || !existing || !Array.isArray(existing.assets) || !Array.isArray(incoming.assets)) return 0;
+  var blockedSet = (incoming._webScanBlockedContractSet && typeof incoming._webScanBlockedContractSet === "object") ? incoming._webScanBlockedContractSet : {};
+  var present = {};
+  for (var i = 0; i < incoming.assets.length; i++) present[_webScanAssetKey_(incoming.assets[i])] = true;
+  incoming.priceMap = incoming.priceMap || {};
+  incoming.priceTsMap = incoming.priceTsMap || {};
+  incoming.balanceTsMap = incoming.balanceTsMap || {};
+  var oldBalanceTs = existing.balanceTsMap || {};
+  var kept = 0;
+  for (var j = 0; j < existing.assets.length; j++) {
+    var oldAsset = existing.assets[j];
+    var key = _webScanAssetKey_(oldAsset);
+    if (!key || key === "native" || present[key] || statusMap[key] !== "unknown") continue;
+    if (_webScanIsScamToken_(oldAsset, blockedSet)) continue;
+    var keptAsset = _webScanNeutralizePrice_(_webScanClone_(oldAsset) || {});
+    incoming.assets.push(keptAsset);
+    present[key] = true;
+    delete incoming.priceMap[key];
+    delete incoming.priceTsMap[key];
+    if (oldBalanceTs[key] != null) incoming.balanceTsMap[key] = oldBalanceTs[key]; else delete incoming.balanceTsMap[key];
+    kept++;
+  }
+  if (kept > 0) {
+    incoming.scanStats = incoming.scanStats || {};
+    incoming.scanStats.webRequestedUnknownKept = kept;
+    incoming.scanStats.totalValueEur = _webScanMergedTotal_(incoming.assets);
+  }
+  return kept;
 }
 
 function _webScanShouldPreserveExistingCache_(payload, cache, config) {
@@ -636,6 +694,7 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   var newAssets = Array.isArray(incoming.assets) ? incoming.assets : [];
   if (!oldAssets.length || !newAssets.length) return null;
   var requestedSet = (incoming && incoming._webScanRequestedTokenSet && typeof incoming._webScanRequestedTokenSet === "object") ? incoming._webScanRequestedTokenSet : null;
+  var requestedStatus = (incoming && incoming._webScanRequestedStatus && typeof incoming._webScanRequestedStatus === "object") ? incoming._webScanRequestedStatus : {};
   var blockedSet = (incoming && incoming._webScanBlockedContractSet && typeof incoming._webScanBlockedContractSet === "object") ? incoming._webScanBlockedContractSet : {};
 
   var out = _webScanClone_(existing) || {};
@@ -670,10 +729,13 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
 
   var neutralizedPrices = 0;
   var unreadRequested = {};
+  var confirmedZero = 0;
   for (var nk = 0; nk < order.length; nk++) {
     var preservedKey = order[nk];
     if (!preservedKey || updatedKeys[preservedKey] || preservedKey === "native") continue;
-    if (!requestedSet || !requestedSet[preservedKey]) continue;
+    // v4.17.1: the API confirmed a zero balance with a reliable live read: the old row goes.
+    if (requestedStatus[preservedKey] === "zero") { delete byKey[preservedKey]; confirmedZero++; continue; }
+    if ((!requestedSet || !requestedSet[preservedKey]) && requestedStatus[preservedKey] !== "unknown") continue;
     unreadRequested[preservedKey] = true;
     if (byKey[preservedKey] && (byKey[preservedKey].price_eur != null || byKey[preservedKey].value_eur != null)) neutralizedPrices++;
     _webScanNeutralizePrice_(byKey[preservedKey]);
@@ -698,11 +760,13 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   out.priceMap = _webScanClone_(existing.priceMap || {}) || {};
   purgeBlockedMapKeys(out.priceMap);
   if (requestedSet) for (var rpk in requestedSet) if (rpk && !updatedKeys[rpk]) delete out.priceMap[rpk];
+  for (var rsk in unreadRequested) delete out.priceMap[rsk];
   var newPriceMap = incoming.priceMap || {};
   for (var pk in newPriceMap) if (newPriceMap[pk] != null) out.priceMap[pk] = newPriceMap[pk];
   out.priceTsMap = _webScanClone_(existing.priceTsMap || {}) || {};
   purgeBlockedMapKeys(out.priceTsMap);
   if (requestedSet) for (var rptk in requestedSet) if (rptk && !updatedKeys[rptk]) delete out.priceTsMap[rptk];
+  for (var rstk in unreadRequested) delete out.priceTsMap[rstk];
   var newPriceTsMap = incoming.priceTsMap || {};
   for (var ptk in newPriceTsMap) if (newPriceTsMap[ptk] != null) out.priceTsMap[ptk] = newPriceTsMap[ptk];
   out.balanceTsMap = _webScanClone_(existing.balanceTsMap || {}) || {};
@@ -722,9 +786,11 @@ function _webScanMergeWithExistingCache_(existing, incoming) {
   if (nativePreserved > 0) out.scanStats.webNativePreservedFromCache = nativePreserved;
   var unreadCount = Object.keys(unreadRequested).length;
   if (unreadCount > 0) out.scanStats.webRequestedUnreadKept = unreadCount;
+  if (confirmedZero > 0) out.scanStats.webRequestedZeroDropped = confirmedZero;
   out.scanStats.totalValueEur = _webScanMergedTotal_(mergedAssets);
   out.lastInfoMetaRows = incoming.lastInfoMetaRows || existing.lastInfoMetaRows || [];
   try { delete out._webScanRequestedTokenSet; } catch (eTmp) {}
+  try { delete out._webScanRequestedStatus; } catch (eTmpStatus) {}
   return out;
 }
 
@@ -1139,6 +1205,13 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
           degraded: true
         };
       }
+    }
+    if (cache._webScanRequestedStatus) {
+      try {
+        var unknownBaseCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config);
+        _webScanKeepUnknownRequested_(unknownBaseCache, cache);
+      } catch (eUnknownKeep) {}
+      try { delete cache._webScanRequestedStatus; } catch (eTmpStatus2) {}
     }
     CacheManager.init();
     var saveResult = WalletCache.save(String(cacheKey || address || "").trim(), cache, config);

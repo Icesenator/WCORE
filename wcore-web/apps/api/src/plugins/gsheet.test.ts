@@ -473,7 +473,78 @@ describe("gsheetPlugin", () => {
       fxRate: 0.86,
       scanMs: 123,
       cacheStats: { hits: 1, misses: 2, stale: 0, skipped: 0 },
+      requestedTokens: [{ contract: "0x0000000000000000000000000000000000000001", status: "held" }],
     });
+    await app.close();
+  });
+
+  test("reports held/zero/unknown per requested token, even in a non-degraded scan", async () => {
+    const HELD = "0x0000000000000000000000000000000000000001";
+    const ZERO = "0x0000000000000000000000000000000000000002";
+    const FAILED = "0x0000000000000000000000000000000000000003";
+    const SILENT = "0x0000000000000000000000000000000000000004";
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.86 }),
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0, priceEur: null, valueEur: null },
+        tokens: [{ symbol: "USDC", name: "USD Coin", contract: HELD, balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 }],
+        totalValueEur: 8.6,
+        errors: [],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 1,
+        requestedTokens: [
+          { contract: HELD, status: "held" },
+          { contract: ZERO, status: "zero", reason: "live_consensus" },
+          { contract: FAILED, status: "unknown", reason: "no_votes" },
+        ],
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base", strictTokens: true, customTokens: [HELD, ZERO, FAILED, SILENT] },
+    });
+    assert.equal(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.equal(body.degraded, false);
+    assert.deepEqual(body.requestedTokens, [
+      { contract: HELD, status: "held" },
+      { contract: ZERO, status: "zero", reason: "live_consensus" },
+      { contract: FAILED, status: "unknown", reason: "no_votes" },
+      { contract: SILENT, status: "unknown", reason: "no_status" },
+    ]);
+    await app.close();
+  });
+
+  test("marks every requested token unknown when the scan itself fails", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => ({ prices: {}, fxRate: 0.86 }),
+      scanRunner: async () => { throw new Error("rpc timeout"); },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x17d518736ee9341dcdc0a2498e013d33cfcdd080", chain: "base", customTokens: ["0x0000000000000000000000000000000000000001"] },
+    });
+    const body = JSON.parse(res.body);
+    assert.equal(body.degraded, true);
+    assert.deepEqual(body.requestedTokens, [{ contract: "0x0000000000000000000000000000000000000001", status: "unknown", reason: "scan_failed" }]);
     await app.close();
   });
 

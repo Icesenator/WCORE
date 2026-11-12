@@ -46,6 +46,12 @@ import {
 import { getRecentLogRange, readNativeBalance, canServeEmptyCache, readErc20Balance } from "./evm-balances.js";
 import { sharedPriceCache, defaultSources, priceNative, priceToken, priceCacheKey } from "./evm-pricing.js";
 import { cacheKey } from "@wcore/shared";
+import type { RequestedTokenStatus } from "./types.js";
+
+/** A zero is only "confirmed" when it comes from a reliable live read (never a cache or failed vote). */
+function isReliableLiveDecision(decision: BalanceDecision): boolean {
+  return !decision.degraded && decision.source !== "none" && decision.source !== "cache";
+}
 
 export function normalizeBalanceSelectorExtraArgs(args: string[] | undefined): string[] | null | undefined {
   if (args === undefined) return undefined;
@@ -413,6 +419,30 @@ export async function getEvmWalletAssets(
   });
   for (const t of filteredTokens) seenContracts.set(t.contract.toLowerCase(), t);
 
+  // Explicit outcome per requested custom token. Starts "unknown" and becomes "held"/"zero"
+  // only when its balance read actually lands, so a failed read is never mistaken for a sale.
+  const requestedStatus = new Map<string, RequestedTokenStatus>();
+  for (const ct of opts.customTokens ?? []) {
+    const addr = String(ct).trim().toLowerCase();
+    if (!addr || requestedStatus.has(addr)) continue;
+    const unsupported = !/^0x[0-9a-f]{40}$/.test(addr) || SKIP_NATIVE_PRECOMPILES.has(addr);
+    requestedStatus.set(addr, { contract: addr, status: "unknown", reason: unsupported ? "unsupported_contract" : "not_read" });
+  }
+  const recordRequested = (contract: string, balance: number, reliable: boolean, reason: string) => {
+    const entry = requestedStatus.get(contract.toLowerCase());
+    if (!entry) return;
+    if (balance > 0) {
+      entry.status = "held";
+      entry.reason = reason;
+    } else if (reliable) {
+      entry.status = "zero";
+      entry.reason = reason;
+    } else {
+      entry.status = "unknown";
+      entry.reason = reason;
+    }
+  };
+
   // Add custom tokens (user-provided contract addresses)
   if (opts.customTokens) {
     for (const ct of opts.customTokens) {
@@ -541,6 +571,8 @@ export async function getEvmWalletAssets(
     const resolved = await Promise.all(group.map(async (known, offset) => {
       const result = balanceResults[i + offset];
       let raw: bigint;
+      let reliable = true;
+      let reason = "multicall";
       if (result?.success && result.returnData && result.returnData !== "0x") {
         try {
           raw = decodeUint256(result.returnData);
@@ -558,19 +590,30 @@ export async function getEvmWalletAssets(
           }
         } catch {
           const ercDecision = await readErc20Balance(dispatcher, rpc, effectiveEndpoints, known.contract, normalizedAddress, key, cache);
-          if (ercDecision.skipped) return null;
+          if (ercDecision.skipped) {
+            recordRequested(known.contract, 0, false, ercDecision.decision.reason);
+            return null;
+          }
           raw = ercDecision.decision.raw;
+          reliable = isReliableLiveDecision(ercDecision.decision);
+          reason = ercDecision.decision.reason;
           pushBalanceDecisionError(errors, known.symbol, ercDecision.decision);
         }
       } else {
         const ercDecision = await readErc20Balance(dispatcher, rpc, effectiveEndpoints, known.contract, normalizedAddress, key, cache);
-        if (ercDecision.skipped) return null;
+        if (ercDecision.skipped) {
+          recordRequested(known.contract, 0, false, ercDecision.decision.reason);
+          return null;
+        }
         raw = ercDecision.decision.raw;
+        reliable = isReliableLiveDecision(ercDecision.decision);
+        reason = ercDecision.decision.reason;
         pushBalanceDecisionError(errors, known.symbol, ercDecision.decision);
       }
       const explicitDecimals = chain.RPC?.TOKEN_DECIMALS?.[known.contract.toLowerCase()];
       const effectiveDecimals = explicitDecimals != null ? explicitDecimals : known.decimals;
       const balance = formatUnits(raw, effectiveDecimals);
+      recordRequested(known.contract, balance, reliable, reason);
       return balance > 0 ? { known, balance } : null;
     }));
     for (const item of resolved) {
@@ -586,12 +629,16 @@ export async function getEvmWalletAssets(
         dispatcher, rpc, effectiveEndpoints, known.contract, normalizedAddress, key, cache, known.balanceSelector,
         known.balanceSelectorExtraArgs,
       );
-      if (ercDecision.skipped) return null;
+      if (ercDecision.skipped) {
+        recordRequested(known.contract, 0, false, ercDecision.decision.reason);
+        return null;
+      }
       const raw = ercDecision.decision.raw;
       pushBalanceDecisionError(errors, known.symbol, ercDecision.decision);
       const explicitDecimals = chain.RPC?.TOKEN_DECIMALS?.[known.contract.toLowerCase()];
       const effectiveDecimals = explicitDecimals != null ? explicitDecimals : known.decimals;
       const balance = formatUnits(raw, effectiveDecimals);
+      recordRequested(known.contract, balance, isReliableLiveDecision(ercDecision.decision), ercDecision.decision.reason);
       return balance > 0 ? { known, balance } : null;
     }));
     for (const item of resolved) {
@@ -699,6 +746,7 @@ export async function getEvmWalletAssets(
     scanMs,
     phases: { nativeMs, discoveryMs, balancesMs, pricingMs },
     cacheStats: { hits: 0, misses: 0, stale: 0, skipped: 0 },
+    ...(requestedStatus.size > 0 ? { requestedTokens: [...requestedStatus.values()] } : {}),
   };
 }
 

@@ -15,6 +15,20 @@ export interface WalletAssetsCommon<TToken = Record<string, unknown>> {
    * (up to SCAN_RESULT_CACHE_TTL_MS old). Absent on a result scanned for this request.
    */
   cachedAt?: string;
+  /**
+   * One explicit outcome per requested custom token (customTokens), so a caller never has to
+   * read an absent token as "sold": "held" = positive balance, "zero" = zero confirmed by a
+   * reliable live read, "unknown" = read failed, unreliable vote, unsupported or not read.
+   */
+  requestedTokens?: RequestedTokenStatus[];
+}
+
+export type RequestedTokenStatusValue = "held" | "zero" | "unknown";
+
+export interface RequestedTokenStatus {
+  contract: string;
+  status: RequestedTokenStatusValue;
+  reason?: string;
 }
 
 /** Cache efficiency metrics returned per-chain in scan results. */

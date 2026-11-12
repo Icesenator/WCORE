@@ -189,6 +189,61 @@ test("getEvmWalletAssets strictTokens scans only provided custom tokens", async 
   assert.deepEqual(result.tokens.map((token) => token.contract), [CUSTOM]);
 });
 
+test("getEvmWalletAssets reports an explicit held/zero/unknown status per requested custom token", async () => {
+  const HELD = "0x1111111111111111111111111111111111111111";
+  const ZERO = "0x2222222222222222222222222222222222222222";
+  const FAILED = "0x3333333333333333333333333333333333333333";
+  const discovery: TokenDiscovery = {
+    async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; },
+  };
+  const dispatcher = {
+    async run<T>(_endpoints: ReadonlyArray<string>, call: (endpoint: string, opts: RpcCallOptions) => Promise<T>) {
+      try {
+        const value = await call("https://rpc.example", {});
+        return { consensus: true, value, votes: 1, total: 1, attempts: [{ ok: true, value, endpoint: "https://rpc.example" }] };
+      } catch (e) {
+        return { consensus: false, value: null, votes: 0, total: 1, attempts: [{ ok: false, error: String(e), endpoint: "https://rpc.example" }] };
+      }
+    },
+  };
+  const rpc = {
+    async getBalance(): Promise<bigint> { return 0n; },
+    async ethCall(_endpoint: string, to: string): Promise<string> {
+      const target = to.toLowerCase();
+      if (target === HELD) return "0x" + 1_000_000n.toString(16).padStart(64, "0");
+      if (target === ZERO) return "0x" + "0".padStart(64, "0");
+      if (target === FAILED) throw new Error("timeout");
+      return "0x";
+    },
+  };
+  const sources: PricingSourceSet = {
+    defillama: { getTokenPriceUsd: async () => null, getNativePriceUsd: async () => null },
+    dexscreener: { getTokenPriceUsd: async () => 1 },
+    geckoterminal: { getTokenPriceUsd: async () => null },
+    coingecko: { getNativePriceUsd: async () => null, getTokenPriceUsd: async () => null },
+    jupiter: { getTokenPriceUsd: async () => null },
+    onchainV3: { getTokenPriceUsd: async () => null },
+  };
+
+  const result = await getEvmWalletAssets(OWNER, "base", {
+    dispatcher: dispatcher as never,
+    rpc: rpc as never,
+    sources,
+    tokenDiscovery: discovery,
+    customTokens: [HELD, ZERO, FAILED, "not-an-address"],
+    strictTokens: true,
+    sharedPriceCache: new MemoryPricingCache(),
+    fxRate: 1,
+  } as never);
+
+  const status = Object.fromEntries((result.requestedTokens ?? []).map((t) => [t.contract, t.status]));
+  assert.equal(status[HELD], "held");
+  assert.equal(status[ZERO], "zero");
+  assert.equal(status[FAILED], "unknown");
+  assert.equal(status["not-an-address"], "unknown");
+  assert.deepEqual(result.tokens.map((t) => t.contract), [HELD]);
+});
+
 test("getEvmWalletAssets preserves sub-cent token prices", async () => {
   const discovery: TokenDiscovery = {
     async discoverTokensForWallet(): Promise<DiscoveredToken[]> {

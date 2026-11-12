@@ -11,7 +11,7 @@ const evmEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '11_EV
 const walletNamesSource = fs.readFileSync(path.join(__dirname, '..', 'src', '12_WALLET_NAMES.gs'), 'utf8');
 const baseEngineSource = fs.readFileSync(path.join(__dirname, '..', 'src', '10A_BASE_ENGINE.gs'), 'utf8');
 
-assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.17\.0["']/, 'web scan adapter version must advance to 4.17.0');
+assert.match(source, /GSHEET_WEB_SCAN_VERSION\s*=\s*["']4\.17\.1["']/, 'web scan adapter version must advance to 4.17.1');
 
 function readSrc(file) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
@@ -985,6 +985,86 @@ const samplePayload = JSON.stringify({
   assert.equal(cleanSaved.balanceTsMap[btcb], 0, 'and records a confirmed zero');
   assert.equal(saved.priceMap[btcb], undefined, 'absurd cached BTCB priceMap entry must be purged');
   assert.equal(saved.priceMap[sol], undefined, 'absurd cached SOL priceMap entry must be purged');
+}
+
+{
+  // v4.17.1 - the API now states a status per requested token. In a NON-degraded answer, an
+  // "unknown" token (failed read) keeps its old row, a confirmed "zero" removes it.
+  const btcb = '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c';
+  const sol = '0x570a5d26f7765ecb712c0924e4de545b89fd43df';
+  const frog = '0x4ad663403df2f0e7987bc9c74561687472e1611c';
+  const basePayload = {
+    ok: true,
+    chain: 'BSC',
+    chainName: 'BNB Chain',
+    vm: 'EVM',
+    timestamp: '2026-11-12T08:00:00.000Z',
+    native: { symbol: 'BNB', balance: 0.01, priceEur: 560, valueEur: 5.6 },
+    tokens: [{ symbol: 'FROG', name: 'Frog', contract: frog, balance: 2886, decimals: 18, priceEur: 0.00007, valueEur: 0.2 }],
+    totalValueEur: 5.8,
+    errors: [],
+    degraded: false,
+    fxRate: 0.86,
+    scanMs: 1000,
+    requestedTokens: [
+      { contract: btcb, status: 'unknown', reason: 'no_votes' },
+      { contract: sol, status: 'zero', reason: 'live_consensus' },
+      { contract: frog, status: 'held' },
+    ],
+  };
+  const oldCache = {
+    updatedAt: 111,
+    last_run_update_ms: 111,
+    assets: [
+      { contract: 'native', symbol: 'BNB', name: 'BNB', balance: 0.01, decimals: 18, price_eur: 560, value_eur: 5.6 },
+      { contract: btcb, symbol: 'BTCB', name: 'BTCB Token', balance: 0.002, decimals: 18, price_eur: 90000, value_eur: 180 },
+      { contract: sol, symbol: 'SOL', name: 'Solana Token', balance: 0.04, decimals: 18, price_eur: 150, value_eur: 6 },
+    ],
+    priceMap: { native: 560, [btcb]: 90000, [sol]: 150 },
+    priceTsMap: { [btcb]: 111, [sol]: 111 },
+    balanceTsMap: { [btcb]: 111, [sol]: 111 },
+    scanStats: { source: 'old-cache' },
+  };
+  const ctx = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+  }, JSON.stringify(basePayload));
+  const res = ctx._webScanWallet_('0x00000000000000000000000000000000000d0006', [[btcb], [sol], [frog]], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.equal(res.ok, true);
+  assert.match(res.status, /WEB_SCAN_OK/);
+  const saved = ctx.__saved[0].cache;
+  const keptBtcb = saved.assets.find((t) => t.contract === btcb);
+  assert.ok(keptBtcb, 'an unknown requested token is kept even in a non-degraded answer');
+  assert.equal(keptBtcb.balance, 0.002);
+  assert.equal(keptBtcb.price_eur, null, 'its old price is not resurrected');
+  assert.equal(keptBtcb.value_eur, null);
+  assert.equal(saved.priceMap[btcb], undefined);
+  assert.equal(saved.balanceTsMap[btcb], 111, 'old balance date kept, never a confirmed zero');
+  assert.equal(saved.assets.find((t) => t.contract === sol), undefined, 'a confirmed zero removes the old row');
+  assert.equal(saved.balanceTsMap[sol], 0);
+  assert.ok(saved.assets.find((t) => t.contract === frog), 'a held token is written normally');
+  assert.equal(saved.scanStats.webRequestedUnknownKept, 1);
+  assert.equal(saved._webScanRequestedStatus, undefined, 'the transient status map is never persisted');
+
+  // Degraded answer: a confirmed zero drops the old row, an unknown one stays.
+  const degradedPayload = Object.assign({}, basePayload, { errors: ['balances fetch: RPC_TIMEOUT'], degraded: true });
+  const ctxDegraded = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: JSON.parse(JSON.stringify(oldCache)),
+  }, JSON.stringify(degradedPayload));
+  const resDegraded = ctxDegraded._webScanWallet_('0x00000000000000000000000000000000000d0006', [[btcb], [sol], [frog]], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.match(resDegraded.status, /WEB_SCAN_DEGRADED/);
+  const merged = ctxDegraded.__saved[0].cache;
+  assert.ok(merged.assets.find((t) => t.contract === btcb), 'unknown stays in a degraded merge');
+  assert.equal(merged.assets.find((t) => t.contract === sol), undefined, 'confirmed zero leaves a degraded merge');
+  assert.equal(merged.scanStats.webRequestedZeroDropped, 1);
+  assert.equal(merged._webScanRequestedStatus, undefined);
 }
 
 {

@@ -63,8 +63,7 @@ See ../AGENTS.md:
 
 ## Nettoyage filigranes IA
 
-- Avant export/publication d'un fichier généré : skill `remove-ai-marks`
-  (inspect puis clean, Layer A). Layer B jamais automatique. Contenu propriétaire.
+- Règle 9 de `D:\ProjetIA\AGENTS.md` (12/11/2026) : l'obligation d'appeler la skill `remove-ai-marks` est retirée. Aucun agent ne retire une marque de provenance IA de sa propre initiative, par aucun moyen ; seulement sur demande explicite de Florian, pour un contenu dont il est propriétaire.
 
 ## Autonomie opérationnelle complète — FULL_OPERATIONAL_AUTONOMY=ENABLED (R-022, 2026-09-13)
 

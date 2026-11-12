@@ -1,4 +1,18 @@
-﻿## graphify
+﻿<!-- PROJETIA_SOCLE_20261112 -->
+## Socle commun ProjetIA (identique dans tous les projets, maintenu par la racine)
+
+- **Mission d'abord** : l'agent de ce projet se consacre à la mission décrite dans la section « Mission » ci-dessous. Le transverse (outils, règles communes, harmonisation entre projets) revient à la racine `D:\ProjetIA` ; l'avis et l'arbitrage reviennent à Supervision.
+- **Fichiers tenus à jour** : `AGENTS.md`, `review-context.md`, `ROADMAP.md`, journal Markdown (Raw, puis Wiki), tickets en frontmatter `type: ticket`.
+- **Outils communs** : graft (MCP déclaré dans `.mcp.json`) pour le code ; Supervision, utilisé comme un MCP : `node D:\ProjetIA\Supervision\tools\codex-supervisor.mjs --project <clé>` (avis, sous-traitance Codex), `node D:\ProjetIA\Supervision\tools\gemini-opinion.mjs --project <clé>` (deuxième avis, sous-traitance par le proxy) et la boîte `D:\ProjetIA\Supervision\data\codex-supervisor\inbox\<clé>\`.
+- **Retirés** : Mem0 (12/11/2026), OpenCode (11/11/2026), TransferPack (10/11/2026), prompts GPT Supervisor. Obsidian est facultatif. Graphify est en essai jusqu'à l'audit du 01/12/2026.
+- **Règles communes** : elles se modifient seulement dans `D:\ProjetIA\AGENTS.md` ; un projet ne les recopie pas, il ajoute seulement ses règles propres.
+<!-- /PROJETIA_SOCLE_20261112 -->
+
+## Mission
+
+Développer et exploiter le produit WCORE : le site wcore.xyz et son API (Railway), le GSheet Invest 2.0 et ses scripts Apps Script, et les scripts associés. Le community management de @WCORExyz relève du sous-projet WCORE CM (`D:\ProjetIA\WCORE\CM`). Clé Supervision : `wcoreRoot`.
+
+## graphify
 
 Graphify's project-scoped graph path is `K:\ProjetIA\WCORE\graphify-out\graph.json`. `K:\ProjetIA\WCORE\.tmp\graphify-input` is the only extraction corpus.
 

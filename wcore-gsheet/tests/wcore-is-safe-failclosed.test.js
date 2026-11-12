@@ -292,17 +292,29 @@ test('auto-réparation : jamais admis mais dernier passage refusé ⇒ STALE ave
   assert.match(old.detail, /^no admission since/);
   assert.match(HEAL, /var WCORE_AUTO_HEAL_WD_STALE_MS = 30 \* 60 \* 1000;/);
 });
-test('diagnostic du watchdog : la raison écrite est exécutée depuis le source, inconnue ⇒ UNKNOWN', () => {
-  // The expression that computes stats.reason is cut out of the real gate and run as is.
-  const start = REF.indexOf('reason: /^HTTP_BUDGET_');
-  const end = REF.indexOf('httpMode:', start);
-  assert.ok(start > 0 && end > start, 'expression trouvée dans la porte');
-  const expr = REF.slice(start + 'reason: '.length, end).trim().replace(/,\s*$/, '');
-  const run = (r) => vm.runInNewContext('(' + expr + ')', { _wdGateReason: r });
+test('diagnostic du watchdog : le refus de la porte est exécuté depuis le source, de safe.reason à stats.reason', () => {
+  // The real statements of the gate are cut out, from the read of safe.reason to the end of the
+  // diagnostic literal, and run as is: the test follows the value from the gate result to stats.
+  const open = 'var _wdGateReason = String(safe.reason || "");';
+  const start = REF.indexOf(open);
+  const literal = REF.indexOf('var _wdGateDiag = {', start);
+  const end = REF.indexOf('};', literal);
+  assert.ok(start > 0 && literal > start && end > literal, 'bloc trouvé dans la porte');
+  assert.equal(REF.indexOf(open, start + 1), -1, 'une seule lecture de safe.reason');
+  const block = REF.slice(start, end + 2);
+  assert.ok(block.length < 1500, 'bloc borné aux deux lectures et au littéral');
+  assert.equal(block.split('reason:').length - 1, 1, 'un seul membre reason');
+  assert.equal(block.split('httpMode:').length - 1, 1, 'un seul membre httpMode');
+  const run = (safe) => vm.runInNewContext(block + '\n_wdGateDiag;', { safe }).stats;
   for (const r of ['QUOTA', 'DEGRADED', 'GUARD', 'HTTP_COUNTER_UNKNOWN', 'HTTP_COUNTER_UNATTESTED', 'HTTP_MODE_UNKNOWN', 'GATE_UNAVAILABLE', 'COUNTER_UNATTESTED', 'HTTP_MODE_CACHE_ONLY']) {
-    assert.equal(run(r), r, r);
+    const s = run({ safe: false, reason: r });
+    assert.equal(s.reason, r, r);
+    assert.equal(s.mode, 'SKIPPED_UNSAFE');
+    assert.equal(s.ok, false);
   }
-  assert.equal(run('HTTP_BUDGET_85%'), 'HTTP_BUDGET');
-  assert.equal(run('SOMETHING_ELSE'), 'UNKNOWN');
-  assert.equal(run(''), 'UNKNOWN');
+  assert.equal(run({ safe: false, reason: 'HTTP_BUDGET_85%', mode: 'NORMAL' }).reason, 'HTTP_BUDGET');
+  assert.equal(run({ safe: false, reason: 'HTTP_BUDGET_85%', mode: 'NORMAL' }).httpMode, 'NORMAL');
+  assert.equal(run({ safe: false, reason: 'SOMETHING_ELSE', mode: 'ELSEWHERE' }).reason, 'UNKNOWN');
+  assert.equal(run({ safe: false, reason: 'SOMETHING_ELSE', mode: 'ELSEWHERE' }).httpMode, 'UNKNOWN');
+  assert.equal(run({ safe: false }).reason, 'UNKNOWN');
 });

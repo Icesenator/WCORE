@@ -6,5 +6,4 @@ export type { CosmosWalletAssets, CosmosWalletToken } from "./cosmos.js";
 export { getTonWalletAssets } from "./ton.js";
 export type { TonWalletAssets, TonWalletToken } from "./ton.js";
 export type { WalletAssetsCommon, WalletAssetPrice, WalletAssetProvenance, ScanPhases, CacheStats, RequestedTokenStatus, RequestedTokenStatusValue } from "./types.js";
-export * from "./meta-cache.js";
 export * from "./dispatch.js";

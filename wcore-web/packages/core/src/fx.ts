@@ -112,8 +112,6 @@ export const FX_SOURCES: readonly FxSource[] = [
   },
 ] as const;
 
-export const FX_SOURCE_NAMES = FX_SOURCES.map((s) => s.name) as readonly string[];
-
 async function fetchWithTimeout(
   fetchImpl: FxFetch,
   source: FxSource,

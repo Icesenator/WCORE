@@ -23,8 +23,6 @@ export const ChainKey = z
   .transform((s) => s.toLowerCase())
   .refine((s) => !isRetiredChain(s), { message: "chain_removed" });
 
-export const CuidId = z.string().cuid("Invalid id");
-
 export const UuidOrCuid = z.string().min(1).max(128);
 
 // ─── Auth ────────────────────────────────────────────────────────────────────

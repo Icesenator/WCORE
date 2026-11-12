@@ -135,24 +135,3 @@ export function getDeFiPositionMetadata(chain: string, contract: string, symbol?
 
   return entries.find((entry) => entry.chain === chainKey && norm(entry.contract) === c && !entry.symbol);
 }
-
-export function buildDefaultDeFiPositionMetadata(
-  chain: string,
-  contract: string,
-  symbol: string,
-  type: import("./positions.js").PositionType,
-): DeFiPositionRegistryEntry {
-  return {
-    chain: String(chain || "").trim().toUpperCase(),
-    contract: String(contract || "").trim().toLowerCase(),
-    symbol: String(symbol || "").trim(),
-    protocol: "compound-v3",
-    type,
-    liquidityStatus: "flex",
-    confidence: "high",
-  };
-}
-
-export function listDeFiPositionRegistryEntries(): readonly DeFiPositionRegistryEntry[] {
-  return entries;
-}

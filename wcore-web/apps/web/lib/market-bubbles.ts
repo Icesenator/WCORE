@@ -96,21 +96,6 @@ export function bubbleColor(change: number | null): string {
 }
 
 /**
- * Teintes d'une bulle en relief : reflet clair en haut à gauche, couleur pleine, bord plus sombre.
- * L'intensité croît avec l'ampleur de la variation ; gris si elle est inconnue.
- */
-export function bubbleShade(change: number | null): { light: string; base: string; dark: string; rim: string } {
-  if (change === null) {
-    return { light: "rgba(161, 161, 170, 0.60)", base: "rgba(82, 82, 91, 0.60)", dark: "rgba(39, 39, 42, 0.75)", rim: "rgba(161, 161, 170, 0.85)" };
-  }
-  const s = Math.min(1, Math.abs(change) / 12);
-  const a = (v: number) => (0.45 + v * s).toFixed(3);
-  return change >= 0
-    ? { light: `rgba(74, 222, 128, ${a(0.5)})`, base: `rgba(22, 163, 74, ${a(0.5)})`, dark: `rgba(5, 70, 35, ${a(0.45)})`, rim: "rgba(74, 222, 128, 0.95)" }
-    : { light: `rgba(248, 113, 113, ${a(0.5)})`, base: `rgba(220, 38, 38, ${a(0.5)})`, dark: `rgba(95, 12, 12, ${a(0.45)})`, rim: "rgba(248, 113, 113, 0.95)" };
-}
-
-/**
  * Rendu lisible : interieur sombre (le texte blanc y contraste toujours), couleur portee par un
  * bord lumineux dont l'intensite croit avec l'ampleur de la variation. glow = flou du halo en px.
  */

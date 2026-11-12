@@ -43,32 +43,6 @@ const SYMBOL_CMC_IDS: Record<string, number> = {
   FRAX: 6952,
 };
 
-/**
- * Resolve logo URL for any token. Works globally across all chains.
- * Priority: 1) CMC by symbol (for known tokens) → 2) TrustWallet by contract → 3) spothq
- *
- * CMC is checked first for tokens in SYMBOL_CMC_IDS to avoid TrustWallet 404s.
- * TrustWallet covers ~80% of ERC-20 tokens indexed by contract address.
- */
-export function resolveTokenLogo(symbol: string, chainKey?: string, contract?: string): string | undefined {
-  // 1. CoinMarketCap by symbol (for tokens known to NOT be in TrustWallet)
-  // This avoids returning broken TrustWallet URLs for tokens like H, L3, ZKP, ERA
-  const key = symbol.toUpperCase();
-  const symCmcId = SYMBOL_CMC_IDS[key];
-  if (symCmcId) return `${CMC_BASE}/${symCmcId}.png`;
-
-  // 2. TrustWallet per-chain asset (covers ~80% of ERC-20 tokens)
-  if (contract && chainKey) {
-    const chainSlug = CHAIN_SLUGS[chainKey.toUpperCase()];
-    if (chainSlug) {
-      return `${TRUSTWALLET_BASE}/${chainSlug}/assets/${contract.toLowerCase()}/logo.png`;
-    }
-  }
-
-  // 3. spothq CDN fallback (last resort)
-  return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/svg/color/${symbol.toLowerCase()}.svg`;
-}
-
 export function getTrustWalletLogoUrl(chainKey: string | undefined, contract: string | undefined): string | undefined {
   if (!contract || !chainKey) return undefined;
   const chainSlug = CHAIN_SLUGS[chainKey.toUpperCase()];

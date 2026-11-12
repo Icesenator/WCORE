@@ -118,8 +118,6 @@ const ONCHAIN_V3_SPECS: Record<string, Omit<OnchainV3Spec, "fees" | "selectors">
   },
 };
 
-export const ONCHAIN_V3_CHAIN_IDS = new Set(Object.keys(ONCHAIN_V3_SPECS));
-
 export function onchainV3SpecForChain(chain: ChainConfig): OnchainV3Spec | null {
   const id = String(chain.CHAIN?.CHAIN_ID ?? "").toLowerCase();
   const gtNetwork = String(chain.CHAIN?.GT_NETWORK ?? chain.CHAIN?.DEX_SLUG ?? "").toLowerCase();

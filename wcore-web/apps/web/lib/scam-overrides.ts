@@ -141,8 +141,3 @@ export function removeScamOverride(kind: ScamOverrideKind, entry: ScamEntry): vo
     window.localStorage.setItem(storageKeyFor(kind), JSON.stringify(filtered));
   } catch { /* quota exceeded or storage disabled */ }
 }
-
-export const SCAM_OVERRIDE_STORAGE_KEYS = {
-  blocked: BLOCKED_STORAGE_KEY,
-  approved: APPROVED_STORAGE_KEY,
-} as const;

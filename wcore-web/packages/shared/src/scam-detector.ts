@@ -232,11 +232,6 @@ function isKnownToken(symbol: string, contract?: string): boolean {
   return _KNOWN_TOKENS.has(s);
 }
 
-export function isWhitelistedToken(symbol: string, contract?: string): boolean {
-  if (contract && _adminApprovedContracts.has(contract.toLowerCase())) return true;
-  return isKnownToken(symbol, contract);
-}
-
 export type ScamLevel = "clean" | "warning" | "suspicious" | "scam";
 
 export interface ScamCheck {

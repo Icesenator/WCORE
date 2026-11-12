@@ -135,11 +135,6 @@ export function getPrimaryRpcEndpoint(chainKey: string): string | undefined {
   return getRpcEndpoints(chainKey, { limit: 1 })[0];
 }
 
-export function getCachedDynamicRpcEndpoints(chainKey: string): string[] {
-  const cached = dynamicRpcCache.get(normalizeChainKey(chainKey));
-  return cached && Date.now() - cached.ts < DYNAMIC_TTL_MS ? [...cached.endpoints] : [];
-}
-
 async function validatesChainId(endpoint: string, expectedChainId: number): Promise<boolean> {
   try {
     const res = await fetch(endpoint, {

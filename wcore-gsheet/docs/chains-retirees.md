@@ -85,7 +85,7 @@ Retiré du code :
 - `wcore-gsheet/src/B3.gs`, `wcore-gsheet/dist/chains/B3.ts`, `wcore-web/packages/core/src/chains/B3.ts` ;
 - `B3` des listes de `21_DASHBOARD`, `25_RPC_HEALTH_REPORT`, `27_ACTIVITY_REFRESH`, `33_DYNAMIC_RPC` ;
 - la factory GM active (`GM_FACTORIES.b3`) et l'option de déploiement dev ;
-- le relais Cloudflare `wcore-gsheet/railway-rpc-relay` (créé uniquement pour B3, slugs `b3-1`/`b3-2`). Le Worker déjà déployé reste à supprimer, sur GO distinct.
+- le relais Cloudflare `wcore-gsheet/railway-rpc-relay` (créé uniquement pour B3, slugs `b3-1`/`b3-2`). Le Worker déjà déployé (`wcore-rpc-relay`) reste à supprimer, sur GO distinct.
 
 Conservé :
 - tombstone `_wcoreRemovedChain_` (`B3`, `8333`, `0x208d`, `Ledger - B3`) : aucun scan, aucun rafraîchissement, aucune recréation ;

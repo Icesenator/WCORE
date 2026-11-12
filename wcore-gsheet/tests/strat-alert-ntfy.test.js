@@ -1,4 +1,4 @@
-// v4.17.1 - Rebalancing alert of Strat, relayed by the WCORE API (16C_STRAT_ALERT.gs).
+// v4.17.2 - Rebalancing alert of Strat, relayed by the WCORE API (16C_STRAT_ALERT.gs).
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -35,9 +35,12 @@ function harness(opts = {}) {
     };
     return null;
   };
+  let clock = 1794470000000;
   const ctx = {
     JSON, Object, String, Number, Math, isFinite,
+    Date: { now: () => clock },
     Logger: { log: () => {} },
+    LockService: { getScriptLock: () => ({ tryLock: () => !state.locked, releaseLock: () => { state.released = (state.released || 0) + 1; } }) },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (store.has(k) ? store.get(k) : null),
       setProperty: (k, v) => store.set(k, v),
@@ -52,8 +55,10 @@ function harness(opts = {}) {
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const ss = { getSheetByName: sheet };
-  return { ctx, run: () => ctx._wcoreCheckStratAlert_(ss), state, posts, store };
+  return { ctx, run: () => ctx._wcoreCheckStratAlert_(ss), state, posts, store, tick: (ms) => { clock += ms; } };
 }
+
+const noOcc = (p) => { const c = { ...p }; delete c.occurrence; return c; };
 
 test('the watchdog calls the check, guarded, right after opening the spreadsheet', () => {
   const i = REFRESH.indexOf('stats.stratAlert = _wcoreCheckStratAlert_(ss)');
@@ -87,7 +92,8 @@ test('a crypto rebalancing posts a structured event with the trade and its amoun
   assert.equal(h.posts.length, 1);
   assert.equal(h.posts[0].url, API + '/api/gsheet/notify');
   assert.equal(h.posts[0].options.headers['x-gsheet-token'], TOKEN);
-  assert.deepEqual(h.posts[0].payload, { event: 'strat_rebalance', category: 'crypto', sell: { symbol: 'SOMI', eur: 21 }, buy: { symbol: 'ETH', eur: 1235 } });
+  assert.deepEqual(noOcc(h.posts[0].payload), { event: 'strat_rebalance', category: 'crypto', sell: { symbol: 'SOMI', eur: 21 }, buy: { symbol: 'ETH', eur: 1235 } });
+  assert.match(h.posts[0].payload.occurrence, /^AY1-\d+$/);
   h.run();
   assert.equal(h.posts.length, 1, 'still X: no repeat');
   h.state.strat = stratRow({});
@@ -112,13 +118,13 @@ test('an odd trade sends the category alone; an unreadable gap sends the symbols
   h.run();
   h.state.strat = stratRow({ AY1: 'X' });
   h.run();
-  assert.deepEqual(h.posts[0].payload, { event: 'strat_rebalance', category: 'crypto' });
+  assert.deepEqual(noOcc(h.posts[0].payload), { event: 'strat_rebalance', category: 'crypto' });
   const g = harness();
   g.state.gaps['Portefeuille Crypto'] = [['n/a', 'SOMI', 'V'], [5, 'ETH', 'X']];
   g.run();
   g.state.strat = stratRow({ AY1: 'X' });
   g.run();
-  assert.deepEqual(g.posts[0].payload, { event: 'strat_rebalance', category: 'crypto', sell: { symbol: 'SOMI' }, buy: { symbol: 'ETH' } });
+  assert.deepEqual(noOcc(g.posts[0].payload), { event: 'strat_rebalance', category: 'crypto', sell: { symbol: 'SOMI' }, buy: { symbol: 'ETH' } });
 });
 
 test('a refused or failed post keeps the cell at V and retries next pass', () => {
@@ -161,4 +167,41 @@ test('the real HTTP.post makes no transport when the quota breaker refuses', () 
   HTTP.canFetchNow = () => false;
   assert.equal(HTTP.post(API + '/api/gsheet/notify', { event: 'test' }, { muteHttpExceptions: true }), null);
   assert.equal(fetches, 0);
+});
+
+test('a retry reuses the same occurrence; a new transition gets a new one', () => {
+  const h = harness();
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.code = 409;
+  h.run();
+  h.tick(600000);
+  h.state.code = 200;
+  h.state.gaps['Portefeuille Crypto'][1][0] = 25.7; // prices moved
+  h.run();
+  assert.equal(h.posts.length, 2);
+  assert.equal(h.posts[0].payload.occurrence, h.posts[1].payload.occurrence, 'same occurrence on retry');
+  assert.equal(h.posts[1].payload.sell.eur, 26, 'fresh amounts');
+  assert.deepEqual(JSON.parse(h.store.get('WCORE_STRAT_ALERT_LAST')).occ, {}, 'delivered: no pending occurrence');
+  h.state.strat = stratRow({});
+  h.run();
+  h.tick(60000);
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.run();
+  assert.equal(h.posts.length, 3);
+  assert.notEqual(h.posts[2].payload.occurrence, h.posts[1].payload.occurrence, 'new transition within 30 min: new occurrence, so a new alert');
+});
+
+test('a busy lock skips the pass without touching the state; the lock is always released', () => {
+  const h = harness();
+  h.run();
+  assert.equal(h.state.released, 1);
+  const before = h.store.get('WCORE_STRAT_ALERT_LAST');
+  h.state.locked = true;
+  h.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h.run().reason, 'LOCKED');
+  assert.equal(h.store.get('WCORE_STRAT_ALERT_LAST'), before);
+  assert.equal(h.posts.length, 0);
+  h.state.locked = false;
+  assert.equal(h.run().reason, 'SENT');
 });

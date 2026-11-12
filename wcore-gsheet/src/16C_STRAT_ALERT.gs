@@ -1,5 +1,5 @@
 /**
- * 16C_STRAT_ALERT.gs - v4.17.1
+ * 16C_STRAT_ALERT.gs - v4.17.2
  *
  * Phone alert when a Strat rebalancing cell turns to X, called by WATCHDOG_FROM_RECAP (every
  * 10 min). Since 2026-11-12 the workbook never calls ntfy itself: ntfy.sh answers 429 to the
@@ -15,7 +15,8 @@
  *
  * Content: category, the two symbols from Q1/S1 of the portfolio tab and their gap (column P,
  * real minus target, whole euros) — explicit decisions of Florian on 2026-11-12.
- * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X"}.
+ * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X","occ":{"AY1":"AY1-<ms>"}} (occurrence
+ * ids of undelivered transitions). One check at a time (script lock).
  */
 
 var STRAT_ALERT_CELLS = [
@@ -84,9 +85,13 @@ function _wcoreStratAlertPost_(api, body) {
  */
 function _wcoreCheckStratAlert_(ss) {
   var out = { ran: false, reason: "", newX: 0, sent: 0 };
+  var lock = null;
   try {
     var api = _wcoreStratAlertApi_();
     if (!api) { out.reason = "NO_API"; return out; }
+    // Overlapping watchdog runs: one check at a time (state read then written).
+    try { lock = LockService.getScriptLock(); } catch (eLock) { lock = null; }
+    if (lock && !lock.tryLock(2000)) { out.reason = "LOCKED"; lock = null; return out; }
     var props = PropertiesService.getScriptProperties();
     var strat = ss && ss.getSheetByName("Strat");
     if (!strat) { out.reason = "NO_STRAT"; return out; }
@@ -106,25 +111,32 @@ function _wcoreCheckStratAlert_(ss) {
       return out;
     }
 
-    var next = {};
+    // Occurrence id per V->X transition, kept until delivered and reused on every retry: the API
+    // deduplicates on it (never on the text, whose amounts move with prices).
+    var occ = (last.occ && typeof last.occ === "object") ? last.occ : {};
+    var next = { occ: {} };
     var failed = 0;
     for (var j = 0; j < STRAT_ALERT_CELLS.length; j++) {
       var c = STRAT_ALERT_CELLS[j];
       var cur = now[c.cell];
       next[c.cell] = cur == null ? (last[c.cell] || null) : cur; // unreadable cell: keep the old state
+      if (cur == null && occ[c.cell]) next.occ[c.cell] = occ[c.cell];
       if (!(cur === "X" && last[c.cell] === "V")) continue;
       out.newX++;
-      var body = { event: "strat_rebalance", category: c.category };
+      var id = /^[A-Za-z0-9_-]{8,64}$/.test(String(occ[c.cell] || "")) ? occ[c.cell] : c.cell + "-" + Date.now();
+      var body = { event: "strat_rebalance", category: c.category, occurrence: id };
       var trade = _wcoreStratAlertTrade_(ss, c.tradeSheet);
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }
       var res = _wcoreStratAlertPost_(api, body);
-      if (res.ok) { out.sent++; } else { failed++; next[c.cell] = "V"; } // retried next pass
+      if (res.ok) { out.sent++; } else { failed++; next[c.cell] = "V"; next.occ[c.cell] = id; } // retried next pass, same id
     }
     props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(next));
     out.reason = !out.newX ? "NO_NEW_X" : (failed ? "PARTIAL_OR_FAILED" : "SENT");
     if (out.newX) Logger.log("[STRAT_ALERT] " + out.reason + " newX=" + out.newX + " sent=" + out.sent);
   } catch (e) {
     out.reason = "ERROR";
+  } finally {
+    try { if (lock) lock.releaseLock(); } catch (eRel) {}
   }
   return out;
 }

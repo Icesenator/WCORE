@@ -1037,18 +1037,18 @@ async function defaultScanRunner(
 }
 
 async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOptions) {
-  app.post("/api/gsheet/notify", async (request, reply) => {
-    if (!opts.notify) return reply.code(503).send({ ok: false, error: "notify_disabled" });
-    const result = await handleNotify(request.body, opts.notify);
-    return reply.code(result.status).send(result.body);
-  });
-
   app.addHook("onRequest", async (req, reply) => {
     const header = req.headers["x-gsheet-token"];
     // Constant time: this hook is the only thing standing in front of /api/gsheet/*.
     if (typeof header !== "string" || !opts.token || !safeEq(header, opts.token)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
+  });
+
+  app.post("/api/gsheet/notify", async (request, reply) => {
+    if (!opts.notify) return reply.code(503).send({ ok: false, error: "notify_disabled" });
+    const result = await handleNotify(request.body, opts.notify);
+    return reply.code(result.status).send(result.body);
   });
 
   app.get("/api/gsheet/cache/get", async (req, reply) => {

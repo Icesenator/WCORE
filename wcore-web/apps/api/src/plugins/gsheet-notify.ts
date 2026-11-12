@@ -5,19 +5,23 @@
 // - The ntfy topic lives only in the API environment (NTFY_TOPIC); the client never chooses the
 //   URL, the topic, the priority or a header, and never sends free text.
 // - Content: rebalancing category, two symbols and two whole euro amounts (decision of the owner
-//   on 2026-11-12, who accepts that anyone knowing the topic can read them).
-// - Admission: a daily cap common to every instance and a short duplicate window, reserved in
-//   PostgreSQL under an advisory lock (ops_events, type "ntfy_notify", only a hash is stored).
+//   on 2026-11-12, confirmed to ProjetIA; declared exception for WCORE only).
+// - Deduplication is keyed on the occurrence id the workbook creates at each V->X transition and
+//   reuses on every retry (never on the text, whose amounts move with prices). The key is stored
+//   as an HMAC (server secret = the topic), so the table holds no amount.
+// - Admission: a daily cap common to every instance, reserved in PostgreSQL under an advisory
+//   lock (ops_events, type "ntfy_notify"); a reservation is "pending" until the send is confirmed.
 // - The topic, the message and the ntfy answer are never logged.
-import { createHash } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { PrismaClient } from "@wcore/db";
 
 export const NTFY_BASE_URL = "https://ntfy.sh/";
 export const NTFY_TOPIC_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const NOTIFY_LOCK_KEY = 74_210_611;
-const DUPLICATE_WINDOW_MS = 30 * 60 * 1000;
+const PENDING_WINDOW_MS = 30 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const RETENTION_MS = 2 * DAY_MS;
 const SEND_TIMEOUT_MS = 5000;
 
 const leg = z.object({
@@ -29,6 +33,7 @@ export const notifyBodySchema = z.union([
   z.object({
     event: z.literal("strat_rebalance"),
     category: z.enum(["crypto", "action"]),
+    occurrence: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
     sell: leg.optional(),
     buy: leg.optional(),
   }).strict(),
@@ -39,15 +44,15 @@ export type NotifyBody = z.infer<typeof notifyBodySchema>;
 export type NotifyAdmission = "ok" | "cap" | "duplicate" | "pending" | "unavailable";
 export interface NotifyReservation {
   admission: NotifyAdmission;
-  /** Clear refusal: frees the reservation so a retry is admitted. */
+  /** Transient refusal (429, 408): frees the reservation so a retry is admitted. */
   release?: () => Promise<void>;
-  /** Confirmed delivery: later identical requests in the window are duplicates. */
+  /** Confirmed delivery: later requests for the same occurrence are duplicates. */
   markSent?: () => Promise<void>;
 }
 
 export interface NotifyDeps {
   topic: string;
-  admit: (hash: string) => Promise<NotifyReservation>;
+  admit: (key: string) => Promise<NotifyReservation>;
   fetchImpl?: typeof fetch;
 }
 
@@ -65,41 +70,45 @@ export function composeNotifyText(body: NotifyBody): string {
     + ", renforcer " + body.buy.symbol + euros(body.buy.eur) + ".";
 }
 
-export function notifyHash(text: string): string {
-  return createHash("sha256").update(text).digest("hex").slice(0, 32);
+/** Deduplication key: HMAC of the occurrence (never of the text or the amounts). */
+export function notifyKey(body: NotifyBody, topic: string): string {
+  const id = body.event === "test" ? "test|" + randomUUID() : "rebalance|" + body.category + "|" + body.occurrence;
+  return createHmac("sha256", topic).update(id).digest("hex").slice(0, 32);
 }
 
 /**
- * Daily cap and duplicate window, shared by every instance through PostgreSQL.
- * A reservation is "pending" until the send is confirmed ("sent"). In the window, an identical
- * text already sent is a duplicate; one still pending (ambiguous result) answers "pending", so
- * the workbook keeps retrying, and the text goes again once the window has passed.
+ * Daily cap and occurrence deduplication, shared by every instance through PostgreSQL.
+ * Same occurrence already sent (24 h) = duplicate; still pending for less than 30 min = pending
+ * (ambiguous earlier send: the workbook waits and retries); pending for longer = sent again.
+ * Rows older than two days are purged in the same transaction.
  */
 export function createPrismaNotifyAdmission(prisma: PrismaClient, dailyCap: number, now: () => number = Date.now) {
-  return async (hash: string): Promise<NotifyReservation> => {
+  return async (key: string): Promise<NotifyReservation> => {
     try {
       return await prisma.$transaction(async (tx) => {
         await tx.$queryRawUnsafe("SELECT true AS locked FROM pg_advisory_xact_lock($1)", NOTIFY_LOCK_KEY);
         const t = now();
+        await tx.opsEvent.deleteMany({ where: { type: "ntfy_notify", createdAt: { lt: new Date(t - RETENTION_MS) } } });
         const recent = await tx.opsEvent.findMany({
           where: { type: "ntfy_notify", createdAt: { gte: new Date(t - DAY_MS) } },
           select: { data: true, createdAt: true },
         });
-        const same = recent.filter((e) => {
-          const d = e.data as { h?: unknown } | null;
-          return d?.h === hash && t - e.createdAt.getTime() < DUPLICATE_WINDOW_MS;
-        });
+        const same = recent.filter((e) => (e.data as { h?: unknown } | null)?.h === key);
         if (same.some((e) => (e.data as { s?: unknown } | null)?.s === "sent")) return { admission: "duplicate" as const };
-        if (same.length) return { admission: "pending" as const };
+        if (same.some((e) => t - e.createdAt.getTime() < PENDING_WINDOW_MS)) return { admission: "pending" as const };
         if (recent.length >= dailyCap) return { admission: "cap" as const };
         const row = await tx.opsEvent.create({
-          data: { type: "ntfy_notify", severity: "info", message: "", data: { h: hash, s: "pending" } },
+          data: { type: "ntfy_notify", severity: "info", message: "", data: { h: key, s: "pending" } },
           select: { id: true },
         });
         return {
           admission: "ok" as const,
           release: async () => { try { await prisma.opsEvent.delete({ where: { id: row.id } }); } catch { /* kept: cap still holds */ } },
-          markSent: async () => { try { await prisma.opsEvent.update({ where: { id: row.id }, data: { data: { h: hash, s: "sent" } } }); } catch { /* stays pending: sent again after the window */ } },
+          markSent: async () => {
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try { await prisma.opsEvent.update({ where: { id: row.id }, data: { data: { h: key, s: "sent" } } }); return; } catch { /* retried once */ }
+            }
+          },
         };
       });
     } catch {
@@ -117,7 +126,7 @@ export async function handleNotify(raw: unknown, deps: NotifyDeps): Promise<Noti
   const parsed = notifyBodySchema.safeParse(raw);
   if (!parsed.success) return { status: 400, body: { ok: false, error: "invalid_body" } };
   const text = composeNotifyText(parsed.data);
-  const reservation = await deps.admit(notifyHash(text));
+  const reservation = await deps.admit(notifyKey(parsed.data, deps.topic));
   const admission = reservation.admission;
   if (admission === "cap") return { status: 429, body: { ok: false, error: "daily_cap" } };
   if (admission === "duplicate") return { status: 200, body: { ok: true, sent: false, duplicate: true } };
@@ -133,16 +142,16 @@ export async function handleNotify(raw: unknown, deps: NotifyDeps): Promise<Noti
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (!res.ok) {
-      // A 4xx is a clear refusal (nothing published): free the reservation so the next pass is
-      // admitted. A 5xx may hide a publication: keep it pending.
-      if (res.status < 500 && reservation.release) await reservation.release();
+      // 429/408 are transient refusals (nothing published): free the reservation so the next pass
+      // is admitted. Any other refusal keeps it, so the daily cap bounds the retries.
+      if ((res.status === 429 || res.status === 408) && reservation.release) await reservation.release();
       return { status: 502, body: { ok: false, error: "ntfy_" + res.status } };
     }
     if (reservation.markSent) await reservation.markSent();
     return { status: 200, body: { ok: true, sent: true } };
   } catch {
     // Ambiguous result (timeout, network): the reservation stays pending and the cap holds; the
-    // workbook keeps retrying (409 pending) and the text goes again once the window has passed.
+    // workbook retries with the same occurrence (409 for 30 min), then the text goes again.
     return { status: 502, body: { ok: false, error: "ntfy_unreachable" } };
   }
 }

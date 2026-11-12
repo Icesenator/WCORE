@@ -229,3 +229,52 @@ test("a saved registry receives the chains added later to the embedded registry,
   const full = VERIFIED_LIFECYCLE_REGISTRY.map((r) => structuredClone(r));
   assert.equal(withEmbeddedAdditions(full), full, "nothing to add => same array");
 });
+
+test("a partial saved registry is completed on load, for the public list and for the collector", async () => {
+  const { VERIFIED_LIFECYCLE_REGISTRY } = await import("@wcore/shared");
+  const { app, store, fetchText } = await build();
+  const abstract = structuredClone(VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === "abstract")!);
+  await store.set(SENTINEL_KEYS.registry, { version: 4, records: [abstract], updatedAt: new Date(NOW).toISOString() });
+
+  const reg = await loadRegistry(store);
+  assert.equal(reg.version, 4);
+  assert.deepEqual(reg.records.map((r) => r.chainKey).sort(), VERIFIED_LIFECYCLE_REGISTRY.map((r) => r.chainKey).sort());
+
+  const listed = (await app.inject({ method: "GET", url: "/api/sentinel/chains" })).json() as { chains: { chainKey: string }[] };
+  assert.ok(listed.chains.some((c) => c.chainKey === "zetachain") && listed.chains.some((c) => c.chainKey === "neon"));
+
+  await runSentinelCheck({ store, fetchText, now: () => NOW });
+  assert.ok(fetchText.calls.includes("https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9"), "the added chain's official source is read");
+  assert.ok(fetchText.calls.includes("https://neonevm.org/"));
+});
+
+test("approving a proposal saves only validated records: embedded ones keep following the code", async () => {
+  const { VERIFIED_LIFECYCLE_REGISTRY } = await import("@wcore/shared");
+  const url = "https://migrate.abs.xyz/";
+  const { app, store } = await build();
+  await runSentinelCheck({ store, fetchText: fetchFrom({ [url]: { status: 200, text: "v1" } }), now: () => NOW });
+  await runSentinelCheck({ store, fetchText: fetchFrom({ [url]: { status: 200, text: "v2" } }), now: () => NOW + H });
+  const pid = encodeURIComponent(((await store.get<{ id: string }[]>(SENTINEL_KEYS.proposals)) || [])[0]!.id);
+  const abs = structuredClone((await loadRegistry(store)).records.find((r) => r.chainKey === "abstract")!);
+  abs.deadlines = abs.deadlines.map((d) => ({ ...d, at: "2026-12-20T00:00:00Z" }));
+  const ok = await app.inject({ method: "POST", url: `/api/admin/sentinel/proposals/${pid}`, headers: { "x-admin": "yes" }, payload: { decision: "APPROVED", record: abs } });
+  assert.equal(ok.statusCode, 200);
+
+  const saved = (await store.get<{ records: { chainKey: string }[] }>(SENTINEL_KEYS.registry))!;
+  assert.deepEqual(saved.records.map((r) => r.chainKey), ["abstract"], "only the approved record is written");
+
+  const reg = await loadRegistry(store);
+  assert.equal(reg.records.length, VERIFIED_LIFECYCLE_REGISTRY.length, "every chain is still served");
+  assert.equal(reg.records.find((r) => r.chainKey === "abstract")!.deadlines[0]!.at, "2026-12-20T00:00:00Z");
+  assert.deepEqual(reg.records.find((r) => r.chainKey === "zetachain"), VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === "zetachain"), "an embedded record is served as the code has it");
+
+  // A second approval keeps the first validated record and adds nothing else.
+  await runSentinelCheck({ store, fetchText: fetchFrom({ [url]: { status: 200, text: "v3" } }), now: () => NOW + 2 * H });
+  const pending = ((await store.get<{ id: string; status: string }[]>(SENTINEL_KEYS.proposals)) || []).find((p) => p.status === "PENDING_ADMIN_REVIEW")!;
+  abs.deadlines = abs.deadlines.map((d) => ({ ...d, at: "2026-12-21T00:00:00Z" }));
+  await app.inject({ method: "POST", url: `/api/admin/sentinel/proposals/${encodeURIComponent(pending.id)}`, headers: { "x-admin": "yes" }, payload: { decision: "APPROVED", record: abs } });
+  const saved2 = (await store.get<{ version: number; records: { chainKey: string; deadlines: { at: string }[] }[] }>(SENTINEL_KEYS.registry))!;
+  assert.deepEqual(saved2.records.map((r) => r.chainKey), ["abstract"]);
+  assert.equal(saved2.records[0]!.deadlines[0]!.at, "2026-12-21T00:00:00Z");
+  assert.equal(saved2.version, reg.version + 1);
+});

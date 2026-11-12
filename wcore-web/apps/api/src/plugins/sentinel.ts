@@ -69,10 +69,12 @@ export function withEmbeddedTranslations(records: ChainLifecycleRecord[]): Chain
 }
 
 /**
- * Un registre sauvegarde est fige a sa derniere validation : une chaine ajoutee ensuite au
- * registre embarque y manquerait pour toujours. On ajoute les fiches embarquees absentes,
- * sans jamais toucher a une fiche sauvegardee : pour une chaine deja presente (meme cle ou
- * meme identifiant), la version validee par l'administration prime, y compris ses dates.
+ * Un registre sauvegarde ne porte que des fiches figees a leur validation : une chaine
+ * absente (ajoutee ensuite au registre embarque, ou jamais validee par l'administration) y
+ * manquerait pour toujours. On ajoute les fiches embarquees absentes, sans jamais toucher a
+ * une fiche sauvegardee : pour une chaine deja presente (meme cle ou meme identifiant), la
+ * version validee par l'administration prime, y compris ses dates. Les fiches ajoutees ici
+ * ne sont pas ecrites par la route d'administration : elles suivent le code.
  */
 export function withEmbeddedAdditions(records: ChainLifecycleRecord[]): ChainLifecycleRecord[] {
   const keys = new Set(records.map((r) => r.chainKey));
@@ -250,8 +252,11 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
       });
       if (badSource) return reply.code(400).send({ error: "invalid_source_url" });
       const reg = await loadRegistry(opts.store);
-      const others = reg.records.filter((r) => r.chainKey !== rec.chainKey);
-      await opts.store.set(SENTINEL_KEYS.registry, { version: reg.version + 1, records: [...others, { ...rec, lastVerifiedAt: iso(now()) }], updatedAt: iso(now()) });
+      // Seules les fiches deja sauvegardees et la fiche approuvee sont ecrites. Une fiche lue du registre
+      // embarque (jamais validee ici) reste lue du code : une correction livree dans le code l'atteint encore.
+      const saved = await opts.store.get<RegistryState>(SENTINEL_KEYS.registry);
+      const kept = (saved && Array.isArray(saved.records) ? saved.records : []).filter((r) => r.chainKey !== rec.chainKey);
+      await opts.store.set(SENTINEL_KEYS.registry, { version: reg.version + 1, records: [...kept, { ...rec, lastVerifiedAt: iso(now()) }], updatedAt: iso(now()) });
     }
     p.status = decision; p.decidedAt = iso(now()); p.note = req.body?.note?.slice(0, 500);
     await opts.store.set(SENTINEL_KEYS.proposals, proposals);

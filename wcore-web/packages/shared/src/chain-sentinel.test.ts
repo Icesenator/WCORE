@@ -109,7 +109,8 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     // Apres l'arret, la reclamation n'est qu'annoncee : jamais presentee comme ouverte.
     const after = Date.parse("2026-12-10T00:00:00Z");
     const b = evaluateChain(r, [native({ asset: "ZETA", balanceObservedAt: after - H })], after)!;
-    expect(b.code).not.toBe("RECOVERY_WINDOW_OPEN");
+    expect(b.code).toBe("RECOVERY_PLANNED");
+    expect(b.severity).toBe("P0");
   });
   it("Neon EVM : dernier retrait avant le 31/12/2026, aucune date d arret du reseau publiee", () => {
     const r = get("neon");
@@ -120,6 +121,15 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     expect(a.deadlineKind).toBe("WITHDRAW_LAST");
     expect(a.actionByMs).toBe(Date.parse("2026-12-31T00:00:00Z"));
     expect(a.officialSourceUrls).toEqual(["https://neonevm.org/"]);
+  });
+  it("Neon EVM : apres le 31/12, la sortie est tenue pour fermee (regle du module), jamais une recuperation ouverte", () => {
+    // La source ne dit pas ce qui arrive apres la date : le module traite un dernier retrait passe comme une
+    // sortie fermee. Fiche a relire sur la source officielle avant le 31/12/2026 (ROADMAP P1-CHAIN-CLOSURE-LEADS-20261112).
+    const after = Date.parse("2027-01-02T00:00:00Z");
+    const a = evaluateChain(get("neon"), [native({ asset: "NEON", balanceObservedAt: after - H })], after)!;
+    expect(a.code).toBe("FUNDS_STRANDED_AFTER_SHUTDOWN");
+    expect(a.deadlineKind).toBe("WITHDRAW_LAST");
+    expect(a.code).not.toBe("RECOVERY_WINDOW_OPEN");
   });
   it("couverture : ZetaChain et Neon ont une echeance de source officielle", () => {
     expect(officialSourceCoverage(["zetachain", "neon"]).withOfficialSource).toBe(2);

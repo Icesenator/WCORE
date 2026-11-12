@@ -208,6 +208,8 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     status: "WINDING_DOWN",
     // 2026-11-12 : « before December 31, 2026 » (annonce du site officiel). Heure non precisee : debut de journee UTC
     // retenu (lecture la plus prudente). Aucune date d'arret du reseau publiee : pas d'echeance NETWORK_SHUTDOWN.
+    // Apres le 31/12, le module tiendra la sortie pour fermee (alerte « fonds bloques ») alors que la source ne dit
+    // rien de l'apres : relire la source officielle avant cette date et ajuster la fiche.
     deadlines: [
       { kind: "WITHDRAW_LAST", at: "2026-12-31T00:00:00Z", sourceIds: ["neon-site"] },
     ],

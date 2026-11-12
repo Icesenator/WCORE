@@ -6,17 +6,17 @@ When the user types `/graphify`, use the installed graphify skill or instruction
 
 Use WCORE memory in this order:
 1. **Graphify structure first.** For codebase structure, run a targeted `rtk graphify query "<question>" --graph "K:\ProjetIA\WCORE\graphify-out\graph.json"`, `rtk graphify path "<A>" "<B>" --graph "K:\ProjetIA\WCORE\graphify-out\graph.json"`, or `rtk graphify explain "<concept>" --graph "K:\ProjetIA\WCORE\graphify-out\graph.json"`.
-2. **Obsidian decisions/history second.** Use the project MCP `obsidian_wcore` by default for WCORE rationale, decisions, plans, or history, then read only the matching note section or line range. Use the inherited global MCP `obsidian` only when the user explicitly requests a cross-project search.
+2. **Markdown decisions/history second.** For WCORE rationale, decisions, plans, or history, search the project Markdown (`ROADMAP.md`, `Wiki/`, `journal/`, tickets with frontmatter) and read only the matching section or line range. Obsidian is no longer required (order of 2026-11-12); the vault may stay.
 3. **Raw source last.** Use targeted file search and narrow source reads only when the first two layers do not answer the question or source verification is required.
 
 Rules:
-- For narrow questions, never read all of `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`, `ROADMAP.md`, `AGENTS.md`, or `CHANGELOG.md`. Do not broadly crawl Graphify or Obsidian output.
+- For narrow questions, never read all of `graphify-out/graph.json`, `graphify-out/GRAPH_REPORT.md`, `ROADMAP.md`, `AGENTS.md`, or `CHANGELOG.md`. Do not broadly crawl Graphify output or the Markdown notes.
 - Keep Graphify operations project-local. Do not use global graphs, install Git hooks, start watchers, or configure an LLM/backend.
 - Code-only AST extraction needs no provider extras or API keys. Never request or expose provider keys for it.
 - Never run `graphify extract` or `graphify update` directly from the repository root, and never extract `K:\ProjetIA\WCORE` or `.`. `K:\ProjetIA\WCORE\.tmp\graphify-input` is the only extraction corpus.
 - Rebuild or refresh only with `npm run graphify:sync`, which becomes available after repository setup in Task 2.
 - Never call the shared stager (`K:\ProjetIA\scripts\graphify-project.ps1`) directly for WCORE. It does not read this project's `.gitignore`, so local trees (`data/chrome-profile`, `.generated`, `graft`, `_vault`, `invest-gas`, `.worktrees`, `.claude`) leak into `.tmp/graphify-input`. Two WCORE-owned guards keep the published artifact clean: `scripts/graphify-prune-local-nodes.cjs` (chained after `graphify:sync`, keeps only nodes whose source is tracked by git) and `scripts/graph-artifact-guard.test.cjs` (run by `npm run test:scripts` and by the `graph-artifact-guard` CI job). The source is excluded too, via `.graphify-exclude` (read by the shared stager when present).
-- A manual Obsidian export must use `rtk graphify export obsidian --graph "K:\ProjetIA\WCORE\graphify-out\graph.json" --dir "K:\ProjetIA\WCORE\.generated\graphify"`.
+- Graphify is on trial until the audit of 2026-12-01; graft stays the code graph. A manual Obsidian export (optional) must use `rtk graphify export obsidian --graph "K:\ProjetIA\WCORE\graphify-out\graph.json" --dir "K:\ProjetIA\WCORE\.generated\graphify"`.
 
 ## Session journaling (reflex, not optional)
 
@@ -30,37 +30,18 @@ Every opencode session must be journaled continuously, not just at the end:
 
 See ../AGENTS.md:
 1. **Data property** — collect proprietary data first, store locally
-2. **Terminal + Obsidian** — CLI scripts connected to Obsidian MCPs
+2. **Terminal + Markdown** — CLI scripts and plain Markdown notes (Obsidian optional since 2026-11-12)
 3. **Wiki & Raw (Karpathy)** — write Raw first, distill to Wiki after
 4. **Monthly audit** — 1st of every month, full system audit
 5. **No learning loops** — every output verifiable against ground truth
 6. **Session journaling** — continuous session logs (see above)
 7. **Principle** — never build SEO projects with LLMs without rules 1-5
-## Mem0
+## Mem0 — retiré (ordre de Florian du 12/11/2026)
 
-- Mémoires via MCP `mem0` ou CLI `tools\mem0\cli.mjs` (user_id `projet:WCORE`).
-- Source de vérité inchangée : Graphify + Obsidian + data locale.
-- Jamais de positions/montants exacts ni de secrets dans les mémoires.
-
-### Usage optimal (workflow décision → mémoire)
-
-1. **Début de session** : lancer `/session-start` (injecte contexte Mem0 projet +
-   global:preferences + état Graphify).
-2. **Après chaque décision validée** (test OK, donnée vérifiée, note Wiki écrite) :
-   - `/memorize "<fait>" --source <note Obsidian>` (ou le skill `mem0-memorize`).
-   - Ordre : note Wiki/Obsidian d'abord (source de vérité), puis mémoire, puis journal.
-3. **Structure du code** : préférer `rtk graphify query/path/explain` sur
-   `K:\ProjetIA\WCORE\graphify-out\graph.json` avant de grepper.
-4. **Rappel** : une mémoire sans `source` est ignorée au retrieval. Un retour
-   `[]` au `mem0_add` = déjà mémorisé (déduplication), pas une erreur.
-
-### Adoption récurrente (engagement de chaque session)
-
-- **Chaque session doit produire au moins une mémoire Mem0 sourcée** quand une
-  décision a été prise (le dashboard mesure `Mem0 adoption`, CRITICAL = 0).
-- Vérifier `mem0_search` avant de répondre à une question de contexte ; mémoriser
-  après une décision, sans attendre qu'on le demande.
-
+- Mem0 est retiré : plus de `mem0_*`, `/session-start` ni `/memorize` ; `tools/mem0` est archivé hors dépôt. Le tableau de bord et l'audit ne mesurent plus Mem0 ni le coffre Obsidian.
+- Consigne : **décision dans le Wiki ou la roadmap, puis le journal.**
+- Interdits maintenus : jamais de positions/montants exacts ni de secrets dans une mémoire ou une note publique.
+- Supervision est un outil commun, au même titre qu'un MCP (`codex-supervisor.mjs`, `gemini-opinion.mjs`, boîte de signaux).
 
 ## Nettoyage filigranes IA
 

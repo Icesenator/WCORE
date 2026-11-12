@@ -235,5 +235,45 @@ test('auto-réparation : un watchdog refusé à chaque passage devient visible (
   }), now);
   assert.equal(stale.status, 'STALE');
   assert.match(stale.detail, /reason=HTTP_COUNTER_UNATTESTED/);
-  assert.match(HEAL, /_wcoreAutoHealRow_\(out, "Watchdog admission", wdAdmission\.status, wdAdmission\.detail\)/);
+});
+
+// The real WCORE_AUTO_HEAL, normal and forced: the admission row is produced in both, with its
+// reason, and the report itself never asks for a trigger reinstall.
+function healRun(force, store) {
+  const calls = [];
+  const props = { getProperty: (k) => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = String(v); } };
+  const g = {
+    JSON, Math, Number, String, isFinite, parseInt, Date,
+    WCORE_AUTO_HEAL_WD_STALE_MS: 30 * 60000, WCORE_AUTO_HEAL_COOLDOWN_MS: 0,
+    WCORE_AUTO_HEAL_LEASE_KEY: 'k', WCORE_AUTO_HEAL_LEASE_TTL_MS: 1,
+    PropertiesService: { getScriptProperties: () => props },
+    _wcoreAcquireLease_: () => 'owner', _wcoreReleaseLease_: () => {},
+    _wcoreAutoHealStoragePressureRecovery_: () => false,
+    _wcoreAutoHealEnsureTriggers_: (out, p, f) => { calls.push('triggers:' + f); },
+    _wcoreAutoHealBootstrapState_: () => { calls.push('bootstrap'); },
+    _wcoreAutoHealBackgroundMaintenance_: () => {},
+    _wcoreAutoHealEnsurePricingWorker_: () => {},
+  };
+  const ctx = vm.createContext(g);
+  vm.runInContext(fn(HEAL, '_wcoreAutoHealRow_') + '\n' + fn(HEAL, '_wcoreAutoHealWatchdogAdmission_') + '\n' + fn(HEAL, 'WCORE_AUTO_HEAL'), ctx);
+  return { out: ctx.WCORE_AUTO_HEAL('test', force), calls };
+}
+test('auto-réparation réelle : la ligne « Watchdog admission » sort en mode normal et en mode forcé', () => {
+  for (const force of [false, true]) {
+    const store = {
+      WCORE_WD_LAST_ADMITTED_MS: String(Date.now() - 3 * 3600000),
+      WCORE_WD_LAST_DIAG: JSON.stringify({ stats: { mode: 'SKIPPED_UNSAFE', reason: 'HTTP_COUNTER_UNATTESTED' } }),
+    };
+    const r = healRun(force, store);
+    const row = r.out.find((x) => x[0] === 'Watchdog admission');
+    assert.ok(row, 'ligne présente (force=' + force + ')');
+    assert.equal(row[1], 'STALE');
+    assert.match(row[2], /reason=HTTP_COUNTER_UNATTESTED/);
+    assert.deepEqual(r.calls.filter((c) => c.startsWith('triggers')), ['triggers:' + force], 'le rapport ne déclenche aucune réinstallation de plus');
+  }
+  const fresh = healRun(false, { WCORE_WD_LAST_ADMITTED_MS: String(Date.now() - 5 * 60000) });
+  assert.equal(fresh.out.find((x) => x[0] === 'Watchdog admission')[1], 'OK');
+});
+test('le statut de l’auto-réparation affiche aussi l’admission', () => {
+  assert.match(fn(HEAL, 'WCORE_AUTO_HEAL_STATUS'), /"WATCHDOG_FROM_RECAP admission"/);
 });

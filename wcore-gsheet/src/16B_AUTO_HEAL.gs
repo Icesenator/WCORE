@@ -361,12 +361,6 @@ function _wcoreAutoHealEnsureTriggers_(out, props, force) {
       _wcoreAutoHealRow_(out, "Watchdog heartbeat", "OK", "ageMin=" + Math.round(wdAgeMs / 60000));
     }
 
-    // v4.17.0: the run heartbeat is written before the safety gate, so a watchdog refused at
-    // every pass (unreadable HTTP counter, for instance) still looks alive. The admission
-    // heartbeat shows it. Reinstalling triggers would not help: this row only reports.
-    var wdAdmission = _wcoreAutoHealWatchdogAdmission_(props, Date.now());
-    _wcoreAutoHealRow_(out, "Watchdog admission", wdAdmission.status, wdAdmission.detail);
-
     var cexStatus = _wcoreAutoHealCexStatus_(props);
     if (cexStatus == null) {
       _wcoreAutoHealRow_(out, "CEX heartbeat", "UNKNOWN", "no CEX heartbeat/B1 timestamp");
@@ -761,6 +755,13 @@ function WCORE_AUTO_HEAL(reason, force) {
     // v4.15.133: trigger repair must run before heavier bootstrap work. If
     // bootstrap stalls, stale WATCHDOG/CEX triggers still get reinstalled first.
     _wcoreAutoHealEnsureTriggers_(out, props, force === true);
+    // v4.17.0: the run heartbeat is written before the safety gate, so a watchdog refused at
+    // every pass (unreadable HTTP counter, for instance) still looks alive. The admission
+    // heartbeat shows it. Reinstalling triggers would not help: this row only reports.
+    try {
+      var wdAdmission = _wcoreAutoHealWatchdogAdmission_(props, nowMs);
+      _wcoreAutoHealRow_(out, "Watchdog admission", wdAdmission.status, wdAdmission.detail);
+    } catch (eAdmission) {}
     if (force === true) {
       _wcoreAutoHealRow_(out, "Bootstrap", "SKIP", "force mode repairs triggers only");
     } else {
@@ -788,6 +789,10 @@ function WCORE_AUTO_HEAL_STATUS() {
   out.push(["Last reason", props.getProperty("WCORE_AUTO_HEAL_LAST_REASON") || ""]);
   var wdAgeMs = _wcoreAutoHealWatchdogDiagAgeMs_(props);
   out.push(["WATCHDOG_FROM_RECAP heartbeat age min", wdAgeMs == null ? "UNKNOWN" : Math.round(wdAgeMs / 60000)]);
+  try {
+    var wdAdmissionStatus = _wcoreAutoHealWatchdogAdmission_(props, Date.now());
+    out.push(["WATCHDOG_FROM_RECAP admission", wdAdmissionStatus.status + " " + wdAdmissionStatus.detail]);
+  } catch (eAdmissionStatus) { out.push(["WATCHDOG_FROM_RECAP admission", "UNKNOWN"]); }
   try {
      var counts = _wcoreAutoHealCountHandlers_(["WCORE_AUTO_HEAL_TIMER", "ACTIVITY_WATCHDOG", "WATCHDOG_FROM_RECAP", "QUOTA_RECOVERY_SWEEP", "LEDGER_ON_CHANGE", "MASTER_ON_EDIT", "SYNC_J1_ALL_SHEETS", "CEX_HOURLY_REFRESH", "UPDATE_BITPANDA_SPOT", "UPDATE_BITPANDA_STOCKS_FIAT", "UPDATE_KRAKEN_SPOT", "UPDATE_KRAKEN_STOCKS_FIAT", "UPDATE_CEX_RELAY_ROTATION", "UPDATE_CEX_RELAY_ALL", "UPDATE_BINANCE_SPOT", "UPDATE_BITFINEX_SPOT", "UPDATE_BYBIT_SPOT", "UPDATE_COINBASE_SPOT", "UPDATE_OKX_SPOT", "UPDATE_KRAKEN_SPOT", "STOCK_PORTFOLIO_HOURLY_REFRESH", "CRYPTO_PORTFOLIO_V2_HOURLY_REFRESH", "CEX_MANUAL_REFRESH_WORKER", "BITPANDA_REFRESH_WATCHDOG", "BINANCE_REFRESH_WATCHDOG", "BITFINEX_REFRESH_WATCHDOG", "BYBIT_REFRESH_WATCHDOG", "COINBASE_REFRESH_WATCHDOG", "OKX_REFRESH_WATCHDOG", "KRAKEN_REFRESH_WATCHDOG"]);
     out.push(["WCORE_AUTO_HEAL_TIMER", counts.WCORE_AUTO_HEAL_TIMER || 0]);

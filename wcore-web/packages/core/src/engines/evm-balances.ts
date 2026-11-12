@@ -214,7 +214,7 @@ export async function readErc20Balance(
     }
   }
 
-  const consensusWellFormed = typeof res.value === "string" && isAbiWord(res.value);
+  const consensusWellFormed = res.consensus === true && typeof res.value === "string" && isAbiWord(res.value);
   if (res.consensus && res.value && consensusWellFormed) {
     const decoded = decode(res.value);
     if (res.attempts.length === 0) {

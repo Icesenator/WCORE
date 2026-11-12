@@ -68,9 +68,22 @@ export function withEmbeddedTranslations(records: ChainLifecycleRecord[]): Chain
   });
 }
 
+/**
+ * Un registre sauvegarde est fige a sa derniere validation : une chaine ajoutee ensuite au
+ * registre embarque y manquerait pour toujours. On ajoute les fiches embarquees absentes,
+ * sans jamais toucher a une fiche sauvegardee : pour une chaine deja presente (meme cle ou
+ * meme identifiant), la version validee par l'administration prime, y compris ses dates.
+ */
+export function withEmbeddedAdditions(records: ChainLifecycleRecord[]): ChainLifecycleRecord[] {
+  const keys = new Set(records.map((r) => r.chainKey));
+  const ids = new Set(records.map((r) => r.chainId));
+  const missing = VERIFIED_LIFECYCLE_REGISTRY.filter((r) => !keys.has(r.chainKey) && !ids.has(r.chainId));
+  return missing.length ? [...records, ...missing.map((r) => structuredClone(r))] : records;
+}
+
 export async function loadRegistry(store: CacheStore): Promise<RegistryState> {
   const saved = await store.get<RegistryState>(SENTINEL_KEYS.registry);
-  if (saved && Array.isArray(saved.records) && saved.records.length) return { ...saved, records: withEmbeddedTranslations(saved.records) };
+  if (saved && Array.isArray(saved.records) && saved.records.length) return { ...saved, records: withEmbeddedAdditions(withEmbeddedTranslations(saved.records)) };
   return { version: 1, records: VERIFIED_LIFECYCLE_REGISTRY.map((r) => structuredClone(r)), updatedAt: "2026-11-07T12:30:00Z" };
 }
 

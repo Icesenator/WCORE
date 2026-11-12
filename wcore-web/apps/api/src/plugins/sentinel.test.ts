@@ -206,3 +206,26 @@ test("a saved registry gets the embedded English texts only where the French tex
   assert.equal(changed!.sources[srcId]!.publisherEn, undefined);
   assert.equal(changed!.recoveryNote, "Note modifiee par l'administration.", "facts are untouched");
 });
+
+test("a saved registry receives the chains added later to the embedded registry, and keeps its own records", async () => {
+  const { withEmbeddedAdditions } = await import("./sentinel.js");
+  const { VERIFIED_LIFECYCLE_REGISTRY } = await import("@wcore/shared");
+  const abstract = structuredClone(VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === "abstract")!);
+  abstract.deadlines = abstract.deadlines.map((d) => ({ ...d, at: "2026-12-20T00:00:00Z" }));
+  const saved = [abstract];
+
+  const merged = withEmbeddedAdditions(saved);
+  assert.equal(merged.length, VERIFIED_LIFECYCLE_REGISTRY.length, "every embedded chain is present once");
+  assert.equal(merged[0], abstract, "the saved record is kept as is, first");
+  assert.equal(merged.filter((r) => r.chainKey === "abstract").length, 1);
+  assert.equal(merged.find((r) => r.chainKey === "abstract")!.deadlines[0]!.at, "2026-12-20T00:00:00Z", "the validated date wins");
+  assert.ok(merged.some((r) => r.chainKey === "zetachain") && merged.some((r) => r.chainKey === "neon"));
+  assert.notEqual(merged.find((r) => r.chainKey === "neon"), VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === "neon"), "added records are copies");
+
+  // A saved record with the same chain id under another key is not doubled.
+  const renamed = [{ ...structuredClone(VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === "neon")!), chainKey: "neon_evm" }];
+  assert.equal(withEmbeddedAdditions(renamed).filter((r) => r.chainId === 245022934).length, 1);
+
+  const full = VERIFIED_LIFECYCLE_REGISTRY.map((r) => structuredClone(r));
+  assert.equal(withEmbeddedAdditions(full), full, "nothing to add => same array");
+});

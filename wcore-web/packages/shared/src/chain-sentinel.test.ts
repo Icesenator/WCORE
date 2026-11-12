@@ -98,6 +98,32 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
   it("couverture : les 6 chaines du registre ont une echeance de source officielle (Sophon confirme le 08/11)", () => {
     expect(officialSourceCoverage(["sophon", "abstract", "cronos_zkevm", "lisk", "blast", "gravity"]).withOfficialSource).toBe(6);
   });
+  it("ZetaChain : arret vers le 09/12/2026, sortie des pools avant, reclamation seulement annoncee", () => {
+    const r = get("zetachain");
+    expect(r.chainId).toBe(7000);
+    expect(r.recoveryAfterShutdown).toBe("PLANNED");
+    const a = evaluateChain(r, pos("ZETA"), NOW)!;
+    expect(a.code).toBe("ACTION_REQUIRED_BEFORE_DEADLINE");
+    expect(a.actionByMs).toBe(Date.parse("2026-12-09T00:00:00Z"));
+    expect(a.officialSourceUrls).toEqual(["https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9"]);
+    // Apres l'arret, la reclamation n'est qu'annoncee : jamais presentee comme ouverte.
+    const after = Date.parse("2026-12-10T00:00:00Z");
+    const b = evaluateChain(r, [native({ asset: "ZETA", balanceObservedAt: after - H })], after)!;
+    expect(b.code).not.toBe("RECOVERY_WINDOW_OPEN");
+  });
+  it("Neon EVM : dernier retrait avant le 31/12/2026, aucune date d arret du reseau publiee", () => {
+    const r = get("neon");
+    expect(r.chainId).toBe(245022934);
+    expect(r.deadlines.map((d) => d.kind)).toEqual(["WITHDRAW_LAST"]);
+    const a = evaluateChain(r, pos("NEON"), NOW)!;
+    expect(a.code).toBe("ACTION_REQUIRED_BEFORE_DEADLINE");
+    expect(a.deadlineKind).toBe("WITHDRAW_LAST");
+    expect(a.actionByMs).toBe(Date.parse("2026-12-31T00:00:00Z"));
+    expect(a.officialSourceUrls).toEqual(["https://neonevm.org/"]);
+  });
+  it("couverture : ZetaChain et Neon ont une echeance de source officielle", () => {
+    expect(officialSourceCoverage(["zetachain", "neon"]).withOfficialSource).toBe(2);
+  });
   it("aucune chaine du registre n a d identifiant en double, 1625 et 127001 distincts", () => {
     const ids = VERIFIED_LIFECYCLE_REGISTRY.map((r) => r.chainId);
     expect(new Set(ids).size).toBe(ids.length);

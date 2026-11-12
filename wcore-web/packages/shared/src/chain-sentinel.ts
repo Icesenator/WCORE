@@ -180,6 +180,45 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     recoveryNoteEn: "“assets left on Sophon Chain after the deadline risk becoming permanently inaccessible” (official X). Withdrawals and staking/Guardian rewards: claim.sophon.com; farms: farm.sophon.xyz. Guardian NFT, vSOPH and staked SOPH: automatic transition to Ethereum (docs). Deposits closed since 2026-06-25.",
     lastVerifiedAt: "2026-11-08T18:50:00Z",
   },
+  {
+    chainKey: "zetachain",
+    chainId: 7000,
+    name: "ZetaChain",
+    status: "WINDING_DOWN",
+    // 2026-11-12 : « The ZetaChain L1 halts around Dec 9, 2026 [...] and is not restarted » (blog officiel du 04/11/2026,
+    // proposition de gouvernance 2 adoptee le 07/11/2026). L'arret est lie a une hauteur de bloc publiee, « expected around
+    // Dec 9 » ; heure non precisee : debut de journee UTC retenu (lecture la plus prudente).
+    deadlines: [
+      { kind: "WITHDRAW_LAST", at: "2026-12-09T00:00:00Z", sourceIds: ["zeta-blog"] },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-12-09T00:00:00Z", sourceIds: ["zeta-blog"] },
+    ],
+    sources: {
+      "zeta-blog": { url: "https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9", publisher: "ZetaChain (blog officiel)", publisherEn: "ZetaChain (official blog)", official: true, retrievedAt: "2026-11-12T18:10:00Z" },
+    },
+    // PLANNED : la reclamation est annoncee pour le jour de l'arret, elle n'est pas encore ouverte.
+    recoveryAfterShutdown: "PLANNED",
+    recoveryNote: "« Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key. » Reclamation annoncee a partir de l'arret : ZETA sur Solana (au moins 10 ZETA a l'instantane) ; actifs encore detenus en ZRC-20 sur leur chaine d'origine (minimum de 5 $ par jeton).",
+    recoveryNoteEn: "“Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key.” Claims announced from the halt: ZETA on Solana (at least 10 ZETA at the snapshot); assets still held as ZRC-20 on their original chain (minimum of $5 per token).",
+    lastVerifiedAt: "2026-11-12T18:10:00Z",
+  },
+  {
+    chainKey: "neon",
+    chainId: 245022934,
+    name: "Neon EVM",
+    status: "WINDING_DOWN",
+    // 2026-11-12 : « before December 31, 2026 » (annonce du site officiel). Heure non precisee : debut de journee UTC
+    // retenu (lecture la plus prudente). Aucune date d'arret du reseau publiee : pas d'echeance NETWORK_SHUTDOWN.
+    deadlines: [
+      { kind: "WITHDRAW_LAST", at: "2026-12-31T00:00:00Z", sourceIds: ["neon-site"] },
+    ],
+    sources: {
+      "neon-site": { url: "https://neonevm.org/", publisher: "Neon EVM (site officiel)", publisherEn: "Neon EVM (official site)", official: true, retrievedAt: "2026-11-12T18:10:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "« Users and developers relying on Neon EVM should complete any necessary migration or withdrawal steps before December 31, 2026. » Date d'arret du reseau non publiee.",
+    recoveryNoteEn: "“Users and developers relying on Neon EVM should complete any necessary migration or withdrawal steps before December 31, 2026.” No network shutdown date published.",
+    lastVerifiedAt: "2026-11-12T18:10:00Z",
+  },
 ];
 
 // ---------------------------------------------------------------------------

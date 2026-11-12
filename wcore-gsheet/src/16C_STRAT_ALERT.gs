@@ -12,19 +12,32 @@
  *
  * Script properties (never in the repository, never logged):
  *   WCORE_NTFY_TOPIC  : the ntfy topic; absent = feature off.
- * The message stays generic (category only, no asset, amount or trade): anyone knowing the
- * topic can read it (common ProjetIA rule). The details are read in the workbook.
+ * The message names the category and, for a rebalancing, the trade to do (symbols from Q1/S1
+ * of the portfolio tab, never an amount): explicit decision of Florian on 2026-11-12, who
+ * accepts that anyone knowing the topic can read it (exception to the common ProjetIA rule).
  * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X",...}.
  */
 
 var STRAT_ALERT_CELLS = [
-  { cell: "AY1", col: 0, label: "rééquilibrage Crypto à faire" },
-  { cell: "BE1", col: 6, label: "rééquilibrage Action à faire" },
-  { cell: "BK1", col: 12, label: "un onglet du portefeuille est en erreur" },
-  { cell: "BQ1", col: 18, label: "écart dans les onglets Détails" }
+  { cell: "AY1", col: 0, label: "rééquilibrage Crypto à faire", tradeSheet: "Portefeuille Crypto" },
+  { cell: "BE1", col: 6, label: "rééquilibrage Action à faire", tradeSheet: "Portefeuille Action" },
+  { cell: "BK1", col: 12, label: "un onglet du portefeuille est en erreur", tradeSheet: null },
+  { cell: "BQ1", col: 18, label: "écart dans les onglets Détails", tradeSheet: null }
 ];
 var STRAT_ALERT_STATE_KEY = "WCORE_STRAT_ALERT_LAST";
 var STRAT_ALERT_NTFY_BASE = "https://ntfy.sh/";
+
+/** Trade to do from Q1 (above its target) and S1 (below): symbols only, never an amount. */
+function _wcoreStratAlertTrade_(ss, sheetName) {
+  try {
+    var sh = ss.getSheetByName(sheetName);
+    if (!sh) return "";
+    var row = sh.getRange("Q1:S1").getValues()[0];
+    var sell = String(row[0] || "").trim(), buy = String(row[2] || "").trim();
+    if (!/^[A-Za-z0-9.$_-]{1,15}$/.test(sell) || !/^[A-Za-z0-9.$_-]{1,15}$/.test(buy)) return "";
+    return " : alléger " + sell + ", renforcer " + buy;
+  } catch (e) { return ""; }
+}
 
 /**
  * @return {Object} diagnostic {ran, reason, newX, sent}
@@ -60,7 +73,7 @@ function _wcoreCheckStratAlert_(ss) {
       var cur = now[c.cell];
       next[c.cell] = cur == null ? (last[c.cell] || null) : cur; // unreadable cell: keep the old state
       if (cur === "X" && last[c.cell] === "V") {
-        parts.push(c.label);
+        parts.push(c.label + (c.tradeSheet ? _wcoreStratAlertTrade_(ss, c.tradeSheet) : ""));
       }
     }
     out.newX = parts.length;

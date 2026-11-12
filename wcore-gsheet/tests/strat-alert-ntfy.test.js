@@ -74,7 +74,7 @@ test('a cell going from V to X sends one generic notification, once', () => {
   assert.equal(out.reason, 'SENT');
   assert.equal(h.posts.length, 1);
   assert.equal(h.posts[0].url, 'https://ntfy.sh/' + TOPIC);
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire.');
+  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI, renforcer ETH.');
   assert.equal(h.posts[0].options.headers.Title, 'WCORE');
   h.run();
   assert.equal(h.posts.length, 1, 'still X: no repeat');
@@ -85,13 +85,21 @@ test('a cell going from V to X sends one generic notification, once', () => {
   assert.equal(h.posts.length, 2, 'back to V re-arms the alert');
 });
 
-test('several new X are grouped, stocks and errors named, never a trade', () => {
+test('several new X are grouped, with the trade for a rebalancing only', () => {
   const h = harness();
   h.run();
-  h.state.strat = stratRow({ BE1: 'X', BK1: 'X' });
+  h.state.strat = stratRow({ AY1: 'X', BE1: 'X', BK1: 'X' });
   h.run();
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Action à faire ; un onglet du portefeuille est en erreur.');
-  assert.ok(!/AAA|BBB/.test(h.posts[0].payload));
+  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire : alléger SOMI, renforcer ETH ; rééquilibrage Action à faire : alléger AAA, renforcer BBB ; un onglet du portefeuille est en erreur.');
+});
+
+test('an unreadable or odd trade cell falls back to the category alone, never an amount', () => {
+  const h = harness();
+  h.state.trade['Portefeuille Crypto'] = ['1 234,56 €', '>', 'ETH'];
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.run();
+  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire.');
 });
 
 test('a failed or refused send keeps the old state and retries next pass', () => {
@@ -116,8 +124,8 @@ test('an unreadable cell keeps its old state and never notifies', () => {
   assert.equal(h.run().reason, 'SENT', 'V kept through the unreadable pass, so V -> X still alerts');
 });
 
-test('the source has no trade or asset detail path', () => {
-  assert.ok(!/WCORE_NTFY_DETAIL|Q1:S1|alléger|renforcer/.test(SRC));
+test('the trade reads symbols only, never the gap column', () => {
+  assert.ok(/getRange\("Q1:S1"\)/.test(SRC) && !/P1:P|P3:P|getRange\("P/.test(SRC));
 });
 
 test('the real HTTP.post makes no transport when the quota breaker refuses', () => {

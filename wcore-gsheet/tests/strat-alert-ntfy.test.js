@@ -166,3 +166,18 @@ test('the real HTTP.post makes no transport when the quota breaker refuses', () 
   HTTP.post('https://ntfy.sh/' + TOPIC, 'x', { muteHttpExceptions: true, timeoutMs: 5000 });
   assert.equal(fetches, 1);
 });
+
+test('setup stores a valid topic only and never returns it; the test send uses it', () => {
+  const h = harness({ props: {} });
+  const ctx = vm.createContext({ JSON, Object, String, Number, Math, Logger: { log: () => {} },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (h.store.has(k) ? h.store.get(k) : null), setProperty: (k, v) => h.store.set(k, v) }) },
+    HTTP: { post: (url) => { h.posts.push({ url }); return { getResponseCode: () => 200 }; } } });
+  vm.runInContext(SRC, ctx);
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.WCORE_NTFY_SET_TOPIC('bad topic!'))), { ok: false, reason: 'INVALID_TOPIC' });
+  assert.equal(JSON.stringify(ctx.WCORE_NTFY_TEST()), JSON.stringify({ ok: false, reason: 'NO_TOPIC' }));
+  const r = ctx.WCORE_NTFY_SET_TOPIC(TOPIC);
+  assert.equal(JSON.stringify(r), JSON.stringify({ ok: true }));
+  assert.ok(!JSON.stringify(r).includes(TOPIC));
+  assert.equal(ctx.WCORE_NTFY_TEST().ok, true);
+  assert.equal(h.posts[0].url, 'https://ntfy.sh/' + TOPIC);
+});

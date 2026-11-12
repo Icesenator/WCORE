@@ -129,3 +129,28 @@ function _wcoreCheckStratAlert_(ss) {
   }
   return out;
 }
+
+/**
+ * Setup, called once through the Apps Script API: stores the ntfy topic as a script property.
+ * The topic is never returned nor logged.
+ */
+function WCORE_NTFY_SET_TOPIC(topic) {
+  var t = String(topic || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(t)) return { ok: false, reason: "INVALID_TOPIC" };
+  PropertiesService.getScriptProperties().setProperty("WCORE_NTFY_TOPIC", t);
+  return { ok: true };
+}
+
+/** Sends one real test notification through the same path as the alert. */
+function WCORE_NTFY_TEST() {
+  var topic = PropertiesService.getScriptProperties().getProperty("WCORE_NTFY_TOPIC");
+  if (!topic || !/^[A-Za-z0-9_-]{8,64}$/.test(topic)) return { ok: false, reason: "NO_TOPIC" };
+  var resp = null;
+  try {
+    resp = HTTP.post(STRAT_ALERT_NTFY_BASE + topic, "WCORE : essai depuis le classeur, rien à faire.", {
+      headers: { Title: "WCORE", Priority: "default" }, muteHttpExceptions: true, timeoutMs: 5000
+    });
+  } catch (e) { resp = null; }
+  var code = resp && typeof resp.getResponseCode === "function" ? resp.getResponseCode() : 0;
+  return { ok: code >= 200 && code < 300, code: code };
+}

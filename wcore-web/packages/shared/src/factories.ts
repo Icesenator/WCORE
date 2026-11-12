@@ -90,10 +90,8 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // Standard build, no Paris fallback needed.
   // Factory implementation() → 0x82ee3b6ef9f6b4af3a49a0a944d962cd0e745e2a (GmOnChain impl, 2237 bytes).
   opbnb: { address: "0x92d7a4784d4d11114f1eb79fe67b1ee0363b5748", chainId: 204 },
-  // Gravity mainnet. Shanghai-capable (factory 1696 bytes, 61 PUSH0) and
-  // London (baseFeePerGas present) → standard build, no Paris fallback needed.
-  // Factory implementation() → 0x2ae71ff47b8beab5d8f6ad1411d787f5d4cfb3fa (GmOnChain impl, 2237 bytes).
-  gravity: { address: "0x8d0cf2c602efdc3b696341cc03ec62e813771c48", chainId: 1625 },
+  // Gravity Alpha (1625) was stopped on 2026-11-01: its factory now lives in
+  // GM_HISTORICAL_FACTORIES below, so no GM or deployment is offered there any more.
   // Merlin mainnet (Bitcoin L2). Shanghai-capable (factory 1696 bytes, 61 PUSH0)
   // but pre-London (no baseFeePerGas → legacy gas pricing). Standard build OK.
   // Factory implementation() → 0x7021fd9cc5eb47cbae65401e7e30e8a348a5c6e1 (GmOnChain impl, 2237 bytes).
@@ -205,4 +203,8 @@ export const GM_HISTORICAL_FACTORIES: Record<string, { address: string; chainId:
   // B3 Mainnet: network closing, new withdrawals closed (2026-10-31). Kept for the
   // owners of deployed contracts; it is not an active factory.
   b3: { address: "0x14bfaa1302ab5ea8041d3dfec9abb668efbf2f34", chainId: 8333 },
+  // Gravity Alpha: network stopped (2026-11-01). Kept for the owners of deployed
+  // contracts; it is not an active factory.
+  // Factory implementation() → 0x2ae71ff47b8beab5d8f6ad1411d787f5d4cfb3fa (GmOnChain impl, 2237 bytes).
+  gravity: { address: "0x8d0cf2c602efdc3b696341cc03ec62e813771c48", chainId: 1625 },
 };

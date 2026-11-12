@@ -59,6 +59,8 @@ describe("GM page chain lists", () => {
       "duckchain",
       "superposition",
       "race",
+      // Gravity Alpha (1625): network stopped on 2026-11-01, factory moved to GM_HISTORICAL_FACTORIES.
+      "gravity",
     ];
     const visibleKeys = new Set([...getGmChains(), ...getSoonChains()].map((chain) => chain.key));
 

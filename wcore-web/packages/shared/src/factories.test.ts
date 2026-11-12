@@ -88,4 +88,23 @@ describe("GM_FACTORIES", () => {
     expect(Object.keys(GM_HISTORICAL_FACTORIES)).not.toContain("moca");
     expect(Object.keys(GM_HISTORICAL_FACTORIES)).not.toContain("base");
   });
+
+  test("Gravity Alpha (1625), network stopped on 2026-11-01, is historical and no longer active", () => {
+    // A GM or a deployment there can only fail: no active factory, whatever the case.
+    for (const key of ["gravity", "GRAVITY", " Gravity "]) {
+      expect(getFactory(key)).toBeUndefined();
+    }
+    expect(Object.keys(GM_FACTORIES)).not.toContain("gravity");
+    expect(Object.values(GM_FACTORIES).some((f) => f.chainId === 1625)).toBe(false);
+
+    // Same factory address, kept so the contracts already deployed stay identifiable.
+    expect(GM_HISTORICAL_FACTORIES.gravity).toEqual({
+      address: "0x8d0cf2c602efdc3b696341cc03ec62e813771c48",
+      chainId: 1625,
+    });
+
+    // Neighbouring entries are untouched.
+    expect(getFactory("opbnb")?.chainId).toBe(204);
+    expect(getFactory("merlin")?.chainId).toBe(4200);
+  });
 });

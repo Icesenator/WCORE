@@ -1,7 +1,7 @@
 import { http, createConfig } from "wagmi";
 import type { Chain } from "viem";
 import { base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-  mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, lisk, metalL2, cyber,
+  mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, cyber,
   immutableZkEvm, morph, mezo, swellchain, swan, vana, story } from "wagmi/chains";
 // We intentionally do NOT register wagmi's `injected()` connector in the
 // static config. Reason: a broken Turbopack chunk on `injected` throws
@@ -176,13 +176,8 @@ const katana: Chain = {
   blockExplorers: { default: { name: "Katana Explorer", url: "https://katanascan.com" } },
 };
 
-const race: Chain = {
-  id: 6805,
-  name: "RACE",
-  nativeCurrency: { name: "Race", symbol: "RACE", decimals: 18 },
-  rpcUrls: { default: { http: ["https://race.rpc.thirdweb.com"] }, public: { http: ["https://race.rpc.thirdweb.com"] } },
-  blockExplorers: { default: { name: "RACE Explorer", url: "https://race.explorer.thirdweb.com" } },
-};
+// RACE (6805) and Lisk (1135) are no longer declared: neither has an active GM factory
+// nor a legacy contract entry (hooks/useGmContracts.ts), so nothing switches to them.
 
 const doma: Chain = {
   id: 97477,
@@ -419,13 +414,8 @@ const opbnb: Chain = {
   blockExplorers: { default: { name: "opBNBScan", url: "https://opbnbscan.com" } },
 };
 
-const gravity: Chain = {
-  id: 1625,
-  name: "Gravity",
-  nativeCurrency: { name: "Gravity", symbol: "G", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.gravity.xyz", "https://1625.rpc.thirdweb.com"] }, public: { http: ["https://rpc.gravity.xyz", "https://1625.rpc.thirdweb.com"] } },
-  blockExplorers: { default: { name: "Gravity Explorer", url: "https://explorer.gravity.xyz" } },
-};
+// Gravity Alpha (1625) stopped on 2026-11-01: no chain definition, so wagmi can
+// neither switch to it nor add it (wallet_addEthereumChain).
 
 const merlin: Chain = {
   id: 4200,
@@ -533,9 +523,9 @@ const wagmiConnectors = [
 
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
-    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, lisk, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
-    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, race, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
-    gravity, merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
+    mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
+    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
+    merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca],
   // as any needed — wagmi connector types mismatch with custom chain list
   connectors: wagmiConnectors as any,
@@ -567,7 +557,6 @@ export const config = createConfig({
     [sei.id]: http(),
     [shape.id]: http(),
     [bob.id]: http(),
-    [lisk.id]: http(),
     [metalL2.id]: http(),
     [robinhoodChain.id]: http(),
     [appchain.id]: http(),
@@ -587,7 +576,6 @@ export const config = createConfig({
     [monad.id]: http(),
     [megaeth.id]: http(),
     [katana.id]: http(),
-    [race.id]: http(),
     [doma.id]: http(),
     [b2.id]: http(),
     [juchain.id]: http(),
@@ -617,7 +605,6 @@ export const config = createConfig({
     [beam.id]: http(),
     [ronin.id]: http(),
     [opbnb.id]: http(),
-    [gravity.id]: http(),
     [merlin.id]: http(),
     [taikoAlethia.id]: http(),
     [plasma.id]: http(),

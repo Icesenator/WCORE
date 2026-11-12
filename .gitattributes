@@ -5,3 +5,6 @@
 # Windows) turns the shebang into `#!/bin/sh\r` and the container dies with
 # "./start-production.sh: not found" (incident 2026-08-02, API 502).
 *.sh text eol=lf
+
+# Un hook shell doit garder des fins de ligne LF, meme sous Windows.
+scripts/git-hooks/pre-push text eol=lf

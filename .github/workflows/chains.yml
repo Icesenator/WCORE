@@ -13,6 +13,8 @@ name: Chains
 # natifs Node) tout en fermant cette classe de bug.
 
 on:
+  # Lancement manuel : relancer la suite quand un run reste bloque en file (11/11).
+  workflow_dispatch:
   pull_request:
     paths:
       - 'wcore-gsheet/src/**'

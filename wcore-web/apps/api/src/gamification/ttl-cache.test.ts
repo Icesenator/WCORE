@@ -33,20 +33,35 @@ test("entries that are never read again are dropped by a later write", () => {
 test("the sweep runs at most once per lifetime and never drops a live entry", () => {
   let t = 1_000_000;
   const cache = createTtlCache<number>(TTL, () => t);
-  cache.set("old", 1);
+  cache.set("old", 1); // expires at t0 + TTL
   t += TTL - 1;
-  cache.set("young", 2);
+  cache.set("young", 2); // expires at t0 + 2*TTL - 1
   assert.equal(cache.size(), 2, "no sweep before a full lifetime has passed");
-  t += 2;
-  cache.set("new", 3);
-  assert.equal(cache.get("old"), undefined, "expired entry swept");
-  assert.equal(cache.get("young"), 2, "live entry kept by the sweep");
-  assert.equal(cache.size(), 2);
-  // Right after a sweep, an entry that expires is kept until the next lifetime has passed.
-  t += TTL - 10;
+  t += 2; // t0 + TTL + 1: first sweep
+  cache.set("new", 3); // expires at t0 + 2*TTL + 1
+  assert.equal(cache.size(), 2, "the expired entry is swept, the live one is kept");
+  assert.equal(cache.get("young"), 2);
+  t += TTL - 1; // t0 + 2*TTL: young has expired, the last sweep is TTL - 1 old
   cache.set("later", 4);
-  assert.equal(cache.size(), 3, "young has expired but no second sweep yet");
-  t += 20;
+  assert.equal(cache.size(), 3, "an expired entry is still counted: no second sweep within one lifetime");
+  t += 2; // t0 + 2*TTL + 2: second sweep, young and new have both expired
   cache.set("last", 5);
-  assert.deepEqual([cache.get("young"), cache.get("new"), cache.get("later"), cache.get("last")], [undefined, undefined, 4, 5]);
+  assert.equal(cache.size(), 2, "the write swept both expired entries");
+  assert.deepEqual([cache.get("later"), cache.get("last")], [4, 5]);
+});
+
+test("a clock that steps back does not suspend the sweep", () => {
+  const t0 = 10_000_000;
+  let t = t0 + 10 * TTL;
+  const cache = createTtlCache<number>(TTL, () => t);
+  t += TTL;
+  cache.set("future", 1); // sweep recorded far ahead of the corrected clock below
+  t = t0; // the clock is corrected backwards
+  cache.set("a", 2); // expires at t0 + TTL
+  t = t0 + TTL + 1;
+  cache.set("b", 3);
+  // Without the step-back rule the sweep would wait until the clock reaches the old future again.
+  assert.equal(cache.size(), 2, "the expired entry is swept although the last sweep lies in the future");
+  assert.equal(cache.get("a"), undefined);
+  assert.equal(cache.get("b"), 3);
 });

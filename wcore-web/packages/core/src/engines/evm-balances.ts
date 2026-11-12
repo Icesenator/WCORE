@@ -180,7 +180,7 @@ export async function readErc20Balance(
   cache?: CacheStore,
   customSelector?: string,
   customSelectorExtraArgs?: string[],
-): Promise<{ decision: BalanceDecision; skipped: boolean }> {
+): Promise<{ decision: BalanceDecision; skipped: boolean; wellFormed?: boolean }> {
   // Check skip cache — non-ERC20 tokens flagged by a previous scan
   if (cache) {
     const skipKey = erc20SkipCacheKey(chainKey, contract, customSelector, customSelectorExtraArgs);
@@ -256,5 +256,7 @@ export async function readErc20Balance(
     cache.set(tcKey, cacheEntry(decision), 3600_000).catch(() => {});
   }
 
-  return { decision, skipped: false };
+  // A balance is only a full ABI word: "0x" or a short answer decodes to 0n but proves nothing.
+  const wellFormed = typeof res.value === "string" && /^0x[0-9a-fA-F]{64,}$/.test(res.value.trim());
+  return { decision, skipped: false, wellFormed };
 }

@@ -577,6 +577,7 @@ export async function getEvmWalletAssets(
       if (result?.success && result.returnData && result.returnData !== "0x") {
         try {
           raw = decodeUint256(result.returnData);
+          reliable = /^0x[0-9a-fA-F]{64,}$/.test(result.returnData);
           if (cache) {
             const decision: BalanceDecision = {
               raw,
@@ -596,7 +597,7 @@ export async function getEvmWalletAssets(
             return null;
           }
           raw = ercDecision.decision.raw;
-          reliable = isReliableLiveDecision(ercDecision.decision);
+          reliable = isReliableLiveDecision(ercDecision.decision) && ercDecision.wellFormed === true;
           reason = ercDecision.decision.reason;
           pushBalanceDecisionError(errors, known.symbol, ercDecision.decision);
         }
@@ -607,7 +608,7 @@ export async function getEvmWalletAssets(
           return null;
         }
         raw = ercDecision.decision.raw;
-        reliable = isReliableLiveDecision(ercDecision.decision);
+        reliable = isReliableLiveDecision(ercDecision.decision) && ercDecision.wellFormed === true;
         reason = ercDecision.decision.reason;
         pushBalanceDecisionError(errors, known.symbol, ercDecision.decision);
       }
@@ -639,7 +640,7 @@ export async function getEvmWalletAssets(
       const explicitDecimals = chain.RPC?.TOKEN_DECIMALS?.[known.contract.toLowerCase()];
       const effectiveDecimals = explicitDecimals != null ? explicitDecimals : known.decimals;
       const balance = formatUnits(raw, effectiveDecimals);
-      recordRequested(known.contract, balance, isReliableLiveDecision(ercDecision.decision), ercDecision.decision.reason);
+      recordRequested(known.contract, balance, isReliableLiveDecision(ercDecision.decision) && ercDecision.wellFormed === true, ercDecision.decision.reason);
       return balance > 0 ? { known, balance } : null;
     }));
     for (const item of resolved) {

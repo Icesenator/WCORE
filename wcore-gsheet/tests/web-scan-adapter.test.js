@@ -1049,6 +1049,20 @@ const samplePayload = JSON.stringify({
   assert.equal(saved.scanStats.webRequestedUnknownKept, 1);
   assert.equal(saved._webScanRequestedStatus, undefined, 'the transient status map is never persisted');
 
+  // The old cache cannot be read: an unknown token cannot be kept, so nothing is written.
+  const ctxLoadFail = makeContext({
+    GSHEET_WEB_SCAN_ENABLED: 'true',
+    WCORE_WEB_API_URL: 'https://api.example.test',
+    GSHEET_API_TOKEN: 'secret',
+    GSHEET_WEB_SCAN_ALLOWLIST: 'ALL',
+    __walletCache: oldCache,
+    __walletCacheError: true,
+  }, JSON.stringify(basePayload));
+  const resLoadFail = ctxLoadFail._webScanWallet_('0x00000000000000000000000000000000000d0006', [[btcb], [sol], [frog]], false, { CHAIN: { KEY: 'BSC', NAME: 'BNB Chain', NATIVE_SYMBOL: 'BNB' } }, 'bsc_cache_key');
+  assert.match(resLoadFail.status, /WEB_SCAN_ERROR/, 'a failed cache load stays retryable');
+  assert.equal(resLoadFail.error, 'CACHE_LOAD_FAILED');
+  assert.equal(ctxLoadFail.__saved.length, 0, 'never save an answer that would drop an unknown token');
+
   // Degraded answer: a confirmed zero drops the old row, an unknown one stays.
   const degradedPayload = Object.assign({}, basePayload, { errors: ['balances fetch: RPC_TIMEOUT'], degraded: true });
   const ctxDegraded = makeContext({

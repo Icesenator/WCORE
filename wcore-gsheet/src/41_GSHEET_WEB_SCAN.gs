@@ -1211,11 +1211,25 @@ function _webScanWallet_(address, tokensRange, forceFull, config, cacheKey) {
       }
     }
     if (cache._webScanRequestedStatus) {
-      try {
-        var unknownBaseCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config);
-        _webScanKeepUnknownRequested_(unknownBaseCache, cache);
-      } catch (eUnknownKeep) {}
+      var unknownStatus = cache._webScanRequestedStatus;
       try { delete cache._webScanRequestedStatus; } catch (eTmpStatus2) {}
+      var unknownPresent = {};
+      for (var up = 0; up < cache.assets.length; up++) unknownPresent[_webScanAssetKey_(cache.assets[up])] = true;
+      var unknownAbsent = false;
+      for (var uk in unknownStatus) if (unknownStatus[uk] === "unknown" && !unknownPresent[uk]) { unknownAbsent = true; break; }
+      if (unknownAbsent) {
+        try {
+          var unknownBaseCache = WalletCache.load(String(cacheKey || address || "").trim(), null, config);
+          cache._webScanRequestedStatus = unknownStatus;
+          _webScanKeepUnknownRequested_(unknownBaseCache, cache);
+          try { delete cache._webScanRequestedStatus; } catch (eTmpStatus3) {}
+        } catch (eUnknownKeep) {
+          // v4.17.1: without the old cache, an "unknown" token cannot be kept: never write an
+          // answer that would silently drop it; keep the stored cache and stay retryable.
+          _webScanSetLastError_("CACHE_LOAD_FAILED " + chainKey, chainKey);
+          return { ok: true, deferred: false, status: "[WEB_SCAN_ERROR] " + Format.now(), cache: null, degraded: true, error: "CACHE_LOAD_FAILED" };
+        }
+      }
     }
     CacheManager.init();
     var saveResult = WalletCache.save(String(cacheKey || address || "").trim(), cache, config);

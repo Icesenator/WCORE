@@ -194,6 +194,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
   const HELD = "0x1111111111111111111111111111111111111111";
   const ZERO = "0x2222222222222222222222222222222222222222";
   const FAILED = "0x3333333333333333333333333333333333333333";
+  const EMPTY = "0x5555555555555555555555555555555555555555";
   const discovery: TokenDiscovery = {
     async discoverTokensForWallet(): Promise<DiscoveredToken[]> { return []; },
   };
@@ -214,6 +215,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
       if (target === HELD) return "0x" + 1_000_000n.toString(16).padStart(64, "0");
       if (target === ZERO) return "0x" + "0".padStart(64, "0");
       if (target === FAILED) throw new Error("timeout");
+      if (target === EMPTY) return "0x";
       return "0x";
     },
   };
@@ -231,7 +233,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
     rpc: rpc as never,
     sources,
     tokenDiscovery: discovery,
-    customTokens: [HELD, ZERO, FAILED, "not-an-address"],
+    customTokens: [HELD, ZERO, FAILED, EMPTY, "not-an-address"],
     strictTokens: true,
     sharedPriceCache: new MemoryPricingCache(),
     fxRate: 1,
@@ -241,6 +243,7 @@ test("getEvmWalletAssets reports an explicit held/zero/unknown status per reques
   assert.equal(status[HELD], "held");
   assert.equal(status[ZERO], "zero");
   assert.equal(status[FAILED], "unknown");
+  assert.equal(status[EMPTY], "unknown", "an empty eth_call answer is never a confirmed zero");
   assert.equal(status["not-an-address"], "unknown");
   assert.deepEqual(result.tokens.map((t) => t.contract), [HELD]);
 });

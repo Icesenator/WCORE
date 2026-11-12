@@ -85,21 +85,13 @@ test('a cell going from V to X sends one generic notification, once', () => {
   assert.equal(h.posts.length, 2, 'back to V re-arms the alert');
 });
 
-test('several new X are grouped, stocks and errors named, no trade without the detail option', () => {
+test('several new X are grouped, stocks and errors named, never a trade', () => {
   const h = harness();
   h.run();
   h.state.strat = stratRow({ BE1: 'X', BK1: 'X' });
   h.run();
   assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Action à faire ; un onglet du portefeuille est en erreur.');
   assert.ok(!/AAA|BBB/.test(h.posts[0].payload));
-});
-
-test('the detail option adds the trade to do', () => {
-  const h = harness({ props: { WCORE_NTFY_TOPIC: TOPIC, WCORE_NTFY_DETAIL: 'TRUE' } });
-  h.run();
-  h.state.strat = stratRow({ AY1: 'X', BE1: 'X' });
-  h.run();
-  assert.equal(h.posts[0].payload, 'WCORE : rééquilibrage Crypto à faire (alléger SOMI, renforcer ETH) ; rééquilibrage Action à faire (alléger AAA, renforcer BBB).');
 });
 
 test('a failed or refused send keeps the old state and retries next pass', () => {
@@ -122,4 +114,24 @@ test('an unreadable cell keeps its old state and never notifies', () => {
   assert.equal(h.run().reason, 'NO_NEW_X');
   h.state.strat = stratRow({ AY1: 'X' });
   assert.equal(h.run().reason, 'SENT', 'V kept through the unreadable pass, so V -> X still alerts');
+});
+
+test('the source has no trade or asset detail path', () => {
+  assert.ok(!/WCORE_NTFY_DETAIL|Q1:S1|alléger|renforcer/.test(SRC));
+});
+
+test('the real HTTP.post makes no transport when the quota breaker refuses', () => {
+  const httpSrc = fs.readFileSync(path.join(__dirname, '..', 'src', '03_HTTP.gs'), 'utf8');
+  let fetches = 0;
+  const ctx = { Logger: { log: () => {} }, UrlFetchApp: { fetch: () => { fetches++; return { getResponseCode: () => 200 }; } }, JSON, Math, Object, String, Number, Date };
+  vm.createContext(ctx);
+  vm.runInContext(httpSrc + '\nthis.__HTTP = (typeof HTTP !== "undefined") ? HTTP : Http;', ctx);
+  const HTTP = ctx.__HTTP;
+  HTTP.canFetchNow = () => false;
+  assert.equal(HTTP.post('https://ntfy.sh/' + TOPIC, 'x', { muteHttpExceptions: true }), null);
+  assert.equal(fetches, 0);
+  HTTP.canFetchNow = () => true;
+  HTTP._record = () => {};
+  HTTP.post('https://ntfy.sh/' + TOPIC, 'x', { muteHttpExceptions: true, timeoutMs: 5000 });
+  assert.equal(fetches, 1);
 });

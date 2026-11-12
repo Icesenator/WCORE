@@ -12,30 +12,19 @@
  *
  * Script properties (never in the repository, never logged):
  *   WCORE_NTFY_TOPIC  : the ntfy topic; absent = feature off.
- *   WCORE_NTFY_DETAIL : "TRUE" adds the trade to do (symbols from Q1/S1 of the portfolio tab);
- *                       off by default, since anyone knowing the topic can read the message.
+ * The message stays generic (category only, no asset, amount or trade): anyone knowing the
+ * topic can read it (common ProjetIA rule). The details are read in the workbook.
  * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X",...}.
  */
 
 var STRAT_ALERT_CELLS = [
-  { cell: "AY1", col: 0, label: "rééquilibrage Crypto à faire", tradeSheet: "Portefeuille Crypto" },
-  { cell: "BE1", col: 6, label: "rééquilibrage Action à faire", tradeSheet: "Portefeuille Action" },
-  { cell: "BK1", col: 12, label: "un onglet du portefeuille est en erreur", tradeSheet: null },
-  { cell: "BQ1", col: 18, label: "écart dans les onglets Détails", tradeSheet: null }
+  { cell: "AY1", col: 0, label: "rééquilibrage Crypto à faire" },
+  { cell: "BE1", col: 6, label: "rééquilibrage Action à faire" },
+  { cell: "BK1", col: 12, label: "un onglet du portefeuille est en erreur" },
+  { cell: "BQ1", col: 18, label: "écart dans les onglets Détails" }
 ];
 var STRAT_ALERT_STATE_KEY = "WCORE_STRAT_ALERT_LAST";
 var STRAT_ALERT_NTFY_BASE = "https://ntfy.sh/";
-
-function _wcoreStratAlertTrade_(ss, sheetName) {
-  try {
-    var sh = ss.getSheetByName(sheetName);
-    if (!sh) return "";
-    var row = sh.getRange("Q1:S1").getValues()[0];
-    var sell = String(row[0] || "").trim(), buy = String(row[2] || "").trim();
-    if (!/^[A-Za-z0-9.$_-]{1,15}$/.test(sell) || !/^[A-Za-z0-9.$_-]{1,15}$/.test(buy)) return "";
-    return " (alléger " + sell + ", renforcer " + buy + ")";
-  } catch (e) { return ""; }
-}
 
 /**
  * @return {Object} diagnostic {ran, reason, newX, sent}
@@ -64,7 +53,6 @@ function _wcoreCheckStratAlert_(ss) {
       return out;
     }
 
-    var detail = String(props.getProperty("WCORE_NTFY_DETAIL") || "").toUpperCase() === "TRUE";
     var parts = [];
     var next = {};
     for (var j = 0; j < STRAT_ALERT_CELLS.length; j++) {
@@ -72,7 +60,7 @@ function _wcoreCheckStratAlert_(ss) {
       var cur = now[c.cell];
       next[c.cell] = cur == null ? (last[c.cell] || null) : cur; // unreadable cell: keep the old state
       if (cur === "X" && last[c.cell] === "V") {
-        parts.push(c.label + (detail && c.tradeSheet ? _wcoreStratAlertTrade_(ss, c.tradeSheet) : ""));
+        parts.push(c.label);
       }
     }
     out.newX = parts.length;
@@ -88,7 +76,7 @@ function _wcoreCheckStratAlert_(ss) {
       resp = HTTP.post(STRAT_ALERT_NTFY_BASE + topic, text, {
         headers: { Title: "WCORE", Priority: "high", Tags: "warning" },
         muteHttpExceptions: true,
-        timeoutMs: 5000
+        timeoutMs: 5000 // passed to the wrapper as a deadline option, not a measured guarantee
       });
     } catch (eHttp) { resp = null; }
     var code = resp && typeof resp.getResponseCode === "function" ? resp.getResponseCode() : 0;

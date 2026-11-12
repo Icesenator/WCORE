@@ -1,5 +1,5 @@
 # ============================================================================
-# WCORE Safe-Push v3.2 - Windows PowerShell
+# WCORE Safe-Push v3.3 - Windows PowerShell
 # Push les fichiers .gs de src/ vers le projet
 # NE SUPPRIME PAS les fichiers presents uniquement sur le projet distant
 # v3.1: rootDir fixe ".temp_push" dans clasp.json avant pull pour eviter
@@ -7,6 +7,9 @@
 # v3.2: verrou de deploiement atomique (.push.lock, handle OS) pour
 #        serialiser les pushs concurrents (agents multiples). Un push
 #        concurrent echoue proprement au lieu d'ecraser le projet distant.
+# v3.3: refus des fichiers de chaines retirees (appel a
+#        ChainFactory.createEvmChain pour un nom de WCORE_REMOVED_CHAINS):
+#        publies, ils leveraient CHAIN_REMOVED au chargement du script.
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -60,10 +63,111 @@ try {
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   WCORE Safe-Push v3.2                    " -ForegroundColor Cyan
+Write-Host "   WCORE Safe-Push v3.3                    " -ForegroundColor Cyan
 Write-Host "   Push src/ sans supprimer distant         " -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
+
+# ============================================================================
+# GARDE: fichiers de chaines retirees (aucun appel a clasp avant ce controle)
+# ============================================================================
+# 19_CHAIN_FACTORY.gs leve CHAIN_REMOVED dans ChainFactory.createEvmChain pour
+# les noms de WCORE_REMOVED_CHAINS (c'est la seule fabrique qui leve: Ton, Svm
+# et Cosmos ne levent pas). Un fichier de chaine retiree (LISK.gs, GRAVITY.gs)
+# appelle cette fabrique au chargement: publie, il ferait echouer le chargement
+# de tout le script et plus rien ne fonctionnerait dans le classeur.
+#
+# Regle: refus si un src/*.gs contient, hors commentaire et hors chaine de
+# caracteres, ChainFactory.createEvmChain(<litteral> dont le litteral, apres
+# trim + majuscules (comme _wcoreRemovedChainLabel_), est exactement un des
+# "ids" de WCORE_REMOVED_CHAINS. La liste n'est jamais recopiee ici: elle est
+# lue dans 19_CHAIN_FACTORY, a deux moments:
+#   A. avant clasp et avant tout reseau: src/19_CHAIN_FACTORY.gs du dossier
+#      pousse; a defaut celui du depot a cote de ce script (src/ voisin);
+#      a defaut rien n'est lisible en local et ce controle A ne refuse rien;
+#   B. apres le pull et la fusion, avant le push: 19_CHAIN_FACTORY.js de
+#      .temp_push, c'est-a-dire la fabrique qui sera reellement en ligne
+#      (celle de src/ si elle est poussee, sinon celle du projet distant).
+#      C'est B qui couvre le dossier de publication minimal (un ou deux
+#      fichiers, sans la fabrique).
+# Liste absente ou illisible: avertissement, jamais de refus.
+$JsCommentPattern = '/\*[\s\S]*?\*/|//[^\r\n]*'
+$JsStringPattern = '"(?:\\.|[^"\\\r\n])*"|''(?:\\.|[^''\\\r\n])*''|`(?:\\.|[^`\\])*`'
+$RemovedChainCallPattern = '\bChainFactory\s*\.\s*createEvmChain\s*\(\s*(?<q>["''`])(?<name>[^"''`\\\r\n]*)\k<q>'
+
+# Retourne @{ ID_EN_MAJUSCULES = libelle } lu dans WCORE_REMOVED_CHAINS, ou
+# $null si le fichier ou le bloc est illisible. Seuls les litteraux des
+# tableaux "ids" comptent: un nom cite dans un commentaire du bloc est ignore.
+function Get-RemovedChainIndex([string]$factoryPath) {
+    try { $text = [System.IO.File]::ReadAllText($factoryPath) } catch { return $null }
+    $code = [regex]::Replace($text, "(?<c>$JsCommentPattern)|(?<s>$JsStringPattern)", {
+        param($m) if ($m.Groups['c'].Success) { ' ' } else { $m.Value }
+    })
+    $block = [regex]::Match($code, '\bWCORE_REMOVED_CHAINS\s*=\s*\[(?<body>[\s\S]*?)\]\s*;')
+    if (-not $block.Success) { return $null }
+    $index = @{}
+    $entryPattern = '(?:\blabel\s*:\s*(?<lq>["''])(?<label>[^"''\r\n]*)\k<lq>\s*,\s*)?\bids\s*:\s*\[(?<ids>[^\]]*)\]'
+    foreach ($entry in [regex]::Matches($block.Groups['body'].Value, $entryPattern)) {
+        foreach ($literal in [regex]::Matches($entry.Groups['ids'].Value, '(?<q>["''])(?<id>[^"''\r\n]*)\k<q>')) {
+            $id = $literal.Groups['id'].Value.Trim().ToUpperInvariant()
+            if (-not $id) { continue }
+            $index[$id] = if ($entry.Groups['label'].Success) { $entry.Groups['label'].Value } else { $id }
+        }
+    }
+    if ($index.Count -eq 0) { return $null }
+    return $index
+}
+
+# Retourne $true si un fichier doit etre refuse (les messages sont affiches).
+# Un commentaire ou une chaine est consomme avant l'appel par l'alternance:
+# un appel commente ou cite dans une chaine n'est donc jamais retenu.
+function Test-RemovedChainFiles([string]$factoryPath, $files, [string]$origin) {
+    $index = Get-RemovedChainIndex $factoryPath
+    if ($null -eq $index) {
+        Write-Host "[WARN] Garde chaines retirees: WCORE_REMOVED_CHAINS illisible dans $origin, controle ignore" -ForegroundColor Yellow
+        return $false
+    }
+    $scanPattern = "(?<c>$JsCommentPattern)|$RemovedChainCallPattern|(?<s>$JsStringPattern)"
+    $refused = $false
+    foreach ($file in $files) {
+        try { $content = [System.IO.File]::ReadAllText($file.FullName) } catch { continue }
+        foreach ($call in [regex]::Matches($content, $scanPattern)) {
+            if (-not $call.Groups['name'].Success) { continue }
+            $chainName = $call.Groups['name'].Value
+            $chainId = $chainName.Trim().ToUpperInvariant()
+            if (-not $index.ContainsKey($chainId)) { continue }
+            $refused = $true
+            Write-Host "[ERREUR] src\$($file.Name) appelle ChainFactory.createEvmChain(""$chainName""): chaine retiree $($index[$chainId])" -ForegroundColor Red
+        }
+    }
+    if ($refused) {
+        Write-Host "  Liste WCORE_REMOVED_CHAINS lue dans $origin." -ForegroundColor Red
+        Write-Host "  Publie, ce fichier leverait CHAIN_REMOVED au chargement et bloquerait tout le script du classeur." -ForegroundColor Red
+        Write-Host "  Retire ce fichier du dossier de publication (src/) puis relance." -ForegroundColor Red
+    } else {
+        Write-Host "[OK] Aucun fichier de chaine retiree ($($index.Count) identifiants lus dans $origin)" -ForegroundColor Green
+    }
+    return $refused
+}
+
+# Controle A (local, avant clasp). Si src/ manque, les verifications plus bas
+# donnent leur propre erreur.
+$guardFiles = @()
+if (Test-Path $SrcDir) { $guardFiles = @(Get-ChildItem -Path $SrcDir -Filter "*.gs" -File) }
+$guardFactoryPushed = Join-Path $SrcDir "19_CHAIN_FACTORY.gs"
+$guardFactoryRepo = Join-Path (Join-Path $PSScriptRoot "src") "19_CHAIN_FACTORY.gs"
+if (Test-Path -LiteralPath $guardFactoryPushed) {
+    $guardRefused = Test-RemovedChainFiles $guardFactoryPushed $guardFiles "src/19_CHAIN_FACTORY.gs (dossier pousse)"
+} elseif (Test-Path -LiteralPath $guardFactoryRepo) {
+    $guardRefused = Test-RemovedChainFiles $guardFactoryRepo $guardFiles "19_CHAIN_FACTORY.gs du depot voisin du script"
+} else {
+    $guardRefused = $false
+    Write-Host "[INFO] Garde chaines retirees: 19_CHAIN_FACTORY.gs absent en local, controle refait apres le pull" -ForegroundColor Gray
+}
+if ($guardRefused) {
+    Write-Host "  Aucun appel a clasp, aucune modification effectuee." -ForegroundColor Red
+    exit 1
+}
 
 # Verifier clasp
 try {
@@ -225,6 +329,21 @@ if (-not (Test-Path $appsscriptPath)) {
 '@
     [System.IO.File]::WriteAllText($appsscriptPath, $appsscript)
     Write-Host "  [OK] appsscript.json cree" -ForegroundColor Green
+}
+
+# Garde chaines retirees, controle B: meme regle que le controle A, avec la
+# liste de la fabrique qui sera reellement en ligne apres le push (celle de
+# src/ si elle est poussee, sinon celle que le pull vient de ramener). Seuls
+# les fichiers de src/ sont examines: les fichiers deja distants ne le sont pas.
+$guardFactoryMerged = Join-Path $TempDir "19_CHAIN_FACTORY.js"
+if (Test-Path -LiteralPath $guardFactoryMerged) {
+    if (Test-RemovedChainFiles $guardFactoryMerged $gsFiles "19_CHAIN_FACTORY apres fusion (fabrique qui serait en ligne)") {
+        Write-Host "  Push annule: aucune modification du projet distant." -ForegroundColor Red
+        if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
+        exit 1
+    }
+} else {
+    Write-Host "  [WARN] Garde chaines retirees: 19_CHAIN_FACTORY absent du projet distant et de src/, controle ignore" -ForegroundColor Yellow
 }
 
 # ============================================================================

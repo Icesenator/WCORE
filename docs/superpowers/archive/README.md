@@ -4,6 +4,10 @@ Ces documents ont ete deplaces ici le 2026-07-16 lors de l'audit complet. Ils so
 
 Les specs/plans actifs restent dans `../specs/` et `../plans/`.
 
+Complement 2026-11-12 (report de l'ancien checkout, tranche WC-18 du 2026-10-17) : `2026-07-11-stock-portfolio-sheet-design.md`
+a ete ajoute depuis `../specs/`. Critere objectif : frontmatter `status: done` **et** zero
+citation dans un document vivant.
+
 ## Specs archives
 
 | Fichier | Titre | Termine le |
@@ -12,6 +16,7 @@ Les specs/plans actifs restent dans `../specs/` et `../plans/`.
 | `2026-07-03-robinhood-chain-design.md` | Robinhood Chain Design | ~2026-07-05 |
 | `2026-07-03-cex-info-total-design.md` | CEX INFO_TOTAL Design | ~2026-07-05 |
 | `2026-07-02-kraken-cex-design.md` | Kraken CEX Connector Design | 2026-07-05 |
+| `2026-07-11-stock-portfolio-sheet-design.md` | Portefeuille Action Autonomous Sheet Design | 2026-10-17 (`status: done`, aucune citation vivante) |
 
 ## Plans archives
 

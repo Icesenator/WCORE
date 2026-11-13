@@ -125,7 +125,7 @@ $UnverifiableLabel = 'appel non verifiable'
 # commentaires/chaines ci-dessus: un appel qui la suit peut passer pour du texte. Un identifiant ecrit avec
 # une sequence \uXXXX (createEvmChain) n'est pas non plus reconnu par son nom. Dans les deux cas
 # le fichier ne peut pas etre verifie: refus, comme pour un appel non verifiable.
-$JsRegexWithQuotePattern = '(?:^|[=(,:;!&|?{}\[]|\breturn)\s*/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*["''`](?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*/[dgimsuyv]*'
+$JsRegexWithQuotePattern = '(?:^|[=(,:;!&|?{}\[)]|\breturn)\s*/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*["''`](?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*/[dgimsuyv]*'
 $JsEscapedIdentifierPattern = '[A-Za-z0-9_$]\\u[0-9A-Fa-f{]'
 
 # Retourne @{ ID_EN_MAJUSCULES = libelle } lu dans WCORE_REMOVED_CHAINS, ou
@@ -167,7 +167,12 @@ function Find-RemovedChainCalls($files, $index) {
             [pscustomobject]@{ File = $file.Name; Name = 'expression reguliere avec guillemet'; Label = $UnverifiableLabel }
             continue
         }
-        foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|(?<e>$JsEscapedIdentifierPattern)|\bcreateEvmChain\b")) {
+        foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|(?<e>$JsEscapedIdentifierPattern)|(?<b>\bChainFactory\s*\[)|\bcreateEvmChain\b")) {
+            if ($m.Groups['b'].Success) {
+                # ChainFactory[...] : le nom de la methode peut etre construit (concatenation, sequence unicode).
+                [pscustomobject]@{ File = $file.Name; Name = 'acces par crochets a ChainFactory'; Label = $UnverifiableLabel }
+                continue
+            }
             if ($m.Groups['e'].Success) {
                 [pscustomobject]@{ File = $file.Name; Name = 'identifiant avec sequence \u'; Label = $UnverifiableLabel }
                 continue

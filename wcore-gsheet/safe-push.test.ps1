@@ -288,16 +288,27 @@ Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
 $fixtureRegexQuote = @'
 var re = /"/; ChainFactory.createEvmChain("GONE", {});
 '@
-$fixtureEscapedIdentifier = @'
-ChainFactory.createEvmChain("GONE", {});
+$fixtureEscapedIdentifier = 'ChainFactory.create' + [char]92 + 'u0045vmChain("GONE", {});'
+$fixtureBracketConcat = 'ChainFactory["create" + "EvmChain"]("GONE", {});'
+$fixtureBracketEscaped = 'ChainFactory["create' + [char]92 + 'u0045vmChain"]("GONE", {});'
+$fixtureRegexAfterParen = @'
+if (true) /"/.test('x'); ChainFactory.createEvmChain("GONE", {});
 '@
 $fixtureTextOnly = @'
 var HELP = "createEvmChain";
 '@
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
-    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "REGEXQUOTE.gs" = $fixtureRegexQuote; "ESCAPED.gs" = $fixtureEscapedIdentifier } `
-    -ExpectRefusedFiles @("ESCAPED.gs", "REGEXQUOTE.gs") -ExpectOutput @('de facon non verifiable') `
-    -Label "a regular expression holding a quote, or an identifier written with a unicode escape, cannot hide the call"
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "REGEXQUOTE.gs" = $fixtureRegexQuote; "REGEXPAREN.gs" = $fixtureRegexAfterParen } `
+    -ExpectRefusedFiles @("REGEXPAREN.gs", "REGEXQUOTE.gs") -ExpectOutput @('expression reguliere avec guillemet') `
+    -Label "a regular expression holding a quote cannot hide the call"
+Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "ESCAPED.gs" = $fixtureEscapedIdentifier } `
+    -ExpectRefusedFiles @("ESCAPED.gs") -ExpectOutput @('identifiant avec sequence') `
+    -Label "an identifier written with a unicode escape cannot hide the call"
+Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "BRACKETCAT.gs" = $fixtureBracketConcat; "BRACKETESC.gs" = $fixtureBracketEscaped } `
+    -ExpectRefusedFiles @("BRACKETCAT.gs", "BRACKETESC.gs") -ExpectOutput @('acces par crochets') `
+    -Label "a bracket access to ChainFactory (concatenated or escaped method name) cannot hide the call"
 Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "TEXT.gs" = $fixtureTextOnly } `
     -Label "a string that is only the text createEvmChain is pushed"

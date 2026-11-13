@@ -75,21 +75,23 @@ function cleanCell(value, max = 80) {
   return safe.length > max ? `${safe.slice(0, max - 1)}…` : safe;
 }
 
-// Nom d'onglet relaye : texte nettoye, puis tout ce qui ressemble a une donnee est masque.
-function safeTab(value) {
-  return cleanCell(value, 60)
+// Nom d'onglet relaye : texte nettoye, puis tout ce qui ressemble a une donnee est masque sur le texte
+// complet, et seulement ensuite tronque (tronquer d'abord laisserait le debut d'un identifiant long).
+function safeTab(value, max = 60) {
+  const masked = cleanCell(value, Number.MAX_SAFE_INTEGER)
     .replace(/https?:\/\/\S*|www\.\S*/gi, '[lien]')
     .replace(/0x[0-9a-f]{4,}/gi, '[adresse]')
     .replace(/[\p{L}\p{N}_]{20,}/gu, '[identifiant]')
     .replace(/\d[\d .,']{2,}\d/g, '[nombre]');
+  return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
 }
 
-// Etat relaye : « Erreur » et son code s'il a la forme d'un code (ex. SOURCE_UNAVAILABLE), jamais un texte libre.
+// Etats d'erreur que le Recap ecrit en colonne CA (wcore-gsheet/src/17_LISTING.gs). Seuls ceux-la sont
+// relayes, sous leur forme exacte ; tout autre texte devient « Erreur (detail non relaye) ».
+const KNOWN_ERROR_STATES = ['Erreur', 'Erreur (0 V)', 'Erreur (SOURCE_UNAVAILABLE)', 'Erreur (X présent)'];
 function safeState(value) {
-  const s = String(value == null ? '' : value).trim();
-  if (/^erreur$/i.test(s)) return 'Erreur';
-  const m = /^erreur\s*\(([A-Z][A-Z0-9_]{1,40}|X présent)\)$/u.exec(s.replace(/^erreur/i, 'erreur'));
-  return m ? `Erreur (${m[1]})` : 'Erreur (détail non relayé)';
+  const s = String(value == null ? '' : value).replace(/\s+/g, ' ').trim().toLowerCase();
+  return KNOWN_ERROR_STATES.find((k) => k.toLowerCase() === s) || 'Erreur (détail non relayé)';
 }
 
 // Date relayee : relue chiffre par chiffre si elle est valide, sinon « illisible » (ou « (vide) »).

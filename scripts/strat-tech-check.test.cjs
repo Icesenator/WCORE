@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parisWallToUtcMs, cleanCell, evaluate, decide, renderSignal, run, RANGES } = require('./strat-tech-check.cjs');
+const { parisWallToUtcMs, cleanCell, safeTab, safeState, evaluate, decide, renderSignal, run, RANGES } = require('./strat-tech-check.cjs');
 
 const H = 3600 * 1000;
 // 12/11/2026 20:00 a Paris = 19:00 UTC (heure d'hiver).
@@ -78,7 +78,7 @@ test('only validated values reach the signal: no link, address, long identifier,
       { tab: 'Ledger 0xabcdef0123456789 - Base', state: 'Erreur (SOURCE_UNAVAILABLE)' },
       { tab: 'https://exemple.invalid/onglet', state: 'Erreur : solde 12 345,67 EUR sur 0x00000000deadbeef' },
       { tab: 'Compte ABCDEFGHIJKLMNOPQRSTUVWXYZ012345', state: 'Erreur' },
-      { tab: 'Ledger - Dydx', state: 'erreur (WEB_SCAN_ERROR)' },
+      { tab: 'Ledger - Dydx', state: 'erreur  (source_unavailable)' },
     ],
     nowMs: NOW,
   });
@@ -86,13 +86,26 @@ test('only validated values reach the signal: no link, address, long identifier,
     'BK1: Ledger [adresse] - Base : Erreur (SOURCE_UNAVAILABLE)',
     'BK1: [lien] : Erreur (détail non relayé)',
     'BK1: Compte [identifiant] : Erreur',
-    'BK1: Ledger - Dydx : Erreur (WEB_SCAN_ERROR)',
+    'BK1: Ledger - Dydx : Erreur (SOURCE_UNAVAILABLE)',
     'AZ1: illisible',
     'BL1: illisible',
   ]);
   assert.deepEqual(r.dates, { AZ1: 'illisible', BF1: fresh, BL1: 'illisible' });
   const s = renderSignal(r.problems, r.dates, NOW);
   assert.doesNotMatch(s, /0x[0-9a-f]{4,}|https?:|exemple|12 345|ABCDEFGHIJ|solde/i);
+});
+
+test('only the error states the Recap writes are relayed; a code-shaped identifier is not', () => {
+  for (const known of ['Erreur', 'Erreur (0 V)', 'Erreur (SOURCE_UNAVAILABLE)', 'Erreur (X présent)']) assert.equal(safeState(known), known);
+  assert.equal(safeState('Erreur (PRIVATECANARYABCDEFGHIJKLMN)'), 'Erreur (détail non relayé)');
+  assert.equal(safeState('Erreur (WEB_SCAN_ERROR)'), 'Erreur (détail non relayé)', 'not a Recap state');
+});
+
+test('a long identifier at the end of a long tab name is masked before the name is shortened', () => {
+  const tab = 'Ledger - Base - compte principal du foyer ' + 'PRIVATECANARYABCDEFGHIJKLMN'; // 42 + 27 characters
+  const out = safeTab(tab);
+  assert.ok(out.length <= 60, out);
+  assert.doesNotMatch(out, /PRIVAT/);
 });
 
 test('dedup: the same problems within 24 h are not signaled again; a change or 24 h later is', () => {

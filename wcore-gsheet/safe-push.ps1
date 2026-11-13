@@ -93,6 +93,13 @@ Write-Host ""
 # A suit donc la fabrique du dossier pousse ou du depot et peut etre plus
 # strict que l'etat en ligne; B suit la fabrique qui sera en ligne.
 # Liste absente ou illisible: avertissement, jamais de refus.
+# LIMITE ASSUMEE: cette garde vise l'erreur ACCIDENTELLE d'un agent (publier par oubli un
+# fichier de chaine retiree: l'appel litteral ordinaire, la forme qu'on ecrit par oubli). Elle
+# n'est pas une defense contre un code ecrit pour la contourner (sequence unicode en tete de nom,
+# expression reguliere apres void, acces par crochets dans un gabarit...): le decoupage JavaScript
+# se fait par expressions regulieres. Un analyseur JavaScript reel serait la reponse a cette
+# menace, hors perimetre ici. La garde n'ajoute que des refus: aucun appel reseau, aucune ecriture
+# hors du dossier temporaire, aucune publication de plus.
 #
 # Les commentaires sont retires avant l'analyse: un commentaire place entre
 # deux elements de l'appel ne le cache pas. Un appel qui ne peut pas etre

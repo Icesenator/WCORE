@@ -229,6 +229,34 @@ test("a saved registry receives the chains added later to the embedded registry,
   const full = VERIFIED_LIFECYCLE_REGISTRY.map((r) => structuredClone(r));
   assert.equal(withEmbeddedAdditions(full), full, "nothing to add => same array");
 });
+test("a record saved under another key is read under the embedded key of its chain id, its validated facts kept", async () => {
+  const { withCanonicalKeys } = await import("./sentinel.js");
+  const { VERIFIED_LIFECYCLE_REGISTRY } = await import("@wcore/shared");
+  const neon = structuredClone(VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === "neon")!);
+  const alt = { ...structuredClone(neon), chainKey: "neon_evm", recoveryNote: "Note validee par l'administration." };
+  const [rekeyed] = withCanonicalKeys([alt]);
+  assert.equal(rekeyed!.chainKey, "neon");
+  assert.equal(rekeyed!.recoveryNote, "Note validee par l'administration.", "facts are untouched");
+  assert.deepEqual(withCanonicalKeys([alt, neon]).map((r) => r.chainKey), ["neon"], "the saved canonical record wins");
+  assert.equal(withCanonicalKeys([alt, neon])[0], neon);
+  assert.deepEqual(withCanonicalKeys([alt, { ...alt, chainKey: "neon-evm" }]).map((r) => r.chainKey), ["neon"], "never two records for one chain");
+  const other = { ...structuredClone(neon), chainKey: "unlisted_chain", chainId: 999999999 };
+  assert.equal(withCanonicalKeys([other])[0], other, "a chain unknown to the code is kept as is");
+});
+test("a user exposed on a chain saved under another key still gets the private alert, with the validated date", async () => {
+  const { VERIFIED_LIFECYCLE_REGISTRY } = await import("@wcore/shared");
+  const neonPositive: ExposureInput = { chainKey: "neon", kind: "NATIVE", asset: "NEON", covered: true, balance: 5, balanceObservedAt: NOW - H };
+  const { app, store } = await build({ exposures: [neonPositive] });
+  const saved = { ...structuredClone(VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === "neon")!), chainKey: "neon_evm" };
+  saved.deadlines = saved.deadlines.map((d) => ({ ...d, at: "2026-12-20T00:00:00Z" }));
+  await store.set(SENTINEL_KEYS.registry, { version: 3, records: [saved], updatedAt: new Date(NOW).toISOString() });
+  const body = (await app.inject({ method: "GET", url: "/api/sentinel/alerts", headers: { "x-user": "u1" } })).json() as { alerts: { chainKey: string; chainId: number; exposure: string; actionByMs: number | null }[] };
+  const neon = body.alerts.filter((a) => a.chainId === 245022934);
+  assert.equal(neon.length, 1, "one alert for the chain");
+  assert.equal(neon[0]!.chainKey, "neon", "the key of the scans");
+  assert.equal(neon[0]!.exposure, "POSITIVE", "the exposure found by the scans reaches the alert");
+  assert.equal(new Date(neon[0]!.actionByMs!).toISOString().slice(0, 10), "2026-12-20", "the validated date is kept");
+});
 
 test("a partial saved registry is completed on load, for the public list and for the collector", async () => {
   const { VERIFIED_LIFECYCLE_REGISTRY } = await import("@wcore/shared");

@@ -69,6 +69,26 @@ export function withEmbeddedTranslations(records: ChainLifecycleRecord[]): Chain
 }
 
 /**
+ * Une fiche sauvegardee sous une autre cle que la fiche embarquee de meme chainId (ex. « neon_evm »
+ * pour « neon ») n'atteindrait jamais les scans, qui portent la cle canonique : l'alerte privee
+ * d'un utilisateur expose serait perdue. Elle est lue sous la cle canonique, ses faits valides
+ * inchanges. Si la fiche canonique est aussi sauvegardee, elle prime et l'autre n'est pas lue ;
+ * une seule fiche par chaine. Lecture seulement : rien n'est reecrit dans le cache.
+ */
+export function withCanonicalKeys(records: ChainLifecycleRecord[]): ChainLifecycleRecord[] {
+  const canonical = new Map(VERIFIED_LIFECYCLE_REGISTRY.map((r) => [r.chainId, r.chainKey]));
+  const taken = new Set(records.map((r) => r.chainKey));
+  const out: ChainLifecycleRecord[] = [];
+  for (const rec of records) {
+    const key = canonical.get(rec.chainId);
+    if (!key || key === rec.chainKey) { out.push(rec); continue; }
+    if (taken.has(key)) continue;
+    taken.add(key);
+    out.push({ ...rec, chainKey: key });
+  }
+  return out;
+}
+/**
  * Un registre sauvegarde ne porte que des fiches figees a leur validation : une chaine
  * absente (ajoutee ensuite au registre embarque, ou jamais validee par l'administration) y
  * manquerait pour toujours. On ajoute les fiches embarquees absentes, sans jamais toucher a
@@ -85,7 +105,7 @@ export function withEmbeddedAdditions(records: ChainLifecycleRecord[]): ChainLif
 
 export async function loadRegistry(store: CacheStore): Promise<RegistryState> {
   const saved = await store.get<RegistryState>(SENTINEL_KEYS.registry);
-  if (saved && Array.isArray(saved.records) && saved.records.length) return { ...saved, records: withEmbeddedAdditions(withEmbeddedTranslations(saved.records)) };
+  if (saved && Array.isArray(saved.records) && saved.records.length) return { ...saved, records: withEmbeddedAdditions(withEmbeddedTranslations(withCanonicalKeys(saved.records))) };
   return { version: 1, records: VERIFIED_LIFECYCLE_REGISTRY.map((r) => structuredClone(r)), updatedAt: "2026-11-07T12:30:00Z" };
 }
 

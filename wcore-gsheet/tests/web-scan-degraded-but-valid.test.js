@@ -140,6 +140,12 @@ test("un scan degrade par l'echec de la reparation des prix protege le cache uti
   const foo = merged.assets.find((a) => a.contract === "0xabc");
   assert.strictEqual(foo.balance, 6, "le solde du scan est repris");
   assert.strictEqual(foo.price_eur, 2, "un jeton sans prix garde son ancien prix");
+  assert.strictEqual(foo.value_eur, 10, "et sa valeur connue (l'ancienne, pour le solde du scan)");
+  // Temoin du comportement actuel de la fusion : un jeton envoye en 0/0 ecraserait la valeur connue,
+  // d'ou le null que l'API envoie pour un jeton reste sans prix (PR 137).
+  const zeroPayload = { ...payload, tokens: [{ ...payload.tokens[0], priceEur: 0, valueEur: 0 }] };
+  const zeroFoo = ctx._webScanMergeWithExistingCache_(rich, convert(zeroPayload)).assets.find((a) => a.contract === "0xabc");
+  assert.strictEqual(zeroFoo.value_eur, 0);
   // Temoin : sans le code d'echec, un NO_PRICE seul est un ecart non destructif (pas de protection).
   assert.strictEqual(ctx._webScanShouldPreserveExistingCache_({ ...payload, errors: ["FOO price: NO_PRICE"] }, rich, {}), false);
 });

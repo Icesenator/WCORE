@@ -563,6 +563,24 @@ export function markGsheetPriceRepairFailed(result: GsheetScanResult): GsheetSca
   return { ...result, errors, degraded: true };
 }
 
+/**
+ * Tokens with a positive balance and neither a price nor a positive value: price and value become
+ * null (unknown). A token with a positive value keeps it (the sheet derives its price from it).
+ */
+export function withUnknownValueForUnpricedTokens<T>(result: T): T {
+  const tokens = (result as { tokens?: unknown }).tokens;
+  if (!Array.isArray(tokens)) return result;
+  return {
+    ...(result as Record<string, unknown>),
+    tokens: tokens.map((token) => {
+      const unpriced = (tokenNumberField(token, "balance") ?? 0) > 0
+        && (tokenNumberField(token, "priceEur") ?? 0) <= 0
+        && (tokenNumberField(token, "valueEur") ?? 0) <= 0;
+      return unpriced ? { ...(token as Record<string, unknown>), priceEur: null, valueEur: null } : token;
+    }),
+  } as T;
+}
+
 async function repairMissingGsheetScanPrices(
   result: GsheetScanResult,
   input: GsheetScanInput,
@@ -1218,9 +1236,11 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
       // fallback below (audit of 2026-11-12). Its balances and found prices are kept, marked
       // degraded: a lone NO_PRICE is benign, so without this flag the sheet would take a partly
       // priced scan as fresh and replace its useful cache.
+      let priceRepairFailed = false;
       const repaired = await repairMissingGsheetScanPrices(result, parsed.input, priceBatcher).catch((e: unknown) => {
         const message = e instanceof Error ? e.message : String(e);
         app.log.warn({ err: message, chain: parsed.input.chain }, "gsheet price repair failed");
+        priceRepairFailed = true;
         return markGsheetPriceRepairFailed(result);
       });
       const repairMs = Date.now() - repairStartedAt;
@@ -1233,7 +1253,11 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
       // Le nom de l'onglet (« Portefeuille - Chaine ») est applique par le script Google lui-meme
       // (12_WALLET_NAMES) : aucune table d'adresses privees cote API (audit du 11/11/2026).
       const labeled = sanitized;
-      const out = await injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);
+      const injected = await injectChainbaseStakingTokens(labeled, parsed.input.address, opts.cache, opts.chainbaseStakingProvider);
+      // After the scam screening (which sees the scanner's own values), a token the failed repair
+      // left without price and value is sent as unknown (null), never as 0: the sheet merges a
+      // degraded scan into its cache, and a 0 there would overwrite the value it already knows.
+      const out = priceRepairFailed ? withUnknownValueForUnpricedTokens(injected) : injected;
       // Phase timings: the GSheet custom function that consumes this route dies
       // at 30s, so a slow phase here freezes a whole chain tab (incident
       // 2026-09-03). Keep this observable in production.

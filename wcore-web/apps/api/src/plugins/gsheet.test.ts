@@ -566,7 +566,11 @@ describe("gsheetPlugin", () => {
     const body = JSON.parse(res.body);
     assert.equal(body.degraded, true, "a partly priced scan is never presented as fresh");
     assert.equal(body.native.balance, 0.01, "the real balances are kept");
-    assert.ok(body.tokens.some((t: { symbol: string; balance: number }) => t.symbol === "USDC" && t.balance === 10));
+    assert.ok(body.tokens.some((t: { symbol: string; balance: number; priceEur: number }) => t.symbol === "USDC" && t.balance === 10 && t.priceEur === 0.86));
+    const unpriced = body.tokens.find((t: { symbol: string }) => t.symbol === "AAA");
+    assert.ok(unpriced, "the unpriced custom token is kept");
+    assert.equal(unpriced.priceEur, null, "unknown price, never 0");
+    assert.equal(unpriced.valueEur, null, "unknown value, never 0: the sheet's merge would overwrite the value it knows");
     assert.ok(body.errors.includes("[PRICE_REPAIR_FAILED] price_batch_failed"), "a stable code");
     assert.ok(!body.errors.some((e: string) => /LEAK/.test(e)), "the raw exception text is never relayed");
     assert.ok(!body.errors.some((e: string) => /WEB_SCAN_ERROR/.test(e)), "not the empty fallback");

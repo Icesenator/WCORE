@@ -121,6 +121,12 @@ $JsCommentPattern = '/\*[\s\S]*?\*/|//[^\r\n]*'
 $JsStringPattern = '"(?:\\.|[^"\\\r\n])*"|''(?:\\.|[^''\\\r\n])*''|`(?:\\.|[^`\\])*`'
 $RemovedChainLiteralCallPattern = '^createEvmChain\s*\(\s*(?<q>["''])(?<name>[^"''\\\r\n]*)\k<q>\s*[,)]'
 $UnverifiableLabel = 'appel non verifiable'
+# Une expression reguliere litterale qui contient un guillemet (/"/) fait derailler le decoupage
+# commentaires/chaines ci-dessus: un appel qui la suit peut passer pour du texte. Un identifiant ecrit avec
+# une sequence \uXXXX (createEvmChain) n'est pas non plus reconnu par son nom. Dans les deux cas
+# le fichier ne peut pas etre verifie: refus, comme pour un appel non verifiable.
+$JsRegexWithQuotePattern = '(?:^|[=(,:;!&|?{}\[]|\breturn)\s*/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*["''`](?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*/[dgimsuyv]*'
+$JsEscapedIdentifierPattern = '[A-Za-z0-9_$]\\u[0-9A-Fa-f{]'
 
 # Retourne @{ ID_EN_MAJUSCULES = libelle } lu dans WCORE_REMOVED_CHAINS, ou
 # $null si le fichier ou le bloc est illisible. Seuls les litteraux des
@@ -157,12 +163,22 @@ function Find-RemovedChainCalls($files, $index) {
         $code = [regex]::Replace($content, "(?<c>$JsCommentPattern)|(?<s>$JsStringPattern)", {
             param($m) if ($m.Groups['c'].Success) { ' ' } else { $m.Value }
         })
-        foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|\bcreateEvmChain\b")) {
+        if (($content -match 'createEvmChain' -or $content -match 'ChainFactory\s*\.\s*[A-Za-z0-9_$]*\\u[0-9A-Fa-f{]') -and [regex]::IsMatch($content, $JsRegexWithQuotePattern, 'Multiline')) {
+            [pscustomobject]@{ File = $file.Name; Name = 'expression reguliere avec guillemet'; Label = $UnverifiableLabel }
+            continue
+        }
+        foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|(?<e>$JsEscapedIdentifierPattern)|\bcreateEvmChain\b")) {
+            if ($m.Groups['e'].Success) {
+                [pscustomobject]@{ File = $file.Name; Name = 'identifiant avec sequence \u'; Label = $UnverifiableLabel }
+                continue
+            }
             if ($m.Groups['s'].Success) {
                 $inner = if ($m.Value.Length -ge 2) { $m.Value.Substring(1, $m.Value.Length - 2) } else { '' }
-                # ChainFactory["createEvmChain"](...): acces par chaine, non verifiable.
+                # ChainFactory["createEvmChain"](...): acces par chaine, non verifiable (une chaine "createEvmChain"
+                # qui n'est pas entre crochets n'est qu'un texte et ne compte pas).
                 # `${ChainFactory.createEvmChain(...)}`: appel execute dans un gabarit, non verifiable.
-                if ($inner -eq 'createEvmChain' -or ($m.Value.StartsWith('`') -and $inner -match '\$\{[\s\S]*\bcreateEvmChain\b')) {
+                $beforeString = $code.Substring([Math]::Max(0, $m.Index - 64), [Math]::Min(64, $m.Index))
+                if (($inner -eq 'createEvmChain' -and $beforeString -match '\[\s*$') -or ($m.Value.StartsWith('`') -and $inner -match '\$\{[\s\S]*\bcreateEvmChain\b')) {
                     $excerpt = ($m.Value -split "\r?\n", 2)[0].Trim()
                     if ($excerpt.Length -gt 60) { $excerpt = $excerpt.Substring(0, 60) }
                     [pscustomobject]@{ File = $file.Name; Name = $excerpt; Label = $UnverifiableLabel }

@@ -306,7 +306,8 @@ test('diagnostic du watchdog : le refus de la porte est exécuté depuis le sour
   assert.equal(block.split('reason:').length - 1, 1, 'un seul membre reason');
   assert.equal(block.split('httpMode:').length - 1, 1, 'un seul membre httpMode');
   const run = (safe) => vm.runInNewContext(block + '\n_wdGateDiag;', { safe }).stats;
-  for (const r of ['QUOTA', 'DEGRADED', 'GUARD', 'HTTP_COUNTER_UNKNOWN', 'HTTP_COUNTER_UNATTESTED', 'HTTP_MODE_UNKNOWN', 'GATE_UNAVAILABLE', 'COUNTER_UNATTESTED', 'HTTP_MODE_CACHE_ONLY']) {
+  // Every reason of the gate's list, written out here: dropping one from the source makes this loop fail.
+  for (const r of ['QUOTA', 'DEGRADED', 'GUARD', 'HTTP_COUNTER_UNKNOWN', 'HTTP_COUNTER_UNATTESTED', 'HTTP_MODE_UNKNOWN', 'GATE_UNAVAILABLE', 'COUNTER_UNATTESTED', 'HTTP_MODE_CACHE_ONLY', 'HTTP_MODE_NORMAL', 'HTTP_MODE_DEGRADED', 'HTTP_MODE_BLOCKED']) {
     const s = run({ safe: false, reason: r });
     assert.equal(s.reason, r, r);
     assert.equal(s.mode, 'SKIPPED_UNSAFE');

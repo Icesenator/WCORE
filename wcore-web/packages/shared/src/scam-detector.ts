@@ -188,19 +188,17 @@ const _BLOCKED_CONTRACTS = new Set([
   // "HP: BUY_FAILED", liquidité ~$0.05 Uniswap V2 WETH-SKYAI, 230k holders,
   // BaseScan réputation UNKNOWN, DexScreener 0 paire)
   "0xce014b9c1ac69e01792e9db7393075146a1d4055", // BASE: SKYAI honeypot dusting scam
-  // 2026-11-10 — Ledger - Elysium (Kinetiq 99901) : deux jetons reçus sans achat, confirmés
-  // par le propriétaire. Aucune heuristique ne les signalait (score 0) et la chaîne n'est pas
-  // couverte par l'enrichissement.
-  "0x716da70796d502b3c9ceb5c4876ba60f511dd8a0", // Elysium: ep/acc "Elysium Pepe Acceleration", 120 000 unités non sollicitées, prix de pool ~413 EUR
+  // 2026-11-10 — Elysium (Kinetiq 99901) : deux jetons non sollicités. Aucune heuristique ne
+  // les signalait (score 0) et la chaîne n'est pas couverte par l'enrichissement.
+  "0x716da70796d502b3c9ceb5c4876ba60f511dd8a0", // Elysium: ep/acc "Elysium Pepe Acceleration", non sollicité, prix de pool ~413 EUR
   "0xd56786d59f898ab020f386bc21fc08bfd576a942", // Elysium: faux USDC "United States Digital Coin" (prix 0,0013 EUR, loin de la parité)
-  // 2026-11-11 — même onglet : $Montra "Montrav2", 200 000 unités non sollicitées. La règle cashtag
-  // ne le retirait qu'avec un score GeckoTerminal < 40 ; le score est remonté à 44 et le jeton est
-  // revenu avec un prix. Confirmé non sollicité par le propriétaire.
+  // 2026-11-11 — Elysium : $Montra "Montrav2", non sollicité. La règle cashtag ne le retirait
+  // qu'avec un score GeckoTerminal < 40 ; le score est remonté à 44 et le jeton est revenu avec
+  // un prix.
   "0x594159fac2ae4439162fe3a82678984b0483fffc", // Elysium: $Montra "Montrav2", cashtag non sollicité
-  // 2026-11-11 (soir) — même onglet : $HYS "Hypesium", 200 000 unités, même profil que $Montra
-  // (cashtag, quantité ronde, quelques euros) et absent des positions déclarées du propriétaire
-  // (colonne Vérif à X). Une règle générale sur la quantité ronde a été écartée : un achat réel
-  // peut tomber sur une quantité ronde.
+  // 2026-11-11 (soir) — Elysium : $HYS "Hypesium", même profil que $Montra (cashtag, quantité
+  // ronde, quelques euros). Une règle générale sur la quantité ronde a été écartée : un achat
+  // réel peut tomber sur une quantité ronde.
   "0x79a4eac490afad2b6e0296431ae2f7e30a3571af", // Elysium: $HYS "Hypesium", cashtag non sollicité
 ]);
 

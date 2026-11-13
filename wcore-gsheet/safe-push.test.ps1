@@ -264,14 +264,24 @@ var _GONE = ChainFactory.createEvmChain(`GONE`, {});
 $fixtureBracket = @'
 var _GONE = ChainFactory["createEvmChain"]("GONE", {});
 '@
+$fixtureTemplateExpression = @'
+var _GONE = `${ChainFactory.createEvmChain("GONE", {})}`;
+'@
+# Temoin: un gabarit sans interpolation qui cite l'appel n'execute rien.
+$fixtureTemplateText = @'
+var HELP = `ChainFactory.createEvmChain("GONE", {}) leve CHAIN_REMOVED`;
+'@
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "COMMENTED.gs" = $fixtureCommentBetween } `
     -ExpectRefusedFiles @("COMMENTED.gs") -ExpectOutput @('createEvmChain\("GONE"\): chaine retiree Gone \(77\)') `
     -Label "a comment between the parts of the call does not hide it"
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
-    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "VARIABLE.gs" = $fixtureVariableName; "CONCAT.gs" = $fixtureConcatenation; "TEMPLATE.gs" = $fixtureTemplate; "BRACKET.gs" = $fixtureBracket } `
-    -ExpectRefusedFiles @("BRACKET.gs", "CONCAT.gs", "TEMPLATE.gs", "VARIABLE.gs") -ExpectOutput @('de facon non verifiable') `
-    -Label "a call that cannot be checked (variable, concatenation, template, string access) is refused"
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "VARIABLE.gs" = $fixtureVariableName; "CONCAT.gs" = $fixtureConcatenation; "TEMPLATE.gs" = $fixtureTemplate; "BRACKET.gs" = $fixtureBracket; "TEMPLATEEXPR.gs" = $fixtureTemplateExpression } `
+    -ExpectRefusedFiles @("BRACKET.gs", "CONCAT.gs", "TEMPLATE.gs", "TEMPLATEEXPR.gs", "VARIABLE.gs") -ExpectOutput @('de facon non verifiable') `
+    -Label "a call that cannot be checked (variable, concatenation, template, string access, template expression) is refused"
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "HELP.gs" = $fixtureTemplateText } `
+    -Label "a template literal that only quotes the call is pushed"
 
 # Fichiers presents seulement en ligne: safe-push ne les supprime jamais.
 # Refus si cette publication retire leur chaine (le classeur charge aujourd'hui

@@ -159,9 +159,13 @@ function Find-RemovedChainCalls($files, $index) {
         })
         foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|\bcreateEvmChain\b")) {
             if ($m.Groups['s'].Success) {
+                $inner = if ($m.Value.Length -ge 2) { $m.Value.Substring(1, $m.Value.Length - 2) } else { '' }
                 # ChainFactory["createEvmChain"](...): acces par chaine, non verifiable.
-                if ($m.Value.Length -ge 2 -and $m.Value.Substring(1, $m.Value.Length - 2) -eq 'createEvmChain') {
-                    [pscustomobject]@{ File = $file.Name; Name = $m.Value; Label = $UnverifiableLabel }
+                # `${ChainFactory.createEvmChain(...)}`: appel execute dans un gabarit, non verifiable.
+                if ($inner -eq 'createEvmChain' -or ($m.Value.StartsWith('`') -and $inner -match '\$\{[\s\S]*\bcreateEvmChain\b')) {
+                    $excerpt = ($m.Value -split "\r?\n", 2)[0].Trim()
+                    if ($excerpt.Length -gt 60) { $excerpt = $excerpt.Substring(0, 60) }
+                    [pscustomobject]@{ File = $file.Name; Name = $excerpt; Label = $UnverifiableLabel }
                 }
                 continue
             }

@@ -82,7 +82,7 @@ function safeTab(value, max = 60) {
     .replace(/https?:\/\/\S*|www\.\S*/gi, '[lien]')
     .replace(/0x[0-9a-f]{4,}/gi, '[adresse]')
     .replace(/[\p{L}\p{N}_]{20,}/gu, '[identifiant]')
-    .replace(/\d[\d .,']{2,}\d/g, '[nombre]');
+    .replace(/\d[\d .,']*/g, '[nombre]'); // tout nombre, meme d'un a trois chiffres (un montant)
   return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
 }
 

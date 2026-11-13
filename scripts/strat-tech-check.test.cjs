@@ -108,6 +108,15 @@ test('a long identifier at the end of a long tab name is masked before the name 
   assert.doesNotMatch(out, /PRIVAT/);
 });
 
+test('any number in a tab name is masked, even one to three digits (an amount)', () => {
+  for (const tab of ['Compte 12 EUR', 'Compte 123 EUR', 'Compte 7', 'Compte 1 234,56']) {
+    const out = safeTab(tab);
+    assert.doesNotMatch(out, /\d/, out);
+    assert.match(out, /\[nombre\]/, out);
+  }
+  assert.equal(safeTab('Ledger - Base'), 'Ledger - Base', 'a name without number is unchanged');
+});
+
 test('dedup: the same problems within 24 h are not signaled again; a change or 24 h later is', () => {
   const p = ['AZ1: plus de 2 h', 'BK1: A : Erreur (X présent)'];
   const first = decide(p, null, NOW);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { getFactory, GM_FACTORIES, GM_HISTORICAL_FACTORIES } from "./factories";
+import { canonicalChainKey, getFactory, GM_FACTORIES, GM_HISTORICAL_FACTORIES } from "./factories";
 
 describe("GM_FACTORIES", () => {
   test("excludes retired Lisk from GM eligibility", () => {
@@ -106,5 +106,24 @@ describe("GM_FACTORIES", () => {
     // Neighbouring entries are untouched.
     expect(getFactory("opbnb")?.chainId).toBe(204);
     expect(getFactory("merlin")?.chainId).toBe(4200);
+  });
+});
+
+describe("GM_FACTORIES keys", () => {
+  // POST /api/gm/onchain refuses a chain when getFactory(canonicalChainKey(key)) is empty, after the
+  // user has already paid the transaction: every key must survive the canonical (UPPERCASE) round trip.
+  test("every key is lowercase, trimmed, and found again from its canonical form", () => {
+    const keys = Object.keys(GM_FACTORIES);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) {
+      expect(key, key).toBe(key.trim().toLowerCase());
+      expect(getFactory(canonicalChainKey(key)), key).toBe(GM_FACTORIES[key]);
+    }
+  });
+  test("no chain is both active and historical", () => {
+    const active = new Set(Object.values(GM_FACTORIES).map((f) => f.chainId));
+    for (const [key, factory] of Object.entries(GM_HISTORICAL_FACTORIES)) {
+      expect(active.has(factory.chainId), key).toBe(false);
+    }
   });
 });

@@ -77,6 +77,12 @@ function cleanCell(value, max = 80) {
 
 // Nom d'onglet relaye : texte nettoye, puis tout ce qui ressemble a une donnee est masque sur le texte
 // complet, et seulement ensuite tronque (tronquer d'abord laisserait le debut d'un identifiant long).
+// Une adresse electronique est masquee sur le texte brut : cleanCell remplacerait le @ par ? et la rendrait
+// meconnaissable pour le masque, mais pas pour une personne.
+function maskEmails(value) {
+  return String(value == null ? '' : value).replace(/[^\s@]+@[^\s@]+/g, '[email]');
+}
+
 function safeTab(value, max = 60) {
   // Liens, adresses et identifiants longs d'abord (ils contiennent des chiffres), puis les nombres AVANT la
   // normalisation NFKC (qui ecrit un chiffre romain en lettres, XII), puis une seconde fois apres (un exposant
@@ -86,7 +92,7 @@ function safeTab(value, max = 60) {
     .replace(/0x[0-9a-f]{4,}/gi, '[adresse]')
     .replace(/[\p{L}\p{N}_-]{20,}/gu, '[identifiant]');
   const numbers = (t) => t.replace(/\p{N}(?:[\p{N} .,']*\p{N})?/gu, '[nombre]');
-  const masked = numbers(hide(numbers(hide(cleanCell(String(value == null ? '' : value), Number.MAX_SAFE_INTEGER))).normalize('NFKC')));
+  const masked = numbers(hide(numbers(hide(cleanCell(maskEmails(value), Number.MAX_SAFE_INTEGER))).normalize('NFKC')));
   return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
 }
 

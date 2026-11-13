@@ -88,7 +88,7 @@ function maskEmails(value) {
 // Tout mot contenant un caractere hors de la liste sure de cleanCell (arobase ou point de variante, lettre cerclee,
 // symbole) est masque en entier : on ne cherche plus les variantes une a une, un caractere inconnu suffit.
 function maskOddTokens(value) {
-  return String(value == null ? "" : value).split(/(s+)/).map((tok) => (/^s*$/.test(tok) || !cleanCell(tok, Number.MAX_SAFE_INTEGER).includes("?") ? tok : "[masque]")).join("");
+  return String(value == null ? "" : value).split(/(\s+)/).map((tok) => (/^\s*$/.test(tok) || !cleanCell(tok, Number.MAX_SAFE_INTEGER).includes("?") ? tok : "[masque]")).join("");
 }
 
 function safeTab(value, max = 60) {

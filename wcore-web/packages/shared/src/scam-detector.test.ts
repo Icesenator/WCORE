@@ -1,7 +1,7 @@
 // Run: pnpm --filter @wcore/shared test
 import { test } from "vitest";
 import assert from "node:assert/strict";
-import { detectScam, SCAM_RULES_VERSION } from "./scam-detector.js";
+import { detectScam, SCAM_RULES_VERSION, type GoPlusSignal } from "./scam-detector.js";
 
 test("SCAM_RULES_VERSION includes confirmed honeypot blocking", () => {
   assert.ok(SCAM_RULES_VERSION >= 30, "rules version must be bumped to 30");
@@ -373,4 +373,26 @@ test("Elysium $HYS is a blocked contract, while the same profile elsewhere stays
     assert.notEqual(other.level, "scam", `price ${price}`);
   }
   assert.ok(SCAM_RULES_VERSION >= 38);
+});
+
+// Frontieres du palier « suspicious » (lecture adverse des tests du 12/11) : le site retire de son
+// total tout jeton dont le score atteint 2 (isSuspicious). Les signaux GoPlus ont des poids exacts
+// (drapeaux a 1, detenteur majoritaire a 2, honeypot a 4) : un jeton neutre recoit un score choisi,
+// et chaque seuil est teste des deux cotes.
+test("suspicious tier boundaries: 1 point warns and stays in the total, 2 and 3 are suspicious, 4 is a scam", () => {
+  const scored = (flags: Partial<GoPlusSignal>) => detectScam("QLM", "Quillam", 10, 1.5, "0x00000000000000000000000000000000000000b1", {
+    goPlus: { available: true, isHoneypot: false, isBlacklisted: false, canTakeBackOwnership: false, slippageModifiable: false, ownerPercent: 0, ...flags },
+  });
+  const zero = scored({});
+  assert.deepEqual([zero.score, zero.level, zero.isSuspicious], [0, "clean", false], zero.reasons.join("; "));
+  const one = scored({ isBlacklisted: true });
+  assert.deepEqual([one.score, one.level, one.isSuspicious], [1, "warning", false], "one point stays in the total");
+  const two = scored({ isBlacklisted: true, canTakeBackOwnership: true });
+  assert.deepEqual([two.score, two.level, two.isSuspicious], [2, "suspicious", true], "two points leave the total");
+  const three = scored({ isBlacklisted: true, canTakeBackOwnership: true, slippageModifiable: true });
+  assert.deepEqual([three.score, three.level, three.isSuspicious], [3, "suspicious", true]);
+  const four = scored({ isBlacklisted: true, canTakeBackOwnership: true, ownerPercent: 60 });
+  assert.deepEqual([four.score, four.level, four.isSuspicious], [4, "scam", true]);
+  assert.equal(scored({ ownerPercent: 50 }).score, 0, "half of the supply is not a majority");
+  assert.equal(scored({ ownerPercent: 50.1 }).score, 2);
 });

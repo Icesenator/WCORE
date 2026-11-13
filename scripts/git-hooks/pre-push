@@ -15,9 +15,9 @@
 
 remote="$1"
 
-master_roots=$(git rev-list --max-parents=0 "refs/remotes/$remote/master" 2>/dev/null)
+master_roots=$(git rev-list --max-parents=0 "refs/remotes/$remote/master" 2>/dev/null) || master_roots=""
 if [ -z "$master_roots" ]; then
-  master_roots=$(git rev-list --max-parents=0 refs/remotes/origin/master 2>/dev/null)
+  master_roots=$(git rev-list --max-parents=0 refs/remotes/origin/master 2>/dev/null) || master_roots=""
 fi
 root=$(echo "$master_roots" | head -n 1)
 known=" $(echo $master_roots) "
@@ -37,8 +37,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   esac
   # Toutes les racines de la reference doivent etre des racines de master : une fusion avec
   # l'ancienne histoire garde la racine de master parmi ses ancetres, mais en ajoute une autre.
-  roots=$(git rev-list --max-parents=0 "$local_sha" 2>/dev/null)
   foreign=""
+  # Echec ferme : un code de sortie non nul de rev-list vaut refus, meme si une sortie partielle existe.
+  roots=$(git rev-list --max-parents=0 "$local_sha" 2>/dev/null) || foreign="unreadable"
   [ -z "$roots" ] && foreign="unreadable"
   for r in $roots; do
     case "$known" in

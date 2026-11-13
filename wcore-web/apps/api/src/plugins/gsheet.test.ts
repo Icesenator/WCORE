@@ -534,7 +534,8 @@ describe("gsheetPlugin", () => {
       token: "secret",
       cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
-      priceBatcher: async () => { batcherCalls += 1; throw new Error("price source unavailable"); },
+      // A message shaped like a benign gap: relayed raw, it would have cleared the degraded flag.
+      priceBatcher: async () => { batcherCalls += 1; throw new Error("LEAK price: NO_PRICE"); },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -566,9 +567,17 @@ describe("gsheetPlugin", () => {
     assert.equal(body.degraded, true, "a partly priced scan is never presented as fresh");
     assert.equal(body.native.balance, 0.01, "the real balances are kept");
     assert.ok(body.tokens.some((t: { symbol: string; balance: number }) => t.symbol === "USDC" && t.balance === 10));
-    assert.ok(body.errors.some((e: string) => /^\[PRICE_REPAIR_FAILED\] price source unavailable$/.test(e)));
+    assert.ok(body.errors.includes("[PRICE_REPAIR_FAILED] price_batch_failed"), "a stable code");
+    assert.ok(!body.errors.some((e: string) => /LEAK/.test(e)), "the raw exception text is never relayed");
     assert.ok(!body.errors.some((e: string) => /WEB_SCAN_ERROR/.test(e)), "not the empty fallback");
     await app.close();
+  });
+
+  test("a failed price repair is always degrading, even next to a benign-looking text", async () => {
+    const { hasDegradingErrors } = await import("../server-helpers.js");
+    assert.equal(hasDegradingErrors(["[PRICE_REPAIR_FAILED] price_batch_failed"]), true);
+    assert.equal(hasDegradingErrors(["[PRICE_REPAIR_FAILED] X price: NO_PRICE"]), true, "checked before the benign list");
+    assert.equal(hasDegradingErrors(["AAA price: NO_PRICE"]), false, "a lone price gap stays benign");
   });
 
   test("marks every requested token unknown when the scan itself fails", async () => {

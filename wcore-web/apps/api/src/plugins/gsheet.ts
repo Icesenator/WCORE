@@ -552,9 +552,14 @@ function gsheetTokenId(token: unknown): string {
   return tokenStringField(token, "contract") || tokenStringField(token, "address") || tokenStringField(token, "mint") || tokenStringField(token, "denom");
 }
 
-/** A scan whose price repair failed: same balances and prices, plus a degrading error. */
-export function markGsheetPriceRepairFailed(result: GsheetScanResult, message: string): GsheetScanResult {
-  const errors = [...(Array.isArray(result.errors) ? result.errors : []), `[PRICE_REPAIR_FAILED] ${message}`];
+/**
+ * A scan whose price repair failed: same balances and prices, plus a degrading error with a stable
+ * code. The raw exception text stays in the server log: relayed, it could end like a benign
+ * « price: NO_PRICE » gap (API and sheet both forgive those) and could carry anything.
+ */
+export const GSHEET_PRICE_REPAIR_FAILED = "[PRICE_REPAIR_FAILED] price_batch_failed";
+export function markGsheetPriceRepairFailed(result: GsheetScanResult): GsheetScanResult {
+  const errors = [...(Array.isArray(result.errors) ? result.errors : []), GSHEET_PRICE_REPAIR_FAILED];
   return { ...result, errors, degraded: true };
 }
 
@@ -1216,7 +1221,7 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
       const repaired = await repairMissingGsheetScanPrices(result, parsed.input, priceBatcher).catch((e: unknown) => {
         const message = e instanceof Error ? e.message : String(e);
         app.log.warn({ err: message, chain: parsed.input.chain }, "gsheet price repair failed");
-        return markGsheetPriceRepairFailed(result, message);
+        return markGsheetPriceRepairFailed(result);
       });
       const repairMs = Date.now() - repairStartedAt;
       // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.

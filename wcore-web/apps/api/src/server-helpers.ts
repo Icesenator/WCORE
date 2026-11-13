@@ -175,11 +175,20 @@ const BENIGN_ERROR_PATTERNS: ReadonlyArray<RegExp> = [
   /explorer API No tokens found/i, // réponse valide de l'explorer
 ];
 
+/**
+ * Erreurs TOUJOURS degradantes, verifiees avant la liste benigne : une reparation de prix echouee
+ * sur un scan reussi ne doit jamais passer pour un simple trou de prix (revue de la PR 137).
+ */
+const DEGRADING_FIRST_PATTERNS: ReadonlyArray<RegExp> = [
+  /^\[PRICE_REPAIR_FAILED\]/,
+];
+
 export function hasDegradingErrors(errors: ReadonlyArray<unknown> | null | undefined): boolean {
   if (!Array.isArray(errors)) return false;
   for (const err of errors) {
     const s = String(err ?? "");
     if (s.length === 0) continue;
+    if (DEGRADING_FIRST_PATTERNS.some((re) => re.test(s))) return true;
     if (!BENIGN_ERROR_PATTERNS.some((re) => re.test(s))) return true;
   }
   return false;

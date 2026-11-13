@@ -42,7 +42,7 @@ const NAMES = [
   "_webScanBlockedSet_", "_webScanPriorityTokenSet_", "_webScanMergeAsset_",
   "_webScanNeutralizePrice_", "_webScanMergedTotal_", "_webScanMergeWithExistingCache_",
   "_webScanConvertToWalletCache_", "_webScanShouldPreserveExistingCache_",
-  "_webScanPriceObservedAt_", "_webScanRequestedStatusMap_",
+  "_webScanPriceObservedAt_", "_webScanRequestedStatusMap_", "_webScanAssetFromToken_",
 ];
 
 const ctx = {
@@ -116,6 +116,32 @@ test("la fusion preserve les tokens existants quand le payload n'en renvoie aucu
   const keys = merged.assets.map((a) => a.contract);
   assert.ok(keys.includes("native"), "le natif doit rester");
   assert.ok(keys.includes("0xabc"), "le token preexistant ne doit PAS etre perdu");
+});
+
+// PR 137 (13/11/2026) : quand la reparation des prix echoue cote API, le scan reussi revient degrade
+// avec le code fixe "[PRICE_REPAIR_FAILED] price_batch_failed". Ce code ne doit jamais passer pour un
+// ecart non destructif : le cache utile est fusionne, pas remplace, et un jeton sans prix garde son prix.
+test("un scan degrade par l'echec de la reparation des prix protege le cache utile", () => {
+  const payload = {
+    ok: true, chain: "BASE", chainName: "Base", vm: "EVM", timestamp: new Date().toISOString(),
+    native: { symbol: "ETH", balance: 0.003242262221363933, priceEur: 2376.446963091263, valueEur: 7.7 },
+    tokens: [{ contract: "0xabc", symbol: "FOO", name: "Foo", balance: 6, decimals: 18, priceEur: null, valueEur: null }],
+    blockedContracts: [], totalValueEur: 7.7,
+    errors: ["FOO price: NO_PRICE", "[PRICE_REPAIR_FAILED] price_batch_failed"], degraded: true, fxRate: 0.88, scanMs: 120,
+    cacheStats: { hits: 0, misses: 0, stale: 0, skipped: 0 },
+  };
+  const rich = {
+    ...existingCache,
+    assets: [...existingCache.assets, { contract: "0xabc", symbol: "FOO", name: "Foo", balance: 5, price_eur: 2, value_eur: 10 }],
+  };
+  assert.strictEqual(ctx._webScanShouldPreserveExistingCache_(payload, rich, {}), true, "le cache utile est protege");
+  const merged = ctx._webScanMergeWithExistingCache_(rich, convert(payload));
+  assert.notStrictEqual(merged, null, "la fusion aboutit");
+  const foo = merged.assets.find((a) => a.contract === "0xabc");
+  assert.strictEqual(foo.balance, 6, "le solde du scan est repris");
+  assert.strictEqual(foo.price_eur, 2, "un jeton sans prix garde son ancien prix");
+  // Temoin : sans le code d'echec, un NO_PRICE seul est un ecart non destructif (pas de protection).
+  assert.strictEqual(ctx._webScanShouldPreserveExistingCache_({ ...payload, errors: ["FOO price: NO_PRICE"] }, rich, {}), false);
 });
 
 test("un payload degrade SANS solde (native a 0) reste ecarte : garde anti-regression", () => {

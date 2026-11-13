@@ -19,8 +19,8 @@ test("blocks the Ethos - Base SKYAI honeypot dusting contract", () => {
   assert.ok(result.reasons.some((r) => r.toLowerCase().includes("blocked")), "blocked contract reason expected");
 });
 
-test("blocks the two unsolicited Elysium tokens confirmed by the owner", () => {
-  const pepe = detectScam("ep/acc", "Elysium Pepe Acceleration", 120000, 0.003441419274, "0x716DA70796d502b3c9ceb5c4876ba60f511dd8a0");
+test("blocks the two unsolicited Elysium tokens", () => {
+  const pepe = detectScam("ep/acc", "Elysium Pepe Acceleration", 110000, 0.003441419274, "0x716DA70796d502b3c9ceb5c4876ba60f511dd8a0");
   const fakeUsdc = detectScam("USDC", "United States Digital Coin", 3, 0.001347795318, "0xd56786d59f898ab020f386bc21fc08bfd576a942");
   for (const result of [pepe, fakeUsdc]) {
     assert.equal(result.level, "scam");
@@ -324,13 +324,13 @@ test("flags a fake stablecoin only when the name is unbranded AND the price is f
 });
 
 test("a cashtag ticker alone is only a warning, never a removal", () => {
-  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
+  const r = detectScam("$Montra", "Montrav2", 150000, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
   assert.equal(r.level, "warning");
   assert.ok(r.reasons.some((reason) => reason.startsWith("cashtag ticker")));
 });
 
 test("a cashtag ticker with a sub-scam GeckoTerminal score is a scam (Elysium $Montra)", () => {
-  const r = detectScam("$Montra", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1", {
+  const r = detectScam("$Montra", "Montrav2", 150000, 0.0000226, "0x00000000000000000000000000000000000ca5a1", {
     gt: { available: true, gtScore: 39.8 },
   } as never);
   assert.equal(r.level, "scam");
@@ -339,12 +339,12 @@ test("a cashtag ticker with a sub-scam GeckoTerminal score is a scam (Elysium $M
 
 test("Elysium $Montra is a confirmed scam whatever its GeckoTerminal score", () => {
   for (const gtScore of [39.8, 44.49, 80]) {
-    const r = detectScam("$Montra", "Montrav2", 200000, 0.0000372, "0x594159FAC2AE4439162FE3A82678984B0483FFFC", {
+    const r = detectScam("$Montra", "Montrav2", 150000, 0.0000372, "0x594159FAC2AE4439162FE3A82678984B0483FFFC", {
       gt: { available: true, gtScore },
     } as never);
     assert.equal(r.level, "scam", `GT ${gtScore}`);
   }
-  assert.equal(detectScam("$Montra", "Montrav2", 200000, 0.0000372, "0x594159fac2ae4439162fe3a82678984b0483fffc").level, "scam", "without market data too");
+  assert.equal(detectScam("$Montra", "Montrav2", 150000, 0.0000372, "0x594159fac2ae4439162fe3a82678984b0483fffc").level, "scam", "without market data too");
 });
 
 test("a cashtag ticker with a healthy GeckoTerminal score stays a warning", () => {
@@ -355,7 +355,7 @@ test("a cashtag ticker with a healthy GeckoTerminal score stays a warning", () =
 });
 
 test("an ordinary ticker gets no cashtag signal", () => {
-  const r = detectScam("MONTRA", "Montrav2", 200000, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
+  const r = detectScam("MONTRA", "Montrav2", 150000, 0.0000226, "0x00000000000000000000000000000000000ca5a1");
   assert.equal(r.reasons.some((reason) => reason.startsWith("cashtag ticker")), false);
 });
 
@@ -365,11 +365,11 @@ test("a known token written as a cashtag gets no cashtag signal ($WIF)", () => {
 });
 
 test("Elysium $HYS is a blocked contract, while the same profile elsewhere stays a warning", () => {
-  const blocked = detectScam("$HYS", "Hypesium", 200000, 0.000013635057, "0x79A4EAC490AFAD2B6E0296431AE2F7E30A3571AF");
+  const blocked = detectScam("$HYS", "Hypesium", 150000, 0.000013635057, "0x79A4EAC490AFAD2B6E0296431AE2F7E30A3571AF");
   assert.equal(blocked.level, "scam");
   // A round cashtag holding is not a scam by itself: a real purchase can land on a round quantity.
   for (const price of [0.000013635057, null]) {
-    const other = detectScam("$HYS", "Hypesium", 200000, price, "0x00000000000000000000000000000000000ca5a2");
+    const other = detectScam("$HYS", "Hypesium", 150000, price, "0x00000000000000000000000000000000000ca5a2");
     assert.notEqual(other.level, "scam", `price ${price}`);
   }
   assert.ok(SCAM_RULES_VERSION >= 38);

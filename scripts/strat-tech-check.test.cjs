@@ -138,6 +138,23 @@ test('an email address in a tab name is masked', () => {
   assert.match(out, /\(email\)/, out);
 });
 
+test('an email address with a fullwidth or small at sign is masked', () => {
+  for (const at of ['＠', '﹫']) {
+    const out = safeTab('Contact alice' + at + 'example.invalid');
+    assert.doesNotMatch(out, /alice|example/, out);
+    assert.match(out, /\(email\)/, out);
+  }
+});
+
+test('both HTTP calls refuse redirections', async (t) => {
+  const h = harness(t, vr(healthy, ['Ledger - Base'], ['12']));
+  const inits = [];
+  const inner = h.opts.fetchImpl;
+  h.opts.fetchImpl = async (url, init = {}) => { inits.push(init.redirect); return inner(url, init); };
+  await run(h.opts);
+  assert.deepEqual(inits, ['error', 'error']);
+});
+
 test('a link of any scheme in a tab name is masked', () => {
   for (const tab of ['ftp://example.invalid/private', 'Notes file://host/share', 'wss://example.invalid/x']) {
     const out = safeTab(tab);

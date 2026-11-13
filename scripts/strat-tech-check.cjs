@@ -80,7 +80,9 @@ function cleanCell(value, max = 80) {
 // Une adresse electronique est masquee sur le texte brut : cleanCell remplacerait le @ par ? et la rendrait
 // meconnaissable pour le masque, mais pas pour une personne.
 function maskEmails(value) {
-  return String(value == null ? '' : value).replace(/[^\s@]+@[^\s@]+/g, '(email)'); // parentheses: cleanCell garde ( ) et remplace [ ] par ?
+  // Les variantes pleine chasse (U+FF20) et petite (U+FE6B) de l'arobase sont ramenees a @ pour ce seul masque :
+  // une normalisation NFKC complete ici ecrirait un chiffre romain en lettres avant le masque des nombres.
+  return String(value == null ? '' : value).replace(/[＠﹫]/g, '@').replace(/[^\s@]+@[^\s@]+/g, '(email)'); // parentheses: cleanCell garde ( ) et remplace [ ] par ?
 }
 
 function safeTab(value, max = 60) {
@@ -203,6 +205,7 @@ async function googleAccessToken(fetchImpl, home = os.homedir()) {
   if (!c || !c.refresh_token) throw new Error('jeton clasp introuvable dans ~/.clasprc.json');
   const res = await fetchImpl('https://oauth2.googleapis.com/token', {
     method: 'POST',
+    redirect: 'error', // jamais de suite de redirection : le corps porte le jeton de rafraichissement
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: c.client_id, client_secret: c.client_secret, refresh_token: c.refresh_token, grant_type: 'refresh_token' }),
   });
@@ -215,7 +218,7 @@ async function googleAccessToken(fetchImpl, home = os.homedir()) {
 async function readSheet({ fetchImpl, sheetId, token }) {
   const qs = RANGES.map((r) => `ranges=${encodeURIComponent(r)}`).join('&');
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values:batchGet?${qs}&valueRenderOption=FORMATTED_VALUE`;
-  const res = await fetchImpl(url, { headers: { authorization: `Bearer ${token}` } });
+  const res = await fetchImpl(url, { redirect: 'error', headers: { authorization: `Bearer ${token}` } });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`lecture du classeur refusée (HTTP ${res.status})`);
   const vr = Array.isArray(j.valueRanges) ? j.valueRanges : [];

@@ -13,6 +13,10 @@ COPY wcore-web/packages/core/package.json wcore-web/packages/core/tsconfig.json 
 COPY wcore-web/apps/api/package.json wcore-web/apps/api/tsconfig.json apps/api/
 
 RUN pnpm install --frozen-lockfile
+# The runner stage copies packages/*/node_modules. pnpm only creates them when a package needs a
+# nested dependency (e.g. a second esbuild version); when every version is hoisted the directory
+# does not exist and the COPY below fails the whole build. Keep them present, possibly empty.
+RUN mkdir -p packages/core/node_modules packages/db/node_modules
 RUN node -e "const fs=require('fs');fs.writeFileSync('/tmp/wcore-chains-tsconfig.json',JSON.stringify({compilerOptions:{target:'ES2022',module:'NodeNext',moduleResolution:'NodeNext',declaration:true,skipLibCheck:true,rootDir:'/wcore-gsheet/dist',outDir:'/tmp/wcore-chains-out'},include:['/wcore-gsheet/dist/types.ts','/wcore-gsheet/dist/chains/**/*.ts']},null,2))" && \
     pnpm exec tsc -p /tmp/wcore-chains-tsconfig.json && \
     cp -R /tmp/wcore-chains-out/* /wcore-gsheet/dist/ && \

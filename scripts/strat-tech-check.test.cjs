@@ -65,6 +65,36 @@ test('cell text relayed to another session is one short line of plain characters
   assert.doesNotMatch(r.problems[0], /[\r\n`<>]/);
 });
 
+test('a day that does not exist is unreadable, not moved to the next month', () => {
+  assert.equal(parisWallToUtcMs('2026-02-30 20:00:00'), null);
+  assert.equal(parisWallToUtcMs('2026-04-31 10:00:00'), null);
+  assert.equal(parisWallToUtcMs('2028-02-29 10:00:00'), Date.parse('2028-02-29T09:00:00Z'), 'a leap day exists');
+});
+
+test('only validated values reach the signal: no link, address, long identifier, number or free text', () => {
+  const r = evaluate({
+    strat: { ...healthy, BK1: 'X', AZ1: 'voir 0x00000000deadbeef0000 ou https://exemple.invalid/x', BL1: '2026-02-30 20:00:00' },
+    recap: [
+      { tab: 'Ledger 0xabcdef0123456789 - Base', state: 'Erreur (SOURCE_UNAVAILABLE)' },
+      { tab: 'https://exemple.invalid/onglet', state: 'Erreur : solde 12 345,67 EUR sur 0x00000000deadbeef' },
+      { tab: 'Compte ABCDEFGHIJKLMNOPQRSTUVWXYZ012345', state: 'Erreur' },
+      { tab: 'Ledger - Dydx', state: 'erreur (WEB_SCAN_ERROR)' },
+    ],
+    nowMs: NOW,
+  });
+  assert.deepEqual(r.problems, [
+    'BK1: Ledger [adresse] - Base : Erreur (SOURCE_UNAVAILABLE)',
+    'BK1: [lien] : Erreur (détail non relayé)',
+    'BK1: Compte [identifiant] : Erreur',
+    'BK1: Ledger - Dydx : Erreur (WEB_SCAN_ERROR)',
+    'AZ1: illisible',
+    'BL1: illisible',
+  ]);
+  assert.deepEqual(r.dates, { AZ1: 'illisible', BF1: fresh, BL1: 'illisible' });
+  const s = renderSignal(r.problems, r.dates, NOW);
+  assert.doesNotMatch(s, /0x[0-9a-f]{4,}|https?:|exemple|12 345|ABCDEFGHIJ|solde/i);
+});
+
 test('dedup: the same problems within 24 h are not signaled again; a change or 24 h later is', () => {
   const p = ['AZ1: plus de 2 h', 'BK1: A : Erreur (X présent)'];
   const first = decide(p, null, NOW);

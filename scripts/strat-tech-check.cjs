@@ -14,6 +14,14 @@
 // n'envoie aucun mail ni aucune notification. Quand un probleme est nouveau, il depose un signal dans
 // la boite de la session WCORE et imprime le message a relayer.
 //
+// Le signal ne porte que des valeurs validees : un nom d'onglet nettoye, dont tout ce qui ressemble a
+// une donnee (lien, adresse, identifiant long, nombre) est masque ; un etat reduit a « Erreur » et a
+// son code s'il a la forme d'un code ; une date relue chiffre par chiffre, sinon « illisible ».
+//
+// Ecarts avec la tache planifiee : (1) sa ligne « Extension coupee », tiree d'une recherche Gmail des
+// mails du classeur, n'est pas reprise (le script n'a pas acces a Gmail) ; (2) le script n'envoie
+// rien : il depose le signal et imprime le message, que l'appelant relaie.
+//
 // Configuration (rien n'est inscrit dans le depot) :
 //   - identifiant du classeur : variable WCORE_SHEET_ID, ou cle « sheetId » de ~/.config/projetia/wcore.json ;
 //   - jeton Google : ~/.clasprc.json (celui de clasp, deja utilise pour lire le classeur).
@@ -35,12 +43,16 @@ const REPEAT_AFTER_MS = 24 * H;
 
 // Heure murale de Paris « AAAA-MM-JJ HH:MM:SS » -> instant UTC (ms), en tenant compte de l'heure d'ete.
 // Rend null pour une valeur illisible.
+const WALL_RE = /^\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?\s*$/;
 function parisWallToUtcMs(text) {
-  const m = /^\s*(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?\s*$/.exec(String(text == null ? '' : text));
+  const m = WALL_RE.exec(String(text == null ? '' : text));
   if (!m) return null;
   const [y, mo, d, h, mi, s] = m.slice(1).map((v) => Number(v || 0));
   if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) return null;
   const wall = Date.UTC(y, mo - 1, d, h, mi, s);
+  // Jour qui n'existe pas (30 fevrier, 31 avril) : Date.UTC le reporterait sur le mois suivant.
+  const cal = new Date(wall);
+  if (cal.getUTCFullYear() !== y || cal.getUTCMonth() !== mo - 1 || cal.getUTCDate() !== d) return null;
   const fmt = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Paris', hourCycle: 'h23',
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -63,6 +75,31 @@ function cleanCell(value, max = 80) {
   return safe.length > max ? `${safe.slice(0, max - 1)}…` : safe;
 }
 
+// Nom d'onglet relaye : texte nettoye, puis tout ce qui ressemble a une donnee est masque.
+function safeTab(value) {
+  return cleanCell(value, 60)
+    .replace(/https?:\/\/\S*|www\.\S*/gi, '[lien]')
+    .replace(/0x[0-9a-f]{4,}/gi, '[adresse]')
+    .replace(/[\p{L}\p{N}_]{20,}/gu, '[identifiant]')
+    .replace(/\d[\d .,']{2,}\d/g, '[nombre]');
+}
+
+// Etat relaye : « Erreur » et son code s'il a la forme d'un code (ex. SOURCE_UNAVAILABLE), jamais un texte libre.
+function safeState(value) {
+  const s = String(value == null ? '' : value).trim();
+  if (/^erreur$/i.test(s)) return 'Erreur';
+  const m = /^erreur\s*\(([A-Z][A-Z0-9_]{1,40}|X présent)\)$/u.exec(s.replace(/^erreur/i, 'erreur'));
+  return m ? `Erreur (${m[1]})` : 'Erreur (détail non relayé)';
+}
+
+// Date relayee : relue chiffre par chiffre si elle est valide, sinon « illisible » (ou « (vide) »).
+function wallText(value) {
+  const raw = String(value == null ? '' : value);
+  if (!raw.trim()) return '(vide)';
+  const m = WALL_RE.exec(raw);
+  return m && parisWallToUtcMs(raw) !== null ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6] || '00'}` : 'illisible';
+}
+
 function flag(value) {
   const v = String(value == null ? '' : value).trim().toUpperCase();
   return v === 'V' || v === 'X' ? v : null;
@@ -76,15 +113,14 @@ function evaluate({ strat, recap, nowMs }) {
   if (bk1 === 'X') {
     const bad = recap.filter((r) => /^Erreur/i.test(String(r.state == null ? '' : r.state).trim()));
     if (!bad.length) problems.push("BK1: X sans onglet en erreur dans le Recap");
-    for (const r of bad) problems.push(`BK1: ${cleanCell(r.tab)} : ${cleanCell(r.state)}`);
+    for (const r of bad) problems.push(`BK1: ${safeTab(r.tab)} : ${safeState(r.state)}`);
   }
   const bq1 = flag(strat.BQ1);
   if (bq1 === null) problems.push('BQ1: valeur illisible');
   if (bq1 === 'X') problems.push('BQ1: écart dans les onglets Détails');
   const dates = {};
   for (const [cell, maxMs, label] of [['AZ1', 2 * H, 'plus de 2 h'], ['BF1', 2 * H, 'plus de 2 h'], ['BL1', 8 * H, 'plus de 8 h']]) {
-    const raw = cleanCell(strat[cell], 40);
-    dates[cell] = raw || '(vide)';
+    dates[cell] = wallText(strat[cell]);
     const t = parisWallToUtcMs(strat[cell]);
     if (t === null) problems.push(`${cell}: illisible`);
     else if (nowMs - t > maxMs) problems.push(`${cell}: ${label}`);
@@ -211,7 +247,7 @@ async function run({
   return { code: 3, problems, action: d.action, signalPath };
 }
 
-module.exports = { parisWallToUtcMs, cleanCell, evaluate, decide, renderSignal, renderMessage, readSheetId, readSheet, run, RANGES };
+module.exports = { parisWallToUtcMs, cleanCell, safeTab, safeState, wallText, evaluate, decide, renderSignal, renderMessage, readSheetId, readSheet, run, RANGES };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);

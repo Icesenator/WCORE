@@ -124,6 +124,14 @@ test('a unicode number and a long dashed identifier in a tab name are masked', (
   assert.equal(safeTab('Ledger - Base - compte principal'), 'Ledger - Base - compte principal');
 });
 
+test('a roman numeral, a superscript and a fraction in a tab name are masked', () => {
+  for (const tab of ['Compte Ⅻ EUR', 'Compte 5²', 'Compte ½', 'Compte Ⅷ']) {
+    const out = safeTab(tab);
+    assert.doesNotMatch(out, /[0-9²½ⅫⅧ]|XII|VIII/, out);
+    assert.match(out, /\[nombre\]/, out);
+  }
+});
+
 test('a malformed token file never leaks an extract of itself, in the error or in the output', async () => {
   const fs = require('node:fs');
   const os = require('node:os');

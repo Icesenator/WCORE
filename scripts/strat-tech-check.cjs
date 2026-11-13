@@ -78,11 +78,15 @@ function cleanCell(value, max = 80) {
 // Nom d'onglet relaye : texte nettoye, puis tout ce qui ressemble a une donnee est masque sur le texte
 // complet, et seulement ensuite tronque (tronquer d'abord laisserait le debut d'un identifiant long).
 function safeTab(value, max = 60) {
-  const masked = cleanCell(String(value == null ? '' : value).normalize('NFKC'), Number.MAX_SAFE_INTEGER)
+  // Liens, adresses et identifiants longs d'abord (ils contiennent des chiffres), puis les nombres AVANT la
+  // normalisation NFKC (qui ecrit un chiffre romain en lettres, XII), puis une seconde fois apres (un exposant
+  // ou une fraction y devient un chiffre ordinaire).
+  const hide = (t) => t
     .replace(/https?:\/\/\S*|www\.\S*/gi, '[lien]')
     .replace(/0x[0-9a-f]{4,}/gi, '[adresse]')
-    .replace(/[\p{L}\p{N}_-]{20,}/gu, '[identifiant]')
-    .replace(/\p{N}[\p{N} .,']*/gu, '[nombre]'); // tout nombre, meme d'un a trois chiffres (un montant)
+    .replace(/[\p{L}\p{N}_-]{20,}/gu, '[identifiant]');
+  const numbers = (t) => t.replace(/\p{N}(?:[\p{N} .,']*\p{N})?/gu, '[nombre]');
+  const masked = numbers(hide(numbers(hide(cleanCell(String(value == null ? '' : value), Number.MAX_SAFE_INTEGER))).normalize('NFKC')));
   return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
 }
 

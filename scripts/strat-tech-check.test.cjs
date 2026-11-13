@@ -147,7 +147,7 @@ test('an email address with a fullwidth or small at sign is masked', () => {
 });
 
 test('no fragment of an address survives: lists, circled a, bare domains', () => {
-  for (const tab of ['alice@example.invalid,bob@private.invalid', 'alice@example.invalid;bob@private.invalid', 'aliceⓐexample.invalid', 'voir private.invalid ici']) {
+  for (const tab of ['alice@example.invalid,bob@private.invalid', 'alice@example.invalid;bob@private.invalid', 'aliceⓐexample.invalid', 'voir private.invalid ici', 'alice\u{1F150}example.invalid', 'voir private．invalid ici']) {
     const out = safeTab(tab);
     assert.doesNotMatch(out, /alice|bob|example|private|invalid/, out);
   }

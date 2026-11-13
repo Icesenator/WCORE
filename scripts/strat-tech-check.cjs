@@ -85,6 +85,12 @@ function maskEmails(value) {
   return String(value == null ? '' : value).replace(/[＠﹫ⓐⒶ]/g, '@').replace(/\S*@\S*/g, '(email)'); // parentheses: cleanCell garde ( ) et remplace [ ] par ?
 }
 
+// Tout mot contenant un caractere hors de la liste sure de cleanCell (arobase ou point de variante, lettre cerclee,
+// symbole) est masque en entier : on ne cherche plus les variantes une a une, un caractere inconnu suffit.
+function maskOddTokens(value) {
+  return String(value == null ? "" : value).split(/(s+)/).map((tok) => (/^s*$/.test(tok) || !cleanCell(tok, Number.MAX_SAFE_INTEGER).includes("?") ? tok : "[masque]")).join("");
+}
+
 function safeTab(value, max = 60) {
   // Liens, adresses et identifiants longs d'abord (ils contiennent des chiffres), puis les nombres AVANT la
   // normalisation NFKC (qui ecrit un chiffre romain en lettres, XII), puis une seconde fois apres (un exposant
@@ -95,7 +101,7 @@ function safeTab(value, max = 60) {
     .replace(/[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+/gu, '[domaine]')
     .replace(/[\p{L}\p{N}_-]{20,}/gu, '[identifiant]');
   const numbers = (t) => t.replace(/\p{N}(?:[\p{N} .,']*\p{N})?/gu, '[nombre]');
-  const masked = numbers(hide(numbers(hide(cleanCell(maskEmails(value), Number.MAX_SAFE_INTEGER))).normalize('NFKC')));
+  const masked = numbers(hide(numbers(hide(cleanCell(maskOddTokens(maskEmails(value)), Number.MAX_SAFE_INTEGER))).normalize('NFKC')));
   return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
 }
 

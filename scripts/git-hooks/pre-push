@@ -1,6 +1,7 @@
 #!/bin/sh
 # WCORE pre-push : refuse de pousser une reference dont l'histoire ne descend pas de la
-# racine de master.
+# racine de master, ou qui lui joint une autre histoire par une fusion : toutes les racines
+# de la reference poussee doivent etre des racines de master.
 #
 # Pourquoi : l'historique public a ete reecrit le 2026-11-11. D'anciens worktrees et
 # d'anciennes branches locales portent encore l'histoire d'avant, qui contenait des
@@ -14,10 +15,12 @@
 
 remote="$1"
 
-root=$(git rev-list --max-parents=0 "refs/remotes/$remote/master" 2>/dev/null | head -n 1)
-if [ -z "$root" ]; then
-  root=$(git rev-list --max-parents=0 refs/remotes/origin/master 2>/dev/null | head -n 1)
+master_roots=$(git rev-list --max-parents=0 "refs/remotes/$remote/master" 2>/dev/null)
+if [ -z "$master_roots" ]; then
+  master_roots=$(git rev-list --max-parents=0 refs/remotes/origin/master 2>/dev/null)
 fi
+root=$(echo "$master_roots" | head -n 1)
+known=" $(echo $master_roots) "
 if [ -z "$root" ]; then
   echo "[pre-push] REFUS : racine de master introuvable ($remote/master et origin/master absents)." >&2
   echo "[pre-push] Lancer 'git fetch $remote' puis recommencer." >&2
@@ -32,12 +35,26 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     *[!0]*) ;;
     *) continue ;;
   esac
-  if ! git merge-base --is-ancestor "$root" "$local_sha" 2>/dev/null; then
+  # Toutes les racines de la reference doivent etre des racines de master : une fusion avec
+  # l'ancienne histoire garde la racine de master parmi ses ancetres, mais en ajoute une autre.
+  roots=$(git rev-list --max-parents=0 "$local_sha" 2>/dev/null)
+  foreign=""
+  [ -z "$roots" ] && foreign="unreadable"
+  for r in $roots; do
+    case "$known" in
+      *" $r "*) ;;
+      *) foreign="$r" ;;
+    esac
+  done
+  [ -z "$foreign" ] && continue
+  if git merge-base --is-ancestor "$root" "$local_sha" 2>/dev/null; then
+    echo "[pre-push] REFUS : $local_ref joint a master une autre histoire (une racine qui n'est pas celle de master)." >&2
+  else
     echo "[pre-push] REFUS : $local_ref ne descend pas de la racine de master." >&2
-    echo "[pre-push] Cette reference porte une histoire d'avant la reecriture du 2026-11-11 (ou une histoire etrangere)." >&2
-    echo "[pre-push] Ne pas la pousser : reporter le travail sur une branche creee depuis origin/master." >&2
-    status=1
   fi
+  echo "[pre-push] Cette reference porte une histoire d'avant la reecriture du 2026-11-11 (ou une histoire etrangere)." >&2
+  echo "[pre-push] Ne pas la pousser : reporter le travail sur une branche creee depuis origin/master." >&2
+  status=1
 done
 
 exit $status

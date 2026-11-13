@@ -128,6 +128,32 @@ test("without a known master on the remote side the hook refuses instead of gues
   assert.deepEqual(remoteRefs(remote), ["refs/heads/master"]);
 });
 
+test("a merge that joins an unrelated history to master is refused, though master's root is among its ancestors", (t) => {
+  const { remote, clone } = setup(t);
+  assert.equal(git(clone, "checkout", "-q", "--orphan", "old-history").code, 0);
+  commit(clone, "c.txt", "c");
+  assert.equal(git(clone, "checkout", "-q", "-b", "feature", "master").code, 0);
+  const merged = git(clone, "merge", "-q", "--allow-unrelated-histories", "-m", "join", "old-history");
+  assert.equal(merged.code, 0, merged.out);
+  const res = git(clone, "push", "origin", "feature");
+  assert.notEqual(res.code, 0);
+  assert.match(res.out, /\[pre-push\] REFUS : refs\/heads\/feature joint a master une autre histoire/);
+  assert.deepEqual(remoteRefs(remote), ["refs/heads/master"]);
+});
+
+test("a merge of two branches of master is pushed", (t) => {
+  const { remote, clone } = setup(t);
+  assert.equal(git(clone, "checkout", "-q", "-b", "one").code, 0);
+  commit(clone, "b.txt", "b");
+  assert.equal(git(clone, "checkout", "-q", "-b", "two", "master").code, 0);
+  commit(clone, "c.txt", "c");
+  const merged = git(clone, "merge", "-q", "--no-ff", "-m", "join", "one");
+  assert.equal(merged.code, 0, merged.out);
+  const res = git(clone, "push", "origin", "two");
+  assert.equal(res.code, 0, res.out);
+  assert.deepEqual(remoteRefs(remote), ["refs/heads/master", "refs/heads/two"]);
+});
+
 test("control: without the hook the unrelated history would have been published", (t) => {
   const { remote, clone } = setup(t, { installHook: false });
   assert.equal(git(clone, "checkout", "-q", "--orphan", "old-history").code, 0);

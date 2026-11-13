@@ -135,7 +135,15 @@ test('a roman numeral, a superscript and a fraction in a tab name are masked', (
 test('an email address in a tab name is masked', () => {
   const out = safeTab('Contact alice@example.invalid');
   assert.doesNotMatch(out, /alice|example/, out);
-  assert.match(out, /\[email\]/, out);
+  assert.match(out, /\(email\)/, out);
+});
+
+test('a link of any scheme in a tab name is masked', () => {
+  for (const tab of ['ftp://example.invalid/private', 'Notes file://host/share', 'wss://example.invalid/x']) {
+    const out = safeTab(tab);
+    assert.doesNotMatch(out, /example|host|private/, out);
+    assert.match(out, /\[lien\]/, out);
+  }
 });
 
 test('a malformed token file never leaks an extract of itself, in the error or in the output', async () => {

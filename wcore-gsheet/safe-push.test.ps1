@@ -299,8 +299,8 @@ var HELP = "createEvmChain";
 '@
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "REGEXQUOTE.gs" = $fixtureRegexQuote; "REGEXPAREN.gs" = $fixtureRegexAfterParen } `
-    -ExpectRefusedFiles @("REGEXPAREN.gs", "REGEXQUOTE.gs") -ExpectOutput @('expression reguliere avec guillemet') `
-    -Label "a regular expression holding a quote cannot hide the call"
+    -ExpectRefusedFiles @("REGEXPAREN.gs", "REGEXQUOTE.gs") -ExpectOutput @('createEvmChain\("GONE"\): chaine retiree') `
+    -Label "a regular expression holding a quote does not hide the call (it is read as a regex, not as the start of a string)"
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "ESCAPED.gs" = $fixtureEscapedIdentifier } `
     -ExpectRefusedFiles @("ESCAPED.gs") -ExpectOutput @('identifiant avec sequence') `
@@ -309,6 +309,17 @@ Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "BRACKETCAT.gs" = $fixtureBracketConcat; "BRACKETESC.gs" = $fixtureBracketEscaped } `
     -ExpectRefusedFiles @("BRACKETCAT.gs", "BRACKETESC.gs") -ExpectOutput @('acces par crochets') `
     -Label "a bracket access to ChainFactory (concatenated or escaped method name) cannot hide the call"
+$fixtureTombstone = @'
+function cleanName(s) { return s.replace(/"/g, ''); }
+// ChainFactory.createEvmChain("GONE", {});
+'@
+$fixtureActiveWithQuoteRegex = @'
+function cleanName(s) { return s.replace(/"/g, ''); }
+var _ACTIVE = ChainFactory.createEvmChain("ACTIVE", {});
+'@
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "TOMBSTONE.gs" = $fixtureTombstone; "ACTIVEREGEX.gs" = $fixtureActiveWithQuoteRegex } `
+    -Label "an ordinary quote regex next to a commented-out old call, or in an active chain file, is pushed"
 Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "TEXT.gs" = $fixtureTextOnly } `
     -Label "a string that is only the text createEvmChain is pushed"

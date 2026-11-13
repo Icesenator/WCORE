@@ -128,11 +128,10 @@ $JsCommentPattern = '/\*[\s\S]*?\*/|//[^\r\n]*'
 $JsStringPattern = '"(?:\\.|[^"\\\r\n])*"|''(?:\\.|[^''\\\r\n])*''|`(?:\\.|[^`\\])*`'
 $RemovedChainLiteralCallPattern = '^createEvmChain\s*\(\s*(?<q>["''])(?<name>[^"''\\\r\n]*)\k<q>\s*[,)]'
 $UnverifiableLabel = 'appel non verifiable'
-# Une expression reguliere litterale qui contient un guillemet (/"/) fait derailler le decoupage
-# commentaires/chaines ci-dessus: un appel qui la suit peut passer pour du texte. Un identifiant ecrit avec
-# une sequence \uXXXX (createEvmChain) n'est pas non plus reconnu par son nom. Dans les deux cas
-# le fichier ne peut pas etre verifie: refus, comme pour un appel non verifiable.
-$JsRegexWithQuotePattern = '(?:^|[=(,:;!&|?{}\[)]|\breturn)\s*/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*["''`](?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])*/[dgimsuyv]*'
+# Une expression reguliere litterale (apres = ( , : ; ! & | ? { } [ ) return void typeof) est consommee comme un
+# jeton, pour que son contenu (un guillemet dans /"/) ne soit pas pris pour le debut d'une chaine.
+# Un identifiant ecrit avec une sequence unicode n'est pas reconnu par son nom: refus (non verifiable).
+$JsRegexLiteralPattern = '(?<=(?:[=(,:;!&|?{}\[)]|\breturn|\bvoid|\btypeof)\s*)/(?![/*])(?:\\.|\[(?:\\.|[^\]\\\r\n])*\]|[^/\\\r\n\[])+/[dgimsuyv]*'
 $JsEscapedIdentifierPattern = '[A-Za-z0-9_$]\\u[0-9A-Fa-f{]'
 
 # Retourne @{ ID_EN_MAJUSCULES = libelle } lu dans WCORE_REMOVED_CHAINS, ou
@@ -140,7 +139,7 @@ $JsEscapedIdentifierPattern = '[A-Za-z0-9_$]\\u[0-9A-Fa-f{]'
 # tableaux "ids" comptent: un nom cite dans un commentaire du bloc est ignore.
 function Get-RemovedChainIndex([string]$factoryPath) {
     try { $text = [System.IO.File]::ReadAllText($factoryPath) } catch { return $null }
-    $code = [regex]::Replace($text, "(?<c>$JsCommentPattern)|(?<s>$JsStringPattern)", {
+    $code = [regex]::Replace($text, "(?<c>$JsCommentPattern)|(?<r>$JsRegexLiteralPattern)|(?<s>$JsStringPattern)", {
         param($m) if ($m.Groups['c'].Success) { ' ' } else { $m.Value }
     })
     $block = [regex]::Match($code, '\bWCORE_REMOVED_CHAINS\s*=\s*\[(?<body>[\s\S]*?)\]\s*;')
@@ -167,14 +166,11 @@ function Get-RemovedChainIndex([string]$factoryPath) {
 function Find-RemovedChainCalls($files, $index) {
     foreach ($file in $files) {
         try { $content = [System.IO.File]::ReadAllText($file.FullName) } catch { continue }
-        $code = [regex]::Replace($content, "(?<c>$JsCommentPattern)|(?<s>$JsStringPattern)", {
+        $code = [regex]::Replace($content, "(?<c>$JsCommentPattern)|(?<r>$JsRegexLiteralPattern)|(?<s>$JsStringPattern)", {
             param($m) if ($m.Groups['c'].Success) { ' ' } else { $m.Value }
         })
-        if (($content -match 'createEvmChain' -or $content -match 'ChainFactory\s*\.\s*[A-Za-z0-9_$]*\\u[0-9A-Fa-f{]') -and [regex]::IsMatch($content, $JsRegexWithQuotePattern, 'Multiline')) {
-            [pscustomobject]@{ File = $file.Name; Name = 'expression reguliere avec guillemet'; Label = $UnverifiableLabel }
-            continue
-        }
-        foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|(?<e>$JsEscapedIdentifierPattern)|(?<b>\bChainFactory\s*\[)|\bcreateEvmChain\b")) {
+        foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|(?<r>$JsRegexLiteralPattern)|(?<e>$JsEscapedIdentifierPattern)|(?<b>\bChainFactory\s*\[)|\bcreateEvmChain\b")) {
+            if ($m.Groups['r'].Success) { continue }
             if ($m.Groups['b'].Success) {
                 # ChainFactory[...] : le nom de la methode peut etre construit (concatenation, sequence unicode).
                 [pscustomobject]@{ File = $file.Name; Name = 'acces par crochets a ChainFactory'; Label = $UnverifiableLabel }

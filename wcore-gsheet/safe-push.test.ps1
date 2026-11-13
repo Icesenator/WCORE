@@ -247,16 +247,73 @@ Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
     -SrcFiles @{ "ALIVE.gs" = $fixtureActiveChains; "TOMBSTONE.gs" = $fixtureMentionsOnly } -RemoteFactory $fixtureFactory `
     -Label "minimal folder: active-chain and tombstone files are pushed"
 
-# Fichiers presents seulement en ligne: safe-push ne les supprime jamais. Une
-# fabrique qui retire une chaine dont le fichier reste en ligne casserait le
-# chargement: avertissement visible, mais push tout de meme (un refus
-# empecherait de pousser une reparation).
-Test-SafePush -ExpectedExitCode 0 -ExpectPush $true -ExpectClaspCalls "--version,pull,push" `
+# Formes d'appel que la detection litterale ne voyait pas (revue de la PR 131).
+$fixtureCommentBetween = @'
+var _GONE = ChainFactory./* fabrique */createEvmChain(/* nom */ "GONE", {});
+'@
+$fixtureVariableName = @'
+var name = "GONE";
+var _GONE = ChainFactory.createEvmChain(name, {});
+'@
+$fixtureConcatenation = @'
+var _GONE = ChainFactory.createEvmChain("GO" + "NE", {});
+'@
+$fixtureTemplate = @'
+var _GONE = ChainFactory.createEvmChain(`GONE`, {});
+'@
+$fixtureBracket = @'
+var _GONE = ChainFactory["createEvmChain"]("GONE", {});
+'@
+Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "COMMENTED.gs" = $fixtureCommentBetween } `
+    -ExpectRefusedFiles @("COMMENTED.gs") -ExpectOutput @('createEvmChain\("GONE"\): chaine retiree Gone \(77\)') `
+    -Label "a comment between the parts of the call does not hide it"
+Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory; "VARIABLE.gs" = $fixtureVariableName; "CONCAT.gs" = $fixtureConcatenation; "TEMPLATE.gs" = $fixtureTemplate; "BRACKET.gs" = $fixtureBracket } `
+    -ExpectRefusedFiles @("BRACKET.gs", "CONCAT.gs", "TEMPLATE.gs", "VARIABLE.gs") -ExpectOutput @('de facon non verifiable') `
+    -Label "a call that cannot be checked (variable, concatenation, template, string access) is refused"
+
+# Fichiers presents seulement en ligne: safe-push ne les supprime jamais.
+# Refus si cette publication retire leur chaine (le classeur charge aujourd'hui
+# et ne chargerait plus); avertissement seulement si la fabrique en ligne la
+# retirait deja (version en ligne deja cassee: un refus empecherait de pousser
+# la reparation).
+$fixtureFactoryOnlineOld = @'
+var ChainFactory = ChainFactory || {};
+var WCORE_REMOVED_CHAINS = [
+  { label: "Gone (77)", ids: ["77", "GONE"] }
+];
+ChainFactory.createEvmChain = function(chainName, chainConfig) {
+  if (_wcoreRemovedChain_(chainName)) throw new Error("CHAIN_REMOVED: " + chainName);
+  return {};
+};
+'@
+Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "--version,pull" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory } -RemoteFactory $fixtureFactoryOnlineOld `
+    -RemoteFiles @{ "OLDCHAIN.js" = $fixtureRemovedChain; "ALIVE.js" = $fixtureActiveChains } `
+    -ExpectOutput @('\[ERREUR\] Fichier en ligne OLDCHAIN\.js appelle ChainFactory\.createEvmChain\("OLDCHAIN"\): chaine retiree par cette publication Old Chain \(4242\)', 'Chaines retirees par cette publication .*: Old Chain \(4242\)', 'Push annule') `
+    -Label "online-only file of a chain this publication removes is refused"
+Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "--version,pull" `
     -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory } `
+    -RemoteFiles @{ "OLDCHAIN.js" = $fixtureRemovedChain } `
+    -ExpectOutput @('chaine retiree par cette publication Old Chain \(4242\)', 'Push annule') `
+    -Label "without a readable online factory nothing proves the online file was broken: refused"
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true -ExpectClaspCalls "--version,pull,push" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory } -RemoteFactory $fixtureFactory `
     -RemoteFiles @{ "OLDCHAIN.js" = $fixtureRemovedChain; "ALIVE.js" = $fixtureActiveChains } `
     -ExpectOnlineWarnings @("OLDCHAIN.js") `
-    -ExpectOutput @('Fichier en ligne OLDCHAIN\.js appelle ChainFactory\.createEvmChain\("OLDCHAIN"\): chaine retiree Old Chain \(4242\)', 'neutralise ou supprime dans le projet Apps Script avant ou avec cette publication', 'RAPPEL: fichier\(s\) en ligne de chaine retiree .*: OLDCHAIN\.js') `
-    -Label "online-only removed-chain file warns and the push still happens"
+    -ExpectOutput @('Fichier en ligne OLDCHAIN\.js appelle ChainFactory\.createEvmChain\("OLDCHAIN"\): chaine retiree Old Chain \(4242\)', 'La fabrique en ligne retire deja cette chaine', 'neutralise ou supprime dans le projet Apps Script avant ou avec cette publication', 'RAPPEL: fichier\(s\) en ligne de chaine retiree .*: OLDCHAIN\.js') `
+    -Label "online-only file already broken online warns and the push still happens"
+Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "--version,pull" `
+    -SrcFiles @{ "19_CHAIN_FACTORY.gs" = $fixtureFactory } -RemoteFactory $fixtureFactoryOnlineOld `
+    -RemoteFiles @{ "VARIABLE.js" = $fixtureVariableName } `
+    -ExpectOutput @('Fichier en ligne VARIABLE\.js appelle ChainFactory\.createEvmChain de facon non verifiable', 'Push annule') `
+    -Label "online-only unverifiable call is refused when this publication removes a chain"
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
+    -SrcFiles @{ "ALIVE.gs" = $fixtureActiveChains } -RemoteFactory $fixtureFactory `
+    -RemoteFiles @{ "VARIABLE.js" = $fixtureVariableName } `
+    -ExpectOnlineWarnings @("VARIABLE.js") `
+    -Label "online-only unverifiable call only warns when this publication removes no chain"
 Test-SafePush -ExpectedExitCode 0 -ExpectPush $true `
     -SrcFiles @{ "ALIVE.gs" = $fixtureActiveChains } -RemoteFactory $fixtureFactory `
     -RemoteFiles @{ "GONE.js" = $fixtureRemovedChainLoose } `

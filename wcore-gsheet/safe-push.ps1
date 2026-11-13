@@ -94,16 +94,33 @@ Write-Host ""
 # strict que l'etat en ligne; B suit la fabrique qui sera en ligne.
 # Liste absente ou illisible: avertissement, jamais de refus.
 #
+# Les commentaires sont retires avant l'analyse: un commentaire place entre
+# deux elements de l'appel ne le cache pas. Un appel qui ne peut pas etre
+# verifie est refuse lui aussi: premier argument qui n'est pas un litteral
+# simple ("..." ou '...') suivi de "," ou ")" (variable, concatenation,
+# gabarit), acces par chaine (ChainFactory["createEvmChain"]), alias. Seule
+# la definition de la fabrique (ChainFactory.createEvmChain = function) est
+# admise. Le corpus reel (146 fichiers) n'a que des appels litteraux.
+#
 # Fichiers presents seulement en ligne: ce script ne supprime jamais un
 # fichier distant. Si la fabrique qui sera en ligne retire une chaine dont le
 # fichier reste en ligne (X.gs enleve de src/ mais X.js toujours distant), le
 # script publie leve CHAIN_REMOVED au chargement. B examine donc aussi les .js
-# ramenes par le pull qui ne viennent pas de src/, avec la meme detection, en
-# AVERTISSEMENT et non en refus: un refus empecherait de pousser une
-# reparation alors que la version en ligne est deja cassee.
+# ramenes par le pull qui ne viennent pas de src/, avec la meme detection:
+#   - REFUS si cette publication retire la chaine (elle est dans la liste de la
+#     fabrique qui sera en ligne, et pas dans celle de la fabrique en ligne
+#     avant la fusion): le classeur charge aujourd'hui, la publication le
+#     casserait. Fabrique en ligne absente ou illisible: rien n'est prouve,
+#     toute chaine de la liste compte comme retiree par la publication.
+#   - AVERTISSEMENT si la fabrique en ligne retirait deja la chaine: la
+#     version en ligne est deja cassee, et un refus empecherait de pousser la
+#     reparation.
+#   - Appel non verifiable dans un fichier en ligne: refus si la publication
+#     retire au moins une chaine, avertissement sinon.
 $JsCommentPattern = '/\*[\s\S]*?\*/|//[^\r\n]*'
 $JsStringPattern = '"(?:\\.|[^"\\\r\n])*"|''(?:\\.|[^''\\\r\n])*''|`(?:\\.|[^`\\])*`'
-$RemovedChainCallPattern = '\bChainFactory\s*\.\s*createEvmChain\s*\(\s*(?<q>["''`])(?<name>[^"''`\\\r\n]*)\k<q>'
+$RemovedChainLiteralCallPattern = '^createEvmChain\s*\(\s*(?<q>["''])(?<name>[^"''\\\r\n]*)\k<q>\s*[,)]'
+$UnverifiableLabel = 'appel non verifiable'
 
 # Retourne @{ ID_EN_MAJUSCULES = libelle } lu dans WCORE_REMOVED_CHAINS, ou
 # $null si le fichier ou le bloc est illisible. Seuls les litteraux des
@@ -128,20 +145,40 @@ function Get-RemovedChainIndex([string]$factoryPath) {
     return $index
 }
 
-# Retourne les appels ChainFactory.createEvmChain(<nom retire>) trouves dans
-# les fichiers, sous la forme { File; Name; Label }.
-# Un commentaire ou une chaine est consomme avant l'appel par l'alternance:
-# un appel commente ou cite dans une chaine n'est donc jamais retenu.
+# Retourne les appels a refuser ou signaler, sous la forme { File; Name; Label }:
+# un appel ChainFactory.createEvmChain(<nom retire>), ou un appel non
+# verifiable (Label = $UnverifiableLabel, Name = extrait de la ligne).
+# Les commentaires sont retires d'abord (les chaines sont gardees telles
+# quelles); ensuite une chaine est consommee avant l'identifiant par
+# l'alternance: un appel cite dans une chaine n'est donc jamais retenu.
 function Find-RemovedChainCalls($files, $index) {
-    $scanPattern = "(?<c>$JsCommentPattern)|$RemovedChainCallPattern|(?<s>$JsStringPattern)"
     foreach ($file in $files) {
         try { $content = [System.IO.File]::ReadAllText($file.FullName) } catch { continue }
-        foreach ($call in [regex]::Matches($content, $scanPattern)) {
-            if (-not $call.Groups['name'].Success) { continue }
-            $chainName = $call.Groups['name'].Value
-            $chainId = $chainName.Trim().ToUpperInvariant()
-            if (-not $index.ContainsKey($chainId)) { continue }
-            [pscustomobject]@{ File = $file.Name; Name = $chainName; Label = $index[$chainId] }
+        $code = [regex]::Replace($content, "(?<c>$JsCommentPattern)|(?<s>$JsStringPattern)", {
+            param($m) if ($m.Groups['c'].Success) { ' ' } else { $m.Value }
+        })
+        foreach ($m in [regex]::Matches($code, "(?<s>$JsStringPattern)|\bcreateEvmChain\b")) {
+            if ($m.Groups['s'].Success) {
+                # ChainFactory["createEvmChain"](...): acces par chaine, non verifiable.
+                if ($m.Value.Length -ge 2 -and $m.Value.Substring(1, $m.Value.Length - 2) -eq 'createEvmChain') {
+                    [pscustomobject]@{ File = $file.Name; Name = $m.Value; Label = $UnverifiableLabel }
+                }
+                continue
+            }
+            $tail = $code.Substring([Math]::Max(0, $m.Index - 64), [Math]::Min(64, $m.Index))
+            $qualified = $tail -match 'ChainFactory\s*\.\s*$'
+            $after = $code.Substring($m.Index)
+            if ($qualified -and $after -match '^createEvmChain\s*=\s*function\b') { continue }
+            $call = [regex]::Match($after, $RemovedChainLiteralCallPattern)
+            if ($qualified -and $call.Success) {
+                $chainName = $call.Groups['name'].Value
+                $chainId = $chainName.Trim().ToUpperInvariant()
+                if ($index.ContainsKey($chainId)) { [pscustomobject]@{ File = $file.Name; Name = $chainName; Label = $index[$chainId] } }
+                continue
+            }
+            $excerpt = ($after -split "\r?\n", 2)[0].Trim()
+            if ($excerpt.Length -gt 60) { $excerpt = $excerpt.Substring(0, 60) }
+            [pscustomobject]@{ File = $file.Name; Name = $excerpt; Label = $UnverifiableLabel }
         }
     }
 }
@@ -156,11 +193,16 @@ function Test-RemovedChainFiles([string]$factoryPath, $files, [string]$origin) {
     $hits = @(Find-RemovedChainCalls $files $index)
     $refused = $hits.Count -gt 0
     foreach ($hit in $hits) {
-        Write-Host "[ERREUR] src\$($hit.File) appelle ChainFactory.createEvmChain(""$($hit.Name)""): chaine retiree $($hit.Label)" -ForegroundColor Red
+        if ($hit.Label -eq $UnverifiableLabel) {
+            Write-Host "[ERREUR] src\$($hit.File) appelle ChainFactory.createEvmChain de facon non verifiable: $($hit.Name)" -ForegroundColor Red
+        } else {
+            Write-Host "[ERREUR] src\$($hit.File) appelle ChainFactory.createEvmChain(""$($hit.Name)""): chaine retiree $($hit.Label)" -ForegroundColor Red
+        }
     }
     if ($refused) {
         Write-Host "  Liste WCORE_REMOVED_CHAINS lue dans $origin." -ForegroundColor Red
         Write-Host "  Publie, ce fichier leverait CHAIN_REMOVED au chargement et bloquerait tout le script du classeur." -ForegroundColor Red
+        Write-Host "  Un appel non verifiable s'ecrit ChainFactory.createEvmChain(""NOM"", {...}) avec un nom litteral." -ForegroundColor Red
         Write-Host "  Retire ce fichier du dossier de publication (src/) puis relance." -ForegroundColor Red
     } else {
         Write-Host "[OK] Aucun fichier de chaine retiree ($($index.Count) identifiants lus dans $origin)" -ForegroundColor Green
@@ -168,27 +210,65 @@ function Test-RemovedChainFiles([string]$factoryPath, $files, [string]$origin) {
     return $refused
 }
 
-# Avertit (sans refuser) pour chaque fichier present seulement en ligne qui
-# appelle la fabrique pour une chaine retiree. Retourne les appels trouves.
-function Show-RemovedChainOnlineWarnings([string]$factoryPath, $files) {
+# Fichiers presents seulement en ligne qui appellent la fabrique pour une
+# chaine retiree (regle en tete de cette garde). $indexBefore est la liste de
+# la fabrique en ligne avant la fusion ($null si absente ou illisible).
+# Retourne @{ Refused = <bool>; Warnings = <appels signales sans refus> }.
+function Test-RemovedChainOnlineFiles([string]$factoryPath, $indexBefore, $files) {
+    $result = @{ Refused = $false; Warnings = @() }
     $index = Get-RemovedChainIndex $factoryPath
-    if ($null -eq $index) { return }
+    if ($null -eq $index) { return $result }
+    $before = if ($null -eq $indexBefore) { @{} } else { $indexBefore }
+    $newlyRemoved = @($index.Keys | Where-Object { -not $before.ContainsKey($_) } | Sort-Object)
     $hits = @(Find-RemovedChainCalls $files $index)
-    if ($hits.Count -eq 0) { return }
+    if ($hits.Count -eq 0) { return $result }
+    $refused = @()
+    $warned = @()
+    foreach ($hit in $hits) {
+        if ($hit.Label -eq $UnverifiableLabel) {
+            if ($newlyRemoved.Count -gt 0) { $refused += $hit } else { $warned += $hit }
+        } elseif ($before.ContainsKey($hit.Name.Trim().ToUpperInvariant())) {
+            $warned += $hit
+        } else {
+            $refused += $hit
+        }
+    }
+    if ($refused.Count -gt 0) {
+        foreach ($hit in $refused) {
+            if ($hit.Label -eq $UnverifiableLabel) {
+                Write-Host "[ERREUR] Fichier en ligne $($hit.File) appelle ChainFactory.createEvmChain de facon non verifiable: $($hit.Name)" -ForegroundColor Red
+            } else {
+                Write-Host "[ERREUR] Fichier en ligne $($hit.File) appelle ChainFactory.createEvmChain(""$($hit.Name)""): chaine retiree par cette publication $($hit.Label)" -ForegroundColor Red
+            }
+        }
+        $newLabels = @($newlyRemoved | ForEach-Object { $index[$_] } | Sort-Object -Unique) -join ", "
+        Write-Host "  Chaines retirees par cette publication (absentes de la liste de la fabrique en ligne): $newLabels" -ForegroundColor Red
+        Write-Host "  Le classeur charge aujourd'hui avec ce fichier; publiee, la nouvelle fabrique leverait CHAIN_REMOVED au chargement" -ForegroundColor Red
+        Write-Host "  et bloquerait tout le script. Inclure dans src/ une version neutralisee de ce fichier (ou le supprimer" -ForegroundColor Red
+        Write-Host "  du projet Apps Script), puis relancer." -ForegroundColor Red
+        $result.Refused = $true
+        return $result
+    }
     Write-Host ""
     Write-Host "  ========================================" -ForegroundColor Yellow
     Write-Host "  [WARN] FICHIER EN LIGNE DE CHAINE RETIREE" -ForegroundColor Red
-    foreach ($hit in $hits) {
-        Write-Host "  [WARN] Fichier en ligne $($hit.File) appelle ChainFactory.createEvmChain(""$($hit.Name)""): chaine retiree $($hit.Label)" -ForegroundColor Red
+    foreach ($hit in $warned) {
+        if ($hit.Label -eq $UnverifiableLabel) {
+            Write-Host "  [WARN] Fichier en ligne $($hit.File) appelle ChainFactory.createEvmChain de facon non verifiable: $($hit.Name)" -ForegroundColor Red
+        } else {
+            Write-Host "  [WARN] Fichier en ligne $($hit.File) appelle ChainFactory.createEvmChain(""$($hit.Name)""): chaine retiree $($hit.Label)" -ForegroundColor Red
+        }
     }
     Write-Host "  Ce fichier n'est pas dans src/ et safe-push ne supprime jamais un fichier en ligne." -ForegroundColor Red
-    Write-Host "  Avec la fabrique qui sera en ligne, il leve CHAIN_REMOVED au chargement et bloque tout le script du classeur." -ForegroundColor Red
+    Write-Host "  La fabrique en ligne retire deja cette chaine (ou cette publication n'en retire aucune nouvelle):" -ForegroundColor Red
+    Write-Host "  la version en ligne est deja dans cet etat, cette publication ne la casse pas." -ForegroundColor Red
     Write-Host "  Il doit etre neutralise ou supprime dans le projet Apps Script avant ou avec cette publication" -ForegroundColor Red
     Write-Host "  (avec = sa version neutralisee dans src/). Sinon, fais-le juste apres ce push." -ForegroundColor Red
     Write-Host "  Publication poursuivie: un refus empecherait de pousser une reparation." -ForegroundColor Yellow
     Write-Host "  ========================================" -ForegroundColor Yellow
     Write-Host ""
-    return $hits
+    $result.Warnings = $warned
+    return $result
 }
 
 # Controle A (local, avant clasp). Si src/ manque, les verifications plus bas
@@ -331,6 +411,13 @@ $remoteJsFiles = Get-ChildItem -Path $TempDir -Filter "*.js" -File -ErrorAction 
 $remoteCount = if ($remoteJsFiles) { $remoteJsFiles.Count } else { 0 }
 Write-Host "  Fichiers distants: $remoteCount" -ForegroundColor Gray
 
+# Garde chaines retirees: liste de la fabrique en ligne AVANT la fusion (celle
+# que le pull vient de ramener). Elle dit si un fichier present seulement en
+# ligne est deja casse en ligne, ou si cette publication le casserait.
+$guardFactoryOnlineBefore = Join-Path $TempDir "19_CHAIN_FACTORY.js"
+$guardOnlineIndexBefore = $null
+if (Test-Path -LiteralPath $guardFactoryOnlineBefore) { $guardOnlineIndexBefore = Get-RemovedChainIndex $guardFactoryOnlineBefore }
+
 # Copier les .gs de src/ comme .js dans temp (ecrase les existants)
 $replaced = 0
 $added = 0
@@ -378,7 +465,8 @@ if (-not (Test-Path $appsscriptPath)) {
 # liste de la fabrique qui sera reellement en ligne apres le push (celle de
 # src/ si elle est poussee, sinon celle que le pull vient de ramener). Un
 # fichier de src/ fautif est refuse; un fichier present seulement en ligne
-# (ramene par le pull, absent de src/) ne donne qu'un avertissement.
+# (ramene par le pull, absent de src/) est refuse si cette publication retire
+# sa chaine, et seulement signale si la fabrique en ligne la retirait deja.
 $guardOnlineHits = @()
 $guardFactoryMerged = Join-Path $TempDir "19_CHAIN_FACTORY.js"
 if (Test-Path -LiteralPath $guardFactoryMerged) {
@@ -389,7 +477,13 @@ if (Test-Path -LiteralPath $guardFactoryMerged) {
     }
     $guardPushedJs = @($gsFiles | ForEach-Object { $_.Name -replace '\.gs$', '.js' })
     $guardOnlineFiles = @(Get-ChildItem -Path $TempDir -Filter "*.js" -File | Where-Object { $guardPushedJs -notcontains $_.Name })
-    $guardOnlineHits = @(Show-RemovedChainOnlineWarnings $guardFactoryMerged $guardOnlineFiles)
+    $guardOnline = Test-RemovedChainOnlineFiles $guardFactoryMerged $guardOnlineIndexBefore $guardOnlineFiles
+    if ($guardOnline.Refused) {
+        Write-Host "  Push annule: aucune modification du projet distant." -ForegroundColor Red
+        if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
+        exit 1
+    }
+    $guardOnlineHits = @($guardOnline.Warnings)
 } else {
     Write-Host "  [WARN] Garde chaines retirees: 19_CHAIN_FACTORY absent du projet distant et de src/, controle ignore" -ForegroundColor Yellow
 }

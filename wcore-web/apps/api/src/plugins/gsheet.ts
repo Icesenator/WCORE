@@ -552,6 +552,12 @@ function gsheetTokenId(token: unknown): string {
   return tokenStringField(token, "contract") || tokenStringField(token, "address") || tokenStringField(token, "mint") || tokenStringField(token, "denom");
 }
 
+/** A scan whose price repair failed: same balances and prices, plus a degrading error. */
+export function markGsheetPriceRepairFailed(result: GsheetScanResult, message: string): GsheetScanResult {
+  const errors = [...(Array.isArray(result.errors) ? result.errors : []), `[PRICE_REPAIR_FAILED] ${message}`];
+  return { ...result, errors, degraded: true };
+}
+
 async function repairMissingGsheetScanPrices(
   result: GsheetScanResult,
   input: GsheetScanInput,
@@ -1203,7 +1209,15 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
         : await defaultScanRunner(parsed.input, opts.cache, resolvedChain);
       const scanMs = Date.now() - scanStartedAt;
       const repairStartedAt = Date.now();
-      const repaired = await repairMissingGsheetScanPrices(result, parsed.input, priceBatcher);
+      // The scan itself succeeded: a failed price repair must not throw it away for the empty
+      // fallback below (audit of 2026-11-12). Its balances and found prices are kept, marked
+      // degraded: a lone NO_PRICE is benign, so without this flag the sheet would take a partly
+      // priced scan as fresh and replace its useful cache.
+      const repaired = await repairMissingGsheetScanPrices(result, parsed.input, priceBatcher).catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        app.log.warn({ err: message, chain: parsed.input.chain }, "gsheet price repair failed");
+        return markGsheetPriceRepairFailed(result, message);
+      });
       const repairMs = Date.now() - repairStartedAt;
       // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.
       await precomputeWCTStakeLockStatus(parsed.input.chain, parsed.input.address);

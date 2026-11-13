@@ -527,6 +527,50 @@ describe("gsheetPlugin", () => {
     await app.close();
   });
 
+  test("a failed price repair keeps the successful scan, marked degraded, instead of the empty fallback", async () => {
+    const app = Fastify();
+    let batcherCalls = 0;
+    await app.register(gsheetPlugin, {
+      token: "secret",
+      cacheStore: { get: async () => null },
+      chainbaseStakingProvider: noChainbaseStakingProvider,
+      priceBatcher: async () => { batcherCalls += 1; throw new Error("price source unavailable"); },
+      scanRunner: async (input) => ({
+        ok: true,
+        chain: input.chain,
+        chainName: "Base",
+        vm: "EVM",
+        timestamp: "2026-06-26T17:00:00.000Z",
+        native: { symbol: "ETH", balance: 0.01, priceEur: 2100, valueEur: 21 },
+        tokens: [
+          { symbol: "USDC", name: "USD Coin", contract: "0x0000000000000000000000000000000000000001", balance: 10, decimals: 6, priceEur: 0.86, valueEur: 8.6 },
+          { symbol: "AAA", name: "Token A", contract: "0x0000000000000000000000000000000000000002", balance: 5, decimals: 18, priceEur: 0, valueEur: 0 },
+        ],
+        totalValueEur: 29.6,
+        errors: ["AAA price: NO_PRICE"],
+        degraded: false,
+        fxRate: 0.86,
+        scanMs: 123,
+        cacheStats: { hits: 1, misses: 2, stale: 0, skipped: 0 },
+      }),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/gsheet/scan",
+      headers: { "x-gsheet-token": "secret" },
+      payload: { address: "0x0000000000000000000000000000000000000003", chain: "base", customTokens: ["0x0000000000000000000000000000000000000002"] },
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(batcherCalls, 1, "the repair was attempted");
+    const body = JSON.parse(res.body);
+    assert.equal(body.degraded, true, "a partly priced scan is never presented as fresh");
+    assert.equal(body.native.balance, 0.01, "the real balances are kept");
+    assert.ok(body.tokens.some((t: { symbol: string; balance: number }) => t.symbol === "USDC" && t.balance === 10));
+    assert.ok(body.errors.some((e: string) => /^\[PRICE_REPAIR_FAILED\] price source unavailable$/.test(e)));
+    assert.ok(!body.errors.some((e: string) => /WEB_SCAN_ERROR/.test(e)), "not the empty fallback");
+    await app.close();
+  });
+
   test("marks every requested token unknown when the scan itself fails", async () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {

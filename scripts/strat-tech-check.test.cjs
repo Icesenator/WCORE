@@ -146,6 +146,13 @@ test('an email address with a fullwidth or small at sign is masked', () => {
   }
 });
 
+test('no fragment of an address survives: lists, circled a, bare domains', () => {
+  for (const tab of ['alice@example.invalid,bob@private.invalid', 'alice@example.invalid;bob@private.invalid', 'aliceⓐexample.invalid', 'voir private.invalid ici']) {
+    const out = safeTab(tab);
+    assert.doesNotMatch(out, /alice|bob|example|private|invalid/, out);
+  }
+});
+
 test('both HTTP calls refuse redirections', async (t) => {
   const h = harness(t, vr(healthy, ['Ledger - Base'], ['12']));
   const inits = [];

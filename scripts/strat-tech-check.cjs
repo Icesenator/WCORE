@@ -82,7 +82,7 @@ function cleanCell(value, max = 80) {
 function maskEmails(value) {
   // Les variantes pleine chasse (U+FF20) et petite (U+FE6B) de l'arobase sont ramenees a @ pour ce seul masque :
   // une normalisation NFKC complete ici ecrirait un chiffre romain en lettres avant le masque des nombres.
-  return String(value == null ? '' : value).replace(/[＠﹫]/g, '@').replace(/[^\s@]+@[^\s@]+/g, '(email)'); // parentheses: cleanCell garde ( ) et remplace [ ] par ?
+  return String(value == null ? '' : value).replace(/[＠﹫ⓐⒶ]/g, '@').replace(/\S*@\S*/g, '(email)'); // parentheses: cleanCell garde ( ) et remplace [ ] par ?
 }
 
 function safeTab(value, max = 60) {
@@ -92,6 +92,7 @@ function safeTab(value, max = 60) {
   const hide = (t) => t
     .replace(/[a-z][a-z0-9+.-]*:\/\/\S*|www\.\S*/gi, '[lien]')
     .replace(/0x[0-9a-f]{4,}/gi, '[adresse]')
+    .replace(/[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)+/gu, '[domaine]')
     .replace(/[\p{L}\p{N}_-]{20,}/gu, '[identifiant]');
   const numbers = (t) => t.replace(/\p{N}(?:[\p{N} .,']*\p{N})?/gu, '[nombre]');
   const masked = numbers(hide(numbers(hide(cleanCell(maskEmails(value), Number.MAX_SAFE_INTEGER))).normalize('NFKC')));

@@ -78,11 +78,11 @@ function cleanCell(value, max = 80) {
 // Nom d'onglet relaye : texte nettoye, puis tout ce qui ressemble a une donnee est masque sur le texte
 // complet, et seulement ensuite tronque (tronquer d'abord laisserait le debut d'un identifiant long).
 function safeTab(value, max = 60) {
-  const masked = cleanCell(value, Number.MAX_SAFE_INTEGER)
+  const masked = cleanCell(String(value == null ? '' : value).normalize('NFKC'), Number.MAX_SAFE_INTEGER)
     .replace(/https?:\/\/\S*|www\.\S*/gi, '[lien]')
     .replace(/0x[0-9a-f]{4,}/gi, '[adresse]')
-    .replace(/[\p{L}\p{N}_]{20,}/gu, '[identifiant]')
-    .replace(/\d[\d .,']*/g, '[nombre]'); // tout nombre, meme d'un a trois chiffres (un montant)
+    .replace(/[\p{L}\p{N}_-]{20,}/gu, '[identifiant]')
+    .replace(/\p{N}[\p{N} .,']*/gu, '[nombre]'); // tout nombre, meme d'un a trois chiffres (un montant)
   return masked.length > max ? `${masked.slice(0, max - 1)}…` : masked;
 }
 
@@ -186,7 +186,9 @@ function readSheetId(env = process.env, home = os.homedir()) {
 }
 
 async function googleAccessToken(fetchImpl, home = os.homedir()) {
-  const rc = JSON.parse(fs.readFileSync(path.join(home, '.clasprc.json'), 'utf8'));
+  let rc;
+  // Le message d'une erreur JSON.parse cite un extrait du contenu : ici ce serait un extrait du jeton.
+  try { rc = JSON.parse(fs.readFileSync(path.join(home, '.clasprc.json'), 'utf8')); } catch { throw new Error('~/.clasprc.json illisible'); }
   const c = rc && rc.tokens && rc.tokens.default;
   if (!c || !c.refresh_token) throw new Error('jeton clasp introuvable dans ~/.clasprc.json');
   const res = await fetchImpl('https://oauth2.googleapis.com/token', {
@@ -256,5 +258,10 @@ if (require.main === module) {
   const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
   run({ dryRun: argv.includes('--dry-run'), statePath: opt('--state') || DEFAULT_STATE, inboxDir: opt('--inbox') || DEFAULT_INBOX })
     .then((r) => process.exit(r.code))
-    .catch((e) => { console.log(`ERREUR : contrôle impossible : ${e.message}`); process.exit(1); });
+    .catch((e) => {
+      const msg = String((e && e.message) || '');
+      const known = /^(jeton |lecture du classeur |~\/\.clasprc|identifiant du classeur)/.test(msg);
+      console.log(`ERREUR : contrôle impossible : ${known ? msg : 'erreur inattendue (détail non relayé)'}`);
+      process.exit(1);
+    });
 }

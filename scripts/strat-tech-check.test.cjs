@@ -117,6 +117,30 @@ test('any number in a tab name is masked, even one to three digits (an amount)',
   assert.equal(safeTab('Ledger - Base'), 'Ledger - Base', 'a name without number is unchanged');
 });
 
+test('a unicode number and a long dashed identifier in a tab name are masked', () => {
+  assert.doesNotMatch(safeTab('Compte １２３ EUR'), /\d|１/);
+  const dashed = 'abcdefgh-ijklmnop-qrstuvwx-yzabcdef-ghijklmn-opqrstuv'; // 53 caracteres en segments
+  assert.doesNotMatch(safeTab('Ledger ' + dashed), /abcdefgh|ijklmnop/);
+  assert.equal(safeTab('Ledger - Base - compte principal'), 'Ledger - Base - compte principal');
+});
+
+test('a malformed token file never leaks an extract of itself, in the error or in the output', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wcore-strat-home-'));
+  try {
+    fs.writeFileSync(path.join(home, '.clasprc.json'), '{ "tokens": { "default": { "refresh_token": "CANARYTOKENVALUE" ,, }');
+    const lines = [];
+    let message = '';
+    try {
+      await run({ home, env: { WCORE_SHEET_ID: 'SHEET' }, dryRun: true, log: (l) => lines.push(l), fetchImpl: async () => { throw new Error('no network'); } });
+    } catch (e) { message = String(e && e.message); }
+    assert.doesNotMatch(message + lines.join('\n'), /CANARY|refresh_token/);
+    assert.match(message, /illisible/);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('dedup: the same problems within 24 h are not signaled again; a change or 24 h later is', () => {
   const p = ['AZ1: plus de 2 h', 'BK1: A : Erreur (X présent)'];
   const first = decide(p, null, NOW);

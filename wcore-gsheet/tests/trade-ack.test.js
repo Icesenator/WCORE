@@ -113,16 +113,16 @@ test('jobs still waiting in the CEX queue block a second batch even when the sta
   assert.deepEqual(out.refreshed, ['action']);
   // Last job running: it has left the queue, the worker recorded its cell (empty queue, status OK).
   const base = { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN };
-  const running = harness({ props: Object.assign({}, base, { CEX_MANUAL_JOB_QUEUE: '[]', CEX_MANUAL_RUNNING: JSON.stringify({ 'Portefeuille Crypto!V2': { u: Date.now() + 60000, o: 'w1' } }) }) });
+  const running = harness({ props: Object.assign({}, base, { CEX_MANUAL_JOB_QUEUE: '[]', CEX_MANUAL_RUNNING: JSON.stringify({ 'Portefeuille Crypto!V2': [{ u: Date.now() + 60000, o: 'w1' }] }) }) });
   running.state.body = { ok: true, categories: ['crypto'] };
   running.state.status['Portefeuille Crypto!V2'] = 'KRAKEN OK: 14/11 11:00';
   assert.equal(running.run().reason, 'ALREADY_QUEUED');
   assert.equal(running.edits.length, 0);
   // Another cell running does not block this one; an expired record (crashed worker) blocks nothing.
-  const elsewhere = harness({ props: Object.assign({}, base, { CEX_MANUAL_RUNNING: JSON.stringify({ 'Portefeuille Action!U2': { u: Date.now() + 60000, o: 'w1' } }) }) });
+  const elsewhere = harness({ props: Object.assign({}, base, { CEX_MANUAL_RUNNING: JSON.stringify({ 'Portefeuille Action!U2': [{ u: Date.now() + 60000, o: 'w1' }] }) }) });
   elsewhere.state.body = { ok: true, categories: ['crypto'] };
   assert.equal(elsewhere.run().reason, 'REFRESHED');
-  const expired = harness({ props: Object.assign({}, base, { CEX_MANUAL_RUNNING: JSON.stringify({ 'Portefeuille Crypto!V2': { u: Date.now() - 1000, o: 'w1' } }) }) });
+  const expired = harness({ props: Object.assign({}, base, { CEX_MANUAL_RUNNING: JSON.stringify({ 'Portefeuille Crypto!V2': [{ u: Date.now() - 1000, o: 'w1' }] }) }) });
   expired.state.body = { ok: true, categories: ['crypto'] };
   assert.equal(expired.run().reason, 'REFRESHED');
   const broken = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_JOB_QUEUE: '{not json' } });
@@ -162,7 +162,7 @@ test('skipped flag set by the refresh path is reported as skipped, not refreshed
 test('the worker records the running cell under the claim lock and the refresh path decides under that lock (static)', () => {
   const BP = fs.readFileSync(path.join(__dirname, '..', 'src', '35_BITPANDA_SYNC.gs'), 'utf8');
   assert.match(BP, /queue\.shift\(\) : null;[\s\S]{0,1400}CEX_MANUAL_RUNNING[\s\S]{0,600}return claimed;/);
-  assert.match(BP, /m\[jobKey\]\.o === _CEX_WORKER_LEASE_OWNER\) delete m\[jobKey\]/);
+  assert.match(BP, /m\[jobKey\]\[mi\]\.o === _CEX_WORKER_LEASE_OWNER\)[\s\S]{0,80}splice\(mine, 1\)|splice\(mine, 1\)/);
   assert.match(BP, /o: _CEX_WORKER_LEASE_OWNER \}/);
   assert.match(BP, /busyGuard\(queue\)[\s\S]{0,200}skippedBusy = true/);
   assert.match(BP, /ackCrypto \? function \(queue\) \{ return _wcoreTradeAckBusy_\(queue, name, cryptoStatusCell\)/);

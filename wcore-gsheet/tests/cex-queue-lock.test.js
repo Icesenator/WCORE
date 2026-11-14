@@ -185,7 +185,7 @@ test('garde d accuse sous verrou : file, bail du worker et marqueur empechent un
   assert.equal(h.queueValue().length, 1, 'rien n a ete ajoute');
   // 2. le worker a retire le job pour l executer (bail pose avant) : file vide, marqueur expire, bail futur
   h.propsMap.set('CEX_MANUAL_JOB_QUEUE', '[]');
-  h.propsMap.set('CEX_MANUAL_RUNNING', JSON.stringify({ 'Portefeuille Crypto!V2': { u: Date.now() + 60000, o: 'w1' }, 'Portefeuille Action!U2': { u: Date.now() + 60000, o: 'w2' } }));
+  h.propsMap.set('CEX_MANUAL_RUNNING', JSON.stringify({ 'Portefeuille Crypto!V2': [{ u: Date.now() + 60000, o: 'w1' }], 'Portefeuille Action!U2': [{ u: Date.now() + 60000, o: 'w2' }] }));
   assert.equal(h.ctx._cexEnqueueManualJobs_([JOB], guard), 'SKIPPED_BUSY');
   assert.equal(h.queueValue().length, 0, 'le job en cours n est pas re-enfile');
   // 3. rien en cours : l accuse enfile le lot normalement
@@ -198,3 +198,46 @@ test('garde d accuse sous verrou : file, bail du worker et marqueur empechent un
   assert.equal(h.ctx._cexEnqueueManualJobs_([stocks], otherGuard), 'QUEUED');
   assert.equal(h.queueValue().length, 2);
 });
+
+// Deux workers qui se chevauchent sur la MEME cellule (bail de 2 min expire pendant qu un job tourne) :
+// le garde "Trade fait" reste occupe tant que l un des deux tourne, dans les deux ordres de fin.
+function workerHarness() {
+  const h = harness({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', '16C_STRAT_ALERT.gs'), 'utf8'), h.ctx);
+  vm.runInContext('var _CEX_WORKER_BUDGET_MS = 180000; var _CEX_WORKER_LEASE_TTL_MS = 120000; var _CEX_WORKER_LEASE_OWNER = "";', h.ctx);
+  for (const n of ['CEX_MANUAL_REFRESH_WORKER', '_cexWorkerAcquireLease_', '_cexWorkerRenewLease_', '_cexWorkerReleaseLease_']) {
+    vm.runInContext(extractFunction(n), h.ctx);
+  }
+  const busy = () => h.ctx._wcoreTradeAckBusy_(JSON.parse(h.propsMap.get('CEX_MANUAL_JOB_QUEUE') || '[]'), 'Portefeuille Crypto', 'V2');
+  return { h, busy };
+}
+
+for (const order of ['B finit pendant que A tourne']) {
+  test('worker chevauchant sur la meme cellule (' + order + ') : le marqueur reste visible tant qu un worker tourne', () => {
+    const { h, busy } = workerHarness();
+    const J1 = Object.assign({}, JOB, { kind: 'KRAKEN' });
+    const J2 = Object.assign({}, JOB, { kind: 'OKX' });
+    h.enqueue([J1, J2]);
+    h.propsMap.delete('CEX_MANUAL_ACTIVE_UNTIL_MS');
+    const seen = [];
+    let nested = false;
+    h.ctx._cexRunManualJob_ = (job) => {
+      if (job.kind === 'KRAKEN' && !nested) {
+        nested = true;
+        const ownerA = h.ctx._CEX_WORKER_LEASE_OWNER;
+        h.propsMap.delete('CEX_WORKER_LEASE'); // le bail du worker A a expire
+        h.propsMap.set('CEX_MANUAL_JOB_QUEUE', JSON.stringify([J2]));
+        h.ctx.CEX_MANUAL_REFRESH_WORKER(); // worker B : prend OKX, meme cellule, et finit pendant que A tourne
+        h.ctx._CEX_WORKER_LEASE_OWNER = ownerA; // chaque execution Apps Script a ses propres globales
+        seen.push(['A encore actif apres la fin de B', busy()]);
+      } else {
+        seen.push(['B actif', busy()]);
+      }
+      return 'ok';
+    };
+    h.ctx.CEX_MANUAL_REFRESH_WORKER(); // worker A
+    assert.deepEqual(seen, [['B actif', true], ['A encore actif apres la fin de B', true]]);
+    assert.equal(busy(), false, 'plus rien ne tourne : le garde est libre');
+    assert.deepEqual(JSON.parse(h.propsMap.get('CEX_MANUAL_RUNNING') || '{}'), {}, 'aucune entree orpheline');
+  });
+}

@@ -206,8 +206,10 @@ function _wcoreTradeAckBusy_(queue, statusSheetName, statusCell) {
     // runs under that lock: the job is either still in the queue or recorded here, never in between.
     var runMap = null;
     try { runMap = JSON.parse(props.getProperty("CEX_MANUAL_RUNNING") || "null"); } catch (eRun) { runMap = null; }
-    var entry = runMap && typeof runMap === "object" ? runMap[statusSheetName + "!" + statusCell] : null;
-    if (entry && Number(entry.u) > Date.now()) return true;
+    var entries = runMap && typeof runMap === "object" ? runMap[statusSheetName + "!" + statusCell] : null;
+    if (Array.isArray(entries)) {
+      for (var r = 0; r < entries.length; r++) { if (entries[r] && Number(entries[r].u) > Date.now()) return true; }
+    }
     if (!Array.isArray(queue)) return false;
     for (var i = 0; i < queue.length; i++) {
       var j = queue[i] || {};

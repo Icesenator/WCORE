@@ -590,8 +590,13 @@ function CEX_MANUAL_REFRESH_WORKER() {
             try { runMap = JSON.parse(props.getProperty("CEX_MANUAL_RUNNING") || "{}") || {}; } catch (eRunParse) { runMap = {}; }
             if (Object.prototype.toString.call(runMap) !== "[object Object]") runMap = {};
             var nowRun = Date.now();
-            for (var rk in runMap) { if (!runMap[rk] || !(Number(runMap[rk].u) > nowRun)) delete runMap[rk]; }
-            runMap[String(claimed.statusSheetName || "") + "!" + String(claimed.statusCell || "")] = { u: nowRun + 6 * 60 * 1000, o: _CEX_WORKER_LEASE_OWNER };
+            for (var rk in runMap) {
+              var kept = Array.isArray(runMap[rk]) ? runMap[rk].filter(function(x) { return x && Number(x.u) > nowRun; }) : [];
+              if (kept.length) runMap[rk] = kept; else delete runMap[rk];
+            }
+            var runKey = String(claimed.statusSheetName || "") + "!" + String(claimed.statusCell || "");
+            if (!Array.isArray(runMap[runKey])) runMap[runKey] = [];
+            runMap[runKey].push({ u: nowRun + 6 * 60 * 1000, o: _CEX_WORKER_LEASE_OWNER });
             props.setProperty("CEX_MANUAL_RUNNING", JSON.stringify(runMap));
           } catch (eRun) {}
         }
@@ -609,7 +614,13 @@ function CEX_MANUAL_REFRESH_WORKER() {
           _cexQueueMutate_(function() {
             var m = {};
             try { m = JSON.parse(props.getProperty("CEX_MANUAL_RUNNING") || "{}") || {}; } catch (eClrParse) { m = {}; }
-            if (m[jobKey] && m[jobKey].o === _CEX_WORKER_LEASE_OWNER) delete m[jobKey];
+            if (Array.isArray(m[jobKey])) {
+              // Remove one entry of this owner (a worker holds one per job it is running, one at a time).
+              var mine = -1;
+              for (var mi = 0; mi < m[jobKey].length; mi++) { if (m[jobKey][mi] && m[jobKey][mi].o === _CEX_WORKER_LEASE_OWNER) { mine = mi; break; } }
+              if (mine >= 0) m[jobKey].splice(mine, 1);
+              if (!m[jobKey].length) delete m[jobKey];
+            }
             props.setProperty("CEX_MANUAL_RUNNING", JSON.stringify(m));
           });
         } catch (eRunClear) {}

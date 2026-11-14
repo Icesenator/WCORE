@@ -204,9 +204,10 @@ function _wcoreTradeAckBusy_(queue, statusSheetName, statusCell) {
     // The worker records the cell of the job it runs (CEX_MANUAL_RUNNING = "sheet!cell|until"),
     // under the same queue lock as its claim, for at most 6 min (the trigger hard limit). This guard
     // runs under that lock: the job is either still in the queue or recorded here, never in between.
-    var running = String(props.getProperty("CEX_MANUAL_RUNNING") || "");
-    var bar = running.lastIndexOf("|");
-    if (bar > 0 && running.slice(0, bar) === statusSheetName + "!" + statusCell && Number(running.slice(bar + 1)) > Date.now()) return true;
+    var runMap = null;
+    try { runMap = JSON.parse(props.getProperty("CEX_MANUAL_RUNNING") || "null"); } catch (eRun) { runMap = null; }
+    var entry = runMap && typeof runMap === "object" ? runMap[statusSheetName + "!" + statusCell] : null;
+    if (entry && Number(entry.u) > Date.now()) return true;
     if (!Array.isArray(queue)) return false;
     for (var i = 0; i < queue.length; i++) {
       var j = queue[i] || {};

@@ -185,7 +185,7 @@ test('garde d accuse sous verrou : file, bail du worker et marqueur empechent un
   assert.equal(h.queueValue().length, 1, 'rien n a ete ajoute');
   // 2. le worker a retire le job pour l executer (bail pose avant) : file vide, marqueur expire, bail futur
   h.propsMap.set('CEX_MANUAL_JOB_QUEUE', '[]');
-  h.propsMap.set('CEX_MANUAL_RUNNING', 'Portefeuille Crypto!V2|' + (Date.now() + 60000));
+  h.propsMap.set('CEX_MANUAL_RUNNING', JSON.stringify({ 'Portefeuille Crypto!V2': { u: Date.now() + 60000, o: 'w1' }, 'Portefeuille Action!U2': { u: Date.now() + 60000, o: 'w2' } }));
   assert.equal(h.ctx._cexEnqueueManualJobs_([JOB], guard), 'SKIPPED_BUSY');
   assert.equal(h.queueValue().length, 0, 'le job en cours n est pas re-enfile');
   // 3. rien en cours : l accuse enfile le lot normalement

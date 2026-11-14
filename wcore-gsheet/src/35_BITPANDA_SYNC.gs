@@ -583,7 +583,17 @@ function CEX_MANUAL_REFRESH_WORKER() {
         // lock always sees the job either in the queue or here (never in between). 6 min = the
         // trigger hard limit; cleared right after the job.
         if (claimed) {
-          try { props.setProperty("CEX_MANUAL_RUNNING", String(claimed.statusSheetName || "") + "!" + String(claimed.statusCell || "") + "|" + (Date.now() + 6 * 60 * 1000)); } catch (eRun) {}
+          // One entry per cell, each with its owner: two overlapping workers (a lease that expired
+          // while a job still ran) never erase each other's entry.
+          try {
+            var runMap = {};
+            try { runMap = JSON.parse(props.getProperty("CEX_MANUAL_RUNNING") || "{}") || {}; } catch (eRunParse) { runMap = {}; }
+            if (Object.prototype.toString.call(runMap) !== "[object Object]") runMap = {};
+            var nowRun = Date.now();
+            for (var rk in runMap) { if (!runMap[rk] || !(Number(runMap[rk].u) > nowRun)) delete runMap[rk]; }
+            runMap[String(claimed.statusSheetName || "") + "!" + String(claimed.statusCell || "")] = { u: nowRun + 6 * 60 * 1000, o: _CEX_WORKER_LEASE_OWNER };
+            props.setProperty("CEX_MANUAL_RUNNING", JSON.stringify(runMap));
+          } catch (eRun) {}
         }
         return claimed;
       });
@@ -592,7 +602,18 @@ function CEX_MANUAL_REFRESH_WORKER() {
       // last job so on-chain wallets resume scans.
       props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 90 * 1000));
       try { lastResult = _cexRunManualJob_(job); }
-      finally { try { props.deleteProperty("CEX_MANUAL_RUNNING"); } catch (eRunClear) {} }
+      finally {
+        // Removes only this worker's own entry, under the queue lock (the queue is written back unchanged).
+        try {
+          var jobKey = String(job.statusSheetName || "") + "!" + String(job.statusCell || "");
+          _cexQueueMutate_(function() {
+            var m = {};
+            try { m = JSON.parse(props.getProperty("CEX_MANUAL_RUNNING") || "{}") || {}; } catch (eClrParse) { m = {}; }
+            if (m[jobKey] && m[jobKey].o === _CEX_WORKER_LEASE_OWNER) delete m[jobKey];
+            props.setProperty("CEX_MANUAL_RUNNING", JSON.stringify(m));
+          });
+        } catch (eRunClear) {}
+      }
       results.push(lastResult);
       try { _cexWorkerRenewLease_(props); } catch (eLease) {}
       // Transient failure (per-connector lock BUSY, Spreadsheets timeout...): the job was

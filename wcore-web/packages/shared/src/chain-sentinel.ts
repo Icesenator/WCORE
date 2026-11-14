@@ -193,13 +193,15 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
       { kind: "NETWORK_SHUTDOWN", at: "2026-12-09T00:00:00Z", sourceIds: ["zeta-blog"] },
     ],
     sources: {
-      "zeta-blog": { url: "https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9", publisher: "ZetaChain (blog officiel)", publisherEn: "ZetaChain (official blog)", official: true, retrievedAt: "2026-11-12T18:10:00Z" },
+      "zeta-blog": { url: "https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9", publisher: "ZetaChain (blog officiel)", publisherEn: "ZetaChain (official blog)", official: true, retrievedAt: "2026-11-14T10:15:00Z" },
+      "zeta-hub-migrate": { url: "https://hub.zetachain.com/migrate", publisher: "ZetaHub (portail officiel de migration ZETA vers Solana)", publisherEn: "ZetaHub (official ZETA-to-Solana migration portal)", official: true, retrievedAt: "2026-11-14T10:15:00Z" },
+      "zeta-hub-bridged": { url: "https://hub.zetachain.com/bridged-assets", publisher: "ZetaHub (portail officiel des actifs pontés)", publisherEn: "ZetaHub (official bridged-assets portal)", official: true, retrievedAt: "2026-11-14T10:15:00Z" },
     },
     // PLANNED : la reclamation est annoncee pour le jour de l'arret, elle n'est pas encore ouverte.
     recoveryAfterShutdown: "PLANNED",
-    recoveryNote: "« Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key. » Reclamation annoncee a partir de l'arret : ZETA sur Solana (au moins 10 ZETA a l'instantane) ; actifs encore detenus en ZRC-20 sur leur chaine d'origine (minimum de 5 $ par jeton).",
-    recoveryNoteEn: "“Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key.” Claims announced from the halt: ZETA on Solana (at least 10 ZETA at the snapshot); assets still held as ZRC-20 on their original chain (minimum of $5 per token).",
-    lastVerifiedAt: "2026-11-12T18:10:00Z",
+    recoveryNote: "« Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key. » Rien a faire avant le 9 decembre : ce jour-la le portail hub.zetachain.com/migrate ouvre, on connecte le portefeuille qui detenait les ZETA et on signe un MESSAGE (pas une transaction, sans frais, sans SOL, jamais de phrase secrete) nommant un portefeuille Solana ; le solde complet est livre en ZETA natif sur Solana (au moins 10 ZETA a l'instantane ; ZETA stake ou en cours de retrait credite automatiquement). Actifs encore detenus en ZRC-20 : hub.zetachain.com/bridged-assets, payes sur leur chaine d'origine (minimum de 5 $ par jeton). Verifie sur l'instantane publie : possible apres l'arret, aucune date limite indiquee.",
+    recoveryNoteEn: "“Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key.” Nothing to do before December 9: that day the portal at hub.zetachain.com/migrate opens, connect the wallet that held the ZETA and sign a MESSAGE (not a transaction, no fee, no SOL, never a seed phrase) naming a Solana wallet; the full balance is delivered as native ZETA on Solana (at least 10 ZETA at the snapshot; staked or unbonding ZETA is credited automatically). Assets still held as ZRC-20: hub.zetachain.com/bridged-assets, paid on their original chain (minimum of $5 per token). Checked against the published snapshot: possible after the halt, no deadline stated.",
+    lastVerifiedAt: "2026-11-14T10:15:00Z",
   },
   {
     chainKey: "neon",

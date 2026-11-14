@@ -303,63 +303,9 @@ Le Supervisor de WCORE Root est un Codex que la session Claude Code de ce projet
 HISTORIQUE, sans force normative. Florian a retiré le 11/11/2026 la chaîne des prompts GPT Supervisor (générateur, prompts, clean-start, packs) et OpenCode. C'est Codex qui supervise, en lisant le dossier (section « Consultation du Codex Supervisor »). Le contrat PARTIE 1/2/3, le prompt `docs/prompts/supervisor-wcore-cm.md`, `docs/SUPERVISOR-CLEAN-START.md` et le test `scripts/gov-interagent-routing.test.cjs` sont supprimés du dépôt. Les marqueurs `PART*_TARGET`, `PART3_*` et `INTERAGENT_*` qui subsistent ailleurs dans ce fichier sont historiques. Les échanges entre agents passent par les signaux de boîte (`Supervision/data/codex-supervisor/inbox/<projet>/`) et par les messages entre sessions.
 
 <!-- P1-GOV-SUPERVISOR-CONTEXT-FILTERS -->
-## Filtres Windows Search — corpus GPT Supervisor (P1-GOV-SUPERVISOR-CONTEXT-FILTERS)
+## Filtres Windows Search — corpus GPT Supervisor (P1-GOV-SUPERVISOR-CONTEXT-FILTERS) — RETIRÉ le 14/11/2026
+HISTORIQUE, sans force normative. Florian a constaté le 14/11/2026 que ce pied de page n'est plus d'actualité : la chaîne GPT Supervisor est retirée depuis le 11/11/2026 (voir « Routing inter-AGENT — PARTIE 3 »). Aucune réponse ne se termine plus par le bloc « GPT SUPERVISOR — WINDOWS SEARCH » ni par une requête AQS. Les marqueurs `WINDOWS_SEARCH_*` et `FILTER_*` qui subsisteraient ailleurs sont historiques.
 
-GPT_SUPERVISOR_CONTEXT_FILTERS=ENABLED
-SUPERVISOR_CONTEXT_PROFILE_DEFAULT=HOT
-FORENSIC_PROFILE_AVAILABLE=TRUE
-WINDOWS_SEARCH_PROFILE_AUTOSELECT=ENABLED
-WINDOWS_SEARCH_FALLBACK_RENDERED => EXACTLY_ONE_AQS_QUERY
-WINDOWS_SEARCH_DEFAULT_PROFILE=HOT
-WINDOWS_SEARCH_UNCERTAIN_PROFILE_FALLBACK=HOT
-WINDOWS_SEARCH_FORENSIC_ONLY_WHEN_MATERIALLY_REQUIRED=TRUE
-WINDOWS_SEARCH_SECOND_QUERY_FORBIDDEN=TRUE
-WINDOWS_SEARCH_HOT_AND_FORENSIC_TOGETHER_FORBIDDEN=TRUE
-WINDOWS_SEARCH_QUERY_SINGLE_LINE=TRUE
-WINDOWS_SEARCH_QUERY_RAW_COPY_PASTE_READY=TRUE
-WINDOWS_SEARCH_CODE_BLOCK_CONTAINS_QUERY_ONLY=TRUE
-WINDOWS_SEARCH_NO_MANUAL_EDIT_REQUIRED=TRUE
-FILTER_FOOTER_REQUIRED_ON_EVERY_OPENCODE_FINAL_RESPONSE=FALSE ; FILTER_FOOTER_REQUIRED_WHEN_WINDOWS_SEARCH_FALLBACK_RENDERED=TRUE
-FILTER_FOOTER_POSITION_WHEN_FALLBACK=LAST_VISIBLE_BLOCK_BEFORE_MODEL_TURN_END
-FILTER_ROOT_MUST_MATCH_CURRENT_PROJECT=TRUE
-FILTER_QUERY_MUST_BE_SINGLE_LINE=TRUE
-
-### Finalisation : principe positif (etat observe + action sure)
-DECISION_INPUTS=OBSERVED_STATE_AND_SAFE_ACTIONABILITY_ONLY
-ACTIONABLE_WORK_EXISTS=>ACT
-PLATFORM_TERMINATION_REQUIRES_OBSERVED_RUNTIME_FACT=TRUE
-
-FILTER_FOOTER_IS_NOT_HANDOFF=TRUE
-FILTER_FOOTER_IS_NOT_OPERATIONAL_STOP=TRUE
-NO_TEXT_AFTER_FILTER_FOOTER=TRUE
-HOT_EXCLUSION_DOES_NOT_REVOKE_SOURCE_AUTHORITY=TRUE
-FILTER_ROOT=K:\ProjetIA\WCORE
-MODEL_TURN_END != OPERATIONAL_AGENT_STOP
-
-Politique canonique : `K:\ProjetIA\docs\SUPERVISOR-CONTEXT-FILTERS.md`.
-HOT = contexte CURRENT normal (exclut tickets/journal/RAW) ; FORENSIC = preuve/chronologie/audit (les reinclut). Les DEUX profils restent disponibles (semantique R-042 inchangee), mais UNE SEULE requete est rendue par reponse.
-Les deux excluent toujours generated/graphify, .generated, graphify-out, .obsidian-vault, tmp, .tmp, node_modules.
-
-SELECTION (deterministe, avant la reponse finale) : NORMAL_CURRENT_WORK => HOT ; COLD_EVIDENCE_MATERIALLY_REQUIRED (tickets/journal/RAW, chronologie, audit, provenance, reconstruction historique, demande explicite) => FORENSIC ; AMBIGUOUS => HOT (defaut). FORENSIC jamais « au cas où ». Ne jamais rendre HOT et FORENSIC ensemble, ne jamais rendre une seconde requete, ne plus jamais afficher une ligne de recommandation de profil.
-
-A la fin de CHAQUE reponse finale user-visible, selectionner le profil adapte et produire UN SEUL bloc comme DERNIER bloc visible :
-
-GPT SUPERVISOR — WINDOWS SEARCH — <HOT|FORENSIC>
-
-Le bloc texte qui suit contient UNIQUEMENT la requete AQS selectionnee (une seule ligne, root = K:\ProjetIA\WCORE, copiable-collable sans nettoyage). Aucun texte apres ce bloc.
-
-Requetes selectionnables pour WCORE (en choisir UNE selon le profil) :
-
-Profil HOT (defaut) :
-System.FileExtension:=.md NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\generated\graphify" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\.generated\graphify" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\graphify-out" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\.obsidian-vault" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\tmp" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\.tmp" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\node_modules" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\tickets" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\journal" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\RAW"
-
-Profil FORENSIC (si materielllement requis) :
-System.FileExtension:=.md NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\generated\graphify" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\.generated\graphify" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\graphify-out" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\.obsidian-vault" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\tmp" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\.tmp" NOT System.ItemFolderPathDisplay:~<"K:\ProjetIA\WCORE\node_modules"
-
-Le bloc annonce uniquement END_OF_USER_VISIBLE_RESPONSE, jamais END_OF_OPERATIONAL_OWNERSHIP,
-et n'est ni un HANDOFF ni un OPERATIONAL_AGENT_STOP.
-
-<!-- P1-GOV-INTERAGENT-ROUTING — RETIRÉ le 11/11/2026 (voir la section « Routing inter-AGENT ») -->
 INTERAGENT_ROUTING_STATUS=RETIRED_20261111 ; prompt CM, clean-start et garde gov-interagent-routing supprimés du dépôt.
 
 <!-- CHILD_SIDE_FRESHNESS_GUARD (WCORE-owned, durable) -->

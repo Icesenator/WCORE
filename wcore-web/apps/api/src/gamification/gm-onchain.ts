@@ -6,7 +6,7 @@ import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
-import { applyMergedStreak, claimGeneralDailyGm, mergeGeneralStreak } from "./gm-streak-merge.js";
+import { applyMergedStreak, claimGeneralDailyGmWithRetry, mergeGeneralStreak } from "./gm-streak-merge.js";
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const statusOnchainCache = createTtlCache<boolean>(STATUS_ONCHAIN_CACHE_TTL_MS);
@@ -177,8 +177,9 @@ export async function registerGmOnchainRoutes(
           throw new Error("tx_already_used");
         }
 
-        const user = await tx.user.findUnique({ where: { id: req.user!.id } });
-        if (!user) throw new Error("user_not_found");
+        const firstRead = await tx.user.findUnique({ where: { id: req.user!.id } });
+        if (!firstRead) throw new Error("user_not_found");
+        let user = firstRead;
 
         // Score against the day the GM actually happened on-chain (decoded from
         // the GmCheckedIn event), not the day the API call lands. A late
@@ -199,54 +200,17 @@ export async function registerGmOnchainRoutes(
         })();
         const gmDate = gmEventCreatedAt && gmEventCreatedAt.getTime() < now.getTime() ? gmEventCreatedAt : now;
 
-        let generalStreak = user.gmStreak;
-        let generalLongest = user.longestStreak;
-        let scoreGain = 0;
-        let alreadyGeneralGm = false;
-
         // --- General GM streak (once per day across all chains) ---
-        if (user.lastGmDate) {
-          const lastGmDay = startOfUtcDay(new Date(user.lastGmDate));
-          if (lastGmDay.getTime() >= scoringDay.getTime()) {
-            alreadyGeneralGm = true;
-          } else {
-            const dayBefore = new Date(scoringDay);
-            dayBefore.setDate(dayBefore.getDate() - 1);
-            if (lastGmDay.getTime() >= dayBefore.getTime()) {
-              generalStreak = user.gmStreak + 1;
-              generalLongest = Math.max(generalStreak, user.longestStreak);
-              scoreGain += 20 + (generalStreak > 1 ? generalStreak * 2 : 0);
-            } else {
-              generalStreak = 1;
-              generalLongest = Math.max(1, user.longestStreak);
-              scoreGain += 20;
-            }
-          }
-        } else {
-          generalStreak = 1;
-          generalLongest = 1;
-          scoreGain += 20;
-        }
-
-        if (!alreadyGeneralGm) {
-          // Atomic claim of the once-daily general bonus: the conditional
-          // updateMany only matches while lastGmDate is still before the
-          // scoring day, so two concurrent on-chain GMs on different chains
-          // cannot both award it -- the loser matches 0 rows and falls through
-          // to the per-chain-only path (which stays repeatable per chain).
-          // Mirrors the off-chain /api/gm route (gm-routes.ts).
-          // La reclamation compare aussi l'etat lu (serie, record, date) : une reparation ou un GM gratuit
-          // concurrents ne sont pas ecrases par une lecture perimee.
-          const claimed = await claimGeneralDailyGm({ tx, user, scoringDay, gmDate, generalStreak, generalLongest, scoreGain });
-          if (claimed) {
-            await checkStreakBadges(tx, user.id, generalStreak);
-          } else {
-            alreadyGeneralGm = true;
-            generalStreak = user.gmStreak;
-            generalLongest = user.longestStreak;
-            scoreGain = 0;
-          }
-        }
+        // Lecture, calcul, reclamation atomique ; sur perte de la reclamation sans que le jour soit pris
+        // (reparation ou GM gratuit concurrent), relecture et recalcul (3 tours), puis transaction annulee
+        // (anti-rejeu compris) pour permettre une nouvelle soumission. Voir gm-streak-merge.ts.
+        const general = await claimGeneralDailyGmWithRetry({ tx, userId: req.user!.id, initial: user, scoringDay, gmDate });
+        user = general.user;
+        const generalStreak = general.generalStreak;
+        const generalLongest = general.generalLongest;
+        let scoreGain = general.scoreGain;
+        const alreadyGeneralGm = general.alreadyGeneralGm;
+        if (general.claimed) await checkStreakBadges(tx, user.id, generalStreak);
 
         // --- Per-chain GM tracking ---
         const chainGm = await tx.userChainGm.findUnique({
@@ -322,6 +286,10 @@ export async function registerGmOnchainRoutes(
       }
       if (error instanceof Error && error.message === "user_not_found") {
         return reply.code(404).send({ error: "user_not_found" });
+      }
+      if (error instanceof Error && error.message === "gm_conflict") {
+        // Transaction annulee (anti-rejeu compris) : le client peut soumettre de nouveau.
+        return reply.code(409).send({ error: "gm_conflict" });
       }
       throw error;
     }

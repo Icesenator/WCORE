@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { registerGmRoutes } from "./gm-routes.js";
-import { applyMergedStreak, claimGeneralDailyGm, mergeGeneralStreak, type StoredGmState, type StreakStore } from "./gm-streak-merge.js";
+import { applyMergedStreak, claimGeneralDailyGm, claimGeneralDailyGmWithRetry, mergeGeneralStreak, type StoredGmState, type StreakStore } from "./gm-streak-merge.js";
 
 const DAY_MS = 86_400_000;
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -106,6 +106,49 @@ test("on-chain claim: a repair landing after the read makes the claim lose inste
   assert.equal(won2, true);
   assert.equal(row.gmStreak, 10);
   assert.equal(row.score, 40);
+});
+
+test("on-chain claim with retry: a repair that only changes longestStreak does not cost the daily bonus, and the record is kept", async () => {
+  // Lecture : 2 / hier / record 2. Reparation concurrente : record 100 seul. La reclamation perd, relit et recalcule.
+  const row: UserRow = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1), score: 0 };
+  const prisma = {
+    user: {
+      ...fakePrisma(row).user,
+      async findUnique() { return { ...row }; },
+    },
+  };
+  const initial = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1) as Date | null };
+  row.longestStreak = 100;
+  const r = await claimGeneralDailyGmWithRetry({ tx: prisma, userId: "u1", initial, scoringDay: at(0, 0), gmDate: at(0, 9) });
+  assert.equal(r.claimed, true, "the bonus is credited, not lost");
+  assert.equal(r.generalStreak, 3);
+  assert.equal(r.generalLongest, 100, "the repaired record is preserved");
+  assert.equal(row.longestStreak, 100);
+  assert.equal(row.gmStreak, 3);
+  assert.equal(row.score, 26, "20 + 3 * 2 credited exactly once");
+});
+
+test("on-chain claim with retry: when the day was taken meanwhile, no second bonus", async () => {
+  const row: UserRow = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1), score: 0 };
+  const prisma = { user: { ...fakePrisma(row).user, async findUnique() { return { ...row }; } } };
+  const initial = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1) as Date | null };
+  row.gmStreak = 3; row.lastGmDate = at(0, 7); // GM gratuit du jour entre-temps
+  const r = await claimGeneralDailyGmWithRetry({ tx: prisma, userId: "u1", initial, scoringDay: at(0, 0), gmDate: at(0, 9) });
+  assert.equal(r.claimed, false);
+  assert.equal(r.alreadyGeneralGm, true);
+  assert.equal(r.scoreGain, 0);
+  assert.equal(r.generalStreak, 3);
+  assert.equal(row.score, 0);
+});
+
+test("on-chain claim with retry: repeated conflicts abort with gm_conflict and write nothing", async () => {
+  const row: UserRow = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1), score: 0 };
+  let n = 0;
+  const prisma = { user: { ...fakePrisma(row).user, async findUnique() { n += 1; const snap = { ...row }; row.longestStreak += 1; return snap; } } };
+  const initial = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1) as Date | null };
+  row.longestStreak += 1;
+  await assert.rejects(() => claimGeneralDailyGmWithRetry({ tx: prisma, userId: "u1", initial, scoringDay: at(0, 0), gmDate: at(0, 9) }), /gm_conflict/);
+  assert.equal(row.score, 0);
 });
 
 test("free GM: a second free GM the same day is refused after the first one", async () => {

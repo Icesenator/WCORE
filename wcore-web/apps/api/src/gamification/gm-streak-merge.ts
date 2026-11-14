@@ -92,6 +92,68 @@ export async function claimGeneralDailyGm(args: {
   return claimed.count === 1;
 }
 
+type ClaimTx = {
+  user: {
+    findUnique(a: { where: { id: string } }): Promise<({ id: string } & StoredGmState) | null>;
+    updateMany(a: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<{ count: number }>;
+  };
+};
+
+// Serie generale d'un GM en chaine : calcul a partir de l'etat lu, puis reclamation atomique du bonus du jour.
+// Si la reclamation perd :
+//  - le jour est desormais pris (autre GM en chaine ou GM gratuit) : pas de second bonus (alreadyGeneralGm) ;
+//  - sinon (reparation, serie ou record ecrits entre la lecture et l'ecriture) : relecture et recalcul, 3 tours
+//    au plus, puis Error("gm_conflict") pour annuler la transaction et permettre une nouvelle soumission.
+export async function claimGeneralDailyGmWithRetry<U extends { id: string } & StoredGmState>(args: {
+  tx: ClaimTx;
+  userId: string;
+  initial: U;
+  scoringDay: Date;
+  gmDate: Date;
+  maxTries?: number;
+}): Promise<{ claimed: boolean; alreadyGeneralGm: boolean; generalStreak: number; generalLongest: number; scoreGain: number; user: U }> {
+  const { tx, userId, scoringDay, gmDate } = args;
+  const maxTries = args.maxTries ?? 3;
+  const scoringMs = utcDayStartMs(scoringDay);
+  let user = args.initial;
+  for (let attempt = 0; attempt < maxTries; attempt++) {
+    let generalStreak = user.gmStreak;
+    let generalLongest = user.longestStreak;
+    let scoreGain = 0;
+    let alreadyGeneralGm = false;
+    if (user.lastGmDate) {
+      const lastMs = utcDayStartMs(user.lastGmDate);
+      if (lastMs >= scoringMs) {
+        alreadyGeneralGm = true;
+      } else if (lastMs >= scoringMs - DAY_MS) {
+        generalStreak = user.gmStreak + 1;
+        generalLongest = Math.max(generalStreak, user.longestStreak);
+        scoreGain += 20 + (generalStreak > 1 ? generalStreak * 2 : 0);
+      } else {
+        generalStreak = 1;
+        generalLongest = Math.max(1, user.longestStreak);
+        scoreGain += 20;
+      }
+    } else {
+      generalStreak = 1;
+      generalLongest = 1;
+      scoreGain += 20;
+    }
+    if (alreadyGeneralGm) return { claimed: false, alreadyGeneralGm, generalStreak, generalLongest, scoreGain: 0, user };
+
+    if (await claimGeneralDailyGm({ tx, user, scoringDay, gmDate, generalStreak, generalLongest, scoreGain })) {
+      return { claimed: true, alreadyGeneralGm: false, generalStreak, generalLongest, scoreGain, user };
+    }
+    const fresh = (await tx.user.findUnique({ where: { id: userId } })) as U | null;
+    if (!fresh) throw new Error("user_not_found");
+    if (fresh.lastGmDate && utcDayStartMs(fresh.lastGmDate) >= scoringMs) {
+      return { claimed: false, alreadyGeneralGm: true, generalStreak: fresh.gmStreak, generalLongest: fresh.longestStreak, scoreGain: 0, user: fresh };
+    }
+    user = fresh;
+  }
+  throw new Error("gm_conflict");
+}
+
 // Ecriture par comparaison atomique : lecture de l'etat du compte, fusion, puis updateMany conditionne a
 // l'etat lu (gmStreak et lastGmDate). Si un GM gratuit concurrent a ecrit entre la lecture et l'ecriture,
 // l'ecriture ne s'applique pas et la fusion est recalculee sur l'etat frais (au plus maxTries tours).

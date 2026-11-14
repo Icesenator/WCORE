@@ -15,10 +15,9 @@ function harness(opts = {}) {
   const posts = [];
   const edits = [];
   const state = { code: 200, body: { ok: true, categories: [] }, handled: true };
-  const sheets = {
-    'Portefeuille Crypto': { getRange: (a) => ({ sheet: 'Portefeuille Crypto', a }) },
-    'Portefeuille Action': { getRange: (a) => ({ sheet: 'Portefeuille Action', a }) },
-  };
+  state.status = {};
+  const sheet = (name) => ({ getRange: (a) => ({ sheet: name, a, getValue: () => (state.status[name + '!' + a] || '') }) });
+  const sheets = { 'Portefeuille Crypto': sheet('Portefeuille Crypto'), 'Portefeuille Action': sheet('Portefeuille Action') };
   const ctx = {
     JSON, Object, String, Number, Math, isFinite, Array,
     Logger: { log: () => {} },
@@ -46,7 +45,7 @@ test('crypto acknowledgement runs the U2 refresh path once, as an installable-tr
   assert.equal(h.posts[0].url, API + '/api/gsheet/trade-ack/take');
   assert.equal(h.posts[0].options.headers['x-gsheet-token'], TOKEN);
   assert.equal(h.edits.length, 1);
-  assert.deepEqual(h.edits[0].range, { sheet: 'Portefeuille Crypto', a: 'U2' });
+  assert.deepEqual({ sheet: h.edits[0].range.sheet, a: h.edits[0].range.a }, { sheet: 'Portefeuille Crypto', a: 'U2' });
   assert.equal(h.edits[0].value, 'TRUE');
   assert.ok(h.edits[0].triggerUid, 'T2 and U2 paths require an installable-trigger uid');
 });
@@ -56,7 +55,7 @@ test('action acknowledgement targets T2 of Portefeuille Action; both categories 
   h.state.body = { ok: true, categories: ['action', 'crypto'] };
   const out = h.run();
   assert.deepEqual(out.refreshed, ['action', 'crypto']);
-  assert.deepEqual(h.edits.map((e) => e.range), [
+  assert.deepEqual(h.edits.map((e) => ({ sheet: e.range.sheet, a: e.range.a })), [
     { sheet: 'Portefeuille Action', a: 'T2' },
     { sheet: 'Portefeuille Crypto', a: 'U2' },
   ]);
@@ -80,6 +79,28 @@ test('nothing waiting, API error, no response, no config: no refresh', () => {
   const bare = harness({ props: {} });
   assert.equal(bare.run().reason, 'NO_API');
   assert.equal(bare.posts.length, 0);
+});
+
+test('a refresh already queued (manual tick or earlier ack) is not doubled: no second CEX batch', () => {
+  const h = harness();
+  h.state.body = { ok: true, categories: ['crypto', 'action'] };
+  h.state.status['Portefeuille Crypto!V2'] = 'QUEUED: 14/11 12:00';
+  const out = h.run();
+  assert.deepEqual(out.skipped, ['crypto']);
+  assert.deepEqual(out.refreshed, ['action']);
+  assert.equal(h.edits.length, 1);
+  assert.equal(h.edits[0].range.sheet, 'Portefeuille Action');
+
+  const all = harness();
+  all.state.body = { ok: true, categories: ['crypto'] };
+  all.state.status['Portefeuille Crypto!V2'] = '  queued: x';
+  assert.equal(all.run().reason, 'ALREADY_QUEUED');
+  assert.equal(all.edits.length, 0);
+
+  const done = harness();
+  done.state.body = { ok: true, categories: ['crypto'] };
+  done.state.status['Portefeuille Crypto!V2'] = 'KRAKEN OK: 14/11 11:00';
+  assert.equal(done.run().reason, 'REFRESHED');
 });
 
 test('unknown categories are ignored and an unhandled refresh is reported, not retried', () => {

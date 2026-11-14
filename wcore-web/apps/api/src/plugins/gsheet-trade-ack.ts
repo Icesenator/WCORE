@@ -23,12 +23,13 @@ export type AckCategory = "crypto" | "action";
 export const ackQuerySchema = z.object({
   c: z.enum(["crypto", "action"]),
   o: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  e: z.string().regex(/^[0-9]{9,12}$/),
   t: z.string().regex(/^[0-9a-f]{32}$/),
 }).strict();
 
-/** Token of one notification: HMAC(topic, "ack|category|occurrence"). */
-export function ackToken(topic: string, category: AckCategory, occurrence: string): string {
-  return createHmac("sha256", topic).update("ack|" + category + "|" + occurrence).digest("hex").slice(0, 32);
+/** Token of one notification: HMAC(topic, "ack|category|occurrence|expiry"), expiry in epoch seconds. */
+export function ackToken(topic: string, category: AckCategory, occurrence: string, expiry: number): string {
+  return createHmac("sha256", topic).update("ack|" + category + "|" + occurrence + "|" + String(expiry)).digest("hex").slice(0, 32);
 }
 
 /** Storage key of an acknowledgement (never the token itself). */
@@ -37,12 +38,21 @@ export function ackKey(topic: string, category: AckCategory, occurrence: string)
 }
 
 /** ntfy "Actions" header value: one HTTP button, notification cleared after the tap. */
-export function buildAckActionHeader(baseUrl: string, topic: string, category: AckCategory, occurrence: string): string {
+export function buildAckActionHeader(
+  baseUrl: string, topic: string, category: AckCategory, occurrence: string, now: number = Date.now(),
+): string {
   const u = new URL("/api/trade-ack", baseUrl);
+  const expiry = Math.floor((now + ACK_MAX_AGE_MS) / 1000);
   u.searchParams.set("c", category);
   u.searchParams.set("o", occurrence);
-  u.searchParams.set("t", ackToken(topic, category, occurrence));
+  u.searchParams.set("e", String(expiry));
+  u.searchParams.set("t", ackToken(topic, category, occurrence, expiry));
   return "http, Trade fait, " + u.toString() + ", method=POST, clear=true";
+}
+
+/** URL as it may appear in logs: the query of the tap URL (token, occurrence) is never logged. */
+export function maskAckUrl(url: unknown): string {
+  return String(url ?? "").replace(/^(\/api\/trade-ack)\?.*$/, "$1?[masked]");
 }
 
 export interface AckStore {
@@ -67,11 +77,16 @@ function safeHexEq(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export async function handleTradeAck(query: unknown, deps: AckDeps): Promise<AckResult> {
+export async function handleTradeAck(query: unknown, deps: AckDeps, now: number = Date.now()): Promise<AckResult> {
   const parsed = ackQuerySchema.safeParse(query);
   if (!parsed.success) return { status: 400, body: { ok: false, error: "invalid_request" } };
   const { c, o, t } = parsed.data;
-  if (!safeHexEq(t, ackToken(deps.topic, c, o))) return { status: 403, body: { ok: false, error: "forbidden" } };
+  const expiry = Number(parsed.data.e);
+  if (!safeHexEq(t, ackToken(deps.topic, c, o, expiry))) return { status: 403, body: { ok: false, error: "forbidden" } };
+  // The expiry is signed, so it cannot be moved; it is checked before anything is recorded. A link
+  // is therefore dead for good once expired, even after its stored acknowledgement was purged.
+  const nowS = Math.floor(now / 1000);
+  if (nowS > expiry || expiry > nowS + Math.ceil(ACK_MAX_AGE_MS / 1000) + 60) return { status: 403, body: { ok: false, error: "expired" } };
   const r = await deps.store.record(ackKey(deps.topic, c, o), c);
   if (r === "unavailable") return { status: 503, body: { ok: false, error: "unavailable" } };
   return { status: 200, body: r === "duplicate" ? { ok: true, duplicate: true } : { ok: true } };

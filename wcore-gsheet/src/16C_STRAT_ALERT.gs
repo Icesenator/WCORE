@@ -190,15 +190,15 @@ function _wcoreCheckStratAlert_(ss) {
  * 10 min) takes the waiting acknowledgements (at most once each, so a second Kraken call can never
  * follow) and runs exactly what ticking the manual refresh cell does: Portefeuille Crypto!U2
  * (CEX crypto) or Portefeuille Action!T2 (CEX stocks), through BITPANDA_ON_EDIT.
- * @return {Object} diagnostic {ran, reason, taken, refreshed}
+ * @return {Object} diagnostic {ran, reason, taken, refreshed, skipped}
  */
 var TRADE_ACK_TARGETS = {
-  crypto: { sheet: "Portefeuille Crypto", cell: "U2" },
-  action: { sheet: "Portefeuille Action", cell: "T2" }
+  crypto: { sheet: "Portefeuille Crypto", cell: "U2", statusCell: "V2" },
+  action: { sheet: "Portefeuille Action", cell: "T2", statusCell: "U2" }
 };
 
 function _wcoreCheckTradeAck_(ss) {
-  var out = { ran: false, reason: "", taken: 0, refreshed: [] };
+  var out = { ran: false, reason: "", taken: 0, refreshed: [], skipped: [] };
   try {
     var api = _wcoreStratAlertApi_();
     if (!api) { out.reason = "NO_API"; return out; }
@@ -223,10 +223,15 @@ function _wcoreCheckTradeAck_(ss) {
       out.taken++;
       var sheet = ss && ss.getSheetByName(target.sheet);
       if (!sheet || typeof BITPANDA_ON_EDIT !== "function") continue;
+      // A manual tick (or an earlier acknowledgement) is already queued and not finished: its status
+      // cell still reads QUEUED. Do not add a second batch of CEX jobs (second Kraken call).
+      var status = "";
+      try { status = String(sheet.getRange(target.statusCell).getValue() || ""); } catch (eStatus) { status = ""; }
+      if (/^\s*QUEUED/i.test(status)) { out.skipped.push(String(cats[i])); continue; }
       var handled = BITPANDA_ON_EDIT({ range: sheet.getRange(target.cell), value: "TRUE", triggerUid: "TRADE_ACK" });
       if (handled) out.refreshed.push(String(cats[i]));
     }
-    out.reason = out.refreshed.length ? "REFRESHED" : "NOT_HANDLED";
+    out.reason = out.refreshed.length ? "REFRESHED" : (out.skipped.length ? "ALREADY_QUEUED" : "NOT_HANDLED");
     Logger.log("[TRADE_ACK] " + out.reason + " taken=" + out.taken + " refreshed=" + out.refreshed.join(","));
   } catch (e) {
     out.reason = "ERROR";

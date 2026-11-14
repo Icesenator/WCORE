@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import { gsheetPlugin } from "./gsheet.js";
 import { handleNotify, notifyHeaders } from "./gsheet-notify.js";
 import {
-  ackKey, ackToken, buildAckActionHeader, handleTradeAck, handleTradeAckTake, type AckCategory, type AckStore,
+  ackKey, ackToken, buildAckActionHeader, handleTradeAck, handleTradeAckTake, maskAckUrl, type AckCategory, type AckStore,
 } from "./gsheet-trade-ack.js";
 
 const TOPIC = "test-topic-abcdef123";
@@ -33,17 +33,21 @@ function memoryStore(clock: { now: number } = { now: 1_000_000 }): AckStore & { 
   };
 }
 
-function query(category: AckCategory = "crypto", occ = OCC, token?: string) {
-  return { c: category, o: occ, t: token ?? ackToken(TOPIC, category, occ) };
+const NOW = 1_794_470_000_000;
+const EXP = Math.floor((NOW + 6 * 60 * 60 * 1000) / 1000);
+
+function query(category: AckCategory = "crypto", occ = OCC, token?: string, expiry = EXP) {
+  return { c: category, o: occ, e: String(expiry), t: token ?? ackToken(TOPIC, category, occ, expiry) };
 }
 
 test("the button header is one http action with a per-notification token and no secret", () => {
-  const h = buildAckActionHeader(BASE, TOPIC, "crypto", OCC);
-  assert.match(h, /^http, Trade fait, https:\/\/api\.example\.test\/api\/trade-ack\?c=crypto&o=AY1-1794470000000&t=[0-9a-f]{32}, method=POST, clear=true$/);
+  const h = buildAckActionHeader(BASE, TOPIC, "crypto", OCC, NOW);
+  assert.match(h, /^http, Trade fait, https:\/\/api\.example\.test\/api\/trade-ack\?c=crypto&o=AY1-1794470000000&e=1794491600&t=[0-9a-f]{32}, method=POST, clear=true$/);
   assert.ok(!h.includes(TOPIC));
-  assert.notEqual(ackToken(TOPIC, "crypto", OCC), ackToken(TOPIC, "action", OCC));
-  assert.notEqual(ackToken(TOPIC, "crypto", OCC), ackToken(TOPIC, "crypto", "AY1-1794470000001"));
-  assert.notEqual(ackToken(TOPIC, "crypto", OCC), ackKey(TOPIC, "crypto", OCC));
+  assert.notEqual(ackToken(TOPIC, "crypto", OCC, EXP), ackToken(TOPIC, "action", OCC, EXP));
+  assert.notEqual(ackToken(TOPIC, "crypto", OCC, EXP), ackToken(TOPIC, "crypto", "AY1-1794470000001", EXP));
+  assert.notEqual(ackToken(TOPIC, "crypto", OCC, EXP), ackToken(TOPIC, "crypto", OCC, EXP + 1));
+  assert.notEqual(ackToken(TOPIC, "crypto", OCC, EXP), ackKey(TOPIC, "crypto", OCC));
 });
 
 test("notification headers carry the button only for a rebalancing event over https", () => {
@@ -63,14 +67,17 @@ test("a rebalancing notification is sent with the Actions header", async () => {
   );
   assert.equal(r.status, 200);
   const headers = calls[0]!.init.headers as Record<string, string>;
-  assert.equal(headers.Actions, buildAckActionHeader(BASE, TOPIC, "crypto", OCC));
+  const url = new URL(String(headers.Actions).split(", ")[2]!);
+  const expiry = Number(url.searchParams.get("e"));
+  assert.ok(expiry * 1000 > Date.now() && expiry * 1000 <= Date.now() + 6 * 60 * 60 * 1000 + 1000);
+  assert.equal(url.searchParams.get("t"), ackToken(TOPIC, "crypto", OCC, expiry));
 });
 
 test("a valid token records one acknowledgement, the second tap is a duplicate", async () => {
   const store = memoryStore();
-  const a = await handleTradeAck(query(), { topic: TOPIC, store });
+  const a = await handleTradeAck(query(), { topic: TOPIC, store }, NOW);
   assert.deepEqual(a, { status: 200, body: { ok: true } });
-  const b = await handleTradeAck(query(), { topic: TOPIC, store });
+  const b = await handleTradeAck(query(), { topic: TOPIC, store }, NOW);
   assert.deepEqual(b, { status: 200, body: { ok: true, duplicate: true } });
   assert.equal(store.rows.length, 1);
   assert.ok(!JSON.stringify(store.rows).includes(OCC), "the occurrence is stored hashed");
@@ -80,34 +87,51 @@ test("a wrong, truncated, swapped or forged token is refused and stores nothing"
   const store = memoryStore();
   const cases = [
     query("crypto", OCC, "0".repeat(32)),
-    query("action", OCC, ackToken(TOPIC, "crypto", OCC)),
-    query("crypto", "AY1-1794470000001", ackToken(TOPIC, "crypto", OCC)),
-    query("crypto", OCC, ackToken("another-topic-xyz1234", "crypto", OCC)),
+    query("action", OCC, ackToken(TOPIC, "crypto", OCC, EXP)),
+    query("crypto", "AY1-1794470000001", ackToken(TOPIC, "crypto", OCC, EXP)),
+    query("crypto", OCC, ackToken("another-topic-xyz1234", "crypto", OCC, EXP)),
+    query("crypto", OCC, ackToken(TOPIC, "crypto", OCC, EXP), EXP + 3600),
   ];
-  for (const q of cases) assert.equal((await handleTradeAck(q, { topic: TOPIC, store })).status, 403);
-  for (const q of [{}, { ...query(), extra: "1" }, query("crypto", "bad id"), { ...query(), t: "short" }, { ...query(), c: "other" }]) {
-    assert.equal((await handleTradeAck(q, { topic: TOPIC, store })).status, 400);
+  for (const q of cases) assert.equal((await handleTradeAck(q, { topic: TOPIC, store }, NOW)).status, 403);
+  for (const q of [{}, { ...query(), extra: "1" }, query("crypto", "bad id"), { ...query(), t: "short" }, { ...query(), c: "other" }, { c: "crypto", o: OCC, t: ackToken(TOPIC, "crypto", OCC, EXP) }]) {
+    assert.equal((await handleTradeAck(q, { topic: TOPIC, store }, NOW)).status, 400);
   }
   assert.equal(store.rows.length, 0);
 });
 
+test("an expired link is refused for good, even after its stored acknowledgement was purged", async () => {
+  const store = memoryStore();
+  const late = NOW + 6 * 60 * 60 * 1000 + 2000;
+  const r = await handleTradeAck(query(), { topic: TOPIC, store }, late);
+  assert.deepEqual(r, { status: 403, body: { ok: false, error: "expired" } });
+  assert.equal(store.rows.length, 0);
+  const far = EXP + 7 * 24 * 3600;
+  assert.equal((await handleTradeAck(query("crypto", OCC, undefined, far), { topic: TOPIC, store }, NOW)).status, 403);
+});
+
+test("the tap URL query never reaches the logs", () => {
+  assert.equal(maskAckUrl("/api/trade-ack?c=crypto&o=AY1-1794470000000&e=1&t=" + "a".repeat(32)), "/api/trade-ack?[masked]");
+  assert.equal(maskAckUrl("/api/health"), "/api/health");
+  assert.equal(maskAckUrl(undefined), "");
+});
+
 test("a storage failure answers 503", async () => {
   const store: AckStore = { record: async () => "unavailable", take: async () => null };
-  assert.equal((await handleTradeAck(query(), { topic: TOPIC, store })).status, 503);
+  assert.equal((await handleTradeAck(query(), { topic: TOPIC, store }, NOW)).status, 503);
   assert.equal((await handleTradeAckTake(store)).status, 503);
 });
 
 test("the workbook takes each acknowledgement once, and not after six hours", async () => {
   const clock = { now: 1_000_000 };
   const store = memoryStore(clock);
-  await handleTradeAck(query("crypto"), { topic: TOPIC, store });
-  await handleTradeAck(query("action", "BE1-1794470000000"), { topic: TOPIC, store });
+  await handleTradeAck(query("crypto"), { topic: TOPIC, store }, NOW);
+  await handleTradeAck(query("action", "BE1-1794470000000"), { topic: TOPIC, store }, NOW);
   const first = await handleTradeAckTake(store);
   assert.deepEqual(first.status === 200 ? first.body.categories.sort() : null, ["action", "crypto"]);
   const second = await handleTradeAckTake(store);
   assert.deepEqual(second.status === 200 ? second.body.categories : null, []);
 
-  await handleTradeAck(query("crypto", "AY1-1794470009999"), { topic: TOPIC, store });
+  await handleTradeAck(query("crypto", "AY1-1794470009999"), { topic: TOPIC, store }, NOW);
   clock.now += 6 * 60 * 60 * 1000 + 1;
   const late = await handleTradeAckTake(store);
   assert.deepEqual(late.status === 200 ? late.body.categories : null, [], "an old acknowledgement is not replayed");
@@ -117,7 +141,8 @@ test("routes: the tap needs no workbook token, the take needs it, both are off w
   const store = memoryStore();
   const app = Fastify();
   await app.register(gsheetPlugin, { token: TOKEN, ack: { topic: TOPIC, store } } as never);
-  const q = new URLSearchParams(query() as Record<string, string>).toString();
+  const liveExp = Math.floor((Date.now() + 60 * 60 * 1000) / 1000);
+  const q = new URLSearchParams(query("crypto", OCC, undefined, liveExp) as Record<string, string>).toString();
 
   const tap = await app.inject({ method: "POST", url: "/api/trade-ack?" + q });
   assert.equal(tap.statusCode, 200);

@@ -30,7 +30,7 @@ import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics
 import { sharePlugin } from "./plugins/share.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
 import { createPrismaNotifyAdmission } from "./plugins/gsheet-notify.js";
-import { createPrismaAckStore } from "./plugins/gsheet-trade-ack.js";
+import { createPrismaAckStore, maskAckUrl } from "./plugins/gsheet-trade-ack.js";
 import { createRpcBytecodeFetcher, createScamEnrichmentLoader, createScamDecisionLogger } from "./plugins/scam-enrichment.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
@@ -54,13 +54,24 @@ const HOST = apiConfig.server.host;
 const trustProxyScope = positionalTrustProxy(apiConfig.server.trustProxy);
 const trustProxy = trustProxyScope.trust;
 
+// Same fields as Fastify's default request log, with the tap URL query (token) masked.
+function serializeLoggedRequest(request: { method?: string; url?: string; host?: string; ip?: string; socket?: { remotePort?: number } }) {
+  return {
+    method: request.method,
+    url: maskAckUrl(request.url),
+    host: request.host,
+    remoteAddress: request.ip,
+    remotePort: request.socket?.remotePort,
+  };
+}
+
 const app = Fastify({
   trustProxy,
   logger: apiConfig.runtime.isTest
     ? false
     : (apiConfig.server.usePrettyLogger
-      ? { level: apiConfig.server.logLevel, transport: { target: "pino-pretty" } }
-      : { level: apiConfig.server.logLevel }),
+      ? { level: apiConfig.server.logLevel, transport: { target: "pino-pretty" }, serializers: { req: serializeLoggedRequest } }
+      : { level: apiConfig.server.logLevel, serializers: { req: serializeLoggedRequest } }),
 });
 
 const trustProxyWarning = trustProxyStartupWarning(apiConfig.server.trustProxy, apiConfig.runtime.isProduction);

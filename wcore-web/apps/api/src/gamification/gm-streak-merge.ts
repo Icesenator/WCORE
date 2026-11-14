@@ -43,13 +43,14 @@ export function mergeGeneralStreak(args: {
 
   const storedDay = stored.lastGmDate ? utcDayStartMs(stored.lastGmDate) : null;
   const latestDay = latestEventMs != null ? utcDayStartMs(latestEventMs) : null;
-  const storedStillValid = storedDay != null && (storedDay === today || storedDay === yesterday) && stored.gmStreak > 0;
+  // >= hier : tolere aussi un lastGmDate legerement dans le futur (derive d'horloge) au lieu de le juger expire.
+  const storedStillValid = storedDay != null && storedDay >= yesterday && stored.gmStreak > 0;
 
   let base = 0;
   if (storedStillValid) {
     base = stored.gmStreak;
     // Le compte s'arretait a hier et un GM en chaine arrive aujourd'hui : ce jour s'ajoute une fois.
-    if (storedDay === yesterday && latestDay === today) base += 1;
+    if (storedDay === yesterday && latestDay != null && latestDay >= today) base += 1;
   }
 
   const gmStreak = Math.max(computedStreak, base);

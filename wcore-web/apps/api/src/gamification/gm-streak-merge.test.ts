@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyMergedStreak, mergeGeneralStreak, type StoredGmState, type StreakStore } from "./gm-streak-merge.js";
+import { mergeGeneralStreak } from "./gm-streak-merge.js";
 
 const DAY_MS = 86_400_000;
 const NOW = new Date(Date.UTC(2026, 10, 14, 10, 0, 0)); // 14/11/2026 10:00 UTC
@@ -64,6 +64,15 @@ test("lastGmDate never goes backwards", () => {
   });
   assert.equal(r.lastGmDate?.getTime(), at(-1).getTime());
   assert.equal(r.gmStreak, 5, "stored streak (last GM yesterday) still valid");
+});
+
+test("a slightly future stored lastGmDate (clock drift) is not judged expired", () => {
+  const r = mergeGeneralStreak({
+    computedStreak: 1, computedLongest: 1, latestEventMs: at(0).getTime(),
+    stored: { gmStreak: 12, longestStreak: 12, lastGmDate: at(1, 2) }, now: NOW,
+  });
+  assert.equal(r.gmStreak, 12);
+  assert.equal(r.lastGmDate?.getTime(), at(1, 2).getTime(), "lastGmDate never goes backwards");
 });
 
 test("no stored date and no event: nothing changes", () => {

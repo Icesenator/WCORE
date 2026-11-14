@@ -143,8 +143,7 @@ test("on-chain claim with retry: when the day was taken meanwhile, no second bon
 
 test("on-chain claim with retry: repeated conflicts abort with gm_conflict and write nothing", async () => {
   const row: UserRow = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1), score: 0 };
-  let n = 0;
-  const prisma = { user: { ...fakePrisma(row).user, async findUnique() { n += 1; const snap = { ...row }; row.longestStreak += 1; return snap; } } };
+  const prisma = { user: { ...fakePrisma(row).user, async findUnique() { const snap = { ...row }; row.longestStreak += 1; return snap; } } };
   const initial = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1) as Date | null };
   row.longestStreak += 1;
   await assert.rejects(() => claimGeneralDailyGmWithRetry({ tx: prisma, userId: "u1", initial, scoringDay: at(0, 0), gmDate: at(0, 9) }), /gm_conflict/);

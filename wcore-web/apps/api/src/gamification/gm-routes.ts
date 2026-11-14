@@ -73,8 +73,8 @@ export async function registerGmRoutes(
           return { error: "already_gm_today", streak: user.gmStreak };
         }
 
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
+        // Hier en UTC strict (pas d'arithmetique en heure locale du serveur) : meme regle que la fusion.
+        const yesterday = new Date(today.getTime() - 86_400_000);
 
         if (lastGmDay.getTime() >= yesterday.getTime()) {
           const newStreak = user.gmStreak + 1;

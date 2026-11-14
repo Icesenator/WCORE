@@ -465,6 +465,15 @@ const hyperevm: Chain = {
   blockExplorers: { default: { name: "HyperEVM Scan", url: "https://hyperevmscan.io" } },
 };
 
+// Elysium (Kinetiq mainnet), chainId 99901, native HYPE. Jamais l'Elysium de Vulcan Forged (1339).
+const elysium: Chain = {
+  id: 99901,
+  name: "Elysium",
+  nativeCurrency: { name: "Hyperliquid", symbol: "HYPE", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.elysium.kinetiq.xyz"] }, public: { http: ["https://rpc.elysium.kinetiq.xyz"] } },
+  blockExplorers: { default: { name: "Elysium Explorer", url: "https://elysium.kinetiq.xyz/explorer" } },
+};
+
 // Arc (Circle) mainnet, chainId 5042, where USDC is the native gas token (18 dec).
 // viem still ships only `arcTestnet`, so mainnet is defined locally. Values match
 // the canonical registry (wcore-gsheet/src/ARC.gs) and docs.arc.io: all four RPCs
@@ -526,7 +535,7 @@ export const config = createConfig({
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
     mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
-    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca],
+    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca, elysium],
   // as any needed — wagmi connector types mismatch with custom chain list
   connectors: wagmiConnectors as any,
   transports: {
@@ -611,6 +620,7 @@ export const config = createConfig({
     [hashkey.id]: http(),
     [hemi.id]: http(),
     [hyperevm.id]: http(),
+    [elysium.id]: http(),
     [immutableZkEvm.id]: http(),
     [morph.id]: http(),
     [mezo.id]: http(),

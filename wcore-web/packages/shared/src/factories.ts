@@ -164,6 +164,11 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // 3394 chars, implementation() → 0x4d90e914871921f0443bda53f70def868d9f2960).
   // Standard build, no Paris fallback needed.
   arc: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 5042 },
+  // Elysium (Kinetiq mainnet, chainId 99901, native HYPE) : jamais l'Elysium de Vulcan Forged (1339). Fabrique deployee
+  // par le proprietaire le 2026-11-14, verifiee en lecture seule sur le RPC : code 1696 octets (comme les autres
+  // fabriques), platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0xc3e5ef8c71712f55fabc6b3c07844a49103c9d8f
+  // (GmOnChain, 2237 octets, bytecode conforme a contracts/build.json). PUSH0 supportee : build par defaut.
+  elysium: { address: "0xb6a0615caf1fc1d27688f77de251411776404110", chainId: 99901 },
 };
 
 export function getFactoryChainIds(): number[] {

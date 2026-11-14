@@ -59,6 +59,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   katana: "Katana",
   arc: "Arc",
   moca: "Moca Chain",
+  elysium: "Elysium",
 };
 
 const SOON_CHAIN_CANDIDATES: GmChain[] = [

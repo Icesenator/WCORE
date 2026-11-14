@@ -31,6 +31,6 @@ test("Elysium uses the default (Shanghai) build: PUSH0 is supported, probed 2026
   assert.ok(!PARIS_BUILD_CHAINS.has("ELYSIUM"));
 });
 
-test("offering Elysium in /dev/deploy does not make GM active there before a factory is deployed", () => {
-  assert.equal(GM_FACTORIES.elysium, undefined, "no active GM factory until its address is provided");
+test("Elysium is offered in /dev/deploy and, since the factory is registered, in GM_FACTORIES at 99901", () => {
+  assert.equal(GM_FACTORIES.elysium?.chainId, 99901);
 });

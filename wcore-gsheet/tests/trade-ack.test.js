@@ -103,6 +103,19 @@ test('a refresh already queued (manual tick or earlier ack) is not doubled: no s
   assert.equal(done.run().reason, 'REFRESHED');
 });
 
+test('jobs still waiting in the CEX queue block a second batch even when the status already reads OK', () => {
+  const queue = JSON.stringify([{ kind: 'OKX', statusSheetName: 'Portefeuille Crypto', statusCell: 'V2' }]);
+  const h = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_JOB_QUEUE: queue } });
+  h.state.body = { ok: true, categories: ['crypto', 'action'] };
+  h.state.status['Portefeuille Crypto!V2'] = 'BINANCE OK: 14/11 11:00';
+  const out = h.run();
+  assert.deepEqual(out.skipped, ['crypto']);
+  assert.deepEqual(out.refreshed, ['action']);
+  const broken = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_JOB_QUEUE: '{not json' } });
+  broken.state.body = { ok: true, categories: ['crypto'] };
+  assert.equal(broken.run().reason, 'REFRESHED');
+});
+
 test('unknown categories are ignored and an unhandled refresh is reported, not retried', () => {
   const h = harness();
   h.state.body = { ok: true, categories: ['other', 'crypto'] };

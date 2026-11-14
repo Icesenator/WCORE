@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { gsheetPlugin } from "./gsheet.js";
 import { handleNotify, notifyHeaders } from "./gsheet-notify.js";
+import { requiresCsrfOriginCheck } from "../server-helpers.js";
 import {
   ackKey, ackToken, buildAckActionHeader, handleTradeAck, handleTradeAckTake, maskAckUrl, type AckCategory, type AckStore,
 } from "./gsheet-trade-ack.js";
@@ -112,7 +113,19 @@ test("an expired link is refused for good, even after its stored acknowledgement
 test("the tap URL query never reaches the logs", () => {
   assert.equal(maskAckUrl("/api/trade-ack?c=crypto&o=AY1-1794470000000&e=1&t=" + "a".repeat(32)), "/api/trade-ack?[masked]");
   assert.equal(maskAckUrl("/api/health"), "/api/health");
+  assert.equal(maskAckUrl("/api/search?q=1"), "/api/search?q=1");
   assert.equal(maskAckUrl(undefined), "");
+  for (const variant of ["/%61pi/trade-ack", "/api/trade-%61ck", "/API/Trade-Ack", "/api//trade-ack", "/api/trade-ack/", "/api/trade-ack%zz"]) {
+    assert.equal(maskAckUrl(variant + "?c=crypto&t=secret"), variant + "?[masked]", variant);
+  }
+});
+
+test("the CSRF origin guard does not block the native button (no Origin, no cookie), other POSTs stay guarded", () => {
+  assert.equal(requiresCsrfOriginCheck("POST", "/api/trade-ack?c=crypto&o=x"), false);
+  assert.equal(requiresCsrfOriginCheck("POST", "/api/trade-%61ck?c=crypto"), false);
+  assert.equal(requiresCsrfOriginCheck("POST", "/api/trade-ack-other"), true);
+  assert.equal(requiresCsrfOriginCheck("POST", "/api/trade-ack/extra"), true);
+  assert.equal(requiresCsrfOriginCheck("POST", "/api/auth/logout"), true);
 });
 
 test("a storage failure answers 503", async () => {

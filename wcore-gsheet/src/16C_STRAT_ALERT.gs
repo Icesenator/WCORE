@@ -197,6 +197,19 @@ var TRADE_ACK_TARGETS = {
   action: { sheet: "Portefeuille Action", cell: "T2", statusCell: "U2" }
 };
 
+/** True when the manual CEX job queue still holds a job reporting to that status cell. */
+function _wcoreTradeAckQueueHas_(statusSheetName, statusCell) {
+  try {
+    var queue = JSON.parse(PropertiesService.getScriptProperties().getProperty("CEX_MANUAL_JOB_QUEUE") || "[]");
+    if (!Array.isArray(queue)) return false;
+    for (var i = 0; i < queue.length; i++) {
+      var j = queue[i] || {};
+      if (j.statusSheetName === statusSheetName && j.statusCell === statusCell) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 function _wcoreCheckTradeAck_(ss) {
   var out = { ran: false, reason: "", taken: 0, refreshed: [], skipped: [] };
   try {
@@ -227,7 +240,12 @@ function _wcoreCheckTradeAck_(ss) {
       // cell still reads QUEUED. Do not add a second batch of CEX jobs (second Kraken call).
       var status = "";
       try { status = String(sheet.getRange(target.statusCell).getValue() || ""); } catch (eStatus) { status = ""; }
-      if (/^\s*QUEUED/i.test(status)) { out.skipped.push(String(cats[i])); continue; }
+      // The status turns to "<job> OK" as soon as the first job ends while the others are still in
+      // the queue, so the queue itself is read too.
+      if (/^\s*QUEUED/i.test(status) || _wcoreTradeAckQueueHas_(target.sheet, target.statusCell)) {
+        out.skipped.push(String(cats[i]));
+        continue;
+      }
       var handled = BITPANDA_ON_EDIT({ range: sheet.getRange(target.cell), value: "TRUE", triggerUid: "TRADE_ACK" });
       if (handled) out.refreshed.push(String(cats[i]));
     }

@@ -100,6 +100,9 @@ export function requiresCsrfOriginCheck(method: string, path: string): boolean {
   if (cleanPath === "/api/auth/nonce" || cleanPath === "/api/auth/login") return false;
   // /api/gsheet/* is authenticated by x-gsheet-token, not cookies — CSRF irrelevant.
   if (cleanPath.startsWith("/api/gsheet/")) return false;
+  // ntfy action button: a native HTTP POST without Origin or Referer, authorised by a signed,
+  // expiring per-notification token in the query string (no cookie, so CSRF does not apply).
+  if (cleanPath === "/api/trade-ack") return false;
   return true;
 }
 

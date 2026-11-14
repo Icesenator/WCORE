@@ -198,19 +198,15 @@ var TRADE_ACK_TARGETS = {
 };
 
 /** True when a manual CEX job is running, or the queue still holds a job reporting to that status cell. */
-function _wcoreTradeAckQueueHas_(statusSheetName, statusCell) {
+function _wcoreTradeAckBusy_(queue, statusSheetName, statusCell) {
   try {
     var props = PropertiesService.getScriptProperties();
-    // The worker removes a job from the queue before running it and keeps this marker set (90 s
-    // ahead, renewed per job) until the queue is drained: it covers the last job still running.
-    var activeUntil = Number(props.getProperty("CEX_MANUAL_ACTIVE_UNTIL_MS") || 0);
-    if (isFinite(activeUntil) && activeUntil > Date.now()) return true;
-    // The worker lease (renewed per job, released when the worker ends) covers a job running longer than that marker.
-    try {
-      var lease = JSON.parse(props.getProperty("CEX_WORKER_LEASE") || "null");
-      if (lease && isFinite(parseInt(lease.until, 10)) && parseInt(lease.until, 10) > Date.now()) return true;
-    } catch (eLease) {}
-    var queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]");
+    // The worker records the cell of the job it runs (CEX_MANUAL_RUNNING = "sheet!cell|until"),
+    // under the same queue lock as its claim, for at most 6 min (the trigger hard limit). This guard
+    // runs under that lock: the job is either still in the queue or recorded here, never in between.
+    var running = String(props.getProperty("CEX_MANUAL_RUNNING") || "");
+    var bar = running.lastIndexOf("|");
+    if (bar > 0 && running.slice(0, bar) === statusSheetName + "!" + statusCell && Number(running.slice(bar + 1)) > Date.now()) return true;
     if (!Array.isArray(queue)) return false;
     for (var i = 0; i < queue.length; i++) {
       var j = queue[i] || {};
@@ -218,6 +214,16 @@ function _wcoreTradeAckQueueHas_(statusSheetName, statusCell) {
     }
   } catch (e) {}
   return false;
+}
+
+/**
+ * Cheap pre-check outside the lock (saves a needless enqueue attempt). The authoritative decision
+ * is _wcoreTradeAckBusy_ evaluated by _cexEnqueueManualJobs_ under the queue lock.
+ */
+function _wcoreTradeAckQueueHas_(statusSheetName, statusCell) {
+  var queue = [];
+  try { queue = JSON.parse(PropertiesService.getScriptProperties().getProperty("CEX_MANUAL_JOB_QUEUE") || "[]"); } catch (e) { queue = []; }
+  return _wcoreTradeAckBusy_(queue, statusSheetName, statusCell);
 }
 
 function _wcoreCheckTradeAck_(ss) {
@@ -256,8 +262,10 @@ function _wcoreCheckTradeAck_(ss) {
         out.skipped.push(String(cats[i]));
         continue;
       }
-      var handled = BITPANDA_ON_EDIT({ range: sheet.getRange(target.cell), value: "TRUE", triggerUid: "TRADE_ACK" });
-      if (handled) out.refreshed.push(String(cats[i]));
+      var ev = { range: sheet.getRange(target.cell), value: "TRUE", triggerUid: "TRADE_ACK", tradeAck: { skipped: false } };
+      var handled = BITPANDA_ON_EDIT(ev);
+      if (ev.tradeAck.skipped) out.skipped.push(String(cats[i]));
+      else if (handled) out.refreshed.push(String(cats[i]));
     }
     out.reason = out.refreshed.length ? "REFRESHED" : (out.skipped.length ? "ALREADY_QUEUED" : "NOT_HANDLED");
     Logger.log("[TRADE_ACK] " + out.reason + " taken=" + out.taken + " refreshed=" + out.refreshed.join(","));

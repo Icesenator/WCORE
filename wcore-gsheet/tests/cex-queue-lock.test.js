@@ -173,3 +173,28 @@ test('coalescence sous verrou : un job identique deja en file n est pas ajoute u
   h.enqueue([elsewhere]);
   assert.equal(h.queueValue().length, 3, 'une autre cellule de statut est une autre demande');
 });
+
+// "Trade fait" : la decision "deja en cours" est prise SOUS le verrou de file, avec le vrai garde de 16C.
+test('garde d accuse sous verrou : file, bail du worker et marqueur empechent un second lot, sinon il passe', () => {
+  const h = harness({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', '16C_STRAT_ALERT.gs'), 'utf8'), h.ctx);
+  const guard = (q) => h.ctx._wcoreTradeAckBusy_(q, 'Portefeuille Crypto', JOB.statusCell);
+  // 1. un cochage manuel a deja mis le lot en file : l accuse n ajoute rien
+  assert.equal(h.enqueue([JOB]), 'QUEUED');
+  assert.equal(h.ctx._cexEnqueueManualJobs_([JOB, Object.assign({}, JOB, { kind: 'OKX' })], guard), 'SKIPPED_BUSY');
+  assert.equal(h.queueValue().length, 1, 'rien n a ete ajoute');
+  // 2. le worker a retire le job pour l executer (bail pose avant) : file vide, marqueur expire, bail futur
+  h.propsMap.set('CEX_MANUAL_JOB_QUEUE', '[]');
+  h.propsMap.set('CEX_MANUAL_RUNNING', 'Portefeuille Crypto!V2|' + (Date.now() + 60000));
+  assert.equal(h.ctx._cexEnqueueManualJobs_([JOB], guard), 'SKIPPED_BUSY');
+  assert.equal(h.queueValue().length, 0, 'le job en cours n est pas re-enfile');
+  // 3. rien en cours : l accuse enfile le lot normalement
+  h.propsMap.delete('CEX_MANUAL_RUNNING');
+  assert.equal(h.ctx._cexEnqueueManualJobs_([JOB], guard), 'QUEUED');
+  assert.equal(h.queueValue().length, 1);
+  // 4. une autre cellule de statut n est pas bloquee par la file de la premiere
+  const otherGuard = (q) => h.ctx._wcoreTradeAckBusy_(q, 'Portefeuille Action', 'U2');
+  const stocks = Object.assign({}, JOB, { statusSheetName: 'Portefeuille Action', statusCell: 'U2' });
+  assert.equal(h.ctx._cexEnqueueManualJobs_([stocks], otherGuard), 'QUEUED');
+  assert.equal(h.queueValue().length, 2);
+});

@@ -380,12 +380,22 @@ function CEX_QUEUE_MANUAL_JOB(kind, sheetName, refreshFlagProp, statusSheetName,
 // call CEX_QUEUE_MANUAL_JOB N times; each call re-ran getProjectTriggers() +
 // deleteTrigger + newTrigger (2-5s each in GAS) -> MASTER_ON_EDIT at 50-75s.
 // One queue write + one status write per cell + ONE worker trigger ensure.
-function _cexEnqueueManualJobs_(jobs) {
+// busyGuard (optional, "Trade fait" acknowledgements only): called under the queue lock with the
+// queue; true = a refresh for these cells is already queued or running, nothing is enqueued and
+// "SKIPPED_BUSY" is returned. Deciding under the same lock as the worker's claim (which follows its
+// lease) is what keeps a manual tick and an acknowledgement from both enqueueing a batch.
+function _cexEnqueueManualJobs_(jobs, busyGuard) {
   if (!jobs || !jobs.length) return "NO_JOBS";
   var props = PropertiesService.getScriptProperties();
   var now = Date.now();
+  var skippedBusy = false;
   try {
     _cexQueueMutate_(function(queue) {
+      if (typeof busyGuard === "function") {
+        var busy = false;
+        try { busy = !!busyGuard(queue); } catch (eGuard) { busy = false; }
+        if (busy) { skippedBusy = true; return; }
+      }
       for (var i = 0; i < jobs.length; i++) {
         var j = jobs[i] || {};
         var entry = { kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now };
@@ -409,6 +419,7 @@ function _cexEnqueueManualJobs_(jobs) {
     _cexWriteManualEnqueueFailure_(jobs, reason);
     return "QUEUE_FAILED";
   }
+  if (skippedBusy) return "SKIPPED_BUSY";
   props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(now + 10 * 60 * 1000));
   _cexWriteManualQueuedStatusBatch_(jobs);
   _cexEnsureManualWorkerTrigger_();
@@ -567,13 +578,21 @@ function CEX_MANUAL_REFRESH_WORKER() {
     while ((Date.now() - t0) < _CEX_WORKER_BUDGET_MS) {
       // Claim the next job under the queue lock so a concurrent enqueue cannot be lost.
       var job = _cexQueueMutate_(function(queue) {
-        return queue.length ? queue.shift() : null;
+        var claimed = queue.length ? queue.shift() : null;
+        // Recorded under the same lock as the claim, so a "Trade fait" guard evaluated under that
+        // lock always sees the job either in the queue or here (never in between). 6 min = the
+        // trigger hard limit; cleared right after the job.
+        if (claimed) {
+          try { props.setProperty("CEX_MANUAL_RUNNING", String(claimed.statusSheetName || "") + "!" + String(claimed.statusCell || "") + "|" + (Date.now() + 6 * 60 * 1000)); } catch (eRun) {}
+        }
+        return claimed;
       });
       if (!job) { remaining = 0; break; }
       // v4.15.118: short BUSY:CEX window (90s) — must clear quickly after the
       // last job so on-chain wallets resume scans.
       props.setProperty("CEX_MANUAL_ACTIVE_UNTIL_MS", String(Date.now() + 90 * 1000));
-      lastResult = _cexRunManualJob_(job);
+      try { lastResult = _cexRunManualJob_(job); }
+      finally { try { props.deleteProperty("CEX_MANUAL_RUNNING"); } catch (eRunClear) {} }
       results.push(lastResult);
       try { _cexWorkerRenewLease_(props); } catch (eLease) {}
       // Transient failure (per-connector lock BUSY, Spreadsheets timeout...): the job was
@@ -1156,17 +1175,22 @@ function BITPANDA_ON_EDIT(e) {
       var bpPlan = _bpGetManagedSheetRefreshPlan_(name);
       CEX_QUEUE_OR_MARK_MANUAL_JOB(sheet, refreshFlagProp, bpPlan.label, bpPlan.updateFn, e);
     } else if (isStockPortfolioT2) {
-      _bpSetExternalRefreshStatus_(sheet, "U2", "QUEUED: " + _bpFmtStamp_());
-      _cexEnqueueManualJobs_([
+      // "Trade fait" acknowledgement (synthetic event): the busy decision is taken under the queue
+      // lock, so the QUEUED status is written by the enqueue itself and only if jobs were queued.
+      var ackStock = !!(e && e.tradeAck);
+      if (!ackStock) _bpSetExternalRefreshStatus_(sheet, "U2", "QUEUED: " + _bpFmtStamp_());
+      var stockOut = _cexEnqueueManualJobs_([
         { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" },
         { kind: "KRAKEN_STOCKS", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
-      ]);
+      ], ackStock ? function (queue) { return _wcoreTradeAckBusy_(queue, name, "U2"); } : null);
+      if (ackStock && e.tradeAck && stockOut === "SKIPPED_BUSY") e.tradeAck.skipped = true;
     } else if (name === "Portefeuille Crypto" && cell === "U2") {
       var cryptoStatusCell = "V2";
-      _bpSetExternalRefreshStatus_(sheet, cryptoStatusCell, "QUEUED: " + _bpFmtStamp_());
+      var ackCrypto = !!(e && e.tradeAck);
+      if (!ackCrypto) _bpSetExternalRefreshStatus_(sheet, cryptoStatusCell, "QUEUED: " + _bpFmtStamp_());
       // v4.15.114: single batch enqueue for the 7 CEX jobs. Per-job enqueue redid
       // getProjectTriggers()+delete+create for every job -> MASTER_ON_EDIT 50-75s.
-      _cexEnqueueManualJobs_([
+      var cryptoOut = _cexEnqueueManualJobs_([
         { kind: "BITPANDA_CRYPTO", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "BINANCE", sheetName: typeof BINANCE_SYNC_CONFIG !== "undefined" ? BINANCE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "BITFINEX", sheetName: typeof BITFINEX_SYNC_CONFIG !== "undefined" ? BITFINEX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
@@ -1174,7 +1198,8 @@ function BITPANDA_ON_EDIT(e) {
         { kind: "COINBASE", sheetName: typeof COINBASE_SYNC_CONFIG !== "undefined" ? COINBASE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "OKX", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "KRAKEN", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell }
-      ]);
+      ], ackCrypto ? function (queue) { return _wcoreTradeAckBusy_(queue, name, cryptoStatusCell); } : null);
+      if (ackCrypto && e.tradeAck && cryptoOut === "SKIPPED_BUSY") e.tradeAck.skipped = true;
     } else {
       _bpSetRefreshFlag_(refreshFlagProp);
     }

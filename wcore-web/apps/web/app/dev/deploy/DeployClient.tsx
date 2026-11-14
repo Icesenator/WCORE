@@ -50,7 +50,7 @@ const DEPLOY_CHAIN_KEYS = [
   "METIS", "BOBA", "ROOTSTOCK", "PULSECHAIN", "KCC", "CORE", "FLARE",
   "XDC", "X_LAYER", "CONFLUX", "SHIBARIUM", "BEAM", "RONIN",
   "OPBNB", "MERLIN", "MANTA_PACIFIC", "TAIKO_ALETHIA", "PLASMA",
-  "HASHKEY", "HEMI", "HYPEREVM", "IMMUTABLE", "MORPH", "MEZO", "REYA",
+  "HASHKEY", "HEMI", "HYPEREVM", "ELYSIUM", "IMMUTABLE", "MORPH", "MEZO", "REYA",
   "SWELLCHAIN", "SWAN", "VANA", "STORY", "INTUITION",
   "ETHERLINK", "PLUME",
   "SOMNIA", "MONAD", "MEGAETH", "MATCHAIN", "DOMA",
@@ -130,6 +130,9 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   HASHKEY: { name: "HashKey", chainId: 177 },
   HEMI: { name: "Hemi", chainId: 43111 },
   HYPEREVM: { name: "HyperEVM", chainId: 999 },
+  // Elysium de Kinetiq (99901), jamais celui de Vulcan Forged (1339). PUSH0 pris en charge (sonde du 14/11/2026) :
+  // build par defaut, pas de variante Paris.
+  ELYSIUM: { name: "Elysium", chainId: 99901 },
   IMMUTABLE: { name: "Immutable zkEVM", chainId: 13371 },
   MORPH: { name: "Morph", chainId: 2818 },
   MEZO: { name: "Mezo", chainId: 31612 },

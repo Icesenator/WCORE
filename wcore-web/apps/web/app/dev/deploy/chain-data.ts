@@ -184,12 +184,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.gobob.xyz/", "https://bob.drpc.org", "https://bob-mainnet.public.blastapi.io"],
   },
-  LISK: {
-    chainId: "0x46f",
-    chainName: "Lisk",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.api.lisk.com", "https://rpc.lisk.com", "https://lisk.drpc.org", "https://1rpc.io/lisk", "https://rpc.ankr.com/lisk", "https://lisk-mainnet.public.blastapi.io", "https://lisk.blockpi.network/v1/rpc/public", "https://1135.rpc.thirdweb.com", "https://lisk-mainnet-rpc.publicnode.com"],
-  },
   METAL_L2: {
     chainId: "0x6d6",
     chainName: "Metal L2",
@@ -364,12 +358,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
     rpcUrls: ["https://opbnb-mainnet-rpc.bnbchain.org", "https://opbnb.drpc.org", "https://opbnb-rpc.publicnode.com", "https://1rpc.io/opbnb"],
   },
-  GRAVITY: {
-    chainId: "0x659",
-    chainName: "Gravity",
-    nativeCurrency: { name: "Gravity", symbol: "G", decimals: 18 },
-    rpcUrls: ["https://rpc.gravity.xyz", "https://rpc.ankr.com/gravity", "https://gravity-rpc.polkachu.com", "https://1625.rpc.thirdweb.com"],
-  },
   MERLIN: {
     chainId: "0x1068",
     chainName: "Merlin",
@@ -411,6 +399,12 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainName: "HyperEVM",
     nativeCurrency: { name: "Hyperliquid", symbol: "HYPE", decimals: 18 },
     rpcUrls: ["https://rpc.hyperliquid.xyz/evm", "https://1rpc.io/hyperliquid", "https://hyperliquid.drpc.org", "https://rpc.hypurrscan.io"],
+  },
+  ELYSIUM: {
+    chainId: "0x1863d",
+    chainName: "Elysium",
+    nativeCurrency: { name: "Hyperliquid", symbol: "HYPE", decimals: 18 },
+    rpcUrls: ["https://rpc.elysium.kinetiq.xyz"],
   },
   IMMUTABLE: {
     chainId: "0x343b",
@@ -607,7 +601,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   1329, // SEI
   360, // SHAPE
   60808, // BOB
-  1135, // LISK
   1750, // METAL_L2
   466, // APPCHAIN
   484, // CAMP
@@ -637,7 +630,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   4337, // BEAM
   2020, // RONIN
   204, // OPBNB
-  1625, // GRAVITY
   4200, // MERLIN
   169, // MANTA_PACIFIC
   167000, // TAIKO_ALETHIA
@@ -645,6 +637,7 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   177, // HASHKEY
   43111, // HEMI
   999, // HYPEREVM
+  99901, // ELYSIUM
   13371, // IMMUTABLE
   2818, // MORPH
   31612, // MEZO

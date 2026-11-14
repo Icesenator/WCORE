@@ -6,7 +6,7 @@ import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
-import { mergeGeneralStreak } from "./gm-streak-merge.js";
+import { applyMergedStreak, mergeGeneralStreak } from "./gm-streak-merge.js";
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const statusOnchainCache = createTtlCache<boolean>(STATUS_ONCHAIN_CACHE_TTL_MS);
@@ -386,29 +386,17 @@ export async function registerGmOnchainRoutes(
           }
 
           // Only update if values differ (avoid unnecessary writes)
-          const user = await prisma.user.findUnique({
-            where: { id: req.user!.id },
-            select: { gmStreak: true, longestStreak: true, lastGmDate: true },
+          // Les GM gratuits (bouton) n'ont pas de ligne par jour : la serie recalculee depuis les seuls
+          // GM en chaine ne doit jamais baisser une serie stockee encore valide. Ecriture par comparaison
+          // atomique : un GM gratuit concurrent n'est jamais ecrase.
+          const { merged, applied } = await applyMergedStreak({
+            store: prisma,
+            userId: req.user!.id,
+            compute: (stored) => mergeGeneralStreak({ computedStreak: currentStreak, computedLongest: longest, latestEventMs: latestTs, stored }),
           });
-          if (user) {
-            // Les GM gratuits (bouton) n'ont pas de ligne par jour : la serie recalculee depuis les seuls
-            // GM en chaine ne doit jamais baisser une serie stockee encore valide.
-            const merged = mergeGeneralStreak({
-              computedStreak: currentStreak, computedLongest: longest, latestEventMs: latestTs,
-              stored: { gmStreak: user.gmStreak, longestStreak: user.longestStreak, lastGmDate: user.lastGmDate },
-            });
-            if (merged.changed) {
-              await prisma.user.update({
-                where: { id: req.user!.id },
-                data: {
-                  gmStreak: merged.gmStreak,
-                  longestStreak: merged.longestStreak,
-                  ...(merged.lastGmDate ? { lastGmDate: merged.lastGmDate } : {}),
-                },
-              });
-              result.streak = merged.gmStreak;
-              result.longestStreak = merged.longestStreak;
-            }
+          if (applied) {
+            result.streak = merged.gmStreak;
+            result.longestStreak = merged.longestStreak;
           }
         }
       }
@@ -593,32 +581,25 @@ export async function registerGmOnchainRoutes(
     // Apply user updates: score, general streak, longest, lastGmDate.
     const lastGmDate = latestGeneralTs ? new Date(latestGeneralTs * 1000) : undefined;
     if (allEvents.length > 0) {
-      const existingUser = await prisma.user.findUnique({
-        where: { id: req.user.id },
-        select: { gmStreak: true, longestStreak: true, lastGmDate: true },
-      });
       // Meme fusion que l'auto-reparation : la serie recalculee depuis les GM en chaine ne baisse pas
-      // une serie stockee encore valide (GM gratuits sans ligne par jour).
-      const merged = mergeGeneralStreak({
-        computedStreak: currentGeneralStreak, computedLongest: generalLongest,
-        latestEventMs: latestGeneralTs ? latestGeneralTs * 1000 : null,
-        stored: {
-          gmStreak: existingUser?.gmStreak ?? 0,
-          longestStreak: existingUser?.longestStreak ?? 0,
-          lastGmDate: existingUser?.lastGmDate ?? null,
-        },
+      // une serie stockee encore valide (GM gratuits sans ligne par jour). Ecriture par comparaison
+      // atomique, le credit de score n'etant applique qu'une fois, par l'ecriture qui reussit.
+      const { merged, applied } = await applyMergedStreak({
+        store: prisma,
+        userId: req.user.id,
+        compute: (stored) => mergeGeneralStreak({
+          computedStreak: currentGeneralStreak, computedLongest: generalLongest,
+          latestEventMs: latestGeneralTs ? latestGeneralTs * 1000 : null, stored,
+        }),
+        extraData: { score: { increment: scoreDelta } },
+        alwaysWrite: true,
       });
+      if (!applied && scoreDelta !== 0) {
+        // Conflits repetes : le credit de score ne doit pas etre perdu (les lignes sont deja inserees) ;
+        // la serie sera reparee au prochain recalcul.
+        await prisma.user.update({ where: { id: req.user.id }, data: { score: { increment: scoreDelta } } });
+      }
       currentGeneralStreak = merged.gmStreak;
-      const finalLongest = merged.longestStreak;
-      await prisma.user.update({
-        where: { id: req.user.id },
-        data: {
-          score: { increment: scoreDelta },
-          gmStreak: merged.gmStreak,
-          longestStreak: finalLongest,
-          ...(merged.lastGmDate ? { lastGmDate: merged.lastGmDate } : {}),
-        },
-      });
     }
 
     return {

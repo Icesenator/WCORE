@@ -64,3 +64,46 @@ export function mergeGeneralStreak(args: {
   const changed = gmStreak !== stored.gmStreak || longestStreak !== stored.longestStreak || lastDayChanged;
   return { gmStreak, longestStreak, lastGmDate, changed };
 }
+
+// Ecriture par comparaison atomique : lecture de l'etat du compte, fusion, puis updateMany conditionne a
+// l'etat lu (gmStreak et lastGmDate). Si un GM gratuit concurrent a ecrit entre la lecture et l'ecriture,
+// l'ecriture ne s'applique pas et la fusion est recalculee sur l'etat frais (au plus maxTries tours).
+export interface StreakStore {
+  user: {
+    findUnique(args: { where: { id: string }; select: { gmStreak: true; longestStreak: true; lastGmDate: true } }): Promise<StoredGmState | null>;
+    updateMany(args: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<{ count: number }>;
+  };
+}
+
+export async function applyMergedStreak(args: {
+  store: StreakStore;
+  userId: string;
+  compute: (stored: StoredGmState) => MergedGeneralStreak;
+  /** Champs ajoutes a l'ecriture (ex. increment de score) : appliques une seule fois, par l'ecriture qui reussit. */
+  extraData?: Record<string, unknown>;
+  /** Ecrire meme si la fusion ne change rien (necessaire quand extraData doit etre applique). */
+  alwaysWrite?: boolean;
+  maxTries?: number;
+}): Promise<{ merged: MergedGeneralStreak; applied: boolean }> {
+  const { store, userId, compute, extraData, alwaysWrite } = args;
+  const maxTries = args.maxTries ?? 3;
+  let merged: MergedGeneralStreak | null = null;
+  for (let i = 0; i < maxTries; i++) {
+    const stored = await store.user.findUnique({ where: { id: userId }, select: { gmStreak: true, longestStreak: true, lastGmDate: true } });
+    if (!stored) return { merged: { gmStreak: 0, longestStreak: 0, lastGmDate: null, changed: false }, applied: false };
+    merged = compute(stored);
+    if (!merged.changed && !alwaysWrite) return { merged, applied: false };
+    const res = await store.user.updateMany({
+      where: { id: userId, gmStreak: stored.gmStreak, lastGmDate: stored.lastGmDate },
+      data: {
+        gmStreak: merged.gmStreak,
+        longestStreak: merged.longestStreak,
+        ...(merged.lastGmDate ? { lastGmDate: merged.lastGmDate } : {}),
+        ...(extraData ?? {}),
+      },
+    });
+    if (res.count > 0) return { merged, applied: true };
+  }
+  // Conflits repetes : ne rien ecraser, le prochain recalcul repare.
+  return { merged: merged!, applied: false };
+}

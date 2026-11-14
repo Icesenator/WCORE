@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeGeneralStreak } from "./gm-streak-merge.js";
+import { applyMergedStreak, mergeGeneralStreak, type StoredGmState, type StreakStore } from "./gm-streak-merge.js";
 
 const DAY_MS = 86_400_000;
 const NOW = new Date(Date.UTC(2026, 10, 14, 10, 0, 0)); // 14/11/2026 10:00 UTC

@@ -32,7 +32,7 @@ function harness(opts = {}) {
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const ss = { getSheetByName: (n) => sheets[n] || null };
-  return { run: () => ctx._wcoreCheckTradeAck_(ss), state, posts, edits, ctxOnEdit: (fn) => { ctx.BITPANDA_ON_EDIT = (e) => { edits.push(e); return fn(e); }; } };
+  return { run: () => ctx._wcoreCheckTradeAck_(ss), state, posts, edits, ctxCall: (name, arg) => ctx[name](arg), ctxOnEdit: (fn) => { ctx.BITPANDA_ON_EDIT = (e) => { edits.push(e); return fn(e); }; } };
 }
 
 test('crypto acknowledgement runs the U2 refresh path once, as an installable-trigger event', () => {
@@ -168,4 +168,17 @@ test('the worker records the running cell under the claim lock and the refresh p
   assert.match(BP, /ackCrypto \? function \(queue\) \{ return _wcoreTradeAckBusy_\(queue, name, cryptoStatusCell\)/);
   assert.match(BP, /ackStock \? function \(queue\) \{ return _wcoreTradeAckBusy_\(queue, name, "U2"\)/);
   assert.match(BP, /if \(!ackCrypto\) _bpSetExternalRefreshStatus_/);
+});
+
+test('WCORE_TRADE_ACK_TEST sends one rebalancing event with a fresh TEST occurrence, never a free text', () => {
+  const h = harness();
+  const a = h.ctxCall('WCORE_TRADE_ACK_TEST', undefined);
+  assert.deepEqual(a, { ok: true, code: 200, category: 'crypto' });
+  assert.equal(h.ctxCall('WCORE_TRADE_ACK_TEST', 'action').category, 'action');
+  assert.equal(h.ctxCall('WCORE_TRADE_ACK_TEST', 'anything else').category, 'crypto');
+  assert.equal(h.posts.length, 3);
+  assert.equal(h.posts[0].url, API + '/api/gsheet/notify');
+  assert.deepEqual(Object.keys(h.posts[0].payload).sort(), ['category', 'event', 'occurrence']);
+  assert.equal(h.posts[0].payload.event, 'strat_rebalance');
+  assert.match(h.posts[0].payload.occurrence, /^TEST-\d+$/);
 });

@@ -291,3 +291,17 @@ function WCORE_NTFY_TEST() {
   var res = _wcoreStratAlertPost_(api, { event: "test" });
   return { ok: res.ok, code: res.code };
 }
+
+/**
+ * Real end-to-end test of the "Trade fait" button: sends ONE rebalancing notification (with the
+ * button) through the API relay, category "crypto" by default. Tapping the button makes the next
+ * watchdog pass run the real CEX refresh (Portefeuille Crypto!U2, or Portefeuille Action!T2 for
+ * "action"). Run it by hand from the Apps Script editor; no trigger calls it.
+ */
+function WCORE_TRADE_ACK_TEST(category) {
+  var cat = category === "action" ? "action" : "crypto";
+  var api = _wcoreStratAlertApi_();
+  if (!api) return { ok: false, reason: "NO_API" };
+  var res = _wcoreStratAlertPost_(api, { event: "strat_rebalance", category: cat, occurrence: "TEST-" + Date.now() });
+  return { ok: res.ok, code: res.code, category: cat };
+}

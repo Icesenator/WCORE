@@ -25,7 +25,7 @@ function memoryStore(clock: { now: number } = { now: 1_000_000 }): AckStore & { 
     take: async () => {
       const cats = new Set<AckCategory>();
       for (const r of rows) {
-        if (r.taken || clock.now - r.at > 6 * 60 * 60 * 1000) continue;
+        if (r.taken || clock.now - r.at > 2 * 60 * 60 * 1000) continue;
         r.taken = true;
         cats.add(r.c);
       }
@@ -116,7 +116,7 @@ test("the tap URL query never reaches the logs", () => {
   assert.equal(maskAckUrl("/api/search?q=1"), "/api/search?q=1");
   assert.equal(maskAckUrl("http://localhost/api/search?q=1"), "http://localhost/api/search?q=1");
   assert.equal(maskAckUrl(undefined), "");
-  for (const variant of ["http://localhost/api/trade-ack", "https://api.example.test:8080/%61pi/trade-%61ck", "/%61pi/trade-ack", "/api/trade-%61ck", "/API/Trade-Ack", "/api//trade-ack", "/api/trade-ack/", "/api/trade-ack%zz"]) {
+  for (const variant of ["http://localhost/api/trade-ack", "https://api.example.test:8080/%61pi/trade-%61ck", "/%61pi/trade-ack", "/api/trade-%61ck", "/API/Trade-Ack", "/api//trade-ack", "/api/trade-ack/", "/api/trade-ack%zz", "/api/x/../trade-ack", "/api/./health", "/api%2Ftrade-ack", "/api/x%5Cy"]) {
     assert.equal(maskAckUrl(variant + "?c=crypto&t=secret"), variant + "?[masked]", variant);
   }
 });
@@ -135,7 +135,7 @@ test("a storage failure answers 503", async () => {
   assert.equal((await handleTradeAckTake(store)).status, 503);
 });
 
-test("the workbook takes each acknowledgement once, and not after six hours", async () => {
+test("the workbook takes each acknowledgement once, and not after two hours", async () => {
   const clock = { now: 1_000_000 };
   const store = memoryStore(clock);
   await handleTradeAck(query("crypto"), { topic: TOPIC, store }, NOW);
@@ -146,7 +146,7 @@ test("the workbook takes each acknowledgement once, and not after six hours", as
   assert.deepEqual(second.status === 200 ? second.body.categories : null, []);
 
   await handleTradeAck(query("crypto", "AY1-1794470009999"), { topic: TOPIC, store }, NOW);
-  clock.now += 6 * 60 * 60 * 1000 + 1;
+  clock.now += 2 * 60 * 60 * 1000 + 1;
   const late = await handleTradeAckTake(store);
   assert.deepEqual(late.status === 200 ? late.body.categories : null, [], "an old acknowledgement is not replayed");
 });

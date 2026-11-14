@@ -16,7 +16,9 @@ import type { PrismaClient } from "@wcore/db";
 
 const ACK_LOCK_KEY = 74_210_612;
 export const ACK_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
+/** An acknowledgement not taken within 2 h of the tap is dropped: the workbook polls every 10 min, an older refresh request is moot. */
+export const ACK_TAKE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+const RETENTION_MS =2 * 24 * 60 * 60 * 1000;
 
 export type AckCategory = "crypto" | "action";
 
@@ -63,7 +65,10 @@ export function maskAckUrl(url: unknown): string {
   try { decoded = decodeURI(path); } catch { decoded = null; }
   // Encoded variants (%61pi/trade-ack, trade-%61ck) reach the same route, and an undecodable path is
   // masked too: when unsure the query is dropped.
-  if (decoded === null || decoded.replace(/\/+/g, "/").toLowerCase().startsWith("/api/trade-ack")) return prefix + path + "?[masked]";
+  // Broad on purpose: any path that mentions the route, uses an encoded slash or dot segments, or cannot
+  // be decoded loses its query (a false positive only costs a log field).
+  const lower = (decoded ?? "").toLowerCase();
+  if (decoded === null || lower.includes("trade-ack") || /%2f|%5c|\/\.{1,2}(\/|$)|\\/i.test(path)) return prefix + path + "?[masked]";
   return full;
 }
 
@@ -122,11 +127,11 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
           await tx.$queryRawUnsafe("SELECT true AS locked FROM pg_advisory_xact_lock($1)", ACK_LOCK_KEY);
           const t = now();
           await tx.opsEvent.deleteMany({ where: { type: "trade_ack", createdAt: { lt: new Date(t - RETENTION_MS) } } });
-          const rows = await tx.opsEvent.findMany({
-            where: { type: "trade_ack", createdAt: { gte: new Date(t - RETENTION_MS) } },
-            select: { data: true },
+          const same = await tx.opsEvent.findFirst({
+            where: { type: "trade_ack", createdAt: { gte: new Date(t - RETENTION_MS) }, data: { path: ["h"], equals: key } },
+            select: { id: true },
           });
-          if (rows.some((r) => (r.data as AckRow | null)?.h === key)) return "duplicate" as const;
+          if (same) return "duplicate" as const;
           await tx.opsEvent.create({
             data: { type: "trade_ack", severity: "info", message: "", data: { h: key, c: category, taken: false } },
           });
@@ -142,7 +147,7 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
           await tx.$queryRawUnsafe("SELECT true AS locked FROM pg_advisory_xact_lock($1)", ACK_LOCK_KEY);
           const t = now();
           const rows = await tx.opsEvent.findMany({
-            where: { type: "trade_ack", createdAt: { gte: new Date(t - ACK_MAX_AGE_MS) } },
+            where: { type: "trade_ack", createdAt: { gte: new Date(t - ACK_TAKE_MAX_AGE_MS) } },
             select: { id: true, data: true },
           });
           const cats = new Set<AckCategory>();

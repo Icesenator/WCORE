@@ -6,6 +6,7 @@ import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
+import { mergeGeneralStreak } from "./gm-streak-merge.js";
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const statusOnchainCache = createTtlCache<boolean>(STATUS_ONCHAIN_CACHE_TTL_MS);
@@ -387,19 +388,27 @@ export async function registerGmOnchainRoutes(
           // Only update if values differ (avoid unnecessary writes)
           const user = await prisma.user.findUnique({
             where: { id: req.user!.id },
-            select: { gmStreak: true, longestStreak: true },
+            select: { gmStreak: true, longestStreak: true, lastGmDate: true },
           });
-          if (user && (currentStreak !== user.gmStreak || longest > user.longestStreak)) {
-            await prisma.user.update({
-              where: { id: req.user!.id },
-              data: {
-                gmStreak: currentStreak,
-                longestStreak: Math.max(longest, user.longestStreak),
-                lastGmDate: new Date(latestTs),
-              },
+          if (user) {
+            // Les GM gratuits (bouton) n'ont pas de ligne par jour : la serie recalculee depuis les seuls
+            // GM en chaine ne doit jamais baisser une serie stockee encore valide.
+            const merged = mergeGeneralStreak({
+              computedStreak: currentStreak, computedLongest: longest, latestEventMs: latestTs,
+              stored: { gmStreak: user.gmStreak, longestStreak: user.longestStreak, lastGmDate: user.lastGmDate },
             });
-            result.streak = currentStreak;
-            result.longestStreak = Math.max(longest, user.longestStreak);
+            if (merged.changed) {
+              await prisma.user.update({
+                where: { id: req.user!.id },
+                data: {
+                  gmStreak: merged.gmStreak,
+                  longestStreak: merged.longestStreak,
+                  ...(merged.lastGmDate ? { lastGmDate: merged.lastGmDate } : {}),
+                },
+              });
+              result.streak = merged.gmStreak;
+              result.longestStreak = merged.longestStreak;
+            }
           }
         }
       }
@@ -586,16 +595,28 @@ export async function registerGmOnchainRoutes(
     if (allEvents.length > 0) {
       const existingUser = await prisma.user.findUnique({
         where: { id: req.user.id },
-        select: { longestStreak: true },
+        select: { gmStreak: true, longestStreak: true, lastGmDate: true },
       });
-      const finalLongest = Math.max(generalLongest, existingUser?.longestStreak ?? 0);
+      // Meme fusion que l'auto-reparation : la serie recalculee depuis les GM en chaine ne baisse pas
+      // une serie stockee encore valide (GM gratuits sans ligne par jour).
+      const merged = mergeGeneralStreak({
+        computedStreak: currentGeneralStreak, computedLongest: generalLongest,
+        latestEventMs: latestGeneralTs ? latestGeneralTs * 1000 : null,
+        stored: {
+          gmStreak: existingUser?.gmStreak ?? 0,
+          longestStreak: existingUser?.longestStreak ?? 0,
+          lastGmDate: existingUser?.lastGmDate ?? null,
+        },
+      });
+      currentGeneralStreak = merged.gmStreak;
+      const finalLongest = merged.longestStreak;
       await prisma.user.update({
         where: { id: req.user.id },
         data: {
           score: { increment: scoreDelta },
-          gmStreak: currentGeneralStreak,
+          gmStreak: merged.gmStreak,
           longestStreak: finalLongest,
-          ...(lastGmDate ? { lastGmDate } : {}),
+          ...(merged.lastGmDate ? { lastGmDate: merged.lastGmDate } : {}),
         },
       });
     }

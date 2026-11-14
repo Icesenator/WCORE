@@ -57,3 +57,22 @@ test("an old acknowledgement is not delivered, and rows past retention are purge
     await prisma.$disconnect();
   }
 });
+
+test("a waiting acknowledgement past the take window is revived by a new valid tap, a taken one stays a duplicate", { skip: !databaseUrl }, async () => {
+  const prisma = new PrismaClient();
+  try {
+    await prisma.opsEvent.deleteMany({ where: { type: "trade_ack" } });
+    const store = createPrismaAckStore(prisma);
+    const stale = "stale-" + randomUUID().replace(/-/g, "").slice(0, 26);
+    assert.equal(await store.record(stale, "crypto"), "recorded");
+    await prisma.opsEvent.updateMany({ where: { type: "trade_ack" }, data: { createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000) } });
+    assert.deepEqual(await store.take(), [], "past the window: not delivered");
+    assert.equal(await store.record(stale, "crypto"), "recorded", "a new tap revives the stale waiting row");
+    assert.equal(await prisma.opsEvent.count({ where: { type: "trade_ack" } }), 1, "revived in place, no second row");
+    assert.deepEqual(await store.take(), ["crypto"]);
+    assert.equal(await store.record(stale, "crypto"), "duplicate", "already taken: a further tap is a duplicate");
+  } finally {
+    await prisma.opsEvent.deleteMany({ where: { type: "trade_ack" } });
+    await prisma.$disconnect();
+  }
+});

@@ -52,23 +52,22 @@ export function buildAckActionHeader(
   return "http, Trade fait, " + u.toString() + ", method=POST, clear=true";
 }
 
-/** URL as it may appear in logs: the query of the tap URL (token, occurrence) is never logged. */
+/**
+ * URL as it may appear in logs: the query of the tap URL (token, occurrence) is never logged.
+ * Judged on everything before the first "?", whatever its form (absolute URL, backslashes, encoded
+ * or double-encoded characters, dot segments): broad on purpose, a false positive only costs a log field.
+ */
 export function maskAckUrl(url: unknown): string {
   const full = String(url ?? "");
-  // The router also accepts the absolute form (http://host/path?query): keep scheme and host, judge the path.
-  const prefix = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i.exec(full)?.[0] ?? "";
-  const raw = full.slice(prefix.length);
-  const q = raw.indexOf("?");
+  const q = full.indexOf("?");
   if (q < 0) return full;
-  const path = raw.slice(0, q);
-  let decoded: string | null;
-  try { decoded = decodeURI(path); } catch { decoded = null; }
-  // Encoded variants (%61pi/trade-ack, trade-%61ck) reach the same route, and an undecodable path is
-  // masked too: when unsure the query is dropped.
-  // Broad on purpose: any path that mentions the route, uses an encoded slash or dot segments, or cannot
-  // be decoded loses its query (a false positive only costs a log field).
-  const lower = (decoded ?? "").toLowerCase();
-  if (decoded === null || lower.includes("trade-ack") || /%2f|%5c|\/\.{1,2}(\/|$)|\\/i.test(path)) return prefix + path + "?[masked]";
+  const before = full.slice(0, q);
+  let decoded = before;
+  let undecodable = false;
+  for (let i = 0; i < 3 && !undecodable; i++) {
+    try { decoded = decodeURIComponent(decoded); } catch { undecodable = true; }
+  }
+  if (undecodable || decoded.toLowerCase().includes("trade-ack") || /%2f|%5c|%25|\/\.{1,2}(\/|$)|\\/i.test(before)) return before + "?[masked]";
   return full;
 }
 
@@ -129,9 +128,17 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
           await tx.opsEvent.deleteMany({ where: { type: "trade_ack", createdAt: { lt: new Date(t - RETENTION_MS) } } });
           const same = await tx.opsEvent.findFirst({
             where: { type: "trade_ack", createdAt: { gte: new Date(t - RETENTION_MS) }, data: { path: ["h"], equals: key } },
-            select: { id: true },
+            select: { id: true, data: true, createdAt: true },
           });
-          if (same) return "duplicate" as const;
+          if (same) {
+            const d = same.data as AckRow | null;
+            // Taken, or still waiting inside the take window: a real duplicate. Waiting but already past
+            // the window (the workbook was away): that acknowledgement can never be taken, so a new
+            // valid tap revives it instead of being swallowed as a duplicate.
+            if (d?.taken === true || t - same.createdAt.getTime() < ACK_TAKE_MAX_AGE_MS) return "duplicate" as const;
+            await tx.opsEvent.update({ where: { id: same.id }, data: { createdAt: new Date(t) } });
+            return "recorded" as const;
+          }
           await tx.opsEvent.create({
             data: { type: "trade_ack", severity: "info", message: "", data: { h: key, c: category, taken: false } },
           });

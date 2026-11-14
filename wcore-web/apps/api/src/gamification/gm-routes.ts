@@ -63,6 +63,7 @@ export async function registerGmRoutes(
         id: user.id,
         gmStreak: user.gmStreak,
         longestStreak: user.longestStreak,
+        lastGmDate: user.lastGmDate,
         OR: [{ lastGmDate: null }, { lastGmDate: { lt: today } }],
       };
 

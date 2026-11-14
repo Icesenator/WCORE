@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { registerGmRoutes } from "./gm-routes.js";
-import { applyMergedStreak, mergeGeneralStreak, type StoredGmState, type StreakStore } from "./gm-streak-merge.js";
+import { applyMergedStreak, claimGeneralDailyGm, mergeGeneralStreak, type StoredGmState, type StreakStore } from "./gm-streak-merge.js";
 
 const DAY_MS = 86_400_000;
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -77,6 +77,35 @@ test("free GM: a repair that lands after the read is not overwritten by the stal
   assert.equal(r.body.streak, 10, "the free GM continues the repaired streak, not the stale one");
   assert.equal(row.gmStreak, 10);
   assert.equal(row.longestStreak, 10);
+});
+
+test("free GM: a repair that only moves lastGmDate after the read is not overwritten", async () => {
+  // Compte 1 / avant-hier. Le GM gratuit lit : serie 1, hors serie (avant-hier) -> il repartirait a 1.
+  // Une reparation ecrit seulement lastGmDate = hier (serie inchangee) : le GM gratuit doit recalculer : 2.
+  const row: UserRow = { id: "u1", gmStreak: 1, longestStreak: 1, lastGmDate: at(-2), score: 0 };
+  const prisma = fakePrisma(row, { afterRead: (n) => { if (n === 1) row.lastGmDate = at(-1); } });
+  const r = await postGm(prisma);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.streak, 2);
+});
+
+test("on-chain claim: a repair landing after the read makes the claim lose instead of overwriting", async () => {
+  const row: UserRow = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1), score: 0 };
+  const prisma = fakePrisma(row);
+  const stale = { id: "u1", gmStreak: 2, longestStreak: 2, lastGmDate: at(-1) };
+  // reparation concurrente entre la lecture et la reclamation
+  row.gmStreak = 9; row.longestStreak = 100;
+  const won = await claimGeneralDailyGm({ tx: prisma, user: stale, scoringDay: at(0, 0), gmDate: at(0, 9), generalStreak: 3, generalLongest: 3, scoreGain: 22 });
+  assert.equal(won, false);
+  assert.equal(row.gmStreak, 9);
+  assert.equal(row.longestStreak, 100);
+  assert.equal(row.score, 0);
+  // sans concurrence, la reclamation passe
+  const fresh = { id: "u1", gmStreak: 9, longestStreak: 100, lastGmDate: at(-1) };
+  const won2 = await claimGeneralDailyGm({ tx: prisma, user: fresh, scoringDay: at(0, 0), gmDate: at(0, 9), generalStreak: 10, generalLongest: 100, scoreGain: 40 });
+  assert.equal(won2, true);
+  assert.equal(row.gmStreak, 10);
+  assert.equal(row.score, 40);
 });
 
 test("free GM: a second free GM the same day is refused after the first one", async () => {

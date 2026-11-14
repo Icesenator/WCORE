@@ -6,7 +6,7 @@ import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
-import { applyMergedStreak, mergeGeneralStreak } from "./gm-streak-merge.js";
+import { applyMergedStreak, claimGeneralDailyGm, mergeGeneralStreak } from "./gm-streak-merge.js";
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const statusOnchainCache = createTtlCache<boolean>(STATUS_ONCHAIN_CACHE_TTL_MS);
@@ -235,11 +235,10 @@ export async function registerGmOnchainRoutes(
           // cannot both award it -- the loser matches 0 rows and falls through
           // to the per-chain-only path (which stays repeatable per chain).
           // Mirrors the off-chain /api/gm route (gm-routes.ts).
-          const claimed = await tx.user.updateMany({
-            where: { id: user.id, OR: [{ lastGmDate: null }, { lastGmDate: { lt: scoringDay } }] },
-            data: { gmStreak: generalStreak, longestStreak: generalLongest, lastGmDate: gmDate, score: { increment: scoreGain } },
-          });
-          if (claimed.count === 1) {
+          // La reclamation compare aussi l'etat lu (serie, record, date) : une reparation ou un GM gratuit
+          // concurrents ne sont pas ecrases par une lecture perimee.
+          const claimed = await claimGeneralDailyGm({ tx, user, scoringDay, gmDate, generalStreak, generalLongest, scoreGain });
+          if (claimed) {
             await checkStreakBadges(tx, user.id, generalStreak);
           } else {
             alreadyGeneralGm = true;

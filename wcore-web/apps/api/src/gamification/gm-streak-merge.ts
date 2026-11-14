@@ -65,6 +65,33 @@ export function mergeGeneralStreak(args: {
   return { gmStreak, longestStreak, lastGmDate, changed };
 }
 
+// Reclamation du bonus general quotidien d'un GM en chaine : updateMany conditionne a l'etat lu
+// (gmStreak, longestStreak, lastGmDate) ET a lastGmDate < jour de scoring. Un GM gratuit ou une reparation
+// concurrents ecrits apres la lecture font perdre la reclamation (count 0) au lieu d'etre ecrases ; la
+// reparation qui suit le GM en chaine recalcule alors la serie depuis l'etat frais.
+export async function claimGeneralDailyGm(args: {
+  tx: { user: { updateMany(a: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<{ count: number }> } };
+  user: { id: string } & StoredGmState;
+  scoringDay: Date;
+  gmDate: Date;
+  generalStreak: number;
+  generalLongest: number;
+  scoreGain: number;
+}): Promise<boolean> {
+  const { tx, user, scoringDay, gmDate, generalStreak, generalLongest, scoreGain } = args;
+  const claimed = await tx.user.updateMany({
+    where: {
+      id: user.id,
+      gmStreak: user.gmStreak,
+      longestStreak: user.longestStreak,
+      lastGmDate: user.lastGmDate,
+      OR: [{ lastGmDate: null }, { lastGmDate: { lt: scoringDay } }],
+    },
+    data: { gmStreak: generalStreak, longestStreak: generalLongest, lastGmDate: gmDate, score: { increment: scoreGain } },
+  });
+  return claimed.count === 1;
+}
+
 // Ecriture par comparaison atomique : lecture de l'etat du compte, fusion, puis updateMany conditionne a
 // l'etat lu (gmStreak et lastGmDate). Si un GM gratuit concurrent a ecrit entre la lecture et l'ecriture,
 // l'ecriture ne s'applique pas et la fusion est recalculee sur l'etat frais (au plus maxTries tours).

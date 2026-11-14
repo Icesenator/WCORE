@@ -1,4 +1,5 @@
 import { handleNotify, type NotifyDeps } from "./gsheet-notify.js";
+import { handleTradeAck, handleTradeAckTake, type AckDeps } from "./gsheet-trade-ack.js";
 import type { FastifyInstance } from "fastify";
 import { getDeFiPositionMetadata, withLiquiditySuffix, type CacheStore, type WalletAssets } from "@wcore/core";
 import type { ScamEnrichment } from "@wcore/shared";
@@ -52,6 +53,8 @@ export interface GsheetPluginOptions {
   scamEnrichment?: GsheetScamEnrichment;
   /** Phone notification relay (ntfy); absent = POST /api/gsheet/notify answers 503. */
   notify?: NotifyDeps;
+  /** "Trade fait" button: acknowledgement store; absent = both ack routes answer 503. */
+  ack?: AckDeps;
 }
 
 export interface GsheetPriceBatchInput {
@@ -1147,6 +1150,13 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
     return reply.code(result.status).send(result.body);
   });
 
+  // Workbook side of the "Trade fait" button: takes (at most once) the acknowledgements waiting.
+  app.post("/api/gsheet/trade-ack/take", async (_request, reply) => {
+    if (!opts.ack) return reply.code(503).send({ ok: false, error: "ack_disabled" });
+    const result = await handleTradeAckTake(opts.ack.store);
+    return reply.code(result.status).send(result.body);
+  });
+
   app.get("/api/gsheet/cache/get", async (req, reply) => {
     const { key } = req.query as { key?: string };
     if (!key) return reply.code(400).send({ error: "missing_key" });
@@ -1333,6 +1343,14 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
   // Always encapsulate authentication, including when called directly by server.ts.
   // The router may decode a path that does not share the raw URL prefix.
   await app.register(gsheetProtectedRoutes, opts);
+
+  // Tapped from the phone (ntfy action button): no workbook token, authorised by the per-notification
+  // HMAC in the query string. Answers carry no detail beyond ok / error.
+  app.post("/api/trade-ack", async (request, reply) => {
+    if (!opts.ack) return reply.code(503).send({ ok: false, error: "ack_disabled" });
+    const result = await handleTradeAck(request.query, opts.ack);
+    return reply.code(result.status).send(result.body);
+  });
 
   // Public drift comparison endpoint — no auth, useful for CI smoke tests.
   // Missing or unattested runtime observations yield drift:null, never zero.

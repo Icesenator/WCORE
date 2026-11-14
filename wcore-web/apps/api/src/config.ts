@@ -86,6 +86,8 @@ export interface ApiConfig {
     /** ntfy topic for the GSheet notification relay; undefined = relay off. */
     ntfyTopic: string | undefined;
     ntfyDailyCap: number;
+    /** Public https base URL of this API for the "Trade fait" button; undefined = no button. */
+    ntfyAckBaseUrl: string | undefined;
     internalApiUrl: string;
     publicUrl: string;
   };
@@ -354,6 +356,7 @@ export function getApiConfig(env: ApiEnv = process.env): ApiConfig {
       gsheetPriceBatchConcurrency: readNumber(env, "GSHEET_PRICE_BATCH_CONCURRENCY", 3, { min: 1 }),
       gsheetOwnerAddress: env.GSHEET_OWNER_ADDRESS?.trim().toLowerCase() || undefined,
       ntfyTopic: readNtfyTopic(env),
+      ntfyAckBaseUrl: /^https:\/\/[^\s/?#]+\/?$/.test(env.NTFY_ACK_BASE_URL ?? "") ? env.NTFY_ACK_BASE_URL : undefined,
       ntfyDailyCap: readPositiveInteger(env, "NTFY_DAILY_CAP", 20, 200),
       internalApiUrl: env.INTERNAL_API_URL || "http://localhost:4000",
       publicUrl: env.PUBLIC_URL ?? "http://localhost:3000",

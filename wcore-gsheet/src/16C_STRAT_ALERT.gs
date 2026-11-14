@@ -185,6 +185,55 @@ function _wcoreCheckStratAlert_(ss) {
   return out;
 }
 
+/**
+ * "Trade fait" button of the phone alert. The API records the tap; this pass (watchdog, every
+ * 10 min) takes the waiting acknowledgements (at most once each, so a second Kraken call can never
+ * follow) and runs exactly what ticking the manual refresh cell does: Portefeuille Crypto!U2
+ * (CEX crypto) or Portefeuille Action!T2 (CEX stocks), through BITPANDA_ON_EDIT.
+ * @return {Object} diagnostic {ran, reason, taken, refreshed}
+ */
+var TRADE_ACK_TARGETS = {
+  crypto: { sheet: "Portefeuille Crypto", cell: "U2" },
+  action: { sheet: "Portefeuille Action", cell: "T2" }
+};
+
+function _wcoreCheckTradeAck_(ss) {
+  var out = { ran: false, reason: "", taken: 0, refreshed: [] };
+  try {
+    var api = _wcoreStratAlertApi_();
+    if (!api) { out.reason = "NO_API"; return out; }
+    var url = api.url.replace(/\/api\/gsheet\/notify$/, "/api/gsheet/trade-ack/take");
+    var resp = null;
+    try {
+      resp = HTTP.post(url, {}, {
+        headers: { "x-gsheet-token": api.token, accept: "application/json" },
+        muteHttpExceptions: true,
+        timeoutMs: 8000
+      });
+    } catch (eHttp) { resp = null; }
+    var code = resp && typeof resp.getResponseCode === "function" ? resp.getResponseCode() : 0;
+    out.ran = true;
+    if (code !== 200) { out.reason = code ? "HTTP_" + code : "NO_RESPONSE"; return out; }
+    var cats = [];
+    try { cats = JSON.parse(resp.getContentText()).categories; } catch (eParse) { cats = []; }
+    if (!Array.isArray(cats) || !cats.length) { out.reason = "NONE"; return out; }
+    for (var i = 0; i < cats.length; i++) {
+      var target = TRADE_ACK_TARGETS[String(cats[i])];
+      if (!target) continue;
+      out.taken++;
+      var sheet = ss && ss.getSheetByName(target.sheet);
+      if (!sheet || typeof BITPANDA_ON_EDIT !== "function") continue;
+      var handled = BITPANDA_ON_EDIT({ range: sheet.getRange(target.cell), value: "TRUE", triggerUid: "TRADE_ACK" });
+      if (handled) out.refreshed.push(String(cats[i]));
+    }
+    out.reason = out.refreshed.length ? "REFRESHED" : "NOT_HANDLED";
+    Logger.log("[TRADE_ACK] " + out.reason + " taken=" + out.taken + " refreshed=" + out.refreshed.join(","));
+  } catch (e) {
+    out.reason = "ERROR";
+  }
+  return out;
+}
+
 /** Removes the old ntfy topic property (the topic now lives only on the API side). */
 function WCORE_NTFY_CLEAR_TOPIC() {
   PropertiesService.getScriptProperties().deleteProperty("WCORE_NTFY_TOPIC");

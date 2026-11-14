@@ -2325,6 +2325,10 @@ function WATCHDOG_FROM_RECAP() {
       try {
         if (typeof _wcoreCheckStratAlert_ === "function") stats.stratAlert = _wcoreCheckStratAlert_(ss);
       } catch (eStratAlert) { stats.stratAlert = { ran: false, reason: "ERROR" }; }
+      // "Trade fait" button of that alert: run the manual CEX refresh the owner asked for.
+      try {
+        if (typeof _wcoreCheckTradeAck_ === "function") stats.tradeAck = _wcoreCheckTradeAck_(ss);
+      } catch (eTradeAck) { stats.tradeAck = { ran: false, reason: "ERROR" }; }
       const recap = ss.getSheetByName(RECAP_SHEET_NAME);
       if (!recap) throw new Error("Sheet not found: " + RECAP_SHEET_NAME);
 

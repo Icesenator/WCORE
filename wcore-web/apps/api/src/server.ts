@@ -30,6 +30,7 @@ import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics
 import { sharePlugin } from "./plugins/share.js";
 import { gsheetPlugin } from "./plugins/gsheet.js";
 import { createPrismaNotifyAdmission } from "./plugins/gsheet-notify.js";
+import { createPrismaAckStore } from "./plugins/gsheet-trade-ack.js";
 import { createRpcBytecodeFetcher, createScamEnrichmentLoader, createScamDecisionLogger } from "./plugins/scam-enrichment.js";
 import { CanonicalStockService } from "./stocks/stock-service.js";
 import { buildGsheetStockPortfolioSnapshot } from "./stocks/stock-portfolio.js";
@@ -459,7 +460,10 @@ if (gsheetApiToken) {
   const ntfyTopic = apiConfig.integrations.ntfyTopic;
   await gsheetPlugin(app, {
     token: gsheetApiToken,
-    notify: ntfyTopic ? { topic: ntfyTopic, admit: createPrismaNotifyAdmission(prisma, apiConfig.integrations.ntfyDailyCap) } : undefined,
+    notify: ntfyTopic
+      ? { topic: ntfyTopic, admit: createPrismaNotifyAdmission(prisma, apiConfig.integrations.ntfyDailyCap), ackBaseUrl: apiConfig.integrations.ntfyAckBaseUrl }
+      : undefined,
+    ack: ntfyTopic ? { topic: ntfyTopic, store: createPrismaAckStore(prisma) } : undefined,
     cache: sharedCache,
     cacheStore: {
       get: async (key: string): Promise<string | null> => {

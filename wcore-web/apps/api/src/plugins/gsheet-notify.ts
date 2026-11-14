@@ -15,6 +15,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { PrismaClient } from "@wcore/db";
+import { buildAckActionHeader } from "./gsheet-trade-ack.js";
 
 export const NTFY_BASE_URL = "https://ntfy.sh/";
 export const NTFY_TOPIC_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
@@ -56,6 +57,8 @@ export interface NotifyDeps {
   topic: string;
   admit: (key: string) => Promise<NotifyReservation>;
   fetchImpl?: typeof fetch;
+  /** Public https base URL of this API; when set, a rebalancing notification carries a "Trade fait" button. */
+  ackBaseUrl?: string;
 }
 
 function euros(n: number | undefined): string {
@@ -127,6 +130,14 @@ export type NotifyResult =
   | { status: 200; body: { ok: true; sent: boolean; duplicate?: boolean } }
   | { status: 400 | 409 | 422 | 429 | 502 | 503; body: { ok: false; error: string } };
 
+export function notifyHeaders(body: NotifyBody, deps: Pick<NotifyDeps, "topic" | "ackBaseUrl">): Record<string, string> {
+  const headers: Record<string, string> = { Title: "WCORE", Priority: "high", Tags: "warning" };
+  if (body.event === "strat_rebalance" && deps.ackBaseUrl && /^https:\/\//.test(deps.ackBaseUrl)) {
+    headers.Actions = buildAckActionHeader(deps.ackBaseUrl, deps.topic, body.category, body.occurrence);
+  }
+  return headers;
+}
+
 export async function handleNotify(raw: unknown, deps: NotifyDeps): Promise<NotifyResult> {
   if (!NTFY_TOPIC_PATTERN.test(deps.topic)) return { status: 503, body: { ok: false, error: "notify_disabled" } };
   const parsed = notifyBodySchema.safeParse(raw);
@@ -144,7 +155,7 @@ export async function handleNotify(raw: unknown, deps: NotifyDeps): Promise<Noti
     const res = await doFetch(NTFY_BASE_URL + deps.topic, {
       method: "POST",
       body: text,
-      headers: { Title: "WCORE", Priority: "high", Tags: "warning" },
+      headers: notifyHeaders(parsed.data, deps),
       redirect: "error",
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });

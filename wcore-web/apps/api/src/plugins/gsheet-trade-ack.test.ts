@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { gsheetPlugin } from "./gsheet.js";
-import { handleNotify, notifyHeaders } from "./gsheet-notify.js";
+import { handleNotify, notifyHeaders, notifyKey } from "./gsheet-notify.js";
 import { requiresCsrfOriginCheck } from "../server-helpers.js";
 import {
-  ackKey, ackToken, buildAckActionHeader, handleTradeAck, handleTradeAckTake, maskAckUrl, type AckCategory, type AckStore,
+  ackKey, ackToken, buildAckActionHeader, handleTradeAck, handleTradeAckTake, maskAckUrl, rebalanceNotifyKey, type AckCategory, type AckStore,
 } from "./gsheet-trade-ack.js";
 
 const TOPIC = "test-topic-abcdef123";
@@ -13,11 +13,12 @@ const OCC = "AY1-1794470000000";
 const BASE = "https://api.example.test";
 const TOKEN = "gsheet-test-token";
 
-function memoryStore(clock: { now: number } = { now: 1_000_000 }): AckStore & { rows: Array<{ h: string; c: AckCategory; taken: boolean; at: number }> } {
+function memoryStore(clock: { now: number } = { now: 1_000_000 }, known: (notifyKey: string) => boolean = () => true): AckStore & { rows: Array<{ h: string; c: AckCategory; taken: boolean; at: number }> } {
   const rows: Array<{ h: string; c: AckCategory; taken: boolean; at: number }> = [];
   return {
     rows,
-    record: async (key, category) => {
+    record: async (key, category, nk) => {
+      if (!known(nk)) return "unknown";
       if (rows.some((r) => r.h === key)) return "duplicate";
       rows.push({ h: key, c: category, taken: false, at: clock.now });
       return "recorded";
@@ -116,6 +117,9 @@ test("the tap URL query never reaches the logs", () => {
   assert.equal(maskAckUrl("/api/search?q=1"), "/api/search?q=1");
   assert.equal(maskAckUrl("http://localhost/api/search?q=1"), "http://localhost/api/search?q=1");
   assert.equal(maskAckUrl(undefined), "");
+  assert.equal(maskAckUrl("/api/trade-ack%25253Ft=secret"), "[masked]");
+  assert.equal(maskAckUrl("/api/trade-ack%25%33%46t=secret"), "[masked]");
+  assert.equal(maskAckUrl("/api/health%zz"), "[masked]");
   assert.equal(maskAckUrl("/api/trade-ack%3Fc=crypto&t=secret"), "/api/trade-ack?[masked]");
   assert.equal(maskAckUrl("/api/trade-ack%253Ft=secret"), "/api/trade-ack?[masked]");
   for (const variant of ["http://localhost/api/trade-ack", "https://api.example.test:8080/%61pi/trade-%61ck", "/%61pi/trade-ack", "/api/trade-%61ck", "/API/Trade-Ack", "/api//trade-ack", "/api/trade-ack/", "/api/trade-ack%zz", "/api/x/../trade-ack", "/api/./health", "/api%2Ftrade-ack", "/api/x%5Cy", "http://localhost\\api\\trade-ack", "/%2574rade-ack", "http://localhost/api/x%2Fy"]) {
@@ -129,6 +133,22 @@ test("the CSRF origin guard does not block the native button (no Origin, no cook
   assert.equal(requiresCsrfOriginCheck("POST", "/api/trade-ack-other"), true);
   assert.equal(requiresCsrfOriginCheck("POST", "/api/trade-ack/extra"), true);
   assert.equal(requiresCsrfOriginCheck("POST", "/api/auth/logout"), true);
+});
+
+test("the ack notification key is the one of the sent rebalancing notification", () => {
+  for (const category of ["crypto", "action"] as const) {
+    assert.equal(rebalanceNotifyKey(TOPIC, category, OCC), notifyKey({ event: "strat_rebalance", category, occurrence: OCC } as never, TOPIC));
+  }
+});
+
+test("a valid token for a notification that was never sent is refused and stores nothing", async () => {
+  const sent = new Set([rebalanceNotifyKey(TOPIC, "crypto", OCC)]);
+  const store = memoryStore({ now: 1_000_000 }, (k) => sent.has(k));
+  assert.equal((await handleTradeAck(query("crypto"), { topic: TOPIC, store }, NOW)).status, 200);
+  const forged = query("crypto", "AY1-1794470099999");
+  assert.deepEqual(await handleTradeAck(forged, { topic: TOPIC, store }, NOW), { status: 403, body: { ok: false, error: "forbidden" } });
+  assert.deepEqual(await handleTradeAck(query("action", OCC), { topic: TOPIC, store }, NOW), { status: 403, body: { ok: false, error: "forbidden" } });
+  assert.equal(store.rows.length, 1);
 });
 
 test("a storage failure answers 503", async () => {

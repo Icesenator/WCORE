@@ -18,7 +18,9 @@ const ACK_LOCK_KEY = 74_210_612;
 export const ACK_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 /** An acknowledgement not taken within 2 h of the tap is dropped: the workbook polls every 10 min, an older refresh request is moot. */
 export const ACK_TAKE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
-const RETENTION_MS =2 * 24 * 60 * 60 * 1000;
+/** The notification table keeps rows for 2 days; an acknowledgement link lives 6 h, so a day is ample. */
+const NOTIFY_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 
 export type AckCategory = "crypto" | "action";
 
@@ -32,6 +34,11 @@ export const ackQuerySchema = z.object({
 /** Token of one notification: HMAC(topic, "ack|category|occurrence|expiry"), expiry in epoch seconds. */
 export function ackToken(topic: string, category: AckCategory, occurrence: string, expiry: number): string {
   return createHmac("sha256", topic).update("ack|" + category + "|" + occurrence + "|" + String(expiry)).digest("hex").slice(0, 32);
+}
+
+/** Same key as notifyKey() of gsheet-notify.ts for a rebalancing event (kept equal by a test). */
+export function rebalanceNotifyKey(topic: string, category: AckCategory, occurrence: string): string {
+  return createHmac("sha256", topic).update("rebalance|" + category + "|" + occurrence).digest("hex").slice(0, 32);
 }
 
 /** Storage key of an acknowledgement (never the token itself). */
@@ -59,22 +66,32 @@ export function buildAckActionHeader(
  */
 export function maskAckUrl(url: unknown): string {
   const full = String(url ?? "");
+  const decodeAll = (text: string): string | null => {
+    let out = text;
+    for (let i = 0; i < 4; i++) {
+      try { out = decodeURIComponent(out); } catch { return null; }
+    }
+    return out;
+  };
+  const decodedFull = decodeAll(full);
+  // Fail closed: a URL that decodes (up to 4 passes) to something naming the route, or cannot be decoded
+  // at all, is never logged beyond its visible prefix, whatever the encoding of its separators.
+  const routeHit = decodedFull === null || decodedFull.toLowerCase().includes("trade-ack");
   // The query starts at the first "?" or at an encoded one (%3F, %253F): when in doubt the cut is earlier.
   const q = full.search(/\?|%3f|%253f/i);
-  if (q < 0) return full;
+  if (q < 0) return routeHit ? "[masked]" : full;
   const before = full.slice(0, q);
-  let decoded = before;
-  let undecodable = false;
-  for (let i = 0; i < 3 && !undecodable; i++) {
-    try { decoded = decodeURIComponent(decoded); } catch { undecodable = true; }
-  }
-  if (undecodable || decoded.toLowerCase().includes("trade-ack") || /%2f|%5c|%25|\/\.{1,2}(\/|$)|\\/i.test(before)) return before + "?[masked]";
+  const decodedBefore = decodeAll(before);
+  if (routeHit || decodedBefore === null || /%2f|%5c|%25|\/\.{1,2}(\/|$)|\\/i.test(before)) return before + "?[masked]";
   return full;
 }
 
 export interface AckStore {
-  /** "recorded" = new, "duplicate" = already acknowledged, "unavailable" = storage error. */
-  record: (key: string, category: AckCategory) => Promise<"recorded" | "duplicate" | "unavailable">;
+  /**
+   * "recorded" = new, "duplicate" = already acknowledged, "unknown" = no sent notification matches
+   * (notifyKey), "unavailable" = storage error.
+   */
+  record: (key: string, category: AckCategory, notifyKey: string) => Promise<"recorded" | "duplicate" | "unknown" | "unavailable">;
   /** Atomically marks every fresh, not-yet-taken acknowledgement as taken; returns their categories. */
   take: () => Promise<AckCategory[] | null>;
 }
@@ -104,7 +121,10 @@ export async function handleTradeAck(query: unknown, deps: AckDeps, now: number 
   // is therefore dead for good once expired, even after its stored acknowledgement was purged.
   const nowS = Math.floor(now / 1000);
   if (nowS > expiry || expiry > nowS + Math.ceil(ACK_MAX_AGE_MS / 1000) + 60) return { status: 403, body: { ok: false, error: "expired" } };
-  const r = await deps.store.record(ackKey(deps.topic, c, o), c);
+  const r = await deps.store.record(ackKey(deps.topic, c, o), c, rebalanceNotifyKey(deps.topic, c, o));
+  // A token only proves knowledge of the topic; the acknowledgement must also match a notification
+  // this API really sent (so a forged token cannot trigger exchange refreshes at will).
+  if (r === "unknown") return { status: 403, body: { ok: false, error: "forbidden" } };
   if (r === "unavailable") return { status: 503, body: { ok: false, error: "unavailable" } };
   return { status: 200, body: r === "duplicate" ? { ok: true, duplicate: true } : { ok: true } };
 }
@@ -121,8 +141,17 @@ type AckRow = { h?: unknown; c?: unknown; taken?: unknown };
 
 export function createPrismaAckStore(prisma: PrismaClient, now: () => number = Date.now): AckStore {
   return {
-    record: async (key, category) => {
+    record: async (key, category, notifyKey) => {
       try {
+        const sent = await prisma.opsEvent.findFirst({
+          where: {
+            type: "ntfy_notify",
+            createdAt: { gte: new Date(now() - NOTIFY_LOOKBACK_MS) },
+            AND: [{ data: { path: ["h"], equals: notifyKey } }, { data: { path: ["s"], equals: "sent" } }],
+          },
+          select: { id: true },
+        });
+        if (!sent) return "unknown" as const;
         // Cheap read first, without the lock: a replayed link (duplicate) never serialises behind take.
         const early = await prisma.opsEvent.findFirst({
           where: { type: "trade_ack", createdAt: { gte: new Date(now() - ACK_TAKE_MAX_AGE_MS) }, data: { path: ["h"], equals: key } },

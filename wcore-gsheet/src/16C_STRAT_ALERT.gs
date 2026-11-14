@@ -197,10 +197,15 @@ var TRADE_ACK_TARGETS = {
   action: { sheet: "Portefeuille Action", cell: "T2", statusCell: "U2" }
 };
 
-/** True when the manual CEX job queue still holds a job reporting to that status cell. */
+/** True when a manual CEX job is running, or the queue still holds a job reporting to that status cell. */
 function _wcoreTradeAckQueueHas_(statusSheetName, statusCell) {
   try {
-    var queue = JSON.parse(PropertiesService.getScriptProperties().getProperty("CEX_MANUAL_JOB_QUEUE") || "[]");
+    var props = PropertiesService.getScriptProperties();
+    // The worker removes a job from the queue before running it and keeps this marker set (90 s
+    // ahead, renewed per job) until the queue is drained: it covers the last job still running.
+    var activeUntil = Number(props.getProperty("CEX_MANUAL_ACTIVE_UNTIL_MS") || 0);
+    if (isFinite(activeUntil) && activeUntil > Date.now()) return true;
+    var queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]");
     if (!Array.isArray(queue)) return false;
     for (var i = 0; i < queue.length; i++) {
       var j = queue[i] || {};

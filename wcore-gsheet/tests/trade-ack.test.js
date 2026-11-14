@@ -111,6 +111,15 @@ test('jobs still waiting in the CEX queue block a second batch even when the sta
   const out = h.run();
   assert.deepEqual(out.skipped, ['crypto']);
   assert.deepEqual(out.refreshed, ['action']);
+  // Last job running: it has left the queue but the worker marker is still set (empty queue, status OK).
+  const running = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_JOB_QUEUE: '[]', CEX_MANUAL_ACTIVE_UNTIL_MS: String(Date.now() + 60000) } });
+  running.state.body = { ok: true, categories: ['crypto'] };
+  running.state.status['Portefeuille Crypto!V2'] = 'KRAKEN OK: 14/11 11:00';
+  assert.equal(running.run().reason, 'ALREADY_QUEUED');
+  assert.equal(running.edits.length, 0);
+  const expired = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_ACTIVE_UNTIL_MS: String(Date.now() - 1000) } });
+  expired.state.body = { ok: true, categories: ['crypto'] };
+  assert.equal(expired.run().reason, 'REFRESHED');
   const broken = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_JOB_QUEUE: '{not json' } });
   broken.state.body = { ok: true, categories: ['crypto'] };
   assert.equal(broken.run().reason, 'REFRESHED');

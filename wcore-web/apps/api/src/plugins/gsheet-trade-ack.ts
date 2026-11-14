@@ -52,16 +52,19 @@ export function buildAckActionHeader(
 
 /** URL as it may appear in logs: the query of the tap URL (token, occurrence) is never logged. */
 export function maskAckUrl(url: unknown): string {
-  const raw = String(url ?? "");
+  const full = String(url ?? "");
+  // The router also accepts the absolute form (http://host/path?query): keep scheme and host, judge the path.
+  const prefix = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i.exec(full)?.[0] ?? "";
+  const raw = full.slice(prefix.length);
   const q = raw.indexOf("?");
-  if (q < 0) return raw;
+  if (q < 0) return full;
   const path = raw.slice(0, q);
   let decoded: string | null;
   try { decoded = decodeURI(path); } catch { decoded = null; }
   // Encoded variants (%61pi/trade-ack, trade-%61ck) reach the same route, and an undecodable path is
   // masked too: when unsure the query is dropped.
-  if (decoded === null || decoded.replace(/\/+/g, "/").toLowerCase().startsWith("/api/trade-ack")) return path + "?[masked]";
-  return raw;
+  if (decoded === null || decoded.replace(/\/+/g, "/").toLowerCase().startsWith("/api/trade-ack")) return prefix + path + "?[masked]";
+  return full;
 }
 
 export interface AckStore {

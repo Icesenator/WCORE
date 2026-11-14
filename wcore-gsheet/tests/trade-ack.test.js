@@ -32,7 +32,7 @@ function harness(opts = {}) {
   vm.createContext(ctx);
   vm.runInContext(SRC, ctx);
   const ss = { getSheetByName: (n) => sheets[n] || null };
-  return { run: () => ctx._wcoreCheckTradeAck_(ss), state, posts, edits, ctxCall: (name, arg) => ctx[name](arg), ctxOnEdit: (fn) => { ctx.BITPANDA_ON_EDIT = (e) => { edits.push(e); return fn(e); }; } };
+  return { run: () => ctx._wcoreCheckTradeAck_(ss), state, posts, edits, ctxCall: (name, arg) => ctx[name](arg), ctxSet: (name, value) => { ctx[name] = value; }, ctxOnEdit: (fn) => { ctx.BITPANDA_ON_EDIT = (e) => { edits.push(e); return fn(e); }; } };
 }
 
 test('crypto acknowledgement runs the U2 refresh path once, as an installable-trigger event', () => {
@@ -186,4 +186,46 @@ test('WCORE_TRADE_ACK_TEST sends one rebalancing event with a fresh TEST occurre
   assert.deepEqual(Object.keys(h.posts[0].payload).sort(), ['category', 'event', 'occurrence']);
   assert.equal(h.posts[0].payload.event, 'strat_rebalance');
   assert.match(h.posts[0].payload.occurrence, /^TEST-\d+-\d+$/);
+});
+
+test('an acknowledgement drops the Kraken jobs after a recent Kraken call or during a pause, and only then', () => {
+  const jobs = () => ['BITPANDA_CRYPTO', 'BINANCE', 'KRAKEN', 'KRAKEN_STOCKS', 'OKX'].map((kind) => ({ kind }));
+  const kinds = (list) => list.map((j) => j.kind);
+  const mk = (props) => {
+    const h = harness({ props: Object.assign({ WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN }, props) });
+    return h;
+  };
+  // Nothing known about Kraken (config absent): unchanged.
+  const bare = mk({});
+  assert.deepEqual(kinds(bare.ctxCall('_wcoreTradeAckDropKraken_', jobs())), ['BITPANDA_CRYPTO', 'BINANCE', 'KRAKEN', 'KRAKEN_STOCKS', 'OKX']);
+  // Kraken answered a minute ago: both Kraken jobs go, the others stay in order.
+  const recent = mk({ K_SHARED: String(Date.now() - 60000) });
+  recent.ctxSet('KRAKEN_SYNC_CONFIG', { SHARED_OK_PROP: 'K_SHARED' });
+  assert.deepEqual(kinds(recent.ctxCall('_wcoreTradeAckDropKraken_', jobs())), ['BITPANDA_CRYPTO', 'BINANCE', 'OKX']);
+  // Kraken answered 10 minutes ago: kept.
+  const old = mk({ K_SHARED: String(Date.now() - 10 * 60000) });
+  old.ctxSet('KRAKEN_SYNC_CONFIG', { SHARED_OK_PROP: 'K_SHARED' });
+  assert.equal(old.ctxCall('_wcoreTradeAckDropKraken_', jobs()).length, 5);
+  // A clock that went backwards, or a value in the future: not "recent", kept.
+  const future = mk({ K_SHARED: String(Date.now() + 60000) });
+  future.ctxSet('KRAKEN_SYNC_CONFIG', { SHARED_OK_PROP: 'K_SHARED' });
+  assert.equal(future.ctxCall('_wcoreTradeAckDropKraken_', jobs()).length, 5);
+  // Post-lockout pause: dropped even with an old pass.
+  const paused = mk({ K_SHARED: String(Date.now() - 60 * 60000) });
+  paused.ctxSet('KRAKEN_SYNC_CONFIG', { SHARED_OK_PROP: 'K_SHARED' });
+  paused.ctxSet('_krakenLockoutUntilMs_', () => Date.now() + 600000);
+  assert.deepEqual(kinds(paused.ctxCall('_wcoreTradeAckDropKraken_', jobs())), ['BITPANDA_CRYPTO', 'BINANCE', 'OKX']);
+  // A throwing lockout reader never breaks the acknowledgement.
+  const broken = mk({});
+  broken.ctxSet('_krakenLockoutUntilMs_', () => { throw new Error('x'); });
+  assert.equal(broken.ctxCall('_wcoreTradeAckDropKraken_', jobs()).length, 5);
+});
+
+test('the refresh path applies that guard only to acknowledgements (static)', () => {
+  const BP = fs.readFileSync(path.join(__dirname, '..', 'src', '35_BITPANDA_SYNC.gs'), 'utf8');
+  assert.match(BP, /if \(ackStock\) stockJobs = _wcoreTradeAckDropKraken_\(stockJobs\);/);
+  assert.match(BP, /if \(ackCrypto\) cryptoJobs = _wcoreTradeAckDropKraken_\(cryptoJobs\);/);
+  assert.match(BP, /_cexEnqueueManualJobs_\(cryptoJobs, ackCrypto \?/);
+  assert.match(BP, /_cexEnqueueManualJobs_\(stockJobs, ackStock \?/);
+  assert.doesNotMatch(BP, /DropKraken_\((?!stockJobs|cryptoJobs)/, 'no other call site');
 });

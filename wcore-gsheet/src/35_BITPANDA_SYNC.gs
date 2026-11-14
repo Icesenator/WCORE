@@ -1211,10 +1211,13 @@ function BITPANDA_ON_EDIT(e) {
       // lock, so the QUEUED status is written by the enqueue itself and only if jobs were queued.
       var ackStock = !!(e && e.tradeAck);
       if (!ackStock) _bpSetExternalRefreshStatus_(sheet, "U2", "QUEUED: " + _bpFmtStamp_());
-      var stockOut = _cexEnqueueManualJobs_([
+      var stockJobs = [
         { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" },
         { kind: "KRAKEN_STOCKS", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
-      ], ackStock ? function (queue) { return _wcoreTradeAckBusy_(queue, name, "U2"); } : null);
+      ];
+      // An acknowledgement never adds a second Kraken Balance call right after another one (or during a pause).
+      if (ackStock) stockJobs = _wcoreTradeAckDropKraken_(stockJobs);
+      var stockOut = _cexEnqueueManualJobs_(stockJobs, ackStock ? function (queue) { return _wcoreTradeAckBusy_(queue, name, "U2"); } : null);
       if (ackStock && e.tradeAck && stockOut === "SKIPPED_BUSY") e.tradeAck.skipped = true;
     } else if (name === "Portefeuille Crypto" && cell === "U2") {
       var cryptoStatusCell = "V2";
@@ -1222,7 +1225,7 @@ function BITPANDA_ON_EDIT(e) {
       if (!ackCrypto) _bpSetExternalRefreshStatus_(sheet, cryptoStatusCell, "QUEUED: " + _bpFmtStamp_());
       // v4.15.114: single batch enqueue for the 7 CEX jobs. Per-job enqueue redid
       // getProjectTriggers()+delete+create for every job -> MASTER_ON_EDIT 50-75s.
-      var cryptoOut = _cexEnqueueManualJobs_([
+      var cryptoJobs = [
         { kind: "BITPANDA_CRYPTO", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.CRYPTO, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "BINANCE", sheetName: typeof BINANCE_SYNC_CONFIG !== "undefined" ? BINANCE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "BITFINEX", sheetName: typeof BITFINEX_SYNC_CONFIG !== "undefined" ? BITFINEX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
@@ -1230,7 +1233,9 @@ function BITPANDA_ON_EDIT(e) {
         { kind: "COINBASE", sheetName: typeof COINBASE_SYNC_CONFIG !== "undefined" ? COINBASE_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "OKX", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell },
         { kind: "KRAKEN", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: cryptoStatusCell }
-      ], ackCrypto ? function (queue) { return _wcoreTradeAckBusy_(queue, name, cryptoStatusCell); } : null);
+      ];
+      if (ackCrypto) cryptoJobs = _wcoreTradeAckDropKraken_(cryptoJobs);
+      var cryptoOut = _cexEnqueueManualJobs_(cryptoJobs, ackCrypto ? function (queue) { return _wcoreTradeAckBusy_(queue, name, cryptoStatusCell); } : null);
       if (ackCrypto && e.tradeAck && cryptoOut === "SKIPPED_BUSY") e.tradeAck.skipped = true;
     } else {
       _bpSetRefreshFlag_(refreshFlagProp);

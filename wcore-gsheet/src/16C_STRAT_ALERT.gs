@@ -198,6 +198,27 @@ var TRADE_ACK_TARGETS = {
 };
 
 /** True when a manual CEX job is running, or the queue still holds a job reporting to that status cell. */
+/** Window during which an acknowledgement does not add a second Kraken Balance call. */
+var TRADE_ACK_KRAKEN_REUSE_MS = 5 * 60 * 1000;
+
+/**
+ * Removes the Kraken jobs from the batch of an acknowledgement when Kraken answered less than
+ * TRADE_ACK_KRAKEN_REUSE_MS ago (a second Balance call that close is what gets the key locked out) or is
+ * in a post-lockout pause (a job would only fail and be retried at the worst moment). The other exchanges
+ * are refreshed as usual; the Kraken tabs keep their last values and timestamp.
+ */
+function _wcoreTradeAckDropKraken_(jobs) {
+  var recent = false, paused = false;
+  try {
+    var prop = typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHARED_OK_PROP : "";
+    var last = prop ? Number(PropertiesService.getScriptProperties().getProperty(prop) || 0) : 0;
+    recent = last > 0 && Date.now() >= last && Date.now() - last < TRADE_ACK_KRAKEN_REUSE_MS;
+  } catch (eRecent) {}
+  try { paused = typeof _krakenLockoutUntilMs_ === "function" && !!_krakenLockoutUntilMs_(); } catch (ePause) {}
+  if (!recent && !paused) return jobs;
+  return jobs.filter(function (j) { return !j || (j.kind !== "KRAKEN" && j.kind !== "KRAKEN_STOCKS"); });
+}
+
 function _wcoreTradeAckBusy_(queue, statusSheetName, statusCell) {
   try {
     var props = PropertiesService.getScriptProperties();

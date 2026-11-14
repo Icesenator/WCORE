@@ -105,7 +105,7 @@ test("an expired link is refused for good, even after its stored acknowledgement
   const store = memoryStore();
   const late = NOW + 6 * 60 * 60 * 1000 + 2000;
   const r = await handleTradeAck(query(), { topic: TOPIC, store }, late);
-  assert.deepEqual(r, { status: 403, body: { ok: false, error: "expired" } });
+  assert.deepEqual(r, { status: 403, body: { ok: false, error: "forbidden" } });
   assert.equal(store.rows.length, 0);
   const far = EXP + 7 * 24 * 3600;
   assert.equal((await handleTradeAck(query("crypto", OCC, undefined, far), { topic: TOPIC, store }, NOW)).status, 403);
@@ -120,6 +120,10 @@ test("the tap URL query never reaches the logs", () => {
   assert.equal(maskAckUrl("/api/trade-ack%25253Ft=secret"), "[masked]");
   assert.equal(maskAckUrl("/api/trade-ack%25%33%46t=secret"), "[masked]");
   assert.equal(maskAckUrl("/api/health%zz"), "[masked]");
+  assert.equal(maskAckUrl("/api/trade%00-ack?t=EXAMPLE"), "[masked]");
+  assert.equal(maskAckUrl("/api/trade%09-ack?t=EXAMPLE"), "[masked]");
+  assert.equal(maskAckUrl("/api/trade%c2%ad-ack?t=EXAMPLE"), "[masked]");
+  assert.equal(maskAckUrl("/api/health?q=ok"), "/api/health?q=ok");
   assert.equal(maskAckUrl("/api/trade-ack%3Fc=crypto&t=secret"), "[masked]");
   assert.equal(maskAckUrl("/api/trade-ack%253Ft=secret"), "[masked]");
   assert.equal(maskAckUrl("/api/trade-ack%25253Ft=EXAMPLE_TOKEN?extra=1"), "[masked]");

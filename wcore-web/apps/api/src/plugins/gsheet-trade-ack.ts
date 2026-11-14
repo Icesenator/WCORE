@@ -76,7 +76,10 @@ export function maskAckUrl(url: unknown): string {
   const decodedFull = decodeAll(full);
   // Fail closed: a URL that decodes (up to 4 passes) to something naming the route, or cannot be decoded
   // at all, is never logged beyond its visible prefix, whatever the encoding of its separators.
-  const routeHit = decodedFull === null || decodedFull.toLowerCase().includes("trade-ack");
+  // Also suspicious: anything still encoded after the passes, or a control, format or non-ASCII
+  // character (a null byte, tab or soft hyphen could split the route name).
+  const routeHit = decodedFull === null || decodedFull.toLowerCase().includes("trade-ack")
+    || decodedFull.includes("%") || /[^\x21-\x7e]/.test(decodedFull);
   // The query starts at the first "?" or at an encoded one (%3F, %253F): when in doubt the cut is earlier.
   // A URL naming the route is never logged at all: nothing of it (prefix included) can carry the token.
   if (routeHit) return "[masked]";
@@ -122,7 +125,7 @@ export async function handleTradeAck(query: unknown, deps: AckDeps, now: number 
   // The expiry is signed, so it cannot be moved; it is checked before anything is recorded. A link
   // is therefore dead for good once expired, even after its stored acknowledgement was purged.
   const nowS = Math.floor(now / 1000);
-  if (nowS > expiry || expiry > nowS + Math.ceil(ACK_MAX_AGE_MS / 1000) + 60) return { status: 403, body: { ok: false, error: "expired" } };
+  if (nowS > expiry || expiry > nowS + Math.ceil(ACK_MAX_AGE_MS / 1000) + 60) return { status: 403, body: { ok: false, error: "forbidden" } }; // same answer as a wrong token: no validity oracle
   const r = await deps.store.record(ackKey(deps.topic, c, o), c, rebalanceNotifyKey(deps.topic, c, o));
   // A token only proves knowledge of the topic; the acknowledgement must also match a notification
   // this API really sent (so a forged token cannot trigger exchange refreshes at will).
@@ -191,6 +194,7 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
         return await prisma.$transaction(async (tx) => {
           await tx.$queryRawUnsafe("SELECT true AS locked FROM pg_advisory_xact_lock($1)", ACK_LOCK_KEY);
           const t = now();
+          await tx.opsEvent.deleteMany({ where: { type: "trade_ack", createdAt: { lt: new Date(t - RETENTION_MS) } } });
           const rows = await tx.opsEvent.findMany({
             where: { type: "trade_ack", createdAt: { gte: new Date(t - ACK_TAKE_MAX_AGE_MS) } },
             select: { id: true, data: true },

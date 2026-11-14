@@ -78,11 +78,13 @@ export function maskAckUrl(url: unknown): string {
   // at all, is never logged beyond its visible prefix, whatever the encoding of its separators.
   const routeHit = decodedFull === null || decodedFull.toLowerCase().includes("trade-ack");
   // The query starts at the first "?" or at an encoded one (%3F, %253F): when in doubt the cut is earlier.
+  // A URL naming the route is never logged at all: nothing of it (prefix included) can carry the token.
+  if (routeHit) return "[masked]";
   const q = full.search(/\?|%3f|%253f/i);
-  if (q < 0) return routeHit ? "[masked]" : full;
+  if (q < 0) return full;
   const before = full.slice(0, q);
   const decodedBefore = decodeAll(before);
-  if (routeHit || decodedBefore === null || /%2f|%5c|%25|\/\.{1,2}(\/|$)|\\/i.test(before)) return before + "?[masked]";
+  if (decodedBefore === null || /%2f|%5c|%25|\/\.{1,2}(\/|$)|\\/i.test(before)) return before + "?[masked]";
   return full;
 }
 

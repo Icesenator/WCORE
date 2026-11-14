@@ -112,7 +112,7 @@ test("an expired link is refused for good, even after its stored acknowledgement
 });
 
 test("the tap URL query never reaches the logs", () => {
-  assert.equal(maskAckUrl("/api/trade-ack?c=crypto&o=AY1-1794470000000&e=1&t=" + "a".repeat(32)), "/api/trade-ack?[masked]");
+  assert.equal(maskAckUrl("/api/trade-ack?c=crypto&o=AY1-1794470000000&e=1&t=" + "a".repeat(32)), "[masked]");
   assert.equal(maskAckUrl("/api/health"), "/api/health");
   assert.equal(maskAckUrl("/api/search?q=1"), "/api/search?q=1");
   assert.equal(maskAckUrl("http://localhost/api/search?q=1"), "http://localhost/api/search?q=1");
@@ -120,9 +120,15 @@ test("the tap URL query never reaches the logs", () => {
   assert.equal(maskAckUrl("/api/trade-ack%25253Ft=secret"), "[masked]");
   assert.equal(maskAckUrl("/api/trade-ack%25%33%46t=secret"), "[masked]");
   assert.equal(maskAckUrl("/api/health%zz"), "[masked]");
-  assert.equal(maskAckUrl("/api/trade-ack%3Fc=crypto&t=secret"), "/api/trade-ack?[masked]");
-  assert.equal(maskAckUrl("/api/trade-ack%253Ft=secret"), "/api/trade-ack?[masked]");
-  for (const variant of ["http://localhost/api/trade-ack", "https://api.example.test:8080/%61pi/trade-%61ck", "/%61pi/trade-ack", "/api/trade-%61ck", "/API/Trade-Ack", "/api//trade-ack", "/api/trade-ack/", "/api/trade-ack%zz", "/api/x/../trade-ack", "/api/./health", "/api%2Ftrade-ack", "/api/x%5Cy", "http://localhost\\api\\trade-ack", "/%2574rade-ack", "http://localhost/api/x%2Fy"]) {
+  assert.equal(maskAckUrl("/api/trade-ack%3Fc=crypto&t=secret"), "[masked]");
+  assert.equal(maskAckUrl("/api/trade-ack%253Ft=secret"), "[masked]");
+  assert.equal(maskAckUrl("/api/trade-ack%25253Ft=EXAMPLE_TOKEN?extra=1"), "[masked]");
+  assert.equal(maskAckUrl("/api/trade-ack%3F?t=EXAMPLE_TOKEN"), "[masked]");
+  for (const variant of ["http://localhost/api/trade-ack", "https://api.example.test:8080/%61pi/trade-%61ck", "/%61pi/trade-ack", "/api/trade-%61ck", "/API/Trade-Ack", "/api//trade-ack", "/api/trade-ack/", "/api/trade-ack%zz", "/api/x/../trade-ack", "/api%2Ftrade-ack", "http://localhost\\api\\trade-ack", "/%2574rade-ack"]) {
+    assert.equal(maskAckUrl(variant + "?c=crypto&t=secret"), "[masked]", variant);
+  }
+  // Not the route, but an odd shape (dot segments, encoded slash or backslash): only the query goes.
+  for (const variant of ["/api/./health", "/api/x%5Cy", "http://localhost/api/x%2Fy"]) {
     assert.equal(maskAckUrl(variant + "?c=crypto&t=secret"), variant + "?[masked]", variant);
   }
 });

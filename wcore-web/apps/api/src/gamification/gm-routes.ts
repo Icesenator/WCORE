@@ -52,54 +52,67 @@ export async function registerGmRoutes(
 
     const now = new Date();
     const today = startOfUtcDay(now);
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    // Ecritures gardees par l'etat lu (gmStreak, longestStreak, lastGmDate) : une reparation ou un GM en chaine
+    // concurrent ne doit pas etre ecrase par une lecture perimee. Sur conflit, on relit et on recalcule.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const user = await prisma.user.findUnique({ where: { id: req.user.id } });
 
-    if (!user) return reply.code(404).send({ error: "user_not_found" });
+      if (!user) return reply.code(404).send({ error: "user_not_found" });
 
-    if (user.lastGmDate) {
-      const lastGmDay = startOfUtcDay(new Date(user.lastGmDate));
-      if (lastGmDay.getTime() >= today.getTime()) {
-        return { error: "already_gm_today", streak: user.gmStreak };
-      }
+      const guard = {
+        id: user.id,
+        gmStreak: user.gmStreak,
+        longestStreak: user.longestStreak,
+        OR: [{ lastGmDate: null }, { lastGmDate: { lt: today } }],
+      };
 
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-
-      if (lastGmDay.getTime() >= yesterday.getTime()) {
-        const newStreak = user.gmStreak + 1;
-        const newLongest = Math.max(newStreak, user.longestStreak);
-        const scoreGain = 10 + (newStreak > 1 ? newStreak : 0);
-
-        const updated = await prisma.user.updateMany({
-          where: { id: user.id, OR: [{ lastGmDate: null }, { lastGmDate: { lt: today } }] },
-          data: {
-            gmStreak: newStreak,
-            longestStreak: newLongest,
-            lastGmDate: now,
-            score: { increment: scoreGain },
-          },
-        });
-        if (updated.count === 0) return { error: "already_gm_today", streak: user.gmStreak };
-
-        await checkStreakBadges(prisma, user.id, newStreak);
-        if (newStreak > 0 && newStreak % 7 === 0) {
-          createNotification(user.id, "gm_streak", `${newStreak}-day GM Streak!`, `You've reached a ${newStreak}-day GM streak. Keep it going!`);
+      if (user.lastGmDate) {
+        const lastGmDay = startOfUtcDay(new Date(user.lastGmDate));
+        if (lastGmDay.getTime() >= today.getTime()) {
+          return { error: "already_gm_today", streak: user.gmStreak };
         }
-        addReferralBonus(user.id, scoreGain).catch(() => {});
-        return { streak: newStreak, longestStreak: newLongest, scoreGain, totalScore: user.score + scoreGain };
+
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+
+        if (lastGmDay.getTime() >= yesterday.getTime()) {
+          const newStreak = user.gmStreak + 1;
+          const newLongest = Math.max(newStreak, user.longestStreak);
+          const scoreGain = 10 + (newStreak > 1 ? newStreak : 0);
+
+          const updated = await prisma.user.updateMany({
+            where: guard,
+            data: {
+              gmStreak: newStreak,
+              longestStreak: newLongest,
+              lastGmDate: now,
+              score: { increment: scoreGain },
+            },
+          });
+          if (updated.count === 0) continue;
+
+          await checkStreakBadges(prisma, user.id, newStreak);
+          if (newStreak > 0 && newStreak % 7 === 0) {
+            createNotification(user.id, "gm_streak", `${newStreak}-day GM Streak!`, `You've reached a ${newStreak}-day GM streak. Keep it going!`);
+          }
+          addReferralBonus(user.id, scoreGain).catch(() => {});
+          return { streak: newStreak, longestStreak: newLongest, scoreGain, totalScore: user.score + scoreGain };
+        }
       }
+
+      const newLongest = Math.max(1, user.longestStreak);
+      const updated = await prisma.user.updateMany({
+        where: guard,
+        data: { gmStreak: 1, longestStreak: newLongest, lastGmDate: now, score: { increment: 10 } },
+      });
+      if (updated.count === 0) continue;
+
+      createNotification(user.id, "gm_first", "First GM!", "Welcome to WCORE! You've completed your first GM. Check out your streak on the leaderboard.");
+      addReferralBonus(user.id, 10).catch(() => {});
+      return { streak: 1, longestStreak: newLongest, scoreGain: 10, totalScore: user.score + 10 };
     }
-
-    const newLongest = Math.max(1, user.longestStreak);
-    const updated = await prisma.user.updateMany({
-      where: { id: user.id, OR: [{ lastGmDate: null }, { lastGmDate: { lt: today } }] },
-      data: { gmStreak: 1, longestStreak: newLongest, lastGmDate: now, score: { increment: 10 } },
-    });
-    if (updated.count === 0) return { error: "already_gm_today", streak: user.gmStreak };
-
-    createNotification(user.id, "gm_first", "First GM!", "Welcome to WCORE! You've completed your first GM. Check out your streak on the leaderboard.");
-    addReferralBonus(user.id, 10).catch(() => {});
-    return { streak: 1, longestStreak: newLongest, scoreGain: 10, totalScore: user.score + 10 };
+    // Conflits repetes : rien n'a ete ecrit, le client peut reessayer.
+    return reply.code(409).send({ error: "gm_conflict" });
   });
 
   // GM status for current user (general + per-chain).

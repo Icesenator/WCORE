@@ -94,7 +94,7 @@ export async function applyMergedStreak(args: {
     merged = compute(stored);
     if (!merged.changed && !alwaysWrite) return { merged, applied: false };
     const res = await store.user.updateMany({
-      where: { id: userId, gmStreak: stored.gmStreak, lastGmDate: stored.lastGmDate },
+      where: { id: userId, gmStreak: stored.gmStreak, longestStreak: stored.longestStreak, lastGmDate: stored.lastGmDate },
       data: {
         gmStreak: merged.gmStreak,
         longestStreak: merged.longestStreak,

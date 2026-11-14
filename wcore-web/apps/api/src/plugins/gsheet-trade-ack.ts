@@ -59,7 +59,8 @@ export function buildAckActionHeader(
  */
 export function maskAckUrl(url: unknown): string {
   const full = String(url ?? "");
-  const q = full.indexOf("?");
+  // The query starts at the first "?" or at an encoded one (%3F, %253F): when in doubt the cut is earlier.
+  const q = full.search(/\?|%3f|%253f/i);
   if (q < 0) return full;
   const before = full.slice(0, q);
   let decoded = before;
@@ -122,6 +123,12 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
   return {
     record: async (key, category) => {
       try {
+        // Cheap read first, without the lock: a replayed link (duplicate) never serialises behind take.
+        const early = await prisma.opsEvent.findFirst({
+          where: { type: "trade_ack", createdAt: { gte: new Date(now() - ACK_TAKE_MAX_AGE_MS) }, data: { path: ["h"], equals: key } },
+          select: { id: true },
+        });
+        if (early) return "duplicate" as const;
         return await prisma.$transaction(async (tx) => {
           await tx.$queryRawUnsafe("SELECT true AS locked FROM pg_advisory_xact_lock($1)", ACK_LOCK_KEY);
           const t = now();
@@ -135,7 +142,7 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
             // Taken, or still waiting inside the take window: a real duplicate. Waiting but already past
             // the window (the workbook was away): that acknowledgement can never be taken, so a new
             // valid tap revives it instead of being swallowed as a duplicate.
-            if (d?.taken === true || t - same.createdAt.getTime() < ACK_TAKE_MAX_AGE_MS) return "duplicate" as const;
+            if (d?.taken === true || t - same.createdAt.getTime() <= ACK_TAKE_MAX_AGE_MS) return "duplicate" as const;
             await tx.opsEvent.update({ where: { id: same.id }, data: { createdAt: new Date(t) } });
             return "recorded" as const;
           }

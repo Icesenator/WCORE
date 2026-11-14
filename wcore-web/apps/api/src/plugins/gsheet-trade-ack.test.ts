@@ -116,6 +116,8 @@ test("the tap URL query never reaches the logs", () => {
   assert.equal(maskAckUrl("/api/search?q=1"), "/api/search?q=1");
   assert.equal(maskAckUrl("http://localhost/api/search?q=1"), "http://localhost/api/search?q=1");
   assert.equal(maskAckUrl(undefined), "");
+  assert.equal(maskAckUrl("/api/trade-ack%3Fc=crypto&t=secret"), "/api/trade-ack?[masked]");
+  assert.equal(maskAckUrl("/api/trade-ack%253Ft=secret"), "/api/trade-ack?[masked]");
   for (const variant of ["http://localhost/api/trade-ack", "https://api.example.test:8080/%61pi/trade-%61ck", "/%61pi/trade-ack", "/api/trade-%61ck", "/API/Trade-Ack", "/api//trade-ack", "/api/trade-ack/", "/api/trade-ack%zz", "/api/x/../trade-ack", "/api/./health", "/api%2Ftrade-ack", "/api/x%5Cy", "http://localhost\\api\\trade-ack", "/%2574rade-ack", "http://localhost/api/x%2Fy"]) {
     assert.equal(maskAckUrl(variant + "?c=crypto&t=secret"), variant + "?[masked]", variant);
   }

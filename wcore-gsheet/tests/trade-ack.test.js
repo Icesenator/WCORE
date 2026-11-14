@@ -175,10 +175,15 @@ test('WCORE_TRADE_ACK_TEST sends one rebalancing event with a fresh TEST occurre
   const a = h.ctxCall('WCORE_TRADE_ACK_TEST', undefined);
   assert.deepEqual(a, { ok: true, code: 200, category: 'crypto' });
   assert.equal(h.ctxCall('WCORE_TRADE_ACK_TEST', 'action').category, 'action');
-  assert.equal(h.ctxCall('WCORE_TRADE_ACK_TEST', 'anything else').category, 'crypto');
+  assert.deepEqual(h.ctxCall('WCORE_TRADE_ACK_TEST', { triggerUid: 'x', authMode: 'FULL' }), { ok: false, reason: 'NOT_MANUAL' }, 'a trigger event is refused');
+  assert.deepEqual(h.ctxCall('WCORE_TRADE_ACK_TEST', 'anything else'), { ok: false, reason: 'NOT_MANUAL' });
+  assert.equal(h.posts.length, 2, 'refused calls send nothing');
+  h.ctxCall('WCORE_TRADE_ACK_TEST', 'crypto');
   assert.equal(h.posts.length, 3);
+  assert.equal(new Set(h.posts.map((x) => x.payload.occurrence)).size, 3, 'every call has its own occurrence');
+  for (const x of h.posts) assert.match(x.payload.occurrence, /^[A-Za-z0-9_-]{8,64}$/);
   assert.equal(h.posts[0].url, API + '/api/gsheet/notify');
   assert.deepEqual(Object.keys(h.posts[0].payload).sort(), ['category', 'event', 'occurrence']);
   assert.equal(h.posts[0].payload.event, 'strat_rebalance');
-  assert.match(h.posts[0].payload.occurrence, /^TEST-\d+$/);
+  assert.match(h.posts[0].payload.occurrence, /^TEST-\d+-\d+$/);
 });

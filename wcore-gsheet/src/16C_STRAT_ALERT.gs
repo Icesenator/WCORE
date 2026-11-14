@@ -299,9 +299,13 @@ function WCORE_NTFY_TEST() {
  * "action"). Run it by hand from the Apps Script editor; no trigger calls it.
  */
 function WCORE_TRADE_ACK_TEST(category) {
+  // Manual only: the editor passes nothing, a trigger passes an event object, which is refused.
+  if (category !== undefined && category !== "crypto" && category !== "action") return { ok: false, reason: "NOT_MANUAL" };
   var cat = category === "action" ? "action" : "crypto";
   var api = _wcoreStratAlertApi_();
   if (!api) return { ok: false, reason: "NO_API" };
-  var res = _wcoreStratAlertPost_(api, { event: "strat_rebalance", category: cat, occurrence: "TEST-" + Date.now() });
+  // Unique per call even within one millisecond (the API deduplicates on the occurrence).
+  var occurrence = "TEST-" + Date.now() + "-" + Math.floor(Math.random() * 1e9);
+  var res = _wcoreStratAlertPost_(api, { event: "strat_rebalance", category: cat, occurrence: occurrence });
   return { ok: res.ok, code: res.code, category: cat };
 }

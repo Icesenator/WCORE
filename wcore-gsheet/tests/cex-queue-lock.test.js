@@ -160,3 +160,16 @@ test('CEX_QUEUE_MANUAL_JOB expose le meme contrat que le batch', () => {
   assert.equal(out, 'QUEUED');
   assert.equal(h.queueValue()[0].kind, 'OKX');
 });
+
+test('coalescence sous verrou : un job identique deja en file n est pas ajoute une seconde fois (clic manuel + accuse)', () => {
+  const h = harness({});
+  assert.equal(h.enqueue([JOB]), 'QUEUED');
+  assert.equal(h.enqueue([JOB]), 'QUEUED', 'la seconde demande aboutit sans erreur');
+  assert.equal(h.queueValue().length, 1, 'un seul appel a la plateforme d echange');
+  const other = Object.assign({}, JOB, { kind: 'OKX' });
+  h.enqueue([JOB, other]);
+  assert.deepEqual(h.queueValue().map((j) => j.kind), ['KRAKEN', 'OKX'], 'un autre job s ajoute, le doublon non');
+  const elsewhere = Object.assign({}, JOB, { statusCell: 'U2' });
+  h.enqueue([elsewhere]);
+  assert.equal(h.queueValue().length, 3, 'une autre cellule de statut est une autre demande');
+});

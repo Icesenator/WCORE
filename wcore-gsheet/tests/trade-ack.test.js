@@ -120,6 +120,13 @@ test('jobs still waiting in the CEX queue block a second batch even when the sta
   const expired = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_ACTIVE_UNTIL_MS: String(Date.now() - 1000) } });
   expired.state.body = { ok: true, categories: ['crypto'] };
   assert.equal(expired.run().reason, 'REFRESHED');
+  // Long last job: marker expired but the worker lease (renewed per job) is still in the future.
+  const leased = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_ACTIVE_UNTIL_MS: String(Date.now() - 1000), CEX_WORKER_LEASE: JSON.stringify({ owner: 'w', until: Date.now() + 90000 }) } });
+  leased.state.body = { ok: true, categories: ['crypto'] };
+  assert.equal(leased.run().reason, 'ALREADY_QUEUED');
+  const freed = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_WORKER_LEASE: JSON.stringify({ owner: 'w', until: Date.now() - 1000 }) } });
+  freed.state.body = { ok: true, categories: ['crypto'] };
+  assert.equal(freed.run().reason, 'REFRESHED');
   const broken = harness({ props: { WCORE_WEB_API_URL: API + '/', GSHEET_API_TOKEN: TOKEN, CEX_MANUAL_JOB_QUEUE: '{not json' } });
   broken.state.body = { ok: true, categories: ['crypto'] };
   assert.equal(broken.run().reason, 'REFRESHED');

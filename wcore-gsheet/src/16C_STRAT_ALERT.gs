@@ -205,6 +205,11 @@ function _wcoreTradeAckQueueHas_(statusSheetName, statusCell) {
     // ahead, renewed per job) until the queue is drained: it covers the last job still running.
     var activeUntil = Number(props.getProperty("CEX_MANUAL_ACTIVE_UNTIL_MS") || 0);
     if (isFinite(activeUntil) && activeUntil > Date.now()) return true;
+    // The worker lease (renewed per job, released when the worker ends) covers a job running longer than that marker.
+    try {
+      var lease = JSON.parse(props.getProperty("CEX_WORKER_LEASE") || "null");
+      if (lease && isFinite(parseInt(lease.until, 10)) && parseInt(lease.until, 10) > Date.now()) return true;
+    } catch (eLease) {}
     var queue = JSON.parse(props.getProperty("CEX_MANUAL_JOB_QUEUE") || "[]");
     if (!Array.isArray(queue)) return false;
     for (var i = 0; i < queue.length; i++) {

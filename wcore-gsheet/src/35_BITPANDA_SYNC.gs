@@ -388,7 +388,17 @@ function _cexEnqueueManualJobs_(jobs) {
     _cexQueueMutate_(function(queue) {
       for (var i = 0; i < jobs.length; i++) {
         var j = jobs[i] || {};
-        queue.push({ kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now });
+        var entry = { kind: String(j.kind || ""), sheetName: String(j.sheetName || ""), refreshFlagProp: String(j.refreshFlagProp || ""), statusSheetName: String(j.statusSheetName || ""), statusCell: String(j.statusCell || ""), ts: now };
+        // Coalescing, decided under the queue lock: a job of the same kind for the same sheet and
+        // status cell that has not started yet will read the current state when it runs, so a
+        // second one adds nothing but a second exchange call (Kraken lockout). This is what makes
+        // a manual tick and a "Trade fait" acknowledgement arriving together enqueue one batch.
+        var already = false;
+        for (var q = 0; q < queue.length; q++) {
+          var w = queue[q] || {};
+          if (w.kind === entry.kind && w.sheetName === entry.sheetName && w.statusSheetName === entry.statusSheetName && w.statusCell === entry.statusCell) { already = true; break; }
+        }
+        if (!already) queue.push(entry);
       }
     });
   } catch (eEnqueue) {

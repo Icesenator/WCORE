@@ -273,3 +273,14 @@ test('lines not yet announced (notification not delivered, or the mark was lost)
   assert.deepEqual(out.lines, [], 'no line refreshed');
   assert.equal(h.calls.onEdit.filter((c) => c.sheet === 'CEX - OKX').length, 0);
 });
+
+test('"enough" follows the amounts of each send: a retry with a smaller or larger amount recomputes it', () => {
+  const h = harness({ tabs: TABS() });
+  const first = { sell: { symbol: 'AAVE', eur: 21 }, buy: { symbol: 'CRO', eur: 1235 } };
+  const entry = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'AY1-1794470000000', first);
+  assert.equal(h.ctx._wcoreStratAlertEnough_(entry, first), true, 'Kraken 40 covers 21');
+  assert.equal(h.ctx._wcoreStratAlertEnough_(entry, { sell: { symbol: 'AAVE', eur: 90 }, buy: { symbol: 'CRO', eur: 1235 } }), false, 'the amount grew past 40');
+  assert.equal(h.ctx._wcoreStratAlertEnough_(entry, { sell: { symbol: 'AAVE', eur: 900 }, buy: { symbol: 'CRO', eur: 30 } }), true, 'the smaller side (30) is what counts');
+  assert.equal(h.ctx._wcoreStratAlertEnough_(entry, { sell: { symbol: 'AAVE' }, buy: { symbol: 'CRO' } }), false, 'no amount known: never "enough"');
+  assert.equal(h.ctx._wcoreStratAlertEnough_({ sell: [], firstEur: 0 }, first), false, 'no sell line: never "enough"');
+});

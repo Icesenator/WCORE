@@ -153,7 +153,9 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
   var entry = {
     sell: sell.map(function (x) { return x.name; }),
     buy: buy.map(function (x) { return x.name; }),
-    // Against the one amount the notification shows: the smaller side of the rebalancing.
+    // Value of the first (largest) sell line, kept so "enough" can be recomputed against the amount of each
+    // send: a retry recomputes the amounts, the flag must follow them.
+    firstEur: sell.length ? sell[0].eur : 0,
     enough: sell.length > 0 && amount != null && sell[0].eur >= amount,
     // Set only once the notification carrying these lines was really delivered: until then (or if that
     // mark is lost) an acknowledgement does not use them, so nothing unannounced is ever refreshed.
@@ -170,6 +172,17 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
   // propose different ones.
   try { PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(next)); } catch (eSave) { return null; }
   return entry;
+}
+
+/**
+ * "Enough" for one send: the first sell line covers the one amount the notification shows (the smaller
+ * side of the rebalancing, as known at this send).
+ */
+function _wcoreStratAlertEnough_(entry, trade) {
+  var sides = [trade && trade.sell ? trade.sell.eur : null, trade && trade.buy ? trade.buy.eur : null]
+    .filter(function (v) { return v != null && isFinite(v); });
+  if (!sides.length || !entry || !entry.sell || !entry.sell.length) return false;
+  return Number(entry.firstEur) >= Math.min.apply(null, sides);
 }
 
 /** Marks the lines of one occurrence as announced (the notification that carried them was delivered). */
@@ -302,7 +315,7 @@ function _wcoreCheckStratAlert_(ss) {
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }
       try {
         var lines = _wcoreStratAlertLinesFor_(ss, todo[t].id, trade);
-        if (lines) { body.sellLines = lines.sell; body.sellEnough = lines.enough; body.buyLines = lines.buy; }
+        if (lines) { body.sellLines = lines.sell; body.sellEnough = _wcoreStratAlertEnough_(lines, trade); body.buyLines = lines.buy; }
       } catch (eLines) {} // the alert goes out without lines rather than not at all
       var res = _wcoreStratAlertPost_(api, body);
       if (!res.ok && res.code === 400 && body.sellLines !== undefined) {

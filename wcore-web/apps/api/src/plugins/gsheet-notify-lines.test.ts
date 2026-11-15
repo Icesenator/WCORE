@@ -80,3 +80,16 @@ test("the occurrence reaches the store when the button is tapped", async () => {
   assert.equal((await handleTradeAck(q, { topic: TOPIC, store }, now)).status, 200);
   assert.deepEqual(seen, ["AY1-1794470000000"]);
 });
+
+test("one trade amount only: the smaller side, whichever side it is, or the only known one, or none", () => {
+  const text = (sell: object, buy: object) => composeNotifyText({ ...BASE_BODY, sell, buy } as never);
+  assert.match(text({ symbol: "AAVE", eur: 21 }, { symbol: "CRO", eur: 1235 }), /alléger AAVE, renforcer CRO : trade de 21 €\.$/);
+  assert.match(text({ symbol: "AAVE", eur: 1235 }, { symbol: "CRO", eur: 21 }), /alléger AAVE, renforcer CRO : trade de 21 €\.$/);
+  assert.match(text({ symbol: "AAVE", eur: 50 }, { symbol: "CRO", eur: 50 }), /: trade de 50 €\.$/, "equal amounts");
+  assert.match(text({ symbol: "AAVE" }, { symbol: "CRO", eur: 7 }), /: trade de 7 €\.$/, "only the buy side known");
+  assert.match(text({ symbol: "AAVE", eur: 9 }, { symbol: "CRO" }), /: trade de 9 €\.$/, "only the sell side known");
+  assert.equal(text({ symbol: "AAVE" }, { symbol: "CRO" }), "WCORE : rééquilibrage Crypto à faire : alléger AAVE, renforcer CRO.", "no amount known");
+  assert.match(text({ symbol: "AAVE", eur: 0 }, { symbol: "CRO", eur: 1235 }), /: trade de 0 €\.$/, "a zero side is the smaller side");
+  assert.match(text({ symbol: "AAVE", eur: 1234567 }, { symbol: "CRO", eur: 2345678 }), /: trade de 1 234 567 €\.$/, "large amounts keep the thousands spacing");
+  assert.ok(!/ de \d[\d ]* € .*de \d/.test(text({ symbol: "AAVE", eur: 21 }, { symbol: "CRO", eur: 1235 })), "never two amounts");
+});

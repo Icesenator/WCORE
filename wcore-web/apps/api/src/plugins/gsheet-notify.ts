@@ -80,9 +80,11 @@ function euros(n: number | undefined): string {
 export function composeLinesText(body: Extract<NotifyBody, { event: "strat_rebalance" }>): string {
   let out = "";
   if (body.sellLines && body.sell) {
-    out += body.sellLines.length
-      ? " Vendre depuis : " + body.sellLines.join(", ") + (body.sellEnough ? " (suffit seule)" : "") + "."
-      : " Aucune ligne ne détient " + body.sell.symbol + ".";
+    // "suffit seule" belongs to the FIRST line only (the largest holder); the others are alternatives.
+    const [first, ...others] = body.sellLines;
+    if (!first) out += " Aucune ligne ne détient " + body.sell.symbol + ".";
+    else if (body.sellEnough) out += " Vendre depuis : " + first + " (suffit seule)" + (others.length ? ", ou " + others.join(", ") : "") + ".";
+    else out += " Vendre depuis : " + body.sellLines.join(", ") + ".";
   }
   if (body.buyLines && body.buy) {
     out += body.buyLines.length

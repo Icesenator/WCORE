@@ -12,6 +12,9 @@ const BASE_BODY = {
 test("the text names the Recap lines proposed for the rebalancing", () => {
   const t = composeNotifyText({ ...BASE_BODY, sellLines: ["CEX - OKX"], sellEnough: true, buyLines: ["CEX - OKX", "Ledger - Cronos"] } as never);
   assert.equal(t, "WCORE : rééquilibrage Crypto à faire : alléger AAVE de 21 €, renforcer CRO de 1 235 €. Vendre depuis : CEX - OKX (suffit seule). Renforcer sur : CEX - OKX, Ledger - Cronos.");
+  // "suffit seule" is the first line's only; the others are named as alternatives, never lumped together.
+  const several = composeNotifyText({ ...BASE_BODY, sellLines: ["CEX - OKX", "Ledger - Base"], sellEnough: true, buyLines: [] } as never);
+  assert.match(several, /Vendre depuis : CEX - OKX \(suffit seule\), ou Ledger - Base\. /);
   const partial = composeNotifyText({ ...BASE_BODY, sellLines: ["CEX - OKX", "Ledger - Base"], buyLines: ["CEX - OKX"] } as never);
   assert.match(partial, /Vendre depuis : CEX - OKX, Ledger - Base\. Renforcer sur : CEX - OKX\.$/);
 });

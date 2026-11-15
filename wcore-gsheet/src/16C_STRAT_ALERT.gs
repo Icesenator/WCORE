@@ -214,7 +214,11 @@ function _wcoreStratAlertPost_(api, body) {
     });
   } catch (e) { resp = null; }
   var code = resp && typeof resp.getResponseCode === "function" ? resp.getResponseCode() : 0;
-  return { ok: code === 200, abandon: code === 422, code: code };
+  // sent = this very call delivered a new notification (the API answers 200 with sent:false for a
+  // duplicate: the notification that exists is the earlier one, with whatever text it had).
+  var sent = false;
+  try { sent = code === 200 && JSON.parse(resp.getContentText()).sent === true; } catch (eSent) { sent = false; }
+  return { ok: code === 200, abandon: code === 422, code: code, sent: sent };
 }
 
 var STRAT_ALERT_OCC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -304,7 +308,8 @@ function _wcoreCheckStratAlert_(ss) {
         delete body.sellLines; delete body.sellEnough; delete body.buyLines;
         res = _wcoreStratAlertPost_(api, body);
       }
-      if (res.ok && body.sellLines !== undefined) _wcoreStratAlertLinesAnnounce_(todo[t].id);
+      // Announced only by a genuine delivery of the body that carried the lines, never by a duplicate answer.
+      if (res.sent && body.sellLines !== undefined) _wcoreStratAlertLinesAnnounce_(todo[t].id);
       if (res.ok) { out.sent++; done[c2.cell] = todo[t].id; }
       else if (res.abandon) { out.abandoned++; done[c2.cell] = todo[t].id; }
     }

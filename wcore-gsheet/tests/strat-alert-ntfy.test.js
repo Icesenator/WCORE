@@ -59,7 +59,7 @@ function harness(opts = {}) {
       posts.push({ url, payload: JSON.parse(JSON.stringify(payload)), options, heldLock: !!state.held });
       if (state.code === null) return null;
       const code = typeof state.codeFor === 'function' ? state.codeFor(payload) : state.code;
-      return { getResponseCode: () => code };
+      return { getResponseCode: () => code, getContentText: () => JSON.stringify(state.sentFlag === false ? { ok: true, sent: false, duplicate: true } : { ok: true, sent: true }) };
     } },
   };
   vm.createContext(ctx);
@@ -332,4 +332,17 @@ test('an API that refuses the lines (400, published before them) still gets the 
   assert.equal(h.posts[1].payload.occurrence, h.posts[0].payload.occurrence);
   const saved = JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES') || '{}');
   assert.equal(saved[h.posts[0].payload.occurrence].announced, false, 'lines of an alert sent without them stay unannounced, so unused');
+});
+
+test('a duplicate answer never marks lines as announced (the notification that exists is the earlier one)', () => {
+  const h = harness();
+  const okx = [['', '', '', '', ''], ['cryptocoin_symbol', 'balance', 'source', 'updated_at', 'value_eur'], ['SOMI', 1, 'x', 'y', 80]];
+  h.state.detail = { 'CEX - OKX': okx };
+  assert.equal(h.run().reason, 'INIT');
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.sentFlag = false;
+  assert.equal(h.run().sent, 1, 'a duplicate answer still settles the alert');
+  const occ = h.posts[0].payload.occurrence;
+  assert.ok('sellLines' in h.posts[0].payload);
+  assert.equal(JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES'))[occ].announced, false);
 });

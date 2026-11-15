@@ -11,7 +11,7 @@ const BASE_BODY = {
 
 test("the text names the Recap lines proposed for the rebalancing", () => {
   const t = composeNotifyText({ ...BASE_BODY, sellLines: ["CEX - OKX"], sellEnough: true, buyLines: ["CEX - OKX", "Ledger - Cronos"] } as never);
-  assert.equal(t, "WCORE : rééquilibrage Crypto à faire : alléger AAVE de 21 €, renforcer CRO de 1 235 €. Vendre depuis : CEX - OKX (suffit seule). Renforcer sur : CEX - OKX, Ledger - Cronos.");
+  assert.equal(t, "WCORE : rééquilibrage Crypto à faire : alléger AAVE, renforcer CRO : trade de 21 €. Vendre depuis : CEX - OKX (suffit seule). Renforcer sur : CEX - OKX, Ledger - Cronos.");
   // "suffit seule" is the first line's only; the others are named as alternatives, never lumped together.
   const several = composeNotifyText({ ...BASE_BODY, sellLines: ["CEX - OKX", "Ledger - Base"], sellEnough: true, buyLines: [] } as never);
   assert.match(several, /Vendre depuis : CEX - OKX \(suffit seule\), ou Ledger - Base\. /);
@@ -23,7 +23,7 @@ test("no line holding a symbol is said plainly, and absent lines change nothing"
   assert.match(composeNotifyText({ ...BASE_BODY, sellLines: [], buyLines: [] } as never), /Aucune ligne ne détient AAVE\. Aucune ligne ne détient CRO\.$/);
   assert.equal(
     composeNotifyText(BASE_BODY as never),
-    "WCORE : rééquilibrage Crypto à faire : alléger AAVE de 21 €, renforcer CRO de 1 235 €.",
+    "WCORE : rééquilibrage Crypto à faire : alléger AAVE, renforcer CRO : trade de 21 €.",
   );
 });
 

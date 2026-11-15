@@ -101,9 +101,13 @@ test('proposed lines: the three largest holders, "enough" when the first covers 
   assert.deepEqual(lines.sell, ['CEX - Kraken Crypto', 'CEX - OKX', 'Binance Web3 Wallet - Base']);
   assert.equal(lines.enough, true, 'Kraken 40 covers 21');
   assert.deepEqual(lines.buy, ['CEX - OKX', 'Ledger - Cronos']);
+  // "enough" is measured against the one amount shown: the smaller side (21 euros to sell, 1235 to buy).
+  const smallBuy = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'AY1-1794470000055', { sell: { symbol: 'AAVE', eur: 500 }, buy: { symbol: 'CRO', eur: 30 } });
+  assert.equal(smallBuy.enough, true, 'the smaller side (30) is covered by Kraken (40), not the 500 on the sell side');
+  const readsBefore = h.calls.reads;
   const again = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'AY1-1794470000000', trade);
   assert.deepEqual(JSON.parse(JSON.stringify(again)), JSON.parse(JSON.stringify(lines)));
-  assert.equal(h.calls.reads, 4, 'a retry reuses the saved lines, no new read');
+  assert.equal(h.calls.reads, readsBefore, 'a retry reuses the saved lines, no new read');
   const big = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'AY1-1794470000099', { sell: { symbol: 'AAVE', eur: 500 }, buy: { symbol: 'ETH' } });
   assert.equal(big.enough, false);
 });

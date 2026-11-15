@@ -99,8 +99,10 @@ export function composeNotifyText(body: NotifyBody): string {
   if (body.event === "test") return "WCORE : essai depuis le classeur, rien à faire.";
   const label = body.category === "crypto" ? "rééquilibrage Crypto à faire" : "rééquilibrage Action à faire";
   if (!body.sell || !body.buy) return "WCORE : " + label + ".";
-  return "WCORE : " + label + " : alléger " + body.sell.symbol + euros(body.sell.eur)
-    + ", renforcer " + body.buy.symbol + euros(body.buy.eur) + "." + composeLinesText(body);
+  // One amount only: the smaller side of the rebalancing, the part that can really be exchanged.
+  const amounts = [body.sell.eur, body.buy.eur].filter((n): n is number => n !== undefined);
+  const trade = amounts.length ? " : trade" + euros(Math.min(...amounts)) : "";
+  return "WCORE : " + label + " : alléger " + body.sell.symbol + ", renforcer " + body.buy.symbol + trade + "." + composeLinesText(body);
 }
 
 /** Deduplication key: HMAC of the occurrence (never of the text or the amounts). */

@@ -37,7 +37,7 @@ function deps(opts: { admission?: NotifyReservation["admission"]; status?: numbe
 }
 
 test("the server composes the text from validated fields only", () => {
-  assert.equal(composeNotifyText(BODY as never), "WCORE : rééquilibrage Crypto à faire : alléger SOMI de 21 €, renforcer ETH de 1 235 €.");
+  assert.equal(composeNotifyText(BODY as never), "WCORE : rééquilibrage Crypto à faire : alléger SOMI, renforcer ETH : trade de 21 €.");
   assert.equal(composeNotifyText({ event: "strat_rebalance", category: "action", occurrence: "BE1-123456789" } as never), "WCORE : rééquilibrage Action à faire.");
   assert.equal(composeNotifyText({ event: "test" } as never), "WCORE : essai depuis le classeur, rien à faire.");
 });

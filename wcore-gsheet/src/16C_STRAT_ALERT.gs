@@ -148,10 +148,13 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
     return (held[sym] || []).slice().sort(function (a, b) { return b.eur - a.eur; }).slice(0, 3);
   };
   var sell = top(sellSym), buy = top(buySym);
+  var sides = [trade.sell.eur, trade.buy.eur].filter(function (v) { return v != null && isFinite(v); });
+  var amount = sides.length ? Math.min.apply(null, sides) : null;
   var entry = {
     sell: sell.map(function (x) { return x.name; }),
     buy: buy.map(function (x) { return x.name; }),
-    enough: sell.length > 0 && trade.sell.eur != null && sell[0].eur >= trade.sell.eur,
+    // Against the one amount the notification shows: the smaller side of the rebalancing.
+    enough: sell.length > 0 && amount != null && sell[0].eur >= amount,
     // Set only once the notification carrying these lines was really delivered: until then (or if that
     // mark is lost) an acknowledgement does not use them, so nothing unannounced is ever refreshed.
     announced: false,

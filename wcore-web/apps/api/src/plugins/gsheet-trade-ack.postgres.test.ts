@@ -8,6 +8,7 @@ import { PrismaClient } from "@wcore/db";
 import { createPrismaAckStore } from "./gsheet-trade-ack.js";
 
 const databaseUrl = process.env.DATABASE_URL;
+const OCC = "AY1-1794470000000";
 
 function key(prefix: string): string {
   return prefix + "-" + randomUUID().replace(/-/g, "").slice(0, 28);
@@ -36,20 +37,20 @@ test("concurrent taps of one notification record once; concurrent takes deliver 
     const storeB = createPrismaAckStore(b);
     const k = key("k");
 
-    const taps = await Promise.all(Array.from({ length: 6 }, (_, i) => (i % 2 ? storeA : storeB).record(k, "crypto", nk)));
+    const taps = await Promise.all(Array.from({ length: 6 }, (_, i) => (i % 2 ? storeA : storeB).record(k, "crypto", nk, OCC)));
     assert.equal(taps.filter((r) => r === "recorded").length, 1);
     assert.equal(taps.filter((r) => r === "duplicate").length, 5);
     assert.equal(await a.opsEvent.count({ where: { type: "trade_ack" } }), 1);
 
     const takes = await Promise.all(Array.from({ length: 6 }, (_, i) => (i % 2 ? storeA : storeB).take()));
     const delivered = takes.flatMap((t) => t ?? []);
-    assert.deepEqual(delivered, ["crypto"], "exactly one take receives the acknowledgement");
+    assert.deepEqual(delivered, [{ category: "crypto", occurrence: OCC }], "exactly one take receives the acknowledgement, with its occurrence");
     assert.deepEqual(await storeA.take(), [], "a taken acknowledgement is never delivered again");
 
     const rows = await a.opsEvent.findMany({ where: { type: "trade_ack" }, select: { message: true, data: true } });
     for (const r of rows) {
       assert.equal(r.message, "");
-      assert.deepEqual(Object.keys(r.data as object).sort(), ["c", "h", "taken"], "only a hash, a category and a state are stored");
+      assert.deepEqual(Object.keys(r.data as object).sort(), ["c", "h", "o", "taken"], "only a hash, a category and a state are stored");
     }
   } finally {
     await cleanup(a, [nk]);
@@ -67,10 +68,10 @@ test("an acknowledgement needs a notification that was really sent", { skip: !da
     await seedSent(prisma, sentKey, "sent");
     await seedSent(prisma, pendingKey, "pending");
     const store = createPrismaAckStore(prisma);
-    assert.equal(await store.record(key("k"), "crypto", key("nk-never-sent")), "unknown", "no notification row at all");
-    assert.equal(await store.record(key("k"), "crypto", pendingKey), "unknown", "a pending (unconfirmed) notification does not count");
+    assert.equal(await store.record(key("k"), "crypto", key("nk-never-sent"), OCC), "unknown", "no notification row at all");
+    assert.equal(await store.record(key("k"), "crypto", pendingKey, OCC), "unknown", "a pending (unconfirmed) notification does not count");
     assert.equal(await prisma.opsEvent.count({ where: { type: "trade_ack" } }), 0);
-    assert.equal(await store.record(key("k"), "crypto", sentKey), "recorded");
+    assert.equal(await store.record(key("k"), "crypto", sentKey, OCC), "recorded");
   } finally {
     await cleanup(prisma, [sentKey, pendingKey]);
     await prisma.$disconnect();
@@ -85,12 +86,12 @@ test("an old acknowledgement is not delivered, and rows past retention are purge
     await seedSent(prisma, nk);
     let clock = Date.now();
     const store = createPrismaAckStore(prisma, () => clock);
-    await store.record(key("old"), "action", nk);
+    await store.record(key("old"), "action", nk, OCC);
     clock += 6 * 60 * 60 * 1000 + 60_000;
     assert.deepEqual(await store.take(), [], "older than the take window: not replayed");
     clock += 3 * 24 * 60 * 60 * 1000;
     await seedSent(prisma, nk + "x");
-    await store.record(key("new"), "crypto", nk + "x");
+    await store.record(key("new"), "crypto", nk + "x", OCC);
     assert.equal(await prisma.opsEvent.count({ where: { type: "trade_ack" } }), 1, "the expired row was purged");
   } finally {
     await cleanup(prisma, [nk, nk + "x"]);
@@ -106,13 +107,13 @@ test("a waiting acknowledgement past the take window is revived by a new valid t
     await seedSent(prisma, nk);
     const store = createPrismaAckStore(prisma);
     const stale = key("stale");
-    assert.equal(await store.record(stale, "crypto", nk), "recorded");
+    assert.equal(await store.record(stale, "crypto", nk, OCC), "recorded");
     await prisma.opsEvent.updateMany({ where: { type: "trade_ack" }, data: { createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000) } });
     assert.deepEqual(await store.take(), [], "past the window: not delivered");
-    assert.equal(await store.record(stale, "crypto", nk), "recorded", "a new tap revives the stale waiting row");
+    assert.equal(await store.record(stale, "crypto", nk, OCC), "recorded", "a new tap revives the stale waiting row");
     assert.equal(await prisma.opsEvent.count({ where: { type: "trade_ack" } }), 1, "revived in place, no second row");
-    assert.deepEqual(await store.take(), ["crypto"]);
-    assert.equal(await store.record(stale, "crypto", nk), "duplicate", "already taken: a further tap is a duplicate");
+    assert.deepEqual(await store.take(), [{ category: "crypto", occurrence: OCC }]);
+    assert.equal(await store.record(stale, "crypto", nk, OCC), "duplicate", "already taken: a further tap is a duplicate");
   } finally {
     await cleanup(prisma, [nk]);
     await prisma.$disconnect();

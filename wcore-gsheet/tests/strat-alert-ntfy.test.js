@@ -33,6 +33,15 @@ function harness(opts = {}) {
       getLastRow: () => 2 + (state.gaps[name] || []).length,
       getRange: (a) => (a === 'Q1:S1' ? { getValues: () => [state.trade[name]] } : { getValues: () => state.gaps[name] || [] }),
     };
+    if (state.detail && name === 'Recap Portfolio') {
+      const names = Object.keys(state.detail);
+      return { getLastRow: () => names.length + 1, getRange: (r, c, n) => ({ getValues: () => names.slice(r - 2, r - 2 + n).map((x) => [x]) }) };
+    }
+    if (state.detail && state.detail[name]) {
+      const data = state.detail[name];
+      return { getLastRow: () => data.length, getLastColumn: () => data[0].length,
+        getRange: (r, c, nr, nc) => ({ getValues: () => data.slice(r - 1, r - 1 + nr).map((row) => row.slice(c - 1, c - 1 + nc)) }) };
+    }
     return null;
   };
   let clock = 1794470000000;
@@ -266,4 +275,40 @@ test('the script lock is never held during a network call', () => {
   h.run();
   assert.equal(h.posts.length, 2);
   assert.ok(h.posts.every((p) => p.heldLock === false));
+});
+
+// Recap lines proposed in the alert (read from the detail tabs), sent with the event and kept for "Trade fait".
+test('the alert carries the Recap lines holding the symbols, and a retry sends the same lines', () => {
+  const h = harness();
+  const okx = [['', '', '', '', ''], ['cryptocoin_symbol', 'balance', 'source', 'updated_at', 'value_eur'], ['SOMI', 1, 'x', 'y', 80], ['ETH', 1, 'x', 'y', 900]];
+  const wallet = [['', '', '', '', '', '', ''], ['chain_name', 'token_ticker', 'token_name', 'contract_address', 'balance', 'price_eur', 'value_eur'], ['Base', 'ETH', 'Ether', 'native', 1, 1, 300]];
+  h.state.detail = { 'CEX - OKX': okx, 'Ledger - Base': wallet };
+  assert.equal(h.run().reason, 'INIT');
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.code = 502; // first send fails: the occurrence and its lines are saved before the send
+  h.run();
+  assert.equal(h.posts.length, 1);
+  const body = h.posts[0].payload;
+  assert.deepEqual(body.sellLines, ['CEX - OKX']);
+  assert.equal(body.sellEnough, true, 'the 80 euros of SOMI cover the 21 euros to sell');
+  assert.deepEqual(body.buyLines, ['CEX - OKX', 'Ledger - Base']);
+  const saved = JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES'));
+  assert.deepEqual(Object.keys(saved), [body.occurrence]);
+  // The tabs change before the retry: the notification still carries the lines first computed.
+  h.state.detail['CEX - OKX'] = [['', '', '', '', ''], ['cryptocoin_symbol', 'balance', 'source', 'updated_at', 'value_eur'], ['BTC', 1, 'x', 'y', 5]];
+  h.state.code = 200;
+  h.tick(60000);
+  h.run();
+  assert.deepEqual(h.posts[1].payload.sellLines, ['CEX - OKX']);
+  assert.equal(h.posts[1].payload.occurrence, body.occurrence);
+});
+
+test('an alert whose Recap cannot be read still goes out, without lines', () => {
+  const h = harness();
+  assert.equal(h.run().reason, 'INIT');
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.run();
+  const body = h.posts[0].payload;
+  assert.equal('sellLines' in body, false);
+  assert.equal('buyLines' in body, false);
 });

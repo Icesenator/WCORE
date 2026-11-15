@@ -66,6 +66,118 @@ function _wcoreStratAlertTrade_(ss, sheetName) {
   } catch (e) { return null; }
 }
 
+var STRAT_ALERT_LINES_KEY = "WCORE_STRAT_ALERT_LINES";
+var STRAT_ALERT_LINES_TTL_MS = 48 * 60 * 60 * 1000;
+var STRAT_ALERT_LINES_KEEP = 12;
+var STRAT_ALERT_LINES_BUDGET_MS = 150000;
+// Same shape as the API accepts for a line name (the Recap line = the portfolio tab name).
+var STRAT_ALERT_LINE_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()&+-]{0,59}$/;
+
+/**
+ * Euro value of each requested symbol in every portfolio tab listed in the Recap, read from the detail
+ * tabs: {held: {SYMBOL: [{name, eur}, ...]}, tabs: number of tabs actually read}. Two tab shapes exist (exchange tabs: cryptocoin_symbol / value_eur,
+ * wallet tabs: token_ticker / value_eur); a tab with neither header pair is ignored. Stops reading after
+ * budgetMs and returns what it has.
+ */
+function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
+  var out = {};
+  var tabs = 0;
+  for (var s0 = 0; s0 < symbols.length; s0++) out[symbols[s0]] = [];
+  var recap = ss && ss.getSheetByName("Recap Portfolio");
+  if (!recap) return { held: out, tabs: 0 };
+  var last = recap.getLastRow();
+  if (last < 2) return { held: out, tabs: 0 };
+  var names = recap.getRange(2, 1, last - 1, 1).getValues();
+  var deadline = Date.now() + budgetMs;
+  var seen = {};
+  for (var i = 0; i < names.length; i++) {
+    if (Date.now() > deadline) break;
+    var name = String(names[i][0] || "").trim();
+    if (!name || seen[name] || !STRAT_ALERT_LINE_NAME.test(name)) continue;
+    seen[name] = true;
+    try {
+      var sh = ss.getSheetByName(name);
+      if (!sh) continue;
+      var rows = sh.getLastRow(), cols = Math.min(sh.getLastColumn(), 12);
+      if (rows < 3 || cols < 2) continue;
+      var vals = sh.getRange(2, 1, rows - 1, cols).getValues();
+      var head = vals[0], si = -1, vi = -1;
+      for (var c = 0; c < head.length; c++) {
+        var h = String(head[c] || "");
+        if (si < 0 && /^(cryptocoin_symbol|token_ticker|symbol|ticker)$/i.test(h)) si = c;
+        if (vi < 0 && /^(value_eur|total_eur)$/i.test(h)) vi = c;
+      }
+      if (si < 0 || vi < 0) continue;
+      tabs++;
+      var sums = {};
+      for (var r = 1; r < vals.length; r++) {
+        var sym = String(vals[r][si] || "").toUpperCase();
+        var v = Number(vals[r][vi]);
+        if (sym && isFinite(v) && out[sym]) sums[sym] = (sums[sym] || 0) + v;
+      }
+      for (var key in sums) if (sums[key] > 0) out[key].push({ name: name, eur: sums[key] });
+    } catch (eTab) {}
+  }
+  return { held: out, tabs: tabs };
+}
+
+function _wcoreStratAlertLinesStore_() {
+  var raw = null;
+  try { raw = JSON.parse(PropertiesService.getScriptProperties().getProperty(STRAT_ALERT_LINES_KEY) || "null"); } catch (e) { raw = null; }
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+
+/**
+ * Recap lines proposed for one alert: {sell: [names], buy: [names], enough, ts}. Computed once per
+ * occurrence and kept in the script properties, so a retry sends the same lines and the "Trade fait"
+ * acknowledgement refreshes exactly what was proposed. Returns null when the alert has no symbols.
+ */
+function _wcoreStratAlertLinesFor_(ss, id, trade) {
+  if (!trade || !trade.sell || !trade.buy) return null;
+  var store = _wcoreStratAlertLinesStore_();
+  if (store[id] && Array.isArray(store[id].sell) && Array.isArray(store[id].buy)) return store[id];
+  var sellSym = String(trade.sell.symbol).toUpperCase(), buySym = String(trade.buy.symbol).toUpperCase();
+  var read = _wcoreStratAlertHoldings_(ss, sellSym === buySym ? [sellSym] : [sellSym, buySym], STRAT_ALERT_LINES_BUDGET_MS);
+  // Nothing readable (no Recap, no usable tab): no claim at all, never a false "no line holds it".
+  if (!read.tabs) return null;
+  var held = read.held;
+  var top = function (sym) {
+    return (held[sym] || []).slice().sort(function (a, b) { return b.eur - a.eur; }).slice(0, 3);
+  };
+  var sell = top(sellSym), buy = top(buySym);
+  var entry = {
+    sell: sell.map(function (x) { return x.name; }),
+    buy: buy.map(function (x) { return x.name; }),
+    enough: sell.length > 0 && trade.sell.eur != null && sell[0].eur >= trade.sell.eur,
+    ts: Date.now()
+  };
+  var now = Date.now(), keep = [];
+  for (var k in store) if (store[k] && now - Number(store[k].ts) < STRAT_ALERT_LINES_TTL_MS) keep.push(k);
+  keep.sort(function (a, b) { return Number(store[b].ts) - Number(store[a].ts); });
+  var next = {};
+  for (var n = 0; n < keep.length && n < STRAT_ALERT_LINES_KEEP - 1; n++) next[keep[n]] = store[keep[n]];
+  next[id] = entry;
+  try { PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(next)); } catch (eSave) {}
+  return entry;
+}
+
+/**
+ * Manual preview (no notification, nothing saved): the Recap lines that would be proposed for a pair of
+ * symbols, with the number of tabs read and the time it took. Run by hand from the editor.
+ */
+function WCORE_STRAT_ALERT_LINES_PREVIEW(sellSymbol, buySymbol) {
+  var sell = String(sellSymbol || "").toUpperCase(), buy = String(buySymbol || "").toUpperCase();
+  if (!/^[A-Z0-9.$_-]{1,15}$/.test(sell) || !/^[A-Z0-9.$_-]{1,15}$/.test(buy)) return { ok: false, reason: "BAD_SYMBOL" };
+  var ss = typeof _wcoreGetSpreadsheet_ === "function" ? _wcoreGetSpreadsheet_() : null;
+  if (!ss) return { ok: false, reason: "NO_SPREADSHEET" };
+  var t0 = Date.now();
+  var read = _wcoreStratAlertHoldings_(ss, sell === buy ? [sell] : [sell, buy], STRAT_ALERT_LINES_BUDGET_MS);
+  var top = function (sym) {
+    return (read.held[sym] || []).slice().sort(function (x, y) { return y.eur - x.eur; }).slice(0, 3).map(function (v) { return v.name; });
+  };
+  return { ok: true, tabs: read.tabs, ms: Date.now() - t0, sell: top(sell), buy: top(buy) };
+}
+
 /**
  * Posts one event to the API. ok = accepted (sent, or already sent); abandon = permanent refusal
  * of this occurrence (422: ntfy refused it for good), so the workbook stops retrying it.
@@ -159,6 +271,10 @@ function _wcoreCheckStratAlert_(ss) {
       var body = { event: "strat_rebalance", category: c2.category, occurrence: todo[t].id };
       var trade = _wcoreStratAlertTrade_(ss, c2.tradeSheet);
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }
+      try {
+        var lines = _wcoreStratAlertLinesFor_(ss, todo[t].id, trade);
+        if (lines) { body.sellLines = lines.sell; body.sellEnough = lines.enough; body.buyLines = lines.buy; }
+      } catch (eLines) {} // the alert goes out without lines rather than not at all
       var res = _wcoreStratAlertPost_(api, body);
       if (res.ok) { out.sent++; done[c2.cell] = todo[t].id; }
       else if (res.abandon) { out.abandoned++; done[c2.cell] = todo[t].id; }
@@ -207,7 +323,7 @@ var TRADE_ACK_KRAKEN_REUSE_MS = 5 * 60 * 1000;
  * in a post-lockout pause (a job would only fail and be retried at the worst moment). The other exchanges
  * are refreshed as usual; the Kraken tabs keep their last values and timestamp.
  */
-function _wcoreTradeAckDropKraken_(jobs) {
+function _wcoreTradeAckKrakenBlocked_() {
   var recent = false, paused = false;
   try {
     var prop = typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHARED_OK_PROP : "";
@@ -215,8 +331,39 @@ function _wcoreTradeAckDropKraken_(jobs) {
     recent = last > 0 && Date.now() >= last && Date.now() - last < TRADE_ACK_KRAKEN_REUSE_MS;
   } catch (eRecent) {}
   try { paused = typeof _krakenLockoutUntilMs_ === "function" && !!_krakenLockoutUntilMs_(); } catch (ePause) {}
-  if (!recent && !paused) return jobs;
+  return recent || paused;
+}
+
+function _wcoreTradeAckDropKraken_(jobs) {
+  if (!_wcoreTradeAckKrakenBlocked_()) return jobs;
   return jobs.filter(function (j) { return !j || (j.kind !== "KRAKEN" && j.kind !== "KRAKEN_STOCKS"); });
+}
+
+/**
+ * Refreshes only the Recap lines proposed in the notification, each through the same path as ticking the
+ * A1 box of its tab (WCORE_ON_EDIT with an installable-trigger style event): exchange tabs queue their
+ * own manual job (identical queued jobs are coalesced), wallet tabs get their B1 pulse. Kraken tabs are
+ * skipped right after a Kraken call or during a pause. Returns {refreshed: [names], skipped: [names]}.
+ */
+function _wcoreTradeAckRefreshLines_(ss, names) {
+  var res = { refreshed: [], skipped: [] };
+  if (typeof WCORE_ON_EDIT !== "function") return res;
+  var krakenBlocked = null;
+  for (var i = 0; i < names.length; i++) {
+    var name = String(names[i] || "");
+    if (!STRAT_ALERT_LINE_NAME.test(name)) continue;
+    var sheet = ss && ss.getSheetByName(name);
+    if (!sheet) { res.skipped.push(name); continue; }
+    if (/^CEX - Kraken/i.test(name)) {
+      if (krakenBlocked === null) krakenBlocked = _wcoreTradeAckKrakenBlocked_();
+      if (krakenBlocked) { res.skipped.push(name); continue; }
+    }
+    try {
+      WCORE_ON_EDIT({ range: sheet.getRange("A1"), value: "TRUE", triggerUid: "TRADE_ACK_LINE" });
+      res.refreshed.push(name);
+    } catch (eLine) { res.skipped.push(name); }
+  }
+  return res;
 }
 
 function _wcoreTradeAckBusy_(queue, statusSheetName, statusCell) {
@@ -267,9 +414,38 @@ function _wcoreCheckTradeAck_(ss) {
     var code = resp && typeof resp.getResponseCode === "function" ? resp.getResponseCode() : 0;
     out.ran = true;
     if (code !== 200) { out.reason = code ? "HTTP_" + code : "NO_RESPONSE"; return out; }
-    var cats = [];
-    try { cats = JSON.parse(resp.getContentText()).categories; } catch (eParse) { cats = []; }
+    var cats = [], acks = null;
+    try {
+      var parsed = JSON.parse(resp.getContentText());
+      cats = parsed.categories;
+      acks = Array.isArray(parsed.acks) ? parsed.acks : null;
+    } catch (eParse) { cats = []; }
     if (!Array.isArray(cats) || !cats.length) { out.reason = "NONE"; return out; }
+    out.lines = [];
+    out.linesSkipped = [];
+    if (acks) {
+      // An acknowledgement whose notification proposed Recap lines refreshes exactly those lines; one
+      // without (a test, an alert with no holder, an older notification) keeps the category batch.
+      var store = _wcoreStratAlertLinesStore_();
+      var lineNames = [], leftover = {};
+      for (var a = 0; a < acks.length; a++) {
+        var ack = acks[a] || {};
+        var entry = ack.occurrence ? store[ack.occurrence] : null;
+        var proposed = entry && Array.isArray(entry.sell) && Array.isArray(entry.buy) ? entry.sell.concat(entry.buy) : [];
+        if (proposed.length) {
+          out.taken++;
+          for (var p = 0; p < proposed.length; p++) if (lineNames.indexOf(proposed[p]) < 0) lineNames.push(proposed[p]);
+        } else if (ack.category === "crypto" || ack.category === "action") {
+          leftover[ack.category] = true;
+        }
+      }
+      if (lineNames.length) {
+        var lr = _wcoreTradeAckRefreshLines_(ss, lineNames);
+        out.lines = lr.refreshed;
+        out.linesSkipped = lr.skipped;
+      }
+      cats = Object.keys(leftover);
+    }
     for (var i = 0; i < cats.length; i++) {
       var target = TRADE_ACK_TARGETS[String(cats[i])];
       if (!target) continue;
@@ -291,8 +467,10 @@ function _wcoreCheckTradeAck_(ss) {
       if (ev.tradeAck.skipped) out.skipped.push(String(cats[i]));
       else if (handled) out.refreshed.push(String(cats[i]));
     }
-    out.reason = out.refreshed.length ? "REFRESHED" : (out.skipped.length ? "ALREADY_QUEUED" : "NOT_HANDLED");
-    Logger.log("[TRADE_ACK] " + out.reason + " taken=" + out.taken + " refreshed=" + out.refreshed.join(","));
+    out.reason = out.refreshed.length ? "REFRESHED"
+      : (out.lines.length ? "LINES_REFRESHED"
+        : (out.skipped.length ? "ALREADY_QUEUED" : (out.linesSkipped.length ? "LINES_SKIPPED" : "NOT_HANDLED")));
+    Logger.log("[TRADE_ACK] " + out.reason + " taken=" + out.taken + " refreshed=" + out.refreshed.join(",") + " lines=" + out.lines.length);
   } catch (e) {
     out.reason = "ERROR";
   }

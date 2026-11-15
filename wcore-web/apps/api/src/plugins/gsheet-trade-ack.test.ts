@@ -5,7 +5,7 @@ import { gsheetPlugin } from "./gsheet.js";
 import { handleNotify, notifyHeaders, notifyKey } from "./gsheet-notify.js";
 import { requiresCsrfOriginCheck } from "../server-helpers.js";
 import {
-  ackKey, ackToken, buildAckActionHeader, handleTradeAck, handleTradeAckTake, maskAckUrl, rebalanceNotifyKey, type AckCategory, type AckStore,
+  ackKey, ackToken, buildAckActionHeader, handleTradeAck, handleTradeAckTake, maskAckUrl, rebalanceNotifyKey, type AckEntry, type AckCategory, type AckStore,
 } from "./gsheet-trade-ack.js";
 
 const TOPIC = "test-topic-abcdef123";
@@ -13,24 +13,24 @@ const OCC = "AY1-1794470000000";
 const BASE = "https://api.example.test";
 const TOKEN = "gsheet-test-token";
 
-function memoryStore(clock: { now: number } = { now: 1_000_000 }, known: (notifyKey: string) => boolean = () => true): AckStore & { rows: Array<{ h: string; c: AckCategory; taken: boolean; at: number }> } {
-  const rows: Array<{ h: string; c: AckCategory; taken: boolean; at: number }> = [];
+function memoryStore(clock: { now: number } = { now: 1_000_000 }, known: (notifyKey: string) => boolean = () => true): AckStore & { rows: Array<{ h: string; c: AckCategory; taken: boolean; at: number; o: string }> } {
+  const rows: Array<{ h: string; c: AckCategory; taken: boolean; at: number; o: string }> = [];
   return {
     rows,
-    record: async (key, category, nk) => {
+    record: async (key, category, nk, occurrence) => {
       if (!known(nk)) return "unknown";
       if (rows.some((r) => r.h === key)) return "duplicate";
-      rows.push({ h: key, c: category, taken: false, at: clock.now });
+      rows.push({ h: key, c: category, taken: false, at: clock.now, o: occurrence });
       return "recorded";
     },
     take: async () => {
-      const cats = new Set<AckCategory>();
+      const taken: AckEntry[] = [];
       for (const r of rows) {
         if (r.taken || clock.now - r.at > 2 * 60 * 60 * 1000) continue;
         r.taken = true;
-        cats.add(r.c);
+        taken.push({ category: r.c, occurrence: r.o });
       }
-      return [...cats];
+      return taken;
     },
   };
 }
@@ -82,7 +82,7 @@ test("a valid token records one acknowledgement, the second tap is a duplicate",
   const b = await handleTradeAck(query(), { topic: TOPIC, store }, NOW);
   assert.deepEqual(b, { status: 200, body: { ok: true, duplicate: true } });
   assert.equal(store.rows.length, 1);
-  assert.ok(!JSON.stringify(store.rows).includes(OCC), "the occurrence is stored hashed");
+  assert.ok(!store.rows.some((r) => r.h.includes(OCC)), "the storage key is hashed; the occurrence itself is kept beside it for the workbook");
 });
 
 test("a wrong, truncated, swapped or forged token is refused and stores nothing", async () => {
@@ -197,9 +197,9 @@ test("routes: the tap needs no workbook token, the take needs it, both are off w
   assert.equal(noToken.statusCode, 401);
   const take = await app.inject({ method: "POST", url: "/api/gsheet/trade-ack/take", headers: { "x-gsheet-token": TOKEN } });
   assert.equal(take.statusCode, 200);
-  assert.deepEqual(take.json(), { ok: true, categories: ["crypto"] });
+  assert.deepEqual(take.json(), { ok: true, categories: ["crypto"], acks: [{ category: "crypto", occurrence: OCC }] });
   const again = await app.inject({ method: "POST", url: "/api/gsheet/trade-ack/take", headers: { "x-gsheet-token": TOKEN } });
-  assert.deepEqual(again.json(), { ok: true, categories: [] });
+  assert.deepEqual(again.json(), { ok: true, categories: [], acks: [] });
   await app.close();
 
   const off = Fastify();

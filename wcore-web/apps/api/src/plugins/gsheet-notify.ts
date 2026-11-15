@@ -30,6 +30,10 @@ const leg = z.object({
   eur: z.number().int().min(0).max(10_000_000).optional(),
 }).strict();
 
+// Name of a Recap line (portfolio tab) proposed for the rebalancing: letters, digits, spaces and the few
+// punctuation marks tab names use. The workbook computes them; the API never sees the tabs.
+const lineName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 ._()&+-]{0,59}$/);
+
 export const notifyBodySchema = z.union([
   z.object({
     event: z.literal("strat_rebalance"),
@@ -37,6 +41,12 @@ export const notifyBodySchema = z.union([
     occurrence: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
     sell: leg.optional(),
     buy: leg.optional(),
+    /** Recap lines holding the symbol to sell (largest first); [] = none holds it; absent = not computed. */
+    sellLines: z.array(lineName).max(3).optional(),
+    /** True when the first sell line alone covers the amount to sell. */
+    sellEnough: z.boolean().optional(),
+    /** Recap lines holding the symbol to buy; [] = none holds it; absent = not computed. */
+    buyLines: z.array(lineName).max(3).optional(),
   }).strict(),
   z.object({ event: z.literal("test") }).strict(),
 ]);
@@ -66,13 +76,29 @@ function euros(n: number | undefined): string {
   return " de " + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €";
 }
 
+/** Where the rebalancing can be done: the Recap lines proposed by the workbook (names only). */
+export function composeLinesText(body: Extract<NotifyBody, { event: "strat_rebalance" }>): string {
+  let out = "";
+  if (body.sellLines && body.sell) {
+    out += body.sellLines.length
+      ? " Vendre depuis : " + body.sellLines.join(", ") + (body.sellEnough ? " (suffit seule)" : "") + "."
+      : " Aucune ligne ne détient " + body.sell.symbol + ".";
+  }
+  if (body.buyLines && body.buy) {
+    out += body.buyLines.length
+      ? " Renforcer sur : " + body.buyLines.join(", ") + "."
+      : " Aucune ligne ne détient " + body.buy.symbol + ".";
+  }
+  return out;
+}
+
 /** Text composed by the server only, from validated fields. */
 export function composeNotifyText(body: NotifyBody): string {
   if (body.event === "test") return "WCORE : essai depuis le classeur, rien à faire.";
   const label = body.category === "crypto" ? "rééquilibrage Crypto à faire" : "rééquilibrage Action à faire";
   if (!body.sell || !body.buy) return "WCORE : " + label + ".";
   return "WCORE : " + label + " : alléger " + body.sell.symbol + euros(body.sell.eur)
-    + ", renforcer " + body.buy.symbol + euros(body.buy.eur) + ".";
+    + ", renforcer " + body.buy.symbol + euros(body.buy.eur) + "." + composeLinesText(body);
 }
 
 /** Deduplication key: HMAC of the occurrence (never of the text or the amounts). */

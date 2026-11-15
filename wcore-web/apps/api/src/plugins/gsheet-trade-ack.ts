@@ -91,14 +91,21 @@ export function maskAckUrl(url: unknown): string {
   return full;
 }
 
+export interface AckEntry {
+  category: AckCategory;
+  /** Occurrence id of the notification (empty for an acknowledgement stored before it was kept). */
+  occurrence: string;
+}
+
 export interface AckStore {
   /**
    * "recorded" = new, "duplicate" = already acknowledged, "unknown" = no sent notification matches
-   * (notifyKey), "unavailable" = storage error.
+   * (notifyKey), "unavailable" = storage error. The occurrence is kept so the workbook can tell which
+   * notification (and therefore which proposed lines) the acknowledgement answers.
    */
-  record: (key: string, category: AckCategory, notifyKey: string) => Promise<"recorded" | "duplicate" | "unknown" | "unavailable">;
-  /** Atomically marks every fresh, not-yet-taken acknowledgement as taken; returns their categories. */
-  take: () => Promise<AckCategory[] | null>;
+  record: (key: string, category: AckCategory, notifyKey: string, occurrence: string) => Promise<"recorded" | "duplicate" | "unknown" | "unavailable">;
+  /** Atomically marks every fresh, not-yet-taken acknowledgement as taken; returns them. */
+  take: () => Promise<AckEntry[] | null>;
 }
 
 export interface AckDeps {
@@ -126,7 +133,7 @@ export async function handleTradeAck(query: unknown, deps: AckDeps, now: number 
   // is therefore dead for good once expired, even after its stored acknowledgement was purged.
   const nowS = Math.floor(now / 1000);
   if (nowS > expiry || expiry > nowS + Math.ceil(ACK_MAX_AGE_MS / 1000) + 60) return { status: 403, body: { ok: false, error: "forbidden" } }; // same answer as a wrong token: no validity oracle
-  const r = await deps.store.record(ackKey(deps.topic, c, o), c, rebalanceNotifyKey(deps.topic, c, o));
+  const r = await deps.store.record(ackKey(deps.topic, c, o), c, rebalanceNotifyKey(deps.topic, c, o), o);
   // A token only proves knowledge of the topic; the acknowledgement must also match a notification
   // this API really sent (so a forged token cannot trigger exchange refreshes at will).
   if (r === "unknown") return { status: 403, body: { ok: false, error: "forbidden" } };
@@ -135,18 +142,19 @@ export async function handleTradeAck(query: unknown, deps: AckDeps, now: number 
 }
 
 export async function handleTradeAckTake(store: AckStore): Promise<
-  { status: 200; body: { ok: true; categories: AckCategory[] } } | { status: 503; body: { ok: false; error: string } }
+  { status: 200; body: { ok: true; categories: AckCategory[]; acks: AckEntry[] } } | { status: 503; body: { ok: false; error: string } }
 > {
-  const cats = await store.take();
-  if (!cats) return { status: 503, body: { ok: false, error: "unavailable" } };
-  return { status: 200, body: { ok: true, categories: cats } };
+  const acks = await store.take();
+  if (!acks) return { status: 503, body: { ok: false, error: "unavailable" } };
+  // `categories` (one per category) stays for workbooks published before `acks` existed.
+  return { status: 200, body: { ok: true, categories: [...new Set(acks.map((a) => a.category))], acks } };
 }
 
-type AckRow = { h?: unknown; c?: unknown; taken?: unknown };
+type AckRow = { h?: unknown; c?: unknown; taken?: unknown; o?: unknown };
 
 export function createPrismaAckStore(prisma: PrismaClient, now: () => number = Date.now): AckStore {
   return {
-    record: async (key, category, notifyKey) => {
+    record: async (key, category, notifyKey, occurrence) => {
       try {
         const sent = await prisma.opsEvent.findFirst({
           where: {
@@ -181,7 +189,7 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
             return "recorded" as const;
           }
           await tx.opsEvent.create({
-            data: { type: "trade_ack", severity: "info", message: "", data: { h: key, c: category, taken: false } },
+            data: { type: "trade_ack", severity: "info", message: "", data: { h: key, c: category, taken: false, o: occurrence } },
           });
           return "recorded" as const;
         });
@@ -199,14 +207,15 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
             where: { type: "trade_ack", createdAt: { gte: new Date(t - ACK_TAKE_MAX_AGE_MS) } },
             select: { id: true, data: true },
           });
-          const cats = new Set<AckCategory>();
+          const taken: AckEntry[] = [];
           for (const r of rows) {
             const d = r.data as AckRow | null;
             if (!d || d.taken === true || (d.c !== "crypto" && d.c !== "action") || typeof d.h !== "string") continue;
-            await tx.opsEvent.update({ where: { id: r.id }, data: { data: { h: d.h, c: d.c, taken: true } } });
-            cats.add(d.c);
+            const occurrence = typeof d.o === "string" ? d.o : "";
+            await tx.opsEvent.update({ where: { id: r.id }, data: { data: { h: d.h, c: d.c, taken: true, ...(occurrence ? { o: occurrence } : {}) } } });
+            taken.push({ category: d.c, occurrence });
           }
-          return [...cats];
+          return taken;
         });
       } catch {
         return null;

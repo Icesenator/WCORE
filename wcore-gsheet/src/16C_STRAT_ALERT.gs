@@ -152,6 +152,9 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
     sell: sell.map(function (x) { return x.name; }),
     buy: buy.map(function (x) { return x.name; }),
     enough: sell.length > 0 && trade.sell.eur != null && sell[0].eur >= trade.sell.eur,
+    // Set only once the notification carrying these lines was really delivered: until then (or if that
+    // mark is lost) an acknowledgement does not use them, so nothing unannounced is ever refreshed.
+    announced: false,
     ts: Date.now()
   };
   var now = Date.now(), keep = [];
@@ -166,14 +169,18 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
   return entry;
 }
 
-/** Forgets the lines of one occurrence (sent without them after all). */
-function _wcoreStratAlertLinesForget_(id) {
-  try {
-    var store = _wcoreStratAlertLinesStore_();
-    if (!store[id]) return;
-    delete store[id];
-    PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(store));
-  } catch (e) {}
+/** Marks the lines of one occurrence as announced (the notification that carried them was delivered). */
+function _wcoreStratAlertLinesAnnounce_(id) {
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      var store = _wcoreStratAlertLinesStore_();
+      if (!store[id]) return false;
+      store[id].announced = true;
+      PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(store));
+      return true;
+    } catch (e) {}
+  }
+  return false;
 }
 
 /**
@@ -293,11 +300,11 @@ function _wcoreCheckStratAlert_(ss) {
       var res = _wcoreStratAlertPost_(api, body);
       if (!res.ok && res.code === 400 && body.sellLines !== undefined) {
         // An API published before the lines existed refuses the body: the alert goes out without them, and
-        // "Trade fait" then keeps the category batch (the lines are forgotten so nothing unannounced is refreshed).
+        // "Trade fait" then keeps the category batch (the saved lines stay "not announced", so unused).
         delete body.sellLines; delete body.sellEnough; delete body.buyLines;
-        _wcoreStratAlertLinesForget_(todo[t].id);
         res = _wcoreStratAlertPost_(api, body);
       }
+      if (res.ok && body.sellLines !== undefined) _wcoreStratAlertLinesAnnounce_(todo[t].id);
       if (res.ok) { out.sent++; done[c2.cell] = todo[t].id; }
       else if (res.abandon) { out.abandoned++; done[c2.cell] = todo[t].id; }
     }
@@ -453,7 +460,7 @@ function _wcoreCheckTradeAck_(ss) {
       for (var a = 0; a < acks.length; a++) {
         var ack = acks[a] || {};
         var entry = ack.occurrence ? store[ack.occurrence] : null;
-        var proposed = entry && Array.isArray(entry.sell) && Array.isArray(entry.buy) ? entry.sell.concat(entry.buy) : [];
+        var proposed = entry && entry.announced === true && Array.isArray(entry.sell) && Array.isArray(entry.buy) ? entry.sell.concat(entry.buy) : [];
         if (proposed.length) {
           out.taken++;
           for (var p = 0; p < proposed.length; p++) if (lineNames.indexOf(proposed[p]) < 0) lineNames.push(proposed[p]);

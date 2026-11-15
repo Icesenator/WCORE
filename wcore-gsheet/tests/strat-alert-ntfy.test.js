@@ -297,10 +297,12 @@ test('the alert carries the Recap lines holding the symbols, and a retry sends t
   assert.deepEqual(Object.keys(saved), [body.occurrence]);
   // The tabs change before the retry: the notification still carries the lines first computed.
   h.state.detail['CEX - OKX'] = [['', '', '', '', ''], ['cryptocoin_symbol', 'balance', 'source', 'updated_at', 'value_eur'], ['BTC', 1, 'x', 'y', 5]];
+  assert.equal(saved[body.occurrence].announced, false, 'not announced while the send failed');
   h.state.code = 200;
   h.tick(60000);
   h.run();
   assert.deepEqual(h.posts[1].payload.sellLines, ['CEX - OKX']);
+  assert.equal(JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES'))[body.occurrence].announced, true, 'announced once delivered');
   assert.equal(h.posts[1].payload.occurrence, body.occurrence);
 });
 
@@ -329,5 +331,5 @@ test('an API that refuses the lines (400, published before them) still gets the 
   assert.equal('sellEnough' in h.posts[1].payload, false);
   assert.equal(h.posts[1].payload.occurrence, h.posts[0].payload.occurrence);
   const saved = JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES') || '{}');
-  assert.deepEqual(Object.keys(saved), [], 'the lines of an alert sent without them are forgotten');
+  assert.equal(saved[h.posts[0].payload.occurrence].announced, false, 'lines of an alert sent without them stay unannounced, so unused');
 });

@@ -146,7 +146,8 @@ export async function handleTradeAckTake(store: AckStore): Promise<
 > {
   const acks = await store.take();
   if (!acks) return { status: 503, body: { ok: false, error: "unavailable" } };
-  // `categories` (one per category) stays for workbooks published before `acks` existed.
+  // `categories` (one per category) stays for workbooks published before `acks` existed. Several acknowledgements
+  // of one category are all listed in `acks`; the workbook refreshes each proposed line or batch only once.
   return { status: 200, body: { ok: true, categories: [...new Set(acks.map((a) => a.category))], acks } };
 }
 
@@ -185,7 +186,8 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
             // the window (the workbook was away): that acknowledgement can never be taken, so a new
             // valid tap revives it instead of being swallowed as a duplicate.
             if (d?.taken === true || t - same.createdAt.getTime() <= ACK_TAKE_MAX_AGE_MS) return "duplicate" as const;
-            await tx.opsEvent.update({ where: { id: same.id }, data: { createdAt: new Date(t) } });
+            // The new tap also brings its occurrence (a row written before it was kept gets it now).
+            await tx.opsEvent.update({ where: { id: same.id }, data: { createdAt: new Date(t), data: { h: key, c: category, taken: false, o: occurrence } } });
             return "recorded" as const;
           }
           await tx.opsEvent.create({
@@ -211,7 +213,8 @@ export function createPrismaAckStore(prisma: PrismaClient, now: () => number = D
           for (const r of rows) {
             const d = r.data as AckRow | null;
             if (!d || d.taken === true || (d.c !== "crypto" && d.c !== "action") || typeof d.h !== "string") continue;
-            const occurrence = typeof d.o === "string" ? d.o : "";
+            // Re-validated on the way out (the write path validates too): only a plain occurrence id leaves.
+            const occurrence = typeof d.o === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(d.o) ? d.o : "";
             await tx.opsEvent.update({ where: { id: r.id }, data: { data: { h: d.h, c: d.c, taken: true, ...(occurrence ? { o: occurrence } : {}) } } });
             taken.push({ category: d.c, occurrence });
           }

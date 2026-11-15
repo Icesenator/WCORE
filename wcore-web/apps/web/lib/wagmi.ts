@@ -465,6 +465,15 @@ const hyperevm: Chain = {
   blockExplorers: { default: { name: "HyperEVM Scan", url: "https://hyperevmscan.io" } },
 };
 
+// Somnia (mainnet), chainId 5031, native SOMI.
+const somnia: Chain = {
+  id: 5031,
+  name: "Somnia",
+  nativeCurrency: { name: "Somnia", symbol: "SOMI", decimals: 18 },
+  rpcUrls: { default: { http: ["https://api.infra.mainnet.somnia.network"] }, public: { http: ["https://api.infra.mainnet.somnia.network"] } },
+  blockExplorers: { default: { name: "Somnia Explorer", url: "https://explorer.somnia.network" } },
+};
+
 // Elysium (Kinetiq mainnet), chainId 99901, native HYPE. Jamais l'Elysium de Vulcan Forged (1339).
 const elysium: Chain = {
   id: 99901,
@@ -535,7 +544,7 @@ export const config = createConfig({
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
     mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
-    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca, elysium],
+    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca, elysium, somnia],
   // as any needed — wagmi connector types mismatch with custom chain list
   connectors: wagmiConnectors as any,
   transports: {
@@ -621,6 +630,7 @@ export const config = createConfig({
     [hemi.id]: http(),
     [hyperevm.id]: http(),
     [elysium.id]: http(),
+    [somnia.id]: http(),
     [immutableZkEvm.id]: http(),
     [morph.id]: http(),
     [mezo.id]: http(),

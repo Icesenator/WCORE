@@ -12,7 +12,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   zksync_era: "zkSync Era", scroll: "Scroll", linea: "Linea",
   mantle: "Mantle", celo: "Celo", fraxtal: "Fraxtal",
   worldchain: "World Chain", unichain: "Unichain", berachain: "Berachain",
-  ink: "Ink", abstract: "Abstract",
+  ink: "Ink", abstract: "Abstract", somnia: "Somnia",
   zora: "Zora", mode: "Mode",
   sei: "Sei", shape: "Shape",
   bob: "BOB",

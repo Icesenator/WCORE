@@ -58,7 +58,8 @@ function harness(opts = {}) {
     HTTP: { post: (url, payload, options) => {
       posts.push({ url, payload: JSON.parse(JSON.stringify(payload)), options, heldLock: !!state.held });
       if (state.code === null) return null;
-      return { getResponseCode: () => state.code };
+      const code = typeof state.codeFor === 'function' ? state.codeFor(payload) : state.code;
+      return { getResponseCode: () => code };
     } },
   };
   vm.createContext(ctx);
@@ -311,4 +312,22 @@ test('an alert whose Recap cannot be read still goes out, without lines', () => 
   const body = h.posts[0].payload;
   assert.equal('sellLines' in body, false);
   assert.equal('buyLines' in body, false);
+});
+
+test('an API that refuses the lines (400, published before them) still gets the alert, without lines', () => {
+  const h = harness();
+  const okx = [['', '', '', '', ''], ['cryptocoin_symbol', 'balance', 'source', 'updated_at', 'value_eur'], ['SOMI', 1, 'x', 'y', 80]];
+  h.state.detail = { 'CEX - OKX': okx };
+  assert.equal(h.run().reason, 'INIT');
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.codeFor = (payload) => ('sellLines' in payload ? 400 : 200);
+  const out = h.run();
+  assert.equal(out.sent, 1);
+  assert.equal(h.posts.length, 2);
+  assert.ok('sellLines' in h.posts[0].payload);
+  assert.equal('sellLines' in h.posts[1].payload, false);
+  assert.equal('sellEnough' in h.posts[1].payload, false);
+  assert.equal(h.posts[1].payload.occurrence, h.posts[0].payload.occurrence);
+  const saved = JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES') || '{}');
+  assert.deepEqual(Object.keys(saved), [], 'the lines of an alert sent without them are forgotten');
 });

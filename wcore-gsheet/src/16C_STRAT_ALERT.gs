@@ -75,31 +75,33 @@ var STRAT_ALERT_LINE_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()&+-]{0,59}$/;
 
 /**
  * Euro value of each requested symbol in every portfolio tab listed in the Recap, read from the detail
- * tabs: {held: {SYMBOL: [{name, eur}, ...]}, tabs: number of tabs actually read}. Two tab shapes exist (exchange tabs: cryptocoin_symbol / value_eur,
+ * tabs: {held: {SYMBOL: [{name, eur}, ...]}, tabs: number of tabs actually read,
+ * complete: false when the budget ran out, a listed tab was missing or a read failed}. Two tab shapes exist (exchange tabs: cryptocoin_symbol / value_eur,
  * wallet tabs: token_ticker / value_eur); a tab with neither header pair is ignored. Stops reading after
  * budgetMs and returns what it has.
  */
 function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
   var out = {};
   var tabs = 0;
+  var complete = true;
   for (var s0 = 0; s0 < symbols.length; s0++) out[symbols[s0]] = [];
   var recap = ss && ss.getSheetByName("Recap Portfolio");
-  if (!recap) return { held: out, tabs: 0 };
+  if (!recap) return { held: out, tabs: 0, complete: false };
   var last = recap.getLastRow();
-  if (last < 2) return { held: out, tabs: 0 };
+  if (last < 2) return { held: out, tabs: 0, complete: false };
   var names = recap.getRange(2, 1, last - 1, 1).getValues();
   var deadline = Date.now() + budgetMs;
   var seen = {};
   for (var i = 0; i < names.length; i++) {
-    if (Date.now() > deadline) break;
+    if (Date.now() > deadline) { complete = false; break; }
     var name = String(names[i][0] || "").trim();
     if (!name || seen[name] || !STRAT_ALERT_LINE_NAME.test(name)) continue;
     seen[name] = true;
     try {
       var sh = ss.getSheetByName(name);
-      if (!sh) continue;
+      if (!sh) { complete = false; continue; }
       var rows = sh.getLastRow(), cols = Math.min(sh.getLastColumn(), 12);
-      if (rows < 3 || cols < 2) continue;
+      if (rows < 3 || cols < 2) continue; // an empty tab holds nothing
       var vals = sh.getRange(2, 1, rows - 1, cols).getValues();
       var head = vals[0], si = -1, vi = -1;
       for (var c = 0; c < head.length; c++) {
@@ -116,9 +118,9 @@ function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
         if (sym && isFinite(v) && out[sym]) sums[sym] = (sums[sym] || 0) + v;
       }
       for (var key in sums) if (sums[key] > 0) out[key].push({ name: name, eur: sums[key] });
-    } catch (eTab) {}
+    } catch (eTab) { complete = false; }
   }
-  return { held: out, tabs: tabs };
+  return { held: out, tabs: tabs, complete: complete };
 }
 
 function _wcoreStratAlertLinesStore_() {
@@ -138,8 +140,9 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
   if (store[id] && Array.isArray(store[id].sell) && Array.isArray(store[id].buy)) return store[id];
   var sellSym = String(trade.sell.symbol).toUpperCase(), buySym = String(trade.buy.symbol).toUpperCase();
   var read = _wcoreStratAlertHoldings_(ss, sellSym === buySym ? [sellSym] : [sellSym, buySym], STRAT_ALERT_LINES_BUDGET_MS);
-  // Nothing readable (no Recap, no usable tab): no claim at all, never a false "no line holds it".
-  if (!read.tabs) return null;
+  // Nothing readable, or an incomplete read (budget, missing tab, failed read): no claim at all, never a
+  // false "no line holds it" and never a top three that missed a larger holder.
+  if (!read.tabs || !read.complete) return null;
   var held = read.held;
   var top = function (sym) {
     return (held[sym] || []).slice().sort(function (a, b) { return b.eur - a.eur; }).slice(0, 3);
@@ -157,8 +160,20 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
   var next = {};
   for (var n = 0; n < keep.length && n < STRAT_ALERT_LINES_KEEP - 1; n++) next[keep[n]] = store[keep[n]];
   next[id] = entry;
-  try { PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(next)); } catch (eSave) {}
+  // Not saved = not proposed: the acknowledgement could not find these lines again, and a retry could
+  // propose different ones.
+  try { PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(next)); } catch (eSave) { return null; }
   return entry;
+}
+
+/** Forgets the lines of one occurrence (sent without them after all). */
+function _wcoreStratAlertLinesForget_(id) {
+  try {
+    var store = _wcoreStratAlertLinesStore_();
+    if (!store[id]) return;
+    delete store[id];
+    PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(store));
+  } catch (e) {}
 }
 
 /**
@@ -175,7 +190,7 @@ function WCORE_STRAT_ALERT_LINES_PREVIEW(sellSymbol, buySymbol) {
   var top = function (sym) {
     return (read.held[sym] || []).slice().sort(function (x, y) { return y.eur - x.eur; }).slice(0, 3).map(function (v) { return v.name; });
   };
-  return { ok: true, tabs: read.tabs, ms: Date.now() - t0, sell: top(sell), buy: top(buy) };
+  return { ok: true, tabs: read.tabs, complete: read.complete, ms: Date.now() - t0, sell: top(sell), buy: top(buy) };
 }
 
 /**
@@ -276,6 +291,13 @@ function _wcoreCheckStratAlert_(ss) {
         if (lines) { body.sellLines = lines.sell; body.sellEnough = lines.enough; body.buyLines = lines.buy; }
       } catch (eLines) {} // the alert goes out without lines rather than not at all
       var res = _wcoreStratAlertPost_(api, body);
+      if (!res.ok && res.code === 400 && body.sellLines !== undefined) {
+        // An API published before the lines existed refuses the body: the alert goes out without them, and
+        // "Trade fait" then keeps the category batch (the lines are forgotten so nothing unannounced is refreshed).
+        delete body.sellLines; delete body.sellEnough; delete body.buyLines;
+        _wcoreStratAlertLinesForget_(todo[t].id);
+        res = _wcoreStratAlertPost_(api, body);
+      }
       if (res.ok) { out.sent++; done[c2.cell] = todo[t].id; }
       else if (res.abandon) { out.abandoned++; done[c2.cell] = todo[t].id; }
     }

@@ -89,7 +89,9 @@ test('bad names and repeated Recap lines are never read twice, and an empty budg
   assert.equal(tabs, 1);
   assert.equal(h.calls.reads, 1);
   const none = harness({ tabs: TABS() });
-  assert.equal(none.ctx._wcoreStratAlertHoldings_(none.ss, ['AAVE'], -1).tabs, 0);
+  const cut = none.ctx._wcoreStratAlertHoldings_(none.ss, ['AAVE'], -1);
+  assert.equal(cut.tabs, 0);
+  assert.equal(cut.complete, false, 'a read cut by the budget is incomplete');
 });
 
 test('proposed lines: the three largest holders, "enough" when the first covers the amount, kept per occurrence', () => {
@@ -225,4 +227,30 @@ test('the manual preview returns the proposed lines and the read time, and refus
   assert.deepEqual(JSON.parse(JSON.stringify(r.buy)), ['CEX - OKX', 'Ledger - Cronos']);
   assert.equal(h.store.get('WCORE_STRAT_ALERT_LINES'), undefined, 'nothing is saved');
   assert.deepEqual(JSON.parse(JSON.stringify(h.ctx.WCORE_STRAT_ALERT_LINES_PREVIEW('a b', 'cro'))), { ok: false, reason: 'BAD_SYMBOL' });
+});
+
+test('an incomplete read (missing tab, failed read, budget) proposes nothing rather than a wrong list', () => {
+  const trade = { sell: { symbol: 'AAVE', eur: 21 }, buy: { symbol: 'CRO' } };
+  const gone = harness({ tabs: TABS(), recap: ['CEX - OKX', 'Ledger - Cronos', 'Deleted Tab'] });
+  assert.equal(gone.ctx._wcoreStratAlertLinesFor_(gone.ss, 'AY1-1794470000000', trade), null);
+  assert.equal(gone.store.get('WCORE_STRAT_ALERT_LINES'), undefined, 'nothing saved for an alert sent without lines');
+  const broken = harness({ tabs: TABS() });
+  const real = broken.ss.getSheetByName;
+  broken.ss.getSheetByName = (n) => {
+    const sh = real(n);
+    if (n === 'Ledger - Cronos') sh.getRange = () => { throw new Error('read failed'); };
+    return sh;
+  };
+  assert.equal(broken.ctx._wcoreStratAlertLinesFor_(broken.ss, 'AY1-1794470000000', trade), null);
+  const ok = harness({ tabs: TABS() });
+  assert.ok(ok.ctx._wcoreStratAlertLinesFor_(ok.ss, 'AY1-1794470000000', trade));
+});
+
+test('lines that cannot be saved are not proposed (the acknowledgement could not find them again)', () => {
+  const h = harness({ tabs: TABS() });
+  h.ctx.PropertiesService = { getScriptProperties: () => ({
+    getProperty: () => null,
+    setProperty: () => { throw new Error('quota'); },
+  }) };
+  assert.equal(h.ctx._wcoreStratAlertLinesFor_(h.ss, 'AY1-1794470000000', { sell: { symbol: 'AAVE', eur: 21 }, buy: { symbol: 'CRO' } }), null);
 });

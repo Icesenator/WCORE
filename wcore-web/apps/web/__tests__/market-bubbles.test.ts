@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { parseMarketCapResponse, type MarketCapRow } from "../app/cmc/market-cap";
 import {
-  animationDone, bubbleColor, bubbleGlow, bubbleSymbolSize, bubbleKey, bubbleMetric, bubblesSettled, computeRadii, createBubbles, formatChange, frameDue, selectBubbleRows, stepBubbles,
+  animationDone, bubbleColor, bubbleGlow, bubbleSymbolSize, bubbleKey, formatBubblePrice, bubbleMetric, bubblesSettled, computeRadii, createBubbles, formatChange, frameDue, selectBubbleRows, stepBubbles,
   type Bubble, type BubblePeriod,
 } from "../lib/market-bubbles";
 
@@ -203,4 +203,22 @@ test("freshnessNote gives a full date and reports a stale snapshot even after a 
   assert.deepEqual(freshnessNote("2026-11-10T21:18:00.000Z", true, false).warnings, ["stale data"]);
   assert.deepEqual(freshnessNote("2026-11-10T21:18:00.000Z", true, true).warnings, ["stale data", "reload failed"]);
   assert.equal(freshnessNote("not a date", false, false).when, "unknown time");
+});
+
+describe("formatBubblePrice", () => {
+  test("les décimales suivent l'ordre de grandeur", () => {
+    assert.equal(formatBubblePrice(58438.56), "€58,439");
+    assert.equal(formatBubblePrice(2312.4), "€2,312");
+    assert.equal(formatBubblePrice(148.2), "€148.20");
+    assert.equal(formatBubblePrice(1), "€1.00");
+    assert.equal(formatBubblePrice(0.0845), "€0.0845");
+    assert.equal(formatBubblePrice(0.000012), "€0.000012");
+    assert.equal(formatBubblePrice(0.0000004), "<€0.000001");
+  });
+  test("rien pour un prix absent, nul, négatif ou non fini", () => {
+    for (const v of [null, undefined, 0, -3, NaN, Infinity]) assert.equal(formatBubblePrice(v as never), null);
+  });
+  test("reste court : jamais plus de 12 caractères pour un prix usuel", () => {
+    for (const v of [0.5, 3.1415, 99.99, 999.5, 12345.67, 987654.3]) assert.ok((formatBubblePrice(v) ?? "").length <= 12, String(v));
+  });
 });

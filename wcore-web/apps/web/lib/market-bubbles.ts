@@ -137,6 +137,17 @@ export function sharpLogoUrl(url: string, pixels: number): string {
     .replace(/(companiesmarketcap\.com\/img\/company-logos\/)64\//, `$1${big ? "256" : "128"}/`);
 }
 
+/**
+ * Prix écrit dans une bulle assez grande : court, en euros, avec le nombre de décimales que l'ordre de
+ * grandeur justifie (58 439, 148,20, 0,0845, 0,000012). Rien pour un prix absent, nul, négatif ou non fini.
+ */
+export function formatBubblePrice(price: number | null | undefined): string | null {
+  if (price === null || price === undefined || !Number.isFinite(price) || price <= 0) return null;
+  if (price < 0.000001) return "<€0.000001";
+  const digits = price >= 1000 ? 0 : price >= 1 ? 2 : price >= 0.01 ? 4 : 6;
+  return "€" + price.toLocaleString("en", { minimumFractionDigits: digits === 0 ? 0 : Math.min(2, digits), maximumFractionDigits: digits });
+}
+
 export function formatChange(change: number | null): string {
   if (change === null) return "—";
   const v = Math.round(change * 10) / 10;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiUrl } from "@/lib/api";
 import {
-  animationDone, bubbleGlow, bubbleKey, bubbleMetric, bubbleSymbolSize, bubblesSettled, freshnessNote, computeRadii, createBubbles, formatChange, frameDue, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
+  animationDone, bubbleGlow, bubbleKey, bubbleMetric, bubbleSymbolSize, bubblesSettled, freshnessNote, computeRadii, createBubbles, formatBubblePrice, formatChange, frameDue, isStablecoinRow, periodChange, selectBubbleRows, sharpLogoUrl, stepBubbles,
   type Bubble, type BubbleMode, type BubblePeriod,
 } from "@/lib/market-bubbles";
 import { parseMarketCapResponse, type MarketCapResponse, type MarketCapRow, type MarketKind } from "./market-cap";
@@ -33,6 +33,8 @@ const AUTO_REFRESH_MS = 300_000;
 //   simplement recopiee tant que son aspect ne change pas ;
 // - rien ne tourne quand la page est masquee.
 const MAX_FPS = 30;
+// Rayon (px) à partir duquel une bulle écrit aussi son prix, si la place le permet.
+const PRICE_MIN_RADIUS = 26;
 const DRIFT_MS = 6_000;
 // Au plus 4 s de stabilisation apres la derive ou un glisser, puis l'image est figee quoi qu'il arrive.
 const SETTLE_MS = 4_000;
@@ -450,7 +452,7 @@ function bubbleSprite(
   const style = bubbleGlow(change);
   // Marge autour du disque pour le halo lumineux du bord.
   const half = b.r + style.glow + 3;
-  const key = `${b.id}|${b.r.toFixed(2)}|${dpr}|${formatChange(change)}|${dim ? 1 : 0}|${dragged ? 1 : 0}|${logo?.src ?? ""}`;
+  const key = `${b.id}|${b.r.toFixed(2)}|${dpr}|${formatChange(change)}|${b.r >= PRICE_MIN_RADIUS ? formatBubblePrice(row.priceEur) ?? "" : ""}|${dim ? 1 : 0}|${dragged ? 1 : 0}|${logo?.src ?? ""}`;
   let canvas = sprites.get(key);
   if (!canvas) {
     canvas = document.createElement("canvas");
@@ -510,17 +512,47 @@ function drawLabel(ctx: CanvasRenderingContext2D, b: Bubble, row: MarketCapRow, 
     ctx.font = `800 ${symbolSize}px system-ui, sans-serif`;
   }
   const changeSize = Math.max(8, Math.min(symbolSize * 0.66, b.r * 0.3));
-  let y = b.y - (showLogo ? b.r * 0.04 : changeSize * 0.5);
+  // Prix : seulement si la bulle a la place de le loger sous la variation sans sortir du disque.
+  const priceText = b.r >= PRICE_MIN_RADIUS ? formatBubblePrice(row.priceEur) : null;
+  const priceBase = Math.max(8, Math.min(changeSize * 0.85, b.r * 0.24));
+  const tryPrice = (symbolY: number): { size: number; y: number } | null => {
+    if (!priceText) return null;
+    const priceY = symbolY + symbolSize * 0.5 + changeSize * 0.75 + changeSize * 0.5 + priceBase * 0.75;
+    const dy = Math.abs(priceY + priceBase * 0.5 - b.y);
+    if (dy >= b.r * 0.84) return null;
+    ctx.font = `600 ${priceBase}px system-ui, sans-serif`;
+    // Largeur de la corde du disque à cette hauteur, avec une marge.
+    const available = 1.8 * Math.sqrt(b.r * b.r - dy * dy);
+    const width = ctx.measureText(priceText).width;
+    const size = width > available ? priceBase * available / width : priceBase;
+    return size >= 7.5 ? { size, y: priceY } : null;
+  };
+  let y: number;
+  let priceFit: { size: number; y: number } | null;
   if (showLogo) {
     const s = b.r * 0.46;
     try { ctx.drawImage(logo, b.x - s / 2, b.y - b.r * 0.74, s, s); } catch { /* logo illisible : ignoré */ }
-    y = b.y + b.r * 0.1;
+    // Avec le prix, le bloc de texte remonte un peu (sous le logo) pour que les trois lignes tiennent.
+    const raised = b.y - b.r * 0.02;
+    priceFit = tryPrice(raised);
+    y = priceFit ? raised : b.y + b.r * 0.1;
+  } else {
+    const centred = b.y - (changeSize * 0.5 + priceBase * 0.55);
+    priceFit = tryPrice(centred);
+    y = priceFit ? centred : b.y - changeSize * 0.5;
   }
+  ctx.font = `800 ${symbolSize}px system-ui, sans-serif`;
+  ctx.fillStyle = "#fff";
   ctx.fillText(symbol, b.x, y, maxWidth);
   if (b.r >= 20) {
     ctx.font = `700 ${changeSize}px system-ui, sans-serif`;
     ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
     ctx.fillText(formatChange(change), b.x, y + symbolSize * 0.5 + changeSize * 0.75, maxWidth);
+  }
+  if (priceFit && priceText) {
+    ctx.font = `600 ${priceFit.size}px system-ui, sans-serif`;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
+    ctx.fillText(priceText, b.x, priceFit.y);
   }
 }
 

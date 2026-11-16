@@ -7,7 +7,7 @@ export const SOMNIA: ChainConfig = {
   key: "SOMNIA",
   vm: "EVM",
   ...({
-  CACHE_VERSION: 63,
+  CACHE_VERSION: 64,
   RPC: {
     ENDPOINTS: [
       "https://api.infra.mainnet.somnia.network",
@@ -21,7 +21,7 @@ export const SOMNIA: ChainConfig = {
   CHAIN: {
     NAME: "Somnia",
     CHAIN_ID: 5031,
-    NATIVE_SYMBOL: "STT",
+    NATIVE_SYMBOL: "SOMI",
     NATIVE_NAME: "Somnia Token",
     NATIVE_DECIMALS: 18,
     NATIVE_LLAMA_ID: "coingecko:somnia",
@@ -30,6 +30,7 @@ export const SOMNIA: ChainConfig = {
     GT_NETWORK: "somnia",
   },
   LLAMA_ID_MAP: {
+    SOMI: "coingecko:somnia",
     STT: "coingecko:somnia",
     USDC: "coingecko:usd-coin",
     USDT: "coingecko:tether",

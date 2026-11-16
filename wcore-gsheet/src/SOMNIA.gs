@@ -1,7 +1,13 @@
 /**
- * SOMNIA.gs - Somnia (v4.16.42)
+ * SOMNIA.gs - Somnia (v4.16.44)
  * ChainFactory pattern with explicit function declarations
  *
+ * v4.16.44 - Native symbol corrected from STT (the Somnia TESTNET token) to SOMI, the
+ *            mainnet token of chain 5031 (CoinGecko "somnia", ticker SOMI). The native
+ *            row of Ledger - Somnia and the /dev/deploy wallet prompt showed STT.
+ *            Price and verification are unchanged: the price comes from NATIVE_LLAMA_ID
+ *            and the Details lookup matches on tab and "native". CACHE_VERSION bumped
+ *            so no cached row keeps the old symbol; "STT" stays in LLAMA_ID_MAP as an alias.
  * v4.16.43 - Capped eth_getLogs and reordered endpoints. With the chainId fixed, the
  *            first real scan surfaced what that bug had been masking: no MAX_LOG_RANGE
  *            was set, so the engine asked for a window far beyond what the chain
@@ -17,7 +23,7 @@
  */
 
 var _SOMNIA = ChainFactory.createEvmChain("SOMNIA", {
- CACHE_VERSION: 63,
+ CACHE_VERSION: 64,
  RPC: {
   ENDPOINTS: [
    "https://api.infra.mainnet.somnia.network",
@@ -32,7 +38,7 @@ var _SOMNIA = ChainFactory.createEvmChain("SOMNIA", {
  CHAIN: {
  NAME: "Somnia",
  CHAIN_ID: 5031,
- NATIVE_SYMBOL: "STT",
+ NATIVE_SYMBOL: "SOMI",
  NATIVE_NAME: "Somnia Token",
  NATIVE_DECIMALS: 18,
  NATIVE_LLAMA_ID: "coingecko:somnia",
@@ -40,7 +46,7 @@ var _SOMNIA = ChainFactory.createEvmChain("SOMNIA", {
  DEX_SLUG: "somnia",
  GT_NETWORK: "somnia"
  },
- LLAMA_ID_MAP: { "STT":"coingecko:somnia", "USDC":"coingecko:usd-coin", "USDT":"coingecko:tether" }
+ LLAMA_ID_MAP: { "SOMI":"coingecko:somnia", "STT":"coingecko:somnia", "USDC":"coingecko:usd-coin", "USDT":"coingecko:tether" }
 });
 
 // Main functions

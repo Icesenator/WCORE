@@ -475,7 +475,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
   SOMNIA: {
     chainId: "0x13a7",
     chainName: "Somnia",
-    nativeCurrency: { name: "Somnia Token", symbol: "STT", decimals: 18 },
+    nativeCurrency: { name: "Somnia Token", symbol: "SOMI", decimals: 18 },
     rpcUrls: ["https://api.infra.mainnet.somnia.network", "https://5031.rpc.thirdweb.com", "https://somnia-rpc.publicnode.com", "https://somnia.publicnode.com", "https://somnia-json-rpc.stakely.io"],
   },
   MONAD: {

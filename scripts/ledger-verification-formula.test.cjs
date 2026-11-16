@@ -1,0 +1,3 @@
+const test=require('node:test');const assert=require('node:assert/strict');const {legacyVerificationFormula}=require('./ledger-verification-formula.cjs');
+test('borne FILTER explicite, jamais LOOKUP scalaire tronquant MAP',()=>{const f=legacyVerificationFormula('Portefeuille Crypto Details');assert.ok(f.includes('MAX(FILTER(ROW(B3:B);B3:B<>""))'));assert.ok(!f.includes('LOOKUP'));assert.ok(f.includes('MAP(A3:INDEX(A:A;n)'));});
+test('conserve exceptions legacy et details Action sans prix modifie',()=>{const f=legacyVerificationFormula('Portefeuille Action Details','J');for(const x of ['^REALTOKEN','xDAI','native','Portefeuille Action Details','"V";"X"'])assert.ok(f.includes(x));assert.ok(!f.includes('SUMPRODUCT'));});

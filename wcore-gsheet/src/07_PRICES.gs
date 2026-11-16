@@ -2993,7 +2993,23 @@ NativePriceStore.CONFIG = {
   // v4.17.1 - Un prix DefiLlama observe il y a plus de LLAMA_FRESH_MS ne compte pas comme
   // "price" : CoinGecko est aussi interroge (CAMP le 16/11 : DefiLlama 1,9 h de retard,
   // CoinGecko a jour). Inferieur a la fenetre de rendu de 90 min, pour reprendre avant UNKNOWN.
-  LLAMA_FRESH_MS: 60 * 60 * 1000
+  LLAMA_FRESH_MS: 60 * 60 * 1000,
+  // v4.17.2 - Troisieme source : prix natif lu on-chain dans une paire de type Uniswap V2, pour les
+  // jetons que ni DefiLlama ni CoinGecko ne rafraichissent (PLS le 16/11 : DefiLlama 4,6 h, CoinGecko
+  // 4,6 h). La date d'observation est celle du dernier bloc renvoye par le RPC, jamais l'heure locale.
+  ONCHAIN_MAX_PER_PASS: 3,
+  ONCHAIN_MAX_DEVIATION: 2,
+  ONCHAIN_SOURCES: {
+    "coingecko:pulsechain": {
+      rpcs: ["https://rpc.pulsechain.com", "https://pulsechain-rpc.publicnode.com"],
+      pair: "0xE56043671df55dE5CDf8459710433C10324DE0aE",   // PulseX V1 WPLS/DAI
+      native: "0xa1077a294dde1b09bb078844df40758a5d0f9a27",  // WPLS (token0)
+      quote: "0xefd766ccb38eaf1dfd701853bfce31359239f305",   // DAI (token1, 1 USD)
+      nativeDecimals: 18,
+      quoteDecimals: 18,
+      minQuoteUnits: 50000                                   // liquidite minimale cote DAI
+    }
+  }
 };
 
 NativePriceStore._cacheGet = function() {
@@ -3119,6 +3135,83 @@ NativePriceStore.ingestCoingecko = function(store, json, fxRate, nowMs, fxCollec
   return written;
 };
 
+/** Hexadecimal (0x...) -> Number sans BigInt (precision relative ~1e-16, suffisante pour des reserves). */
+NativePriceStore._hexToNumber = function(hex) {
+  var h = String(hex || "").replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]+$/.test(h)) return NaN;
+  var n = 0;
+  for (var i = 0; i < h.length; i++) n = n * 16 + parseInt(h.charAt(i), 16);
+  return n;
+};
+
+/**
+ * Integre une lecture on-chain (reserves d'une paire V2 + dernier bloc) dans le magasin. Fonction
+ * pure (testable). Refus : ordre des jetons inattendu, reserves nulles ou liquidite sous le seuil,
+ * date de bloc absente ou future, ecart de plus de ONCHAIN_MAX_DEVIATION avec l'observation deja
+ * connue, observation existante plus recente.
+ * @param {Object} res {r0:string(hex), r1:string(hex), token0:string, token1:string, blockTs:number(s)}
+ * @return {number} nombre d'entrees ecrites (0 ou 1)
+ */
+NativePriceStore.ingestOnchain = function(store, id, cfg, res, fxRate, nowMs, fxCollectedAt) {
+  try {
+    if (!store || !store.entries || !cfg || !res) return 0;
+    var fx = Number(fxRate);
+    if (!(isFinite(fx) && fx > 0)) return 0;
+    if (String(res.token0 || "").toLowerCase() !== String(cfg.native).toLowerCase()) return 0;
+    if (String(res.token1 || "").toLowerCase() !== String(cfg.quote).toLowerCase()) return 0;
+    var tsSec = Number(res.blockTs);
+    if (!(isFinite(tsSec) && tsSec > 0)) return 0;
+    var observedAt = Math.round(tsSec * 1000);
+    if (observedAt > nowMs + this.CONFIG.FUTURE_SKEW_MS) return 0;
+    var rn = this._hexToNumber(res.r0) / Math.pow(10, cfg.nativeDecimals);
+    var rq = this._hexToNumber(res.r1) / Math.pow(10, cfg.quoteDecimals);
+    if (!(isFinite(rn) && rn > 0 && isFinite(rq) && rq >= cfg.minQuoteUnits)) return 0;
+    var usd = rq / rn;
+    if (!(isFinite(usd) && usd > 0)) return 0;
+    var prev = store.entries[id];
+    if (prev && Number(prev.observedAt) >= observedAt) return 0;
+    var pu = prev ? Number(prev.usd) : 0;
+    if (pu > 0) {
+      var ratio = usd / pu;
+      var dev = this.CONFIG.ONCHAIN_MAX_DEVIATION;
+      if (ratio > dev || ratio < 1 / dev) return 0;
+    }
+    store.entries[id] = { usd: usd, eur: usd * fx, fx: fx, fxCollectedAt: (isFinite(Number(fxCollectedAt)) && Number(fxCollectedAt) > 0) ? Number(fxCollectedAt) : null, observedAt: observedAt, fetchedAt: nowMs, src: "dex-onchain" };
+    return 1;
+  } catch (e) { return 0; }
+};
+
+/** Une requete JSON-RPC groupee (reserves, token0, token1, dernier bloc) ; premier RPC qui repond. */
+NativePriceStore._readOnchain = function(cfg, timeoutSeconds) {
+  try {
+    if (typeof HTTP === "undefined" || !HTTP || typeof HTTP.post !== "function" || typeof HTTP.parseJson !== "function") return null;
+    var body = [
+      { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: cfg.pair, data: "0x0902f1ac" }, "latest"] },
+      { jsonrpc: "2.0", id: 2, method: "eth_call", params: [{ to: cfg.pair, data: "0x0dfe1681" }, "latest"] },
+      { jsonrpc: "2.0", id: 3, method: "eth_call", params: [{ to: cfg.pair, data: "0xd21220a7" }, "latest"] },
+      { jsonrpc: "2.0", id: 4, method: "eth_getBlockByNumber", params: ["latest", false] }
+    ];
+    for (var i = 0; i < cfg.rpcs.length; i++) {
+      var arr = null;
+      try {
+        var resp = HTTP.post(cfg.rpcs[i], body, { muteHttpExceptions: true, timeoutMs: this.CONFIG.HTTP_TIMEOUT_MS, timeoutSeconds: timeoutSeconds, headers: { accept: "application/json", "User-Agent": "Mozilla/5.0" } });
+        arr = resp ? HTTP.parseJson(resp) : null;
+      } catch (eRpc) { arr = null; }
+      if (!arr || !arr.length) continue;
+      var m = {};
+      for (var k = 0; k < arr.length; k++) if (arr[k] && arr[k].id != null) m[arr[k].id] = arr[k].result;
+      var r = m[1] ? String(m[1]).replace(/^0x/, "") : "";
+      if (r.length < 128 || !m[2] || !m[3] || !m[4] || !m[4].timestamp) continue;
+      return {
+        r0: "0x" + r.substring(0, 64), r1: "0x" + r.substring(64, 128),
+        token0: "0x" + String(m[2]).replace(/^0x/, "").slice(-40), token1: "0x" + String(m[3]).replace(/^0x/, "").slice(-40),
+        blockTs: parseInt(m[4].timestamp, 16)
+      };
+    }
+    return null;
+  } catch (e) { return null; }
+};
+
 /**
  * Rafraichissement leger, borne et idempotent. Ne leve jamais.
  * @return {Object} diagnostic {ran, ids, written, http, reason}
@@ -3212,6 +3305,28 @@ NativePriceStore.refreshIfDue = function(opts) {
       out.cgWritten = cgWritten;
       out.written += cgWritten;
     }
+    // v4.17.2 : troisieme source on-chain pour les ids configures dont l'observation est absente ou
+    // de plus de LLAMA_FRESH_MS apres les deux passes ci-dessus. Au plus ONCHAIN_MAX_PER_PASS lectures,
+    // chacune lancee seulement si le temps restant couvre un delai HTTP complet.
+    var ocIds = [];
+    var ocCfg = this.CONFIG.ONCHAIN_SOURCES || {};
+    for (var oi = 0; oi < ids.length; oi++) {
+      var ocId = ids[oi];
+      if (!Object.prototype.hasOwnProperty.call(ocCfg, ocId)) continue;
+      var ocEntry = store.entries[ocId];
+      var ocFresh = ocEntry && (nowMs - Number(ocEntry.observedAt)) < this.CONFIG.LLAMA_FRESH_MS;
+      if (!ocFresh) ocIds.push(ocId);
+    }
+    out.ocMissing = ocIds.length;
+    out.ocWritten = 0;
+    for (var oj = 0; oj < ocIds.length && oj < this.CONFIG.ONCHAIN_MAX_PER_PASS; oj++) {
+      if ((budgetMs - (Date.now() - startMs)) < perCallMs) break;
+      out.http++;
+      var ocRes = this._readOnchain(ocCfg[ocIds[oj]], timeoutSeconds);
+      var ocW = this.ingestOnchain(store, ocIds[oj], ocCfg[ocIds[oj]], ocRes, fx, nowMs, fxInfo.collectedAt);
+      out.ocWritten += ocW;
+      out.written += ocW;
+    }
     store.refreshedAt = nowMs;
     this._cachePut(store);
     out.reason = stop || (out.written ? "OK" : "NO_VALID_PRICE");
@@ -3244,4 +3359,4 @@ NativePriceStore.get = function(llamaId, maxAgeMs, nowMs, store) {
   } catch (err) { return null; }
 };
 
-try { if (typeof ModuleRegistry !== "undefined" && ModuleRegistry.register) ModuleRegistry.register("NATIVE_PRICE_STORE", "4.17.1"); } catch (eReg) {}
+try { if (typeof ModuleRegistry !== "undefined" && ModuleRegistry.register) ModuleRegistry.register("NATIVE_PRICE_STORE", "4.17.2"); } catch (eReg) {}

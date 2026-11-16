@@ -129,6 +129,22 @@ test('the second RPC is tried when the first one fails', () => {
   assert.equal(out.ocWritten, 1);
 });
 
+test('the fallback RPC is tried only when the remaining budget covers a full HTTP delay, and calls are counted', () => {
+  // Every HTTP call takes 5 s. DefiLlama + CoinGecko use 10 s, the first RPC (failing) 5 s: 15 s used.
+  // Budget 25 s : 10 s left >= 9 s (timeout + margin) => the second RPC is tried.
+  const enough = harness([null, pairAnswer()], { callMs: 5000 });
+  const out1 = enough.store.refreshIfDue({ ids: [ID], force: true, nowMs: NOW, budgetMs: 25000 });
+  assert.equal(enough.posts.length, 2);
+  assert.equal(out1.http, 4, 'DefiLlama + CoinGecko + 2 RPC calls');
+  assert.equal(out1.ocWritten, 1);
+  // Budget 23 s : 8 s left < 9 s => the second RPC is skipped.
+  const short = harness([null, pairAnswer()], { callMs: 5000 });
+  const out2 = short.store.refreshIfDue({ ids: [ID], force: true, nowMs: NOW, budgetMs: 23000 });
+  assert.equal(short.posts.length, 1);
+  assert.equal(out2.http, 3, 'DefiLlama + CoinGecko + 1 RPC call');
+  assert.equal(out2.ocWritten, 0);
+});
+
 test('all RPCs failing leaves the id unknown (never zero)', () => {
   const h = harness([null, null]);
   const out = h.store.refreshIfDue({ ids: [ID], force: true, nowMs: NOW });

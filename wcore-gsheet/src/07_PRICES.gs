@@ -3181,10 +3181,16 @@ NativePriceStore.ingestOnchain = function(store, id, cfg, res, fxRate, nowMs, fx
   } catch (e) { return 0; }
 };
 
-/** Une requete JSON-RPC groupee (reserves, token0, token1, dernier bloc) ; premier RPC qui repond. */
-NativePriceStore._readOnchain = function(cfg, timeoutSeconds) {
+/**
+ * Une requete JSON-RPC groupee (reserves, token0, token1, dernier bloc) ; premier RPC qui repond.
+ * `msLeft()` donne le temps restant du budget de l'appelant : un RPC de repli n'est tente que si ce
+ * temps couvre encore un delai HTTP complet. @return {{data:Object|null, calls:number}}
+ */
+NativePriceStore._readOnchain = function(cfg, timeoutSeconds, msLeft) {
+  var calls = 0;
   try {
-    if (typeof HTTP === "undefined" || !HTTP || typeof HTTP.post !== "function" || typeof HTTP.parseJson !== "function") return null;
+    if (typeof HTTP === "undefined" || !HTTP || typeof HTTP.post !== "function" || typeof HTTP.parseJson !== "function") return { data: null, calls: 0 };
+    var perCallMs = this.CONFIG.HTTP_TIMEOUT_MS + this.CONFIG.HTTP_TIMEOUT_MARGIN_MS;
     var body = [
       { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: cfg.pair, data: "0x0902f1ac" }, "latest"] },
       { jsonrpc: "2.0", id: 2, method: "eth_call", params: [{ to: cfg.pair, data: "0x0dfe1681" }, "latest"] },
@@ -3192,7 +3198,9 @@ NativePriceStore._readOnchain = function(cfg, timeoutSeconds) {
       { jsonrpc: "2.0", id: 4, method: "eth_getBlockByNumber", params: ["latest", false] }
     ];
     for (var i = 0; i < cfg.rpcs.length; i++) {
+      if (i > 0 && typeof msLeft === "function" && msLeft() < perCallMs) break;
       var arr = null;
+      calls++;
       try {
         var resp = HTTP.post(cfg.rpcs[i], body, { muteHttpExceptions: true, timeoutMs: this.CONFIG.HTTP_TIMEOUT_MS, timeoutSeconds: timeoutSeconds, headers: { accept: "application/json", "User-Agent": "Mozilla/5.0" } });
         arr = resp ? HTTP.parseJson(resp) : null;
@@ -3202,14 +3210,14 @@ NativePriceStore._readOnchain = function(cfg, timeoutSeconds) {
       for (var k = 0; k < arr.length; k++) if (arr[k] && arr[k].id != null) m[arr[k].id] = arr[k].result;
       var r = m[1] ? String(m[1]).replace(/^0x/, "") : "";
       if (r.length < 128 || !m[2] || !m[3] || !m[4] || !m[4].timestamp) continue;
-      return {
+      return { data: {
         r0: "0x" + r.substring(0, 64), r1: "0x" + r.substring(64, 128),
         token0: "0x" + String(m[2]).replace(/^0x/, "").slice(-40), token1: "0x" + String(m[3]).replace(/^0x/, "").slice(-40),
         blockTs: parseInt(m[4].timestamp, 16)
-      };
+      }, calls: calls };
     }
-    return null;
-  } catch (e) { return null; }
+    return { data: null, calls: calls };
+  } catch (e) { return { data: null, calls: calls }; }
 };
 
 /**
@@ -3321,9 +3329,9 @@ NativePriceStore.refreshIfDue = function(opts) {
     out.ocWritten = 0;
     for (var oj = 0; oj < ocIds.length && oj < this.CONFIG.ONCHAIN_MAX_PER_PASS; oj++) {
       if ((budgetMs - (Date.now() - startMs)) < perCallMs) break;
-      out.http++;
-      var ocRes = this._readOnchain(ocCfg[ocIds[oj]], timeoutSeconds);
-      var ocW = this.ingestOnchain(store, ocIds[oj], ocCfg[ocIds[oj]], ocRes, fx, nowMs, fxInfo.collectedAt);
+      var ocRes = this._readOnchain(ocCfg[ocIds[oj]], timeoutSeconds, function() { return budgetMs - (Date.now() - startMs); });
+      out.http += ocRes.calls;
+      var ocW = this.ingestOnchain(store, ocIds[oj], ocCfg[ocIds[oj]], ocRes.data, fx, nowMs, fxInfo.collectedAt);
       out.ocWritten += ocW;
       out.written += ocW;
     }

@@ -3147,8 +3147,11 @@ NativePriceStore._hexToNumber = function(hex) {
 /**
  * Integre une lecture on-chain (reserves d'une paire V2 + dernier bloc) dans le magasin. Fonction
  * pure (testable). Refus : ordre des jetons inattendu, reserves nulles ou liquidite sous le seuil,
- * date de bloc absente ou future, ecart de plus de ONCHAIN_MAX_DEVIATION avec l'observation deja
- * connue, observation existante plus recente.
+ * date de bloc absente ou future, observation existante plus recente, absence d'ancrage et ecart de
+ * plus de ONCHAIN_MAX_DEVIATION avec l'ANCRAGE. L'ancrage est le dernier prix qui ne vient pas de la
+ * lecture on-chain (DefiLlama ou CoinGecko, meme ancien) : il est conserve dans l'entree on-chain
+ * (anchorUsd), si bien que des lectures successives ne peuvent pas deriver de 2x en 2x. Sans ancrage
+ * (demarrage a froid), rien n'est ecrit : le total reste inconnu plutot qu'appuye sur un seul spot.
  * @param {Object} res {r0:string(hex), r1:string(hex), token0:string, token1:string, blockTs:number(s)}
  * @return {number} nombre d'entrees ecrites (0 ou 1)
  */
@@ -3170,13 +3173,12 @@ NativePriceStore.ingestOnchain = function(store, id, cfg, res, fxRate, nowMs, fx
     if (!(isFinite(usd) && usd > 0)) return 0;
     var prev = store.entries[id];
     if (prev && Number(prev.observedAt) >= observedAt) return 0;
-    var pu = prev ? Number(prev.usd) : 0;
-    if (pu > 0) {
-      var ratio = usd / pu;
-      var dev = this.CONFIG.ONCHAIN_MAX_DEVIATION;
-      if (ratio > dev || ratio < 1 / dev) return 0;
-    }
-    store.entries[id] = { usd: usd, eur: usd * fx, fx: fx, fxCollectedAt: (isFinite(Number(fxCollectedAt)) && Number(fxCollectedAt) > 0) ? Number(fxCollectedAt) : null, observedAt: observedAt, fetchedAt: nowMs, src: "dex-onchain" };
+    var anchor = prev ? ((prev.src === "dex-onchain") ? Number(prev.anchorUsd) : Number(prev.usd)) : 0;
+    if (!(isFinite(anchor) && anchor > 0)) return 0;
+    var ratio = usd / anchor;
+    var dev = this.CONFIG.ONCHAIN_MAX_DEVIATION;
+    if (ratio > dev || ratio < 1 / dev) return 0;
+    store.entries[id] = { usd: usd, eur: usd * fx, fx: fx, fxCollectedAt: (isFinite(Number(fxCollectedAt)) && Number(fxCollectedAt) > 0) ? Number(fxCollectedAt) : null, observedAt: observedAt, fetchedAt: nowMs, src: "dex-onchain", anchorUsd: anchor };
     return 1;
   } catch (e) { return 0; }
 };

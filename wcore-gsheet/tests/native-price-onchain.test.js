@@ -46,7 +46,7 @@ function harness(responders, opts = {}) {
     GlobalFxCache: { load: () => ({ rates: { USD_EUR: { rate: 0.9, ts: NOW - 1000 } } }) },
     GLOBAL_CACHE_CONFIG: { FX_TTL_MS: 21600000 },
     HTTP: {
-      getJson: (url) => { gets.push(url); clock.t += opts.callMs || 0; return opts.get ? opts.get(url) : (url.includes('coins.llama.fi') ? { coins: {} } : {}); },
+      getJson: (url) => { gets.push(url); clock.t += opts.callMs || 0; return opts.get ? opts.get(url) : (url.includes('coins.llama.fi') ? { coins: { [ID]: { price: 0.0000048, timestamp: SEC - Math.round(4.6 * 3600), confidence: 0.99 } } } : {}); },
       post: (url) => { posts.push(url); clock.t += opts.callMs || 0; const r = responders.shift(); return r === undefined ? null : { body: r }; },
       parseJson: (resp) => (resp && resp.body) || null,
     },
@@ -61,6 +61,7 @@ test('a stale id priced by neither DefiLlama nor CoinGecko is read on-chain, dat
   const out = h.store.refreshIfDue({ ids: [ID], force: true, nowMs: NOW });
   assert.equal(out.ocWritten, 1);
   assert.equal(h.posts.length, 1);
+  assert.equal(h.store.load().entries[ID].anchorUsd, 0.0000048, 'the stale aggregator price is kept as anchor');
   assert.equal(h.posts[0], CFG_RPCS[0]);
   const e = h.store.load().entries[ID];
   assert.equal(e.src, 'dex-onchain');
@@ -168,7 +169,28 @@ test('no on-chain read when the time budget cannot cover a full HTTP delay', () 
 
 test('the real PulseX pair figures give the expected price (4.98e-6 USD per PLS)', () => {
   const h = harness([]);
-  const store = { entries: {} };
+  const store = { entries: { [ID]: { usd: 0.0000048, eur: 0.0000043, observedAt: (SEC - 3 * 3600) * 1000, fetchedAt: NOW, src: 'coingecko-native' } } };
   h.store.ingestOnchain(store, ID, h.store.CONFIG.ONCHAIN_SOURCES[ID], { r0: hex32(62030082587.21276), r1: hex32(309183.3228570392), token0: WPLS, token1: DAI, blockTs: SEC }, 0.9082, NOW, NOW);
   assert.ok(Math.abs(store.entries[ID].usd - 4.984409e-6) < 1e-11);
+});
+
+test('cold start: with no anchor (no aggregator price ever stored) nothing is written, the total stays unknown', () => {
+  const h = harness([pairAnswer()], { get: () => ({ coins: {} }) });
+  const out = h.store.refreshIfDue({ ids: [ID], force: true, nowMs: NOW });
+  assert.equal(h.posts.length, 1);
+  assert.equal(out.ocWritten, 0);
+  assert.equal(h.store.get(ID, 5400000, NOW), null);
+});
+
+test('successive on-chain readings cannot drift 2x per pass: the deviation is measured against the aggregator anchor', () => {
+  const h = harness([]);
+  const cfg = h.store.CONFIG.ONCHAIN_SOURCES[ID];
+  const store = { entries: { [ID]: { usd: 0.000005, eur: 0.0000045, observedAt: (SEC - 3 * 3600) * 1000, fetchedAt: NOW, src: 'llama-native' } } };
+  const read = (price, ts) => h.store.ingestOnchain(store, ID, cfg, { r0: hex32(1e12), r1: hex32(price * 1e12), token0: WPLS, token1: DAI, blockTs: ts }, 0.9, NOW, NOW);
+  assert.equal(read(0.0000095, SEC - 3000), 1, '1.9x the anchor: accepted');
+  assert.equal(store.entries[ID].src, 'dex-onchain');
+  assert.equal(store.entries[ID].anchorUsd, 0.000005);
+  assert.equal(read(0.000018, SEC - 2000), 0, '3.6x the anchor but 1.9x the last on-chain reading: refused');
+  assert.equal(store.entries[ID].usd, 0.0000095);
+  assert.equal(read(0.000004, SEC - 1000), 1, 'back within 2x of the anchor: accepted');
 });

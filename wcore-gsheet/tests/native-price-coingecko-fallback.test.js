@@ -132,3 +132,39 @@ test('a DefiLlama price refused for low confidence or a future date still gets t
     assert.equal(h.store.get('coingecko:pulsechain', 3600000, NOW).src, 'coingecko-native');
   }
 });
+
+// v4.17.1 - Camp on 2026-11-16: DefiLlama returned an admissible but 1.9 h old price, so it
+// counted as priced; CoinGecko was never asked and the total stayed UNKNOWN.
+test('a DefiLlama price older than LLAMA_FRESH_MS also asks CoinGecko, and the fresher price wins', () => {
+  const OLD = SEC - 2 * 3600; // 2 h old at DefiLlama
+  const h = harness((url) => isLlama(url)
+    ? { coins: { 'coingecko:ethereum': { price: 3000, timestamp: SEC }, 'coingecko:pulsechain': { price: 0.00001, timestamp: OLD, confidence: 0.99 } } }
+    : { pulsechain: { usd: 0.00002, last_updated_at: SEC } });
+  const out = h.store.refreshIfDue({ ids: IDS, force: true, nowMs: NOW });
+  assert.equal(out.cgMissing, 1);
+  assert.ok(h.calls[1].includes('ids=pulsechain&'), 'only the stale id is asked to CoinGecko');
+  const pls = h.store.get('coingecko:pulsechain', 5400000, NOW);
+  assert.equal(pls.src, 'coingecko-native');
+  assert.ok(Math.abs(pls.eur - 0.000018) < 1e-12);
+});
+
+test('a stale DefiLlama price is kept when CoinGecko is not fresher, and get() still refuses it past 90 min', () => {
+  const OLD = SEC - 2 * 3600;
+  const h = harness((url) => isLlama(url)
+    ? { coins: { 'coingecko:ethereum': { price: 3000, timestamp: SEC }, 'coingecko:pulsechain': { price: 0.00001, timestamp: OLD } } }
+    : { pulsechain: { usd: 0.00002, last_updated_at: OLD } }); // same date at CoinGecko (PLS on 16/11)
+  h.store.refreshIfDue({ ids: IDS, force: true, nowMs: NOW });
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.store.load().entries['coingecko:pulsechain'].src, 'llama-native');
+  assert.equal(h.store.get('coingecko:pulsechain', 5400000, NOW), null, 'no validity extension');
+});
+
+test('a DefiLlama price just under LLAMA_FRESH_MS makes no CoinGecko call', () => {
+  const recent = Math.round((NOW - 59 * 60000) / 1000);
+  const h = harness(() => ({ coins: {
+    'coingecko:ethereum': { price: 3000, timestamp: SEC },
+    'coingecko:pulsechain': { price: 0.00002, timestamp: recent },
+  } }));
+  h.store.refreshIfDue({ ids: IDS, force: true, nowMs: NOW });
+  assert.equal(h.calls.length, 1);
+});

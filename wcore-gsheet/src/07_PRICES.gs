@@ -2989,7 +2989,11 @@ NativePriceStore.CONFIG = {
   // v4.17.0 - Repli CoinGecko (un seul lot) pour les ids "coingecko:<slug>" que DefiLlama
   // n'a pas fournis dans ce passage (prix absent ou lot en echec).
   CG_BASE_URL: "https://api.coingecko.com/api/v3/simple/price",
-  CG_CHUNK: 50
+  CG_CHUNK: 50,
+  // v4.17.1 - Un prix DefiLlama observe il y a plus de LLAMA_FRESH_MS ne compte pas comme
+  // "price" : CoinGecko est aussi interroge (CAMP le 16/11 : DefiLlama 1,9 h de retard,
+  // CoinGecko a jour). Inferieur a la fenetre de rendu de 90 min, pour reprendre avant UNKNOWN.
+  LLAMA_FRESH_MS: 60 * 60 * 1000
 };
 
 NativePriceStore._cacheGet = function() {
@@ -3167,11 +3171,13 @@ NativePriceStore.refreshIfDue = function(opts) {
       out.written += this.ingest(store, json, fx, nowMs, fxInfo.collectedAt);
       for (var lid in json.coins) {
         if (!Object.prototype.hasOwnProperty.call(json.coins, lid)) continue;
-        if (this._llamaAdmissible(json.coins[lid], nowMs)) llamaPriced[lid] = true;
+        if (this._llamaAdmissible(json.coins[lid], nowMs) &&
+            (nowMs - Math.round(Number(json.coins[lid].timestamp) * 1000)) < this.CONFIG.LLAMA_FRESH_MS) llamaPriced[lid] = true;
       }
     }
     // Repli CoinGecko pour les ids que DefiLlama n'a pas prices dans ce passage (absents de la
-    // reponse ou lot en echec). Un seul appel ; les ids dont l'entree est la plus ancienne passent
+    // reponse, lot en echec, ou prix observe depuis plus de LLAMA_FRESH_MS). Le plus recent des
+    // deux gagne (ingest et ingestCoingecko ne remplacent jamais une observation plus recente). Un seul appel ; les ids dont l'entree est la plus ancienne passent
     // en premier, et une entree ecrite par le repli passe en dernier au passage suivant (rotation
     // au-dela de CG_CHUNK).
     var missing = [];
@@ -3237,4 +3243,4 @@ NativePriceStore.get = function(llamaId, maxAgeMs, nowMs, store) {
   } catch (err) { return null; }
 };
 
-try { if (typeof ModuleRegistry !== "undefined" && ModuleRegistry.register) ModuleRegistry.register("NATIVE_PRICE_STORE", "4.17.0"); } catch (eReg) {}
+try { if (typeof ModuleRegistry !== "undefined" && ModuleRegistry.register) ModuleRegistry.register("NATIVE_PRICE_STORE", "4.17.1"); } catch (eReg) {}

@@ -168,3 +168,26 @@ test('a DefiLlama price just under LLAMA_FRESH_MS makes no CoinGecko call', () =
   h.store.refreshIfDue({ ids: IDS, force: true, nowMs: NOW });
   assert.equal(h.calls.length, 1);
 });
+
+test('70 stale but advancing DefiLlama prices still rotate through CoinGecko (no starvation)', () => {
+  const ids = Array.from({ length: 70 }, (_, i) => 'coingecko:coin-' + String(i).padStart(2, '0'));
+  const asked = [];
+  let pass = 0;
+  const h = harness((url) => {
+    if (isLlama(url)) {
+      // Each pass, every price advances by 10 min but stays 2 h old: written, never fresh.
+      const ts = Math.round((NOW + pass * 30 * 60000 - 2 * 3600000) / 1000);
+      const coins = {};
+      for (const id of ids) coins[id] = { price: 1, timestamp: ts, confidence: 0.99 };
+      return { coins };
+    }
+    asked.push(decodeURIComponent(url.split('ids=')[1].split('&')[0]).split(','));
+    return {}; // CoinGecko has none of them
+  });
+  h.store.refreshIfDue({ ids, force: true, nowMs: NOW });
+  pass = 1;
+  h.store.refreshIfDue({ ids, force: true, nowMs: NOW + 30 * 60000 });
+  assert.equal(asked.length, 2);
+  const all = new Set(asked[0].concat(asked[1]));
+  assert.equal(all.size, 70, 'every id reached CoinGecko within two passes');
+});

@@ -3185,11 +3185,12 @@ NativePriceStore.refreshIfDue = function(opts) {
       if (/^coingecko:/.test(ids[m]) && !llamaPriced[ids[m]]) missing.push(ids[m]);
     }
     if (!store.cgAskedAt || typeof store.cgAskedAt !== "object") store.cgAskedAt = {};
+    // v4.17.1 : rotation sur la seule date de la derniere demande a CoinGecko. Un prix DefiLlama
+    // perime mais qui avance reecrit fetchedAt a chaque passage ; s'en servir ici repoussait
+    // toujours les memes ids et en privait d'autres du repli au-dela de CG_CHUNK.
     var entryAge = function(id) {
-      var e = store.entries[id];
-      var f = e ? Number(e.fetchedAt) : 0;
       var a = Number(store.cgAskedAt[id]);
-      return Math.max(isFinite(f) ? f : 0, isFinite(a) ? a : 0);
+      return isFinite(a) ? a : 0;
     };
     missing.sort(function(a, b) { return entryAge(a) - entryAge(b) || (a < b ? -1 : a > b ? 1 : 0); });
     out.cgMissing = missing.length;

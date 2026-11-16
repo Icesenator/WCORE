@@ -46,6 +46,7 @@ const EXPLORERS: Record<string, string> = {
   beam: "https://subnets.avax.network/beam",
   elysium: "https://elysium.kinetiq.xyz/explorer",
   somnia: "https://explorer.somnia.network",
+  etherlink: "https://explorer.etherlink.com",
   ronin: "https://app.roninchain.com",
   opbnb: "https://opbnbscan.com",
   lisk: "https://blockscout.lisk.com",

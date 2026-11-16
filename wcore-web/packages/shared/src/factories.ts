@@ -174,6 +174,11 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0x78a5c19e8957524cf669b20e9dc5ee28c67e6b1d (GmOnChain,
   // 2237 octets, bytecode conforme a contracts/build.json). Le chainId identifie la chaine, jamais l adresse seule.
   somnia: { address: "0xda65daf33f4492352171161e5a07631c5cc47e4f", chainId: 5031 },
+  // Etherlink (mainnet, chainId 42793, native XTZ). Fabrique deployee par le proprietaire le 2026-11-16, verifiee en
+  // lecture seule sur le RPC : code 1696 octets, identique (adresses incrustees masquees) a la fabrique d Elysium,
+  // platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0xf94678d1b02b75e016e10f31cc043f1f91269c72 (GmOnChain,
+  // 2237 octets, runtime contenu dans le bin de contracts/build.json). Le chainId identifie la chaine.
+  etherlink: { address: "0x32352ad2eeefdaf077cc9123007ccced5165e729", chainId: 42793 },
 };
 
 export function getFactoryChainIds(): number[] {

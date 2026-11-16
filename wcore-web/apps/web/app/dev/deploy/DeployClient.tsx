@@ -7,6 +7,7 @@ import { getActiveFactoryChains } from "@wcore/shared";
 import { buildAddEthereumChainParams } from "./chain-params";
 import { getStoppedDeployChainMessage, switchWalletChain } from "./chain-switch";
 import { pickBuild, PARIS_BUILD_CHAINS, type BuildOutput } from "./build-selector";
+import { buildDeployTx } from "./gas-estimate";
 import { getGmWindDown } from "@/lib/gm-winddown";
 import { getGmRpcUnavailableMessage } from "@/lib/gm-rpc-error";
 
@@ -239,7 +240,7 @@ export function DeployClient() {
       const gmOnChainBuild = pickBuild(build, chainKey, "GmOnChain");
       const txHash = await window.ethereum.request({
         method: "eth_sendTransaction",
-        params: [{ from: accounts[0], data: gmOnChainBuild.bin }],
+        params: [await buildDeployTx(window.ethereum, accounts[0], gmOnChainBuild.bin)],
       }) as string;
       let addr = "";
       for (let i = 0; i < 30; i++) {
@@ -269,7 +270,7 @@ export function DeployClient() {
       const data = factoryBuild.bin + encodedArgs;
       const txHash = await window.ethereum.request({
         method: "eth_sendTransaction",
-        params: [{ from: accounts[0], data }],
+        params: [await buildDeployTx(window.ethereum, accounts[0], data)],
       }) as string;
       let addr = "";
       for (let i = 0; i < 30; i++) {

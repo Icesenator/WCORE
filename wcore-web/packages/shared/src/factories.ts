@@ -179,6 +179,12 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0xf94678d1b02b75e016e10f31cc043f1f91269c72 (GmOnChain,
   // 2237 octets, runtime contenu dans le bin de contracts/build.json). Le chainId identifie la chaine.
   etherlink: { address: "0x32352ad2eeefdaf077cc9123007ccced5165e729", chainId: 42793 },
+  // Arbitrum Nova (mainnet, chainId 42170, native ETH). Fabrique deployee par le proprietaire le 2026-11-17, verifiee
+  // en lecture seule sur le RPC : code 1696 octets, identique (adresses incrustees masquees) a la fabrique d Elysium,
+  // platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0x8780ada159a554b253044563726d8ddb7828de65 (GmOnChain,
+  // 2237 octets, runtime contenu dans le bin de contracts/build.json). La meme adresse est, sur Reya (1729), celle d une
+  // implementation : meme deployeur, meme rang de transaction ; le chainId identifie la chaine.
+  arbitrum_nova: { address: "0xc27fd79fad7cde5da93b562fdd0bd60838fe8323", chainId: 42170 },
 };
 
 export function getFactoryChainIds(): number[] {

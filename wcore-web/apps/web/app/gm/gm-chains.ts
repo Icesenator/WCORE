@@ -12,7 +12,7 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   zksync_era: "zkSync Era", scroll: "Scroll", linea: "Linea",
   mantle: "Mantle", celo: "Celo", fraxtal: "Fraxtal",
   worldchain: "World Chain", unichain: "Unichain", berachain: "Berachain",
-  ink: "Ink", abstract: "Abstract", somnia: "Somnia", etherlink: "Etherlink",
+  ink: "Ink", abstract: "Abstract", somnia: "Somnia", etherlink: "Etherlink", arbitrum_nova: "Arbitrum Nova",
   zora: "Zora", mode: "Mode",
   sei: "Sei", shape: "Shape",
   bob: "BOB",
@@ -63,7 +63,6 @@ const GM_CHAIN_NAMES: Record<string, string> = {
 };
 
 const SOON_CHAIN_CANDIDATES: GmChain[] = [
-  { key: "arbitrum_nova", name: "Arbitrum Nova" },
   { key: "fogo", name: "Fogo" },
   { key: "moonbeam", name: "Moonbeam" },
   { key: "moonriver", name: "Moonriver" },

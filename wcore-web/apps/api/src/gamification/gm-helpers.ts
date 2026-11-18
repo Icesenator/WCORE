@@ -109,9 +109,10 @@ export function createGmHelpers(deps: GmHelpersDeps) {
       const all = decoded.length > 0 ? [...new Set(decoded.flat())] : null;
       if (all) {
         const me = userAddress.toLowerCase();
-        // A "none" needs two readable lists (one when the chain has a single RPC): a
-        // lone empty answer may come from the one lagging node that did respond.
-        let complete = decoded.length >= Math.min(2, rpcs.length);
+        // A "none" needs the priority RPC's own list: master's paths trust that node
+        // first, so a backup that answered while it failed must not decide alone (two
+        // lagging backups could otherwise hide a contract the priority node knows).
+        let complete = lists[0] !== null;
         for (let i = 0; i < all.length; i += CREATOR_CHECK_CONCURRENCY) {
           const batch = all.slice(i, i + CREATOR_CHECK_CONCURRENCY);
           // Each listed address is confirmed through the priority RPC order, exactly like

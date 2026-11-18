@@ -227,7 +227,19 @@ test("a list entry the factory does not confirm (isContract false) is never retu
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "an unconfirmed entry leaves the list partial");
 });
 
-test("with several RPCs, one readable empty list is not a definitive none", async () => {
+test("when the priority RPC cannot read the list, empty backup lists are not a definitive none", async () => {
+  const { deps, calls } = fastPathDeps({
+    list: undefined,
+    rpcs: ["https://203.0.113.10", "https://203.0.113.11", "https://203.0.113.12"],
+    listByRpc: { "https://203.0.113.11": encodeAddresses([]), "https://203.0.113.12": encodeAddresses([]) },
+    creators: {},
+  });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "two lagging backups must not decide without the priority node");
+});
+
+test("the priority RPC's readable empty list is a definitive none even if a backup is down", async () => {
   const { deps, calls } = fastPathDeps({
     list: undefined,
     rpcs: ["https://203.0.113.10", "https://203.0.113.11"],
@@ -235,8 +247,8 @@ test("with several RPCs, one readable empty list is not a definitive none", asyn
     creators: {},
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
-  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "the other probe failed: fall back");
+  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0, "a dead backup must not bring the 30 s scan back");
 });
 
 test("an unreadable creator() never yields a definitive none: falls back to the log scan", async () => {

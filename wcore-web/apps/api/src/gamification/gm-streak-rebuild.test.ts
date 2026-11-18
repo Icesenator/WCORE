@@ -27,7 +27,7 @@ function makeGmLog(opts: { txHash: string; ts: number; address?: string }): {
 type MockState = {
   contracts: Map<string, { id: string; contractAddress: string }>;
   onchainGms: Map<string, { txHash: string; createdAt: Date }>;
-  userChainGms: Map<string, { id: string; gmStreak: number; longestStreak: number }>;
+  userChainGms: Map<string, { id: string; gmStreak: number; longestStreak: number; lastGmDate?: Date }>;
   createCalls: Array<{ txHash: string; chainKey: string }>;
 };
 
@@ -76,13 +76,26 @@ function buildPrismaMock(state: MockState) {
         const k = `${args.where.userId_chainKey.userId}|${args.where.userId_chainKey.chainKey}`;
         return state.userChainGms.get(k) ?? null;
       },
-      upsert: async (args: { where: { userId_chainKey: { userId: string; chainKey: string } }; create: { userId: string; chainKey: string; gmStreak: number; longestStreak: number }; update: { gmStreak: number; longestStreak: number } }) => {
-        const k = `${args.where.userId_chainKey.userId}|${args.where.userId_chainKey.chainKey}`;
-        const rec = state.userChainGms.get(k) ?? { id: k, gmStreak: 0, longestStreak: 0 };
-        rec.gmStreak = args.update.gmStreak;
-        rec.longestStreak = args.update.longestStreak;
-        state.userChainGms.set(k, rec);
-        return rec;
+      createMany: async (args: { data: Array<{ userId: string; chainKey: string; gmStreak: number; longestStreak: number; lastGmDate: Date }>; skipDuplicates: boolean }) => {
+        const d = args.data[0]!;
+        const k = `${d.userId}|${d.chainKey}`;
+        if (state.userChainGms.has(k)) return { count: 0 };
+        state.userChainGms.set(k, { id: k, gmStreak: d.gmStreak, longestStreak: d.longestStreak, lastGmDate: d.lastGmDate });
+        return { count: 1 };
+      },
+      // Conditions utilisees par la reconstruction : champ { lt: valeur } ; ecriture seulement si la ligne y repond.
+      updateMany: async (args: { where: Record<string, unknown> & { userId: string; chainKey: string }; data: Record<string, unknown> }) => {
+        const k = `${args.where.userId}|${args.where.chainKey}`;
+        const rec = state.userChainGms.get(k) as Record<string, unknown> | undefined;
+        if (!rec) return { count: 0 };
+        for (const [field, cond] of Object.entries(args.where)) {
+          if (field === "userId" || field === "chainKey") continue;
+          const lt = (cond as { lt: number | Date }).lt;
+          const cur = rec[field] as number | Date | undefined;
+          if (cur === undefined || !(cur < lt)) return { count: 0 };
+        }
+        Object.assign(rec, args.data);
+        return { count: 1 };
       },
     },
   };
@@ -162,4 +175,31 @@ test("rebuildChainStreakFromOnchain inserts truly new txHashes", async () => {
   } finally {
     restore();
   }
+});
+
+test("rebuildChainStreakFromOnchain never moves a chain row backwards (a GM recorded after its read wins)", async () => {
+  // Reconstruction lancee pour un GM tardif d'hier, terminee apres le GM du jour : la ligne porte deja aujourd'hui,
+  // une serie de 5 et un record de 9 ; les evenements lus ne voient qu'hier. Rien ne doit reculer.
+  const DAY = 86_400_000;
+  const today = Date.UTC(2026, 10, 18);
+  const yesterdayTs = Math.floor((today - DAY + 20 * 3_600_000) / 1000);
+  const state: MockState = {
+    contracts: new Map([[`${CHAIN}|${CONTRACT}`, { id: "c-1", contractAddress: CONTRACT }]]),
+    onchainGms: new Map(),
+    userChainGms: new Map([[`u1|${CHAIN}`, { id: "r1", gmStreak: 5, longestStreak: 9, lastGmDate: new Date(today + 9 * 3_600_000) }]]),
+    createCalls: [],
+  };
+  const restore = installFetchMock([makeGmLog({ txHash: "0xaa01", ts: yesterdayTs })]);
+  try {
+    await rebuildChainStreakFromOnchain(
+      { prisma: buildPrismaMock(state) as never, getChainRpcs: () => ["https://203.0.113.10"], GM_EVENT_SIG, rpcJson: async () => null },
+      "u1", USER, CHAIN,
+    );
+  } finally {
+    restore();
+  }
+  const row = state.userChainGms.get(`u1|${CHAIN}`)!;
+  assert.equal(row.lastGmDate!.getTime(), today + 9 * 3_600_000, "lastGmDate is not moved back to yesterday");
+  assert.equal(row.gmStreak, 5);
+  assert.equal(row.longestStreak, 9);
 });

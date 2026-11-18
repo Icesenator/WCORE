@@ -20,6 +20,9 @@ const CONTRACT_A = "0x2000000000000000000000000000000000000001";
 const CONTRACT_B = "0x2000000000000000000000000000000000000002";
 const CONTRACT_C = "0x2000000000000000000000000000000000000003";
 const CONTRACT_D = "0x2000000000000000000000000000000000000004";
+const CONTRACT_E = "0x2000000000000000000000000000000000000005";
+const CONTRACT_F = "0x2000000000000000000000000000000000000006";
+const ADDR_C = "0x1000000000000000000000000000000000000003";
 
 function token(userId: string, address: string): string {
   return jwt.sign({ sub: userId, address: address.toLowerCase(), type: "access" }, JWT_SECRET, { expiresIn: "7d" });
@@ -76,7 +79,7 @@ describe("GM API regressions", () => {
   before(async () => {
     await app.ready();
     await prisma.onchainGm.deleteMany({ where: { user: { address: { in: [ADDR_A, ADDR_B] } } } });
-    await prisma.gmContract.deleteMany({ where: { contractAddress: { in: [CONTRACT_A, CONTRACT_B, CONTRACT_C, CONTRACT_D] } } });
+    await prisma.gmContract.deleteMany({ where: { contractAddress: { in: [CONTRACT_A, CONTRACT_B, CONTRACT_C, CONTRACT_D, CONTRACT_E, CONTRACT_F] } } });
     await prisma.user.deleteMany({ where: { address: { in: [ADDR_A, ADDR_B] } } });
     userA = await prisma.user.create({ data: { address: ADDR_A } });
     userB = await prisma.user.create({ data: { address: ADDR_B } });
@@ -85,7 +88,7 @@ describe("GM API regressions", () => {
   after(async () => {
     globalThis.fetch = originalFetch;
     await prisma.onchainGm.deleteMany({ where: { userId: { in: [userA.id, userB.id] } } });
-    await prisma.gmContract.deleteMany({ where: { contractAddress: { in: [CONTRACT_A, CONTRACT_B, CONTRACT_C, CONTRACT_D] } } });
+    await prisma.gmContract.deleteMany({ where: { contractAddress: { in: [CONTRACT_A, CONTRACT_B, CONTRACT_C, CONTRACT_D, CONTRACT_E, CONTRACT_F] } } });
     await prisma.user.deleteMany({ where: { id: { in: [userA.id, userB.id] } } });
     await app.close();
     await prisma.$disconnect();
@@ -245,7 +248,6 @@ describe("GM API regressions", () => {
 
   // P1-GM-SERIE-SUIVIS-20261114, defaut 2 : la serie par chaine suit le jour du GM, pas celui de la reception.
   test("POST /api/gm/onchain: a late GM from yesterday does not take the place of today's chain GM", async () => {
-    const CONTRACT_E = "0x2000000000000000000000000000000000000005";
     await prisma.gmContract.upsert({
       where: { chainKey_contractAddress: { chainKey: "base", contractAddress: CONTRACT_E } },
       update: { ownerId: userB.id, creatorAddress: ADDR_B },
@@ -290,6 +292,49 @@ describe("GM API regressions", () => {
     assert.equal(todayGm.statusCode, 200);
     const body = JSON.parse(todayGm.payload) as { alreadyChainGm: boolean };
     assert.equal(body.alreadyChainGm, false, "today's chain GM is still credited");
+  });
+
+  // Reserve de Codex sur le defaut 2 : deux GM du meme utilisateur, meme chaine, meme jour, en meme temps.
+  // Contre Postgres : verrou de la ligne users puis ecriture conditionnelle ; un seul bonus, aucune erreur 500.
+  test("POST /api/gm/onchain: two concurrent GMs on the same chain and day credit the chain bonus once", async () => {
+    await prisma.onchainGm.deleteMany({ where: { user: { address: ADDR_C } } });
+    await prisma.user.deleteMany({ where: { address: ADDR_C } });
+    const userC = await prisma.user.create({ data: { address: ADDR_C } });
+    try {
+      await prisma.gmContract.upsert({
+        where: { chainKey_contractAddress: { chainKey: "base", contractAddress: CONTRACT_F } },
+        update: { ownerId: userC.id, creatorAddress: ADDR_C },
+        create: { chainKey: "base", contractAddress: CONTRACT_F, ownerId: userC.id, creatorAddress: ADDR_C },
+      });
+      const eventSec = BigInt(Math.floor((Date.now() - 60_000) / 1000));
+      globalThis.fetch = async () => jsonResponse({
+        result: {
+          from: ADDR_C,
+          to: CONTRACT_F,
+          status: "0x1",
+          logs: [{ address: CONTRACT_F, topics: [GM_EVENT_SIG, topicAddress(ADDR_C)], data: gmEventData(eventSec, 1n, 1n) }],
+        },
+      });
+      const post = (txHash: string, ip: string) => app.inject({
+        method: "POST",
+        url: "/api/gm/onchain",
+        headers: { authorization: `Bearer ${token(userC.id, ADDR_C)}`, "x-forwarded-for": ip },
+        payload: { chainKey: "base", contractAddress: CONTRACT_F, txHash },
+      });
+      const [r1, r2] = await Promise.all([post("0x0c61", "198.51.100.41"), post("0x0c62", "198.51.100.42")]);
+      for (const r of [r1, r2]) assert.ok(r.statusCode === 200 || r.statusCode === 409, `status ${r.statusCode}: ${r.payload}`);
+      const ok = [r1, r2].filter((r) => r.statusCode === 200).map((r) => JSON.parse(r.payload) as { alreadyChainGm: boolean; scoreGain: number });
+      assert.ok(ok.length >= 1);
+      assert.equal(ok.filter((b) => !b.alreadyChainGm).length, 1, "exactly one request is credited the chain bonus");
+      assert.equal(ok.reduce((n, b) => n + b.scoreGain, 0), 20 + 5, "first general bonus and first chain bonus, once each");
+      const row = await prisma.userChainGm.findUnique({ where: { userId_chainKey: { userId: userC.id, chainKey: "BASE" } } });
+      assert.equal(row?.gmStreak, 1);
+      const fresh = await prisma.user.findUnique({ where: { id: userC.id } });
+      assert.equal(fresh?.score, 25);
+    } finally {
+      await prisma.onchainGm.deleteMany({ where: { userId: userC.id } });
+      await prisma.user.delete({ where: { id: userC.id } }).catch(() => undefined);
+    }
   });
 
   test("POST /api/gm/onchain rejects a GM tx the user did not send (receipt.from mismatch)", async () => {

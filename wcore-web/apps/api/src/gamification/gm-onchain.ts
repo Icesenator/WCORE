@@ -162,6 +162,10 @@ export async function registerGmOnchainRoutes(
     };
     try {
       result = await prisma.$transaction(async (tx) => {
+        // User row lock first: every on-chain GM of a user is serialized and takes its locks in one order
+        // (users, then user_chain_gms). Without it, a late GM whose general bonus was already paid locked the
+        // chain row before the user row, and a same-day GM did the reverse: deadlock, then a 500.
+        await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${req.user!.id} FOR UPDATE`;
         const gmTipWei = (req as unknown as Record<string, unknown>)["_gmTipWei"] as string | undefined;
         const gmEventCreatedAt = (req as unknown as Record<string, unknown>)["_gmEventCreatedAt"] as Date | undefined;
         // Anti-replay: the (chainKey, txHash) unique is case-sensitive in

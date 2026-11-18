@@ -326,3 +326,17 @@ test("a priority RPC within the normal spread of its backups gives a definitive 
   assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
   assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0);
 });
+
+test("a lagging priority RPC answering isContract false for a backup-listed contract falls back to master's paths", async () => {
+  // Codex remark (ACCORD d958bc35): the backup is up to date and lists C1, the priority
+  // node (within the height tolerance) does not know it yet and answers isContract false.
+  const { deps, calls } = fastPathDeps({
+    list: undefined, rpcs: [R1, R2],
+    listByRpc: { [R1]: encodeAddresses([]), [R2]: encodeAddresses([C1]) },
+    heightByRpc: { [R1]: 1_000_000, [R2]: 1_000_003 },
+    creators: { [C1]: USER }, nonMembers: [C1],
+  });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "an unconfirmed backup entry is never a definitive none");
+});

@@ -12,6 +12,35 @@ export interface GmHelpersDeps {
   getChainMaxLogRange?: (chainKey: string) => number | undefined;
 }
 
+// GmFactory.getAllContracts() selector (keccak256 of the signature, first 4 bytes).
+const GET_ALL_CONTRACTS = "0x18d3ce96";
+const CREATOR_CHECK_CONCURRENCY = 8;
+// Above this the list is not a WCORE factory as deployed today; use the older paths.
+const MAX_LISTED_CONTRACTS = 500;
+
+/**
+ * Decodes an ABI-encoded `address[]` return value. Returns null for anything that is
+ * not a well-formed array (RPC error, revert, a factory without getAllContracts), so
+ * the caller can fall back instead of reading a malformed answer as "no contract".
+ */
+export function decodeAddressArray(result: unknown): string[] | null {
+  if (typeof result !== "string" || !/^0x([0-9a-fA-F]{64})*$/.test(result)) return null;
+  const hex = result.slice(2);
+  if (hex.length < 128) return null;
+  const word = (i: number) => hex.slice(i * 64, i * 64 + 64);
+  const offset = parseInt(word(0), 16);
+  if (offset !== 32) return null;
+  const length = parseInt(word(1), 16);
+  if (!Number.isSafeInteger(length) || length > MAX_LISTED_CONTRACTS || hex.length !== (2 + length) * 64) return null;
+  const out: string[] = [];
+  for (let i = 0; i < length; i++) {
+    const w = word(2 + i);
+    if (!/^0{24}/.test(w)) return null;
+    out.push(("0x" + w.slice(24)).toLowerCase());
+  }
+  return out;
+}
+
 export function createGmHelpers(deps: GmHelpersDeps) {
   const { prisma, getChainRpcs, rpcFetch, FACTORIES, CONTRACT_DEPLOYED_EVENT, extractDeployedContractAddresses, getChainMaxLogRange } = deps;
 
@@ -60,6 +89,31 @@ export function createGmHelpers(deps: GmHelpersDeps) {
     const found: string[] = [];
 
     try {
+      // Method 0: the factory's full list in ONE call (getAllContracts), then every
+      // creator() in parallel. Complete whatever the deployment age, and fast. The
+      // older paths below cost up to 50 sequential eth_getLogs plus 50 sequential
+      // contracts(i) calls (each reverting index retried on every RPC), which is what
+      // held /api/gm/has-deployed at 30 s on chains where the user had no contract yet.
+      const listData = await rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: factory.address, data: GET_ALL_CONTRACTS }, "latest"] }) as { result?: string };
+      const all = decodeAddressArray(listData.result);
+      if (all) {
+        const me = userAddress.toLowerCase();
+        let complete = true;
+        for (let i = 0; i < all.length && complete; i += CREATOR_CHECK_CONCURRENCY) {
+          const batch = all.slice(i, i + CREATOR_CHECK_CONCURRENCY);
+          const creators = await Promise.all(batch.map((addr) =>
+            rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: addr, data: "0x02d05d3f" }, "latest"] }) as Promise<{ result?: string }>));
+          creators.forEach((c, j) => {
+            if (!c.result || c.result.length < 66) { complete = false; return; }
+            if (("0x" + c.result.slice(26, 66)).toLowerCase() === me) found.push(batch[j]!);
+          });
+        }
+        // An unreadable creator() could be the user's own contract: never answer a
+        // definitive "none" from a partial list, fall back to the older paths instead.
+        if (complete) return found;
+        found.length = 0;
+      }
+
       // Method 1: eth_getLogs (fast, works on nodes with full archive)
       let logsFound = false;
       const bnData = await rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_blockNumber" });

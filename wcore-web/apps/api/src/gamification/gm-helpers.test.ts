@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createGmHelpers, type GmHelpersDeps } from "./gm-helpers.js";
+import { createGmHelpers, decodeAddressArray, type GmHelpersDeps } from "./gm-helpers.js";
 
 function makeDeps(overrides: Partial<GmHelpersDeps> = {}): GmHelpersDeps {
   const calls: Array<{ method: string; params: unknown }> = [];
@@ -156,4 +156,73 @@ test("fetchOnChainContracts falls back to 5000 chunk when no MAX_LOG_RANGE is co
     const chunk = to - from;
     assert.ok(chunk <= 5000, `chunk ${chunk} should use default 5000 when MAX_LOG_RANGE is missing`);
   }
+});
+
+// --- getAllContracts fast path (has-deployed latency, 18/11) ---------------------------
+
+const USER = "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
+const OTHER = "0x00000000000000000000000000000000000000aa";
+const C1 = "0x1111111111111111111111111111111111111111";
+const C2 = "0x2222222222222222222222222222222222222222";
+const word = (hex: string) => hex.replace(/^0x/, "").padStart(64, "0");
+const encodeAddresses = (addrs: string[]) => "0x" + word("20") + word(addrs.length.toString(16)) + addrs.map(word).join("");
+
+function fastPathDeps(opts: { list: unknown; creators: Record<string, string | undefined> }) {
+  const deps = makeDeps();
+  const calls = (deps as unknown as { _calls: Array<{ method: string; params: unknown }> })._calls;
+  const base = deps.rpcFetch;
+  deps.rpcFetch = (async (rpcs: string[], body: { method: string; params?: Array<{ to: string; data: string }> }) => {
+    if (body.method === "eth_call") {
+      calls.push({ method: body.method, params: body.params });
+      const { to, data } = body.params![0]!;
+      if (data === "0x18d3ce96") return opts.list === undefined ? {} : { result: opts.list };
+      if (data === "0x02d05d3f") {
+        const creator = opts.creators[to.toLowerCase()];
+        return creator === undefined ? {} : { result: "0x" + word(creator) };
+      }
+    }
+    return (base as (r: string[], b: unknown) => Promise<unknown>)(rpcs, body);
+  }) as GmHelpersDeps["rpcFetch"];
+  return { deps, calls };
+}
+
+test("decodeAddressArray reads a well-formed address[] and rejects anything else", () => {
+  assert.deepEqual(decodeAddressArray(encodeAddresses([C1, C2])), [C1, C2]);
+  assert.deepEqual(decodeAddressArray(encodeAddresses([])), []);
+  assert.equal(decodeAddressArray(undefined), null);
+  assert.equal(decodeAddressArray("0x"), null);
+  assert.equal(decodeAddressArray("0x0"), null);
+  assert.equal(decodeAddressArray(encodeAddresses([C1]).slice(0, -64)), null, "truncated");
+  assert.equal(decodeAddressArray(encodeAddresses([C1]) + word("0")), null, "trailing data");
+  assert.equal(decodeAddressArray("0x" + word("40") + word("1") + word(C1)), null, "wrong offset");
+  assert.equal(decodeAddressArray("0x" + word("20") + word("1") + "f".repeat(64)), null, "not an address word");
+});
+
+test("fetchOnChainContracts answers from getAllContracts + creator() without scanning logs", async () => {
+  const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C1]: OTHER, [C2]: USER } });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C2]);
+  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0);
+  assert.equal(calls.filter((c) => c.method === "eth_blockNumber").length, 0);
+});
+
+test("an empty factory list is a definitive none in a single call (the 30 s case)", async () => {
+  const { deps, calls } = fastPathDeps({ list: encodeAddresses([]), creators: {} });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.equal(calls.length, 1, "only getAllContracts");
+});
+
+test("an unreadable creator() never yields a definitive none: falls back to the log scan", async () => {
+  const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C1]: OTHER } });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "partial list must not short-circuit");
+});
+
+test("a factory without getAllContracts (no result) keeps the older paths", async () => {
+  const { deps, calls } = fastPathDeps({ list: undefined, creators: {} });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"));
 });

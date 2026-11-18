@@ -286,21 +286,24 @@ export async function rebuildChainStreakFromOnchain(
     });
     appliedCurrent = Math.max(current, existing?.gmStreak ?? 0);
     appliedLongest = Math.max(longest, existing?.longestStreak ?? 0);
-    await prisma.userChainGm.upsert({
-      where: { userId_chainKey: { userId, chainKey: normalizedChainKey } },
-      create: {
-        userId,
-        chainKey: normalizedChainKey,
-        lastGmDate: lastGmDate ?? new Date(),
-        gmStreak: Math.max(appliedCurrent, 1),
-        longestStreak: Math.max(appliedLongest, 1),
-      },
-      update: {
-        lastGmDate: lastGmDate ?? undefined,
-        gmStreak: appliedCurrent,
-        longestStreak: appliedLongest,
-      },
-    });
+    const key = { userId, chainKey: normalizedChainKey };
+    if (!existing) {
+      // Creation concurrente (un GM du meme utilisateur sur la meme chaine) : ON CONFLICT DO NOTHING.
+      await prisma.userChainGm.createMany({
+        data: [{ ...key, lastGmDate: lastGmDate ?? new Date(), gmStreak: Math.max(appliedCurrent, 1), longestStreak: Math.max(appliedLongest, 1) }],
+        skipDuplicates: true,
+      });
+    } else {
+      // Ecritures en avant seulement (P1-GM-SERIE-SUIVIS-20261114, reserve de Codex sur le defaut 2) : cette
+      // reconstruction suit la transaction du POST, hors verrou. Lancee pour un GM tardif d'hier et terminee apres
+      // le GM du jour, elle ne doit pas ramener lastGmDate a hier (le bonus du jour redeviendrait eligible), ni
+      // abaisser une serie ou un record ecrits entre sa lecture et son ecriture.
+      if (lastGmDate) {
+        await prisma.userChainGm.updateMany({ where: { ...key, lastGmDate: { lt: lastGmDate } }, data: { lastGmDate } });
+      }
+      await prisma.userChainGm.updateMany({ where: { ...key, gmStreak: { lt: appliedCurrent } }, data: { gmStreak: appliedCurrent } });
+      await prisma.userChainGm.updateMany({ where: { ...key, longestStreak: { lt: appliedLongest } }, data: { longestStreak: appliedLongest } });
+    }
   }
 
   return {

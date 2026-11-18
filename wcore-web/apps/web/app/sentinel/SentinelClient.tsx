@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { useSentinelAlerts, useSentinelChains, useSentinelHealth } from "@/lib/use-sentinel";
 import {
-  codeLabel, deadlineLabel, formatCountdown, nextDeadline, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel,
+  codeLabel, deadlineLabel, formatCountdown, formatDeadlineAt, nextDeadline, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel,
   type SentinelAlertView, type SentinelChainView, type SentinelLang, type SentinelText,
 } from "@/lib/sentinel-view";
 
@@ -40,7 +40,7 @@ function AlertCard({ a, chain, onAck, now, generatedAt, lang, tx }: { a: Sentine
       </div>
       <div className="mt-1 text-sm opacity-90">
         {a.deadlineKind ? `${deadlineLabel(a.deadlineKind, lang)}${lang === "fr" ? " :" : ":"} ` : ""}
-        {a.actionByMs !== null ? `${new Date(a.actionByMs).toISOString().slice(0, 16).replace("T", " ")} UTC — ${formatCountdown(countdown, lang)}` : ""}
+        {a.actionByMs !== null ? `${formatDeadlineAt(new Date(a.actionByMs).toISOString(), chain?.deadlines.some((x) => x.approximate && Date.parse(x.at) === a.actionByMs), lang)} — ${formatCountdown(countdown, lang)}` : ""}
         {a.exposure !== "AUTH_REQUIRED" && <span className="ml-2">· {tx.exposure}{lang === "fr" ? " :" : ":"} {a.exposure}</span>}
       </div>
       {chain && recoveryNoteFor(chain, lang) && <p className="mt-1 text-xs opacity-80">{recoveryNoteFor(chain, lang)}</p>}
@@ -140,7 +140,7 @@ export function SentinelClient() {
                   <tr key={c.chainKey} id={`chain-${c.chainKey}`} className="border-t border-border align-top">
                     <td className="px-3 py-2"><div className="font-medium">{c.name}</div><div className="text-xs text-muted">chain ID {c.chainId}{c.successorChainId ? ` · ${tx.successor(c.successorChainId)}` : ""}</div></td>
                     <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${statusClass(c.status)}`}>{statusLabel(c.status, lang)}</span></td>
-                    <td className="px-3 py-2">{d ? <><div>{deadlineLabel(d.kind, lang)}</div><div className="text-xs text-muted">{d.at.slice(0, 16).replace("T", " ")} UTC · {formatCountdown(Date.parse(d.at) - now, lang)}</div></> : "—"}</td>
+                    <td className="px-3 py-2">{d ? <><div>{deadlineLabel(d.kind, lang)}</div><div className="text-xs text-muted">{formatDeadlineAt(d.at, d.approximate, lang)} · {d.approximate ? "≈ " : ""}{formatCountdown(Date.parse(d.at) - now, lang)}</div></> : "—"}</td>
                     <td className="px-3 py-2 text-xs"><SourceLinks urls={Array.from(new Map(c.deadlines.flatMap((x) => x.sources).map((s) => [s.url, s])).values())} tx={tx} lang={lang} /></td>
                   </tr>
                 );

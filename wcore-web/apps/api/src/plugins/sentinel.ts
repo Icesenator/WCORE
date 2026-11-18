@@ -176,7 +176,7 @@ function publicChainView(rec: ChainLifecycleRecord, nowMs: number) {
     chainKey: rec.chainKey, chainId: rec.chainId, name: rec.name, status: rec.status, successorChainId: rec.successorChainId ?? null,
     recoveryAfterShutdown: rec.recoveryAfterShutdown, recoveryNote: rec.recoveryNote ?? null, recoveryNoteEn: rec.recoveryNoteEn ?? null, lastVerifiedAt: rec.lastVerifiedAt,
     deadlines: rec.deadlines.map((d) => ({
-      kind: d.kind, at: d.at, assets: d.assets ?? null, countdownMs: Date.parse(d.at) - nowMs,
+      kind: d.kind, at: d.at, approximate: d.approximate === true, assets: d.assets ?? null, countdownMs: Date.parse(d.at) - nowMs,
       sources: d.sourceIds.map((id) => rec.sources[id]).filter(Boolean).map((s) => ({ url: s!.url, publisher: s!.publisher, publisherEn: s!.publisherEn ?? null, official: s!.official })),
     })),
   };

@@ -4,7 +4,11 @@ export type SentinelStatus = "ACTIVE" | "WINDING_DOWN" | "RETIRED" | "UNKNOWN";
 export type SentinelSeverity = "P0" | "P1" | "P2";
 
 export interface SentinelSourceView { url: string; publisher: string; publisherEn?: string | null; official: boolean }
-export interface SentinelDeadlineView { kind: string; at: string; assets: string[] | null; countdownMs: number; sources: SentinelSourceView[] }
+export interface SentinelDeadlineView {
+  kind: string; at: string; assets: string[] | null; countdownMs: number; sources: SentinelSourceView[];
+  /** true : la source n'annonce qu'un jour approximatif, sans heure (absent dans les reponses anciennes). */
+  approximate?: boolean | null;
+}
 export interface SentinelChainView {
   chainKey: string; chainId: number; name: string; status: SentinelStatus; successorChainId: number | null;
   recoveryAfterShutdown: "AVAILABLE" | "PLANNED" | "NOT_AVAILABLE" | "UNKNOWN"; recoveryNote: string | null;
@@ -23,6 +27,15 @@ export interface SentinelHealthResponse { lastRunAt: string | null; lastSuccessA
 const DAY = 86400000, HOUR = 3600000, MIN = 60000;
 
 export type SentinelLang = "fr" | "en";
+
+/**
+ * Date d'une echeance. Une echeance approximative (« around Dec 9 ») n'affiche que le jour, jamais
+ * l'heure retenue en interne pour les alertes (debut de journee UTC), qui n'a pas ete publiee.
+ */
+export function formatDeadlineAt(at: string, approximate: boolean | null | undefined, lang: SentinelLang = "fr"): string {
+  if (approximate) return lang === "en" ? `around ${at.slice(0, 10)} (time not announced)` : `vers le ${at.slice(0, 10)} (heure non annoncée)`;
+  return `${at.slice(0, 16).replace("T", " ")} UTC`;
+}
 
 /** Compte a rebours lisible ; une echeance passee l'indique explicitement. Francais par defaut. */
 export function formatCountdown(ms: number | null, lang: SentinelLang = "fr"): string {

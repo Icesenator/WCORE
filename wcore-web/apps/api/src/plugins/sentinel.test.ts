@@ -94,6 +94,10 @@ describe("routes", () => {
     assert.ok(body.chains.some((c) => c.chainKey === "gravity" && c.chainId === 1625));
     assert.ok(body.alerts.every((a) => a.exposure === "AUTH_REQUIRED"));
     assert.doesNotMatch(res.payload, /privateDetail|"balance"/);
+    // Une echeance annoncee « around Dec 9 » est servie comme approximative ; une date precise ne l'est pas.
+    const deadlinesOf = (k: string) => (body.chains as unknown as { chainKey: string; deadlines: { approximate: boolean }[] }[]).find((c) => c.chainKey === k)?.deadlines ?? [];
+    assert.ok(deadlinesOf("zetachain").length > 0 && deadlinesOf("zetachain").every((d) => d.approximate === true));
+    assert.ok(deadlinesOf("gravity").every((d) => d.approximate === false));
   });
 
   test("GET /api/sentinel/alerts : 401 sans session ; avec session, P0 Gravity a fonds bloques + notification en attente", async () => {

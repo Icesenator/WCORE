@@ -102,8 +102,12 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     const r = get("zetachain");
     expect(r.chainId).toBe(7000);
     expect(r.recoveryAfterShutdown).toBe("PLANNED");
+    // Blog relu le 18/11 : seul l'arret (instantane a la meme hauteur) est une echeance, jour approximatif sans heure.
+    expect(r.deadlines.map((d) => d.kind)).toEqual(["NETWORK_SHUTDOWN"]);
+    expect(r.deadlines.every((d) => d.approximate === true)).toBe(true);
     const a = evaluateChain(r, pos("ZETA"), NOW)!;
     expect(a.code).toBe("ACTION_REQUIRED_BEFORE_DEADLINE");
+    expect(a.deadlineKind).toBe("NETWORK_SHUTDOWN");
     expect(a.actionByMs).toBe(Date.parse("2026-12-09T00:00:00Z"));
     expect(a.officialSourceUrls).toEqual(["https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9"]);
     // Apres l'arret, la reclamation n'est qu'annoncee : jamais presentee comme ouverte.

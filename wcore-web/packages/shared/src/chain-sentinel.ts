@@ -45,6 +45,12 @@ export interface DeadlineFact {
   sourceIds: string[];
   /** Actifs concernes (ex. ["G"], ["USDC", "USDT", "ETH"]) ; vide = tous. */
   assets?: string[];
+  /**
+   * true quand la source n'annonce qu'un jour approximatif (« around Dec 9 »), sans heure :
+   * `at` garde la lecture la plus prudente (debut de journee UTC) pour les alertes, mais
+   * l'interface ne doit jamais afficher cette heure comme si elle etait publiee.
+   */
+  approximate?: boolean;
 }
 
 export interface ChainLifecycleRecord {
@@ -187,13 +193,16 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     status: "WINDING_DOWN",
     // 2026-11-12 : « The ZetaChain L1 halts around Dec 9, 2026 [...] and is not restarted » (blog officiel du 04/11/2026,
     // proposition de gouvernance 2 adoptee le 07/11/2026). L'arret est lie a une hauteur de bloc publiee, « expected around
-    // Dec 9 » ; heure non precisee : debut de journee UTC retenu (lecture la plus prudente).
+    // Dec 9 » ; heure non precisee : debut de journee UTC retenu (lecture la plus prudente), marque approximate.
+    // 2026-11-18 (signal WCORE CM, blog relu) : plus de WITHDRAW_LAST. Le blog ne demande de sortir avant
+    // l'instantane qu'aux ZETA wrappes ou en pool ; les ZETA detenus, stakes ou en cours de retrait sont credites
+    // a l'instantane et « Claims are checked against the published snapshot [...] so they work after the halt ».
+    // L'echeance utile est donc l'arret lui-meme (instantane a la meme hauteur), detaille dans recoveryNote.
     deadlines: [
-      { kind: "WITHDRAW_LAST", at: "2026-12-09T00:00:00Z", sourceIds: ["zeta-blog"] },
-      { kind: "NETWORK_SHUTDOWN", at: "2026-12-09T00:00:00Z", sourceIds: ["zeta-blog"] },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-12-09T00:00:00Z", sourceIds: ["zeta-blog"], approximate: true },
     ],
     sources: {
-      "zeta-blog": { url: "https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9", publisher: "ZetaChain (blog officiel)", publisherEn: "ZetaChain (official blog)", official: true, retrievedAt: "2026-11-14T10:15:00Z" },
+      "zeta-blog": { url: "https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9", publisher: "ZetaChain (blog officiel)", publisherEn: "ZetaChain (official blog)", official: true, retrievedAt: "2026-11-18T19:50:00Z" },
       "zeta-hub-migrate": { url: "https://hub.zetachain.com/migrate", publisher: "ZetaHub (portail officiel de migration ZETA vers Solana)", publisherEn: "ZetaHub (official ZETA-to-Solana migration portal)", official: true, retrievedAt: "2026-11-14T10:15:00Z" },
       "zeta-hub-bridged": { url: "https://hub.zetachain.com/bridged-assets", publisher: "ZetaHub (portail officiel des actifs pontés)", publisherEn: "ZetaHub (official bridged-assets portal)", official: true, retrievedAt: "2026-11-14T10:15:00Z" },
     },
@@ -201,7 +210,7 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     recoveryAfterShutdown: "PLANNED",
     recoveryNote: "« Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key. » Avant l'instantane : sortir des pools et defaire l'emballage des ZETA ; aucune reclamation a faire avant le 9 decembre. Selon le plan officiel annonce (recuperation prevue, sans garantie) : le 9 decembre le portail hub.zetachain.com/migrate doit ouvrir ; on connecte le portefeuille qui detenait les ZETA et on signe un message (le plan precise : aucun frais, pas de SOL, jamais de phrase secrete) nommant un portefeuille Solana ; le solde complet est annonce livre en ZETA natif sur Solana (au moins 10 ZETA a l'instantane ; ZETA stake ou en cours de retrait credite a l'instantane selon le plan). Actifs encore detenus en ZRC-20 : hub.zetachain.com/bridged-assets, annonces payes sur leur chaine d'origine (minimum de 5 $ par jeton). Selon le plan, les reclamations sont verifiees sur l'instantane publie, donc possibles apres l'arret, sans date limite indiquee a ce jour.",
     recoveryNoteEn: "“Unwrap and exit pools before the snapshot. ZETA inside contracts and pools cannot be claimed by a key.” Before the snapshot: exit pools and unwrap ZETA; no claim to make before December 9. Per the announced official plan (recovery planned, no guarantee): on December 9 the portal at hub.zetachain.com/migrate is due to open; connect the wallet that held the ZETA and sign a message (the plan states: no fee, no SOL, never a seed phrase) naming a Solana wallet; the full balance is announced to be delivered as native ZETA on Solana (at least 10 ZETA at the snapshot; staked or unbonding ZETA is credited at the snapshot, per the plan). Assets still held as ZRC-20: hub.zetachain.com/bridged-assets, announced to be paid on their original chain (minimum of $5 per token). Per the plan, claims are checked against the published snapshot, so they are possible after the halt, with no deadline stated to date.",
-    lastVerifiedAt: "2026-11-14T10:15:00Z",
+    lastVerifiedAt: "2026-11-18T19:50:00Z",
   },
   {
     chainKey: "neon",

@@ -167,7 +167,7 @@ const C2 = "0x2222222222222222222222222222222222222222";
 const word = (hex: string) => hex.replace(/^0x/, "").padStart(64, "0");
 const encodeAddresses = (addrs: string[]) => "0x" + word("20") + word(addrs.length.toString(16)) + addrs.map(word).join("");
 
-function fastPathDeps(opts: { list: unknown; creators: Record<string, string | undefined>; rpcs?: string[]; listByRpc?: Record<string, unknown> }) {
+function fastPathDeps(opts: { list: unknown; creators: Record<string, string | undefined>; rpcs?: string[]; listByRpc?: Record<string, unknown>; nonMembers?: string[] }) {
   const deps = makeDeps(opts.rpcs ? { getChainRpcs: () => opts.rpcs } : {});
   const calls = (deps as unknown as { _calls: Array<{ method: string; params: unknown }> })._calls;
   const base = deps.rpcFetch;
@@ -178,6 +178,10 @@ function fastPathDeps(opts: { list: unknown; creators: Record<string, string | u
       if (data === "0x18d3ce96") {
         const list = opts.listByRpc && rpcs.length === 1 && rpcs[0]! in opts.listByRpc ? opts.listByRpc[rpcs[0]!] : opts.list;
         return list === undefined ? {} : { result: list };
+      }
+      if (data.startsWith("0x16279055")) {
+        const addr = ("0x" + data.slice(10 + 24)).toLowerCase();
+        return { result: "0x" + word(opts.nonMembers?.includes(addr) ? "0" : "1") };
       }
       if (data === "0x02d05d3f") {
         const creator = opts.creators[to.toLowerCase()];
@@ -214,6 +218,25 @@ test("an empty factory list is a definitive none in a single call (the 30 s case
   const { fetchOnChainContracts } = createGmHelpers(deps);
   assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
   assert.equal(calls.length, 1, "only getAllContracts");
+});
+
+test("a list entry the factory does not confirm (isContract false) is never returned", async () => {
+  const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1]), creators: { [C1]: USER }, nonMembers: [C1] });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "an unconfirmed entry leaves the list partial");
+});
+
+test("with several RPCs, one readable empty list is not a definitive none", async () => {
+  const { deps, calls } = fastPathDeps({
+    list: undefined,
+    rpcs: ["https://203.0.113.10", "https://203.0.113.11"],
+    listByRpc: { "https://203.0.113.10": encodeAddresses([]) },
+    creators: {},
+  });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "the other probe failed: fall back");
 });
 
 test("an unreadable creator() never yields a definitive none: falls back to the log scan", async () => {

@@ -14,6 +14,8 @@ export interface GmHelpersDeps {
 
 // GmFactory.getAllContracts() selector (keccak256 of the signature, first 4 bytes).
 const GET_ALL_CONTRACTS = "0x18d3ce96";
+// GmFactory.isContract(address) selector (public mapping getter).
+const IS_CONTRACT = "0x16279055";
 const CREATOR_CHECK_CONCURRENCY = 8;
 const LIST_RPC_FANOUT = 3;
 // Above this the list is not a WCORE factory as deployed today; use the older paths.
@@ -103,18 +105,28 @@ export function createGmHelpers(deps: GmHelpersDeps) {
       // keep the union, so a lagging primary node cannot hide a contract a backup knows.
       const lists = await Promise.all(rpcs.slice(0, LIST_RPC_FANOUT).map(async (rpc) =>
         decodeAddressArray((await rpcFetch([rpc], { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: factory.address, data: GET_ALL_CONTRACTS }, "latest"] }) as { result?: string }).result)));
-      const all = lists.some((l) => l !== null) ? [...new Set(lists.flatMap((l) => l ?? []))] : null;
+      const decoded = lists.filter((l): l is string[] => l !== null);
+      const all = decoded.length > 0 ? [...new Set(decoded.flat())] : null;
       if (all) {
         const me = userAddress.toLowerCase();
-        let complete = true;
+        // A "none" needs two readable lists (one when the chain has a single RPC): a
+        // lone empty answer may come from the one lagging node that did respond.
+        let complete = decoded.length >= Math.min(2, rpcs.length);
         for (let i = 0; i < all.length; i += CREATOR_CHECK_CONCURRENCY) {
           const batch = all.slice(i, i + CREATOR_CHECK_CONCURRENCY);
-          const creators = await Promise.all(batch.map((addr) =>
-            rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: addr, data: "0x02d05d3f" }, "latest"] }) as Promise<{ result?: string }>));
-          creators.forEach((c, j) => {
-            // creator() returns exactly one ABI address word; anything else is unreadable.
-            if (typeof c.result !== "string" || !/^0x0{24}[0-9a-fA-F]{40}$/.test(c.result)) { complete = false; return; }
-            if (("0x" + c.result.slice(26)).toLowerCase() === me) found.push(batch[j]!);
+          // Each listed address is confirmed through the priority RPC order, exactly like
+          // master's contracts(i) path: the factory must know it (isContract) and its
+          // creator() must be the user. A list entry alone never registers a contract.
+          const checks = await Promise.all(batch.map((addr) => Promise.all([
+            rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: factory.address, data: IS_CONTRACT + addr.slice(2).padStart(64, "0") }, "latest"] }) as Promise<{ result?: string }>,
+            rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: addr, data: "0x02d05d3f" }, "latest"] }) as Promise<{ result?: string }>,
+          ])));
+          checks.forEach(([member, creator], j) => {
+            // isContract() is one ABI bool word, creator() one ABI address word; anything
+            // else, or a list entry the factory does not confirm, leaves the list partial.
+            if (member.result !== "0x" + "0".repeat(63) + "1") { complete = false; return; }
+            if (typeof creator.result !== "string" || !/^0x0{24}[0-9a-fA-F]{40}$/.test(creator.result)) { complete = false; return; }
+            if (("0x" + creator.result.slice(26)).toLowerCase() === me) found.push(batch[j]!);
           });
         }
         // An unreadable creator() could be the user's own contract, so a partial list is

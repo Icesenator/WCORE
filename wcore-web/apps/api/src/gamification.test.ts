@@ -239,7 +239,7 @@ describe("GM API regressions", () => {
     const afterLate = await prisma.userChainGm.findUnique({ where: { userId_chainKey: { userId: userB.id, chainKey: "BASE" } } });
     assert.equal(afterLate?.lastGmDate?.toISOString(), new Date(Math.floor(lateMs / 1000) * 1000).toISOString(), "the GM's own date is stored");
 
-    const nowMs = Date.now() - 60_000;
+    const nowMs = Math.max(Date.now() - 60_000, today + 1_000); // jamais avant minuit UTC (sinon le GM du jour tomberait la veille)
     const todayGm = await post("0x0c52", nowMs, "198.51.100.32");
     assert.equal(todayGm.statusCode, 200);
     const body = JSON.parse(todayGm.payload) as { alreadyChainGm: boolean };

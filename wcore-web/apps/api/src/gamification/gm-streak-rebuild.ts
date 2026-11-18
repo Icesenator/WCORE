@@ -131,6 +131,10 @@ async function fetchAllUserGmLogs(
 // Rebuild per-chain GM streak from on-chain truth. Merges chain events with
 // existing DB rows (the just-inserted tx may not yet be visible to eth_getLogs;
 // the DB row carries us through that window).
+// How far ahead of our clock an on-chain GM timestamp may be and still be its own date (chain clock drift).
+// Shared with POST /api/gm/onchain so both paths give a GM the same fixed date.
+export const GM_CLOCK_MARGIN_MS = 10 * 60_000;
+
 export async function rebuildChainStreakFromOnchain(
   deps: RebuildDeps,
   userId: string,
@@ -141,6 +145,9 @@ export async function rebuildChainStreakFromOnchain(
   // UPPERCASE chainKeys to avoid case-sensitive duplicates.
   const normalizedChainKey = canonicalChainKey(chainKey);
   const { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson } = deps;
+  // Time is read when each timestamp is used, never once at the start.
+  const nowSecNow = () => Math.floor(Date.now() / 1000);
+  const FUTURE_MARGIN_SEC = Math.floor(GM_CLOCK_MARGIN_MS / 1000);
   const rpcs = getChainRpcs(normalizedChainKey);
   const userAddr = address.toLowerCase();
   const paddedUser = "0x000000000000000000000000" + userAddr.slice(2);
@@ -190,6 +197,9 @@ export async function rebuildChainStreakFromOnchain(
   // Track which txHashes were newly inserted so the caller can apply score
   // deltas only for newly-counted GMs.
   const tsByTxHash = new Map<string, number>();
+  // Chain timestamp of every log, also for rows already in the DB: the fallback date of an old row still dated
+  // in the future (stored before the cap), instead of dropping it.
+  const logTsByTxHash = new Map<string, number>();
   const insertedTxHashes = new Set<string>();
   let insertedOnchainGms = 0;
   for (const log of logs) {
@@ -197,9 +207,19 @@ export async function rebuildChainStreakFromOnchain(
     const contractAddress = log.address.toLowerCase();
     const contractId = contractIdByAddress.get(contractAddress);
     if (!contractId) continue;
-    if (existingTxHashes.has(txHash)) continue;
     const tsHex = log.data.slice(0, 66);
-    const ts = parseInt(tsHex, 16);
+    // Horodatage en chaine plafonne a maintenant (P1-GM-SERIE-SUIVIS-20261114, defaut 3) : un evenement date du
+    // futur (derive d'horloge d'un validateur) serait stocke dans le futur et compte comme un jour a venir.
+    const rawTs = parseInt(tsHex, 16);
+    const nowSec = nowSecNow();
+    // Same rule as the POST: a log at most the clock margin ahead keeps its own time (never moved back to the
+    // previous day around UTC midnight); further ahead it is no usable date and is stored as the insert time,
+    // which then never changes.
+    const usable = rawTs > 0 && rawTs <= nowSec + FUTURE_MARGIN_SEC;
+    const ts = usable ? rawTs : nowSec;
+    // Fallback date for an old future row: only a usable log date (a capped one would move every rebuild).
+    if (usable) logTsByTxHash.set(txHash, rawTs);
+    if (existingTxHashes.has(txHash)) continue;
     if (ts > 0) tsByTxHash.set(txHash, ts);
     const tipHex = "0x" + (log.data || "0x0").slice(-64);
     let tipWei = "0";
@@ -227,8 +247,17 @@ export async function rebuildChainStreakFromOnchain(
   let latestTsSec = 0;
   for (const row of dbRows) {
     const txHash = row.txHash.toLowerCase();
-    const chainTs = tsByTxHash.get(txHash);
-    const ts = chainTs ?? Math.floor(row.createdAt.getTime() / 1000);
+    let chainTs = tsByTxHash.get(txHash);
+    const rowSec = Math.floor(row.createdAt.getTime() / 1000);
+    if (chainTs === undefined && rowSec > nowSecNow() + FUTURE_MARGIN_SEC) {
+      // Ancienne ligne encore datee du futur (stockee avant le plafond) : date du journal en chaine si elle est
+      // connue ; sinon aucune date effective, elle est ecartee (elle compterait comme « aujourd'hui » a chaque
+      // nouveau jour de recalcul).
+      chainTs = logTsByTxHash.get(txHash);
+      if (chainTs === undefined) continue;
+    }
+    // Every other row keeps its own fixed date: never re-capped, so one GM is never counted on two days.
+    const ts = chainTs ?? rowSec;
     if (ts > latestTsSec) latestTsSec = ts;
     events.push({
       ts,

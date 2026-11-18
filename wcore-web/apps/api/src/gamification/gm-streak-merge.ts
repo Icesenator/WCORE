@@ -51,6 +51,13 @@ export function mergeGeneralStreak(args: {
     base = stored.gmStreak;
     // Le compte s'arretait a hier et un GM en chaine arrive aujourd'hui : ce jour s'ajoute une fois.
     if (storedDay === yesterday && latestDay != null && latestDay >= today) base += 1;
+  } else if (storedDay != null && stored.gmStreak > 0 && latestDay != null && computedStreak > 0 && latestDay > storedDay) {
+    // P1-GM-SERIE-SUIVIS-20261114, defaut 3 : la serie stockee s'arrete avant hier, mais la suite consecutive
+    // reconstruite depuis les GM en chaine (computedStreak jours finissant a latestDay, hier ou aujourd'hui) couvre
+    // sans trou chaque jour depuis le lendemain de sa fin : la serie continue au lieu de repartir de la seule suite
+    // en chaine (10 jours arretes a J-2 + un GM retrouve a J-1 = 11, et non 1). Un jour manquant ne prolonge rien.
+    const runStart = latestDay - (computedStreak - 1) * DAY_MS;
+    if (runStart <= storedDay + DAY_MS) base = stored.gmStreak + (latestDay - storedDay) / DAY_MS;
   }
 
   const gmStreak = Math.max(computedStreak, base);

@@ -198,6 +198,65 @@ describe("GM API regressions", () => {
     assert.equal(gm?.createdAt.toISOString(), new Date(Number(eventTs) * 1000).toISOString());
   });
 
+  // P1-GM-SERIE-SUIVIS-20261114, defaut 3 : un horodatage en chaine dans le futur n'est jamais stocke tel quel.
+  test("POST /api/gm/onchain stores a future on-chain timestamp capped at now", async () => {
+    const ADDR_FUT = "0x1000000000000000000000000000000000000008";
+    const CONTRACT_FUT = "0x2000000000000000000000000000000000000008";
+    await prisma.onchainGm.deleteMany({ where: { user: { address: ADDR_FUT } } });
+    await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_FUT } });
+    await prisma.user.deleteMany({ where: { address: ADDR_FUT } });
+    const userFut = await prisma.user.create({ data: { address: ADDR_FUT } });
+    try {
+      const futContract = await prisma.gmContract.create({ data: { chainKey: "base", contractAddress: CONTRACT_FUT, ownerId: userFut.id, creatorAddress: ADDR_FUT } });
+      // Ancienne ligne encore datee du futur (avant le plafond) : la reconciliation generale doit l'ecarter.
+      await prisma.onchainGm.create({ data: { userId: userFut.id, txHash: "0x0c80", chainKey: "BASE", contractId: futContract.id, tipWei: "0", createdAt: new Date(Date.now() + 3 * 86_400_000) } });
+      const futureSec = BigInt(Math.floor(Date.now() / 1000) + 2 * 86_400);
+      globalThis.fetch = async () => jsonResponse({
+        result: {
+          from: ADDR_FUT,
+          to: CONTRACT_FUT,
+          status: "0x1",
+          logs: [{ address: CONTRACT_FUT, topics: [GM_EVENT_SIG, topicAddress(ADDR_FUT)], data: gmEventData(futureSec, 1n, 1n) }],
+        },
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/gm/onchain",
+        headers: { authorization: `Bearer ${token(userFut.id, ADDR_FUT)}`, "x-forwarded-for": "198.51.100.81" },
+        payload: { chainKey: "base", contractAddress: CONTRACT_FUT, txHash: "0x0c81" },
+      });
+      assert.equal(res.statusCode, 200, res.payload);
+      const gm = await prisma.onchainGm.findFirst({ where: { userId: userFut.id, txHash: "0x0c81" } });
+      assert.ok(gm && gm.createdAt.getTime() <= Date.now(), "createdAt is capped at now");
+      const fresh = await prisma.user.findUnique({ where: { id: userFut.id } });
+      assert.ok(fresh?.lastGmDate && fresh.lastGmDate.getTime() <= Date.now(), "lastGmDate is not moved into the future");
+
+      // A timestamp only slightly ahead (chain clock drift, within the margin) keeps its own exact time.
+      const driftSec = BigInt(Math.floor(Date.now() / 1000) + 60);
+      globalThis.fetch = async () => jsonResponse({
+        result: {
+          from: ADDR_FUT,
+          to: CONTRACT_FUT,
+          status: "0x1",
+          logs: [{ address: CONTRACT_FUT, topics: [GM_EVENT_SIG, topicAddress(ADDR_FUT)], data: gmEventData(driftSec, 1n, 1n) }],
+        },
+      });
+      const drift = await app.inject({
+        method: "POST",
+        url: "/api/gm/onchain",
+        headers: { authorization: `Bearer ${token(userFut.id, ADDR_FUT)}`, "x-forwarded-for": "198.51.100.82" },
+        payload: { chainKey: "base", contractAddress: CONTRACT_FUT, txHash: "0x0c82" },
+      });
+      assert.equal(drift.statusCode, 200, drift.payload);
+      const driftRow = await prisma.onchainGm.findFirst({ where: { userId: userFut.id, txHash: "0x0c82" } });
+      assert.equal(driftRow?.createdAt.getTime(), Number(driftSec) * 1000, "a GM 60 s ahead keeps its own date");
+    } finally {
+      await prisma.onchainGm.deleteMany({ where: { userId: userFut.id } });
+      await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_FUT } });
+      await prisma.user.delete({ where: { id: userFut.id } }).catch(() => undefined);
+    }
+  });
+
   // P1-GM-SERIE-SUIVIS-20261114, defaut 2 : la serie par chaine suit le jour du GM, pas celui de la reception.
   test("POST /api/gm/onchain: a late GM from yesterday does not take the place of today's chain GM", async () => {
     await prisma.gmContract.upsert({

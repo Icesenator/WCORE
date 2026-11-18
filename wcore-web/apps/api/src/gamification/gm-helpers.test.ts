@@ -167,11 +167,16 @@ const C2 = "0x2222222222222222222222222222222222222222";
 const word = (hex: string) => hex.replace(/^0x/, "").padStart(64, "0");
 const encodeAddresses = (addrs: string[]) => "0x" + word("20") + word(addrs.length.toString(16)) + addrs.map(word).join("");
 
-function fastPathDeps(opts: { list: unknown; creators: Record<string, string | undefined>; rpcs?: string[]; listByRpc?: Record<string, unknown>; nonMembers?: string[] }) {
+function fastPathDeps(opts: { list: unknown; creators: Record<string, string | undefined>; rpcs?: string[]; listByRpc?: Record<string, unknown>; nonMembers?: string[]; heightByRpc?: Record<string, number | null> }) {
   const deps = makeDeps(opts.rpcs ? { getChainRpcs: () => opts.rpcs } : {});
   const calls = (deps as unknown as { _calls: Array<{ method: string; params: unknown }> })._calls;
   const base = deps.rpcFetch;
   deps.rpcFetch = (async (rpcs: string[], body: { method: string; params?: Array<{ to: string; data: string }> }) => {
+    if (body.method === "eth_blockNumber" && opts.heightByRpc && rpcs.length === 1 && rpcs[0]! in opts.heightByRpc) {
+      calls.push({ method: body.method, params: body.params });
+      const h = opts.heightByRpc[rpcs[0]!];
+      return h === null ? {} : { result: "0x" + h!.toString(16) };
+    }
     if (body.method === "eth_call") {
       calls.push({ method: body.method, params: body.params });
       const { to, data } = body.params![0]!;
@@ -209,15 +214,15 @@ test("fetchOnChainContracts answers from getAllContracts + creator() without sca
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C1]: OTHER, [C2]: USER } });
   const { fetchOnChainContracts } = createGmHelpers(deps);
   assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C2]);
-  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0);
-  assert.equal(calls.filter((c) => c.method === "eth_blockNumber").length, 0);
+  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0, "no log scan");
 });
 
-test("an empty factory list is a definitive none in a single call (the 30 s case)", async () => {
+test("an empty factory list is a definitive none in one list read (the 30 s case)", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([]), creators: {} });
   const { fetchOnChainContracts } = createGmHelpers(deps);
   assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
-  assert.equal(calls.length, 1, "only getAllContracts");
+  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0, "no log scan");
+  assert.equal(calls.filter((c) => c.method === "eth_call").length, 1, "only getAllContracts");
 });
 
 test("a list entry the factory does not confirm (isContract false) is never returned", async () => {
@@ -288,4 +293,36 @@ test("a lagging primary RPC serving an empty list cannot hide a contract a backu
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
   assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C1]);
+});
+
+const R1 = "https://203.0.113.10", R2 = "https://203.0.113.11";
+
+test("a priority RPC lagging behind a backup beyond the tolerance never yields a definitive none", async () => {
+  const { deps, calls } = fastPathDeps({
+    list: encodeAddresses([]), rpcs: [R1, R2], creators: {},
+    heightByRpc: { [R1]: 1_000_000, [R2]: 1_000_100 },
+  });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "lagging priority node: master's paths run");
+});
+
+test("a priority RPC whose height is unreadable never yields a definitive none", async () => {
+  const { deps, calls } = fastPathDeps({
+    list: encodeAddresses([]), rpcs: [R1, R2], creators: {},
+    heightByRpc: { [R1]: null, [R2]: 1_000_000 },
+  });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "unknown height: master's paths run");
+});
+
+test("a priority RPC within the normal spread of its backups gives a definitive none", async () => {
+  const { deps, calls } = fastPathDeps({
+    list: encodeAddresses([]), rpcs: [R1, R2], creators: {},
+    heightByRpc: { [R1]: 1_000_000, [R2]: 1_000_005 },
+  });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0);
 });

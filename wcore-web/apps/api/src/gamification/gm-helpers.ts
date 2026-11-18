@@ -18,6 +18,9 @@ const GET_ALL_CONTRACTS = "0x18d3ce96";
 const IS_CONTRACT = "0x16279055";
 const CREATOR_CHECK_CONCURRENCY = 8;
 const LIST_RPC_FANOUT = 3;
+// Normal spread between a chain's RPCs, measured on every GM chain on 18/11: at most 6
+// blocks. Beyond this the priority node is treated as lagging.
+const LAG_TOLERANCE_BLOCKS = 16;
 // Above this the list is not a WCORE factory as deployed today; use the older paths.
 const MAX_LISTED_CONTRACTS = 500;
 
@@ -103,16 +106,24 @@ export function createGmHelpers(deps: GmHelpersDeps) {
       // held /api/gm/has-deployed at 30 s on chains where the user had no contract yet.
       // The list is append-only: read it from up to LIST_RPC_FANOUT endpoints at once and
       // keep the union, so a lagging primary node cannot hide a contract a backup knows.
-      const lists = await Promise.all(rpcs.slice(0, LIST_RPC_FANOUT).map(async (rpc) =>
-        decodeAddressArray((await rpcFetch([rpc], { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: factory.address, data: GET_ALL_CONTRACTS }, "latest"] }) as { result?: string }).result)));
+      // Each probe also reads its block height, to tell whether the priority node lags.
+      const probes = await Promise.all(rpcs.slice(0, LIST_RPC_FANOUT).map((rpc) => Promise.all([
+        rpcFetch([rpc], { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: factory.address, data: GET_ALL_CONTRACTS }, "latest"] }) as Promise<{ result?: string }>,
+        rpcFetch([rpc], { jsonrpc: "2.0", id: 1, method: "eth_blockNumber" }) as Promise<{ result?: string }>,
+      ])));
+      const lists = probes.map(([list]) => decodeAddressArray(list.result));
+      const heights = probes.map(([, bn]) => (typeof bn.result === "string" && /^0x[0-9a-fA-F]{1,16}$/.test(bn.result) ? parseInt(bn.result, 16) : null));
       const decoded = lists.filter((l): l is string[] => l !== null);
       const all = decoded.length > 0 ? [...new Set(decoded.flat())] : null;
       if (all) {
         const me = userAddress.toLowerCase();
-        // A "none" needs the priority RPC's own list: master's paths trust that node
-        // first, so a backup that answered while it failed must not decide alone (two
-        // lagging backups could otherwise hide a contract the priority node knows).
-        let complete = lists[0] !== null;
+        // A "none" needs the priority RPC's own list AND proof that this node is not
+        // behind the others: master's paths trust that node first, so neither a backup
+        // answering while it failed nor a lagging priority node may decide alone. When
+        // its height is unknown or more than LAG_TOLERANCE_BLOCKS behind, master's paths run.
+        const primaryHeight = heights[0];
+        let complete = lists[0] !== null && primaryHeight !== null
+          && heights.every((h) => h === null || h <= primaryHeight! + LAG_TOLERANCE_BLOCKS);
         for (let i = 0; i < all.length; i += CREATOR_CHECK_CONCURRENCY) {
           const batch = all.slice(i, i + CREATOR_CHECK_CONCURRENCY);
           // Each listed address is confirmed through the priority RPC order, exactly like

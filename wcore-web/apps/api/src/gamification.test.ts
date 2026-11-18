@@ -195,6 +195,53 @@ describe("GM API regressions", () => {
     assert.equal(gm?.createdAt.toISOString(), new Date(Number(eventTs) * 1000).toISOString());
   });
 
+  // Production, 18/11 : un utilisateur dont la serie depasse 7 jours possede deja le badge streak_7 ; le create du
+  // badge echouait (unique) a l'interieur de la transaction du POST, Postgres annulait la transaction (25P02) et
+  // chaque GM en chaine repondait 500 (9 erreurs le 18/11, toutes sur le meme compte).
+  test("POST /api/gm/onchain: a streak badge already earned does not abort the GM transaction", async () => {
+    const ADDR_BADGE = "0x1000000000000000000000000000000000000007";
+    const CONTRACT_BADGE = "0x2000000000000000000000000000000000000007";
+    await prisma.onchainGm.deleteMany({ where: { user: { address: ADDR_BADGE } } });
+    await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_BADGE } });
+    await prisma.user.deleteMany({ where: { address: ADDR_BADGE } });
+    const today = startOfUtcDay(new Date()).getTime();
+    const userBadgeOwner = await prisma.user.create({
+      data: { address: ADDR_BADGE, gmStreak: 7, longestStreak: 7, lastGmDate: new Date(today - 86_400_000 + 3_600_000) },
+    });
+    try {
+      const badge = await prisma.badge.upsert({
+        where: { key: "streak_7" },
+        update: {},
+        create: { key: "streak_7", title: "7-Day Streak", description: "Said GM for 7 consecutive days", icon: "fire" },
+      });
+      await prisma.userBadge.create({ data: { userId: userBadgeOwner.id, badgeId: badge.id } });
+      await prisma.gmContract.create({ data: { chainKey: "base", contractAddress: CONTRACT_BADGE, ownerId: userBadgeOwner.id, creatorAddress: ADDR_BADGE } });
+      const eventSec = BigInt(Math.floor((Date.now() - 60_000) / 1000));
+      globalThis.fetch = async () => jsonResponse({
+        result: {
+          from: ADDR_BADGE,
+          to: CONTRACT_BADGE,
+          status: "0x1",
+          logs: [{ address: CONTRACT_BADGE, topics: [GM_EVENT_SIG, topicAddress(ADDR_BADGE)], data: gmEventData(eventSec, 8n, 1n) }],
+        },
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/gm/onchain",
+        headers: { authorization: `Bearer ${token(userBadgeOwner.id, ADDR_BADGE)}`, "x-forwarded-for": "198.51.100.71" },
+        payload: { chainKey: "base", contractAddress: CONTRACT_BADGE, txHash: "0x0c71" },
+      });
+      assert.equal(res.statusCode, 200, res.payload);
+      const fresh = await prisma.user.findUnique({ where: { id: userBadgeOwner.id } });
+      assert.equal(fresh?.gmStreak, 8, "the 8th day is counted");
+      assert.equal(await prisma.userBadge.count({ where: { userId: userBadgeOwner.id, badgeId: badge.id } }), 1, "the badge is not duplicated");
+    } finally {
+      await prisma.onchainGm.deleteMany({ where: { userId: userBadgeOwner.id } });
+      await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_BADGE } });
+      await prisma.user.delete({ where: { id: userBadgeOwner.id } }).catch(() => undefined);
+    }
+  });
+
   test("POST /api/gm/onchain rejects a GM tx the user did not send (receipt.from mismatch)", async () => {
     await prisma.gmContract.upsert({
       where: { chainKey_contractAddress: { chainKey: "base", contractAddress: CONTRACT_B } },

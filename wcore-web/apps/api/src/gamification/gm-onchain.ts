@@ -290,12 +290,15 @@ export async function registerGmOnchainRoutes(
         // Without this, the general streak can diverge from on-chain reality.
         // Rows dated in the future (stored before the on-chain timestamp was capped) are left out: their latest
         // date would become lastGmDate, and every general GM until that date would be refused as already done.
-        // A 10-minute margin keeps a GM recorded just now (same second, DB clock) in the computation.
-        const futureLimit = Date.now() + 10 * 60_000;
+        // A 10-minute margin keeps a GM recorded just now (same second, DB clock) in the computation, counted as
+        // now so it can never make tomorrow the last GM day.
+        const nowForGms = Date.now();
         const allGms = (await prisma.onchainGm.findMany({
           where: { userId: req.user!.id },
           select: { createdAt: true },
-        })).filter((g) => g.createdAt.getTime() <= futureLimit);
+        }))
+          .filter((g) => g.createdAt.getTime() <= nowForGms + 10 * 60_000)
+          .map((g) => ({ createdAt: new Date(Math.min(g.createdAt.getTime(), nowForGms)) }));
         if (allGms.length > 0) {
           const DAY_MS = 86_400_000;
           const dayMsSet = new Set<number>(allGms.map((g) => {

@@ -24,6 +24,14 @@ describe("Flow EVM GM onboarding", () => {
     assert.equal(new Set(sameAddress.map(([, f]) => f.chainId)).size, sameAddress.length, "one chainId per chain key");
   });
 
+  test("the Flow factory address is the SOMNIA implementation address (same deployer, same nonce) but resolves only by chainId", () => {
+    // 0x78a5...6b1d is the GmOnChain implementation on Somnia (5031) and the factory on Flow (747): no registry entry may confuse them.
+    assert.notEqual(GM_FACTORIES.somnia?.address, FACTORY, "Somnia registers its own factory, not this address");
+    assert.equal(getFactory("flow")?.chainId, 747);
+    assert.equal(getFactory("somnia")?.chainId, 5031);
+    assert.notEqual(getFactory("flow")?.address, getFactory("somnia")?.address);
+  });
+
   test("the platform owner is unchanged (the factory was checked against it on chain)", () => {
     assert.equal(GM_PLATFORM_OWNER, "0x17d518736ee9341dcdc0a2498e013d33cfcdd080");
   });

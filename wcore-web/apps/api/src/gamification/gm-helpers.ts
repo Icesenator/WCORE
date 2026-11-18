@@ -99,19 +99,20 @@ export function createGmHelpers(deps: GmHelpersDeps) {
       if (all) {
         const me = userAddress.toLowerCase();
         let complete = true;
-        for (let i = 0; i < all.length && complete; i += CREATOR_CHECK_CONCURRENCY) {
+        for (let i = 0; i < all.length; i += CREATOR_CHECK_CONCURRENCY) {
           const batch = all.slice(i, i + CREATOR_CHECK_CONCURRENCY);
           const creators = await Promise.all(batch.map((addr) =>
             rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: addr, data: "0x02d05d3f" }, "latest"] }) as Promise<{ result?: string }>));
           creators.forEach((c, j) => {
-            if (!c.result || c.result.length < 66) { complete = false; return; }
-            if (("0x" + c.result.slice(26, 66)).toLowerCase() === me) found.push(batch[j]!);
+            // creator() returns exactly one ABI address word; anything else is unreadable.
+            if (typeof c.result !== "string" || !/^0x0{24}[0-9a-fA-F]{40}$/.test(c.result)) { complete = false; return; }
+            if (("0x" + c.result.slice(26)).toLowerCase() === me) found.push(batch[j]!);
           });
         }
-        // An unreadable creator() could be the user's own contract: never answer a
-        // definitive "none" from a partial list, fall back to the older paths instead.
-        if (complete) return found;
-        found.length = 0;
+        // A contract proven to be the user's is a safe positive even from a partial list.
+        // An unreadable creator() could be the user's own contract, so a partial list
+        // never yields a definitive "none": fall back to the older paths instead.
+        if (complete || found.length > 0) return found;
       }
 
       // Method 1: eth_getLogs (fast, works on nodes with full archive)

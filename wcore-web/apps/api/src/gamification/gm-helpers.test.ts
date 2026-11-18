@@ -226,3 +226,17 @@ test("a factory without getAllContracts (no result) keeps the older paths", asyn
   await fetchOnChainContracts("moonriver", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"));
 });
+
+test("a malformed creator() word is unreadable, not a read: falls back to the log scan", async () => {
+  const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C1]: OTHER, [C2]: "f".repeat(64) } });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  await fetchOnChainContracts("moonriver", USER);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "dirty high bytes must not count as a creator");
+});
+
+test("a proven own contract is returned even when another creator() is unreadable", async () => {
+  const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C2]: USER } });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C2]);
+  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0);
+});

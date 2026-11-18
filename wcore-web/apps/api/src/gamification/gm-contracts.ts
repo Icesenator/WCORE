@@ -1,3 +1,4 @@
+import { firstAccepted, signalWithTimeout } from "../lib/first-accepted.js";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@wcore/db";
 import { canonicalChainKey, getFactory, GM_HISTORICAL_FACTORIES } from "@wcore/shared";
@@ -165,18 +166,21 @@ export async function registerGmContractsRoutes(
     if (!rpcs?.length) return null;
     const { safeFetch } = await import("../lib/safe-http.js");
 
-    const fetchReceipt = async (rpc: string): Promise<DeployReceipt | null> => {
+    const fetchReceipt = (rpc: string) => async (outer: AbortSignal): Promise<DeployReceipt | null> => {
+      const { signal, clear } = signalWithTimeout(outer, 10_000);
       try {
         const response = await safeFetch(rpc, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
-          signal: AbortSignal.timeout(10_000),
+          signal,
         });
         const data = await response.json() as { result?: DeployReceipt | null };
         return data.result ?? null;
       } catch {
         return null;
+      } finally {
+        clear();
       }
     };
 
@@ -184,11 +188,12 @@ export async function registerGmContractsRoutes(
     // wallet RPC (which already confirmed the tx before this POST). Retry with
     // backoff — same spirit as /api/gm/onchain verification — instead of
     // failing the registration on the first miss. Uniform for every chain.
+    // Any receipt returned by any RPC settles the attempt at once (no wait for the slowest RPC);
+    // the first retry comes after 1.5 s instead of 3 s (1.5, 3, 4.5, 6 s ≈ 15 s in total).
     for (let attempt = 0; attempt < 5; attempt++) {
-      const receipts = await Promise.all(rpcs.map(fetchReceipt));
-      const receipt = receipts.find((r): r is DeployReceipt => Boolean(r)) ?? null;
-      if (receipt) return receipt;
-      if (attempt < 4) await new Promise((r) => setTimeout(r, 3000 + attempt * 2000));
+      const { accepted } = await firstAccepted(rpcs.map(fetchReceipt), () => true);
+      if (accepted) return accepted;
+      if (attempt < 4) await new Promise((r) => setTimeout(r, 1500 + attempt * 1500));
     }
     return null;
   }

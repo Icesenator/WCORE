@@ -1,3 +1,4 @@
+import { firstAccepted, signalWithTimeout } from "../lib/first-accepted.js";
 import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@wcore/db";
 import { safeFetch } from "../lib/safe-http.js";
@@ -84,31 +85,32 @@ export async function registerGmOnchainRoutes(
       method: "eth_getTransactionReceipt",
       params: [txHash],
     };
-    const fetchReceipts = () => rpcs.map(async (rpc) => {
+    type GmReceipt = { from: string; to: string; logs: Array<{ address: string; topics: string[]; data: string }>; status: string };
+    const fetchReceipts = () => rpcs.map((rpc) => async (outer: AbortSignal): Promise<GmReceipt | null> => {
+      const { signal, clear } = signalWithTimeout(outer, 8000);
       try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 8000);
         const resp = await safeFetch(rpc, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(receiptRequest),
-          signal: ctrl.signal,
+          signal,
         });
-        clearTimeout(t);
         if (!resp.ok) return null;
-        const data = await resp.json() as { result?: { from: string; to: string; logs: Array<{ address: string; topics: string[]; data: string }>; status: string } };
+        const data = await resp.json() as { result?: GmReceipt };
         return data.result ?? null;
-      } catch { return null; }
+      } catch { return null; } finally { clear(); }
     });
 
     let receipt: { from: string; to: string; logs: Array<{ address: string; topics: string[]; data: string }>; status: string } | null | undefined;
     // B3 and some newer chains have slow receipt indexing. Retry up to 10 times
-    // with progressive backoff (0s, 5s, 7s, 9s, 11s, 13s, 15s, 17s, 19s, 21s ≈ 2 min).
+    // with progressive backoff (0s, 1.5s, 4s, 6.5s, 9s, 11.5s, 14s, 16.5s, 19s, 21.5s ≈ 2 min
+    // in total, as before). Each attempt settles at the FIRST successful receipt from any
+    // RPC instead of waiting for the slowest one (up to 8 s each).
     for (let attempt = 0; attempt < 10; attempt++) {
-      const results = await Promise.all(fetchReceipts());
-      receipt = results.find((r) => r?.status === "0x1") ?? results.find((r) => r != null);
+      const { accepted, settled } = await firstAccepted(fetchReceipts(), (r) => r.status === "0x1");
+      receipt = accepted ?? settled.find((r) => r != null);
       if (receipt?.status === "0x1") break;
-      if (attempt < 9) await new Promise(r => setTimeout(r, 5000 + attempt * 2000));
+      if (attempt < 9) await new Promise(r => setTimeout(r, 1500 + attempt * 2500));
     }
 
     if (receipt && receipt.status === "0x1") {

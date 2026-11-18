@@ -185,6 +185,12 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // 2237 octets, runtime contenu dans le bin de contracts/build.json). La meme adresse est, sur Reya (1729), celle d une
   // implementation : meme deployeur, meme rang de transaction ; le chainId identifie la chaine.
   arbitrum_nova: { address: "0xc27fd79fad7cde5da93b562fdd0bd60838fe8323", chainId: 42170 },
+  // Flow EVM (mainnet, chainId 747, native FLOW). Fabrique deployee par le proprietaire le 2026-11-18, verifiee en lecture
+  // seule sur le RPC : code 1696 octets, identique (adresses incrustees masquees) a la fabrique d Elysium,
+  // platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0x656892f58458a6b769360a9f5476ef0f7a548d58 (GmOnChain,
+  // 2237 octets, runtime contenu dans le bin de contracts/build.json). La meme adresse est celle de l implementation de
+  // Somnia (5031) : meme deployeur, meme rang de transaction ; le chainId identifie la chaine.
+  flow: { address: "0x78a5c19e8957524cf669b20e9dc5ee28c67e6b1d", chainId: 747 },
 };
 
 export function getFactoryChainIds(): number[] {

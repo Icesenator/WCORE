@@ -48,6 +48,7 @@ const EXPLORERS: Record<string, string> = {
   somnia: "https://explorer.somnia.network",
   etherlink: "https://explorer.etherlink.com",
   arbitrum_nova: "https://nova.arbiscan.io",
+  flow: "https://evm.flowscan.io",
   ronin: "https://app.roninchain.com",
   opbnb: "https://opbnbscan.com",
   lisk: "https://blockscout.lisk.com",

@@ -282,7 +282,7 @@ export async function rebuildChainStreakFromOnchain(
   if (sortedDays.length > 0) {
     const existing = await prisma.userChainGm.findUnique({
       where: { userId_chainKey: { userId, chainKey: normalizedChainKey } },
-      select: { gmStreak: true, longestStreak: true },
+      select: { gmStreak: true, longestStreak: true, lastGmDate: true },
     });
     appliedCurrent = Math.max(current, existing?.gmStreak ?? 0);
     appliedLongest = Math.max(longest, existing?.longestStreak ?? 0);
@@ -294,14 +294,18 @@ export async function rebuildChainStreakFromOnchain(
         skipDuplicates: true,
       });
     } else {
-      // Ecritures en avant seulement (P1-GM-SERIE-SUIVIS-20261114, reserve de Codex sur le defaut 2) : cette
-      // reconstruction suit la transaction du POST, hors verrou. Lancee pour un GM tardif d'hier et terminee apres
-      // le GM du jour, elle ne doit pas ramener lastGmDate a hier (le bonus du jour redeviendrait eligible), ni
-      // abaisser une serie ou un record ecrits entre sa lecture et son ecriture.
-      if (lastGmDate) {
-        await prisma.userChainGm.updateMany({ where: { ...key, lastGmDate: { lt: lastGmDate } }, data: { lastGmDate } });
+      // P1-GM-SERIE-SUIVIS-20261114, reserves de Codex sur le defaut 2 : cette reconstruction suit la transaction
+      // du POST, hors verrou. Ses evenements decrivent la chaine jusqu'a lastGmDate ; une ligne plus recente (GM
+      // du jour credite, ou serie remise a 1 par un nouveau jour) fait foi. La date et la serie ne s'ecrivent donc
+      // que si la ligne n'a pas change depuis la lecture et n'est pas plus recente que les evenements : sinon une
+      // reconstruction de J-1 terminee apres le GM de J rouvrirait le bonus de J, ou retablirait une serie perimee.
+      // Le record ne baisse jamais : il ne s'ecrit que vers le haut.
+      if (lastGmDate && existing.lastGmDate.getTime() <= lastGmDate.getTime()) {
+        await prisma.userChainGm.updateMany({
+          where: { ...key, lastGmDate: existing.lastGmDate, gmStreak: existing.gmStreak },
+          data: { lastGmDate, gmStreak: appliedCurrent },
+        });
       }
-      await prisma.userChainGm.updateMany({ where: { ...key, gmStreak: { lt: appliedCurrent } }, data: { gmStreak: appliedCurrent } });
       await prisma.userChainGm.updateMany({ where: { ...key, longestStreak: { lt: appliedLongest } }, data: { longestStreak: appliedLongest } });
     }
   }

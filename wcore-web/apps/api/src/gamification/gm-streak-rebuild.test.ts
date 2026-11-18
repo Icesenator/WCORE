@@ -29,6 +29,8 @@ type MockState = {
   onchainGms: Map<string, { txHash: string; createdAt: Date }>;
   userChainGms: Map<string, { id: string; gmStreak: number; longestStreak: number; lastGmDate?: Date }>;
   createCalls: Array<{ txHash: string; chainKey: string }>;
+  /** Simule une ecriture concurrente entre la lecture de la ligne par la reconstruction et son ecriture. */
+  afterChainRead?: (key: string) => void;
 };
 
 function buildPrismaMock(state: MockState) {
@@ -74,7 +76,10 @@ function buildPrismaMock(state: MockState) {
     userChainGm: {
       findUnique: async (args: { where: { userId_chainKey: { userId: string; chainKey: string } }; select: { gmStreak: boolean; longestStreak: boolean } }) => {
         const k = `${args.where.userId_chainKey.userId}|${args.where.userId_chainKey.chainKey}`;
-        return state.userChainGms.get(k) ?? null;
+        const rec = state.userChainGms.get(k) ?? null;
+        const snapshot = rec ? { ...rec } : null;
+        state.afterChainRead?.(k);
+        return snapshot;
       },
       createMany: async (args: { data: Array<{ userId: string; chainKey: string; gmStreak: number; longestStreak: number; lastGmDate: Date }>; skipDuplicates: boolean }) => {
         const d = args.data[0]!;
@@ -88,11 +93,14 @@ function buildPrismaMock(state: MockState) {
         const k = `${args.where.userId}|${args.where.chainKey}`;
         const rec = state.userChainGms.get(k) as Record<string, unknown> | undefined;
         if (!rec) return { count: 0 };
+        const v = (x: unknown) => (x instanceof Date ? x.getTime() : x);
         for (const [field, cond] of Object.entries(args.where)) {
           if (field === "userId" || field === "chainKey") continue;
-          const lt = (cond as { lt: number | Date }).lt;
           const cur = rec[field] as number | Date | undefined;
-          if (cur === undefined || !(cur < lt)) return { count: 0 };
+          if (cur === undefined) return { count: 0 };
+          if (cond && typeof cond === "object" && !(cond instanceof Date) && "lt" in cond) {
+            if (!((v(cur) as number) < (v((cond as { lt: number | Date }).lt) as number))) return { count: 0 };
+          } else if (v(cur) !== v(cond)) return { count: 0 };
         }
         Object.assign(rec, args.data);
         return { count: 1 };
@@ -202,4 +210,50 @@ test("rebuildChainStreakFromOnchain never moves a chain row backwards (a GM reco
   assert.equal(row.lastGmDate!.getTime(), today + 9 * 3_600_000, "lastGmDate is not moved back to yesterday");
   assert.equal(row.gmStreak, 5);
   assert.equal(row.longestStreak, 9);
+});
+
+async function rebuildWith(state: MockState, eventTs: number) {
+  const restore = installFetchMock([makeGmLog({ txHash: "0xaa02", ts: eventTs })]);
+  try {
+    return await rebuildChainStreakFromOnchain(
+      { prisma: buildPrismaMock(state) as never, getChainRpcs: () => ["https://203.0.113.10"], GM_EVENT_SIG, rpcJson: async () => null },
+      "u1", USER, CHAIN,
+    );
+  } finally {
+    restore();
+  }
+}
+
+test("rebuildChainStreakFromOnchain does not restore a stale streak over a newer reset", async () => {
+  // Le POST de J a remis la serie a 1 (dernier GM avant-hier) ; la reconstruction ne voit qu'un evenement de J-1
+  // mais lit une serie stockee plus ancienne : la ligne, plus recente, fait foi.
+  const DAY = 86_400_000;
+  const today = Date.UTC(2026, 10, 18);
+  const state: MockState = {
+    contracts: new Map([[`${CHAIN}|${CONTRACT}`, { id: "c-1", contractAddress: CONTRACT }]]),
+    onchainGms: new Map(),
+    userChainGms: new Map([[`u1|${CHAIN}`, { id: "r1", gmStreak: 1, longestStreak: 5, lastGmDate: new Date(today + 8 * 3_600_000) }]]),
+    createCalls: [],
+  };
+  await rebuildWith(state, Math.floor((today - DAY + 3_600_000) / 1000));
+  const row = state.userChainGms.get(`u1|${CHAIN}`)!;
+  assert.equal(row.gmStreak, 1, "the reset streak is kept");
+  assert.equal(row.lastGmDate!.getTime(), today + 8 * 3_600_000);
+});
+
+test("rebuildChainStreakFromOnchain skips its streak write when the row changed after its read", async () => {
+  // Lecture : serie 5 terminee a J-2 ; entre la lecture et l'ecriture, le POST de J ecrit (J, serie 1).
+  const DAY = 86_400_000;
+  const today = Date.UTC(2026, 10, 18);
+  const state: MockState = {
+    contracts: new Map([[`${CHAIN}|${CONTRACT}`, { id: "c-1", contractAddress: CONTRACT }]]),
+    onchainGms: new Map(),
+    userChainGms: new Map([[`u1|${CHAIN}`, { id: "r1", gmStreak: 5, longestStreak: 5, lastGmDate: new Date(today - 2 * DAY + 3_600_000) }]]),
+    createCalls: [],
+    afterChainRead: (k) => { state.userChainGms.set(k, { id: "r1", gmStreak: 1, longestStreak: 5, lastGmDate: new Date(today + 9 * 3_600_000) }); },
+  };
+  await rebuildWith(state, Math.floor((today - DAY + 3_600_000) / 1000));
+  const row = state.userChainGms.get(`u1|${CHAIN}`)!;
+  assert.equal(row.gmStreak, 1, "the concurrent POST wins");
+  assert.equal(row.lastGmDate!.getTime(), today + 9 * 3_600_000);
 });

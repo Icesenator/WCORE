@@ -182,7 +182,7 @@ export async function registerGmOnchainRoutes(
         if (replay) throw new Error("tx_already_used");
         try {
           await tx.onchainGm.create({
-            data: { userId: req.user!.id, txHash, chainKey, contractId: gmContract.id, tipWei: gmTipWei ?? "0", ...(gmEventCreatedAt ? { createdAt: gmEventCreatedAt } : {}) },
+            data: { userId: req.user!.id, txHash, chainKey, contractId: gmContract.id, tipWei: gmTipWei ?? "0", ...(gmEventCreatedAt ? { createdAt: new Date(Math.min(gmEventCreatedAt.getTime(), now.getTime())) } : {}) },
           });
         } catch {
           throw new Error("tx_already_used");
@@ -288,10 +288,12 @@ export async function registerGmOnchainRoutes(
         // may have discovered prior GMs on other chains that should contribute
         // to the general streak (user.gmStreak / longestStreak / lastGmDate).
         // Without this, the general streak can diverge from on-chain reality.
-        const allGms = await prisma.onchainGm.findMany({
+        // Rows dated in the future (stored before the on-chain timestamp was capped) are left out: their latest
+        // date would become lastGmDate, and every general GM until that date would be refused as already done.
+        const allGms = (await prisma.onchainGm.findMany({
           where: { userId: req.user!.id },
           select: { createdAt: true },
-        });
+        })).filter((g) => g.createdAt.getTime() <= Date.now());
         if (allGms.length > 0) {
           const DAY_MS = 86_400_000;
           const dayMsSet = new Set<number>(allGms.map((g) => {

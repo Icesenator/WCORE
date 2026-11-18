@@ -90,3 +90,53 @@ test("the UTC day boundary decides: 23:30 UTC yesterday is yesterday, 00:30 UTC 
   });
   assert.equal(r.gmStreak, 8);
 });
+
+// P1-GM-SERIE-SUIVIS-20261114, defaut 3 : serie stockee arretee avant hier, continuite prouvee par les GM en chaine.
+test("a stored streak ending two days ago continues when an on-chain GM proves yesterday (10 + J-1 = 11)", () => {
+  const r = mergeGeneralStreak({
+    computedStreak: 1, computedLongest: 1, latestEventMs: at(-1).getTime(),
+    stored: { gmStreak: 10, longestStreak: 10, lastGmDate: at(-2) }, now: NOW,
+  });
+  assert.equal(r.gmStreak, 11);
+  assert.equal(r.longestStreak, 11);
+  assert.equal(r.lastGmDate!.getTime(), at(-1).getTime());
+});
+
+test("J-1 and J proven on-chain after a stored streak ending at J-2: 10 + 2 = 12", () => {
+  const r = mergeGeneralStreak({
+    computedStreak: 2, computedLongest: 2, latestEventMs: at(0).getTime(),
+    stored: { gmStreak: 10, longestStreak: 10, lastGmDate: at(-2) }, now: NOW,
+  });
+  assert.equal(r.gmStreak, 12);
+});
+
+test("a missing day is never filled: stored J-2 and an on-chain GM at J only give 1", () => {
+  const r = mergeGeneralStreak({
+    computedStreak: 1, computedLongest: 1, latestEventMs: at(0).getTime(),
+    stored: { gmStreak: 10, longestStreak: 10, lastGmDate: at(-2) }, now: NOW,
+  });
+  assert.equal(r.gmStreak, 1);
+  assert.equal(r.longestStreak, 10);
+});
+
+test("an on-chain run overlapping the stored end does not count a day twice", () => {
+  // Serie stockee de 10 finissant a J-2 ; la suite en chaine couvre J-3, J-2 et J-1 (3 jours).
+  const r = mergeGeneralStreak({
+    computedStreak: 3, computedLongest: 3, latestEventMs: at(-1).getTime(),
+    stored: { gmStreak: 10, longestStreak: 10, lastGmDate: at(-2) }, now: NOW,
+  });
+  assert.equal(r.gmStreak, 11);
+});
+
+test("the extension is idempotent: a second recomputation keeps 11", () => {
+  const first = mergeGeneralStreak({
+    computedStreak: 1, computedLongest: 1, latestEventMs: at(-1).getTime(),
+    stored: { gmStreak: 10, longestStreak: 10, lastGmDate: at(-2) }, now: NOW,
+  });
+  const second = mergeGeneralStreak({
+    computedStreak: 1, computedLongest: 1, latestEventMs: at(-1).getTime(),
+    stored: { gmStreak: first.gmStreak, longestStreak: first.longestStreak, lastGmDate: first.lastGmDate }, now: NOW,
+  });
+  assert.equal(second.gmStreak, 11);
+  assert.equal(second.changed, false);
+});

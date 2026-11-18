@@ -141,6 +141,7 @@ export async function rebuildChainStreakFromOnchain(
   // UPPERCASE chainKeys to avoid case-sensitive duplicates.
   const normalizedChainKey = canonicalChainKey(chainKey);
   const { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson } = deps;
+  const nowSec = Math.floor(Date.now() / 1000);
   const rpcs = getChainRpcs(normalizedChainKey);
   const userAddr = address.toLowerCase();
   const paddedUser = "0x000000000000000000000000" + userAddr.slice(2);
@@ -199,7 +200,9 @@ export async function rebuildChainStreakFromOnchain(
     if (!contractId) continue;
     if (existingTxHashes.has(txHash)) continue;
     const tsHex = log.data.slice(0, 66);
-    const ts = parseInt(tsHex, 16);
+    // Horodatage en chaine plafonne a maintenant (P1-GM-SERIE-SUIVIS-20261114, defaut 3) : un evenement date du
+    // futur (derive d'horloge d'un validateur) serait stocke dans le futur et compte comme un jour a venir.
+    const ts = Math.min(parseInt(tsHex, 16), nowSec);
     if (ts > 0) tsByTxHash.set(txHash, ts);
     const tipHex = "0x" + (log.data || "0x0").slice(-64);
     let tipWei = "0";
@@ -228,6 +231,9 @@ export async function rebuildChainStreakFromOnchain(
   for (const row of dbRows) {
     const txHash = row.txHash.toLowerCase();
     const chainTs = tsByTxHash.get(txHash);
+    // Une ancienne ligne encore datee du futur (avant le plafond) n'a pas de date effective connue : elle est
+    // ecartee du calcul, sinon elle compterait comme « aujourd'hui » a chaque nouveau jour de recalcul.
+    if (chainTs === undefined && row.createdAt.getTime() > nowSec * 1000) continue;
     const ts = chainTs ?? Math.floor(row.createdAt.getTime() / 1000);
     if (ts > latestTsSec) latestTsSec = ts;
     events.push({

@@ -15,6 +15,7 @@ export interface GmHelpersDeps {
 // GmFactory.getAllContracts() selector (keccak256 of the signature, first 4 bytes).
 const GET_ALL_CONTRACTS = "0x18d3ce96";
 const CREATOR_CHECK_CONCURRENCY = 8;
+const LIST_RPC_FANOUT = 3;
 // Above this the list is not a WCORE factory as deployed today; use the older paths.
 const MAX_LISTED_CONTRACTS = 500;
 
@@ -39,6 +40,10 @@ export function decodeAddressArray(result: unknown): string[] | null {
     out.push(("0x" + w.slice(24)).toLowerCase());
   }
   return out;
+}
+
+function uniqueAddresses(addrs: string[]): string[] {
+  return [...new Map(addrs.map((a) => [a.toLowerCase(), a] as const)).values()];
 }
 
 export function createGmHelpers(deps: GmHelpersDeps) {
@@ -94,8 +99,11 @@ export function createGmHelpers(deps: GmHelpersDeps) {
       // older paths below cost up to 50 sequential eth_getLogs plus 50 sequential
       // contracts(i) calls (each reverting index retried on every RPC), which is what
       // held /api/gm/has-deployed at 30 s on chains where the user had no contract yet.
-      const listData = await rpcFetch(rpcs, { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: factory.address, data: GET_ALL_CONTRACTS }, "latest"] }) as { result?: string };
-      const all = decodeAddressArray(listData.result);
+      // The list is append-only: read it from up to LIST_RPC_FANOUT endpoints at once and
+      // keep the union, so a lagging primary node cannot hide a contract a backup knows.
+      const lists = await Promise.all(rpcs.slice(0, LIST_RPC_FANOUT).map(async (rpc) =>
+        decodeAddressArray((await rpcFetch([rpc], { jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: factory.address, data: GET_ALL_CONTRACTS }, "latest"] }) as { result?: string }).result)));
+      const all = lists.some((l) => l !== null) ? [...new Set(lists.flatMap((l) => l ?? []))] : null;
       if (all) {
         const me = userAddress.toLowerCase();
         let complete = true;
@@ -109,10 +117,9 @@ export function createGmHelpers(deps: GmHelpersDeps) {
             if (("0x" + c.result.slice(26)).toLowerCase() === me) found.push(batch[j]!);
           });
         }
-        // A contract proven to be the user's is a safe positive even from a partial list.
-        // An unreadable creator() could be the user's own contract, so a partial list
-        // never yields a definitive "none": fall back to the older paths instead.
-        if (complete || found.length > 0) return found;
+        // An unreadable creator() could be the user's own contract, so a partial list is
+        // never final: keep what it proved and let the older paths add the rest.
+        if (complete) return found;
       }
 
       // Method 1: eth_getLogs (fast, works on nodes with full archive)
@@ -169,8 +176,9 @@ export function createGmHelpers(deps: GmHelpersDeps) {
           }
         }
       }
-      return found;
-    } catch (e) { console.error("fetchOnChainContracts RPC error:", (e as Error).message || String(e)); return found; }
+      // A partial fast path may already hold what the older paths find again.
+      return uniqueAddresses(found);
+    } catch (e) { console.error("fetchOnChainContracts RPC error:", (e as Error).message || String(e)); return uniqueAddresses(found); }
   }
 
   // TTL map to avoid re-syncing on-chain contracts on every request (5 min cooldown per user)

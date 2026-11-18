@@ -167,15 +167,18 @@ const C2 = "0x2222222222222222222222222222222222222222";
 const word = (hex: string) => hex.replace(/^0x/, "").padStart(64, "0");
 const encodeAddresses = (addrs: string[]) => "0x" + word("20") + word(addrs.length.toString(16)) + addrs.map(word).join("");
 
-function fastPathDeps(opts: { list: unknown; creators: Record<string, string | undefined> }) {
-  const deps = makeDeps();
+function fastPathDeps(opts: { list: unknown; creators: Record<string, string | undefined>; rpcs?: string[]; listByRpc?: Record<string, unknown> }) {
+  const deps = makeDeps(opts.rpcs ? { getChainRpcs: () => opts.rpcs } : {});
   const calls = (deps as unknown as { _calls: Array<{ method: string; params: unknown }> })._calls;
   const base = deps.rpcFetch;
   deps.rpcFetch = (async (rpcs: string[], body: { method: string; params?: Array<{ to: string; data: string }> }) => {
     if (body.method === "eth_call") {
       calls.push({ method: body.method, params: body.params });
       const { to, data } = body.params![0]!;
-      if (data === "0x18d3ce96") return opts.list === undefined ? {} : { result: opts.list };
+      if (data === "0x18d3ce96") {
+        const list = opts.listByRpc && rpcs.length === 1 && rpcs[0]! in opts.listByRpc ? opts.listByRpc[rpcs[0]!] : opts.list;
+        return list === undefined ? {} : { result: list };
+      }
       if (data === "0x02d05d3f") {
         const creator = opts.creators[to.toLowerCase()];
         return creator === undefined ? {} : { result: "0x" + word(creator) };
@@ -234,9 +237,20 @@ test("a malformed creator() word is unreadable, not a read: falls back to the lo
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "dirty high bytes must not count as a creator");
 });
 
-test("a proven own contract is returned even when another creator() is unreadable", async () => {
+test("a proven own contract is kept and the older paths still run when another creator() is unreadable", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C2]: USER } });
   const { fetchOnChainContracts } = createGmHelpers(deps);
   assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C2]);
-  assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0);
+  assert.ok(calls.some((c) => c.method === "eth_getLogs"), "a second own contract may hide behind the unreadable one");
+});
+
+test("a lagging primary RPC serving an empty list cannot hide a contract a backup RPC lists", async () => {
+  const { deps } = fastPathDeps({
+    list: undefined,
+    rpcs: ["https://203.0.113.10", "https://203.0.113.11"],
+    listByRpc: { "https://203.0.113.10": encodeAddresses([]), "https://203.0.113.11": encodeAddresses([C1]) },
+    creators: { [C1]: USER },
+  });
+  const { fetchOnChainContracts } = createGmHelpers(deps);
+  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C1]);
 });

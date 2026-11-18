@@ -205,10 +205,14 @@ async function checkStreakBadges(tx: Omit<PrismaClient, "$connect" | "$disconnec
     if (!badgeKey) continue;
     const badge = await tx.badge.findUnique({ where: { key: badgeKey } });
     if (!badge) continue;
-    // ON CONFLICT DO NOTHING, never a caught create: this runs inside the POST /api/gm/onchain transaction,
-    // and under Postgres a failed statement (unique violation on a badge already earned) aborts the whole
-    // transaction (25P02): from the 8th day of a streak, every on-chain GM of the user failed with a 500.
-    await tx.userBadge.createMany({ data: [{ userId, badgeId: badge.id }], skipDuplicates: true });
+    // ON CONFLICT DO NOTHING rather than a create that fails on a badge already earned: inside the
+    // POST /api/gm/onchain transaction, under Postgres, a failed statement aborts the whole transaction (25P02),
+    // so from the 8th day of a streak every on-chain GM of the user failed with a 500. The catch is kept for the
+    // free GM, which calls this outside any transaction after recording the day: another failure stays non-fatal
+    // there, as before. Inside the transaction such a failure still aborts it, which keeps the GM atomic.
+    try {
+      await tx.userBadge.createMany({ data: [{ userId, badgeId: badge.id }], skipDuplicates: true });
+    } catch (e) { console.error("checkStreakBadges DB error:", (e as Error).message || String(e)); }
   }
 }
 

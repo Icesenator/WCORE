@@ -216,7 +216,8 @@ describe("GM API regressions", () => {
       });
       await prisma.userBadge.create({ data: { userId: userBadgeOwner.id, badgeId: badge.id } });
       await prisma.gmContract.create({ data: { chainKey: "base", contractAddress: CONTRACT_BADGE, ownerId: userBadgeOwner.id, creatorAddress: ADDR_BADGE } });
-      const eventSec = BigInt(Math.floor((Date.now() - 60_000) / 1000));
+      // Never before UTC midnight: right after midnight the GM would fall on the previous day and skip the badge branch.
+      const eventSec = BigInt(Math.floor(Math.max(Date.now() - 60_000, today + 1_000) / 1000));
       globalThis.fetch = async () => jsonResponse({
         result: {
           from: ADDR_BADGE,

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { useSentinelAlerts, useSentinelChains, useSentinelHealth } from "@/lib/use-sentinel";
 import {
-  codeLabel, deadlineLabel, formatCountdown, formatDeadlineAt, formatDeadlineCountdown, nextDeadline, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel,
+  codeLabel, deadlineLabel, formatDeadlineAt, formatDeadlineCountdown, nextDeadline, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel,
   type SentinelAlertView, type SentinelChainView, type SentinelLang, type SentinelText,
 } from "@/lib/sentinel-view";
 

@@ -39,13 +39,15 @@ export function formatDeadlineAt(at: string, approximate: boolean | null | undef
 
 /**
  * Compte a rebours d'une echeance. Approximative : « ≈ » avant le jour annonce ; pendant les deux jours
- * qui suivent son debut, ni « depassee » ni heure (la hauteur de bloc effective n'est pas connue).
+ * qui suivent son debut, ni « depassee » ni heure (la hauteur de bloc effective n'est pas connue) ;
+ * ensuite un retard en jours seulement, jamais a l'heure pres.
  */
 export function formatDeadlineCountdown(ms: number | null, approximate: boolean | null | undefined, lang: SentinelLang = "fr"): string {
   if (!approximate || ms === null || !Number.isFinite(ms)) return formatCountdown(ms, lang);
   if (ms > 0) return `≈ ${formatCountdown(ms, lang)}`;
   if (ms > -2 * DAY) return lang === "en" ? "expected around now (exact time not published)" : "attendu ces jours-ci (heure exacte non publiée)";
-  return formatCountdown(ms, lang);
+  const days = Math.floor(-ms / DAY);
+  return lang === "en" ? `announced day passed (about ${days} d ago)` : `jour annoncé passé (il y a environ ${days} j)`;
 }
 
 /** Compte a rebours lisible ; une echeance passee l'indique explicitement. Francais par defaut. */

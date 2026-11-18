@@ -31,7 +31,10 @@ test("an approximate deadline is never shown as overdue on the announced days", 
   assert.match(formatDeadlineCountdown(5 * 24 * H, true, "en"), /^≈ in 5 d/);
   assert.equal(formatDeadlineCountdown(-1 * H, true, "en"), "expected around now (exact time not published)");
   assert.equal(formatDeadlineCountdown(-30 * H, true, "fr"), "attendu ces jours-ci (heure exacte non publiée)");
-  assert.match(formatDeadlineCountdown(-3 * 24 * H, true, "en"), /^overdue by/);
+  // After the two announced days: a delay in days only, never to the hour.
+  assert.equal(formatDeadlineCountdown(-(3 * 24 + 5) * H, true, "en"), "announced day passed (about 3 d ago)");
+  assert.equal(formatDeadlineCountdown(-(3 * 24 + 5) * H, true, "fr"), "jour annoncé passé (il y a environ 3 j)");
+  assert.doesNotMatch(formatDeadlineCountdown(-(3 * 24 + 5) * H, true, "en"), / h\b/);
 });
 
 test("a precise deadline keeps the usual countdown", () => {

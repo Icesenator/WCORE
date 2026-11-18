@@ -188,7 +188,7 @@ export async function registerGmContractsRoutes(
     // wallet RPC (which already confirmed the tx before this POST). Retry with
     // backoff — same spirit as /api/gm/onchain verification — instead of
     // failing the registration on the first miss. Uniform for every chain.
-    // Any receipt returned by any RPC settles the attempt at once (no wait for the slowest RPC);
+    // The first receipt in RPC priority order settles the attempt at once (no wait for the slowest RPC);
     // the first retry comes after 1.5 s instead of 3 s (1.5, 3, 4.5, 6 s ≈ 15 s in total).
     for (let attempt = 0; attempt < 5; attempt++) {
       const { accepted } = await firstAccepted(rpcs.map(fetchReceipt), () => true);

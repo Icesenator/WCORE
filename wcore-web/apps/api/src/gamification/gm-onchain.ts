@@ -104,8 +104,10 @@ export async function registerGmOnchainRoutes(
     let receipt: { from: string; to: string; logs: Array<{ address: string; topics: string[]; data: string }>; status: string } | null | undefined;
     // B3 and some newer chains have slow receipt indexing. Retry up to 10 times
     // with progressive backoff (0s, 1.5s, 4s, 6.5s, 9s, 11.5s, 14s, 16.5s, 19s, 21.5s ≈ 2 min
-    // in total, as before). Each attempt settles at the FIRST successful receipt from any
-    // RPC instead of waiting for the slowest one (up to 8 s each).
+    // in total, as before). Each attempt keeps the PRIORITY order of the RPC list (rpcs[0] is the
+    // most trusted): it settles with the first successful receipt in that order, so a fast
+    // secondary RPC can never override a slower primary one, while a fast primary settles it
+    // without waiting for the slowest RPC (up to 8 s each).
     for (let attempt = 0; attempt < 10; attempt++) {
       const { accepted, settled } = await firstAccepted(fetchReceipts(), (r) => r.status === "0x1");
       receipt = accepted ?? settled.find((r) => r != null);

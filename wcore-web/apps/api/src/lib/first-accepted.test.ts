@@ -8,22 +8,29 @@ const later = <T>(ms: number, value: T | Error | null) => (signal: AbortSignal):
     signal.addEventListener("abort", () => { clearTimeout(timer); resolve(null); }, { once: true });
   });
 
-test("settles at the first accepted result without waiting for a slow endpoint, and aborts it", async () => {
+test("a fast primary endpoint settles the lookup without waiting for a slow secondary one, which is aborted", async () => {
   let slowAborted = false;
   const slow = (signal: AbortSignal) => new Promise<string | null>((resolve) => {
     const timer = setTimeout(() => resolve("slow"), 2000);
     signal.addEventListener("abort", () => { slowAborted = true; clearTimeout(timer); resolve(null); }, { once: true });
   });
   const t0 = Date.now();
-  const r = await firstAccepted<string>([slow, later(20, "fast")], (v) => v === "fast");
-  assert.equal(r.accepted, "fast");
+  const r = await firstAccepted<string>([later(20, "primary"), slow], (v) => v === "primary");
+  assert.equal(r.accepted, "primary");
   assert.ok(Date.now() - t0 < 500, "did not wait for the slow endpoint");
   assert.equal(slowAborted, true);
 });
 
-test("an unaccepted fast result does not settle: it waits for an accepted one", async () => {
-  const r = await firstAccepted<string>([later(5, "pending-receipt"), later(40, "ok")], (v) => v === "ok");
-  assert.equal(r.accepted, "ok");
+test("a fast SECONDARY endpoint cannot override a slower higher-priority one (no race to a forged receipt)", async () => {
+  const r = await firstAccepted<string>([later(80, "honest-primary"), later(5, "forged-secondary")], () => true);
+  assert.equal(r.accepted, "honest-primary", "priority order wins, as with a sequential read");
+});
+
+test("a higher-priority endpoint that returns nothing or a rejected value lets the next accepted one answer", async () => {
+  const r1 = await firstAccepted<string>([later<string>(5, null), later(10, "second")], (v) => v === "second");
+  assert.equal(r1.accepted, "second");
+  const r2 = await firstAccepted<string>([later(5, "not-final"), later(10, "final")], (v) => v === "final");
+  assert.equal(r2.accepted, "final");
 });
 
 test("when nothing is accepted it waits for all tasks and returns every settled value", async () => {

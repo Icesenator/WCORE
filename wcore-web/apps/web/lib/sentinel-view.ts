@@ -17,7 +17,7 @@ export interface SentinelChainView {
 }
 export interface SentinelAlertView {
   id?: string; chainKey: string; chainId: number; code: string; severity: SentinelSeverity;
-  actionByMs: number | null; countdownMs: number | null; deadlineKind: string | null; conflict: boolean;
+  actionByMs: number | null; countdownMs: number | null; deadlineKind: string | null; deadlineApproximate?: boolean | null; conflict: boolean;
   officialSourceUrls: string[]; exposure: string; acknowledged?: boolean;
 }
 export interface SentinelChainsResponse { version: number; generatedAt: string; chains: SentinelChainView[]; alerts: SentinelAlertView[] }
@@ -35,6 +35,17 @@ export type SentinelLang = "fr" | "en";
 export function formatDeadlineAt(at: string, approximate: boolean | null | undefined, lang: SentinelLang = "fr"): string {
   if (approximate) return lang === "en" ? `around ${at.slice(0, 10)} (time not announced)` : `vers le ${at.slice(0, 10)} (heure non annoncée)`;
   return `${at.slice(0, 16).replace("T", " ")} UTC`;
+}
+
+/**
+ * Compte a rebours d'une echeance. Approximative : « ≈ » avant le jour annonce ; pendant les deux jours
+ * qui suivent son debut, ni « depassee » ni heure (la hauteur de bloc effective n'est pas connue).
+ */
+export function formatDeadlineCountdown(ms: number | null, approximate: boolean | null | undefined, lang: SentinelLang = "fr"): string {
+  if (!approximate || ms === null || !Number.isFinite(ms)) return formatCountdown(ms, lang);
+  if (ms > 0) return `≈ ${formatCountdown(ms, lang)}`;
+  if (ms > -2 * DAY) return lang === "en" ? "expected around now (exact time not published)" : "attendu ces jours-ci (heure exacte non publiée)";
+  return formatCountdown(ms, lang);
 }
 
 /** Compte a rebours lisible ; une echeance passee l'indique explicitement. Francais par defaut. */

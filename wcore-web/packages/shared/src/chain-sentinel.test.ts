@@ -108,6 +108,8 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     const a = evaluateChain(r, pos("ZETA"), NOW)!;
     expect(a.code).toBe("ACTION_REQUIRED_BEFORE_DEADLINE");
     expect(a.deadlineKind).toBe("NETWORK_SHUTDOWN");
+    // L'alerte porte elle-meme l'indication : le bandeau n'a pas besoin de la fiche publique pour cacher l'heure.
+    expect(a.deadlineApproximate).toBe(true);
     expect(a.actionByMs).toBe(Date.parse("2026-12-09T00:00:00Z"));
     expect(a.officialSourceUrls).toEqual(["https://www.zetachain.com/blog/zeta-moves-to-solana-dec-9"]);
     // Apres l'arret, la reclamation n'est qu'annoncee : jamais presentee comme ouverte.
@@ -123,6 +125,7 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     const a = evaluateChain(r, pos("NEON"), NOW)!;
     expect(a.code).toBe("ACTION_REQUIRED_BEFORE_DEADLINE");
     expect(a.deadlineKind).toBe("WITHDRAW_LAST");
+    expect(a.deadlineApproximate).toBe(false);
     expect(a.actionByMs).toBe(Date.parse("2026-12-31T00:00:00Z"));
     expect(a.officialSourceUrls).toEqual(["https://neonevm.org/"]);
   });

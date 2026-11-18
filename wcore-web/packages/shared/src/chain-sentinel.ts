@@ -288,6 +288,8 @@ export interface BindingDeadline {
   officialSourceUrls: string[];
   /** Au moins une source officielle soutient cette echeance. */
   verified: boolean;
+  /** L'echeance retenue n'est annoncee qu'a un jour approximatif, sans heure (DeadlineFact.approximate). */
+  approximate: boolean;
 }
 
 const DAY_MS = 86400000;
@@ -334,6 +336,7 @@ export function bindingDeadline(rec: ChainLifecycleRecord, exposures: readonly E
       conflict: officialTimes.size > 1,
       officialSourceUrls: Array.from(new Set(facts.flatMap((f) => factOfficialUrls(rec, f)))),
       verified: officialFacts.length > 0,
+      approximate: facts.some((f) => f.approximate === true && Date.parse(f.at) === earliest),
     });
   }
   if (!candidates.length) return null;
@@ -370,6 +373,8 @@ export interface SentinelAlert {
   actionByMs: number | null;
   countdownMs: number | null;
   deadlineKind: DeadlineKind | null;
+  /** true : actionByMs vient d'une echeance annoncee sans heure ; l'interface n'affiche que le jour. */
+  deadlineApproximate?: boolean;
   conflict: boolean;
   officialSourceUrls: string[];
   exposure: ExposureState;
@@ -391,6 +396,7 @@ export function evaluateChain(rec: ChainLifecycleRecord, exposures: readonly Exp
     chainKey: rec.chainKey,
     chainId: rec.chainId,
     deadlineKind: bd ? bd.kind : null,
+    deadlineApproximate: bd ? bd.approximate : false,
     conflict: bd ? bd.conflict : false,
     officialSourceUrls: bd ? bd.officialSourceUrls : [],
     exposure,
@@ -410,7 +416,7 @@ export function evaluateChain(rec: ChainLifecycleRecord, exposures: readonly Exp
       const a = mk("RECOVERY_WINDOW_OPEN", "P0");
       if (claim) {
         const urls = factOfficialUrls(rec, claim.f);
-        return { ...a, id: alertId(rec.chainKey, "RECOVERY_WINDOW_OPEN", claim.t), actionByMs: claim.t, countdownMs: claim.t - nowMs, deadlineKind: "CLAIM_END", officialSourceUrls: urls.length ? urls : a.officialSourceUrls };
+        return { ...a, id: alertId(rec.chainKey, "RECOVERY_WINDOW_OPEN", claim.t), actionByMs: claim.t, countdownMs: claim.t - nowMs, deadlineKind: "CLAIM_END", deadlineApproximate: claim.f.approximate === true, officialSourceUrls: urls.length ? urls : a.officialSourceUrls };
       }
       return a;
     }

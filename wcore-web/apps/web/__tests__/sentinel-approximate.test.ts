@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { VERIFIED_LIFECYCLE_REGISTRY } from "@wcore/shared";
-import { formatDeadlineAt } from "../lib/sentinel-view";
+import { formatDeadlineAt, formatDeadlineCountdown } from "../lib/sentinel-view";
 
 // Signal WCORE CM du 18/11 : la fiche ZetaChain affichait « 2026-12-09 00:00 UTC » alors que le blog
 // officiel n'annonce qu'un arret « around Dec 9 », sans heure. L'heure interne (debut de journee UTC,
@@ -23,4 +23,18 @@ test("ZetaChain: a single approximate shutdown deadline, no misleading last-with
   assert.ok(zeta);
   assert.deepEqual(zeta.deadlines.map((d) => d.kind), ["NETWORK_SHUTDOWN"]);
   assert.ok(zeta.deadlines.every((d) => d.approximate === true));
+});
+
+const H = 3600000;
+
+test("an approximate deadline is never shown as overdue on the announced days", () => {
+  assert.match(formatDeadlineCountdown(5 * 24 * H, true, "en"), /^≈ in 5 d/);
+  assert.equal(formatDeadlineCountdown(-1 * H, true, "en"), "expected around now (exact time not published)");
+  assert.equal(formatDeadlineCountdown(-30 * H, true, "fr"), "attendu ces jours-ci (heure exacte non publiée)");
+  assert.match(formatDeadlineCountdown(-3 * 24 * H, true, "en"), /^overdue by/);
+});
+
+test("a precise deadline keeps the usual countdown", () => {
+  assert.match(formatDeadlineCountdown(-1 * H, false, "en"), /^overdue by/);
+  assert.match(formatDeadlineCountdown(2 * H, undefined, "fr"), /^dans 2 h/);
 });

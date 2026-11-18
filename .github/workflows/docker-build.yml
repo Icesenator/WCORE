@@ -9,18 +9,15 @@ name: Docker images
 
 on:
   pull_request:
+    # Tout ce que les Dockerfile copient (tsconfig.base.json, start-production.sh, sources...) peut
+    # casser une image : wcore-web entier, hors documentation, plus wcore-gsheet/dist (@wcore/chains).
+    # ci-build-context.test.mjs verifie que chaque source COPY des deux Dockerfile est couverte.
     paths:
-      - 'wcore-web/**/package.json'
-      - 'wcore-web/pnpm-lock.yaml'
-      - 'wcore-web/pnpm-workspace.yaml'
-      - 'wcore-web/.npmrc'
-      - 'wcore-web/apps/*/Dockerfile*'
-      - 'wcore-web/railway/**'
-      - 'wcore-web/scripts/railway-deploy.mjs'
-      - 'wcore-web/scripts/ci-build-context.mjs'
+      - 'wcore-web/**'
+      - '!wcore-web/docs/**'
+      - '!wcore-web/**/*.md'
       - 'wcore-gsheet/dist/**'
       - '.dockerignore'
-      - 'wcore-web/.dockerignore'
       - '.github/workflows/docker-build.yml'
   # Apres chaque fusion, quel que soit le fichier : le signal arrive avant le deploiement.
   push:
@@ -42,7 +39,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, web]
+        include:
+          - service: api
+            build_args: ''
+          # Railway passe les variables du service comme arguments de build : le Dockerfile web
+          # declare NEXT_PUBLIC_API_URL, que Next.js integre au bundle. Valeur de meme forme (URL
+          # https publique) pour ne pas compiler avec une chaine vide ; elle n'est ni lue ni deployee.
+          - service: web
+            build_args: '--build-arg NEXT_PUBLIC_API_URL=https://api.example.com'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -56,4 +60,4 @@ jobs:
           echo "dockerfile=$(sed -n 's/^DOCKERFILE=//p' "$RUNNER_TEMP/ctx.out")" >> "$GITHUB_OUTPUT"
 
       - name: docker build (no push)
-        run: docker build --progress=plain -f "$RUNNER_TEMP/ctx/${{ steps.ctx.outputs.dockerfile }}" -t "wcore-ci-${{ matrix.service }}" "$RUNNER_TEMP/ctx"
+        run: docker build --progress=plain ${{ matrix.build_args }} -f "$RUNNER_TEMP/ctx/${{ steps.ctx.outputs.dockerfile }}" -t "wcore-ci-${{ matrix.service }}" "$RUNNER_TEMP/ctx"

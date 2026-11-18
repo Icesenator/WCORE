@@ -61,6 +61,8 @@ scripts/*
 !scripts/railway-deploy.mjs
 !scripts/railway-deploy.test.mjs
 !scripts/railway-trust-proxy-attestation.test.mjs
+!scripts/ci-build-context.mjs
+!scripts/ci-build-context.test.mjs
 !scripts/verify-deployment.mjs
 !scripts/verify-deployment.test.mjs
 !scripts/render-public-svg.mjs

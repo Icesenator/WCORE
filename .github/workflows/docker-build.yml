@@ -1,0 +1,59 @@
+name: Docker images
+
+# P1-REL-CI-DOCKER-BUILD : aucun job ne construisait les images api et web. Le 13/11, l'image
+# API ne se construisait plus (COPY packages/db/node_modules) et rien ne le signalait avant le
+# deploiement. Ce workflow construit les deux images comme Railway : meme Dockerfile
+# (wcore-web/railway/<service>.json), meme contexte (commit exporte, fichiers generes, liste
+# .railwayignore appliquee, par ci-build-context.mjs). Aucun secret, aucun acces a Railway,
+# aucune image poussee.
+
+on:
+  pull_request:
+    paths:
+      - 'wcore-web/**/package.json'
+      - 'wcore-web/pnpm-lock.yaml'
+      - 'wcore-web/pnpm-workspace.yaml'
+      - 'wcore-web/.npmrc'
+      - 'wcore-web/apps/*/Dockerfile*'
+      - 'wcore-web/railway/**'
+      - 'wcore-web/scripts/railway-deploy.mjs'
+      - 'wcore-web/scripts/ci-build-context.mjs'
+      - 'wcore-gsheet/dist/**'
+      - '.dockerignore'
+      - 'wcore-web/.dockerignore'
+      - '.github/workflows/docker-build.yml'
+  # Apres chaque fusion, quel que soit le fichier : le signal arrive avant le deploiement.
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: image (${{ matrix.service }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, web]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Railway upload context
+        id: ctx
+        run: |
+          node wcore-web/scripts/ci-build-context.mjs --service "${{ matrix.service }}" --out "$RUNNER_TEMP/ctx" | tee "$RUNNER_TEMP/ctx.out"
+          echo "dockerfile=$(sed -n 's/^DOCKERFILE=//p' "$RUNNER_TEMP/ctx.out")" >> "$GITHUB_OUTPUT"
+
+      - name: docker build (no push)
+        run: docker build --progress=plain -f "$RUNNER_TEMP/ctx/${{ steps.ctx.outputs.dockerfile }}" -t "wcore-ci-${{ matrix.service }}" "$RUNNER_TEMP/ctx"

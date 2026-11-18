@@ -230,6 +230,26 @@ describe("GM API regressions", () => {
       assert.ok(gm && gm.createdAt.getTime() <= Date.now(), "createdAt is capped at now");
       const fresh = await prisma.user.findUnique({ where: { id: userFut.id } });
       assert.ok(fresh?.lastGmDate && fresh.lastGmDate.getTime() <= Date.now(), "lastGmDate is not moved into the future");
+
+      // A timestamp only slightly ahead (chain clock drift, within the margin) keeps its own exact time.
+      const driftSec = BigInt(Math.floor(Date.now() / 1000) + 60);
+      globalThis.fetch = async () => jsonResponse({
+        result: {
+          from: ADDR_FUT,
+          to: CONTRACT_FUT,
+          status: "0x1",
+          logs: [{ address: CONTRACT_FUT, topics: [GM_EVENT_SIG, topicAddress(ADDR_FUT)], data: gmEventData(driftSec, 1n, 1n) }],
+        },
+      });
+      const drift = await app.inject({
+        method: "POST",
+        url: "/api/gm/onchain",
+        headers: { authorization: `Bearer ${token(userFut.id, ADDR_FUT)}`, "x-forwarded-for": "198.51.100.82" },
+        payload: { chainKey: "base", contractAddress: CONTRACT_FUT, txHash: "0x0c82" },
+      });
+      assert.equal(drift.statusCode, 200, drift.payload);
+      const driftRow = await prisma.onchainGm.findFirst({ where: { userId: userFut.id, txHash: "0x0c82" } });
+      assert.equal(driftRow?.createdAt.getTime(), Number(driftSec) * 1000, "a GM 60 s ahead keeps its own date");
     } finally {
       await prisma.onchainGm.deleteMany({ where: { userId: userFut.id } });
       await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_FUT } });

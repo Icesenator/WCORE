@@ -131,6 +131,10 @@ async function fetchAllUserGmLogs(
 // Rebuild per-chain GM streak from on-chain truth. Merges chain events with
 // existing DB rows (the just-inserted tx may not yet be visible to eth_getLogs;
 // the DB row carries us through that window).
+// How far ahead of our clock an on-chain GM timestamp may be and still be its own date (chain clock drift).
+// Shared with POST /api/gm/onchain so both paths give a GM the same fixed date.
+export const GM_CLOCK_MARGIN_MS = 10 * 60_000;
+
 export async function rebuildChainStreakFromOnchain(
   deps: RebuildDeps,
   userId: string,
@@ -141,12 +145,9 @@ export async function rebuildChainStreakFromOnchain(
   // UPPERCASE chainKeys to avoid case-sensitive duplicates.
   const normalizedChainKey = canonicalChainKey(chainKey);
   const { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson } = deps;
-  // Time is read when each timestamp is used, never once at the start: a rebuild that starts before UTC
-  // midnight and reads a log written after it must not move that GM back to the previous day.
+  // Time is read when each timestamp is used, never once at the start.
   const nowSecNow = () => Math.floor(Date.now() / 1000);
-  // A row is "in the future" only beyond this margin (DB clock, POST of the same second); within it, it counts
-  // as now, so it can never record tomorrow as the last GM day.
-  const FUTURE_MARGIN_SEC = 10 * 60;
+  const FUTURE_MARGIN_SEC = Math.floor(GM_CLOCK_MARGIN_MS / 1000);
   const rpcs = getChainRpcs(normalizedChainKey);
   const userAddr = address.toLowerCase();
   const paddedUser = "0x000000000000000000000000" + userAddr.slice(2);
@@ -211,10 +212,13 @@ export async function rebuildChainStreakFromOnchain(
     // futur (derive d'horloge d'un validateur) serait stocke dans le futur et compte comme un jour a venir.
     const rawTs = parseInt(tsHex, 16);
     const nowSec = nowSecNow();
-    const ts = Math.min(rawTs, nowSec);
-    // Fallback date for an old future row: only a log date that is not itself in the future (beyond the margin);
-    // a capped future log date would move to a new day at every rebuild until its raw date.
-    if (ts > 0 && rawTs <= nowSec + FUTURE_MARGIN_SEC) logTsByTxHash.set(txHash, ts);
+    // Same rule as the POST: a log at most the clock margin ahead keeps its own time (never moved back to the
+    // previous day around UTC midnight); further ahead it is no usable date and is stored as the insert time,
+    // which then never changes.
+    const usable = rawTs > 0 && rawTs <= nowSec + FUTURE_MARGIN_SEC;
+    const ts = usable ? rawTs : nowSec;
+    // Fallback date for an old future row: only a usable log date (a capped one would move every rebuild).
+    if (usable) logTsByTxHash.set(txHash, rawTs);
     if (existingTxHashes.has(txHash)) continue;
     if (ts > 0) tsByTxHash.set(txHash, ts);
     const tipHex = "0x" + (log.data || "0x0").slice(-64);
@@ -245,16 +249,15 @@ export async function rebuildChainStreakFromOnchain(
     const txHash = row.txHash.toLowerCase();
     let chainTs = tsByTxHash.get(txHash);
     const rowSec = Math.floor(row.createdAt.getTime() / 1000);
-    const nowSec = nowSecNow();
-    if (chainTs === undefined && rowSec > nowSec + FUTURE_MARGIN_SEC) {
+    if (chainTs === undefined && rowSec > nowSecNow() + FUTURE_MARGIN_SEC) {
       // Ancienne ligne encore datee du futur (stockee avant le plafond) : date du journal en chaine si elle est
       // connue ; sinon aucune date effective, elle est ecartee (elle compterait comme « aujourd'hui » a chaque
       // nouveau jour de recalcul).
       chainTs = logTsByTxHash.get(txHash);
       if (chainTs === undefined) continue;
     }
-    // Within the margin, a row slightly ahead counts as now (never as a later day).
-    const ts = chainTs ?? Math.min(rowSec, nowSec);
+    // Every other row keeps its own fixed date: never re-capped, so one GM is never counted on two days.
+    const ts = chainTs ?? rowSec;
     if (ts > latestTsSec) latestTsSec = ts;
     events.push({
       ts,

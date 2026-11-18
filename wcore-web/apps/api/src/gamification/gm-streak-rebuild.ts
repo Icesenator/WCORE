@@ -141,7 +141,11 @@ export async function rebuildChainStreakFromOnchain(
   // UPPERCASE chainKeys to avoid case-sensitive duplicates.
   const normalizedChainKey = canonicalChainKey(chainKey);
   const { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson } = deps;
-  const nowSec = Math.floor(Date.now() / 1000);
+  const nowMs = Date.now();
+  const nowSec = Math.floor(nowMs / 1000);
+  // A row is "in the future" only beyond this margin: createdAt may come from the DB clock or from a POST of
+  // the same second, and a GM recorded just now must never be taken for a future one.
+  const FUTURE_MARGIN_MS = 10 * 60_000;
   const rpcs = getChainRpcs(normalizedChainKey);
   const userAddr = address.toLowerCase();
   const paddedUser = "0x000000000000000000000000" + userAddr.slice(2);
@@ -191,6 +195,9 @@ export async function rebuildChainStreakFromOnchain(
   // Track which txHashes were newly inserted so the caller can apply score
   // deltas only for newly-counted GMs.
   const tsByTxHash = new Map<string, number>();
+  // Chain timestamp of every log, also for rows already in the DB: the fallback date of an old row still dated
+  // in the future (stored before the cap), instead of dropping it.
+  const logTsByTxHash = new Map<string, number>();
   const insertedTxHashes = new Set<string>();
   let insertedOnchainGms = 0;
   for (const log of logs) {
@@ -198,11 +205,12 @@ export async function rebuildChainStreakFromOnchain(
     const contractAddress = log.address.toLowerCase();
     const contractId = contractIdByAddress.get(contractAddress);
     if (!contractId) continue;
-    if (existingTxHashes.has(txHash)) continue;
     const tsHex = log.data.slice(0, 66);
     // Horodatage en chaine plafonne a maintenant (P1-GM-SERIE-SUIVIS-20261114, defaut 3) : un evenement date du
     // futur (derive d'horloge d'un validateur) serait stocke dans le futur et compte comme un jour a venir.
     const ts = Math.min(parseInt(tsHex, 16), nowSec);
+    if (ts > 0) logTsByTxHash.set(txHash, ts);
+    if (existingTxHashes.has(txHash)) continue;
     if (ts > 0) tsByTxHash.set(txHash, ts);
     const tipHex = "0x" + (log.data || "0x0").slice(-64);
     let tipWei = "0";
@@ -230,10 +238,14 @@ export async function rebuildChainStreakFromOnchain(
   let latestTsSec = 0;
   for (const row of dbRows) {
     const txHash = row.txHash.toLowerCase();
-    const chainTs = tsByTxHash.get(txHash);
-    // Une ancienne ligne encore datee du futur (avant le plafond) n'a pas de date effective connue : elle est
-    // ecartee du calcul, sinon elle compterait comme « aujourd'hui » a chaque nouveau jour de recalcul.
-    if (chainTs === undefined && row.createdAt.getTime() > nowSec * 1000) continue;
+    let chainTs = tsByTxHash.get(txHash);
+    if (chainTs === undefined && row.createdAt.getTime() > nowMs + FUTURE_MARGIN_MS) {
+      // Ancienne ligne encore datee du futur (stockee avant le plafond) : date du journal en chaine si elle est
+      // connue ; sinon aucune date effective, elle est ecartee (elle compterait comme « aujourd'hui » a chaque
+      // nouveau jour de recalcul).
+      chainTs = logTsByTxHash.get(txHash);
+      if (chainTs === undefined) continue;
+    }
     const ts = chainTs ?? Math.floor(row.createdAt.getTime() / 1000);
     if (ts > latestTsSec) latestTsSec = ts;
     events.push({

@@ -294,3 +294,38 @@ test("an old row still dated in the future is left out of the computation (defec
   assert.equal(result.currentStreak, 0, "a row with no known effective date is not counted as today");
   assert.equal(state.userChainGms.size, 0, "nothing written from it");
 });
+
+test("a GM recorded just now (same second, DB clock slightly ahead) is never taken for a future one", async () => {
+  const state: MockState = {
+    contracts: new Map([[`${CHAIN}|${CONTRACT}`, { id: "c-1", contractAddress: CONTRACT }]]),
+    onchainGms: new Map([["0xnow1", { txHash: "0xnow1", createdAt: new Date(Date.now() + 900) }]]),
+    userChainGms: new Map(),
+    createCalls: [],
+  };
+  const restore = installFetchMock([]);
+  let result;
+  try {
+    result = await rebuildChainStreakFromOnchain(
+      { prisma: buildPrismaMock(state) as never, getChainRpcs: () => ["https://203.0.113.10"], GM_EVENT_SIG, rpcJson: async () => null },
+      "u1", USER, CHAIN,
+    );
+  } finally {
+    restore();
+  }
+  assert.equal(result.currentStreak, 1, "today's GM counts");
+  assert.ok(state.userChainGms.get(`u1|${CHAIN}`), "the chain row is written");
+});
+
+test("an old row dated in the future takes the date of its on-chain log when the log is known", async () => {
+  const DAY = 86_400_000;
+  const yesterdayTs = Math.floor((Date.now() - DAY) / 1000);
+  const state: MockState = {
+    contracts: new Map([[`${CHAIN}|${CONTRACT}`, { id: "c-1", contractAddress: CONTRACT }]]),
+    onchainGms: new Map([["0xaa02", { txHash: "0xaa02", createdAt: new Date(Date.now() + 3 * DAY) }]]),
+    userChainGms: new Map(),
+    createCalls: [],
+  };
+  const result = await rebuildWith(state, yesterdayTs);
+  assert.equal(result.currentStreak, 1, "counted on the log's day (yesterday), not dropped");
+  assert.equal(state.userChainGms.get(`u1|${CHAIN}`)!.lastGmDate!.getTime(), yesterdayTs * 1000);
+});

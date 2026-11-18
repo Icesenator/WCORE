@@ -207,7 +207,9 @@ describe("GM API regressions", () => {
     await prisma.user.deleteMany({ where: { address: ADDR_FUT } });
     const userFut = await prisma.user.create({ data: { address: ADDR_FUT } });
     try {
-      await prisma.gmContract.create({ data: { chainKey: "base", contractAddress: CONTRACT_FUT, ownerId: userFut.id, creatorAddress: ADDR_FUT } });
+      const futContract = await prisma.gmContract.create({ data: { chainKey: "base", contractAddress: CONTRACT_FUT, ownerId: userFut.id, creatorAddress: ADDR_FUT } });
+      // Ancienne ligne encore datee du futur (avant le plafond) : la reconciliation generale doit l'ecarter.
+      await prisma.onchainGm.create({ data: { userId: userFut.id, txHash: "0x0c80", chainKey: "BASE", contractId: futContract.id, tipWei: "0", createdAt: new Date(Date.now() + 3 * 86_400_000) } });
       const futureSec = BigInt(Math.floor(Date.now() / 1000) + 2 * 86_400);
       globalThis.fetch = async () => jsonResponse({
         result: {

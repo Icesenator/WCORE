@@ -7,7 +7,7 @@ import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
 import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
-import { applyMergedStreak, claimGeneralDailyGmWithRetry, mergeGeneralStreak } from "./gm-streak-merge.js";
+import { applyMergedStreak, claimChainDailyGmWithRetry, claimGeneralDailyGmWithRetry, mergeGeneralStreak } from "./gm-streak-merge.js";
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const statusOnchainCache = createTtlCache<boolean>(STATUS_ONCHAIN_CACHE_TTL_MS);
@@ -217,48 +217,12 @@ export async function registerGmOnchainRoutes(
         if (general.claimed) await checkStreakBadges(tx, user.id, generalStreak);
 
         // --- Per-chain GM tracking ---
-        const chainGm = await tx.userChainGm.findUnique({
-          where: { userId_chainKey: { userId: user.id, chainKey } },
-        });
-
-        let chainStreak = chainGm?.gmStreak ?? 0;
-        let chainLongest = chainGm?.longestStreak ?? 0;
-        let chainScoreGain = 0;
-        let alreadyChainGm = false;
-
-        if (chainGm && chainGm.lastGmDate) {
-          const lastChainDay = startOfUtcDay(new Date(chainGm.lastGmDate));
-          if (lastChainDay.getTime() >= today.getTime()) {
-            alreadyChainGm = true;
-          } else {
-            const yesterday = new Date(today);
-            yesterday.setDate(yesterday.getDate() - 1);
-            if (lastChainDay.getTime() >= yesterday.getTime()) {
-              chainStreak = chainGm.gmStreak + 1;
-            } else {
-              chainStreak = 1;
-            }
-            chainLongest = Math.max(chainStreak, chainGm.longestStreak);
-            chainScoreGain = 5 + (chainStreak > 1 ? chainStreak : 0);
-          }
-        } else {
-          chainStreak = 1;
-          chainLongest = 1;
-          chainScoreGain = 5;
-        }
-
-        if (!alreadyChainGm && chainStreak > 0) {
-          const data = {
-            lastGmDate: now,
-            gmStreak: chainStreak,
-            longestStreak: chainLongest,
-          };
-          if (chainGm) {
-            await tx.userChainGm.update({ where: { id: chainGm.id }, data });
-          } else {
-            await tx.userChainGm.create({ data: { userId: user.id, chainKey, ...data } });
-          }
-        }
+        // Same scoring day and UTC rules as the general claim, compare-and-set write (see gm-streak-merge.ts).
+        const chain = await claimChainDailyGmWithRetry({ tx, userId: user.id, chainKey, scoringDay, gmDate });
+        const chainStreak = chain.chainStreak;
+        const chainLongest = chain.chainLongest;
+        const chainScoreGain = chain.scoreGain;
+        const alreadyChainGm = chain.alreadyChainGm;
 
         if (chainScoreGain > 0) {
           scoreGain += chainScoreGain;

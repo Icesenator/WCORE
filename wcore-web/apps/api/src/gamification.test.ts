@@ -243,6 +243,55 @@ describe("GM API regressions", () => {
     }
   });
 
+  // P1-GM-SERIE-SUIVIS-20261114, defaut 2 : la serie par chaine suit le jour du GM, pas celui de la reception.
+  test("POST /api/gm/onchain: a late GM from yesterday does not take the place of today's chain GM", async () => {
+    const CONTRACT_E = "0x2000000000000000000000000000000000000005";
+    await prisma.gmContract.upsert({
+      where: { chainKey_contractAddress: { chainKey: "base", contractAddress: CONTRACT_E } },
+      update: { ownerId: userB.id, creatorAddress: ADDR_B },
+      create: { chainKey: "base", contractAddress: CONTRACT_E, ownerId: userB.id, creatorAddress: ADDR_B },
+    });
+    const today = startOfUtcDay(new Date()).getTime();
+    // Etat connu : serie generale et serie BASE de 3 jours, dernier GM avant-hier.
+    await prisma.user.update({ where: { id: userB.id }, data: { gmStreak: 3, longestStreak: 3, lastGmDate: new Date(today - 2 * 86_400_000 + 3_600_000) } });
+    await prisma.userChainGm.upsert({
+      where: { userId_chainKey: { userId: userB.id, chainKey: "BASE" } },
+      update: { lastGmDate: new Date(today - 2 * 86_400_000 + 3_600_000), gmStreak: 3, longestStreak: 3 },
+      create: { userId: userB.id, chainKey: "BASE", lastGmDate: new Date(today - 2 * 86_400_000 + 3_600_000), gmStreak: 3, longestStreak: 3 },
+    });
+    const post = async (txHash: string, eventMs: number, ip: string) => {
+      globalThis.fetch = async () => jsonResponse({
+        result: {
+          from: ADDR_B,
+          to: CONTRACT_E,
+          status: "0x1",
+          logs: [{ address: CONTRACT_E, topics: [GM_EVENT_SIG, topicAddress(ADDR_B)], data: gmEventData(BigInt(Math.floor(eventMs / 1000)), 1n, 1n) }],
+        },
+      });
+      return app.inject({
+        method: "POST",
+        url: "/api/gm/onchain",
+        headers: { authorization: `Bearer ${token(userB.id, ADDR_B)}`, "x-forwarded-for": ip },
+        payload: { chainKey: "base", contractAddress: CONTRACT_E, txHash },
+      });
+    };
+
+    const lateMs = today - 2 * 3_600_000; // hier, 22:00 UTC
+    const late = await post("0x0c51", lateMs, "198.51.100.31");
+    assert.equal(late.statusCode, 200);
+    // Jour d'hier, consecutif a avant-hier : general 20 + 2 x 4, chaine 5 + 4. L'ancien code comparait la chaine
+    // au jour de reception, remettait la serie de chaine a 1 et ne creditait que 5.
+    assert.equal((JSON.parse(late.payload) as { scoreGain: number }).scoreGain, 28 + 9);
+    const afterLate = await prisma.userChainGm.findUnique({ where: { userId_chainKey: { userId: userB.id, chainKey: "BASE" } } });
+    assert.equal(afterLate?.lastGmDate?.toISOString(), new Date(Math.floor(lateMs / 1000) * 1000).toISOString(), "the GM's own date is stored");
+
+    const nowMs = Date.now() - 60_000;
+    const todayGm = await post("0x0c52", nowMs, "198.51.100.32");
+    assert.equal(todayGm.statusCode, 200);
+    const body = JSON.parse(todayGm.payload) as { alreadyChainGm: boolean };
+    assert.equal(body.alreadyChainGm, false, "today's chain GM is still credited");
+  });
+
   test("POST /api/gm/onchain rejects a GM tx the user did not send (receipt.from mismatch)", async () => {
     await prisma.gmContract.upsert({
       where: { chainKey_contractAddress: { chainKey: "base", contractAddress: CONTRACT_B } },

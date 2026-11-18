@@ -155,6 +155,70 @@ export async function claimGeneralDailyGmWithRetry<U extends { id: string } & St
   throw new Error("gm_conflict");
 }
 
+// Serie par chaine d'un GM en chaine (P1-GM-SERIE-SUIVIS-20261114, defaut 2). Avant : comparaison au jour de
+// reception (un GM d'hier soumis aujourd'hui prenait la place du GM du jour), veille calculee en heure locale du
+// serveur (setDate), date ecrite = maintenant, et lecture puis ecriture sans garde (deux transactions concurrentes
+// sur la meme chaine creditaient deux fois le meme jour). Ici : jour de scoring, veille en UTC strict, date
+// ecrite = date du GM, ecriture conditionnee a l'etat lu ; sur perte, relecture (3 tours), puis gm_conflict.
+export interface ChainGmRow {
+  id: string;
+  gmStreak: number;
+  longestStreak: number;
+  lastGmDate: Date | null;
+}
+
+type ChainClaimTx = {
+  userChainGm: {
+    findUnique(a: { where: { userId_chainKey: { userId: string; chainKey: string } } }): Promise<ChainGmRow | null>;
+    updateMany(a: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<{ count: number }>;
+    createMany(a: {
+      data: Array<{ userId: string; chainKey: string; lastGmDate: Date; gmStreak: number; longestStreak: number }>;
+      skipDuplicates: boolean;
+    }): Promise<{ count: number }>;
+  };
+};
+
+export function computeChainDay(row: ChainGmRow | null, scoringDay: Date): { already: boolean; streak: number; longest: number; gain: number } {
+  const scoringMs = utcDayStartMs(scoringDay);
+  if (row?.lastGmDate) {
+    const lastMs = utcDayStartMs(row.lastGmDate);
+    if (lastMs >= scoringMs) return { already: true, streak: row.gmStreak, longest: row.longestStreak, gain: 0 };
+    const streak = lastMs >= scoringMs - DAY_MS ? row.gmStreak + 1 : 1;
+    return { already: false, streak, longest: Math.max(streak, row.longestStreak), gain: 5 + (streak > 1 ? streak : 0) };
+  }
+  // Premiere fois sur cette chaine (ou ligne sans date) : le record existant n'est jamais abaisse.
+  return { already: false, streak: 1, longest: Math.max(1, row?.longestStreak ?? 0), gain: 5 };
+}
+
+export async function claimChainDailyGmWithRetry(args: {
+  tx: ChainClaimTx;
+  userId: string;
+  chainKey: string;
+  scoringDay: Date;
+  gmDate: Date;
+  maxTries?: number;
+}): Promise<{ claimed: boolean; alreadyChainGm: boolean; chainStreak: number; chainLongest: number; scoreGain: number }> {
+  const { tx, userId, chainKey, scoringDay, gmDate } = args;
+  const maxTries = args.maxTries ?? 3;
+  for (let attempt = 0; attempt < maxTries; attempt++) {
+    const row = await tx.userChainGm.findUnique({ where: { userId_chainKey: { userId, chainKey } } });
+    const day = computeChainDay(row, scoringDay);
+    if (day.already) return { claimed: false, alreadyChainGm: true, chainStreak: day.streak, chainLongest: day.longest, scoreGain: 0 };
+    const data = { lastGmDate: gmDate, gmStreak: day.streak, longestStreak: day.longest };
+    // Postgres : une ecriture concurrente sur la meme ligne attend la fin de l'autre transaction, puis ne
+    // s'applique plus (etat change) ; une creation concurrente bute sur l'unique (userId, chainKey) sans
+    // annuler la transaction (ON CONFLICT DO NOTHING). Dans les deux cas, count = 0 et la relecture decide.
+    const written = row
+      ? await tx.userChainGm.updateMany({
+        where: { id: row.id, gmStreak: row.gmStreak, longestStreak: row.longestStreak, lastGmDate: row.lastGmDate },
+        data,
+      })
+      : await tx.userChainGm.createMany({ data: [{ userId, chainKey, ...data }], skipDuplicates: true });
+    if (written.count === 1) return { claimed: true, alreadyChainGm: false, chainStreak: day.streak, chainLongest: day.longest, scoreGain: day.gain };
+  }
+  throw new Error("gm_conflict");
+}
+
 // Ecriture par comparaison atomique : lecture de l'etat du compte, fusion, puis updateMany conditionne a
 // l'etat lu (gmStreak et lastGmDate). Si un GM gratuit concurrent a ecrit entre la lecture et l'ecriture,
 // l'ecriture ne s'applique pas et la fusion est recalculee sur l'etat frais (au plus maxTries tours).

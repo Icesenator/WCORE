@@ -50,7 +50,8 @@ describe("chain icon manifest", () => {
     assert.match(svg, /<path/i, "the official vector logo is present");
     assert.doesNotMatch(svg, /<script|<foreignObject|\son[a-z]+=|href=|data:|@import/i, "no active content or external reference");
     for (const m of svg.matchAll(/url\(\s*['"]?([^)'"\s]*)/gi)) {
-      assert.ok(m[1].startsWith("#"), `url(${m[1]}) must point to an internal fragment`);
+      const ref = m[1] ?? "";
+      assert.ok(ref.startsWith("#"), `url(${ref}) must point to an internal fragment`);
     }
   });
 

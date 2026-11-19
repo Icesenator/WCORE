@@ -9,6 +9,7 @@ import { usePreferences } from "./PreferencesProvider";
 import { detectScam, isAdminBlocked, isAdminApproved } from "./scam-detector";
 import { buildScamEntry, removeScamOverride, writeScamOverride } from "@/lib/scam-overrides";
 import { isCexSyntheticContract } from "@/lib/cex-display";
+import { submitTokenReport } from "@/lib/token-report";
 
 type AugmentedTokenAsset = TokenAsset & {
   _isScam?: boolean;
@@ -47,7 +48,7 @@ function formatBalance(value: number): string {
   }).format(value);
 }
 
-export function TokenTable({ native, tokens, chainKey, connectedAddress }: TokenTableProps) {
+export function TokenTable({ native, tokens, chainKey }: TokenTableProps) {
   const { formatValue, t } = usePreferences();
   const [expanded, setExpanded] = useState(false);
   const [sortCol, setSortCol] = useState<SortColumn>("value");
@@ -120,16 +121,15 @@ export function TokenTable({ native, tokens, chainKey, connectedAddress }: Token
 
   const handleReport = async (asset: TokenAsset, isCurrentlyScam: boolean) => {
     setReportingToken(asset.contract);
-    const API_URL = getApiUrl();
-    const PLATFORM_OWNER = "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
-    const storedAddr = window.localStorage.getItem("wcore_address")?.toLowerCase() ?? "";
-    const isAdmin = (connectedAddress?.toLowerCase() || storedAddr) === PLATFORM_OWNER;
-
     try {
-      if (isAdmin) {
-        // Admin: apply locally first (instant), then sync to backend.
-        // Use the shared write helpers so the local entry shape stays in sync
-        // with the contract-aware read path consumed by ChainCard.
+      // The API decides whether this session is admin (see lib/token-report.ts).
+      const outcome = await submitTokenReport(
+        { apiUrl: getApiUrl(), chainKey, symbol: asset.symbol, name: asset.name, contract: asset.contract, isCurrentlyScam },
+        apiFetch,
+      );
+      if (outcome === "admin") {
+        // Mirror the override locally with the shared write helpers so the entry
+        // shape stays in sync with the contract-aware read path of ChainCard.
         const entry = buildScamEntry(asset.symbol, asset.contract);
         if (isCurrentlyScam) {
           writeScamOverride("approved", entry);
@@ -139,29 +139,8 @@ export function TokenTable({ native, tokens, chainKey, connectedAddress }: Token
           removeScamOverride("approved", entry);
         }
         setOverrideVersion(v => v + 1);
-        setReportDone(asset.contract);
-        const action = isCurrentlyScam ? "approve" : "block";
-        apiFetch(`${API_URL}/api/admin/scam-override`, {
-          method: "POST",
-          body: JSON.stringify({ symbol: asset.symbol, action, contract: asset.contract !== "native" ? asset.contract : undefined }),
-        }).catch(() => {});
-      } else {
-        const res = await apiFetch(`${API_URL}/api/tickets`, {
-          method: "POST",
-          body: JSON.stringify({
-            title: isCurrentlyScam ? `Token report: ${asset.symbol} is LEGIT` : `Token report: ${asset.symbol} is SCAM`,
-            description: [
-              `Chain: ${chainKey}`,
-              `Contract: ${asset.contract}`,
-              `Symbol: ${asset.symbol}`,
-              `Name: ${asset.name}`,
-              `Current scam status: ${isCurrentlyScam ? "flagged as scam" : "clean"}`,
-            ].join("\n"),
-            type: "bug",
-          }),
-        });
-        if (res.ok) setReportDone(asset.contract);
       }
+      if (outcome !== "failed") setReportDone(asset.contract);
     } catch { /* report best-effort */ }
     setReportingToken(null);
   };

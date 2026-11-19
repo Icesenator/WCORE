@@ -200,6 +200,9 @@ const _BLOCKED_CONTRACTS = new Set([
   // ronde, quelques euros). Une règle générale sur la quantité ronde a été écartée : un achat
   // réel peut tomber sur une quantité ronde.
   "0x79a4eac490afad2b6e0296431ae2f7e30a3571af", // Elysium: $HYS "Hypesium", cashtag non sollicité
+  // 2026-11-19 — signalé par le propriétaire (3 tickets « Token report: WHSPR is SCAM », statut « clean ») ; GoPlus :
+  // ni honeypot ni taxe, 71 détenteurs, liquidité quasi nulle (jeton envoyé sans demande, non échangeable).
+  "0x25de2124333f13d47ccdcdffb373e7ab5874f41b", // BASE: WHSPR "Whispr", dust non sollicité
 ]);
 
 const _TRUSTED_DEFI_CONTRACTS = new Set([

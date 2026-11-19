@@ -48,7 +48,10 @@ describe("chain icon manifest", () => {
     const svg = fs.readFileSync(path.join(process.cwd(), "public", src.replace(/^\//, "")), "utf8");
     assert.doesNotMatch(svg, /<text/i, "the generic text placeholder is gone");
     assert.match(svg, /<path/i, "the official vector logo is present");
-    assert.doesNotMatch(svg, /<script|<foreignObject|\son[a-z]+=|href=|data:/i, "no active content or external reference");
+    assert.doesNotMatch(svg, /<script|<foreignObject|\son[a-z]+=|href=|data:|@import/i, "no active content or external reference");
+    for (const m of svg.matchAll(/url\(\s*['"]?([^)'"\s]*)/gi)) {
+      assert.ok(m[1].startsWith("#"), `url(${m[1]}) must point to an internal fragment`);
+    }
   });
 
   test("every local manifest entry points to an existing, non-empty file", () => {

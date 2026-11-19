@@ -40,7 +40,7 @@ describe("DBK Chain GM onboarding", () => {
     assert.equal(chain.nativeCurrency.symbol, "ETH");
     assert.deepEqual(chain.rpcUrls.default.http, ["https://rpc.mainnet.dbkchain.io"]);
     // The transport actually wired for 20240603 (reserve of Codex): an HTTP client on the DBK RPC.
-    const client = config.getClient({ chainId: 20240603 as never });
+    const client = config.getClient({ chainId: 20240603 });
     assert.equal(client.chain?.id, 20240603);
     const transport = client.transport as { type?: string; url?: string };
     assert.equal(transport.type, "http");

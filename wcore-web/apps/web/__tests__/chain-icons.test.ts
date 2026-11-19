@@ -42,6 +42,15 @@ describe("chain icon manifest", () => {
     );
   });
 
+  test("DBK Chain uses its official logo, without script or external reference", () => {
+    const src = (manifest as Record<string, string>).DBK_CHAIN;
+    assert.equal(src, "/chains/DBK_CHAIN.svg");
+    const svg = fs.readFileSync(path.join(process.cwd(), "public", src.replace(/^\//, "")), "utf8");
+    assert.doesNotMatch(svg, /<text/i, "the generic text placeholder is gone");
+    assert.match(svg, /<path/i, "the official vector logo is present");
+    assert.doesNotMatch(svg, /<script|<foreignObject|\son[a-z]+=|href=|data:/i, "no active content or external reference");
+  });
+
   test("every local manifest entry points to an existing, non-empty file", () => {
     const entries = Object.entries(manifest as Record<string, string>).filter(([, src]) => src.startsWith("/"));
     assert.ok(entries.length > 150, `expected the manifest to be broadly populated, got ${entries.length} local entries`);

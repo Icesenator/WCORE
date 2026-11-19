@@ -9,8 +9,11 @@
  * - Session administrateur : POST /api/admin/scam-override. Si l'API le refuse
  *   (401/403, par exemple une adresse administrateur configuree autrement cote
  *   API), on retombe sur un ticket ; une autre erreur ne cree rien.
- * - Autre session, ou pas de session : un ticket, sans jamais solliciter la route
- *   administrateur (pas de 401 attendu, pas de renouvellement de session inutile).
+ * - Autre session : un ticket, sans jamais solliciter la route administrateur
+ *   (pas de 401 attendu, pas de renouvellement de session inutile).
+ * - Session non confirmee (pas de session, 429, 5xx, reponse illisible) : rien.
+ * L'adresse administrateur du web est le defaut de l'API (ADMIN_WALLET_ADDRESS
+ * n'est pas definie en production, verifie le 19/11/2026).
  */
 export type TokenReportOutcome = "admin" | "ticket" | "failed";
 
@@ -57,7 +60,10 @@ async function createTicket(input: TokenReportInput, fetcher: FetchLike): Promis
 
 export async function submitTokenReport(input: TokenReportInput, fetcher: FetchLike, adminAddress: string): Promise<TokenReportOutcome> {
   const session = await sessionAddress(input.apiUrl, fetcher);
-  if (session && session === adminAddress.toLowerCase()) {
+  // No confirmed session (401, 429, 5xx, unreadable answer): write nothing, so a
+  // valid admin session that hit a transient error never turns into a ticket.
+  if (!session) return "failed";
+  if (session === adminAddress.toLowerCase()) {
     const res = await fetcher(`${input.apiUrl}/api/admin/scam-override`, {
       method: "POST",
       body: JSON.stringify({

@@ -33,10 +33,13 @@ describe("submitTokenReport", () => {
     assert.equal((f.calls[1]?.body as { title: string }).title, "Token report: WHSPR is LEGIT");
   });
 
-  test("no session still files the ticket (the API decides whether it accepts it)", async () => {
-    const f = fakeFetch({ "/api/auth/me": { status: 401 }, "/api/tickets": { status: 401 } });
-    assert.equal(await submitTokenReport(base, f.fetcher, ADMIN), "failed");
-    assert.deepEqual(f.paths(), ["GET /api/auth/me", "POST /api/tickets"]);
+  test("an unconfirmed session (401, 429, 5xx, unreadable) writes nothing", async () => {
+    const cases: Route[] = [{ status: 401 }, { status: 429 }, { status: 503 }, { status: 200, body: { nope: 1 } }];
+    for (const me of cases) {
+      const f = fakeFetch({ "/api/auth/me": me, "/api/tickets": { status: 201 }, "/api/admin/scam-override": { status: 200 } });
+      assert.equal(await submitTokenReport(base, f.fetcher, ADMIN), "failed");
+      assert.deepEqual(f.paths(), ["GET /api/auth/me"]);
+    }
   });
 
   test("an admin session refused by the API (401) falls back to one ticket", async () => {

@@ -11,6 +11,9 @@ import { buildScamEntry, removeScamOverride, writeScamOverride } from "@/lib/sca
 import { isCexSyntheticContract } from "@/lib/cex-display";
 import { submitTokenReport } from "@/lib/token-report";
 
+// Admin wallet (same default as ADMIN_WALLET_ADDRESS in apps/api/src/admin-auth.ts).
+const PLATFORM_OWNER = "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
+
 type AugmentedTokenAsset = TokenAsset & {
   _isScam?: boolean;
   _hasIssue?: boolean;
@@ -122,10 +125,11 @@ export function TokenTable({ native, tokens, chainKey }: TokenTableProps) {
   const handleReport = async (asset: TokenAsset, isCurrentlyScam: boolean) => {
     setReportingToken(asset.contract);
     try {
-      // The API decides whether this session is admin (see lib/token-report.ts).
+      // The session identity comes from the API, not the extension (see lib/token-report.ts).
       const outcome = await submitTokenReport(
         { apiUrl: getApiUrl(), chainKey, symbol: asset.symbol, name: asset.name, contract: asset.contract, isCurrentlyScam },
         apiFetch,
+        PLATFORM_OWNER,
       );
       if (outcome === "admin") {
         // Mirror the override locally with the shared write helpers so the entry

@@ -1,12 +1,16 @@
 /**
  * Signalement d'un jeton (scam ou legitime) depuis la table des jetons.
  *
- * C'est l'API qui decide si la session est administrateur : la route
- * /api/admin/scam-override est tentee d'abord. Si elle repond 2xx, l'override est
- * applique ; si elle refuse (401/403), un ticket de support est cree a la place.
- * L'ancienne verification cote navigateur comparait l'adresse du portefeuille
- * connecte a l'adresse administrateur : quand l'extension etait sur un autre
- * compte que la session, l'administrateur creait des tickets au lieu d'agir.
+ * L'identite de reference est celle de la SESSION, renvoyee par l'API
+ * (/api/auth/me), et non le compte actif de l'extension : quand l'extension etait
+ * sur un autre compte que la session, l'administrateur creait des tickets au lieu
+ * d'appliquer l'override (tickets WHSPR du 19/11).
+ *
+ * - Session administrateur : POST /api/admin/scam-override. Si l'API le refuse
+ *   (401/403, par exemple une adresse administrateur configuree autrement cote
+ *   API), on retombe sur un ticket ; une autre erreur ne cree rien.
+ * - Autre session, ou pas de session : un ticket, sans jamais solliciter la route
+ *   administrateur (pas de 401 attendu, pas de renouvellement de session inutile).
  */
 export type TokenReportOutcome = "admin" | "ticket" | "failed";
 
@@ -19,18 +23,22 @@ export interface TokenReportInput {
   isCurrentlyScam: boolean;
 }
 
-type FetchLike = (url: string, init: { method: string; body: string }) => Promise<{ ok: boolean; status: number }>;
+interface ResponseLike { ok: boolean; status: number; json(): Promise<unknown> }
+type FetchLike = (url: string, init?: { method?: string; body?: string }) => Promise<ResponseLike>;
 
-export async function submitTokenReport(input: TokenReportInput, fetcher: FetchLike): Promise<TokenReportOutcome> {
-  const action = input.isCurrentlyScam ? "approve" : "block";
-  const admin = await fetcher(`${input.apiUrl}/api/admin/scam-override`, {
-    method: "POST",
-    body: JSON.stringify({ symbol: input.symbol, action, contract: input.contract !== "native" ? input.contract : undefined }),
-  });
-  if (admin.ok) return "admin";
-  if (admin.status !== 401 && admin.status !== 403) return "failed";
+async function sessionAddress(apiUrl: string, fetcher: FetchLike): Promise<string | null> {
+  try {
+    const res = await fetcher(`${apiUrl}/api/auth/me`);
+    if (!res.ok) return null;
+    const data = await res.json() as { address?: unknown };
+    return typeof data.address === "string" ? data.address.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
 
-  const ticket = await fetcher(`${input.apiUrl}/api/tickets`, {
+async function createTicket(input: TokenReportInput, fetcher: FetchLike): Promise<TokenReportOutcome> {
+  const res = await fetcher(`${input.apiUrl}/api/tickets`, {
     method: "POST",
     body: JSON.stringify({
       title: input.isCurrentlyScam ? `Token report: ${input.symbol} is LEGIT` : `Token report: ${input.symbol} is SCAM`,
@@ -44,5 +52,22 @@ export async function submitTokenReport(input: TokenReportInput, fetcher: FetchL
       type: "bug",
     }),
   });
-  return ticket.ok ? "ticket" : "failed";
+  return res.ok ? "ticket" : "failed";
+}
+
+export async function submitTokenReport(input: TokenReportInput, fetcher: FetchLike, adminAddress: string): Promise<TokenReportOutcome> {
+  const session = await sessionAddress(input.apiUrl, fetcher);
+  if (session && session === adminAddress.toLowerCase()) {
+    const res = await fetcher(`${input.apiUrl}/api/admin/scam-override`, {
+      method: "POST",
+      body: JSON.stringify({
+        symbol: input.symbol,
+        action: input.isCurrentlyScam ? "approve" : "block",
+        contract: input.contract !== "native" ? input.contract : undefined,
+      }),
+    });
+    if (res.ok) return "admin";
+    if (res.status !== 401 && res.status !== 403) return "failed";
+  }
+  return createTicket(input, fetcher);
 }

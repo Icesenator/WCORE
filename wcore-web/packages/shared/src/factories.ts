@@ -191,6 +191,11 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // 2237 octets, runtime contenu dans le bin de contracts/build.json). La meme adresse est celle de l implementation de
   // Somnia (5031) : meme deployeur, meme rang de transaction ; le chainId identifie la chaine.
   flow: { address: "0x78a5c19e8957524cf669b20e9dc5ee28c67e6b1d", chainId: 747 },
+  // DBK Chain (mainnet, chainId 20240603, native ETH). Fabrique deployee par le proprietaire le 2026-11-19, verifiee en
+  // lecture seule sur le RPC : code 1696 octets, identique (adresses incrustees masquees) a la fabrique d Elysium,
+  // platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0xef4e94691589224a92e26741e098a3cbcd63d169 (GmOnChain,
+  // 2237 octets, runtime contenu dans le bin de contracts/build.json).
+  dbk_chain: { address: "0x5863a056ad0cbe06876b49c9ab7c50bcd0432718", chainId: 20240603 },
 };
 
 export function getFactoryChainIds(): number[] {

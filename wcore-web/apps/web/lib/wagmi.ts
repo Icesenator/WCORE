@@ -2,7 +2,7 @@ import { http, createConfig } from "wagmi";
 import type { Chain } from "viem";
 import { base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
   mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, cyber,
-  immutableZkEvm, morph, mezo, swellchain, swan, vana, story, etherlink, arbitrumNova } from "wagmi/chains";
+  immutableZkEvm, morph, mezo, swellchain, swan, vana, story, etherlink, arbitrumNova, dbkchain } from "wagmi/chains";
 // We intentionally do NOT register wagmi's `injected()` connector in the
 // static config. Reason: a broken Turbopack chunk on `injected` throws
 // `ReferenceError: injected is not defined` at module load and bricks the
@@ -544,7 +544,7 @@ export const config = createConfig({
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
     mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
-    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca, elysium, somnia, etherlink, arbitrumNova],
+    immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca, elysium, somnia, etherlink, arbitrumNova, dbkchain],
   // as any needed — wagmi connector types mismatch with custom chain list
   connectors: wagmiConnectors as any,
   transports: {
@@ -633,6 +633,7 @@ export const config = createConfig({
     [somnia.id]: http(),
     [etherlink.id]: http(),
     [arbitrumNova.id]: http(),
+    [dbkchain.id]: http(),
     [immutableZkEvm.id]: http(),
     [morph.id]: http(),
     [mezo.id]: http(),

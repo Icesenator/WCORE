@@ -195,16 +195,28 @@ export async function scanGmBackfillCandidates(
   const defaultStep = CHAIN_STEP_SIZES[chainKey] ?? 2000;
   const step = maxLogRange && maxLogRange > 0 ? Math.min(maxLogRange, defaultStep) : defaultStep;
   const candidates = new Map<string, BackfillCandidate>();
-  for (let from = first; from < end; from += step) {
-    let logs: GmLog[] | undefined;
+  const getLogs = async (from: number, to: number): Promise<GmLog[] | undefined> => {
     for (const endpoint of rpcs) {
-      const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(Math.min(from + step, end) - 1));
-      if (!page?.error && Array.isArray(page?.result)) {
-        logs = page.result;
-        break;
+      const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(to));
+      if (!page?.error && Array.isArray(page?.result)) return page.result;
+    }
+    return undefined;
+  };
+  // One request for the whole window first (cheap on chains that accept it), then pages of `step` blocks
+  // only if the RPCs refuse the full range: 31 days of a fast chain would otherwise cost thousands of calls.
+  const pages: GmLog[][] = [];
+  if (first < end) {
+    const whole = await getLogs(first, end - 1);
+    if (whole) pages.push(whole);
+    else {
+      for (let from = first; from < end; from += step) {
+        const page = await getLogs(from, Math.min(from + step, end) - 1);
+        if (!page) throw new GmBackfillRpcError("rpc_incomplete_logs");
+        pages.push(page);
       }
     }
-    if (!logs) throw new GmBackfillRpcError("rpc_incomplete_logs");
+  }
+  for (const logs of pages) {
     for (const log of logs) {
       if (typeof log?.address !== "string" || typeof log.transactionHash !== "string") {
         throw new GmBackfillRpcError("rpc_invalid_log");
@@ -221,11 +233,13 @@ export async function scanGmBackfillCandidates(
       if (!Array.isArray(receipt.logs) || typeof receipt.from !== "string") {
         throw new GmBackfillRpcError("rpc_invalid_receipt");
       }
-      const event = receipt.logs.find((entry) => entry.address.toLowerCase() === contractAddress
-        && entry.topics[0] === GM_EVENT_SIG && entry.topics[1]?.toLowerCase() === paddedUser);
+      const event = receipt.logs.find((entry) => typeof entry?.address === "string" && Array.isArray(entry.topics)
+        && entry.address.toLowerCase() === contractAddress
+        && entry.topics[0] === GM_EVENT_SIG && typeof entry.topics[1] === "string"
+        && entry.topics[1].toLowerCase() === paddedUser);
       if (receipt.status !== "0x1" || receipt.from.toLowerCase() !== address
         || receipt.to?.toLowerCase() !== contractAddress || !event) continue;
-      if (!/^0x[0-9a-f]{192}$/i.test(event.data)) throw new GmBackfillRpcError("rpc_invalid_log");
+      if (typeof event.data !== "string" || !/^0x[0-9a-f]{192}$/i.test(event.data)) throw new GmBackfillRpcError("rpc_invalid_log");
       const ms = quantity(event.data.slice(0, 66)) * 1000;
       const tip = BigInt("0x" + event.data.slice(-64));
       if (!Number.isSafeInteger(ms) || ms <= 0) throw new GmBackfillRpcError("rpc_invalid_log");

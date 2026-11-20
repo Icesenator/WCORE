@@ -452,7 +452,7 @@ export async function registerGmOnchainRoutes(
     }
     const chains = (requested === undefined ? supported : [requested]).map((key) => ({
       chainKey: key, insertedPaid: 0, alreadyPresent: 0, ignoredOlder: 0,
-      insertedUnpaid: 0, rpcErrors: 0, scoreDelta: 0,
+      insertedUnpaid: 0, legacyConflict: 0, rpcErrors: 0, scoreDelta: 0,
     }));
     const candidates: BackfillCandidate[] = [];
     let scoreDelta = 0;
@@ -493,8 +493,9 @@ export async function registerGmOnchainRoutes(
             where: { userId, chainKey: { equals: chainKey, mode: "insensitive" } },
             select: { chainKey: true, lastGmDate: true },
           });
-          // The live chain claim expects the canonical key. Resolve legacy rows before charging.
-          if (chainRows.some((row) => row.chainKey !== chainKey)) throw new Error("gm_conflict");
+          // The live chain claim expects the canonical key. A legacy row (other case) is counted and skipped,
+          // without writing anything, so it never blocks the rest of the batch (it must be migrated first).
+          if (chainRows.some((row) => row.chainKey !== chainKey)) return { bucket: "legacyConflict", gain: 0 } as const;
           const older = [initial.lastGmDate, chainRows[0]?.lastGmDate].some(
             (date) => date && startOfUtcDay(date).getTime() > scoringDay.getTime(),
           );

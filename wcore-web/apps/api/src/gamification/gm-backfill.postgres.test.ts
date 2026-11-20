@@ -28,6 +28,8 @@ let userId: string;
 let failBadge: boolean;
 let failRpc: Chain | undefined;
 let rpcCalls: number;
+let getLogsCalls: number;
+let refuseWideRange: boolean;
 let logs: Array<ReturnType<typeof logGm>>;
 const originalAdmin = process.env.ADMIN_WALLET_ADDRESS;
 function logGm(chainKey: Chain, n: number, offset = 0) {
@@ -45,6 +47,8 @@ beforeEach(async () => {
   failBadge = false;
   failRpc = undefined;
   rpcCalls = 0;
+  getLogsCalls = 0;
+  refuseWideRange = false;
   userId = (await prisma.user.create({ data: { address: wallet } })).id;
   await prisma.gmContract.createMany({ data: Object.entries(networks).map(([chainKey, net]) => ({
     chainKey, contractAddress: net.contractAddress, ownerId: userId,
@@ -61,9 +65,17 @@ beforeEach(async () => {
     }
     const onChain = logs.filter((log) => log.chainKey === chain);
     if (method === "eth_getLogs") {
+      getLogsCalls++;
       const range = params[0] as { fromBlock: string; toBlock: string };
-      return Response.json({ result: onChain.filter((log) => Number(log.blockNumber) >= Number(range.fromBlock)
-        && Number(log.blockNumber) <= Number(range.toBlock)) });
+      // Real RPC semantics for the tags, so an "earliest".."latest" scan really sees the logs.
+      const blockOf = (tag: string) => tag === "earliest" ? 0 : tag === "latest" ? 3 : Number(tag);
+      if (refuseWideRange) {
+        // Refuse the first (whole-window) request once, like an RPC with a block-range cap.
+        refuseWideRange = false;
+        return Response.json({ error: { code: -32005, message: "range too wide" } });
+      }
+      return Response.json({ result: onChain.filter((log) => Number(log.blockNumber) >= blockOf(range.fromBlock)
+        && Number(log.blockNumber) <= blockOf(range.toBlock)) });
     }
     if (method === "eth_getTransactionReceipt") {
       const log = onChain.find((row) => row.transactionHash === params[0]);
@@ -147,6 +159,9 @@ test("another live chain has claimed the day and its self-heal does not consume 
   const live = await app.inject({ method: "POST", url: "/api/gm/onchain",
     payload: { chainKey: "base", contractAddress: base.contractAddress, txHash: txHash(1) } });
   assert.equal(live.statusCode, 200, live.payload);
+  // The self-heal reads recorded rows only: no log scan at all (the mock answers "earliest".."latest"
+  // like a real RPC, so an RPC import would have inserted tx 2 here).
+  assert.equal(getLogsCalls, 0);
   assert.equal(await count(), 1);
   const res = await backfill();
   assert.equal(res.statusCode, 200, res.payload);
@@ -203,6 +218,36 @@ test("rollback keeps a verified candidate eligible for a paid retry", async () =
   assert.equal(retried.statusCode, 200, retried.payload);
   assert.equal(retried.json().scoreDelta, 25);
   assert.equal(await count(), 1);
+});
+
+test("one chain scan is a single eth_getLogs when the RPC accepts the whole window", async () => {
+  logs = [logGm("BASE", 1)];
+  const res = await backfill({ chainKey: "base", ...window });
+  assert.equal(res.statusCode, 200, res.payload);
+  assert.equal(res.json().chains[0].insertedPaid, 1);
+  assert.equal(getLogsCalls, 1);
+});
+
+test("a refused whole-window scan falls back to pages and still finds the GM", async () => {
+  logs = [logGm("BASE", 1)];
+  refuseWideRange = true;
+  const res = await backfill({ chainKey: "base", ...window });
+  assert.equal(res.statusCode, 200, res.payload);
+  assert.equal(res.json().chains[0].insertedPaid, 1);
+  assert.ok(getLogsCalls >= 2);
+});
+
+test("a legacy lowercase chain row is counted and skipped without blocking other chains", async () => {
+  await prisma.userChainGm.create({ data: { userId, chainKey: "base", lastGmDate: new Date(today - 2 * dayMs), gmStreak: 1, longestStreak: 1 } });
+  logs = [logGm("BASE", 1), logGm("OPTIMISM", 2)];
+  const res = await backfill();
+  assert.equal(res.statusCode, 200, res.payload);
+  const byChain = Object.fromEntries(res.json().chains.map((c: { chainKey: string }) => [c.chainKey, c]));
+  assert.equal(byChain.BASE.legacyConflict, 1);
+  assert.equal(byChain.BASE.insertedPaid, 0);
+  assert.equal(byChain.OPTIMISM.insertedPaid, 1);
+  assert.equal(await count(), 1);
+  assert.equal((await account()).score, 25);
 });
 
 test("incomplete discovery leaves all chains untouched", async () => {

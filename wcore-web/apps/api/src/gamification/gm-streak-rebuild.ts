@@ -128,6 +128,114 @@ async function fetchAllUserGmLogs(
   return logs;
 }
 
+export class GmBackfillRpcError extends Error {}
+
+export interface BackfillCandidate {
+  chainKey: string;
+  txHash: string;
+  contractId: string;
+  createdAt: Date;
+  tipWei: string;
+}
+
+export async function scanGmBackfillCandidates(
+  deps: RebuildDeps,
+  chainKey: string,
+  address: string,
+  maxLogRange: number | undefined,
+  fromMs: number,
+  toMs: number,
+  nowMs: number,
+): Promise<BackfillCandidate[]> {
+  const { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson } = deps;
+  const rpcs = getChainRpcs(chainKey);
+  const contracts = await prisma.gmContract.findMany({
+    where: { chainKey: { equals: chainKey, mode: "insensitive" } },
+    select: { id: true, contractAddress: true },
+  });
+  if (!contracts.length) return [];
+  if (!rpcs?.length) throw new GmBackfillRpcError("rpc_unavailable");
+  const contractsByAddress = new Map(contracts.map((row) => [row.contractAddress.toLowerCase(), row.id]));
+  const paddedUser = "0x" + address.slice(2).padStart(64, "0");
+  const hex = (n: number) => "0x" + n.toString(16);
+  const quantity = (value: unknown) => typeof value === "string" && /^0x[0-9a-f]+$/i.test(value)
+    ? Number(value) : NaN;
+  const rpc = async <T>(method: string, params: unknown[]): Promise<T> => {
+    for (const endpoint of rpcs) {
+      const response = await rpcJson<{ result?: T; error?: unknown }>(
+        [endpoint], { jsonrpc: "2.0", id: 1, method, params },
+      );
+      if (!response?.error && response?.result != null) return response.result;
+    }
+    throw new GmBackfillRpcError("rpc_unavailable");
+  };
+  const block = async (at: string) => {
+    const result = await rpc<{ number: string; timestamp: string }>("eth_getBlockByNumber", [at, false]);
+    const height = quantity(result.number);
+    const ms = quantity(result.timestamp) * 1000;
+    if (!Number.isSafeInteger(height) || !Number.isSafeInteger(ms) || (at !== "latest" && height !== Number(at))) {
+      throw new GmBackfillRpcError("rpc_invalid_block");
+    }
+    return { height, ms };
+  };
+  const head = await block("latest");
+  // GmCheckedIn uses block.timestamp. Search only the block interval for the requested days.
+  const firstBlockAtOrAfter = async (ms: number) => {
+    let low = 0;
+    let high = head.height + 1;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if ((mid === head.height ? head : await block(hex(mid))).ms < ms) low = mid + 1;
+      else high = mid;
+    }
+    return low;
+  };
+  const first = await firstBlockAtOrAfter(fromMs);
+  const end = await firstBlockAtOrAfter(toMs);
+  const defaultStep = CHAIN_STEP_SIZES[chainKey] ?? 2000;
+  const step = maxLogRange && maxLogRange > 0 ? Math.min(maxLogRange, defaultStep) : defaultStep;
+  const candidates = new Map<string, BackfillCandidate>();
+  for (let from = first; from < end; from += step) {
+    let logs: GmLog[] | undefined;
+    for (const endpoint of rpcs) {
+      const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(Math.min(from + step, end) - 1));
+      if (!page?.error && Array.isArray(page?.result)) {
+        logs = page.result;
+        break;
+      }
+    }
+    if (!logs) throw new GmBackfillRpcError("rpc_incomplete_logs");
+    for (const log of logs) {
+      if (typeof log?.address !== "string" || typeof log.transactionHash !== "string") {
+        throw new GmBackfillRpcError("rpc_invalid_log");
+      }
+      const contractAddress = log.address.toLowerCase();
+      const contractId = contractsByAddress.get(contractAddress);
+      if (!contractId) continue;
+      const txHash = log.transactionHash.toLowerCase();
+      if (!/^0x[0-9a-f]{64}$/.test(txHash)) throw new GmBackfillRpcError("rpc_invalid_log");
+      if (candidates.has(txHash)) continue;
+      const receipt = await rpc<{ from: string; to: string | null; status: string; logs: GmLog[] }>(
+        "eth_getTransactionReceipt", [txHash],
+      );
+      if (!Array.isArray(receipt.logs) || typeof receipt.from !== "string") {
+        throw new GmBackfillRpcError("rpc_invalid_receipt");
+      }
+      const event = receipt.logs.find((entry) => entry.address.toLowerCase() === contractAddress
+        && entry.topics[0] === GM_EVENT_SIG && entry.topics[1]?.toLowerCase() === paddedUser);
+      if (receipt.status !== "0x1" || receipt.from.toLowerCase() !== address
+        || receipt.to?.toLowerCase() !== contractAddress || !event) continue;
+      if (!/^0x[0-9a-f]{192}$/i.test(event.data)) throw new GmBackfillRpcError("rpc_invalid_log");
+      const ms = quantity(event.data.slice(0, 66)) * 1000;
+      const tip = BigInt("0x" + event.data.slice(-64));
+      if (!Number.isSafeInteger(ms) || ms <= 0) throw new GmBackfillRpcError("rpc_invalid_log");
+      if (tip <= 0n || ms < fromMs || ms >= toMs || ms > nowMs) continue;
+      candidates.set(txHash, { chainKey, txHash, contractId, createdAt: new Date(ms), tipWei: tip.toString() });
+    }
+  }
+  return [...candidates.values()];
+}
+
 // Rebuild per-chain GM streak from on-chain truth. Merges chain events with
 // existing DB rows (the just-inserted tx may not yet be visible to eth_getLogs;
 // the DB row carries us through that window).
@@ -136,12 +244,13 @@ export async function rebuildChainStreakFromOnchain(
   userId: string,
   address: string,
   chainKey: string,
+  options: { recordedOnly?: boolean } = {},
 ): Promise<RebuildResult> {
   // Normalize to UPPERCASE — all DB queries and GmContract rows MUST use
   // UPPERCASE chainKeys to avoid case-sensitive duplicates.
   const normalizedChainKey = canonicalChainKey(chainKey);
   const { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson } = deps;
-  const rpcs = getChainRpcs(normalizedChainKey);
+  const rpcs = options.recordedOnly ? undefined : getChainRpcs(normalizedChainKey);
   const userAddr = address.toLowerCase();
   const paddedUser = "0x000000000000000000000000" + userAddr.slice(2);
 

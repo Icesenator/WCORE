@@ -3,11 +3,24 @@ import type { FastifyInstance } from "fastify";
 import type { PrismaClient } from "@wcore/db";
 import { safeFetch } from "../lib/safe-http.js";
 import { canonicalChainKey, getFactory } from "@wcore/shared";
+import { z } from "zod";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
-import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
+import { GmBackfillRpcError, rebuildChainStreakFromOnchain, scanGmBackfillCandidates, type BackfillCandidate } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
 import { applyMergedStreak, claimChainDailyGmWithRetry, claimGeneralDailyGmWithRetry, mergeGeneralStreak } from "./gm-streak-merge.js";
+
+const backfillBody = z.object({
+  chainKey: z.string().trim().min(1).optional(),
+  fromDay: z.string().optional(),
+  toDay: z.string().optional(),
+});
+
+function parseUtcDay(day: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return NaN;
+  const date = new Date(day + "T00:00:00.000Z");
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === day ? date.getTime() : NaN;
+}
 
 const STATUS_ONCHAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 const statusOnchainCache = createTtlCache<boolean>(STATUS_ONCHAIN_CACHE_TTL_MS);
@@ -194,16 +207,9 @@ export async function registerGmOnchainRoutes(
 
         // Score against the day the GM actually happened on-chain (decoded from
         // the GmCheckedIn event), not the day the API call lands. A late
-        // submission -- slow receipt indexing, a retry after UTC midnight, an old
-        // tx submitted again -- must neither harvest the current-day general or
-        // per-chain bonus nor stamp lastGmDate with "now". We credit the event
-        // at ITS day instead of rejecting it: a rejected tx would be permanently
-        // burned by the anti-replay unique (chainKey, txHash), so a legitimate
-        // late retry would lose its points for good, and the backfill path
-        // (rebuildChainStreakFromOnchain / /api/gm/backfill) already credits
-        // historical events at their own day -- this keeps the interactive route
-        // consistent with it. Future timestamps (clock skew / miner drift)
-        // clamp to today.
+        // submission uses the same UTC claims as backfill: each bonus is
+        // available only if the event day strictly follows its last claim.
+        // Clamp future event times to now for interactive submissions.
         const scoringDay = (() => {
           if (!gmEventCreatedAt) return today;
           const eventDay = startOfUtcDay(gmEventCreatedAt);
@@ -269,17 +275,14 @@ export async function registerGmOnchainRoutes(
       throw error;
     }
 
-    // Self-heal: reconcile per-chain streak from on-chain events. Idempotent —
-    // backfills any prior GMs that bypassed this endpoint (direct on-chain
-    // calls, failed verifications, etc.). Runs after the DB transaction so the
-    // just-inserted OnchainGm row is visible even if the chain RPC hasn't
-    // indexed the new event yet.
+    // Reconcile recorded GMs after commit. Unrecorded transactions must go
+    // through a scoring transaction before they can enter the anti-replay table.
     try {
       const userAddr = (req.user!.address ?? "").toLowerCase();
       if (userAddr) {
         const rebuilt = await rebuildChainStreakFromOnchain(
           { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson },
-          req.user!.id, userAddr, chainKey,
+          req.user!.id, userAddr, chainKey, { recordedOnly: true },
         );
         result.chainStreak = rebuilt.currentStreak;
         result.chainLongest = Math.max(rebuilt.longestStreak, result.chainLongest);
@@ -420,137 +423,113 @@ export async function registerGmOnchainRoutes(
     }
    });
 
-  // Backfill GM state from on-chain truth. Rebuilds OnchainGm rows,
-  // UserChainGm.gmStreak/longestStreak per chain, user.gmStreak/
-  // longestStreak/lastGmDate (general, across all chains), AND adds the
-  // missing score for GMs that were never counted. Body: { chainKey?: string }
-  // — when omitted, every factory-supported chain is processed.
+  // Replay verified GMs for the authenticated account in a bounded UTC window.
   app.post("/api/gm/backfill", async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: "not_authenticated" });
     if (!deps.isAdminAuthorized(req)) return reply.code(401).send({ error: "admin_required" });
-    const userAddr = (req.user.address ?? "").toLowerCase();
+    const { id: userId, address } = req.user;
+    const userAddr = (address ?? "").toLowerCase();
     if (!userAddr) return reply.code(400).send({ error: "no_address" });
 
-    const body = (req.body ?? {}) as { chainKey?: string };
-    const chainKeys: string[] = body.chainKey
-      ? [canonicalChainKey(body.chainKey)]
-      : Object.keys(deps.FACTORIES).map(canonicalChainKey);
-
-    const helperDeps = { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson };
-    type ChainResult = Awaited<ReturnType<typeof rebuildChainStreakFromOnchain>>;
-    const perChain: ChainResult[] = [];
-    const errors: Array<{ chainKey: string; error: string }> = [];
-    for (const ck of chainKeys) {
-      try {
-        const r = await rebuildChainStreakFromOnchain(helperDeps, req.user.id, userAddr, ck);
-        perChain.push(r);
-      } catch (e) {
-        errors.push({ chainKey: ck, error: (e as Error).message || String(e) });
-      }
+    const parsed = backfillBody.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_body" });
+    const { chainKey, fromDay, toDay } = parsed.data;
+    if (!fromDay || !toDay) return reply.code(400).send({ error: "window_required" });
+    const fromMs = parseUtcDay(fromDay);
+    const toMs = parseUtcDay(toDay);
+    const nowMs = Date.now();
+    const dayMs = 86_400_000;
+    const today = startOfUtcDay(new Date(nowMs)).getTime();
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs
+      || toMs - fromMs > 31 * dayMs || toMs > today + dayMs) {
+      return reply.code(400).send({ error: "invalid_window" });
     }
 
-    // ── Score + general streak reconciliation ─────────────────────────────
-    // Per-chain score delta: walk each chain's events chronologically,
-    // maintain the chain streak, and credit the scoring formula for events
-    // that were newly inserted in this run only.
-    const DAY_MS = 86_400_000;
+    const requested = chainKey === undefined ? undefined : canonicalChainKey(chainKey);
+    const supported = [...new Set(Object.keys(deps.FACTORIES).map(canonicalChainKey))];
+    if (requested !== undefined && !supported.includes(requested)) {
+      return reply.code(400).send({ error: "unsupported_chain" });
+    }
+    const chains = (requested === undefined ? supported : [requested]).map((key) => ({
+      chainKey: key, insertedPaid: 0, alreadyPresent: 0, ignoredOlder: 0,
+      insertedUnpaid: 0, rpcErrors: 0, scoreDelta: 0,
+    }));
+    const candidates: BackfillCandidate[] = [];
     let scoreDelta = 0;
-    for (const c of perChain) {
-      let lastChainDay = -1;
-      let chainStreak = 0;
-      for (const e of c.events) {
-        if (e.dayMs === lastChainDay) continue; // same day, no new chain credit
-        if (lastChainDay !== -1 && e.dayMs === lastChainDay + DAY_MS) chainStreak += 1;
-        else chainStreak = 1;
-        lastChainDay = e.dayMs;
-        if (e.wasInserted) {
-          scoreDelta += 5 + (chainStreak > 1 ? chainStreak : 0);
+    let outcome = "failed";
+    try {
+      for (const summary of chains) {
+        try {
+          candidates.push(...await scanGmBackfillCandidates(
+            { prisma, getChainRpcs, GM_EVENT_SIG, rpcJson }, summary.chainKey, userAddr,
+            deps.getChainMaxLogRange?.(summary.chainKey), fromMs, toMs, nowMs,
+          ));
+        } catch (error) {
+          if (!(error instanceof GmBackfillRpcError)) throw error;
+          summary.rpcErrors++;
         }
       }
-    }
-
-    // General streak (one increment per UTC day across all chains): merge all
-    // events, sort, dedupe by day. For each new day, if any event that day
-    // was newly inserted, credit the general scoring formula at that day's
-    // running general streak.
-    type FlatEvent = { ts: number; dayMs: number; wasInserted: boolean };
-    const allEvents: FlatEvent[] = [];
-    for (const c of perChain) for (const e of c.events) allEvents.push(e);
-    allEvents.sort((a, b) => a.ts - b.ts);
-
-    let lastGeneralDay = -1;
-    let generalStreak = 0;
-    let generalLongest = 0;
-    let dayHadInsertion = false;
-    let latestGeneralTs = 0;
-    const finalizeDay = () => {
-      if (dayHadInsertion) {
-        scoreDelta += 20 + (generalStreak > 1 ? generalStreak * 2 : 0);
+      // An incomplete scan may hide an earlier candidate. Do not advance any claim.
+      if (chains.some((chain) => chain.rpcErrors)) {
+        outcome = "rpc_incomplete";
+        return reply.code(503).send({ error: "rpc_incomplete", chains, scoreDelta });
       }
-    };
-    for (const e of allEvents) {
-      if (e.ts > latestGeneralTs) latestGeneralTs = e.ts;
-      if (e.dayMs === lastGeneralDay) {
-        if (e.wasInserted) dayHadInsertion = true;
-        continue;
-      }
-      // New day → settle previous day's score.
-      finalizeDay();
-      if (lastGeneralDay !== -1 && e.dayMs === lastGeneralDay + DAY_MS) generalStreak += 1;
-      else generalStreak = 1;
-      if (generalStreak > generalLongest) generalLongest = generalStreak;
-      lastGeneralDay = e.dayMs;
-      dayHadInsertion = e.wasInserted;
-    }
-    finalizeDay();
 
-    // Current general streak: only count if last GM day was today or yesterday.
-    const today = (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.getTime(); })();
-    const yesterday = today - DAY_MS;
-    let currentGeneralStreak = 0;
-    if (lastGeneralDay === today || lastGeneralDay === yesterday) {
-      // Walk back the deduped day list.
-      const days = [...new Set(allEvents.map((e) => e.dayMs))].sort((a, b) => a - b);
-      let expected = lastGeneralDay;
-      for (let i = days.length - 1; i >= 0; i--) {
-        const d = days[i];
-        if (d === undefined) break;
-        if (d === expected) { currentGeneralStreak++; expected -= DAY_MS; }
-        else if (d < expected) break;
-      }
-    }
+      candidates.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()
+        || a.chainKey.localeCompare(b.chainKey) || a.txHash.localeCompare(b.txHash));
+      for (const { chainKey, txHash, contractId, createdAt, tipWei } of candidates) {
+        const summary = chains.find((entry) => entry.chainKey === chainKey)!;
+        const scoringDay = startOfUtcDay(createdAt);
+        const result = await prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${userId} FOR NO KEY UPDATE`;
+          const initial = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+          const replay = await tx.onchainGm.findFirst({
+            where: { txHash: { equals: txHash, mode: "insensitive" }, chainKey: { equals: chainKey, mode: "insensitive" } },
+            select: { id: true },
+          });
+          if (replay) return { bucket: "alreadyPresent", gain: 0 } as const;
 
-    // Apply user updates: score, general streak, longest, lastGmDate.
-    const lastGmDate = latestGeneralTs ? new Date(latestGeneralTs * 1000) : undefined;
-    if (allEvents.length > 0) {
-      // Meme fusion que l'auto-reparation : la serie recalculee depuis les GM en chaine ne baisse pas
-      // une serie stockee encore valide (GM gratuits sans ligne par jour). Ecriture par comparaison
-      // atomique, le credit de score n'etant applique qu'une fois, par l'ecriture qui reussit.
-      const { merged, applied } = await applyMergedStreak({
-        store: prisma,
-        userId: req.user.id,
-        compute: (stored) => mergeGeneralStreak({
-          computedStreak: currentGeneralStreak, computedLongest: generalLongest,
-          latestEventMs: latestGeneralTs ? latestGeneralTs * 1000 : null, stored,
-        }),
-        extraData: { score: { increment: scoreDelta } },
-        alwaysWrite: true,
-      });
-      if (!applied && scoreDelta !== 0) {
-        // Conflits repetes : le credit de score ne doit pas etre perdu (les lignes sont deja inserees) ;
-        // la serie sera reparee au prochain recalcul.
-        await prisma.user.update({ where: { id: req.user.id }, data: { score: { increment: scoreDelta } } });
-      }
-      currentGeneralStreak = merged.gmStreak;
-    }
+          const chainRows = await tx.userChainGm.findMany({
+            where: { userId, chainKey: { equals: chainKey, mode: "insensitive" } },
+            select: { chainKey: true, lastGmDate: true },
+          });
+          // The live chain claim expects the canonical key. Resolve legacy rows before charging.
+          if (chainRows.some((row) => row.chainKey !== chainKey)) throw new Error("gm_conflict");
+          const older = [initial.lastGmDate, chainRows[0]?.lastGmDate].some(
+            (date) => date && startOfUtcDay(date).getTime() > scoringDay.getTime(),
+          );
 
-    return {
-      backfilled: perChain,
-      errors,
-      scoreDelta,
-      currentGeneralStreak,
-      longestGeneralStreak: generalLongest,
-      lastGmDate,
-    };
+          const { count } = await tx.onchainGm.createMany({
+            data: [{ userId, chainKey, txHash, contractId, createdAt, tipWei }],
+            skipDuplicates: true,
+          });
+          if (!count) return { bucket: "alreadyPresent", gain: 0 } as const;
+
+          const general = await claimGeneralDailyGmWithRetry({
+            tx, userId, initial, scoringDay, gmDate: createdAt,
+          });
+          if (general.claimed) await checkStreakBadges(tx, userId, general.generalStreak);
+          const chain = await claimChainDailyGmWithRetry({ tx, userId, chainKey, scoringDay, gmDate: createdAt });
+          if (chain.scoreGain > 0) {
+            await tx.user.update({ where: { id: userId }, data: { score: { increment: chain.scoreGain } } });
+          }
+          const gain = general.scoreGain + chain.scoreGain;
+          return { bucket: gain > 0 ? "insertedPaid" : older ? "ignoredOlder" : "insertedUnpaid", gain } as const;
+        });
+        summary[result.bucket]++;
+        summary.scoreDelta += result.gain;
+        scoreDelta += result.gain;
+      }
+      outcome = "ok";
+      return { chains, scoreDelta };
+    } catch (error) {
+      if (error instanceof Error && error.message === "gm_conflict") {
+        outcome = "gm_conflict";
+        return reply.code(409).send({ error: "gm_conflict", chains, scoreDelta });
+      }
+      throw error;
+    } finally {
+      console.info("gm.backfill", { fromDay, toDay, chains, scoreDelta, outcome });
+    }
   });
 }

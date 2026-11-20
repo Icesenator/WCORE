@@ -206,7 +206,8 @@ export async function scanGmBackfillCandidates(
   // only if the RPCs refuse the full range: 31 days of a fast chain would otherwise cost thousands of calls.
   const pages: GmLog[][] = [];
   if (first < end) {
-    const whole = await getLogs(first, end - 1);
+    // A known per-chain cap means a wider request could be truncated silently: page directly then.
+    const whole = maxLogRange && maxLogRange > 0 && end - first > maxLogRange ? undefined : await getLogs(first, end - 1);
     if (whole) pages.push(whole);
     else {
       for (let from = first; from < end; from += step) {

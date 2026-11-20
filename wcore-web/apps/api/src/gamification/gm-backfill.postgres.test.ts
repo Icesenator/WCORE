@@ -30,6 +30,9 @@ let failRpc: Chain | undefined;
 let rpcCalls: number;
 let getLogsCalls: number;
 let refuseWideRange: boolean;
+let maxLogRange: number | undefined;
+let failGetLogsFrom: number | undefined;
+let badReceiptTx: string | undefined;
 let logs: Array<ReturnType<typeof logGm>>;
 const originalAdmin = process.env.ADMIN_WALLET_ADDRESS;
 function logGm(chainKey: Chain, n: number, offset = 0) {
@@ -49,6 +52,9 @@ beforeEach(async () => {
   rpcCalls = 0;
   getLogsCalls = 0;
   refuseWideRange = false;
+  maxLogRange = undefined;
+  failGetLogsFrom = undefined;
+  badReceiptTx = undefined;
   userId = (await prisma.user.create({ data: { address: wallet } })).id;
   await prisma.gmContract.createMany({ data: Object.entries(networks).map(([chainKey, net]) => ({
     chainKey, contractAddress: net.contractAddress, ownerId: userId,
@@ -69,6 +75,9 @@ beforeEach(async () => {
       const range = params[0] as { fromBlock: string; toBlock: string };
       // Real RPC semantics for the tags, so an "earliest".."latest" scan really sees the logs.
       const blockOf = (tag: string) => tag === "earliest" ? 0 : tag === "latest" ? 3 : Number(tag);
+      if (failGetLogsFrom !== undefined && blockOf(range.fromBlock) === failGetLogsFrom) {
+        return Response.json({ error: { code: -32000, message: "page unavailable" } });
+      }
       if (refuseWideRange) {
         // Refuse the first (whole-window) request once, like an RPC with a block-range cap.
         refuseWideRange = false;
@@ -79,6 +88,10 @@ beforeEach(async () => {
     }
     if (method === "eth_getTransactionReceipt") {
       const log = onChain.find((row) => row.transactionHash === params[0]);
+      if (log && params[0] === badReceiptTx) {
+        // Malformed receipt: a log entry whose address is not a string.
+        return Response.json({ result: { status: "0x1", from: wallet, to: log.address, logs: [{ ...log, address: 123 }] } });
+      }
       return Response.json({ result: log ? { status: "0x1", from: wallet, to: log.address, logs: [log] } : null });
     }
     throw new Error("Unexpected mock RPC method");
@@ -107,6 +120,7 @@ beforeEach(async () => {
     CONTRACT_DEPLOYED_EVENT: signature,
     extractDeployedContractAddresses: () => [],
     GM_EVENT_SIG: signature,
+    getChainMaxLogRange: () => maxLogRange,
   };
   await registerGmRoutes(app, prisma, deps);
   await registerGmOnchainRoutes(app, prisma, deps);
@@ -237,17 +251,46 @@ test("a refused whole-window scan falls back to pages and still finds the GM", a
   assert.ok(getLogsCalls >= 2);
 });
 
-test("a legacy lowercase chain row is counted and skipped without blocking other chains", async () => {
-  await prisma.userChainGm.create({ data: { userId, chainKey: "base", lastGmDate: new Date(today - 2 * dayMs), gmStreak: 1, longestStreak: 1 } });
-  logs = [logGm("BASE", 1), logGm("OPTIMISM", 2)];
-  const res = await backfill();
-  assert.equal(res.statusCode, 200, res.payload);
+test("a legacy lowercase chain row refuses the whole batch before any write", async () => {
+  await prisma.userChainGm.create({ data: { userId, chainKey: "base", lastGmDate: new Date(today - 3 * dayMs), gmStreak: 1, longestStreak: 1 } });
+  // Day -1 on the legacy chain, day 0 on another: skipping the first would let the second close day -1.
+  logs = [logGm("BASE", 1, -1), logGm("OPTIMISM", 2)];
+  const res = await backfill({ fromDay: day(-1), toDay: day(1) });
+  assert.equal(res.statusCode, 409, res.payload);
+  assert.equal(res.json().error, "legacy_chain_row");
   const byChain = Object.fromEntries(res.json().chains.map((c: { chainKey: string }) => [c.chainKey, c]));
   assert.equal(byChain.BASE.legacyConflict, 1);
-  assert.equal(byChain.BASE.insertedPaid, 0);
-  assert.equal(byChain.OPTIMISM.insertedPaid, 1);
-  assert.equal(await count(), 1);
-  assert.equal((await account()).score, 25);
+  assert.equal(await count(), 0);
+  assert.equal((await account()).score, 0);
+});
+
+test("a malformed receipt stops the batch with 503 and writes nothing", async () => {
+  // Older GM with a malformed receipt, then a valid newer one: the older day must not be silently lost.
+  logs = [logGm("BASE", 1, -1), logGm("BASE", 2)];
+  badReceiptTx = txHash(1);
+  const res = await backfill({ chainKey: "base", fromDay: day(-1), toDay: day(1) });
+  assert.equal(res.statusCode, 503, res.payload);
+  assert.equal(await count(), 0);
+  assert.equal((await account()).score, 0);
+});
+
+test("a known log-range cap pages the window and finds a GM on the last page", async () => {
+  // Blocks 1..3 cover days -2..0; cap 1 -> three single-block pages, the GM is on block 3.
+  maxLogRange = 1;
+  logs = [logGm("BASE", 1)];
+  const res = await backfill({ chainKey: "base", fromDay: day(-2), toDay: day(1) });
+  assert.equal(res.statusCode, 200, res.payload);
+  assert.equal(res.json().chains[0].insertedPaid, 1);
+  assert.equal(getLogsCalls, 3);
+});
+
+test("a page failing in the middle of a capped scan returns 503 without writing", async () => {
+  maxLogRange = 1;
+  failGetLogsFrom = 2;
+  logs = [logGm("BASE", 1)];
+  const res = await backfill({ chainKey: "base", fromDay: day(-2), toDay: day(1) });
+  assert.equal(res.statusCode, 503, res.payload);
+  assert.equal(await count(), 0);
 });
 
 test("incomplete discovery leaves all chains untouched", async () => {

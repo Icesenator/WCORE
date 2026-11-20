@@ -475,6 +475,22 @@ export async function registerGmOnchainRoutes(
         return reply.code(503).send({ error: "rpc_incomplete", chains, scoreDelta });
       }
 
+      // Pre-flight: a legacy chain row (other case) for a chain with candidates refuses the whole batch before
+      // any write. It must be migrated first; skipping its candidates could let a later GM close their day.
+      const candidateChains = [...new Set(candidates.map((c) => c.chainKey))];
+      if (candidateChains.length) {
+        const legacy = await prisma.userChainGm.findMany({
+          where: { userId, OR: candidateChains.map((key) => ({ chainKey: { equals: key, mode: "insensitive" as const } })) },
+          select: { chainKey: true },
+        });
+        const legacyKeys = legacy.filter((row) => !candidateChains.includes(row.chainKey)).map((row) => canonicalChainKey(row.chainKey));
+        if (legacyKeys.length) {
+          for (const summary of chains) if (legacyKeys.includes(summary.chainKey)) summary.legacyConflict++;
+          outcome = "legacy_chain_row";
+          return reply.code(409).send({ error: "legacy_chain_row", chains, scoreDelta });
+        }
+      }
+
       candidates.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()
         || a.chainKey.localeCompare(b.chainKey) || a.txHash.localeCompare(b.txHash));
       for (const { chainKey, txHash, contractId, createdAt, tipWei } of candidates) {
@@ -493,9 +509,9 @@ export async function registerGmOnchainRoutes(
             where: { userId, chainKey: { equals: chainKey, mode: "insensitive" } },
             select: { chainKey: true, lastGmDate: true },
           });
-          // The live chain claim expects the canonical key. A legacy row (other case) is counted and skipped,
-          // without writing anything, so it never blocks the rest of the batch (it must be migrated first).
-          if (chainRows.some((row) => row.chainKey !== chainKey)) return { bucket: "legacyConflict", gain: 0 } as const;
+          // Legacy rows are refused before the batch (pre-flight below). One created meanwhile stops the batch
+          // here, before any write: skipping it could let a later GM close this older day's general bonus.
+          if (chainRows.some((row) => row.chainKey !== chainKey)) throw new Error("legacy_chain_row");
           const older = [initial.lastGmDate, chainRows[0]?.lastGmDate].some(
             (date) => date && startOfUtcDay(date).getTime() > scoringDay.getTime(),
           );
@@ -524,6 +540,10 @@ export async function registerGmOnchainRoutes(
       outcome = "ok";
       return { chains, scoreDelta };
     } catch (error) {
+      if (error instanceof Error && error.message === "legacy_chain_row") {
+        outcome = "legacy_chain_row";
+        return reply.code(409).send({ error: "legacy_chain_row", chains, scoreDelta });
+      }
       if (error instanceof Error && error.message === "gm_conflict") {
         outcome = "gm_conflict";
         return reply.code(409).send({ error: "gm_conflict", chains, scoreDelta });

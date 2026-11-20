@@ -231,7 +231,14 @@ export async function scanGmBackfillCandidates(
       const receipt = await rpc<{ from: string; to: string | null; status: string; logs: GmLog[] }>(
         "eth_getTransactionReceipt", [txHash],
       );
-      if (!Array.isArray(receipt.logs) || typeof receipt.from !== "string") {
+      // A malformed receipt must stop the whole batch (503, nothing written): silently skipping it could let
+      // a later, more recent GM advance lastGmDate and close the older day's bonus for good.
+      const wellFormedLog = (entry: GmLog | null | undefined) => !!entry && typeof entry.address === "string"
+        && Array.isArray(entry.topics) && entry.topics.every((topic) => typeof topic === "string")
+        && typeof entry.data === "string";
+      if (!receipt || typeof receipt !== "object" || !Array.isArray(receipt.logs) || typeof receipt.from !== "string"
+        || typeof receipt.status !== "string" || (receipt.to !== null && typeof receipt.to !== "string")
+        || !receipt.logs.every(wellFormedLog)) {
         throw new GmBackfillRpcError("rpc_invalid_receipt");
       }
       const event = receipt.logs.find((entry) => typeof entry?.address === "string" && Array.isArray(entry.topics)

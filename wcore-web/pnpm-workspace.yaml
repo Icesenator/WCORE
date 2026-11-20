@@ -21,6 +21,8 @@ overrides:
   browserslist: ">=4.28.7"
   # solc 0.8.19 (version du compilateur, epinglee) fige tmp 0.0.33 ; solc >= 0.8.2x utilise tmp 0.2.x avec le meme code.
   "solc>tmp": "^0.2.7"
+  # GHSA-7589-6fvf-x4pw (20/11/2026) : ReDoS dans effect <= 3.22.0, tire par prisma > @prisma/config.
+  effect: "^3.22.1"
 verifyDepsBeforeRun: false
 
 # rebuild 2026-05-15

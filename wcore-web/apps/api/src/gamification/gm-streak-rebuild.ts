@@ -160,11 +160,19 @@ export async function scanGmBackfillCandidates(
   const hex = (n: number) => "0x" + n.toString(16);
   const quantity = (value: unknown) => typeof value === "string" && /^0x[0-9a-f]+$/i.test(value)
     ? Number(value) : NaN;
+  // An endpoint that does not answer at all (timeout, connection refused, HTTP error) twice during this scan is
+  // left out for the rest of it: a dead public endpoint would otherwise cost its timeout on every single call.
+  const silent = new Map<string, number>();
+  const usable = () => {
+    const live = rpcs.filter((endpoint) => (silent.get(endpoint) ?? 0) < 2);
+    return live.length ? live : rpcs;
+  };
   const rpc = async <T>(method: string, params: unknown[]): Promise<T> => {
-    for (const endpoint of rpcs) {
+    for (const endpoint of usable()) {
       const response = await rpcJson<{ result?: T; error?: unknown }>(
         [endpoint], { jsonrpc: "2.0", id: 1, method, params },
       );
+      if (response == null) silent.set(endpoint, (silent.get(endpoint) ?? 0) + 1);
       if (!response?.error && response?.result != null) return response.result;
     }
     throw new GmBackfillRpcError("rpc_unavailable");
@@ -180,12 +188,42 @@ export async function scanGmBackfillCandidates(
   };
   const head = await block("latest");
   // GmCheckedIn uses block.timestamp. Search only the block interval for the requested days.
+  const at = async (height: number) => (height === head.height ? head : await block(hex(height)));
   const firstBlockAtOrAfter = async (ms: number) => {
-    let low = 0;
-    let high = head.height + 1;
+    if (head.ms < ms) return head.height + 1;
+    // Estimate the block from the recent block time, then bracket it with small growing strides and bisect.
+    // Only blocks close to the target are read: public nodes prune old history, and the old bisection from
+    // block 0 asked for the block at half the chain height, which they refuse.
+    const span = Math.min(1024, head.height);
+    const reference = span > 0 ? await at(head.height - span) : head;
+    const speed = span > 0 && head.ms > reference.ms ? (head.ms - reference.ms) / span : 0; // ms per block
+    const guess = speed > 0
+      ? Math.min(head.height, Math.max(0, head.height - Math.round((head.ms - ms) / speed)))
+      : Math.max(0, head.height - span);
+    let older = -1; // a block known to be before `ms`
+    let high = head.height; // a block known to be at or after `ms`
+    let stride = 256;
+    if ((await at(guess)).ms < ms) {
+      older = guess;
+      while (older + stride < head.height) {
+        const candidate = older + stride;
+        if ((await at(candidate)).ms >= ms) { high = candidate; break; }
+        older = candidate;
+        stride *= 2;
+      }
+    } else {
+      high = guess;
+      while (older < 0) {
+        if (high === 0) return 0;
+        const candidate = Math.max(0, high - stride);
+        if ((await at(candidate)).ms < ms) older = candidate;
+        else { high = candidate; stride *= 2; }
+      }
+    }
+    let low = older + 1;
     while (low < high) {
       const mid = Math.floor((low + high) / 2);
-      if ((mid === head.height ? head : await block(hex(mid))).ms < ms) low = mid + 1;
+      if ((await at(mid)).ms < ms) low = mid + 1;
       else high = mid;
     }
     return low;
@@ -196,24 +234,43 @@ export async function scanGmBackfillCandidates(
   const step = maxLogRange && maxLogRange > 0 ? Math.min(maxLogRange, defaultStep) : defaultStep;
   const candidates = new Map<string, BackfillCandidate>();
   const getLogs = async (from: number, to: number): Promise<GmLog[] | undefined> => {
-    for (const endpoint of rpcs) {
+    for (const endpoint of usable()) {
       const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(to));
+      if (page === null) silent.set(endpoint, (silent.get(endpoint) ?? 0) + 1);
       if (!page?.error && Array.isArray(page?.result)) return page.result;
     }
     return undefined;
   };
-  // One request for the whole window first (cheap on chains that accept it), then pages of `step` blocks
-  // only if the RPCs refuse the full range: 31 days of a fast chain would otherwise cost thousands of calls.
+  // One request for the whole window first (cheap on chains that accept it), then pages only if the RPCs refuse
+  // it. Public RPCs cap eth_getLogs at 50 to 2000 blocks (and refuse oversized answers): a refused page is
+  // halved and retried, down to MIN_PAGE_BLOCKS, and the size that worked is kept for the next pages. Every
+  // request counts against MAX_LOG_CALLS; a page that cannot be read at the smallest size, or an exhausted
+  // budget, stops the whole scan (503, nothing written): a hole in the scan could hide an earlier GM.
+  const MIN_PAGE_BLOCKS = 25;
+  const MAX_LOG_CALLS = 1500;
+  let logCalls = 0;
+  const readPage = async (from: number, to: number) => {
+    if (++logCalls > MAX_LOG_CALLS) throw new GmBackfillRpcError("rpc_budget_exceeded");
+    return getLogs(from, to);
+  };
   const pages: GmLog[][] = [];
   if (first < end) {
     // A known per-chain cap means a wider request could be truncated silently: page directly then.
-    const whole = maxLogRange && maxLogRange > 0 && end - first > maxLogRange ? undefined : await getLogs(first, end - 1);
+    const capped = !!maxLogRange && maxLogRange > 0;
+    const whole = capped && end - first > maxLogRange! ? undefined : await readPage(first, end - 1);
     if (whole) pages.push(whole);
     else {
-      for (let from = first; from < end; from += step) {
-        const page = await getLogs(from, Math.min(from + step, end) - 1);
-        if (!page) throw new GmBackfillRpcError("rpc_incomplete_logs");
-        pages.push(page);
+      let size = Math.max(MIN_PAGE_BLOCKS, step);
+      for (let from = first; from < end;) {
+        const to = Math.min(from + size, end) - 1;
+        const page = await readPage(from, to);
+        if (page) {
+          pages.push(page);
+          from = to + 1;
+        } else {
+          if (size <= MIN_PAGE_BLOCKS) throw new GmBackfillRpcError("rpc_incomplete_logs");
+          size = Math.max(MIN_PAGE_BLOCKS, Math.floor(size / 2));
+        }
       }
     }
   }

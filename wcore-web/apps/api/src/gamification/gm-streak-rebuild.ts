@@ -255,7 +255,7 @@ export async function scanGmBackfillCandidates(
   // that worked is kept for the next pages. Every RPC request counts against MAX_LOG_CALLS; a page that cannot be
   // read at the smallest size, or an exhausted budget, stops the whole scan (503, nothing written): a hole in the
   // scan could hide an earlier GM.
-  const MAX_LOG_CALLS = 3000;
+  const MAX_LOG_CALLS = 6000;
   let logCalls = 0;
   const getLogs = async (from: number, to: number): Promise<GmLog[] | undefined> => {
     for (const endpoint of rpcs) {

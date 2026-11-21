@@ -150,11 +150,11 @@ test("recherche proche impossible (un bloc voisin est refuse) : repli sur la dic
   assert.ok((behaviour[A]!.calls["eth_getBlockByNumber"] ?? 0) > 25, "la dichotomie complete a tourne");
 });
 test("le budget compte les requetes de chaque point d'acces, pas les pages", async () => {
-  // A refuse toute lecture, B l'accepte par pages de 25 : 1 728 pages x 2 requetes depasseraient 3 000.
+  // Trois jours (129 600 blocs) : A refuse toute lecture, B l'accepte par pages de 25 : plus de 5 000 pages x 2 requetes.
   behaviour = { [A]: fresh({ logError: true }), [B]: fresh({ logCap: 25 }) };
   await assert.rejects(
-    scanGmBackfillCandidates(deps([A, B]), "MONAD", USER, undefined, FROM, TO, NOW),
+    scanGmBackfillCandidates(deps([A, B]), "MONAD", USER, undefined, FROM, Date.UTC(2026, 10, 21), NOW),
     (error: unknown) => error instanceof GmBackfillRpcError && error.message === "rpc_budget_exceeded",
   );
-  assert.ok(behaviour[A]!.logCalls + behaviour[B]!.logCalls <= 3000, String(behaviour[A]!.logCalls + behaviour[B]!.logCalls));
+  assert.ok(behaviour[A]!.logCalls + behaviour[B]!.logCalls <= 6000, String(behaviour[A]!.logCalls + behaviour[B]!.logCalls));
 });

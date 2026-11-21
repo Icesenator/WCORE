@@ -106,4 +106,16 @@ describe("robustesse (relecture PR 182)", () => {
     const retry = await run(store, f, NOW + 2);
     assert.ok(retry.proposals.length >= 1);
   });
+
+  test("equite : les sources jamais ou le moins recemment relevees passent en premier", async () => {
+    const store = new MemoryCacheStore();
+    const many: WatchSource[] = Array.from({ length: 4 }, (_, i) => ({ chainKey: `c${i}`, url: `https://example.test/${i}`, publisher: "x" }));
+    const order: string[] = [];
+    const f = async (u: string) => { order.push(u); return { status: 200, text: page(["stable"]) }; };
+    const r1 = await runAnnouncementWatch(store, f, NOW, many.slice(0, 2));
+    await saveWatchState(store, r1.state);
+    order.length = 0;
+    await runAnnouncementWatch(store, f, NOW + 1000, many);
+    assert.ok(order.slice(0, 2).every((u) => u.endsWith("/2") || u.endsWith("/3")), order.join(","));
+  });
 });

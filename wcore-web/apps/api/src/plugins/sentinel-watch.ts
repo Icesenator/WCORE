@@ -118,10 +118,13 @@ export async function runAnnouncementWatch(
     state[key] = { seen: merged.slice(-MAX_SEEN), checkedAt: iso };
   };
   // Lots de BATCH pages en parallele : la passe reste courte face au verrou de la collecte.
+  // Les sources relevees le plus anciennement (ou jamais) passent en premier : si le budget de temps est epuise,
+  // les pages restantes sont prises en tete a la passe suivante, aucune ne reste indefiniment sans surveillance.
+  const ordered = [...sources].sort((a, b) => (state[`${a.chainKey}:${a.url}`]?.checkedAt ?? "").localeCompare(state[`${b.chainKey}:${b.url}`]?.checkedAt ?? ""));
   const t0 = Date.now();
-  for (let i = 0; i < sources.length; i += BATCH) {
+  for (let i = 0; i < ordered.length; i += BATCH) {
     if (Date.now() - t0 > DEADLINE_MS) break;
-    await Promise.all(sources.slice(i, i + BATCH).map(one));
+    await Promise.all(ordered.slice(i, i + BATCH).map(one));
   }
   return result;
 }

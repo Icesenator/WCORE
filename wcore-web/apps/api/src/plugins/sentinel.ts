@@ -214,7 +214,11 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
     const h = (await opts.store.get<SentinelHealth>(SENTINEL_KEYS.health)) || null;
     const n = now();
     const stale = monitorHealthAlert(h?.lastSuccessAt ? Date.parse(h.lastSuccessAt) : null, n, interval);
-    return { lastRunAt: h?.lastRunAt ?? null, lastSuccessAt: h?.lastSuccessAt ?? null, sourcesChecked: h?.sourcesChecked ?? 0, sourcesFailed: h?.sourcesFailed ?? 0, monitoring: stale ? { status: "STALE", severity: stale.severity } : { status: "OK" } };
+    // Relais d'alerte : nombre seul (jamais de chaine, d'extrait ni d'URL) de propositions d'annonces a valider ;
+    // le detail reste reserve a l'administrateur. Null = decompte indisponible (jamais « 0 » par defaut).
+    let announcementsPending: number | null = null;
+    try { announcementsPending = ((await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || []).filter((p) => p.kind === "ANNOUNCEMENT_KEYWORD" && p.status === "PENDING_ADMIN_REVIEW").length; } catch { /* inconnu */ }
+    return { lastRunAt: h?.lastRunAt ?? null, lastSuccessAt: h?.lastSuccessAt ?? null, sourcesChecked: h?.sourcesChecked ?? 0, sourcesFailed: h?.sourcesFailed ?? 0, watchChecked: h?.watchChecked ?? 0, watchFailed: h?.watchFailed ?? 0, announcementsPending, monitoring: stale ? { status: "STALE", severity: stale.severity } : { status: "OK" } };
   });
 
   app.get("/api/sentinel/alerts", async (req, reply) => {

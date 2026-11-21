@@ -138,6 +138,15 @@ describe("routes", () => {
     assert.ok(a.alerts.some((x) => x.code === "SENTINEL_STALE"));
   });
 
+  test("relais d'alerte : /health compte les annonces a valider, sans detail", async () => {
+    const { app, store } = await build();
+    const mk = (id: string, kind: string, status: string) => ({ id, chainKey: "x", sourceId: "watch", url: "https://secret.example/page", previousSha256: null, newSha256: "h", detectedAt: "2026-01-01T00:00:00Z", status, kind, snippet: "network will sunset" });
+    await store.set(SENTINEL_KEYS.proposals, [mk("a", "ANNOUNCEMENT_KEYWORD", "PENDING_ADMIN_REVIEW"), mk("b", "ANNOUNCEMENT_KEYWORD", "APPROVED"), mk("c", "SOURCE_CHANGED","PENDING_ADMIN_REVIEW")]);
+    const raw = (await app.inject({ method: "GET", url: "/api/sentinel/health" })).body;
+    assert.equal((JSON.parse(raw) as { announcementsPending: number }).announcementsPending, 1);
+    assert.ok(!/sunset|secret\.example/.test(raw), "aucun extrait ni URL dans la reponse publique");
+  });
+
   test("historique : premiere lecture enregistree, lectures identiques non dupliquees", async () => {
     const { app } = await build({ exposures: [gravityPositive] });
     await app.inject({ method: "GET", url: "/api/sentinel/alerts", headers: { "x-user": "u3" } });

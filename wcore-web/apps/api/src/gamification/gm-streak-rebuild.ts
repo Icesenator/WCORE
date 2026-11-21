@@ -85,7 +85,7 @@ const CHAIN_STEP_SIZES: Record<string, number> = {
 };
 const COVER_BLOCKS = 500_000; // ~11 days at 2s/block
 const MIN_PAGE_BLOCKS = 25; // smallest eth_getLogs page of the backfill scan
-const HEAD_LAG_TOLERANCE_MS = 2 * 3_600_000; // a head older than this does not prove the absence of recent blocks
+const HEAD_LAG_TOLERANCE_MS = 30 * 60_000; // a head older than this does not prove the absence of recent blocks
 
 async function fetchAllUserGmLogs(
   rpcs: string[],
@@ -179,18 +179,23 @@ export async function scanGmBackfillCandidates(
     });
     return live.length ? live : rpcs;
   };
+  // A silence gets one more try on the same endpoint before the next one is asked: a transient timeout must not
+  // move a read to a backup that may answer less completely.
   const rpc = async <T>(method: string, params: unknown[]): Promise<T> => {
     for (const endpoint of usable()) {
-      const response = await rpcJson<{ result?: T; error?: unknown }>(
-        [endpoint], { jsonrpc: "2.0", id: 1, method, params },
-      );
-      seen(endpoint, response != null);
-      if (!response?.error && response?.result != null) return response.result;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await rpcJson<{ result?: T; error?: unknown }>(
+          [endpoint], { jsonrpc: "2.0", id: 1, method, params },
+        );
+        seen(endpoint, response != null);
+        if (response == null) continue;
+        if (!response.error && response.result != null) return response.result;
+        break;
+      }
     }
     throw new GmBackfillRpcError("rpc_unavailable");
   };
-  const block = async (at: string) => {
-    const result = await rpc<{ number: string; timestamp: string }>("eth_getBlockByNumber", [at, false]);
+  const parseBlock = (result: { number: string; timestamp: string }, at: string) => {
     const height = quantity(result.number);
     const ms = quantity(result.timestamp) * 1000;
     if (!Number.isSafeInteger(height) || !Number.isSafeInteger(ms) || (at !== "latest" && height !== Number(at))) {
@@ -198,10 +203,28 @@ export async function scanGmBackfillCandidates(
     }
     return { height, ms };
   };
-  const head = await block("latest");
-  // A head older than the end of the window (or than two hours ago when the window reaches into the future) means
-  // the RPC lags or the chain is halted: the blocks of the window may exist elsewhere, so an empty scan would not
-  // be proof of absence. Refuse instead of reading "no block in the window".
+  const block = async (at: string) => parseBlock(
+    await rpc<{ number: string; timestamp: string }>("eth_getBlockByNumber", [at, false]), at,
+  );
+  // The head is the most advanced one among the endpoints: a single lagging RPC must not decide that the window
+  // has no blocks.
+  const head = await (async () => {
+    let best: { height: number; ms: number } | undefined;
+    for (const endpoint of usable()) {
+      const response = await rpcJson<{ result?: { number: string; timestamp: string }; error?: unknown }>(
+        [endpoint], { jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: ["latest", false] },
+      );
+      seen(endpoint, response != null);
+      if (response?.error || response?.result == null) continue;
+      const candidate = parseBlock(response.result, "latest");
+      if (!best || candidate.height > best.height) best = candidate;
+    }
+    if (!best) throw new GmBackfillRpcError("rpc_unavailable");
+    return best;
+  })();
+  // A head older than the end of the window (or than 30 minutes ago when the window reaches into the future) means
+  // the RPCs lag or the chain is halted: the blocks of the window may exist elsewhere, so an empty or truncated
+  // scan would not be proof of absence. Refuse instead of reading "no block in the window".
   if (head.ms < Math.min(toMs, nowMs - HEAD_LAG_TOLERANCE_MS)) throw new GmBackfillRpcError("rpc_head_behind");
   // GmCheckedIn uses block.timestamp. Search only the block interval for the requested days.
   const at = async (height: number) => (height === head.height ? head : await block(hex(height)));
@@ -260,10 +283,15 @@ export async function scanGmBackfillCandidates(
   let logCalls = 0;
   const getLogs = async (from: number, to: number): Promise<GmLog[] | undefined> => {
     for (const endpoint of usable()) {
-      if (++logCalls > MAX_LOG_CALLS) throw new GmBackfillRpcError("rpc_budget_exceeded");
-      const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(to));
-      seen(endpoint, page !== null);
-      if (!page?.error && Array.isArray(page?.result)) return page.result;
+      // One more try on the same endpoint after a silence, before a backup that may answer less completely.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (++logCalls > MAX_LOG_CALLS) throw new GmBackfillRpcError("rpc_budget_exceeded");
+        const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(to));
+        seen(endpoint, page !== null);
+        if (page === null) continue;
+        if (!page.error && Array.isArray(page.result)) return page.result;
+        break;
+      }
     }
     return undefined;
   };

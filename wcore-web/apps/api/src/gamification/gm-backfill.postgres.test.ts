@@ -66,7 +66,7 @@ beforeEach(async () => {
     if (chain === failRpc) return Response.json({ error: { code: -32000 } });
     if (method === "eth_getBlockByNumber") {
       const number = params[0] === "latest" ? 3 : Number(params[0]);
-      const timestamp = (today + (number - 3) * dayMs) / 1000;
+      const timestamp = (today + (number - 3) * dayMs + 3_600_000) / 1000; // tete du test = l'heure simulee (30 min de tolerance du scan)
       return Response.json({ result: { number: "0x" + number.toString(16), timestamp: "0x" + timestamp.toString(16) } });
     }
     const onChain = logs.filter((log) => log.chainKey === chain);

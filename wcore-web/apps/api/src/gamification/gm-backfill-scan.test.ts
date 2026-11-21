@@ -31,6 +31,8 @@ interface Behaviour {
   logError?: boolean;         // refuse toute lecture de journaux
   lagSeconds?: number;        // chaine en retard : tous les horodatages sont plus anciens
   noLogs?: boolean;           // point d'acces de secours qui repond sans journaux (reponse incomplete)
+  headBehind?: number;        // point d'acces en retard : sa tete est N blocs derriere la vraie, au-dela il refuse
+  silentLogs?: number;        // les N premieres lectures de journaux restent sans reponse
   maxSpan: number;
 }
 let behaviour: Record<string, Behaviour>;
@@ -44,13 +46,16 @@ function answer(endpoint: string, body: Body): object | null {
   const total = Object.values(b.calls).reduce((sum, n) => sum + n, 0);
   if (b.dead || (b.silentFirst !== undefined && total <= b.silentFirst)) return null;
   if (body.method === "eth_getBlockByNumber") {
-    const height = body.params[0] === "latest" ? HEAD : Number(body.params[0]);
+    const tip = HEAD - (b.headBehind ?? 0);
+    const height = body.params[0] === "latest" ? tip : Number(body.params[0]);
+    if (height > tip) return { error: { message: "block not found yet" } };
     if (b.prunedBelow !== undefined && height < b.prunedBelow) return { error: { message: "pruned history unavailable" } };
     if (b.refuseHeights?.includes(height)) return { error: { message: "block unavailable" } };
     return { result: { number: "0x" + height.toString(16), timestamp: "0x" + (tsOf(height) - (b.lagSeconds ?? 0)).toString(16) } };
   }
   if (body.method === "eth_getLogs") {
     b.logCalls++;
+    if (b.silentLogs !== undefined && b.logCalls <= b.silentLogs) return null;
     const range = body.params[0] as { fromBlock: string; toBlock: string };
     const from = Number(range.fromBlock);
     const to = Number(range.toBlock);
@@ -139,6 +144,21 @@ test("tete en retard : le scan s'arrete (503) au lieu de prendre « aucun bloc �
     (error: unknown) => error instanceof GmBackfillRpcError && error.message === "rpc_head_behind",
   );
   assert.equal(behaviour[A]!.logCalls, 0);
+});
+
+test("une page sans reponse est retentee chez le meme point d'acces avant le secours incomplet", async () => {
+  // A se tait sur sa premiere lecture de journaux (puis repond) ; B (secours) repondrait « aucun journal ».
+  behaviour = { [A]: fresh({ silentLogs: 1 }), [B]: fresh({ noLogs: true }) };
+  const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
+  assert.equal(found.length, 1, "le GM vient de A, pas du secours");
+  assert.equal(behaviour[B]!.logCalls, 0);
+});
+
+test("tete la plus avancee des points d'acces : un RPC en retard ne decide pas qu'il n'y a pas de bloc", async () => {
+  // A est 300 000 blocs derriere (plus vieux que la fenetre), B est a jour : la tete retenue est celle de B.
+  behaviour = { [A]: fresh({ headBehind: 300_000 }), [B]: fresh() };
+  const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
+  assert.equal(found.length, 1);
 });
 
 test("bloc de reference refuse : l'estimation est abandonnee, le GM est quand meme retrouve", async () => {

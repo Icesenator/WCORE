@@ -102,8 +102,8 @@ Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter s
 
 | Chaîne | chainId | Constat | Cause du retrait |
 |---|---|---|---|
-| Moonbeam | 1284 | arrêtée le 2026-07-31 | GLMR migré vers Base, date limite passée, portail de migration hors ligne. |
-| Moonriver | 1285 | dernier bloc 2026-08-10T08:27:48Z | chaîne figée, RPC morts ; migration MOVR close le 2026-07-31, demandes tardives closes le 2026-09-30. |
+| Moonbeam | 1284 | annonce officielle du 2026-07-03 : relance sur Base, migration GLMR avant le 2026-07-31 | Date limite de migration passee ; RPC hors ligne constates le 2026-11-21. Aucune date d'arret du reseau n'est publiee sur la page officielle. |
+| Moonriver | 1285 | annonce officielle du 2026-07-07 (migration MOVR vers Base, date limite 2026-07-31) ; dernier bloc observe par WCORE : 2026-08-10T08:27:48Z | Date limite passee, chaine figee, RPC morts. La cloture de demandes tardives au 2026-09-30 n'est pas confirmee par la page officielle : non retenue. |
 
 - **Pourquoi maintenant** : les deux onglets étaient les plus anciens scans du Recap et laissaient `Strat!BL1` en rouge. Une alerte BL1 se traite en cherchant l'onglet en cause tout de suite (voir mémoire `bl1-alert-never-minimize`).
 - **Même mécanisme que B3** : tombstone `_wcoreRemovedChain_` (`MOONBEAM`, `1284`, `0x504`, `MOONRIVER`, `1285`, `0x505` et leurs onglets) ; formules `[CHAIN_REMOVED]` sans nombre ; retrait des listes ; WalletCache conservé ; onglets `LEDGER_RETIRED_NAMES` pour sortir du Recap sans suppression.

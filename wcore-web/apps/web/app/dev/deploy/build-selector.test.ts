@@ -15,9 +15,9 @@ test("pickBuild returns the default Shanghai build for chains that support PUSH0
   assert.deepEqual(result.abi, ["defaultOnChainAbi"]);
 });
 
-test("pickBuild returns the default Shanghai build for Moonbeam (case-insensitive)", () => {
-  assert.equal(pickBuild(defaultBuild, "moonbeam", "GmFactory").bin, "0xdefaultFactory");
-  assert.equal(pickBuild(defaultBuild, "MOONBEAM", "GmFactory").bin, "0xdefaultFactory");
+test("pickBuild returns the default Shanghai build for Cronos (case-insensitive)", () => {
+  assert.equal(pickBuild(defaultBuild, "cronos", "GmFactory").bin, "0xdefaultFactory");
+  assert.equal(pickBuild(defaultBuild, "CRONOS", "GmFactory").bin, "0xdefaultFactory");
 });
 
 test("pickBuild returns the Paris build for KCC (pre-Shanghai chain)", () => {

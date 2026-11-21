@@ -20,8 +20,6 @@ const GM_CHAIN_NAMES: Record<string, string> = {
   camp: "Camp", duckchain: "DuckChain", cyber: "Cyber",
   zircuit: "Zircuit", openledger: "OpenLedger",
   stable: "Stable", tac: "TAC", mitosis: "Mitosis", sonic: "Sonic", citrea: "Citrea", cronos: "Cronos", fuse: "Fuse", kaia: "Kaia",
-  moonbeam: "Moonbeam",
-  moonriver: "Moonriver",
   astar: "Astar",
   aurora: "Aurora",
   metis: "Metis",
@@ -64,8 +62,6 @@ const GM_CHAIN_NAMES: Record<string, string> = {
 
 const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "fogo", name: "Fogo" },
-  { key: "moonbeam", name: "Moonbeam" },
-  { key: "moonriver", name: "Moonriver" },
   { key: "astar", name: "Astar" },
   { key: "rootstock", name: "Rootstock" },
   { key: "kcc", name: "KCC" },

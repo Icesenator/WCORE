@@ -262,18 +262,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Kaia", symbol: "KAIA", decimals: 18 },
     rpcUrls: ["https://public-en.node.kaia.io", "https://kaia.blockpi.network/v1/rpc/public", "https://klaytn.api.onfinality.io/public", "https://klaytn.drpc.org"],
   },
-  MOONBEAM: {
-    chainId: "0x504",
-    chainName: "Moonbeam",
-    nativeCurrency: { name: "Glimmer", symbol: "GLMR", decimals: 18 },
-    rpcUrls: ["https://rpc.api.moonbeam.network", "https://moonbeam.drpc.org", "https://1rpc.io/glmr", "https://moonbeam.public.blastapi.io"],
-  },
-  MOONRIVER: {
-    chainId: "0x505",
-    chainName: "Moonriver",
-    nativeCurrency: { name: "Moonriver", symbol: "MOVR", decimals: 18 },
-    rpcUrls: ["https://rpc.api.moonriver.moonbeam.network", "https://moonriver.drpc.org", "https://moonriver-rpc.publicnode.com"],
-  },
   ASTAR: {
     chainId: "0x250",
     chainName: "Astar",
@@ -614,8 +602,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   25, // CRONOS
   122, // FUSE
   8217, // KAIA
-  1284, // MOONBEAM
-  1285, // MOONRIVER
   592, // ASTAR
   1313161554, // AURORA
   1088, // METIS

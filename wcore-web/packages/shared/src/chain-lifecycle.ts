@@ -9,6 +9,10 @@ const RETIRED_CHAINS: ReadonlyArray<{ label: string; code: string; ids: readonly
   { label: "Superseed L2", code: "SUPERSEED (5330)", ids: ["superseed", "sseed", "5330", "0x14d2"] },
   // B3 Mainnet: network closed, withdrawals closed on 2026-10-31.
   { label: "B3 Mainnet (8333)", code: "B3 (8333)", ids: ["b3", "8333", "0x208d"] },
+  // Moonbeam et Moonriver : GLMR et MOVR migres vers Base (migration close le 2026-07-31), reseaux arretes ou figes.
+  // Les jetons GLMR/MOVR ne sont pas concernes : seuls la cle de chaine et les identifiants 1284/1285 figurent ici.
+  { label: "Moonbeam (1284)", code: "MOONBEAM (1284)", ids: ["moonbeam", "1284", "0x504"] },
+  { label: "Moonriver (1285)", code: "MOONRIVER (1285)", ids: ["moonriver", "1285", "0x505"] },
 ];
 
 /** Tombstone code shared with GAS (`[CHAIN_REMOVED] <code>`), or null. */

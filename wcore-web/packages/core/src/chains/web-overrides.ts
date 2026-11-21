@@ -21,8 +21,6 @@ export const WEB_CHAIN_OVERRIDES: Readonly<Record<string, { RPC?: { MAX_LOG_RANG
   GRAVITY: { RPC: { MAX_LOG_RANGE: 2000 } },
   HYPEREVM: { RPC: { MAX_LOG_RANGE: 1000 } },
   MERLIN: { RPC: { MAX_LOG_RANGE: 5000 } },
-  MOONBEAM: { RPC: { MAX_LOG_RANGE: 1024 } },
-  MOONRIVER: { RPC: { MAX_LOG_RANGE: 1024 } },
   MORPH: { RPC: { MAX_LOG_RANGE: 5000 } },
   // 2026-11-09 : HTTP 400 -32602 au-delà de 1 000 blocs (rpc.openledger.xyz ; Pocket zkLink Nova).
   // PAGINATE_LOGS : la fenêtre de 5 000 blocs est découpée en segments de MAX_LOG_RANGE au lieu

@@ -39,7 +39,7 @@ async function registerRoutes(app: FastifyInstance) {
     addReferralBonus: async () => {},
     isAdminAuthorized: () => false,
     rpcFetch: async () => ({}),
-    FACTORIES: { moonriver: { address: "0x5472f231a017ce1f03ccdfb2325a7d6a90b07de1", chainId: 1285 } },
+    FACTORIES: { cronos: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 25 } },
     CONTRACT_DEPLOYED_EVENT: "0x33c981baba081f8fd2c52ac6ad1ea95b6814b4376640f55689051f6584729688",
     extractDeployedContractAddresses: () => [],
     getChainMaxLogRange: () => 1024,
@@ -80,7 +80,7 @@ test("status-onchain reads lastGmTimestamp per contract instead of scanning logs
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/gm/status-onchain?chain=moonriver&address=${USER}`,
+      url: `/api/gm/status-onchain?chain=cronos&address=${USER}`,
     });
 
     assert.equal(res.statusCode, 200);
@@ -122,7 +122,7 @@ test("status-onchain caches same chain and address for the current UTC day", asy
     const app = buildApp({ user: { id: "u2", address: USER2 } });
     await registerRoutes(app);
 
-    const url = `/api/gm/status-onchain?chain=moonriver&address=${USER2}`;
+    const url = `/api/gm/status-onchain?chain=cronos&address=${USER2}`;
     const first = await app.inject({ method: "GET", url });
     const second = await app.inject({ method: "GET", url });
 
@@ -143,7 +143,7 @@ test("status-onchain returns 401 when no authenticated user is attached", async 
 
   const res = await app.inject({
     method: "GET",
-    url: "/api/gm/status-onchain?chain=moonriver&address=0x0000000000000000000000000000000000000001",
+    url: "/api/gm/status-onchain?chain=cronos&address=0x0000000000000000000000000000000000000001",
   });
 
   assert.equal(res.statusCode, 401);
@@ -159,7 +159,7 @@ test("status-onchain rejects a non-EVM address when authenticated", async () => 
 
   const res = await app.inject({
     method: "GET",
-    url: "/api/gm/status-onchain?chain=moonriver&address=not-an-address",
+    url: "/api/gm/status-onchain?chain=cronos&address=not-an-address",
   });
 
   assert.equal(res.statusCode, 400);

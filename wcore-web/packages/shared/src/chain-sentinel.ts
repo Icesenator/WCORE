@@ -232,6 +232,49 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     recoveryNoteEn: "“Users and developers relying on Neon EVM should complete any necessary migration or withdrawal steps before December 31, 2026.” No network shutdown date published.",
     lastVerifiedAt: "2026-11-12T18:10:00Z",
   },
+  {
+    chainKey: "moonbeam",
+    chainId: 1284,
+    name: "Moonbeam",
+    status: "RETIRED",
+    // 2026-11-21 : annonce officielle du 03/07/2026 (page relue) : « All existing GLMR holders must bridge their tokens
+    // from the Moonbeam parachain to Base before July 31, 2026 » ; la FAQ dit que Moonbeam fonctionne « till Jul 31, 2026 ».
+    // La page ne donne aucune date d'arret du reseau : pas d'echeance NETWORK_SHUTDOWN, et aucune procedure de recuperation
+    // n'y figure (UNKNOWN, jamais NOT_AVAILABLE sans source). Heure non precisee : debut de journee UTC, marque approximate.
+    // Reseau retire du scan WCORE (isRetiredChain) : l'exposition reste NOT_COVERED, jamais un zero.
+    successorChainId: 8453,
+    deadlines: [
+      { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-07-31T00:00:00Z", sourceIds: ["moonbeam-relaunch-base"], assets: ["GLMR"], approximate: true },
+    ],
+    sources: {
+      "moonbeam-relaunch-base": { url: "https://moonbeam.network/news/moonbeam-strategic-update-moonbeam-network-relaunches-on-base", publisher: "Moonbeam Network (annonce officielle du 03/07/2026)", publisherEn: "Moonbeam Network (official announcement of 2026-07-03)", official: true, retrievedAt: "2026-11-21T10:00:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Migration 1:1 du GLMR vers Base (ERC-20) a faire avant le 31/07/2026. « Once the chain winds down, funds left in on-chain protocols may become inaccessible. » Aucune procedure de recuperation apres cette date n'est publiee sur la page.",
+    recoveryNoteEn: "1:1 migration of GLMR to Base (ERC-20) due before 2026-07-31. “Once the chain winds down, funds left in on-chain protocols may become inaccessible.” No recovery procedure after that date is published on the page.",
+    lastVerifiedAt: "2026-11-21T10:00:00Z",
+  },
+  {
+    chainKey: "moonriver",
+    chainId: 1285,
+    name: "Moonriver",
+    status: "RETIRED",
+    // 2026-11-21 : annonce officielle du 07/07/2026 (page relue) : migration 1:1 du MOVR vers Base, « Deadline: July 31, 2026 ».
+    // Non confirme par la page (donc absent de la fiche) : date de fin des demandes tardives (30/09/2026 selon le proprietaire)
+    // et date d'arret du reseau. Observation WCORE, hors source officielle : dernier bloc 2026-08-10T08:27:48Z (chaine figee).
+    // Heure non precisee : debut de journee UTC, marque approximate. Exposition NOT_COVERED (reseau retire du scan WCORE).
+    successorChainId: 8453,
+    deadlines: [
+      { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-07-31T00:00:00Z", sourceIds: ["moonriver-movr-base"], assets: ["MOVR"], approximate: true },
+    ],
+    sources: {
+      "moonriver-movr-base": { url: "https://moonbeam.network/news/moonriver-strategic-update-movr-is-migrating-to-base", publisher: "Moonbeam Network (annonce officielle du 07/07/2026)", publisherEn: "Moonbeam Network (official announcement of 2026-07-07)", official: true, retrievedAt: "2026-11-21T10:00:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Migration 1:1 du MOVR vers Base avant le 31/07/2026. « funds left in on-chain protocols may become permanently inaccessible » apres l'arret. Aucune procedure de recuperation apres la date limite n'est publiee sur la page ; reseau fige : dernier bloc observe par WCORE le 10/08/2026 a 08:27:48 UTC.",
+    recoveryNoteEn: "1:1 migration of MOVR to Base before 2026-07-31. “funds left in on-chain protocols may become permanently inaccessible” once the chain winds down. No recovery procedure after the deadline is published on the page; the network is frozen: last block observed by WCORE on 2026-08-10 at 08:27:48 UTC.",
+    lastVerifiedAt: "2026-11-21T10:00:00Z",
+  },
 ];
 
 // ---------------------------------------------------------------------------

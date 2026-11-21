@@ -25,8 +25,8 @@ describe("GM page chain lists", () => {
     const activeKeys = new Set(getGmChains().map((chain) => chain.key));
     const soonKeys = getSoonChains().map((chain) => chain.key);
 
-    assert.ok(activeKeys.has("moonbeam"));
-    assert.ok(!soonKeys.includes("moonbeam"));
+    assert.ok(activeKeys.has("moca"));
+    assert.ok(!soonKeys.includes("moca"));
   });
 
   test("does not advertise removed chains", () => {
@@ -61,6 +61,9 @@ describe("GM page chain lists", () => {
       "race",
       // Gravity Alpha (1625): network stopped on 2026-11-01, factory moved to GM_HISTORICAL_FACTORIES.
       "gravity",
+      // Moonbeam (1284) et Moonriver (1285) : retirees le 2026-11-21, factories dans GM_HISTORICAL_FACTORIES.
+      "moonbeam",
+      "moonriver",
     ];
     const visibleKeys = new Set([...getGmChains(), ...getSoonChains()].map((chain) => chain.key));
 

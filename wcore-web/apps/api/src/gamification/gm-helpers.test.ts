@@ -19,7 +19,7 @@ function makeDeps(overrides: Partial<GmHelpersDeps> = {}): GmHelpersDeps {
       return { result: "0x0" };
     }) as GmHelpersDeps["rpcFetch"],
     FACTORIES: overrides.FACTORIES ?? {
-      MOONRIVER: { address: "0x5472f231a017ce1f03ccdfb2325a7d6a90b07de1", chainId: 1285 },
+      CRONOS: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 25 },
     },
     CONTRACT_DEPLOYED_EVENT: "0x33c981baba081f8fd2c52ac6ad1ea95b6814b4376640f55689051f6584729688",
     extractDeployedContractAddresses: overrides.extractDeployedContractAddresses ?? (() => []),
@@ -28,10 +28,10 @@ function makeDeps(overrides: Partial<GmHelpersDeps> = {}): GmHelpersDeps {
   } as GmHelpersDeps & { _calls: Array<{ method: string; params: unknown }> };
 }
 
-test("fetchOnChainContracts uses chain MAX_LOG_RANGE for eth_getLogs chunks (MOONRIVER=1024)", async () => {
+test("fetchOnChainContracts uses chain MAX_LOG_RANGE for eth_getLogs chunks (CRONOS=1024)", async () => {
   const deps = makeDeps();
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", "0x17d518736ee9341dcdc0a2498e013d33cfcdd080");
+  await fetchOnChainContracts("cronos", "0x17d518736ee9341dcdc0a2498e013d33cfcdd080");
 
   const calls = (deps as unknown as { _calls: Array<{ method: string; params: unknown }> })._calls;
   const logCalls = calls.filter((c) => c.method === "eth_getLogs");
@@ -143,7 +143,7 @@ test("syncOnChainContracts batches discovered contract persistence", async () =>
 test("fetchOnChainContracts falls back to 5000 chunk when no MAX_LOG_RANGE is configured", async () => {
   const deps = makeDeps({ getChainMaxLogRange: () => undefined });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", "0x17d518736ee9341dcdc0a2498e013d33cfcdd080");
+  await fetchOnChainContracts("cronos", "0x17d518736ee9341dcdc0a2498e013d33cfcdd080");
 
   const calls = (deps as unknown as { _calls: Array<{ method: string; params: unknown }> })._calls;
   const logCalls = calls.filter((c) => c.method === "eth_getLogs");
@@ -213,14 +213,14 @@ test("decodeAddressArray reads a well-formed address[] and rejects anything else
 test("fetchOnChainContracts answers from getAllContracts + creator() without scanning logs", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C1]: OTHER, [C2]: USER } });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C2]);
+  assert.deepEqual(await fetchOnChainContracts("cronos", USER), [C2]);
   assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0, "no log scan");
 });
 
 test("an empty factory list is a definitive none in one list read (the 30 s case)", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([]), creators: {} });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.deepEqual(await fetchOnChainContracts("cronos", USER), []);
   assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0, "no log scan");
   assert.equal(calls.filter((c) => c.method === "eth_call").length, 1, "only getAllContracts");
 });
@@ -228,7 +228,7 @@ test("an empty factory list is a definitive none in one list read (the 30 s case
 test("a list entry the factory does not confirm (isContract false) is never returned", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1]), creators: { [C1]: USER }, nonMembers: [C1] });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.deepEqual(await fetchOnChainContracts("cronos", USER), []);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "an unconfirmed entry leaves the list partial");
 });
 
@@ -240,7 +240,7 @@ test("when the priority RPC cannot read the list, empty backup lists are not a d
     creators: {},
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
+  await fetchOnChainContracts("cronos", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "two lagging backups must not decide without the priority node");
 });
 
@@ -252,35 +252,35 @@ test("the priority RPC's readable empty list is a definitive none even if a back
     creators: {},
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.deepEqual(await fetchOnChainContracts("cronos", USER), []);
   assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0, "a dead backup must not bring the 30 s scan back");
 });
 
 test("an unreadable creator() never yields a definitive none: falls back to the log scan", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C1]: OTHER } });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
+  await fetchOnChainContracts("cronos", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "partial list must not short-circuit");
 });
 
 test("a factory without getAllContracts (no result) keeps the older paths", async () => {
   const { deps, calls } = fastPathDeps({ list: undefined, creators: {} });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
+  await fetchOnChainContracts("cronos", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"));
 });
 
 test("a malformed creator() word is unreadable, not a read: falls back to the log scan", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C1]: OTHER, [C2]: "f".repeat(64) } });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
+  await fetchOnChainContracts("cronos", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "dirty high bytes must not count as a creator");
 });
 
 test("a proven own contract is kept and the older paths still run when another creator() is unreadable", async () => {
   const { deps, calls } = fastPathDeps({ list: encodeAddresses([C1, C2]), creators: { [C2]: USER } });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C2]);
+  assert.deepEqual(await fetchOnChainContracts("cronos", USER), [C2]);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "a second own contract may hide behind the unreadable one");
 });
 
@@ -292,7 +292,7 @@ test("a lagging primary RPC serving an empty list cannot hide a contract a backu
     creators: { [C1]: USER },
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), [C1]);
+  assert.deepEqual(await fetchOnChainContracts("cronos", USER), [C1]);
 });
 
 const R1 = "https://203.0.113.10", R2 = "https://203.0.113.11";
@@ -303,7 +303,7 @@ test("a priority RPC lagging behind a backup beyond the tolerance never yields a
     heightByRpc: { [R1]: 1_000_000, [R2]: 1_000_100 },
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
+  await fetchOnChainContracts("cronos", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "lagging priority node: master's paths run");
 });
 
@@ -313,7 +313,7 @@ test("a priority RPC whose height is unreadable never yields a definitive none",
     heightByRpc: { [R1]: null, [R2]: 1_000_000 },
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
+  await fetchOnChainContracts("cronos", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "unknown height: master's paths run");
 });
 
@@ -323,7 +323,7 @@ test("a priority RPC within the normal spread of its backups gives a definitive 
     heightByRpc: { [R1]: 1_000_000, [R2]: 1_000_005 },
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  assert.deepEqual(await fetchOnChainContracts("moonriver", USER), []);
+  assert.deepEqual(await fetchOnChainContracts("cronos", USER), []);
   assert.equal(calls.filter((c) => c.method === "eth_getLogs").length, 0);
 });
 
@@ -337,6 +337,6 @@ test("a lagging priority RPC answering isContract false for a backup-listed cont
     creators: { [C1]: USER }, nonMembers: [C1],
   });
   const { fetchOnChainContracts } = createGmHelpers(deps);
-  await fetchOnChainContracts("moonriver", USER);
+  await fetchOnChainContracts("cronos", USER);
   assert.ok(calls.some((c) => c.method === "eth_getLogs"), "an unconfirmed backup entry is never a definitive none");
 });

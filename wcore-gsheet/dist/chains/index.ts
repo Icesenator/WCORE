@@ -95,9 +95,7 @@ import { MITOSIS } from "./MITOSIS.js";
 import { MOCA } from "./MOCA.js";
 import { MODE } from "./MODE.js";
 import { MONAD } from "./MONAD.js";
-import { MOONBEAM } from "./MOONBEAM.js";
 import { MOONCHAIN } from "./MOONCHAIN.js";
-import { MOONRIVER } from "./MOONRIVER.js";
 import { MORPH } from "./MORPH.js";
 import { NEO_X } from "./NEO_X.js";
 import { NEON } from "./NEON.js";
@@ -255,9 +253,7 @@ export const chains = {
   MOCA,
   MODE,
   MONAD,
-  MOONBEAM,
   MOONCHAIN,
-  MOONRIVER,
   MORPH,
   NEO_X,
   NEON,

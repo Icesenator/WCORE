@@ -294,21 +294,8 @@ const kaia: Chain = {
   blockExplorers: { default: { name: "Kaia Explorer", url: "https://kaiascope.com" } },
 };
 
-const moonbeam: Chain = {
-  id: 1284,
-  name: "Moonbeam",
-  nativeCurrency: { name: "Glimmer", symbol: "GLMR", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.api.moonbeam.network", "https://moonbeam.drpc.org", "https://1284.rpc.thirdweb.com"] }, public: { http: ["https://rpc.api.moonbeam.network", "https://moonbeam.drpc.org", "https://1284.rpc.thirdweb.com"] } },
-  blockExplorers: { default: { name: "Moonbeam Explorer", url: "https://moonscan.io" } },
-};
-
-const moonriver: Chain = {
-  id: 1285,
-  name: "Moonriver",
-  nativeCurrency: { name: "Moonriver", symbol: "MOVR", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.api.moonriver.moonbeam.network", "https://moonriver.drpc.org", "https://1285.rpc.thirdweb.com"] }, public: { http: ["https://rpc.api.moonriver.moonbeam.network", "https://moonriver.drpc.org", "https://1285.rpc.thirdweb.com"] } },
-  blockExplorers: { default: { name: "Moonriver Explorer", url: "https://moonriver.moonscan.io" } },
-};
+// Moonbeam (1284) and Moonriver (1285) retired in 2026 (networks stopped): no chain definition,
+// so wagmi can neither switch to them nor add them (wallet_addEthereumChain).
 
 const astar: Chain = {
   id: 592,
@@ -542,7 +529,7 @@ const wagmiConnectors = [
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
-    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     moonbeam, moonriver, astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
+    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swellchain, swan, vana, story, arc, moca, elysium, somnia, etherlink, arbitrumNova, dbkchain],
   // as any needed — wagmi connector types mismatch with custom chain list
@@ -608,8 +595,6 @@ export const config = createConfig({
     [cronos.id]: http(),
     [fuse.id]: http(),
     [kaia.id]: http(),
-    [moonbeam.id]: http(),
-    [moonriver.id]: http(),
     [astar.id]: http(),
     [aurora.id]: http(),
     [metis.id]: http(),

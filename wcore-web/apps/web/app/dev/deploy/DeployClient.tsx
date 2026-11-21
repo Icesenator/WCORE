@@ -30,9 +30,7 @@ export function gmRpcUnavailableForSelection(
 }
 
 const DEPLOYED = new Set(getActiveFactoryChains());
-const DEFAULT_IMPLEMENTATIONS: Record<string, string> = {
-  moonbeam: "0x50f43583d89979b9dade753caadd53894f5cdbcc",
-};
+const DEFAULT_IMPLEMENTATIONS: Record<string, string> = {};
 
 // Subset of chainList we expose in the deploy dropdown. Source of truth lives in @wcore/core —
 // adding/renaming a chain there is automatically picked up here, eliminating the chainId-drift
@@ -47,7 +45,7 @@ const DEPLOY_CHAIN_KEYS = [
   "APPCHAIN", "CAMP", "CYBER", "ZIRCUIT",
   "OPENLEDGER", "STABLE", "TAC", "MITOSIS", "CITREA",
   // EVM-compatible majors
-  "CRONOS", "FUSE", "KAIA", "MOONBEAM", "MOONRIVER", "ASTAR", "AURORA",
+  "CRONOS", "FUSE", "KAIA", "ASTAR", "AURORA",
   "METIS", "BOBA", "ROOTSTOCK", "PULSECHAIN", "KCC", "CORE", "FLARE",
   "XDC", "X_LAYER", "CONFLUX", "SHIBARIUM", "BEAM", "RONIN",
   "OPBNB", "MERLIN", "MANTA_PACIFIC", "TAIKO_ALETHIA", "PLASMA",
@@ -106,8 +104,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   CRONOS: { name: "Cronos", chainId: 25 },
   FUSE: { name: "Fuse", chainId: 122 },
   KAIA: { name: "Kaia", chainId: 8217 },
-  MOONBEAM: { name: "Moonbeam", chainId: 1284 },
-  MOONRIVER: { name: "Moonriver", chainId: 1285 },
   ASTAR: { name: "Astar", chainId: 592 },
   AURORA: { name: "Aurora", chainId: 1313161554 },
   METIS: { name: "Metis", chainId: 1088 },

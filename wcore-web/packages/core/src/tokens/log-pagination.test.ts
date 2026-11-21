@@ -336,7 +336,7 @@ test("coexistence : fenêtre des chaînes paginées (plancher MIN_LOG_SCAN_BLOCK
 });
 
 test("négatif : les autres chaînes, bornées ou non, ne changent pas de mode", () => {
-  for (const key of ["ETHEREUM", "BASE", "CITREA", "HYPEREVM", "MONAD", "MOONBEAM", "SWAN", "NOT_A_CHAIN"]) {
+  for (const key of ["ETHEREUM", "BASE", "CITREA", "HYPEREVM", "MONAD", "MORPH", "SWAN", "NOT_A_CHAIN"]) {
     assert.equal(resolveLogPagination(key).paginate, false, key);
   }
 });

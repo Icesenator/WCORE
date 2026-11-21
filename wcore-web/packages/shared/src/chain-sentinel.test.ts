@@ -141,6 +141,42 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
   it("couverture : ZetaChain et Neon ont une echeance de source officielle", () => {
     expect(officialSourceCoverage(["zetachain", "neon"]).withOfficialSource).toBe(2);
   });
+  it("Moonbeam : GLMR a migrer vers Base avant le 31/07/2026, echeance passee => P0 FUNDS_STRANDED, source officielle", () => {
+    const r = get("moonbeam");
+    expect(r.chainId).toBe(1284);
+    expect(r.status).toBe("RETIRED");
+    expect(r.successorChainId).toBe(8453);
+    expect(r.deadlines.map((d) => d.kind)).toEqual(["BRIDGE_WITHDRAW_LAST"]);
+    expect(r.recoveryAfterShutdown).toBe("UNKNOWN");
+    const a = evaluateChain(r, pos("GLMR"), NOW)!;
+    expect(a.code).toBe("FUNDS_STRANDED_AFTER_SHUTDOWN");
+    expect(a.severity).toBe("P0");
+    expect(a.deadlineKind).toBe("BRIDGE_WITHDRAW_LAST");
+    expect(a.deadlineApproximate).toBe(true);
+    expect(a.actionByMs).toBe(Date.parse("2026-07-31T00:00:00Z"));
+    expect(a.officialSourceUrls).toEqual(["https://moonbeam.network/news/moonbeam-strategic-update-moonbeam-network-relaunches-on-base"]);
+  });
+  it("Moonriver : MOVR a migrer vers Base avant le 31/07/2026, aucune date non confirmee par la page", () => {
+    const r = get("moonriver");
+    expect(r.chainId).toBe(1285);
+    expect(r.status).toBe("RETIRED");
+    expect(r.successorChainId).toBe(8453);
+    expect(r.deadlines.map((d) => d.kind)).toEqual(["BRIDGE_WITHDRAW_LAST"]);
+    expect(r.recoveryAfterShutdown).toBe("UNKNOWN");
+    const a = evaluateChain(r, pos("MOVR"), NOW)!;
+    expect(a.code).toBe("FUNDS_STRANDED_AFTER_SHUTDOWN");
+    expect(a.severity).toBe("P0");
+    expect(a.actionByMs).toBe(Date.parse("2026-07-31T00:00:00Z"));
+    expect(a.officialSourceUrls).toEqual(["https://moonbeam.network/news/moonriver-strategic-update-movr-is-migrating-to-base"]);
+    expect(r.deadlines.some((d) => d.at.startsWith("2026-09-30"))).toBe(false);
+  });
+  it("Moonbeam et Moonriver : traduction anglaise de la note et des editeurs fournie", () => {
+    for (const k of ["moonbeam", "moonriver"]) {
+      const r = get(k);
+      expect(r.recoveryNoteEn).toBeTruthy();
+      expect(Object.values(r.sources).every((s) => !!s.publisherEn)).toBe(true);
+    }
+  });
   it("aucune chaine du registre n a d identifiant en double, 1625 et 127001 distincts", () => {
     const ids = VERIFIED_LIFECYCLE_REGISTRY.map((r) => r.chainId);
     expect(new Set(ids).size).toBe(ids.length);

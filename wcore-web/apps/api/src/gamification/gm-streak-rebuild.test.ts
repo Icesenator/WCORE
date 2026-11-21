@@ -4,7 +4,7 @@ import { rebuildChainStreakFromOnchain } from "./gm-streak-rebuild.js";
 
 const USER = "0x17d518736ee9341dcdc0a2498e013d33cfcdd080";
 const CONTRACT = "0xc9fd9b0b3936916b12a91bacd2267a8750cd99ad";
-const CHAIN = "MOONRIVER";
+const CHAIN = "CRONOS";
 const GM_EVENT_SIG = "0x1374bba5cce7233cce0d4275e8dd0bc1b0ef510fb043198247fc3cb179f8189d";
 
 function topicAddress(address: string): string {

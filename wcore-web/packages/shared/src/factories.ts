@@ -42,8 +42,6 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   cronos: { address: "0xef4e94691589224a92e26741e098a3cbcd63d169", chainId: 25 },
   fuse: { address: "0x14716e9e0d8a6b671ae21d8d0fc22a79427adb0e", chainId: 122 },
   kaia: { address: "0x4216e11295c2727d5255ac73100031e5ad211b1e", chainId: 8217 },
-  moonbeam: { address: "0x3fa756f1da5027a8ff692b2d65dface8eb446aaf", chainId: 1284 },
-  moonriver: { address: "0x5472f231a017ce1f03ccdfb2325a7d6a90b07de1", chainId: 1285 },
   astar: { address: "0x22606f8bb6a2419289583e7629fea788ece92ba7", chainId: 592 },
   aurora: { address: "0x3352c8ff0b225760cfb63840c212d39771cc1c59", chainId: 1313161554 },
   metis: { address: "0x493d13b68fcaf08a5036b185c29a08f22046cf0e", chainId: 1088 },
@@ -239,4 +237,8 @@ export const GM_HISTORICAL_FACTORIES: Record<string, { address: string; chainId:
   // contracts; it is not an active factory.
   // Factory implementation() → 0x2ae71ff47b8beab5d8f6ad1411d787f5d4cfb3fa (GmOnChain impl, 2237 bytes).
   gravity: { address: "0x8d0cf2c602efdc3b696341cc03ec62e813771c48", chainId: 1625 },
+  // Moonbeam (GLMR migre vers Base, 2026-07-31) et Moonriver (reseau fige depuis le 2026-08-10) : kept for the owners
+  // of deployed contracts; they are not active factories.
+  moonbeam: { address: "0x3fa756f1da5027a8ff692b2d65dface8eb446aaf", chainId: 1284 },
+  moonriver: { address: "0x5472f231a017ce1f03ccdfb2325a7d6a90b07de1", chainId: 1285 },
 };

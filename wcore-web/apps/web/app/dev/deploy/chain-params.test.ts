@@ -24,11 +24,11 @@ test("buildAddEthereumChainParams returns null for an unknown chainId", () => {
   assert.equal(buildAddEthereumChainParams(999999999), null);
 });
 
-test("buildAddEthereumChainParams for Moonbeam (GM chain) returns GLMR", () => {
-  const params = buildAddEthereumChainParams(1284);
-  assert.ok(params, "Moonbeam should be in deploy chain params");
-  assert.equal(params?.chainId, "0x504");
-  assert.equal(params?.nativeCurrency.symbol, "GLMR");
+test("buildAddEthereumChainParams for Cronos (GM chain) returns CRO", () => {
+  const params = buildAddEthereumChainParams(25);
+  assert.ok(params, "Cronos should be in deploy chain params");
+  assert.equal(params?.chainId, "0x19");
+  assert.equal(params?.nativeCurrency.symbol, "CRO");
 });
 
 test("buildAddEthereumChainParams for PulseChain returns PLS", () => {

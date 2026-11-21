@@ -23,7 +23,7 @@ test("lsAnyGmDoneToday detects any chain marked done today", () => {
 test("lsGmDone matches chain keys case-insensitively", () => {
   const today = new Date().toISOString().slice(0, 10);
   const values: Record<string, string> = {
-    wc_gm_onchain_chains: JSON.stringify({ MOONRIVER: today }),
+    wc_gm_onchain_chains: JSON.stringify({ CRONOS: today }),
   };
   const previousWindow = globalThis.window;
   Object.defineProperty(globalThis, "window", {
@@ -32,7 +32,7 @@ test("lsGmDone matches chain keys case-insensitively", () => {
   });
 
   try {
-    assert.equal(lsGmDone("moonriver"), true);
+    assert.equal(lsGmDone("cronos"), true);
   } finally {
     Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
   }
@@ -52,10 +52,10 @@ test("lsSetGmDone stores canonical lowercase chain keys", () => {
   });
 
   try {
-    lsSetGmDone("MOONRIVER");
+    lsSetGmDone("CRONOS");
     const stored = JSON.parse(values.wc_gm_onchain_chains ?? "{}") as Record<string, string>;
-    assert.equal(Boolean(stored.moonriver), true);
-    assert.equal(Boolean(stored.MOONRIVER), false);
+    assert.equal(Boolean(stored.cronos), true);
+    assert.equal(Boolean(stored.CRONOS), false);
   } finally {
     Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
   }

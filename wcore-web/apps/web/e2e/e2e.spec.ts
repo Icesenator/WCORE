@@ -23,8 +23,8 @@ test.describe("WCORE E2E", () => {
     const input = page.locator('input[placeholder*="Search"]');
     await expect(input).toBeVisible();
     // Verify search filters the extended list
-    await input.fill("Moonbeam");
-    await expect(page.locator('div:has(> input[placeholder*="Search"])').getByText('Moonbeam', { exact: true })).toBeVisible();
+    await input.fill("Astar");
+    await expect(page.locator('div:has(> input[placeholder*="Search"])').getByText('Astar', { exact: true })).toBeVisible();
   });
 
   // 3. Scan wallet EVM standard (requires live API with DB — skipped in local dev)

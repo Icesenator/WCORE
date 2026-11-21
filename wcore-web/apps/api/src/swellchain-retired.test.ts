@@ -5,7 +5,7 @@ import { ChainKey } from "./schemas.js";
 import { buildGmStatusResponse } from "./gamification/gm-routes.js";
 import { filterHistoricalContracts, filterUnsupportedGmChains } from "./gamification/gm-contracts.js";
 
-// Swellchain (1923) : retirée le 2026-11-21 (réseau arrêté le 2026-06-30, retraits clos le 2026-06-15).
+// Swellchain (1923) : retirée le 2026-11-21 (arrêt annoncé pour le 2026-06-30, retraits clos le 2026-06-15).
 // Modèle : moonbeam-moonriver-retired.test.ts.
 const CONTRACT = "0x3000000000000000000000000000000000000003";
 

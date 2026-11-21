@@ -6,7 +6,7 @@ import {
   type ChainLifecycleRecord, type ExposureInput, type SentinelAlert,
 } from "@wcore/shared";
 import { isPublicHttp } from "../lib/safe-http.js";
-import { runAnnouncementWatch, type WatchSource } from "./sentinel-watch.js";
+import { runAnnouncementWatch, saveWatchState, type WatchSource, type WatchStateMap } from "./sentinel-watch.js";
 import { WATCH_SOURCES } from "./sentinel-watch-sources.js";
 
 /**
@@ -34,7 +34,7 @@ export const SENTINEL_KEYS = {
 
 export interface SourceState { url: string; sha256: string | null; checkedAt: string; status: "OK" | "CHANGED" | "CHECK_FAILED"; httpStatus?: number; error?: string }
 export interface Proposal { id: string; chainKey: string; sourceId: string; url: string; previousSha256: string | null; newSha256: string; detectedAt: string; status: "PENDING_ADMIN_REVIEW" | "APPROVED" | "REJECTED"; decidedAt?: string; note?: string; kind?: "SOURCE_CHANGED" | "ANNOUNCEMENT_KEYWORD"; snippet?: string }
-export interface SentinelHealth { lastRunAt: string | null; lastSuccessAt: string | null; sourcesChecked: number; sourcesFailed: number; proposalsCreated: number; lastError: string | null }
+export interface SentinelHealth { lastRunAt: string | null; lastSuccessAt: string | null; sourcesChecked: number; sourcesFailed: number; proposalsCreated: number; lastError: string | null; watchChecked?: number; watchFailed?: number }
 export interface RegistryState { version: number; records: ChainLifecycleRecord[]; updatedAt: string }
 
 export type SentinelFetch = (url: string) => Promise<{ status: number; text: string }>;
@@ -144,14 +144,19 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
         }
       }
     }
-    // Veille des annonces : un echec ici ne doit pas faire perdre la collecte des sources du registre.
+    // Veille des annonces : un echec ici ne doit pas faire perdre la collecte des sources du registre,
+    // ni fausser la sante (calculee sur les seules sources du registre, source de verite).
+    let watchState: WatchStateMap | null = null;
     try {
       const watch = await runAnnouncementWatch(deps.store, deps.fetchText, now, deps.watchSources ?? WATCH_SOURCES);
-      health.sourcesChecked += watch.checked; health.sourcesFailed += watch.failed;
+      health.watchChecked = watch.checked; health.watchFailed = watch.failed;
       for (const p of watch.proposals) if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); health.proposalsCreated++; }
+      watchState = watch.state;
     } catch { /* la veille est un plus : le registre reste la source de verite */ }
     await deps.store.set(SENTINEL_KEYS.sources, sources);
     await deps.store.set(SENTINEL_KEYS.proposals, proposals);
+    // L'etat « deja vu » n'est ecrit qu'apres les propositions : une panne de stockage ne perd pas une annonce.
+    if (watchState) await saveWatchState(deps.store, watchState);
     // Succes = au moins une source officielle relue ; tout en echec n est pas un succes.
     if (health.sourcesChecked > 0 && health.sourcesFailed < health.sourcesChecked) health.lastSuccessAt = iso(now);
     else health.lastError = "ALL_SOURCES_FAILED";

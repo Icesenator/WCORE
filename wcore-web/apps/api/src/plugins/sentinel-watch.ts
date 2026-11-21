@@ -25,12 +25,14 @@ import type { Proposal } from "./sentinel.js";
 export interface WatchSource { chainKey: string; url: string; publisher: string }
 
 export const WATCH_KEY = "sentinel:v1:watch";
-const MAX_SEEN = 300;
+const MAX_SEEN = 600;
 const DISPLAY_CONTEXT = 80;
 const HASH_CONTEXT = 30;
 const MAX_PROPOSALS_PER_SOURCE = 5;
 const MAX_TEXT = 2_000_000;
 const BATCH = 5;
+/** Au-dela, les pages restantes sont relevees a la passe suivante : la passe reste sous le verrou de 10 min. */
+const DEADLINE_MS = 4 * 60_000;
 
 // Vocabulaire de fermeture/migration (anglais, langue des annonces officielles).
 const KEYWORDS = /\b(sunset\w*|shut(?:ting)?[ -]?down|wind(?:ing)?[ -]down|end[ -]of[ -](?:life|support|service)|deprecat\w*|discontinu\w*|decommission\w*|migrat\w*|relaunch\w*|cease[sd]? operations?|final(?:ly)? withdraw\w*|withdrawal deadline)\b/gi;
@@ -102,12 +104,25 @@ export async function runAnnouncementWatch(
           kind: "ANNOUNCEMENT_KEYWORD", snippet: snippet.slice(0, 400),
         });
       }
-    }
-    const merged = [...(prev?.seen ?? []), ...found.map((f) => f.hash).filter((h) => !seen.has(h))];
+      // Surplus : une seule proposition de synthese, jamais un abandon silencieux.
+      const rest = fresh.slice(MAX_PROPOSALS_PER_SOURCE);
+      if (rest.length) {
+        const h = sha(rest.map((r) => r.hash).join(",")).slice(0, 16);
+        result.proposals.push({
+          id: `${src.chainKey}:watch:more:${h}`, chainKey: src.chainKey, sourceId: "watch", url: src.url,
+          previousSha256: null, newSha256: h, detectedAt: iso, status: "PENDING_ADMIN_REVIEW",
+          kind: "ANNOUNCEMENT_KEYWORD", snippet: `(+${rest.length} autres passages nouveaux, par ex.) ${rest[0]!.snippet}`.slice(0, 400),
+        });
+      }
+    }    const merged = [...(prev?.seen ?? []), ...found.map((f) => f.hash).filter((h) => !seen.has(h))];
     state[key] = { seen: merged.slice(-MAX_SEEN), checkedAt: iso };
   };
   // Lots de BATCH pages en parallele : la passe reste courte face au verrou de la collecte.
-  for (let i = 0; i < sources.length; i += BATCH) await Promise.all(sources.slice(i, i + BATCH).map(one));
+  const t0 = Date.now();
+  for (let i = 0; i < sources.length; i += BATCH) {
+    if (Date.now() - t0 > DEADLINE_MS) break;
+    await Promise.all(sources.slice(i, i + BATCH).map(one));
+  }
   return result;
 }
 

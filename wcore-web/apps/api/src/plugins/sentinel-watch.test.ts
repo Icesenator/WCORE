@@ -85,7 +85,8 @@ describe("robustesse (relecture PR 182)", () => {
     await run(store, f, NOW);
     items = Array.from({ length: 20 }, (_, i) => `Item ${"x".repeat(i + 1)} will be deprecated by vendor ${"y".repeat(i * 7)} and shut down`);
     const r = await run(store, f, NOW + 3600_000);
-    assert.ok(r.proposals.length <= 5);
+    assert.ok(r.proposals.length >= 1 && r.proposals.length <= 6);
+    assert.ok(r.proposals.some((p) => p.id.includes(":watch:more:")), "le surplus est signale par une synthese");
     const again = await run(store, f, NOW + 7200_000);
     assert.equal(again.proposals.length, 0);
   });

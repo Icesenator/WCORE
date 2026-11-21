@@ -276,7 +276,7 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
     if (decision === "APPROVED") {
       const rec = req.body?.record;
       // Validation minimale : meme chaine, dates ISO valides, au moins une source officielle par echeance.
-      if (!rec || rec.chainKey !== p.chainKey || !Array.isArray(rec.deadlines) || rec.deadlines.some((d) => !Number.isFinite(Date.parse(d.at)) || !d.sourceIds?.some((s) => rec.sources?.[s]?.official))) {
+      if (!rec || rec.chainKey !== p.chainKey || !Array.isArray(rec.deadlines) || rec.deadlines.length === 0 || !rec.sources || typeof rec.sources !== "object" || rec.deadlines.some((d) => !Number.isFinite(Date.parse(d.at)) || !d.sourceIds?.some((s) => rec.sources?.[s]?.official))) {
         return reply.code(400).send({ error: "invalid_record" });
       }
       // Revue securite M1 (2026-11-08) : toute URL de source doit etre https et publique (anti-SSRF au stockage,

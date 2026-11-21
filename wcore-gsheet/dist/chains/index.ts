@@ -80,7 +80,6 @@ import { LAYERAI } from "./LAYERAI.js";
 import { LENS } from "./LENS.js";
 import { LIGHTLINK } from "./LIGHTLINK.js";
 import { LINEA } from "./LINEA.js";
-import { LISK } from "./LISK.js";
 import { LORENZO } from "./LORENZO.js";
 import { LUMIO } from "./LUMIO.js";
 import { MANTA_PACIFIC } from "./MANTA_PACIFIC.js";
@@ -236,7 +235,6 @@ export const chains = {
   LENS,
   LIGHTLINK,
   LINEA,
-  LISK,
   LORENZO,
   LUMIO,
   MANTA_PACIFIC,

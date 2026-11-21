@@ -32,7 +32,7 @@ describe("coverage stats", () => {
     assert.equal(stats.cexProviderCount, CEX_PROVIDERS.length);
     assert.equal(stats.gmEnabledChainCount, Object.keys(GM_FACTORIES).length);
     assert.equal(stats.cexProviderCount, 7);
-    assert.equal(stats.chainConfigCount, 154); // Superseed 5330, B3 Mainnet 8333, Moonbeam 1284, Moonriver 1285, Swellchain 1923 et ZERO Network 543210 retirés ; Elysium Kinetiq 99901 ajouté (2026-11-10).
+    assert.equal(stats.chainConfigCount, 153); // Superseed 5330, B3 Mainnet 8333, Moonbeam 1284, Moonriver 1285, Swellchain 1923, ZERO Network 543210 et Lisk 1135 retirés ; Elysium Kinetiq 99901 ajouté (2026-11-10).
     assert.notEqual(stats.chainConfigCount, 325);
   });
 

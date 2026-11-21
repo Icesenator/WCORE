@@ -73,7 +73,7 @@ Write-Host ""
 # ============================================================================
 # 19_CHAIN_FACTORY.gs leve CHAIN_REMOVED dans ChainFactory.createEvmChain pour
 # les noms de WCORE_REMOVED_CHAINS (c'est la seule fabrique qui leve: Ton, Svm
-# et Cosmos ne levent pas). Un fichier de chaine retiree (LISK.gs, GRAVITY.gs)
+# et Cosmos ne levent pas). Un fichier de chaine retiree (GRAVITY.gs)
 # appelle cette fabrique au chargement: publie, il ferait echouer le chargement
 # de tout le script et plus rien ne fonctionnerait dans le classeur.
 #

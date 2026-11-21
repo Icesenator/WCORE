@@ -11,7 +11,7 @@ test("every published chain satisfies the runtime schema", () => {
       : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
   });
 
-  assert.equal(chainList.length, 154, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(chainList.length, 153, "registry count changed: update the verified roadmaps with the same commit");
 
   assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
   assert.deepEqual(failures, []);
@@ -68,11 +68,9 @@ test("Elysium is Kinetiq's mainnet (99901), with HYPE priced like HyperEVM", () 
   assert.equal(chainList.some((c) => c.CHAIN?.CHAIN_ID === 1339 || c.CHAIN?.CHAIN_ID === 99801), false);
 });
 
-test("Lisk L2 (1135) stays in the registry so Chain Sentinel can still show held exposure", () => {
-  // The network is shut down and the GAS tombstone stops every Sheets scan, but Chain Sentinel
-  // reads exposure through this registry: removing Lisk here would turn a held claim
-  // (manual claims announced for January 2027) into NOT_COVERED. Same treatment as Gravity.
-  assert.equal(getChain("LISK")?.CHAIN?.CHAIN_ID, 1135);
+test("Lisk L2 (1135) is no longer an active chain of the registry (retired 2026-11-21)", () => {
+  assert.equal(getChain("LISK"), undefined);
+  assert.equal(chainList.some((c) => Number(c.CHAIN?.CHAIN_ID) === 1135), false);
 });
 
 test("Abstract native ETH pricing uses the Ethereum oracle ids", () => {

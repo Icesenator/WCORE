@@ -139,3 +139,16 @@ Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter s
 - **Aucun onglet `Ledger - ZERO` dans le classeur** : aucun onglet à retirer ni à archiver. Le cache WalletCache `ZERO_CACHE_*` éventuel est conservé (preuve de détention).
 - **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Non fait (aucune publication dans ce lot).
 - Test : `wcore-gsheet/tests/zero-retired.test.js`.
+
+# Lisk — retrait du traitement actif (tombstone LIVE v4.15.52), alignement du dépôt 2026-11-21
+
+| Chaîne | chainId | Constat | Cause du retrait |
+|---|---|---|---|
+| Lisk (L2) | 1135 | réseau arrêté le 2026-11-02 ; Portal et Bridge fermés | Annonce officielle de fermeture de Lisk Chain ; réclamation manuelle annoncée pour janvier 2027 (détails à venir, aucune garantie). |
+
+- **Sources** : https://lisk.com/blog/posts/lisk-chain-has-closed (fermeture) et https://lisk.com/blog/posts/introducing-the-new-lisk/ (nouveau Lisk).
+- **Même mécanisme que Moonbeam, Moonriver, Swellchain et ZERO** : tombstone `_wcoreRemovedChain_` (`LISK`, `1135`, `0X46F` et les noms d'onglet `Ledger - Lisk`, avec ou sans `Crypto`) dans `WCORE_REMOVED_CHAINS` ; formules `[CHAIN_REMOVED]` sans nombre. Le jeton LSK sur Ethereum n'est pas concerné (chaîne ETHEREUM inchangée).
+- **Fichier `LISK.gs` conservé** (réduit aux formules, identique au LIVE) : safe-push ne supprime pas de fichier distant.
+- **Onglet `Ledger - Lisk`** : supprimé d'Invest 2.0 après archive privée (LIVE, 2026-11-10). Le cache WalletCache `LISK_CACHE_*` est conservé comme preuve de détention (réclamation de janvier 2027) ; le solde n'est jamais remis à zéro.
+- **Écart repo/LIVE restant** : le LIVE garde `LISK` / `1135` dans les listes `21_DASHBOARD.gs`, `25_RPC_HEALTH_REPORT.gs`, `27_ACTIVITY_REFRESH.gs`, `33_DYNAMIC_RPC.gs`, et n'a pas de noms `ledger - lisk` dans `LEDGER_RETIRED_NAMES` (`17_LISTING.gs`). Le dépôt est resté identique au LIVE sur ces fichiers ; leur retrait est à publier dans un lot séparé (voir les deux tests `todo` de `lisk-retired.test.js`).
+- Test : `wcore-gsheet/tests/lisk-retired.test.js`.

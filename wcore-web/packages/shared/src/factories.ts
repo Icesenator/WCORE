@@ -134,10 +134,6 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // London (baseFeePerGas present) → standard build, no Paris fallback needed.
   // Factory implementation() → 0xc27fd79fad7cde5da93b562fdd0bd60838fe8323 (GmOnChain impl, 2237 bytes).
   reya: { address: "0x77f13c4522f0c5524ac53397ae8ec75613bc16ad", chainId: 1729 },
-  // Swell Chain mainnet (ETH L2). Shanghai-capable (factory 1696 bytes, 61 PUSH0) and
-  // London (baseFeePerGas present) → standard build, no Paris fallback needed.
-  // Factory implementation() → 0xaaf9c75f5cc4c8b001f2562173993445ed8946fa (GmOnChain impl, 2237 bytes).
-  swellchain: { address: "0x3177892304a1b928f34b054e280cd77a0e83872a", chainId: 1923 },
   // Swan mainnet (ETH L2). Shanghai-capable (factory 1696 bytes, 61 PUSH0) and
   // London (baseFeePerGas present) → standard build, no Paris fallback needed.
   // Factory implementation() → 0x5cd87d2fdbdbbd1a46db7ccc42f4be5c73cc16d7 (GmOnChain impl, 2237 bytes).
@@ -241,4 +237,7 @@ export const GM_HISTORICAL_FACTORIES: Record<string, { address: string; chainId:
   // of deployed contracts; they are not active factories.
   moonbeam: { address: "0x3fa756f1da5027a8ff692b2d65dface8eb446aaf", chainId: 1284 },
   moonriver: { address: "0x5472f231a017ce1f03ccdfb2325a7d6a90b07de1", chainId: 1285 },
+  // Swellchain (arretee le 2026-06-30 selon Swell, depots coupes le 2026-05-05, retraits jusqu'au 2026-06-15) : kept for the
+  // owners of deployed contracts; it is not an active factory.
+  swellchain: { address: "0x3177892304a1b928f34b054e280cd77a0e83872a", chainId: 1923 },
 };

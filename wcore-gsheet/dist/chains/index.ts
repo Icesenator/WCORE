@@ -136,7 +136,6 @@ import { STEP_NETWORK } from "./STEP_NETWORK.js";
 import { STORY } from "./STORY.js";
 import { STRIDE } from "./STRIDE.js";
 import { SWAN } from "./SWAN.js";
-import { SWELLCHAIN } from "./SWELLCHAIN.js";
 import { TAC } from "./TAC.js";
 import { TAIKO_ALETHIA } from "./TAIKO_ALETHIA.js";
 import { TARAXA } from "./TARAXA.js";
@@ -294,7 +293,6 @@ export const chains = {
   STORY,
   STRIDE,
   SWAN,
-  SWELLCHAIN,
   TAC,
   TAIKO_ALETHIA,
   TARAXA,

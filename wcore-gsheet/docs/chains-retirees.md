@@ -111,3 +111,16 @@ Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter s
 - **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Faite le 2026-11-21, les deux lignes ont quitté le Recap et `Strat!BL1` est repassé sous 6 h.
 - **Archive privée** des deux onglets (valeurs et formules) : `WCORE-Private-Archives/chains-retirees/*-20261121.json`. Onglets **non supprimés** tant que Florian n'a pas validé l'archive.
 - Test : `wcore-gsheet/tests/moon-chains-retired.test.js`.
+
+# Swellchain — retrait du traitement actif, 2026-11-21
+
+| Chaîne | chainId | Constat | Cause du retrait |
+|---|---|---|---|
+| Swellchain | 1923 | arrêtée le 2026-06-30 (FAQ de l'annonce) | Annonce du 2026-04-28 « Sunsetting Swellchain: From L2 to Faro » : dépôts coupés le 2026-05-05, date limite de retrait le 2026-06-15 ; aucune récupération officielle après le 2026-06-15. |
+
+- **Source** : https://www.swellnetwork.io/post/sunsetting-swellchain-from-l2-to-faro (annonce officielle de Swell Network). Aucun successeur de chaîne cité.
+- **Même mécanisme que Moonbeam et Moonriver** : tombstone `_wcoreRemovedChain_` (`SWELLCHAIN`, `1923`, `0x783` et les noms d'onglet `Ledger - Swellchain` / `Ledger - Swell Chain`, avec ou sans `Crypto`) ; formules `[CHAIN_REMOVED]` sans nombre ; retrait des listes (Dashboard, santé RPC, `BUILD_RPC_LOOKUP`, RPC dynamiques) ; noms retirés dans `LEDGER_RETIRED_NAMES`.
+- **Fichier `SWELLCHAIN.gs` conservé** (réduit aux formules) : safe-push ne supprime pas de fichier distant. Le jeton SWELL n'est pas concerné.
+- **Aucun onglet `Ledger - Swellchain` dans le classeur** : aucun onglet à retirer ni à archiver. Le cache WalletCache `SWELLCHAIN_CACHE_*` éventuel est conservé (preuve de détention).
+- **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Non fait (aucune publication dans ce lot).
+- Test : `wcore-gsheet/tests/swellchain-retired.test.js`.

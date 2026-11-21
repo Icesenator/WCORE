@@ -418,12 +418,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
     rpcUrls: ["https://rpc.reya.network", "https://reya.drpc.org", "https://1729.rpc.thirdweb.com"],
   },
-  SWELLCHAIN: {
-    chainId: "0x783",
-    chainName: "Swell Chain",
-    nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://swell.drpc.org", "https://rpc.ankr.com/swell"],
-  },
   SWAN: {
     chainId: "0xfe",
     chainName: "Swan",
@@ -628,7 +622,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   2818, // MORPH
   31612, // MEZO
   1729, // REYA
-  1923, // SWELLCHAIN
   254, // SWAN
   1480, // VANA
   1514, // STORY

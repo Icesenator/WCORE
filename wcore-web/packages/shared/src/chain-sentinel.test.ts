@@ -170,6 +170,21 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     expect(a.officialSourceUrls).toEqual(["https://moonbeam.network/news/moonriver-strategic-update-movr-is-migrating-to-base"]);
     expect(r.deadlines.some((d) => d.at.startsWith("2026-09-30"))).toBe(false);
   });
+  it("Swellchain : retraits clos le 15/06/2026, arret le 30/06/2026, aucune recuperation officielle, source officielle", () => {
+    const r = get("swellchain");
+    expect(r.chainId).toBe(1923);
+    expect(r.status).toBe("RETIRED");
+    expect(r.successorChainId).toBeUndefined();
+    expect(r.deadlines.map((d) => d.kind)).toEqual(["BRIDGE_WITHDRAW_LAST", "NETWORK_SHUTDOWN"]);
+    expect(r.deadlines.every((d) => d.approximate === true)).toBe(true);
+    expect(r.recoveryAfterShutdown).toBe("NOT_AVAILABLE");
+    expect(Object.values(r.sources).map((s) => s.url)).toEqual(["https://www.swellnetwork.io/post/sunsetting-swellchain-from-l2-to-faro"]);
+    expect(Object.values(r.sources).every((s) => s.official === true && !!s.publisherEn)).toBe(true);
+    expect(r.recoveryNoteEn).toBeTruthy();
+    const a = evaluateChain(r, pos("ETH"), NOW)!;
+    expect(a.severity).toBe("P0");
+    expect(a.officialSourceUrls).toEqual(["https://www.swellnetwork.io/post/sunsetting-swellchain-from-l2-to-faro"]);
+  });
   it("Moonbeam et Moonriver : traduction anglaise de la note et des editeurs fournie", () => {
     for (const k of ["moonbeam", "moonriver"]) {
       const r = get(k);

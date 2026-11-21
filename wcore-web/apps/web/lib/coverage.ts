@@ -35,7 +35,7 @@ function registryChainCount(): number {
       continue;
     }
   }
-  return 156;
+  return 155;
 }
 
 export function getCoverageStats(): CoverageStats {

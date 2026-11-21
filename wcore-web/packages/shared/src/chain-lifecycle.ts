@@ -13,6 +13,9 @@ const RETIRED_CHAINS: ReadonlyArray<{ label: string; code: string; ids: readonly
   // Les jetons GLMR/MOVR ne sont pas concernes : seuls la cle de chaine et les identifiants 1284/1285 figurent ici.
   { label: "Moonbeam (1284)", code: "MOONBEAM (1284)", ids: ["moonbeam", "1284", "0x504"] },
   { label: "Moonriver (1285)", code: "MOONRIVER (1285)", ids: ["moonriver", "1285", "0x505"] },
+  // Swellchain : depots coupes le 2026-05-05, retraits jusqu'au 2026-06-15, reseau arrete le 2026-06-30 (annonce Swell).
+  // Le jeton SWELL n'est pas concerne : seuls la cle de chaine et les identifiants 1923 / 0x783 figurent ici.
+  { label: "Swellchain (1923)", code: "SWELLCHAIN (1923)", ids: ["swellchain", "1923", "0x783"] },
 ];
 
 /** Tombstone code shared with GAS (`[CHAIN_REMOVED] <code>`), or null. */

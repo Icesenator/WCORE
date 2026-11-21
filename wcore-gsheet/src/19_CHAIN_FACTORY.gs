@@ -63,7 +63,10 @@ var WCORE_REMOVED_CHAINS = [
   // concerne : seuls les identifiants de la chaine 1135 figurent ici, jamais "LSK".
   { label: "Lisk (1135)", ids: ["1135", "LISK", "0X46F", "LEDGER - LISK", "LEDGER - LISK CRYPTO"] },
   { label: "Moonbeam (1284)", ids: ["1284", "MOONBEAM", "0X504", "LEDGER - MOONBEAM", "LEDGER - MOONBEAM CRYPTO"] },
-  { label: "Moonriver (1285)", ids: ["1285", "MOONRIVER", "0X505", "LEDGER - MOONRIVER", "LEDGER - MOONRIVER CRYPTO"] }
+  { label: "Moonriver (1285)", ids: ["1285", "MOONRIVER", "0X505", "LEDGER - MOONRIVER", "LEDGER - MOONRIVER CRYPTO"] },
+  // Swellchain (1923) : reseau arrete le 2026-06-30 (retraits clos le 2026-06-15). Cache conserve ; aucun onglet "Ledger - Swellchain" n existe.
+  // Le token SWELL n est PAS concerne : seuls les identifiants de la chaine 1923 figurent ici.
+  { label: "Swellchain (1923)", ids: ["1923", "SWELLCHAIN", "0X783", "LEDGER - SWELLCHAIN", "LEDGER - SWELLCHAIN CRYPTO", "LEDGER - SWELL CHAIN", "LEDGER - SWELL CHAIN CRYPTO"] }
 ];
 
 function _wcoreRemovedChainLabel_(input) {

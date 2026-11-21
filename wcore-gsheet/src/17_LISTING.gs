@@ -52,6 +52,10 @@ var LEDGER_RETIRED_NAMES = {
  "ledger - moonriver": true,
  "ledger - moonriver crypto": true,
  "ledger - redstone": true,
+ "ledger - swellchain": true,
+ "ledger - swellchain crypto": true,
+ "ledger - swell chain": true,
+ "ledger - swell chain crypto": true,
  "ledger - zero network": true
 };
 

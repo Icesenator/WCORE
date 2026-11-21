@@ -6,6 +6,8 @@ import {
   type ChainLifecycleRecord, type ExposureInput, type SentinelAlert,
 } from "@wcore/shared";
 import { isPublicHttp } from "../lib/safe-http.js";
+import { runAnnouncementWatch, type WatchSource } from "./sentinel-watch.js";
+import { WATCH_SOURCES } from "./sentinel-watch-sources.js";
 
 /**
  * Chain Sentinel — API.
@@ -31,7 +33,7 @@ export const SENTINEL_KEYS = {
 } as const;
 
 export interface SourceState { url: string; sha256: string | null; checkedAt: string; status: "OK" | "CHANGED" | "CHECK_FAILED"; httpStatus?: number; error?: string }
-export interface Proposal { id: string; chainKey: string; sourceId: string; url: string; previousSha256: string | null; newSha256: string; detectedAt: string; status: "PENDING_ADMIN_REVIEW" | "APPROVED" | "REJECTED"; decidedAt?: string; note?: string }
+export interface Proposal { id: string; chainKey: string; sourceId: string; url: string; previousSha256: string | null; newSha256: string; detectedAt: string; status: "PENDING_ADMIN_REVIEW" | "APPROVED" | "REJECTED"; decidedAt?: string; note?: string; kind?: "SOURCE_CHANGED" | "ANNOUNCEMENT_KEYWORD"; snippet?: string }
 export interface SentinelHealth { lastRunAt: string | null; lastSuccessAt: string | null; sourcesChecked: number; sourcesFailed: number; proposalsCreated: number; lastError: string | null }
 export interface RegistryState { version: number; records: ChainLifecycleRecord[]; updatedAt: string }
 
@@ -42,6 +44,8 @@ export interface SentinelDeps {
   fetchText: SentinelFetch;
   now?: () => number;
   intervalMs?: number;
+  /** Pages d'annonces a relever (defaut : WATCH_SOURCES). */
+  watchSources?: readonly WatchSource[];
 }
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -140,6 +144,12 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
         }
       }
     }
+    // Veille des annonces : un echec ici ne doit pas faire perdre la collecte des sources du registre.
+    try {
+      const watch = await runAnnouncementWatch(deps.store, deps.fetchText, now, deps.watchSources ?? WATCH_SOURCES);
+      health.sourcesChecked += watch.checked; health.sourcesFailed += watch.failed;
+      for (const p of watch.proposals) if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); health.proposalsCreated++; }
+    } catch { /* la veille est un plus : le registre reste la source de verite */ }
     await deps.store.set(SENTINEL_KEYS.sources, sources);
     await deps.store.set(SENTINEL_KEYS.proposals, proposals);
     // Succes = au moins une source officielle relue ; tout en echec n est pas un succes.

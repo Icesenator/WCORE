@@ -22,7 +22,8 @@ import type { Proposal } from "./sentinel.js";
  * - Lecture seule : aucune transaction, aucune signature.
  */
 
-export interface WatchSource { chainKey: string; url: string; publisher: string }
+/** strict : flux de versions (notes de version) ; seuls les mots d'arret sont retenus, pas « migration » ni « deprecated ». */
+export interface WatchSource { chainKey: string; url: string; publisher: string; strict?: boolean }
 
 export const WATCH_KEY = "sentinel:v1:watch";
 const MAX_SEEN = 600;
@@ -44,6 +45,9 @@ export interface WatchResult { checked: number; failed: number; proposals: Propo
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
+// Notes de version : « migrat* », « deprecat* » et « relaunch* » y sont des termes techniques courants ; seul le vocabulaire d'arret est retenu.
+const STRICT_KEYWORDS = /\b(sunset\w*|shut(?:ting)?[ -]?down|wind(?:ing)?[ -]down|end[ -]of[ -](?:life|support|service)|decommission\w*|discontinu\w*|cease[sd]? operations?|final(?:ly)? withdraw\w*|withdrawal deadline)\b/gi;
+
 /** Texte lisible d'une page : sans commentaire, script, style ni balises, espaces normalises. */
 export function visibleText(html: string): string {
   return html.slice(0, MAX_TEXT)
@@ -57,9 +61,9 @@ export function visibleText(html: string): string {
 }
 
 /** Passages (mot cle + contexte d'affichage) et leur empreinte stable. */
-export function keywordSnippets(text: string): Array<{ hash: string; snippet: string }> {
+export function keywordSnippets(text: string, strict = false): Array<{ hash: string; snippet: string }> {
   const out = new Map<string, string>();
-  for (const m of text.matchAll(KEYWORDS)) {
+  for (const m of text.matchAll(strict ? STRICT_KEYWORDS : KEYWORDS)) {
     const i = m.index ?? 0;
     const end = i + m[0].length;
     // Contexte coupe aux frontieres de bloc (« | ») : un article voisin n'entre pas dans l'empreinte.
@@ -94,7 +98,7 @@ export async function runAnnouncementWatch(
     const fail = () => { result.failed++; state[key] = { seen: state[key]?.seen ?? [], checkedAt: state[key]?.checkedAt ?? "", triedAt: iso }; };
     try { res = await fetchText(src.url); } catch { fail(); return; }
     if (res.status < 200 || res.status >= 300) { fail(); return; }
-    const found = keywordSnippets(visibleText(res.text));
+    const found = keywordSnippets(visibleText(res.text), src.strict === true);
     const prev = state[key];
     const seen = new Set(prev?.seen ?? []);
     if (prev?.checkedAt) {

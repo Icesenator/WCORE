@@ -91,6 +91,27 @@ describe("robustesse (relecture PR 182)", () => {
     assert.equal(again.proposals.length, 0);
   });
 
+  test("mode strict (flux de versions) : « migrate » et « deprecated » ignores, « sunset » retenu", () => {
+    const notes = "v1.2 Notes: this release migrates the database and deprecates the old flag. v1.3: the network will sunset on August 15.";
+    assert.ok(keywordSnippets(notes).length >= 2, "mode normal : tous les mots");
+    const strict = keywordSnippets(notes, true);
+    assert.equal(strict.length, 1);
+    assert.match(strict[0]!.snippet, /sunset/);
+  });
+
+  test("source stricte : une note de version qui parle de migration ne cree aucune proposition", async () => {
+    const store = new MemoryCacheStore();
+    const strictSrc: WatchSource[] = [{ chainKey: "x", url: "https://example.test/releases.atom", publisher: "X", strict: true }];
+    let items = ["v1.0 bug fixes"];
+    const f = fetchOf(() => page(items));
+    const go = async (now: number) => { const r = await runAnnouncementWatch(store, f, now, strictSrc); await saveWatchState(store, r.state); return r; };
+    await go(NOW);
+    items = ["v1.1 migrates the database schema and deprecates the legacy flag", ...items];
+    assert.equal((await go(NOW + 3600_000)).proposals.length, 0);
+    items = ["v1.2 the network will sunset on August 15", ...items];
+    assert.equal((await go(NOW + 7200_000)).proposals.length, 1);
+  });
+
   test("commentaire HTML ignore", () => {
     assert.equal(keywordSnippets(visibleText("<!-- migrate now --><p>Hello</p>")).length, 0);
   });

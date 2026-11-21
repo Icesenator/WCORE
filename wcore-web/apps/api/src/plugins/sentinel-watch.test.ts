@@ -115,6 +115,13 @@ describe("robustesse (relecture PR 182)", () => {
     assert.match(s[0]!.snippet, /shut down/);
   });
 
+  test("flux Atom : « &lt; » de texte brut sans balise ne coupe pas la suite ; un lien dans la phrase ne cache pas la depreciation", () => {
+    const plain = '<feed><entry><content type="text">Clients running versions &lt; 2.0: the network will shut down on August 15.</content></entry></feed>';
+    assert.equal(keywordSnippets(visibleText(plain), true).length, 1);
+    const linked = '<feed><entry><content type="html">&lt;p&gt;The mainnet will be &lt;a href="x"&gt;deprecated&lt;/a&gt; on August 15.&lt;/p&gt;</content></entry></feed>';
+    assert.ok(keywordSnippets(visibleText(linked), true).length >= 1);
+  });
+
   test("source stricte : une note de version qui parle de migration ne cree aucune proposition", async () => {
     const store = new MemoryCacheStore();
     const strictSrc: WatchSource[] = [{ chainKey: "x", url: "https://example.test/releases.atom", publisher: "X", strict: true }];

@@ -211,14 +211,6 @@ const og: Chain = {
   blockExplorers: { default: { name: "0G Explorer", url: "https://explorer.0g.ai" } },
 };
 
-const zero: Chain = {
-  id: 543210,
-  name: "ZERO Network",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.zerion.io/v1/zero", "https://zero.drpc.org", "https://543210.rpc.thirdweb.com"] }, public: { http: ["https://rpc.zerion.io/v1/zero", "https://zero.drpc.org", "https://543210.rpc.thirdweb.com"] } },
-  blockExplorers: { default: { name: "ZERO Explorer", url: "https://explorer.zerion.io/zero" } },
-};
-
 const geb: Chain = {
   id: 11501,
   name: "GEB",
@@ -529,7 +521,7 @@ const wagmiConnectors = [
 export const config = createConfig({
   chains: [base, arbitrum, optimism, polygon, bsc, avalanche, gnosis, soneium,
     mainnet, zksync, scroll, linea, mantle, blast, sonic, celo, unichain, berachain, ink, abstract, worldchain, fraxtal, zora, mode, sei, shape, bob, metalL2, robinhoodChain, appchain, camp, duckchain, cyber, zircuit,
-    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, zero, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
+    mitosis, fogo, core, conflux, mantaPacific, reya, intuition, plume, superposition, monad, megaeth, katana, doma, b2, juchain, og, geb, flow, openledger, stable, tac, citrea, cronos, fuse, kaia,     astar, aurora, metis, boba, pulsechain, kcc, flare, xLayer, shibarium, degen, beam, ronin, opbnb,
     merlin, taikoAlethia, plasma, hashkey, hemi, hyperevm,
     immutableZkEvm, morph, mezo, swan, vana, story, arc, moca, elysium, somnia, etherlink, arbitrumNova, dbkchain],
   // as any needed — wagmi connector types mismatch with custom chain list
@@ -585,7 +577,6 @@ export const config = createConfig({
     [b2.id]: http(),
     [juchain.id]: http(),
     [og.id]: http(),
-    [zero.id]: http(),
     [geb.id]: http(),
     [flow.id]: http(),
     [openledger.id]: http(),

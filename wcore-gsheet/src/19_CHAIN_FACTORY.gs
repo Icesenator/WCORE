@@ -66,7 +66,10 @@ var WCORE_REMOVED_CHAINS = [
   { label: "Moonriver (1285)", ids: ["1285", "MOONRIVER", "0X505", "LEDGER - MOONRIVER", "LEDGER - MOONRIVER CRYPTO"] },
   // Swellchain (1923) : reseau arrete le 2026-06-30 (retraits clos le 2026-06-15). Cache conserve ; aucun onglet "Ledger - Swellchain" n existe.
   // Le token SWELL n est PAS concerne : seuls les identifiants de la chaine 1923 figurent ici.
-  { label: "Swellchain (1923)", ids: ["1923", "SWELLCHAIN", "0X783", "LEDGER - SWELLCHAIN", "LEDGER - SWELLCHAIN CRYPTO", "LEDGER - SWELL CHAIN", "LEDGER - SWELL CHAIN CRYPTO"] }
+  { label: "Swellchain (1923)", ids: ["1923", "SWELLCHAIN", "0X783", "LEDGER - SWELLCHAIN", "LEDGER - SWELLCHAIN CRYPTO", "LEDGER - SWELL CHAIN", "LEDGER - SWELL CHAIN CRYPTO"] },
+  // ZERO Network (543210) : arret annonce pour le 2026-07-31 (Zerion), chaine constatee a l arret. Cache conserve ; aucun onglet "Ledger - ZERO" n existe.
+  // Le token ZERO n est PAS concerne : seuls les identifiants de la chaine 543210 figurent ici.
+  { label: "ZERO Network (543210)", ids: ["543210", "ZERO", "0X849EA", "LEDGER - ZERO", "LEDGER - ZERO CRYPTO", "LEDGER - ZERO NETWORK", "LEDGER - ZERO NETWORK CRYPTO"] }
 ];
 
 function _wcoreRemovedChainLabel_(input) {

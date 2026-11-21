@@ -54,7 +54,7 @@ const DEPLOY_CHAIN_KEYS = [
   "ETHERLINK", "PLUME",
   "SOMNIA", "MONAD", "MEGAETH", "MATCHAIN", "DOMA",
   "B2", "CODEX", "JUCHAIN", "KATANA", "LENS",
-  "OG", "ZERO", "ZETACHAIN", "ZKLINKNOVA", "DBK_CHAIN", "GEB",
+  "OG", "ZETACHAIN", "ZKLINKNOVA", "DBK_CHAIN", "GEB",
   "BITLAYER", "FLOW", "ARC",
 ] as const;
 
@@ -151,7 +151,6 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   KATANA: { name: "Katana", chainId: 747474 },
   LENS: { name: "Lens", chainId: 232 },
   OG: { name: "0G Mainnet", chainId: 16661 },
-  ZERO: { name: "ZERO Network", chainId: 543210 },
   ZETACHAIN: { name: "ZetaChain", chainId: 7000 },
   ZKLINKNOVA: { name: "zkLink Nova", chainId: 810180 },
   DBK_CHAIN: { name: "DBK Chain", chainId: 20240603 },

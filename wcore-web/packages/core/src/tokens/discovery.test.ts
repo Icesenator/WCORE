@@ -23,15 +23,6 @@ test("getKnownTokensForChain returns Ethereum registry tokens", async () => {
   assert.equal(tokens[0]?.contract, "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
 });
 
-test("getKnownTokensForChain includes ZERO Network WBTC", async () => {
-  const tokens = await getKnownTokensForChain("zero");
-  const wbtc = tokens.find((t) => t.contract === "0xf1f9e08a0818594fde4713ae0db1e46672ca960e");
-  assert.ok(wbtc);
-  assert.equal(wbtc.symbol, "WBTC");
-  assert.equal(wbtc.name, "Wrapped BTC");
-  assert.equal(wbtc.decimals, 8);
-});
-
 test("discoverTokensForWallet returns registry tokens for Base", async () => {
   const tokens = await discoverTokensForWallet("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "BASE");
   const symbols = tokens.map((t) => t.symbol);

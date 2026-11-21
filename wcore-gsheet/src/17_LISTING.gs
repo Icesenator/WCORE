@@ -56,7 +56,10 @@ var LEDGER_RETIRED_NAMES = {
  "ledger - swellchain crypto": true,
  "ledger - swell chain": true,
  "ledger - swell chain crypto": true,
- "ledger - zero network": true
+ "ledger - zero": true,
+ "ledger - zero crypto": true,
+ "ledger - zero network": true,
+ "ledger - zero network crypto": true
 };
 
 function _isLedgerLike_(name) {

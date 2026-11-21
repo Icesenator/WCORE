@@ -298,6 +298,31 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     recoveryNoteEn: "Deposits closed on 2026-05-05; withdrawals possible until 2026-06-15; network shutdown ANNOUNCED for 2026-06-30 (announcement FAQ); chain still observed alive on 2026-07-17 by WCORE, public RPC not resolving (DNS) on 2026-11-21. No official recovery after 2026-06-15.",
     lastVerifiedAt: "2026-11-21T12:00:00Z",
   },
+  {
+    chainKey: "zero",
+    chainId: 543210,
+    name: "ZERO Network",
+    status: "RETIRED",
+    // 2026-11-21 : page d'aide officielle de Zerion du 21/05/2026 « How to bridge your assets off ZERϴ Network » (page relue) :
+    // « ZERϴ Network is winding down on July 31, 2026 » ; le bridge d'entree est suspendu des l'annonce. Arret ANNONCE pour le
+    // 31/07/2026 et constate par zero.network (la chaine ne produit plus de blocs) ; observation WCORE, hors source officielle :
+    // les deux RPC (rpc.zerion.io, thirdweb) repondent « Node is not available » le 21/11/2026.
+    // Aucune regle de recuperation apres la date limite n'est publiee : seul un formulaire d'aide figure sur zero.network
+    // (« submit your address and we'll help you recover them »), cas par cas : UNKNOWN, jamais NOT_AVAILABLE ni AVAILABLE.
+    // Aucun successeur de chaine. Heure non precisee : debut de journee UTC, marque approximate. Reseau retire du scan WCORE
+    // (isRetiredChain) : l'exposition reste NOT_COVERED, jamais un zero.
+    deadlines: [
+      { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-07-31T00:00:00Z", sourceIds: ["zero-bridge-off"], approximate: true },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-07-31T00:00:00Z", sourceIds: ["zero-bridge-off"], approximate: true },
+    ],
+    sources: {
+      "zero-bridge-off": { url: "https://help.zerion.io/en/articles/15214238-how-to-bridge-your-assets-off-zer%CE%B8-network", publisher: "Zerion (page d'aide officielle)", publisherEn: "Zerion (official help page)", official: true, retrievedAt: "2026-11-21T18:00:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Arret du reseau ANNONCE pour le 31/07/2026 (page d'aide Zerion du 21/05/2026) ; bridge d'entree suspendu des l'annonce ; chaine constatee a l'arret par zero.network et RPC « Node is not available » le 21/11/2026 (observation WCORE). Aucune regle de recuperation apres la date limite n'est publiee : seul un formulaire d'aide figure sur zero.network (« submit your address and we'll help you recover them »).",
+    recoveryNoteEn: "Network shutdown ANNOUNCED for 2026-07-31 (Zerion help page of 2026-05-21); inbound bridge suspended since the announcement; chain reported halted by zero.network and RPCs answering “Node is not available” on 2026-11-21 (WCORE observation). No recovery rule after the deadline is published: only a help form appears on zero.network (“submit your address and we'll help you recover them”).",
+    lastVerifiedAt: "2026-11-21T18:00:00Z",
+  },
 ];
 
 // ---------------------------------------------------------------------------

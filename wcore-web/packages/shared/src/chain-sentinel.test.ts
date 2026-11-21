@@ -185,6 +185,21 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     expect(a.severity).toBe("P0");
     expect(a.officialSourceUrls).toEqual(["https://www.swellnetwork.io/post/sunsetting-swellchain-from-l2-to-faro"]);
   });
+  it("ZERO Network : arret annonce le 31/07/2026, recuperation non publiee (UNKNOWN), aucun successeur, source officielle", () => {
+    const r = get("zero");
+    expect(r.chainId).toBe(543210);
+    expect(r.status).toBe("RETIRED");
+    expect(r.successorChainId).toBeUndefined();
+    expect(r.deadlines.map((d) => d.kind)).toEqual(["BRIDGE_WITHDRAW_LAST", "NETWORK_SHUTDOWN"]);
+    expect(r.deadlines.every((d) => d.approximate === true && d.at === "2026-07-31T00:00:00Z")).toBe(true);
+    expect(r.recoveryAfterShutdown).toBe("UNKNOWN");
+    expect(Object.values(r.sources).map((s) => s.url)).toEqual(["https://help.zerion.io/en/articles/15214238-how-to-bridge-your-assets-off-zer%CE%B8-network"]);
+    expect(Object.values(r.sources).every((s) => s.official === true && !!s.publisherEn)).toBe(true);
+    expect(r.recoveryNoteEn).toBeTruthy();
+    const a = evaluateChain(r, pos("ETH"), NOW)!;
+    expect(a.severity).toBe("P0");
+    expect(a.officialSourceUrls).toEqual(["https://help.zerion.io/en/articles/15214238-how-to-bridge-your-assets-off-zer%CE%B8-network"]);
+  });
   it("Moonbeam et Moonriver : traduction anglaise de la note et des editeurs fournie", () => {
     for (const k of ["moonbeam", "moonriver"]) {
       const r = get(k);

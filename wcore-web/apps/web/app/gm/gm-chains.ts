@@ -93,7 +93,6 @@ const SOON_CHAIN_CANDIDATES: GmChain[] = [
   { key: "katana", name: "Katana" },
   { key: "lens", name: "Lens" },
   { key: "og", name: "0G Mainnet" },
-  { key: "zero", name: "ZERO Network" },
   { key: "zetachain", name: "ZetaChain" },
   { key: "zklinknova", name: "zkLink Nova" },
   { key: "geb", name: "GEB" },

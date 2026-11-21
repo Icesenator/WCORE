@@ -16,6 +16,9 @@ const RETIRED_CHAINS: ReadonlyArray<{ label: string; code: string; ids: readonly
   // Swellchain : depots coupes le 2026-05-05, retraits jusqu'au 2026-06-15, reseau arrete le 2026-06-30 (annonce Swell).
   // Le jeton SWELL n'est pas concerne : seuls la cle de chaine et les identifiants 1923 / 0x783 figurent ici.
   { label: "Swellchain (1923)", code: "SWELLCHAIN (1923)", ids: ["swellchain", "1923", "0x783"] },
+  // ZERO Network : arret annonce pour le 2026-07-31 (page d'aide Zerion), chaine constatee a l'arret.
+  // Le jeton ZERO n'est pas concerne : seuls la cle de chaine et les identifiants 543210 / 0x849ea figurent ici.
+  { label: "ZERO Network (543210)", code: "ZERO (543210)", ids: ["zero", "543210", "0x849ea"] },
 ];
 
 /** Tombstone code shared with GAS (`[CHAIN_REMOVED] <code>`), or null. */

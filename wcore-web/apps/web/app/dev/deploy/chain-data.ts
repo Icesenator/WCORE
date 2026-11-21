@@ -502,12 +502,6 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "GHO", symbol: "GHO", decimals: 18 },
     rpcUrls: ["https://rpc.lens.xyz", "https://lens.drpc.org", "https://232.rpc.thirdweb.com"],
   },
-  ZERO: {
-    chainId: "0x849ea",
-    chainName: "ZERO Network",
-    nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
-    rpcUrls: ["https://rpc.zerion.io/v1/zero", "https://543210.rpc.thirdweb.com"],
-  },
   ZETACHAIN: {
     chainId: "0x1b58",
     chainName: "ZetaChain",
@@ -636,7 +630,6 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   223, // B2
   747474, // KATANA
   232, // LENS
-  543210, // ZERO
   7000, // ZETACHAIN
   810180, // ZKLINKNOVA
   20240603, // DBK_CHAIN

@@ -177,10 +177,6 @@ export const TOKEN_REGISTRY: Record<string, DiscoveredToken[]> = {
     T("0x49d5c2bdffac6ce2bfdb6640f4f80f226bc10bab", "WETH.e", "Wrapped Ether", 18, LOGO("eth")),
   ],
 
-  ZERO: [
-    T("0xf1f9e08a0818594fde4713ae0db1e46672ca960e", "WBTC", "Wrapped BTC", 8, LOGO("wbtc")),
-  ],
-
   TEMPO: [
     T("0x20c0000000000000000000000000000000000000", "pathUSD", "pathUSD", 6),
     T("0x20c000000000000000000000b9537d11c60e8b50", "USDC.e", "Bridged USDC", 6, LOGO("usdc")),

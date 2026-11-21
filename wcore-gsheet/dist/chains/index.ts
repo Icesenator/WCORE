@@ -148,7 +148,6 @@ import { WORLD_MOBILE } from "./WORLD_MOBILE.js";
 import { WORLDCHAIN } from "./WORLDCHAIN.js";
 import { X_LAYER } from "./X_LAYER.js";
 import { XRPLEVM } from "./XRPLEVM.js";
-import { ZERO } from "./ZERO.js";
 import { ZETACHAIN } from "./ZETACHAIN.js";
 import { ZILLIQA_EVM } from "./ZILLIQA_EVM.js";
 import { ZIRCUIT } from "./ZIRCUIT.js";
@@ -305,7 +304,6 @@ export const chains = {
   WORLDCHAIN,
   X_LAYER,
   XRPLEVM,
-  ZERO,
   ZETACHAIN,
   ZILLIQA_EVM,
   ZIRCUIT,

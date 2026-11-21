@@ -124,3 +124,18 @@ Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter s
 - **Aucun onglet `Ledger - Swellchain` dans le classeur** : aucun onglet à retirer ni à archiver. Le cache WalletCache `SWELLCHAIN_CACHE_*` éventuel est conservé (preuve de détention).
 - **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Non fait (aucune publication dans ce lot).
 - Test : `wcore-gsheet/tests/swellchain-retired.test.js`.
+
+# ZERO Network — retrait du traitement actif, 2026-11-21
+
+| Chaîne | chainId | Constat | Cause du retrait |
+|---|---|---|---|
+| ZERO Network | 543210 | arrêt annoncé pour le 2026-07-31 ; chaîne constatée à l'arrêt le 2026-11-21 | Page d'aide officielle de Zerion du 2026-05-21 « How to bridge your assets off ZERϴ Network » : « ZERϴ Network is winding down on July 31, 2026 » ; bridge d'entrée suspendu dès l'annonce. |
+
+- **Source** : https://help.zerion.io/en/articles/15214238-how-to-bridge-your-assets-off-zer%CE%B8-network (page d'aide officielle de Zerion). Aucun successeur de chaîne cité.
+- **Observation WCORE, hors source officielle** : zero.network indique que la chaîne ne produit plus de blocs, et les deux RPC (rpc.zerion.io, thirdweb) répondent « Node is not available » le 2026-11-21.
+- **Récupération après la date limite** : aucune règle officielle publiée ; seul un formulaire d'aide figure sur zero.network (« submit your address and we'll help you recover them », https://zerionhq.typeform.com/to/BEojZIvf), traité cas par cas.
+- **Même mécanisme que Moonbeam, Moonriver et Swellchain** : tombstone `_wcoreRemovedChain_` (`ZERO`, `543210`, `0X849EA` et les noms d'onglet `Ledger - ZERO` / `Ledger - ZERO Network`, avec ou sans `Crypto`) ; formules `[CHAIN_REMOVED]` sans nombre ; noms retirés dans `LEDGER_RETIRED_NAMES`.
+- **Fichier `ZERO.gs` conservé** (réduit aux formules) : safe-push ne supprime pas de fichier distant. Le jeton ZERO n'est pas concerné.
+- **Aucun onglet `Ledger - ZERO` dans le classeur** : aucun onglet à retirer ni à archiver. Le cache WalletCache `ZERO_CACHE_*` éventuel est conservé (preuve de détention).
+- **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Non fait (aucune publication dans ce lot).
+- Test : `wcore-gsheet/tests/zero-retired.test.js`.

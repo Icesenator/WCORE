@@ -281,7 +281,8 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     name: "Swellchain",
     status: "RETIRED",
     // 2026-11-21 : annonce officielle du 28/04/2026 « Sunsetting Swellchain: From L2 to Faro » (page relue) : depots coupes
-    // le 05/05/2026, date limite de retrait le 15/06/2026, arret du reseau le 30/06/2026 d'apres la FAQ de l'annonce.
+    // le 05/05/2026, date limite de retrait le 15/06/2026, arret du reseau ANNONCE pour le 30/06/2026 d'apres la FAQ de
+    // l'annonce (non constate : la chaine etait encore vivante le 17/07/2026, journal wcore-gsheet ; RPC public disparu le 21/11/2026).
     // Aucune recuperation officielle apres le 15/06/2026. Aucun successeur de chaine (Swell evolue vers Faro, hors registre).
     // Heure non precisee : debut de journee UTC, marque approximate. Reseau retire du scan WCORE (isRetiredChain) :
     // l'exposition reste NOT_COVERED, jamais un zero.
@@ -293,8 +294,8 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
       "swellchain-sunset": { url: "https://www.swellnetwork.io/post/sunsetting-swellchain-from-l2-to-faro", publisher: "Swell Network (annonce officielle du 28/04/2026)", publisherEn: "Swell Network (official announcement of 2026-04-28)", official: true, retrievedAt: "2026-11-21T12:00:00Z" },
     },
     recoveryAfterShutdown: "NOT_AVAILABLE",
-    recoveryNote: "Depots coupes le 05/05/2026 ; retraits possibles jusqu'au 15/06/2026 ; arret du reseau le 30/06/2026 (FAQ de l'annonce). Aucune recuperation officielle apres le 15/06/2026.",
-    recoveryNoteEn: "Deposits closed on 2026-05-05; withdrawals possible until 2026-06-15; network shutdown on 2026-06-30 (announcement FAQ). No official recovery after 2026-06-15.",
+    recoveryNote: "Depots coupes le 05/05/2026 ; retraits possibles jusqu'au 15/06/2026 ; arret du reseau ANNONCE pour le 30/06/2026 (FAQ de l'annonce) ; chaine encore observee vivante le 17/07/2026 par WCORE, RPC public disparu le 21/11/2026. Aucune recuperation officielle apres le 15/06/2026.",
+    recoveryNoteEn: "Deposits closed on 2026-05-05; withdrawals possible until 2026-06-15; network shutdown ANNOUNCED for 2026-06-30 (announcement FAQ); chain still observed alive on 2026-07-17 by WCORE, public RPC gone on 2026-11-21. No official recovery after 2026-06-15.",
     lastVerifiedAt: "2026-11-21T12:00:00Z",
   },
 ];

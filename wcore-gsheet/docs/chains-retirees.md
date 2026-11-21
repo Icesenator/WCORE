@@ -116,7 +116,7 @@ Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter s
 
 | Chaîne | chainId | Constat | Cause du retrait |
 |---|---|---|---|
-| Swellchain | 1923 | arrêtée le 2026-06-30 (FAQ de l'annonce) | Annonce du 2026-04-28 « Sunsetting Swellchain: From L2 to Faro » : dépôts coupés le 2026-05-05, date limite de retrait le 2026-06-15 ; aucune récupération officielle après le 2026-06-15. |
+| Swellchain | 1923 | arrêt annoncé pour le 2026-06-30 (FAQ de l'annonce) ; chaîne encore vivante le 2026-07-17 (journal du classeur) ; RPC public disparu le 2026-11-21 | Annonce du 2026-04-28 « Sunsetting Swellchain: From L2 to Faro » : dépôts coupés le 2026-05-05, date limite de retrait le 2026-06-15 ; aucune récupération officielle après le 2026-06-15. |
 
 - **Source** : https://www.swellnetwork.io/post/sunsetting-swellchain-from-l2-to-faro (annonce officielle de Swell Network). Aucun successeur de chaîne cité.
 - **Même mécanisme que Moonbeam et Moonriver** : tombstone `_wcoreRemovedChain_` (`SWELLCHAIN`, `1923`, `0x783` et les noms d'onglet `Ledger - Swellchain` / `Ledger - Swell Chain`, avec ou sans `Crypto`) ; formules `[CHAIN_REMOVED]` sans nombre ; retrait des listes (Dashboard, santé RPC, `BUILD_RPC_LOOKUP`, RPC dynamiques) ; noms retirés dans `LEDGER_RETIRED_NAMES`.

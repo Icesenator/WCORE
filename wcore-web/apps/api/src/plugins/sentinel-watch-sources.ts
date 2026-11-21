@@ -81,6 +81,17 @@ export const WATCH_SOURCES: readonly WatchSource[] = [
   { chainKey: "sonic", url: "https://www.soniclabs.com/blog/rss/", publisher: "Sonic Labs" },
   { chainKey: "swellchain", url: "https://www.swellnetwork.io/blog", publisher: "Swell Network" },
   { chainKey: "world_mobile", url: "https://worldmobile.io/blog", publisher: "World Mobile" },
+  // Ajouts du 21/11/2026 (suite) : chaines qui n'avaient aucune source ; chaque URL verifiee avec le code de la veille
+  // (2xx, texte dans le HTML servi, annonces ou avis dates). Les flux Medium sont exclus : defi anti-robot intermittent (429).
+  { chainKey: "ancient8", url: "https://blog.ancient8.gg", publisher: "Ancient8" },
+  { chainKey: "fogo", url: "https://www.fogo.io/blog", publisher: "Fogo" },
+  { chainKey: "layerai", url: "https://aere.network/blog", publisher: "Aere Network" },
+  { chainKey: "metal_l2", url: "https://metall2.com/news", publisher: "Metal L2" },
+  { chainKey: "neon", url: "https://neonevm.org", publisher: "Neon EVM" }, // page unique « Wind-Down Announcement » : tout changement de texte est signale
+  { chainKey: "numine", url: "https://numine.io/notice", publisher: "NUMINE" }, // liste d'avis datee AAAA.MM.JJ
+  { chainKey: "plasma", url: "https://www.plasma.org/company/blog", publisher: "Plasma" },
+  { chainKey: "ronin", url: "https://blog.roninchain.com/feed", publisher: "Ronin" },
+  { chainKey: "somnia", url: "https://blog.somnia.network/feed", publisher: "Somnia" },
   { chainKey: "zircuit", url: "https://www.zircuit.com/blog", publisher: "Zircuit" },
   // Flux de versions GitHub/GitLab des organisations officielles (aucune page editoriale lisible) : mode strict,
   // seuls les mots d'arret comptent. Une annonce de fermeture n'y apparait que si l'equipe la met dans les notes de version.

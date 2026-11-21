@@ -99,6 +99,22 @@ describe("robustesse (relecture PR 182)", () => {
     assert.match(strict[0]!.snippet, /sunset/);
   });
 
+  test("mode strict : depreciation ou retrait annonce pour le reseau lui-meme retenu ; variantes de tiret et « cease all operations »", () => {
+    assert.ok(keywordSnippets("The mainnet will be deprecated on August 15. All users must migrate before then.", true).length >= 1);
+    assert.ok(keywordSnippets("The L2 rollup is being retired next month.", true).length >= 1);
+    assert.equal(keywordSnippets("This release deprecates the --legacy flag.", true).length, 0);
+    assert.equal(keywordSnippets("The team will cease all operations in June.", true).length, 1);
+    assert.equal(keywordSnippets("The chain reaches end‑of‑life on May 1.", true).length, 1);
+    assert.equal(keywordSnippets("Support ends: end of support for v1.", true).length, 1);
+  });
+
+  test("flux Atom : le contenu HTML echappe est decode, une fermeture coupee par une balise est vue", () => {
+    const feed = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><title>v2</title><content type="html">&lt;p&gt;The network will shut &lt;strong&gt;down&lt;/strong&gt; on May 1.&lt;/p&gt;</content></entry></feed>';
+    const s = keywordSnippets(visibleText(feed), true);
+    assert.equal(s.length, 1);
+    assert.match(s[0]!.snippet, /shut down/);
+  });
+
   test("source stricte : une note de version qui parle de migration ne cree aucune proposition", async () => {
     const store = new MemoryCacheStore();
     const strictSrc: WatchSource[] = [{ chainKey: "x", url: "https://example.test/releases.atom", publisher: "X", strict: true }];

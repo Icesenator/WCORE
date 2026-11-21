@@ -33,10 +33,13 @@ const MAX_PROPOSALS_PER_SOURCE = 5;
 const MAX_TEXT = 2_000_000;
 const BATCH = 5;
 /** Au-dela, les pages restantes sont relevees a la passe suivante : la passe reste sous le verrou de 10 min. */
-const DEADLINE_MS = 4 * 60_000;
+const DEADLINE_MS = 3 * 60_000;
 
-// Vocabulaire de fermeture/migration (anglais, langue des annonces officielles).
-const KEYWORDS = /\b(sunset\w*|shut(?:ting)?[ -]?down|wind(?:ing)?[ -]down|end[ -]of[ -](?:life|support|service)|deprecat\w*|discontinu\w*|decommission\w*|migrat\w*|relaunch\w*|cease[sd]? operations?|final(?:ly)? withdraw\w*|withdrawal deadline)\b/gi;
+// Vocabulaire de fermeture/migration (anglais, langue des annonces officielles). Separateur : espace, tiret ou
+// tiret typographique, espace insecable.
+const SEP = "[\\s\\-\\u00a0\\u2010-\\u2015]";
+const STOP = `sunset\\w*|shut(?:ting)?${SEP}?down|wind(?:ing)?${SEP}down|end${SEP}of${SEP}(?:life|support|service)|discontinu\\w*|decommission\\w*|cease[sd]?(?:${SEP}all)?${SEP}operations?|final(?:ly)?${SEP}withdraw\\w*|withdrawal${SEP}deadline`;
+const KEYWORDS = new RegExp(`\\b(${STOP}|deprecat\\w*|migrat\\w*|relaunch\\w*)\\b`, "gi");
 
 /** checkedAt vide = jamais lue avec succes (pas de ligne de base) ; triedAt = derniere tentative, reussie ou non. */
 export interface WatchState { seen: string[]; checkedAt: string; triedAt?: string }
@@ -46,11 +49,18 @@ export interface WatchResult { checked: number; failed: number; proposals: Propo
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 // Notes de version : « migrat* », « deprecat* » et « relaunch* » y sont des termes techniques courants ; seul le vocabulaire d'arret est retenu.
-const STRICT_KEYWORDS = /\b(sunset\w*|shut(?:ting)?[ -]?down|wind(?:ing)?[ -]down|end[ -]of[ -](?:life|support|service)|decommission\w*|discontinu\w*|cease[sd]? operations?|final(?:ly)? withdraw\w*|withdrawal deadline)\b/gi;
+const NET = "mainnet|network|chain|rollup|l2";
+const STRICT_KEYWORDS = new RegExp(
+  `\\b(${STOP}|(?:${NET})\\b[^.\\n|]{0,80}\\b(?:deprecat\\w*|retir(?:e[sd]?|ing))|(?:deprecat\\w*|retir(?:e[sd]?|ing))\\b[^.\\n|]{0,80}\\b(?:${NET}))\\b`, "gi");
 
-/** Texte lisible d'une page : sans commentaire, script, style ni balises, espaces normalises. */
+const unescapeFeed = (s: string) => s
+  .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
+
+/** Texte lisible d'une page : sans commentaire, script, style ni balises, espaces normalises. Un flux Atom/RSS a son contenu HTML echappe : il est d'abord decode. */
 export function visibleText(html: string): string {
-  return html.slice(0, MAX_TEXT)
+  const src = html.slice(0, MAX_TEXT);
+  return (/<(?:feed|rss)\b/i.test(src.slice(0, 2000)) ? unescapeFeed(src) : src)
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, " ")
     .replace(/<\/?(?:p|div|article|section|li|ul|ol|h[1-6]|tr|td|th|br|a|nav|header|footer|time|span)\b[^>]*>/gi, " | ")

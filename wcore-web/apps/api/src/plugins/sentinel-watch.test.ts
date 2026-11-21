@@ -118,4 +118,16 @@ describe("robustesse (relecture PR 182)", () => {
     await runAnnouncementWatch(store, f, NOW + 1000, many);
     assert.ok(order.slice(0, 2).every((u) => u.endsWith("/2") || u.endsWith("/3")), order.join(","));
   });
-});
+  test("equite : une source en echec ne garde pas son rang, et une premiere lecture reussie apres echec est une ligne de base", async () => {
+    const store = new MemoryCacheStore();
+    const two: WatchSource[] = [{ chainKey: "a", url: "https://example.test/a", publisher: "x" }, { chainKey: "b", url: "https://example.test/b", publisher: "x" }];
+    const order: string[] = [];
+    const down = async (u: string) => { order.push(u); throw new Error("boom"); };
+    const r1 = await runAnnouncementWatch(store, down, NOW, [two[0]!]);
+    await saveWatchState(store, r1.state);
+    order.length = 0;
+    const ok = async (u: string) => { order.push(u); return { status: 200, text: page(["The network will sunset soon"]) }; };
+    const r2 = await runAnnouncementWatch(store, ok, NOW + 1000, two);
+    assert.ok(order[0]!.endsWith("/b"), order.join(","));
+    assert.equal(r2.proposals.length, 0, "premiere lecture reussie apres un echec = ligne de base, aucune proposition");
+  });});

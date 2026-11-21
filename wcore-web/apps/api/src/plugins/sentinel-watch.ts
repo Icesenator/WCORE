@@ -37,7 +37,8 @@ const DEADLINE_MS = 4 * 60_000;
 // Vocabulaire de fermeture/migration (anglais, langue des annonces officielles).
 const KEYWORDS = /\b(sunset\w*|shut(?:ting)?[ -]?down|wind(?:ing)?[ -]down|end[ -]of[ -](?:life|support|service)|deprecat\w*|discontinu\w*|decommission\w*|migrat\w*|relaunch\w*|cease[sd]? operations?|final(?:ly)? withdraw\w*|withdrawal deadline)\b/gi;
 
-export interface WatchState { seen: string[]; checkedAt: string }
+/** checkedAt vide = jamais lue avec succes (pas de ligne de base) ; triedAt = derniere tentative, reussie ou non. */
+export interface WatchState { seen: string[]; checkedAt: string; triedAt?: string }
 export type WatchStateMap = Record<string, WatchState>;
 export interface WatchResult { checked: number; failed: number; proposals: Proposal[]; state: WatchStateMap }
 
@@ -90,12 +91,13 @@ export async function runAnnouncementWatch(
     const key = `${src.chainKey}:${src.url}`;
     result.checked++;
     let res: { status: number; text: string };
-    try { res = await fetchText(src.url); } catch { result.failed++; return; }
-    if (res.status < 200 || res.status >= 300) { result.failed++; return; }
+    const fail = () => { result.failed++; state[key] = { seen: state[key]?.seen ?? [], checkedAt: state[key]?.checkedAt ?? "", triedAt: iso }; };
+    try { res = await fetchText(src.url); } catch { fail(); return; }
+    if (res.status < 200 || res.status >= 300) { fail(); return; }
     const found = keywordSnippets(visibleText(res.text));
     const prev = state[key];
     const seen = new Set(prev?.seen ?? []);
-    if (prev) {
+    if (prev?.checkedAt) {
       const fresh = found.filter((f) => !seen.has(f.hash));
       for (const { hash, snippet } of fresh.slice(0, MAX_PROPOSALS_PER_SOURCE)) {
         result.proposals.push({
@@ -115,12 +117,13 @@ export async function runAnnouncementWatch(
         });
       }
     }    const merged = [...(prev?.seen ?? []), ...found.map((f) => f.hash).filter((h) => !seen.has(h))];
-    state[key] = { seen: merged.slice(-MAX_SEEN), checkedAt: iso };
+    state[key] = { seen: merged.slice(-MAX_SEEN), checkedAt: iso, triedAt: iso };
   };
   // Lots de BATCH pages en parallele : la passe reste courte face au verrou de la collecte.
   // Les sources relevees le plus anciennement (ou jamais) passent en premier : si le budget de temps est epuise,
   // les pages restantes sont prises en tete a la passe suivante, aucune ne reste indefiniment sans surveillance.
-  const ordered = [...sources].sort((a, b) => (state[`${a.chainKey}:${a.url}`]?.checkedAt ?? "").localeCompare(state[`${b.chainKey}:${b.url}`]?.checkedAt ?? ""));
+  const rank = (x: WatchSource) => { const w = state[`${x.chainKey}:${x.url}`]; return w ? (w.triedAt ?? w.checkedAt) : ""; };
+  const ordered = [...sources].sort((a, b) => (rank(a)).localeCompare(rank(b)));
   const t0 = Date.now();
   for (let i = 0; i < ordered.length; i += BATCH) {
     if (Date.now() - t0 > DEADLINE_MS) break;

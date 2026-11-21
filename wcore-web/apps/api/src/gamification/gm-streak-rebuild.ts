@@ -84,6 +84,8 @@ const CHAIN_STEP_SIZES: Record<string, number> = {
   STABLE: 2000,     // CometBFT-based, smaller step for reliability
 };
 const COVER_BLOCKS = 500_000; // ~11 days at 2s/block
+const MIN_PAGE_BLOCKS = 25; // smallest eth_getLogs page of the backfill scan
+const HEAD_LAG_TOLERANCE_MS = 2 * 3_600_000; // a head older than this does not prove the absence of recent blocks
 
 async function fetchAllUserGmLogs(
   rpcs: string[],
@@ -160,11 +162,21 @@ export async function scanGmBackfillCandidates(
   const hex = (n: number) => "0x" + n.toString(16);
   const quantity = (value: unknown) => typeof value === "string" && /^0x[0-9a-f]+$/i.test(value)
     ? Number(value) : NaN;
-  // An endpoint that does not answer at all (timeout, connection refused, HTTP error) twice during this scan is
-  // left out for the rest of it: a dead public endpoint would otherwise cost its timeout on every single call.
-  const silent = new Map<string, number>();
+  // An endpoint that has never answered during this scan (timeout, connection refused, HTTP error) and has failed
+  // three times is left out for the rest of it: a dead public endpoint would otherwise cost its timeout on every
+  // call. An endpoint that answered at least once is never dropped, so a transient silence cannot silently move
+  // the log reads to a backup that may answer less completely.
+  const health = new Map<string, { silent: number; answered: boolean }>();
+  const seen = (endpoint: string, answered: boolean) => {
+    const entry = health.get(endpoint) ?? { silent: 0, answered: false };
+    if (answered) entry.answered = true; else entry.silent++;
+    health.set(endpoint, entry);
+  };
   const usable = () => {
-    const live = rpcs.filter((endpoint) => (silent.get(endpoint) ?? 0) < 2);
+    const live = rpcs.filter((endpoint) => {
+      const entry = health.get(endpoint);
+      return !entry || entry.answered || entry.silent < 3;
+    });
     return live.length ? live : rpcs;
   };
   const rpc = async <T>(method: string, params: unknown[]): Promise<T> => {
@@ -172,7 +184,7 @@ export async function scanGmBackfillCandidates(
       const response = await rpcJson<{ result?: T; error?: unknown }>(
         [endpoint], { jsonrpc: "2.0", id: 1, method, params },
       );
-      if (response == null) silent.set(endpoint, (silent.get(endpoint) ?? 0) + 1);
+      seen(endpoint, response != null);
       if (!response?.error && response?.result != null) return response.result;
     }
     throw new GmBackfillRpcError("rpc_unavailable");
@@ -187,6 +199,10 @@ export async function scanGmBackfillCandidates(
     return { height, ms };
   };
   const head = await block("latest");
+  // A head older than the end of the window (or than two hours ago when the window reaches into the future) means
+  // the RPC lags or the chain is halted: the blocks of the window may exist elsewhere, so an empty scan would not
+  // be proof of absence. Refuse instead of reading "no block in the window".
+  if (head.ms < Math.min(toMs, nowMs - HEAD_LAG_TOLERANCE_MS)) throw new GmBackfillRpcError("rpc_head_behind");
   // GmCheckedIn uses block.timestamp. Search only the block interval for the requested days.
   const at = async (height: number) => (height === head.height ? head : await block(hex(height)));
   const firstBlockAtOrAfter = async (ms: number) => {
@@ -195,11 +211,12 @@ export async function scanGmBackfillCandidates(
     // Only blocks close to the target are read: public nodes prune old history, and the old bisection from
     // block 0 asked for the block at half the chain height, which they refuse.
     const span = Math.min(1024, head.height);
-    const reference = span > 0 ? await at(head.height - span) : head;
-    const speed = span > 0 && head.ms > reference.ms ? (head.ms - reference.ms) / span : 0; // ms per block
+    // The reference block only improves the estimate: if the node refuses it, start from the head instead.
+    const reference = span > 0 ? await at(head.height - span).catch(() => undefined) : undefined;
+    const speed = reference && head.ms > reference.ms ? (head.ms - reference.ms) / span : 0; // ms per block
     const guess = speed > 0
       ? Math.min(head.height, Math.max(0, head.height - Math.round((head.ms - ms) / speed)))
-      : Math.max(0, head.height - span);
+      : head.height;
     let older = -1; // a block known to be before `ms`
     let high = head.height; // a block known to be at or after `ms`
     let stride = 256;
@@ -233,43 +250,41 @@ export async function scanGmBackfillCandidates(
   const defaultStep = CHAIN_STEP_SIZES[chainKey] ?? 2000;
   const step = maxLogRange && maxLogRange > 0 ? Math.min(maxLogRange, defaultStep) : defaultStep;
   const candidates = new Map<string, BackfillCandidate>();
+  // One request for the whole window first (cheap on chains that accept it), then pages only if the RPCs refuse
+  // it. Public RPCs cap eth_getLogs at 50 to 2000 blocks (and refuse oversized answers): a refused page is
+  // halved and retried, down to MIN_PAGE_BLOCKS (never above an explicit cap, never raised to it), and the size
+  // that worked is kept for the next pages. Every RPC request counts against MAX_LOG_CALLS; a page that cannot be
+  // read at the smallest size, or an exhausted budget, stops the whole scan (503, nothing written): a hole in the
+  // scan could hide an earlier GM.
+  const MAX_LOG_CALLS = 1500;
+  let logCalls = 0;
   const getLogs = async (from: number, to: number): Promise<GmLog[] | undefined> => {
     for (const endpoint of usable()) {
+      if (++logCalls > MAX_LOG_CALLS) throw new GmBackfillRpcError("rpc_budget_exceeded");
       const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(to));
-      if (page === null) silent.set(endpoint, (silent.get(endpoint) ?? 0) + 1);
+      seen(endpoint, page !== null);
       if (!page?.error && Array.isArray(page?.result)) return page.result;
     }
     return undefined;
-  };
-  // One request for the whole window first (cheap on chains that accept it), then pages only if the RPCs refuse
-  // it. Public RPCs cap eth_getLogs at 50 to 2000 blocks (and refuse oversized answers): a refused page is
-  // halved and retried, down to MIN_PAGE_BLOCKS, and the size that worked is kept for the next pages. Every
-  // request counts against MAX_LOG_CALLS; a page that cannot be read at the smallest size, or an exhausted
-  // budget, stops the whole scan (503, nothing written): a hole in the scan could hide an earlier GM.
-  const MIN_PAGE_BLOCKS = 25;
-  const MAX_LOG_CALLS = 1500;
-  let logCalls = 0;
-  const readPage = async (from: number, to: number) => {
-    if (++logCalls > MAX_LOG_CALLS) throw new GmBackfillRpcError("rpc_budget_exceeded");
-    return getLogs(from, to);
   };
   const pages: GmLog[][] = [];
   if (first < end) {
     // A known per-chain cap means a wider request could be truncated silently: page directly then.
     const capped = !!maxLogRange && maxLogRange > 0;
-    const whole = capped && end - first > maxLogRange! ? undefined : await readPage(first, end - 1);
+    const whole = capped && end - first > maxLogRange! ? undefined : await getLogs(first, end - 1);
     if (whole) pages.push(whole);
     else {
-      let size = Math.max(MIN_PAGE_BLOCKS, step);
+      const minPage = Math.min(MIN_PAGE_BLOCKS, step);
+      let size = step;
       for (let from = first; from < end;) {
         const to = Math.min(from + size, end) - 1;
-        const page = await readPage(from, to);
+        const page = await getLogs(from, to);
         if (page) {
           pages.push(page);
           from = to + 1;
         } else {
-          if (size <= MIN_PAGE_BLOCKS) throw new GmBackfillRpcError("rpc_incomplete_logs");
-          size = Math.max(MIN_PAGE_BLOCKS, Math.floor(size / 2));
+          if (size <= minPage) throw new GmBackfillRpcError("rpc_incomplete_logs");
+          size = Math.max(minPage, Math.floor(size / 2));
         }
       }
     }

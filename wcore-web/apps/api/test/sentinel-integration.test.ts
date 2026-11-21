@@ -172,7 +172,7 @@ describe("Chain Sentinel — PostgreSQL + Redis reels", () => {
   // ---------- Collecte, verrou, reprise ----------
   test("collecte : sources officielles seulement, aucun appel GAS ni navigateur", async () => {
     fetchCalls = []; fetchMode = "ok";
-    const r = await runSentinelCheck({ store: ctx.store, fetchText });
+    const r = await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [] });
     assert.equal(r.ran, true);
     const official = VERIFIED_LIFECYCLE_REGISTRY.flatMap((rec) => Object.values(rec.sources).filter((s) => s.official).map((s) => s.url));
     assert.deepEqual([...fetchCalls].sort(), [...official].sort());
@@ -186,9 +186,9 @@ describe("Chain Sentinel — PostgreSQL + Redis reels", () => {
     const gate = new Promise<void>((res) => { release = res; });
     let calls = 0;
     const slow: SentinelFetch = async (u) => { calls++; await gate; return { status: 200, text: `annonce ${u}` }; };
-    const p1 = runSentinelCheck({ store: ctx.store, fetchText: slow });
+    const p1 = runSentinelCheck({ store: ctx.store, fetchText: slow, watchSources: [] });
     await new Promise((r) => setTimeout(r, 100));
-    const r2 = await runSentinelCheck({ store: other.store, fetchText: slow });
+    const r2 = await runSentinelCheck({ store: other.store, fetchText: slow, watchSources: [] });
     assert.deepEqual(r2, { ran: false, reason: "LOCKED" });
     release();
     const first = await p1;
@@ -199,9 +199,9 @@ describe("Chain Sentinel — PostgreSQL + Redis reels", () => {
 
   test("verrou : expiration controlee apres un crash (TTL), puis reprise", async () => {
     assert.equal(await ctx.redis.add(SENTINEL_KEYS.lock, "crash", 400), true, "verrou orphelin simule");
-    assert.deepEqual(await runSentinelCheck({ store: ctx.store, fetchText }), { ran: false, reason: "LOCKED" });
+    assert.deepEqual(await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [] }), { ran: false, reason: "LOCKED" });
     await new Promise((r) => setTimeout(r, 600));
-    assert.equal((await runSentinelCheck({ store: ctx.store, fetchText })).ran, true);
+    assert.equal((await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [] })).ran, true);
     assert.equal(await ctx.redis.get(SENTINEL_KEYS.lock), undefined, "verrou libere en fin de passe");
   });
 
@@ -209,18 +209,18 @@ describe("Chain Sentinel — PostgreSQL + Redis reels", () => {
     const before = (await ctx.store.get<{ lastSuccessAt: string }>(SENTINEL_KEYS.health))!.lastSuccessAt;
     fetchMode = "fail";
     const t0 = Date.now() + 1000;
-    const failed = await runSentinelCheck({ store: ctx.store, fetchText, now: () => t0 });
+    const failed = await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [], now: () => t0 });
     assert.equal(failed.health!.lastError, "ALL_SOURCES_FAILED");
     assert.equal(failed.health!.lastSuccessAt, before, "lastSuccessAt inchange");
     fetchMode = "ok";
-    const ok = await runSentinelCheck({ store: ctx.store, fetchText, now: () => t0 + 1000 });
+    const ok = await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [], now: () => t0 + 1000 });
     assert.equal(ok.health!.lastError, null);
     assert.equal(ok.health!.lastSuccessAt, new Date(t0 + 1000).toISOString());
   });
 
   test("planificateur reel : passes periodiques sans session ni navigateur", async () => {
     fetchCalls = []; fetchMode = "ok";
-    const sched = startSentinelScheduler({ store: ctx.store, fetchText, intervalMs: 400 }, { warn: () => {} }, 20);
+    const sched = startSentinelScheduler({ store: ctx.store, fetchText, intervalMs: 400, watchSources: [] }, { warn: () => {} }, 20);
     await new Promise((r) => setTimeout(r, 1500));
     sched.stop();
     const perPass = VERIFIED_LIFECYCLE_REGISTRY.flatMap((rec) => Object.values(rec.sources).filter((s) => s.official)).length;
@@ -233,8 +233,8 @@ describe("Chain Sentinel — PostgreSQL + Redis reels", () => {
   test("source modifiee : proposition dedupliquee, registre inchange sans validation admin", async () => {
     const regBefore = await ctx.app.inject({ method: "GET", url: "/api/sentinel/chains" });
     fetchMode = "changed";
-    await runSentinelCheck({ store: ctx.store, fetchText });
-    await runSentinelCheck({ store: ctx.store, fetchText });
+    await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [] });
+    await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [] });
     fetchMode = "ok";
     const props = (await ctx.app.inject({ method: "GET", url: "/api/admin/sentinel/proposals", headers: { "x-admin-token": ADMIN_TOKEN } })).json().proposals;
     const pending = props.filter((p: { status: string; newSha256: string }) => p.status === "PENDING_ADMIN_REVIEW");

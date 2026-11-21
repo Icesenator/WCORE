@@ -122,6 +122,14 @@ describe("robustesse (relecture PR 182)", () => {
     assert.ok(keywordSnippets(visibleText(linked), true).length >= 1);
   });
 
+  test("mode strict : « will be deprecated », numero de version entre reseau et verbe, href avec guillemets encodes", () => {
+    assert.equal(keywordSnippets("Fantom Opera will be deprecated on August 15.", true).length, 1);
+    assert.ok(keywordSnippets("The legacy mainnet (v1.2) will be deprecated on August 15.", true).length >= 1);
+    const quoted = '<feed><entry><content type="html">&lt;p&gt;The mainnet will be &lt;a href=&quot;https://example.test/notice&quot;&gt;deprecated&lt;/a&gt; on August 15&lt;/p&gt;</content></entry></feed>';
+    assert.ok(keywordSnippets(visibleText(quoted), true).length >= 1);
+    assert.equal(keywordSnippets("Bug fixes. The deprecated flag --x is removed in the new build.", true).length, 0);
+  });
+
   test("source stricte : une note de version qui parle de migration ne cree aucune proposition", async () => {
     const store = new MemoryCacheStore();
     const strictSrc: WatchSource[] = [{ chainKey: "x", url: "https://example.test/releases.atom", publisher: "X", strict: true }];

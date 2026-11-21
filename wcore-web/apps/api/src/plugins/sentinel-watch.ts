@@ -51,14 +51,14 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 // Notes de version : « migrat* », « deprecat* » et « relaunch* » y sont des termes techniques courants ; seul le vocabulaire d'arret est retenu.
 const NET = "mainnet|network|chain|rollup|l2";
 const STRICT_KEYWORDS = new RegExp(
-  `\\b(${STOP}|(?:${NET})\\b[^.\\n]{0,80}\\b(?:deprecat\\w*|retir(?:e[sd]?|ing))|(?:deprecat\\w*|retir(?:e[sd]?|ing))\\b[^.\\n]{0,80}\\b(?:${NET}))\\b`, "gi");
+  `\\b(${STOP}|will${SEP}be${SEP}(?:deprecated|retired|decommissioned)|(?:${NET})\\b(?:[^.\\n]|\\.(?=\\d)){0,80}\\b(?:deprecat\\w*|retir(?:e[sd]?|ing))|(?:deprecat\\w*|retir(?:e[sd]?|ing))\\b(?:[^.\\n]|\\.(?=\\d)){0,80}\\b(?:${NET}))\\b`, "gi");
 
 // Contenu HTML echappe d'un flux : seules les balises (&lt;p&gt;...) sont decodees ; un « &lt; » de texte brut
 // (« versions < 2.0 ») reste echappe, pour ne pas etre pris pour le debut d'une balise.
 const unescapeFeed = (s: string) => s
   .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-  .replace(/&lt;(\/?[a-zA-Z][^&<>]*?)&gt;/g, "<$1>")
-  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
+  .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&")
+  .replace(/&lt;(\/?[a-zA-Z][^<>]*?)&gt;/g, "<$1>");
 
 /** Texte lisible d'une page : sans commentaire, script, style ni balises, espaces normalises. Un flux Atom/RSS a son contenu HTML echappe : il est d'abord decode. */
 export function visibleText(html: string): string {

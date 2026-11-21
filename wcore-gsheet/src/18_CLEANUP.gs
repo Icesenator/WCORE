@@ -631,6 +631,8 @@ function DEBUG_WALLET_CACHE(wallet, chain) {
  */
 function REBUILD_WALLET_CACHE(wallet, chain) {
   chain = String(chain || "BASE").toUpperCase();
+  var removedLabel = typeof _wcoreRemovedChainLabel_ === "function" ? _wcoreRemovedChainLabel_(chain) : "";
+  if (removedLabel) return [["[CHAIN_REMOVED] " + removedLabel]];
   
   // Reset circuit breaker first
   if (typeof DegradedMode !== 'undefined') {

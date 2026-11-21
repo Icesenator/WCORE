@@ -38,6 +38,7 @@ function WCORE_SCAN_PRICING_GAPS() {
 
     // Seulement les onglets "Ledger - *"
     if (name.indexOf("Ledger - ") !== 0) continue;
+    if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(name)) continue;
     stats.chains++;
 
     var chainLabel = name.replace("Ledger - ", "");
@@ -133,6 +134,7 @@ function WCORE_SCAN_ERRORS() {
     var sheet = sheets[s];
     var name = sheet.getName();
     if (name.indexOf("Ledger - ") !== 0) continue;
+    if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(name)) continue;
 
     var chainLabel = name.replace("Ledger - ", "");
 

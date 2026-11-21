@@ -61,7 +61,9 @@ var WCORE_REMOVED_CHAINS = [
   // manuelle annoncee pour janvier 2027. Onglet "Ledger - Lisk" supprime et archive hors LIVE ;
   // le cache WalletCache LISK est conserve (aucune purge). Le token LSK sur Ethereum n est PAS
   // concerne : seuls les identifiants de la chaine 1135 figurent ici, jamais "LSK".
-  { label: "Lisk (1135)", ids: ["1135", "LISK", "0X46F", "LEDGER - LISK", "LEDGER - LISK CRYPTO"] }
+  { label: "Lisk (1135)", ids: ["1135", "LISK", "0X46F", "LEDGER - LISK", "LEDGER - LISK CRYPTO"] },
+  { label: "Moonbeam (1284)", ids: ["1284", "MOONBEAM", "0X504", "LEDGER - MOONBEAM", "LEDGER - MOONBEAM CRYPTO"] },
+  { label: "Moonriver (1285)", ids: ["1285", "MOONRIVER", "0X505", "LEDGER - MOONRIVER", "LEDGER - MOONRIVER CRYPTO"] }
 ];
 
 function _wcoreRemovedChainLabel_(input) {

@@ -81,6 +81,7 @@ var DynamicRpcStore = (function() {
      * @returns {Array<string>} RPC URLs (may be empty)
      */
     get: function(chainId) {
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(chainId)) return [];
       _load();
       var key = String(chainId);
       var entry = _cache[key];
@@ -501,7 +502,7 @@ function _dynamicRpcGetOurChainIds() {
     "ETHEREUM", "ARBITRUM_ONE", "BASE", "OPTIMISM", "POLYGON", "BSC",
     "AVALANCHE", "GNOSIS", "ARBITRUM_NOVA", "ZKSYNC_ERA", "LINEA",
     "SCROLL", "MANTA_PACIFIC", "MODE", "FRAXTAL", "METIS",
-    "MANTLE", "CELO", "CITREA", "MOONBEAM", "MOONRIVER", "FUSE", "BOBA",
+    "MANTLE", "CELO", "CITREA", "FUSE", "BOBA",
     "AURORA", "CRONOS", "PULSECHAIN", "RONIN", "KAIA", "ASTAR",
     "FLARE", "ZETACHAIN", "KCC", "ROOTSTOCK", "SHIBARIUM", "OPBNB",
     "TAIKO_ALETHIA", "SEI", "SONIC",
@@ -539,7 +540,7 @@ function _dynamicRpcGetOurChainIds() {
   if (ids.length < 10) {
     ids = [
       1, 10, 56, 100, 137, 204, 250, 288, 324, 369,
-      534352, 1088, 1101, 1135, 1284, 1285, 1329,
+      534352, 1088, 1101, 1135, 1329,
       2020, 2818, 4114, 4337, 5000, 7000, 7560, 7777777, 8217,
       8453, 13371, 25, 30, 42161, 42170, 42220, 42793,
       43114, 59144, 80094, 81457, 109, 122, 146, 169,
@@ -854,6 +855,7 @@ function UPDATE_DYNAMIC_RPCS(force) {
     var cacheEntries = {};
     for (var k in data) {
       if (k.charAt(0) === '_' || !data.hasOwnProperty(k) || !data[k]) continue;
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(k)) continue;
       if (data[k].rpcs) {
         totalRpcs += data[k].rpcs.length;
         cacheEntries["DYN_" + k] = JSON.stringify(data[k].rpcs);
@@ -921,6 +923,7 @@ function SHOW_DYNAMIC_RPCS() {
   for (var key in data) {
     if (key.charAt(0) === '_') continue;
     if (!data.hasOwnProperty(key)) continue;
+    if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(key)) continue;
     var entry = data[key];
     if (!entry) continue;
     if (key.indexOf("cosmos:") === 0) {
@@ -967,6 +970,7 @@ function DYNAMIC_RPC_STATUS() {
   var cosmosCount = 0;
   for (var k in data) {
     if (k.charAt(0) === '_' || !data.hasOwnProperty(k) || !data[k]) continue;
+    if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(k)) continue;
     if (k.indexOf("cosmos:") === 0) cosmosCount++;
     else if (data[k].rpcs) evmCount++;
   }
@@ -1015,6 +1019,7 @@ var _dynMergeCache = {};
 
 function _getDynamicRpcsMerged(hardcodedEndpoints, config) {
   var chainId = (config && config.CHAIN && config.CHAIN.CHAIN_ID) || 0;
+  if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(chainId)) return [];
   if (!chainId) return hardcodedEndpoints || [];
 
   // Fast path: in-memory cache (0ms after first call per chain)

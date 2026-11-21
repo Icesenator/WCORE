@@ -435,6 +435,7 @@ var ActivityTracker = (function() {
       var all = [];
       for (var key in _cache) {
         var parts = key.split(":");
+        if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(parts[0])) continue;
         var entry = _cache[key];
         if (entry && !_isCompact(entry)) {
           _cache[key] = _toCompact(entry);
@@ -554,6 +555,7 @@ function _activityGetActiveLedgerChainSet_() {
       if (chainCol > 0) {
         var values = recap.getRange(2, chainCol, lastRow - 1, 1).getValues();
         for (var r = 0; r < values.length; r++) {
+          if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(values[r][0])) continue;
           var recapKey = _activityNormalizeChainKey_(values[r][0]);
           if (recapKey) set[recapKey] = true;
         }
@@ -1325,7 +1327,7 @@ function BUILD_RPC_LOOKUP() {
       "GNOSIS","HASHKEY","HEMI","HYPEREVM","IMMUTABLE","INJECTIVE",
       "INK","INTUITION","KAIA","KATANA","KCC","LINEA","LISK","MANTA_PACIFIC",
       "MANTLE","MATCHAIN","MEGAETH","MERLIN","METAL_L2","METIS","MEZO",
-      "MITOSIS","MODE","MONAD","MOONBEAM","MOONRIVER","MORPH","OPBNB",
+      "MITOSIS","MODE","MONAD","MORPH","OPBNB",
       "OPENLEDGER","OPTIMISM","OSMOSIS","PLASMA","PLUME","POLYGON",
       "PULSECHAIN","RACE","REYA","RONIN",
       "ROOTSTOCK","SCROLL","SEI","SHAPE","SHIBARIUM","SOLANA","SOMNIA",
@@ -2274,6 +2276,7 @@ function _checkSheetErrors_() {
 
       // Only check wallet-chain sheets (contain " - ")
       if (name.indexOf(" - ") === -1) continue;
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(name)) continue;
 
       stats.checked++;
 
@@ -2364,6 +2367,7 @@ function byRpcCount_(items) {
  * @param {string} chainName - Normalized chain key (e.g., "ARBITRUM_ONE", "BASE")
  */
 function _activity_pulseB1ForChain_(chainName) {
+  if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(chainName)) return;
   try {
     var ss = _wcoreGetSpreadsheet_();
     if (!ss) return;
@@ -2377,6 +2381,7 @@ function _activity_pulseB1ForChain_(chainName) {
 
     for (var i = 0; i < sheets.length; i++) {
       var name = sheets[i].getName();
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(name)) continue;
       // Normalize sheet name: "Ledger - Arbitrum One" → "ledgerarbitrumone"
       var normName = name.toLowerCase().replace(/[_\s\-]+/g, "");
 

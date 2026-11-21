@@ -47,6 +47,10 @@ var LEDGER_TS_KEY = "LEDGER_LAST_REFRESH";
 var LEDGER_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 var LEDGER_RETIRED_NAMES = {
  "ledger - mint": true,
+ "ledger - moonbeam": true,
+ "ledger - moonbeam crypto": true,
+ "ledger - moonriver": true,
+ "ledger - moonriver crypto": true,
  "ledger - redstone": true,
  "ledger - zero network": true
 };

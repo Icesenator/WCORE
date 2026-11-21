@@ -64,6 +64,9 @@ var _RpcLookup = (function() {
     try {
       var raw = PropertiesService.getScriptProperties().getProperty(ACTIVITY_CONFIG.STORAGE.RPC_LOOKUP);
       _cache = raw ? JSON.parse(raw) : {};
+      Object.keys(_cache).forEach(function(key) {
+        if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(key)) delete _cache[key];
+      });
     } catch (e) {
       _cache = {};
     }
@@ -134,6 +137,7 @@ var _RpcLookup = (function() {
     set: function(chain, rpc, vm, extraRpcs) {
       _load();
       var key = String(chain).toUpperCase().replace(/\s+/g, "_").replace(/-/g, "_");
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(key)) return;
       // v4.14.7: Store array of RPCs for fallback
       var rpcs = [rpc];
       if (extraRpcs && extraRpcs.length > 0) {

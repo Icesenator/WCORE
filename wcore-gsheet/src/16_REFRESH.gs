@@ -274,6 +274,7 @@ function WCORE_ON_EDIT(e) {
     var range = e.range;
     var sheet = range && range.getSheet ? range.getSheet() : null;
     var name = sheet && sheet.getName ? sheet.getName() : "";
+    if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(name)) return;
     var a1 = range && range.getA1Notation ? range.getA1Notation() : "";
     if (a1 === "BW1" && String(name || "") === "Strat" && typeof _portfolioSyncBothViews_ === "function") {
       try { _portfolioSyncBothViews_(); } catch (eSync) {}
@@ -322,7 +323,8 @@ function WCORE_ON_EDIT(e) {
       var secondaryValue = (typeof e.value !== "undefined") ? e.value : range.getValue();
       if (String(secondaryValue).toUpperCase() === "TRUE" && typeof LedgerViewRegistry_resolvePrimary_ === "function") {
         var primaryName = LedgerViewRegistry_resolvePrimary_(name);
-        if (primaryName && primaryName !== name && sheet && typeof sheet.getParent === "function") {
+        if (primaryName && primaryName !== name && sheet && typeof sheet.getParent === "function" &&
+            !(typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(primaryName))) {
           try {
             var primarySheet = sheet.getParent().getSheetByName(primaryName);
             if (primarySheet) {
@@ -779,6 +781,10 @@ function FORCE_RESCAN_LEDGERS(chainKeys) {
     var key = String(chainKeys[i] || "").trim();
     if (!key) continue;
     var sheetName = "Ledger - " + key;
+    if (typeof _wcoreRemovedChain_ === "function" && (_wcoreRemovedChain_(key) || _wcoreRemovedChain_(sheetName))) {
+      out.push([key, sheetName, "skip", "CHAIN_REMOVED"]);
+      continue;
+    }
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) {
       out.push([key, sheetName, "skip", "sheet not found"]);
@@ -1336,7 +1342,9 @@ function _wd_ackPulseDrained_(ss, results, sheetData, nowStr, deadlineMs) {
   if (typeof _webScanQueueOpaque_ !== "function") { out.reason = "QUEUE_UNAVAILABLE"; return out; }
   var proven = (results || []).filter(_wd_ackPulseProven_);
   if (!proven.length) { out.reason = "NO_OK"; return out; }
-  var rows = (sheetData || []).filter(function(d) { return d && d.name && !_wd_isCexSheet_(d.name); });
+  var rows = (sheetData || []).filter(function(d) {
+    return d && d.name && !_wd_isCexSheet_(d.name) && !(typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(d.name));
+  });
   if (!rows.length || Date.now() >= deadlineMs) { out.reason = rows.length ? "BUDGET" : "NO_ROWS"; return out; }
   var ranges = rows.map(function(d) { return "'" + d.name.replace(/'/g, "''") + "'!I1"; });
   var data = Sheets.Spreadsheets.Values.batchGet(ss.getId(), { ranges: ranges, valueRenderOption: "FORMULA" });
@@ -3156,6 +3164,8 @@ function SYNC_J1_ALL_SHEETS() {
 
     var actions = [];
     for (var i = 0; i < valsI1.length; i++) {
+      var sheetName = String((names[i] && names[i][0]) || "").trim();
+      if (!sheetName || _wd_isCexSheet_(sheetName) || (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(sheetName))) continue;
       var rawI1 = (valsI1[i] && valsI1[i][0]);
       var rawJ1 = (valsJ1[i] && valsJ1[i][0]);
       var i1 = (rawI1 instanceof Date) ? _wd_fmtDate_(rawI1) : String(rawI1 || "").trim();
@@ -3169,13 +3179,10 @@ function SYNC_J1_ALL_SHEETS() {
       var rawB1 = (valsB1[i] && valsB1[i][0]);
       var i1NormLatch = _wd_norm_(i1);
       if (i1NormLatch.indexOf("[CACHE_ONLY]") === 0) {
-        var sheetNameProbe = String((names[i] && names[i][0]) || "").trim();
-        if (sheetNameProbe && !_wd_isCexSheet_(sheetNameProbe)) {
-          try {
-            var probeSheet = ss.getSheetByName(sheetNameProbe);
-            if (probeSheet) rawB1 = probeSheet.getRange("B1").getValue();
-          } catch (eProbeB1) {}
-        }
+        try {
+          var probeSheet = ss.getSheetByName(sheetName);
+          if (probeSheet) rawB1 = probeSheet.getRange("B1").getValue();
+        } catch (eProbeB1) {}
       }
       var cleanI1 = _wd_j1LatchValue_(i1, rawB1);
       if (_wd_isUnsafeLatchSource_(i1)) continue;
@@ -3186,16 +3193,12 @@ function SYNC_J1_ALL_SHEETS() {
       var sourceI1 = _wd_extractTimestamp_(i1);
       if (j1 === _wd_bumpTimestampSeconds_(sourceI1, 1)) {
         try {
-          var recoverySheet = ss.getSheetByName(String((names[i] && names[i][0]) || "").trim());
+          var recoverySheet = ss.getSheetByName(sheetName);
           if (!recoverySheet || _wd_a2NeedsRecalc_(recoverySheet.getRange("A2").getValue())) continue;
         } catch (eRecoveryRead) { stats.errors++; continue; }
       }
       stats.checked++;
 
-      var sheetName = String((names[i] && names[i][0]) || "").trim();
-      if (!sheetName) continue;
-      // v4.15.85: never write J1 on CEX display-only tabs.
-      if (_wd_isCexSheet_(sheetName)) continue;
       actions.push({ sheetName: sheetName, value: cleanI1, fairnessIndex: i });
     }
     actions = _wd_selectFairJ1Actions_(actions, valsI1.length, P_SYNC_J1_CURSOR, stats);
@@ -3221,6 +3224,7 @@ function REPAIR_J1_LATCH_FORMULAS(limit) {
       var sh = sheets[i];
       var name = sh.getName();
       if (name.indexOf(" - ") === -1) continue;
+      if (typeof _wcoreRemovedChain_ === "function" && _wcoreRemovedChain_(name)) continue;
       stats.checked++;
 
       try {

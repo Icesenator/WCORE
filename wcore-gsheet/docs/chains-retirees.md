@@ -97,3 +97,17 @@ Conservé :
 **Effet sur le Recap tant que la ligne B3 n'est pas retirée** : l'onglet n'affiche plus de nombre. Un total en `SUM` comptera B3 pour <montant> sans le signaler ; une formule en `+` ou en `INDEX` peut afficher `#VALUE!` ou `#REF!`. Le retrait de la ligne B3 du Recap doit donc accompagner la publication GAS.
 
 Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter sur GO distinct, dans l'ordre : copie complète (valeurs et formules) vers une archive privée et relecture ; retrait de la ligne B3 des totaux du Recap ; publication GAS ; aucune suppression d'onglet avant validation de l'archive.
+
+# Moonbeam et Moonriver — retrait du traitement actif, 2026-11-21
+
+| Chaîne | chainId | Constat | Cause du retrait |
+|---|---|---|---|
+| Moonbeam | 1284 | arrêtée le 2026-07-31 | GLMR migré vers Base, date limite passée, portail de migration hors ligne. |
+| Moonriver | 1285 | dernier bloc 2026-08-10T08:27:48Z | chaîne figée, RPC morts ; migration MOVR close le 2026-07-31, demandes tardives closes le 2026-09-30. |
+
+- **Pourquoi maintenant** : les deux onglets étaient les plus anciens scans du Recap et laissaient `Strat!BL1` en rouge. Une alerte BL1 se traite en cherchant l'onglet en cause tout de suite (voir mémoire `bl1-alert-never-minimize`).
+- **Même mécanisme que B3** : tombstone `_wcoreRemovedChain_` (`MOONBEAM`, `1284`, `0x504`, `MOONRIVER`, `1285`, `0x505` et leurs onglets) ; formules `[CHAIN_REMOVED]` sans nombre ; retrait des listes ; WalletCache conservé ; onglets `LEDGER_RETIRED_NAMES` pour sortir du Recap sans suppression.
+- **Fichiers `MOONBEAM.gs` et `MOONRIVER.gs` conservés** (réduits aux formules) : safe-push ne supprime pas de fichier distant.
+- **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Faite le 2026-11-21, les deux lignes ont quitté le Recap et `Strat!BL1` est repassé sous 6 h.
+- **Archive privée** des deux onglets (valeurs et formules) : `WCORE-Private-Archives/chains-retirees/*-20261121.json`. Onglets **non supprimés** tant que Florian n'a pas validé l'archive.
+- Test : `wcore-gsheet/tests/moon-chains-retired.test.js`.

@@ -87,10 +87,10 @@ export const WATCH_SOURCES: readonly WatchSource[] = [
   { chainKey: "fogo", url: "https://www.fogo.io/blog", publisher: "Fogo" },
   { chainKey: "layerai", url: "https://aere.network/blog", publisher: "Aere Network" },
   { chainKey: "metal_l2", url: "https://metall2.com/news", publisher: "Metal L2" },
-  { chainKey: "neon", url: "https://neonevm.org", publisher: "Neon EVM" }, // page unique « Wind-Down Announcement » : tout changement de texte est signale
+  { chainKey: "neon", url: "https://neonevm.org", publisher: "Neon EVM" }, // page unique « Wind-Down Announcement » : un nouveau passage d'arret est signale (un simple changement de date peut passer inaperçu)
   { chainKey: "numine", url: "https://numine.io/notice", publisher: "NUMINE" }, // liste d'avis datee AAAA.MM.JJ
   { chainKey: "plasma", url: "https://www.plasma.org/company/blog", publisher: "Plasma" },
-  { chainKey: "ronin", url: "https://blog.roninchain.com/feed", publisher: "Ronin" },
+  { chainKey: "ronin", url: "https://blog.roninchain.com/feed", publisher: "Ronin", strict: true }, // newsletter : « migration » y est un terme courant, seuls les mots d'arret sont retenus
   { chainKey: "somnia", url: "https://blog.somnia.network/feed", publisher: "Somnia" },
   { chainKey: "zircuit", url: "https://www.zircuit.com/blog", publisher: "Zircuit" },
   // Flux de versions GitHub/GitLab des organisations officielles (aucune page editoriale lisible) : mode strict,

@@ -1,6 +1,6 @@
 // Run: tsx --test apps/api/src/gamification/gm-backfill-scan.test.ts
 // Scan de rattrapage sur des RPC publics limites : historique elague, plafond de plage eth_getLogs,
-// point d'acces mort, budget d'appels. Aucune base de donnees : le scan est teste seul.
+// point d'acces mort, tete en retard, budget d'appels. Aucune base de donnees : le scan est teste seul.
 import assert from "node:assert/strict";
 import { afterEach, mock, test } from "node:test";
 import { GmBackfillRpcError, scanGmBackfillCandidates, type RebuildDeps } from "./gm-streak-rebuild.js";
@@ -26,14 +26,9 @@ const gmLog = { address: CONTRACT, topics: [SIG, PADDED], data: "0x" + word(GM_M
 
 interface Behaviour {
   prunedBelow?: number; logCap?: number; dead?: boolean; calls: Record<string, number>; logCalls: number;
-  silentFirst?: number;       // les N premieres requetes ne recoivent aucune reponse, puis le point d'acces repond
   refuseHeights?: number[];   // blocs refuses un par un
   logError?: boolean;         // refuse toute lecture de journaux
   lagSeconds?: number;        // chaine en retard : tous les horodatages sont plus anciens
-  noLogs?: boolean;           // point d'acces de secours qui repond sans journaux (reponse incomplete)
-  headBehind?: number;        // point d'acces en retard : sa tete est N blocs derriere la vraie, au-dela il refuse
-  silentLogs?: number;        // les N premieres lectures de journaux restent sans reponse
-  badLatest?: boolean;        // repond au bloc « latest » par un objet vide
   maxSpan: number;
 }
 let behaviour: Record<string, Behaviour>;
@@ -44,26 +39,20 @@ type Body = { method: string; params: any[] };
 function answer(endpoint: string, body: Body): object | null {
   const b = behaviour[endpoint]!;
   b.calls[body.method] = (b.calls[body.method] ?? 0) + 1;
-  const total = Object.values(b.calls).reduce((sum, n) => sum + n, 0);
-  if (b.dead || (b.silentFirst !== undefined && total <= b.silentFirst)) return null;
+  if (b.dead) return null;
   if (body.method === "eth_getBlockByNumber") {
-    if (b.badLatest && body.params[0] === "latest") return { result: {} };
-    const tip = HEAD - (b.headBehind ?? 0);
-    const height = body.params[0] === "latest" ? tip : Number(body.params[0]);
-    if (height > tip) return { error: { message: "block not found yet" } };
+    const height = body.params[0] === "latest" ? HEAD : Number(body.params[0]);
     if (b.prunedBelow !== undefined && height < b.prunedBelow) return { error: { message: "pruned history unavailable" } };
     if (b.refuseHeights?.includes(height)) return { error: { message: "block unavailable" } };
     return { result: { number: "0x" + height.toString(16), timestamp: "0x" + (tsOf(height) - (b.lagSeconds ?? 0)).toString(16) } };
   }
   if (body.method === "eth_getLogs") {
     b.logCalls++;
-    if (b.silentLogs !== undefined && b.logCalls <= b.silentLogs) return null;
     const range = body.params[0] as { fromBlock: string; toBlock: string };
     const from = Number(range.fromBlock);
     const to = Number(range.toBlock);
     b.maxSpan = Math.max(b.maxSpan, to - from + 1);
     if (b.logError) return { error: { message: "limit exceeded" } };
-    if (b.noLogs) return { result: [] };
     if (b.logCap !== undefined && to - from + 1 > b.logCap) return { error: { message: "block range too large" } };
     return { result: [gmLog].filter((log) => Number(log.blockNumber) >= from && Number(log.blockNumber) <= to) };
   }
@@ -98,7 +87,7 @@ test("une plage large acceptee : une seule requete de journaux", async () => {
 });
 
 test("historique elague : seuls les blocs recents sont lus, le GM est retrouve", async () => {
-  // Les blocs plus vieux que 200 000 sont refuses (elagage) : l'ancienne dichotomie depuis le bloc 0 echouait.
+  // Les blocs plus vieux que 200 000 sont refuses (elagage) : la dichotomie depuis le bloc 0 echouait.
   behaviour = { [A]: fresh({ prunedBelow: HEAD - 200_000 }) };
   const found = await scanGmBackfillCandidates(deps([A]), "SEI", USER, undefined, FROM, TO, NOW);
   assert.equal(found.length, 1);
@@ -119,31 +108,21 @@ test("point d'acces mort : le suivant sert", async () => {
   assert.equal(found.length, 1);
 });
 
-test("silences initiaux du point d'acces principal : jamais ecarte, les journaux restent lus chez lui", async () => {
-  // A se tait sur ses 3 premieres requetes (tete, puis deux essais du bloc de reference) puis repond ;
-  // B (secours) repond sans journaux. Le GM doit venir de A, pas d'un secours incomplet.
-  for (const silentFirst of [2, 3, 6]) {
-    behaviour = { [A]: fresh({ silentFirst }), [B]: fresh({ noLogs: true }) };
-    const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
-    assert.equal(found.length, 1, "silentFirst=" + silentFirst);
-    mock.restoreAll();
-  }
-});
-
-test("reponse « latest » mal formee d'un secours : ce n'est pas une tete, le scan continue", async () => {
-  behaviour = { [A]: fresh(), [B]: fresh({ badLatest: true }) };
-  const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
-  assert.equal(found.length, 1);
-});
-
 test("plafond explicite sous 25 blocs : jamais releve, chaque page respecte le plafond", async () => {
   behaviour = { [A]: fresh({ logCap: 5 }) };
-  const small = { ...deps([A]) };
-  // Fenetre courte (80 blocs) pour rester sous le budget : 16 pages de 5 blocs.
+  // Fenetre courte (quelques dizaines de blocs) pour rester sous le budget : pages de 5 blocs.
   const from = Date.UTC(2026, 10, 21, 11, 58);
   const to = Date.UTC(2026, 10, 21, 12, 0) - 20_000;
-  await scanGmBackfillCandidates(small, "TAC", USER, 5, from, to, NOW);
+  await scanGmBackfillCandidates(deps([A]), "TAC", USER, 5, from, to, NOW);
   assert.ok(behaviour[A]!.maxSpan <= 5, "page de " + behaviour[A]!.maxSpan + " blocs au-dela du plafond de 5");
+});
+
+test("plafond sous le plus petit pas : le scan s'arrete (503), rien n'est lu a moitie", async () => {
+  behaviour = { [A]: fresh({ logCap: 10 }) };
+  await assert.rejects(
+    scanGmBackfillCandidates(deps([A]), "BASE", USER, undefined, FROM, TO, NOW),
+    (error: unknown) => error instanceof GmBackfillRpcError && error.message === "rpc_incomplete_logs",
+  );
 });
 
 test("tete en retard : le scan s'arrete (503) au lieu de prendre « aucun bloc » pour une absence", async () => {
@@ -156,51 +135,26 @@ test("tete en retard : le scan s'arrete (503) au lieu de prendre « aucun bloc �
   assert.equal(behaviour[A]!.logCalls, 0);
 });
 
-test("une page sans reponse est retentee chez le meme point d'acces avant le secours incomplet", async () => {
-  // A se tait sur sa premiere lecture de journaux (puis repond) ; B (secours) repondrait « aucun journal ».
-  behaviour = { [A]: fresh({ silentLogs: 1 }), [B]: fresh({ noLogs: true }) };
-  const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
-  assert.equal(found.length, 1, "le GM vient de A, pas du secours");
-  assert.equal(behaviour[B]!.logCalls, 0);
-});
-
-test("tete la plus avancee des points d'acces : un RPC en retard ne decide pas qu'il n'y a pas de bloc", async () => {
-  // A est 300 000 blocs derriere (plus vieux que la fenetre), B est a jour : la tete retenue est celle de B.
-  behaviour = { [A]: fresh({ headBehind: 300_000 }), [B]: fresh() };
-  const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
-  assert.equal(found.length, 1);
-});
-
 test("bloc de reference refuse : l'estimation est abandonnee, le GM est quand meme retrouve", async () => {
   behaviour = { [A]: fresh({ refuseHeights: [HEAD - 1024] }) };
   const found = await scanGmBackfillCandidates(deps([A]), "SOMNIA", USER, undefined, FROM, TO, NOW);
   assert.equal(found.length, 1);
 });
 
+test("recherche proche impossible (un bloc voisin est refuse) : repli sur la dichotomie depuis le bloc 0", async () => {
+  // Le premier pas de la recherche proche (estimation - 256) est refuse : elle echoue, la dichotomie d'origine tranche.
+  const target = HEAD - Math.round((NOW - FROM) / 1000 / BLOCK_S);
+  behaviour = { [A]: fresh({ refuseHeights: [target - 256] }) };
+  const found = await scanGmBackfillCandidates(deps([A]), "SEI", USER, undefined, FROM, TO, NOW);
+  assert.equal(found.length, 1);
+  assert.ok((behaviour[A]!.calls["eth_getBlockByNumber"] ?? 0) > 25, "la dichotomie complete a tourne");
+});
 test("le budget compte les requetes de chaque point d'acces, pas les pages", async () => {
-  // A refuse toute lecture, B l'accepte par pages de 25 : 1 728 pages x 2 requetes depasseraient 1 500.
+  // A refuse toute lecture, B l'accepte par pages de 25 : 1 728 pages x 2 requetes depasseraient 3 000.
   behaviour = { [A]: fresh({ logError: true }), [B]: fresh({ logCap: 25 }) };
   await assert.rejects(
     scanGmBackfillCandidates(deps([A, B]), "MONAD", USER, undefined, FROM, TO, NOW),
     (error: unknown) => error instanceof GmBackfillRpcError && error.message === "rpc_budget_exceeded",
   );
-  assert.ok(behaviour[A]!.logCalls + behaviour[B]!.logCalls <= 1500, String(behaviour[A]!.logCalls + behaviour[B]!.logCalls));
-});
-
-test("plafond sous le plus petit pas : le scan s'arrete (503), rien n'est lu a moitie", async () => {
-  behaviour = { [A]: fresh({ logCap: 10 }) };
-  await assert.rejects(
-    scanGmBackfillCandidates(deps([A]), "BASE", USER, undefined, FROM, TO, NOW),
-    (error: unknown) => error instanceof GmBackfillRpcError && error.message === "rpc_incomplete_logs",
-  );
-});
-
-test("budget d'appels epuise : le scan s'arrete (503) au lieu de tourner indefiniment", async () => {
-  // 43 200 blocs par jour a 25 blocs par page (le minimum) : 1 728 pages, au-dela du budget de 1 500 requetes.
-  behaviour = { [A]: fresh({ logCap: 25 }) };
-  await assert.rejects(
-    scanGmBackfillCandidates(deps([A]), "MONAD", USER, undefined, FROM, TO, NOW),
-    (error: unknown) => error instanceof GmBackfillRpcError && error.message === "rpc_budget_exceeded",
-  );
-  assert.ok(behaviour[A]!.logCalls <= 1500, "jamais plus de 1 500 requetes de journaux : " + behaviour[A]!.logCalls);
+  assert.ok(behaviour[A]!.logCalls + behaviour[B]!.logCalls <= 3000, String(behaviour[A]!.logCalls + behaviour[B]!.logCalls));
 });

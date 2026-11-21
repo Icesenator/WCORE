@@ -145,6 +145,21 @@ describe("routes", () => {
     const raw = (await app.inject({ method: "GET", url: "/api/sentinel/health" })).body;
     assert.equal((JSON.parse(raw) as { announcementsPending: number }).announcementsPending, 1);
     assert.ok(!/sunset|secret\.example/.test(raw), "aucun extrait ni URL dans la reponse publique");
+    assert.deepEqual(Object.keys(JSON.parse(raw)).sort(), ["announcementsPending", "lastRunAt", "lastSuccessAt", "monitoring", "sourcesChecked", "sourcesFailed", "watchChecked", "watchFailed"]);
+  });
+
+  test("relais d'alerte : liste vide = 0, lecture des propositions en panne = null avec STALE conserve", async () => {
+    const { app, store } = await build();
+    await store.set(SENTINEL_KEYS.proposals, []);
+    assert.equal(((await app.inject({ method: "GET", url: "/api/sentinel/health" })).json() as { announcementsPending: number }).announcementsPending, 0);
+    const s = store as unknown as { get: (k: string) => Promise<unknown> };
+    const orig = s.get.bind(store);
+    s.get = async (k: string) => { if (k === SENTINEL_KEYS.proposals) throw new Error("boom"); return orig(k); };
+    const res = await app.inject({ method: "GET", url: "/api/sentinel/health" });
+    const j = res.json() as { announcementsPending: number | null; monitoring: { status: string; severity: string } };
+    assert.equal(res.statusCode, 200);
+    assert.equal(j.announcementsPending, null);
+    assert.equal(j.monitoring.status, "STALE");
   });
 
   test("historique : premiere lecture enregistree, lectures identiques non dupliquees", async () => {

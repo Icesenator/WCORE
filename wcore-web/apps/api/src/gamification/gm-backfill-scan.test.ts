@@ -33,6 +33,7 @@ interface Behaviour {
   noLogs?: boolean;           // point d'acces de secours qui repond sans journaux (reponse incomplete)
   headBehind?: number;        // point d'acces en retard : sa tete est N blocs derriere la vraie, au-dela il refuse
   silentLogs?: number;        // les N premieres lectures de journaux restent sans reponse
+  badLatest?: boolean;        // repond au bloc « latest » par un objet vide
   maxSpan: number;
 }
 let behaviour: Record<string, Behaviour>;
@@ -46,6 +47,7 @@ function answer(endpoint: string, body: Body): object | null {
   const total = Object.values(b.calls).reduce((sum, n) => sum + n, 0);
   if (b.dead || (b.silentFirst !== undefined && total <= b.silentFirst)) return null;
   if (body.method === "eth_getBlockByNumber") {
+    if (b.badLatest && body.params[0] === "latest") return { result: {} };
     const tip = HEAD - (b.headBehind ?? 0);
     const height = body.params[0] === "latest" ? tip : Number(body.params[0]);
     if (height > tip) return { error: { message: "block not found yet" } };
@@ -111,17 +113,25 @@ test("plafond de plage a 100 blocs : la page refusee est divisee puis la taille 
   assert.ok(behaviour[A]!.logCalls > 400 && behaviour[A]!.logCalls < 900, String(behaviour[A]!.logCalls));
 });
 
-test("point d'acces mort : ecarte apres deux silences, le suivant sert", async () => {
+test("point d'acces mort : le suivant sert", async () => {
   behaviour = { [A]: fresh({ dead: true }), [B]: fresh() };
   const found = await scanGmBackfillCandidates(deps([A, B]), "ASTAR", USER, undefined, FROM, TO, NOW);
   assert.equal(found.length, 1);
-  const hits = Object.values(behaviour[A]!.calls).reduce((sum, n) => sum + n, 0);
-  assert.ok(hits <= 4, "le point d'acces mort n'est plus interroge a chaque appel : " + hits);
 });
 
-test("un silence passager ne fait pas ecarter un point d'acces qui repond ensuite : les journaux restent lus chez lui", async () => {
-  // A se tait deux fois puis repond ; B (secours) repond sans journaux. Le GM doit venir de A, pas d'un secours incomplet.
-  behaviour = { [A]: fresh({ silentFirst: 2 }), [B]: fresh({ noLogs: true }) };
+test("silences initiaux du point d'acces principal : jamais ecarte, les journaux restent lus chez lui", async () => {
+  // A se tait sur ses 3 premieres requetes (tete, puis deux essais du bloc de reference) puis repond ;
+  // B (secours) repond sans journaux. Le GM doit venir de A, pas d'un secours incomplet.
+  for (const silentFirst of [2, 3, 6]) {
+    behaviour = { [A]: fresh({ silentFirst }), [B]: fresh({ noLogs: true }) };
+    const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
+    assert.equal(found.length, 1, "silentFirst=" + silentFirst);
+    mock.restoreAll();
+  }
+});
+
+test("reponse « latest » mal formee d'un secours : ce n'est pas une tete, le scan continue", async () => {
+  behaviour = { [A]: fresh(), [B]: fresh({ badLatest: true }) };
   const found = await scanGmBackfillCandidates(deps([A, B]), "BASE", USER, undefined, FROM, TO, NOW);
   assert.equal(found.length, 1);
 });

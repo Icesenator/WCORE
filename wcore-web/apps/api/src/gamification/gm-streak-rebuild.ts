@@ -162,32 +162,15 @@ export async function scanGmBackfillCandidates(
   const hex = (n: number) => "0x" + n.toString(16);
   const quantity = (value: unknown) => typeof value === "string" && /^0x[0-9a-f]+$/i.test(value)
     ? Number(value) : NaN;
-  // An endpoint that has never answered during this scan (timeout, connection refused, HTTP error) and has failed
-  // three times is left out for the rest of it: a dead public endpoint would otherwise cost its timeout on every
-  // call. An endpoint that answered at least once is never dropped, so a transient silence cannot silently move
-  // the log reads to a backup that may answer less completely.
-  const health = new Map<string, { silent: number; answered: boolean }>();
-  const seen = (endpoint: string, answered: boolean) => {
-    const entry = health.get(endpoint) ?? { silent: 0, answered: false };
-    if (answered) entry.answered = true; else entry.silent++;
-    health.set(endpoint, entry);
-  };
-  const usable = () => {
-    const live = rpcs.filter((endpoint) => {
-      const entry = health.get(endpoint);
-      return !entry || entry.answered || entry.silent < 3;
-    });
-    return live.length ? live : rpcs;
-  };
   // A silence gets one more try on the same endpoint before the next one is asked: a transient timeout must not
-  // move a read to a backup that may answer less completely.
+  // move a read to a backup that may answer less completely. Every endpoint stays in the rotation for the whole
+  // scan (as before): dropping one on a few silences could hide the endpoint that would have answered next.
   const rpc = async <T>(method: string, params: unknown[]): Promise<T> => {
-    for (const endpoint of usable()) {
+    for (const endpoint of rpcs) {
       for (let attempt = 0; attempt < 2; attempt++) {
         const response = await rpcJson<{ result?: T; error?: unknown }>(
           [endpoint], { jsonrpc: "2.0", id: 1, method, params },
         );
-        seen(endpoint, response != null);
         if (response == null) continue;
         if (!response.error && response.result != null) return response.result;
         break;
@@ -210,13 +193,13 @@ export async function scanGmBackfillCandidates(
   // has no blocks.
   const head = await (async () => {
     let best: { height: number; ms: number } | undefined;
-    for (const endpoint of usable()) {
+    for (const endpoint of rpcs) {
       const response = await rpcJson<{ result?: { number: string; timestamp: string }; error?: unknown }>(
         [endpoint], { jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: ["latest", false] },
       );
-      seen(endpoint, response != null);
       if (response?.error || response?.result == null) continue;
-      const candidate = parseBlock(response.result, "latest");
+      let candidate: { height: number; ms: number };
+      try { candidate = parseBlock(response.result, "latest"); } catch { continue; } // a malformed answer from one endpoint is not a head
       if (!best || candidate.height > best.height) best = candidate;
     }
     if (!best) throw new GmBackfillRpcError("rpc_unavailable");
@@ -282,12 +265,11 @@ export async function scanGmBackfillCandidates(
   const MAX_LOG_CALLS = 1500;
   let logCalls = 0;
   const getLogs = async (from: number, to: number): Promise<GmLog[] | undefined> => {
-    for (const endpoint of usable()) {
+    for (const endpoint of rpcs) {
       // One more try on the same endpoint after a silence, before a backup that may answer less completely.
       for (let attempt = 0; attempt < 2; attempt++) {
         if (++logCalls > MAX_LOG_CALLS) throw new GmBackfillRpcError("rpc_budget_exceeded");
         const page = await tryGetLogs([endpoint], GM_EVENT_SIG, paddedUser, hex(from), hex(to));
-        seen(endpoint, page !== null);
         if (page === null) continue;
         if (!page.error && Array.isArray(page.result)) return page.result;
         break;

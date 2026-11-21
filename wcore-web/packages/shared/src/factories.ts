@@ -240,4 +240,7 @@ export const GM_HISTORICAL_FACTORIES: Record<string, { address: string; chainId:
   // Swellchain (arretee le 2026-06-30 selon Swell, depots coupes le 2026-05-05, retraits jusqu'au 2026-06-15) : kept for the
   // owners of deployed contracts; it is not an active factory.
   swellchain: { address: "0x3177892304a1b928f34b054e280cd77a0e83872a", chainId: 1923 },
+  // Lisk (arretee le 2026-11-02, Portal et Bridge fermes) : kept for the owners of deployed contracts;
+  // it is not an active factory.
+  lisk: { address: "0xcc57c6df12d926f958f36fe98c0c8a8008fac490", chainId: 1135 },
 };

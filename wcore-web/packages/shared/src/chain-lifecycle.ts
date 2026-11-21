@@ -19,6 +19,9 @@ const RETIRED_CHAINS: ReadonlyArray<{ label: string; code: string; ids: readonly
   // ZERO Network : arret annonce pour le 2026-07-31 (page d'aide Zerion), chaine constatee a l'arret.
   // Le jeton ZERO n'est pas concerne : seuls la cle de chaine et les identifiants 543210 / 0x849ea figurent ici.
   { label: "ZERO Network (543210)", code: "ZERO (543210)", ids: ["zero", "543210", "0x849ea"] },
+  // Lisk L2 : reseau arrete le 2026-11-02 (Portal et Bridge fermes), reclamation manuelle annoncee pour janvier 2027.
+  // Le jeton LSK sur Ethereum n'est pas concerne : seuls la cle de chaine et les identifiants 1135 / 0x46f figurent ici.
+  { label: "Lisk (1135)", code: "LISK (1135)", ids: ["lisk", "1135", "0x46f"] },
 ];
 
 /** Tombstone code shared with GAS (`[CHAIN_REMOVED] <code>`), or null. */

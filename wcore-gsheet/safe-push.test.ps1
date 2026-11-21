@@ -171,7 +171,7 @@ ChainFactory.createEvmChain = function(chainName, chainConfig) {
 };
 '@
 
-# Forme reelle de LISK.gs et GRAVITY.gs: appel de fabrique au chargement.
+# Forme reelle de GRAVITY.gs (et de LISK.gs avant son tombstone): appel de fabrique au chargement.
 $fixtureRemovedChain = @'
 /**
  * OLDCHAIN.gs - Old Chain
@@ -398,13 +398,13 @@ Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" -RunFr
     -ExpectRefusedFiles @("SUPERSEED.gs") -ExpectOutput @('SUPERSEED \(5330\)', 'depot voisin du script') `
     -Label "real list next to the script refuses a removed chain"
 
-# Corpus reel du depot. LISK.gs et GRAVITY.gs appellent encore la fabrique au
-# chargement (a retirer de -ExpectRefusedFiles et de -ExcludeRealSrc le jour
-# ou ils deviennent des tombstones); aucun autre fichier reel n'est refuse.
+# Corpus reel du depot. GRAVITY.gs appelle encore la fabrique au chargement
+# (a retirer de -ExpectRefusedFiles et de -ExcludeRealSrc le jour ou il devient
+# un tombstone; LISK.gs l'est devenu le 2026-11-21); aucun autre fichier reel n'est refuse.
 Test-SafePush -ExpectedExitCode 1 -ExpectPush $false -ExpectClaspCalls "" -RealSrc `
-    -ExpectRefusedFiles @("GRAVITY.gs", "LISK.gs") `
-    -Label "real src: only LISK.gs and GRAVITY.gs are refused"
-Test-SafePush -ExpectedExitCode 0 -ExpectPush $true -RealSrc -ExcludeRealSrc @("GRAVITY.gs", "LISK.gs") `
+    -ExpectRefusedFiles @("GRAVITY.gs") `
+    -Label "real src: only GRAVITY.gs is refused"
+Test-SafePush -ExpectedExitCode 0 -ExpectPush $true -RealSrc -ExcludeRealSrc @("GRAVITY.gs") `
     -Label "real src without removed-chain files is pushed"
 
 Write-Host "$testsPassed passed, $testsFailed failed"

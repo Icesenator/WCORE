@@ -252,3 +252,31 @@ test("a late GM of J-1 still continues a stored streak ending at J-2 when an old
   assert.equal(store.row.gmStreak, 11);
   assert.equal(store.row.longestStreak, 11);
 });
+
+test("a stored streak ending at J-3 with a GM at J-1 and none at J-2 is not inflated by the POST of J (2, not 11)", async () => {
+  const store = fakeUserStore({ id: "u1", score: 0, gmStreak: 10, longestStreak: 10, lastGmDate: at(-3) });
+  const general = await postOnchainGm(store, [at(-1)], at(0, 9), NOW);
+  assert.equal(general.generalStreak, 1, "no continuity from J-3: the claim restarts at 1");
+  assert.equal(store.row.gmStreak, 2, "J-1 and J proven on-chain");
+  assert.equal(store.row.longestStreak, 10);
+});
+
+// Batterie en table : serie stockee, jours des GM en chaine deja enregistres, date de l'evenement du POST (a NOW).
+const POST_CASES: Array<{ name: string; stored: [number, number]; chain: Date[]; event: Date; streak: number; claimed: boolean }> = [
+  { name: "exact continuity (10 at J-2 + J-1, POST J)", stored: [10, -2], chain: [at(-1)], event: at(0, 9), streak: 12, claimed: true },
+  { name: "a gap (10 at J-3 + J-1, POST J)", stored: [10, -3], chain: [at(-1)], event: at(0, 9), streak: 2, claimed: true },
+  { name: "overlap (10 at J-2, chain J-3..J-1, POST J)", stored: [10, -2], chain: [at(-3), at(-2), at(-1)], event: at(0, 9), streak: 12, claimed: true },
+  { name: "late GM of yesterday (10 at J-2, old GM J-10, POST of J-1)", stored: [10, -2], chain: [at(-10)], event: at(-1), streak: 11, claimed: true },
+  { name: "no on-chain GM, stored yesterday (10 at J-1, POST J)", stored: [10, -1], chain: [], event: at(0, 9), streak: 11, claimed: true },
+  { name: "no on-chain GM, expired (10 at J-3, POST J)", stored: [10, -3], chain: [], event: at(0, 9), streak: 1, claimed: true },
+  { name: "future lastGmDate (5 at J+3, chain J-1 and J+3, POST J)", stored: [5, 3], chain: [at(-1), at(3)], event: at(0, 9), streak: 6, claimed: true },
+];
+for (const c of POST_CASES) {
+  test(`POST table: ${c.name}`, async () => {
+    const store = fakeUserStore({ id: "u1", score: 0, gmStreak: c.stored[0], longestStreak: c.stored[0], lastGmDate: at(c.stored[1]) });
+    const general = await postOnchainGm(store, c.chain, c.event, NOW);
+    assert.equal(general.claimed, c.claimed);
+    assert.equal(store.row.gmStreak, c.streak);
+    assert.ok(store.row.lastGmDate!.getTime() <= NOW.getTime() + 10 * 60_000, "lastGmDate never left in the future");
+  });
+}

@@ -347,11 +347,15 @@ export async function reconcileGeneralFromOnchain(args: {
         computedStreak: proven.currentStreak, computedLongest: proven.longest, latestEventMs: proven.latestTs, stored, now,
       });
       if (!args.neverLower || merged.gmStreak >= stored.gmStreak) return merged;
-      const lastChanged = (merged.lastGmDate?.getTime() ?? null) !== (stored.lastGmDate?.getTime() ?? null);
+      // La fusion baisserait le compteur : aucune continuite prouvee depuis la fin stockee. Rien n'avance (ni
+      // gmStreak ni lastGmDate : avancer la date sur l'ancien compteur gonflerait la serie, 10 a J-3 + J-1 donnait
+      // 11) ; seule une date future reparee (qui recule) est ecrite. La reclamation fait ensuite son calcul normal.
+      const repairedBack = merged.lastGmDate != null && stored.lastGmDate != null && merged.lastGmDate.getTime() < stored.lastGmDate.getTime();
       return {
-        ...merged,
         gmStreak: stored.gmStreak,
-        changed: lastChanged || merged.longestStreak !== stored.longestStreak,
+        longestStreak: stored.longestStreak,
+        lastGmDate: repairedBack ? merged.lastGmDate : stored.lastGmDate,
+        changed: repairedBack,
       };
     },
   });

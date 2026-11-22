@@ -37,4 +37,22 @@ assert.equal(stock[9].split('(').length, stock[9].split(')').length, 'parenthese
 const eur = rowFormulas('42_STOCK_PORTFOLIO.gs', '_stockPortfolioApplyFormulasToRow_', null, 3, 'EUR');
 assert.ok(eur[6].includes('-IF(U1=TRUE;INDEX(Budget!$133:$133;MATCH(MAX(Budget!$1:$1)-1;Budget!$1:$1;0));INDEX(Budget!$133:$133;MATCH(MAX(Budget!$1:$1);Budget!$1:$1;0)))'), 'Action G (EUR) : ligne 133 de Budget');
 
+// Ligne 1 (D1, F1) des deux portefeuilles et ligne de formules d'Action Rebalancing (34).
+const crypto1 = read('43_CRYPTO_PORTFOLIO.gs');
+assert.ok(crypto1.includes('"=MAX(IF(U1=TRUE;INDEX(Strat!$35:$35;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$35:$35;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))/10;10)"'), 'Crypto D1 : ligne 35');
+assert.ok(crypto1.includes('"=IF(U1=TRUE;INDEX(Strat!$32:$32;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$32:$32;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))"'), 'Crypto F1 : ligne 32');
+const stock1 = read('42_STOCK_PORTFOLIO.gs');
+assert.ok(stock1.includes('"=MAX(IF(U1=TRUE;INDEX(Strat!$82:$82;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$82:$82;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))/10;10)"'), 'Action D1 : ligne 82');
+assert.ok(stock1.includes('"=IF(U1=TRUE;INDEX(Strat!$79:$79;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$79:$79;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))"'), 'Action F1 : ligne 79');
+const topCtx = { Logger: { log() {} }, ScriptApp: { WeekDay: {} } };
+vm.createContext(topCtx);
+vm.runInContext(read('34_TOP_MARKETCAP.gs'), topCtx);
+const topRow = topCtx._topMcActionFormulaRow_(topCtx.TOP_MC_CONFIG.ACTION_FIRST_ROW);
+const topJ = topRow.find((f) => typeof f === 'string' && f.includes('Rebalancing!G:H;2;FALSE)="Y");INDEX(Strat!'));
+assert.ok(topJ, 'Action Rebalancing : formule de ciblage presente');
+assert.ok(topJ.includes('INDEX(Strat!$84:$84;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0))>0'), 'Action Rebalancing : ligne 84');
+assert.ok(topJ.includes('IF($S$1="X";INDEX(Strat!$80:$80;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$80:$80;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))'), 'Action Rebalancing : ligne 80, S1 inchange');
+assert.ok(topJ.includes('INDEX(Strat!$90:$90;'), 'Action Rebalancing : ligne 90');
+assert.equal(topJ.split('(').length, topJ.split(')').length, 'parentheses equilibrees');
+
 console.log('portfolio-formulas-index-match: OK');

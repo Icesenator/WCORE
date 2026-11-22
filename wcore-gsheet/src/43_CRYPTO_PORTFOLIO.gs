@@ -204,9 +204,9 @@ function _cryptoPortfolioBuildRow1_(existingRow1) {
     false,
     "",
     "Bornes :",
-    "=MAX(IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$35;34);HLOOKUP(max(Strat!$2:$2);Strat!$2:$35;34))/10;10)",
+    "=MAX(IF(U1=TRUE;INDEX(Strat!$35:$35;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$35:$35;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))/10;10)",
     "=SUMPRODUCT(D3:D;(H3:H=0)*1;(T3:T<>\"X\")*1;(I3:I>0)*1)+SUMPRODUCT(D3:D;(H3:H=0)*1;(T3:T<>\"X\")*1;(B3:B<=J1)*1)",
-    "=IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$32;31);HLOOKUP(max(Strat!$2:$2);Strat!$2:$32;31))",
+    "=IF(U1=TRUE;INDEX(Strat!$32:$32;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$32:$32;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))",
     "=IFERROR(D1/H1;0)",
     "=SUMPRODUCT(G3:G)",
     "=ROUNDUP(SUMPRODUCT((L3:L>0)*1)-W1-Y1)",
@@ -605,7 +605,7 @@ function _cryptoPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[6] = "=IF(T" + sheetRow + "=\"X\";0;IFERROR(SUMIFS('" + detailsSheetName + "'!K:K;'" + detailsSheetName + "'!C:C;A" + sheetRow + ";'" + detailsSheetName + "'!A:A;B" + sheetRow + ")*C" + sheetRow + ";0))";
   row[7] = "=SUMPRODUCT((Rebalancing!A$7:A=A" + sheetRow + ")*1)";
   row[8] = "=IF(H" + sheetRow + "<>0;0;SUMPRODUCT((Rebalancing!B$7:B=A" + sheetRow + ")*1))";
-  row[9] = "=IF(T" + sheetRow + "=\"X\";0;IFERROR(IF(AND(I" + sheetRow + "=1;IFERROR(VLOOKUP(A" + sheetRow + ";Rebalancing!B$7:C;2;FALSE);\"\")=\"X\");IF($U$1=\"X\";HLOOKUP(MAX(Strat!$2:$2)-1;Strat!$2:$33;32);HLOOKUP(MAX(Strat!$2:$2);Strat!$2:$33;32))+IF(AND(A" + sheetRow + "=\"EURC\";$U$1=\"X\");HLOOKUP(MAX(Strat!$2:$2)-1;Strat!$2:$44;43);0);0);0))";
+  row[9] = "=IF(T" + sheetRow + "=\"X\";0;IFERROR(IF(AND(I" + sheetRow + "=1;IFERROR(VLOOKUP(A" + sheetRow + ";Rebalancing!B$7:C;2;FALSE);\"\")=\"X\");IF($U$1=TRUE;INDEX(Strat!$33:$33;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$33:$33;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))+IF(AND(A" + sheetRow + "=\"EURC\";$U$1=TRUE);INDEX(Strat!$44:$44;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));0);0);0))";
   row[10] = "=SQRT(100*D" + sheetRow + "/$E$1)";
   row[11] = "=IF(OR(H" + sheetRow + "<>0;T" + sheetRow + "=\"X\");0;IF(M" + sheetRow + ">0;M" + sheetRow + ";IF(AND(B" + sheetRow + ">$X$1;G" + sheetRow + ">=$D$1/2);$G$1*100;IF(B" + sheetRow + "<=$J$1;100*K" + sheetRow + "/$K$1;IF(B" + sheetRow + "<=$J$1+$W$1;MAX(100*K" + sheetRow + "/$K$1*1/$W$1*($W$1+$J$1-B" + sheetRow + ");$G$1*100);0)))))";
   row[12] = "=IF(T" + sheetRow + "=\"X\";0;IFERROR(IF(VLOOKUP(A" + sheetRow + ";Rebalancing!B$7:C;2;FALSE)=\"X\";J" + sheetRow + ";0);0))";

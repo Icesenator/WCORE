@@ -204,9 +204,9 @@ function _stockPortfolioBuildRow1_(existingRow1) {
     false,
     "",
     "Bornes :",
-    "=MAX(IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$82;81);HLOOKUP(max(Strat!$2:$2);Strat!$2:$82;81))/10;10)",
+    "=MAX(IF(U1=TRUE;INDEX(Strat!$82:$82;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$82:$82;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))/10;10)",
     "=SUMPRODUCT(D3:D;(H3:H=0)*1;(I3:I>0)*1)+SUMPRODUCT(D3:D;(H3:H=0)*1;(B3:B<=J1)*1)",
-    "=IF(U1=TRUE;HLOOKUP(max(Strat!$2:$2)-1;Strat!$2:$79;78);HLOOKUP(max(Strat!$2:$2);Strat!$2:$79;78))",
+    "=IF(U1=TRUE;INDEX(Strat!$79:$79;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$79:$79;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))",
     "=IFERROR(D1/H1;0)",
     "=SUMPRODUCT(G3:G)",
     "=ROUNDUP(SUMPRODUCT((L3:L>0)*1)-W1-Y1)",
@@ -633,7 +633,7 @@ function _stockPortfolioApplyFormulasToRow_(row, sheetRow) {
   row[7] = "=SUMPRODUCT((Rebalancing!F$7:F=A" + sheetRow + ")*1)";
   // Include: gated by Exclude (same pattern as Portefeuille Crypto!P).
   row[8] = "=IF(H" + sheetRow + "<>0;0;SUMPRODUCT((Rebalancing!G$7:G=A" + sheetRow + ")*1))";
-  row[9] = "=IFERROR(IF(AND(OR(VLOOKUP(A" + sheetRow + ";Rebalancing!G:H;2;FALSE)=\"X\";VLOOKUP(A" + sheetRow + ";Rebalancing!G:H;2;FALSE)=\"Y\");HLOOKUP(MAX(Strat!$2:$2);Strat!$2:$84;83)>0);IF($U$1=\"X\";HLOOKUP(MAX(Strat!$2:$2)-1;Strat!$2:$80;79);HLOOKUP(MAX(Strat!$2:$2);Strat!$2:$80;79))+IF(AND(A" + sheetRow + "=\"EUR\";$U$1=\"X\");HLOOKUP(MAX(Strat!$2:$2)-1;Strat!$2:$90;89);0);0);0)";
+  row[9] = "=IFERROR(IF(AND(OR(VLOOKUP(A" + sheetRow + ";Rebalancing!G:H;2;FALSE)=\"X\";VLOOKUP(A" + sheetRow + ";Rebalancing!G:H;2;FALSE)=\"Y\");INDEX(Strat!$84:$84;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0))>0);IF($U$1=TRUE;INDEX(Strat!$80:$80;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$80:$80;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))+IF(AND(A" + sheetRow + "=\"EUR\";$U$1=TRUE);INDEX(Strat!$90:$90;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));0);0);0)";
   row[10] = "=SQRT(100*D" + sheetRow + "/$E$1)";
   row[11] = "=IF(H" + sheetRow + "<>0;0;IF(M" + sheetRow + ">0;M" + sheetRow + ";IF(AND(B" + sheetRow + ">$X$1;G" + sheetRow + ">=$D$1/2);$G$1*100;IF(B" + sheetRow + "<=$J$1;100*K" + sheetRow + "/$K$1;IF(B" + sheetRow + "<=$J$1+$W$1;MAX(100*K" + sheetRow + "/$K$1*1/$W$1*($W$1+$J$1-B" + sheetRow + ");$G$1*100);0)))))";
   row[12] = "=IFERROR(IF(VLOOKUP(A" + sheetRow + ";Rebalancing!G:H;2;FALSE)=\"Y\";MAX(J" + sheetRow + ";L" + sheetRow + ");IF(VLOOKUP(A" + sheetRow + ";Rebalancing!G:H;2;FALSE)=\"X\";J" + sheetRow + ";0));0)";
@@ -662,7 +662,7 @@ function _stockPortfolioEurSpotFormula_(sheetRow) {
   });
   return "=" + parts.join("+") +
     "-SUMPRODUCT(('Portefeuille Crypto Details'!E:E=\"CEX - Bitpanda\")*1;('Portefeuille Crypto Details'!C:C=\"EURC\")*1;'Portefeuille Crypto Details'!L:L)" +
-    "-IF(U1=\"X\";HLOOKUP(MAX(Budget!$1:$1)-1;Budget!$1:$133;133);HLOOKUP(MAX(Budget!$1:$1);Budget!$1:$133;133))";
+    "-IF(U1=TRUE;INDEX(Budget!$133:$133;MATCH(MAX(Budget!$1:$1)-1;Budget!$1:$1;0));INDEX(Budget!$133:$133;MATCH(MAX(Budget!$1:$1);Budget!$1:$1;0)))";
 }
 
 function _stockPortfolioEmptyRow_() {

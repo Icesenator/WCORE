@@ -166,7 +166,7 @@ assert.ok(
 // EUR row: Spot must be the Action Rebalancing EUR cash formula (Bitpanda EUR/BCPEUR
 // across the 4 sheets, minus EURC details, minus Budget), not the generic stock VLOOKUP.
 assert.match(matrix[0][6], /BCPEUR/, 'EUR Spot must aggregate Bitpanda BCPEUR/EUR cash');
-assert.match(matrix[0][6], /Budget!\$1:\$133/, 'EUR Spot must subtract the Budget HLOOKUP');
+assert.match(matrix[0][6], /INDEX\(Budget!\$133:\$133;MATCH\(MAX\(Budget!\$1:\$1\)/, 'EUR Spot must subtract Budget row 133 (INDEX/EQUIV, no fixed-index HLOOKUP)');
 assert.match(matrix[0][6], /Portefeuille Crypto Details/, 'EUR Spot must subtract EURC held in Details');
 
 // % Cible: numerator = theoretical target (L), denominator = $J$1 (=sumproduct of K column

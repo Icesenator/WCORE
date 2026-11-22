@@ -249,7 +249,7 @@ function _topMcActionFormulaRow_(row) {
     "=IFERROR(L" + row + "/100*$F$1/D" + row + ";0)",
     _topMcActionSpotFormula_(row),
     "=SUMPRODUCT((Rebalancing!G:G=A" + row + ")*1)",
-    "=IFERROR(IF(AND(OR(VLOOKUP(A" + row + ";Rebalancing!G:H;2;FALSE)=\"X\";VLOOKUP(A" + row + ";Rebalancing!G:H;2;FALSE)=\"Y\");HLOOKUP(MAX(Strat!$2:$2);Strat!$2:$84;83)>0);IF($S$1=\"X\";HLOOKUP(MAX(Strat!$2:$2)-1;Strat!$2:$80;79);HLOOKUP(MAX(Strat!$2:$2);Strat!$2:$80;79))+IF(AND(A" + row + "=\"EUR\";$S$1=\"X\");HLOOKUP(MAX(Strat!$2:$2)-1;Strat!$2:$90;89);0);0);0)",
+    "=IFERROR(IF(AND(OR(VLOOKUP(A" + row + ";Rebalancing!G:H;2;FALSE)=\"X\";VLOOKUP(A" + row + ";Rebalancing!G:H;2;FALSE)=\"Y\");INDEX(Strat!$84:$84;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0))>0);IF($S$1=\"X\";INDEX(Strat!$80:$80;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));INDEX(Strat!$80:$80;MATCH(MAX(Strat!$2:$2);Strat!$2:$2;0)))+IF(AND(A" + row + "=\"EUR\";$S$1=\"X\");INDEX(Strat!$90:$90;MATCH(MAX(Strat!$2:$2)-1;Strat!$2:$2;0));0);0);0)",
     "=SQRT(100*C" + row + "/$C$1)",
     "=IF(K" + row + ">0;K" + row + ";IF(AND(B" + row + ">$V$1;F" + row + ">=$B$1/2);$E$1*100;IF(B" + row + "<=$H$1;100*I" + row + "/$I$1;IF(B" + row + "<=$H$1+$U$1;MAX(100*I" + row + "/$I$1*1/$U$1*($U$1+$H$1-B" + row + ");$E$1*100);0))))",
     "=IFERROR(IF(VLOOKUP(A" + row + ";Rebalancing!G:H;2;FALSE)=\"Y\";MAX(H" + row + ";J" + row + ");IF(VLOOKUP(A" + row + ";Rebalancing!G:H;2;FALSE)=\"X\";H" + row + ";0));0)",

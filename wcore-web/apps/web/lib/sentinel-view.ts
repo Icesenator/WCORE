@@ -14,6 +14,8 @@ export interface SentinelChainView {
   recoveryAfterShutdown: "AVAILABLE" | "PLANNED" | "NOT_AVAILABLE" | "UNKNOWN"; recoveryNote: string | null;
   recoveryNoteEn?: string | null;
   lastVerifiedAt: string; deadlines: SentinelDeadlineView[];
+  /** Toutes les sources de la fiche (absent dans les reponses anciennes). */
+  sources?: SentinelSourceView[] | null;
 }
 export interface SentinelAlertView {
   id?: string; chainKey: string; chainId: number; code: string; severity: SentinelSeverity;
@@ -70,8 +72,8 @@ const STATUS_LABELS: Record<SentinelLang, Record<SentinelStatus, string>> = {
 const CODE_LABELS: Record<SentinelLang, Record<string, string>> = {
   fr: {
     ACTION_REQUIRED_BEFORE_DEADLINE: "Action requise avant l'échéance",
-    FUNDS_STRANDED_AFTER_SHUTDOWN: "Fonds bloqués après fermeture",
-    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposition inconnue après fermeture",
+    FUNDS_STRANDED_AFTER_SHUTDOWN: "Fonds bloqués après l'arrêt du réseau",
+    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposition inconnue après l'arrêt du réseau",
     RECOVERY_WINDOW_OPEN: "Fenêtre de récupération ouverte",
     RECOVERY_PLANNED: "Récupération annoncée (non ouverte)",
     RETIRED_NO_EXPOSURE: "Réseau retiré, aucune exposition attestée",
@@ -80,8 +82,8 @@ const CODE_LABELS: Record<SentinelLang, Record<string, string>> = {
   },
   en: {
     ACTION_REQUIRED_BEFORE_DEADLINE: "Action required before the deadline",
-    FUNDS_STRANDED_AFTER_SHUTDOWN: "Funds stranded after shutdown",
-    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposure unknown after shutdown",
+    FUNDS_STRANDED_AFTER_SHUTDOWN: "Funds stranded after the network halt",
+    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposure unknown after the network halt",
     RECOVERY_WINDOW_OPEN: "Recovery window open",
     RECOVERY_PLANNED: "Recovery announced (not open yet)",
     RETIRED_NO_EXPOSURE: "Network retired, no exposure attested",

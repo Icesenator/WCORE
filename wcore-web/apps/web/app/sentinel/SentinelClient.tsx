@@ -141,7 +141,7 @@ export function SentinelClient() {
                     <td className="px-3 py-2"><div className="font-medium">{c.name}</div><div className="text-xs text-muted">chain ID {c.chainId}{c.successorChainId ? ` · ${tx.successor(c.successorChainId)}` : ""}</div></td>
                     <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${statusClass(c.status)}`}>{statusLabel(c.status, lang)}</span></td>
                     <td className="px-3 py-2">{d ? <><div>{deadlineLabel(d.kind, lang)}</div><div className="text-xs text-muted">{formatDeadlineAt(d.at, d.approximate, lang)} · {formatDeadlineCountdown(Date.parse(d.at) - now, d.approximate, lang)}</div></> : "—"}</td>
-                    <td className="px-3 py-2 text-xs"><SourceLinks urls={Array.from(new Map(c.deadlines.flatMap((x) => x.sources).map((s) => [s.url, s])).values())} tx={tx} lang={lang} /></td>
+                    <td className="px-3 py-2 text-xs"><SourceLinks urls={Array.from(new Map([...c.deadlines.flatMap((x) => x.sources), ...(c.sources ?? [])].map((s) => [s.url, s])).values())} tx={tx} lang={lang} /></td>
                   </tr>
                 );
               })}

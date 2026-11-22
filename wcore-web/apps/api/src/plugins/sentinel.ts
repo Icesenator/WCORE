@@ -194,6 +194,8 @@ function publicChainView(rec: ChainLifecycleRecord, nowMs: number) {
       kind: d.kind, at: d.at, approximate: d.approximate === true, assets: d.assets ?? null, countdownMs: Date.parse(d.at) - nowMs,
       sources: d.sourceIds.map((id) => rec.sources[id]).filter(Boolean).map((s) => ({ url: s!.url, publisher: s!.publisher, publisherEn: s!.publisherEn ?? null, official: s!.official })),
     })),
+    // Toutes les sources de la fiche, y compris celles qui ne portent aucune echeance (reseau suspendu, recuperation).
+    sources: Object.values(rec.sources).map((s) => ({ url: s.url, publisher: s.publisher, publisherEn: s.publisherEn ?? null, official: s.official })),
   };
 }
 

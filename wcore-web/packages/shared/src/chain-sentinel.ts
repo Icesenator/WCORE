@@ -337,7 +337,7 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     // (34 262 256) date du 29/10/2026, avant le bloc annonce. Heure non precisee : debut de journee UTC, marque approximate.
     deadlines: [
       { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-11-05T00:00:00Z", sourceIds: ["forma-shutdown-block"], approximate: true },
-      { kind: "NETWORK_SHUTDOWN", at: "2026-11-05T00:00:00Z", sourceIds: ["forma-shutdown-block"], approximate: true },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-11-05T00:00:00Z", sourceIds: ["forma-shutdown-block", "forma-bridge-shutdown"], approximate: true },
     ],
     sources: {
       "forma-shutdown-block": { url: "https://x.com/modularium_art/status/2113385579555495982", publisher: "Forma / Modularium (compte X officiel, annonce du 22/10/2026)", publisherEn: "Forma / Modularium (official X account, announcement of 2026-10-22)", official: true, retrievedAt: "2026-11-22T08:30:00Z" },
@@ -537,7 +537,8 @@ export function evaluateChain(rec: ChainLifecycleRecord, exposures: readonly Exp
     deadlineKind: bd ? bd.kind : null,
     deadlineApproximate: bd ? bd.approximate : false,
     conflict: bd ? bd.conflict : false,
-    officialSourceUrls: bd ? bd.officialSourceUrls : [],
+    // Sans echeance (reseau suspendu, par exemple), les sources officielles de la fiche restent citees.
+    officialSourceUrls: bd ? bd.officialSourceUrls : Object.values(rec.sources).filter((s) => s.official).map((s) => s.url),
     exposure,
     privateDetail: { positions: exposures.map((e, i) => ({ kind: e.kind, asset: e.asset, state: states[i] ?? ("UNKNOWN" as ExposureState) })) },
   };

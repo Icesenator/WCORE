@@ -205,7 +205,8 @@ describe("display keeps stale values visibly separate", () => {
   });
 
   test("Unknown takes precedence over the timeout/circuit value icons (QA F-STALE-TIMEOUT-CARD-NOT-UNKNOWN)", () => {
-    const card = readFileSync(new URL("../components/ChainCard.tsx", import.meta.url), "utf8");
+    // Fins de ligne normalisees : un checkout Windows (CRLF) ne doit pas faire echouer la recherche.
+    const card = readFileSync(new URL("../components/ChainCard.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const unknownAt = card.indexOf("currentValue === null ? (");
     const timeoutValueAt = card.indexOf("isTimedOut ? (\n            <p");
     assert.ok(unknownAt > 0 && timeoutValueAt > 0, "both value branches exist");

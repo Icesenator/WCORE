@@ -116,7 +116,7 @@ function UPDATE_STOCK_PORTFOLIO() {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
     var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
-    if (!sh) throw new Error("Missing sheet " + STOCK_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_STOCK_PORTFOLIO first");
+    if (!sh) throw new Error("Missing sheet " + STOCK_PORTFOLIO_CONFIG.SHEET_NAME + "; SETUP_STOCK_PORTFOLIO est desactive (generateur en retard sur la feuille) : recreer l onglet a partir d une copie de la feuille");
     try {
       var snapshot = _stockPortfolioFetchSnapshot_();
       _stockPortfolioValidateSnapshot_(snapshot);

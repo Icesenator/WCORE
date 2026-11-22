@@ -104,7 +104,7 @@ function UPDATE_CRYPTO_PORTFOLIO_V2() {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
     var sh = ss.getSheetByName(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
-    if (!sh) throw new Error("Missing sheet " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + "; run SETUP_CRYPTO_PORTFOLIO_V2 first");
+    if (!sh) throw new Error("Missing sheet " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME + "; SETUP_CRYPTO_PORTFOLIO_V2 est desactive (generateur en retard sur la feuille) : recreer l onglet a partir d une copie de la feuille");
     var started = Date.now();
     function mark(step, extra) {
       var msg = "RUN: " + step + " " + (Date.now() - started) + "ms" + (extra ? " " + extra : "");

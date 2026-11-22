@@ -72,8 +72,8 @@ const STATUS_LABELS: Record<SentinelLang, Record<SentinelStatus, string>> = {
 const CODE_LABELS: Record<SentinelLang, Record<string, string>> = {
   fr: {
     ACTION_REQUIRED_BEFORE_DEADLINE: "Action requise avant l'échéance",
-    FUNDS_STRANDED_AFTER_SHUTDOWN: "Fonds bloqués après la date limite de sortie",
-    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposition inconnue après la date limite de sortie",
+    FUNDS_STRANDED_AFTER_SHUTDOWN: "Fonds bloqués : sortie close",
+    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposition inconnue : sortie close",
     RECOVERY_WINDOW_OPEN: "Fenêtre de récupération ouverte",
     RECOVERY_PLANNED: "Récupération annoncée (non ouverte)",
     RETIRED_NO_EXPOSURE: "Réseau retiré, aucune exposition attestée",
@@ -82,8 +82,8 @@ const CODE_LABELS: Record<SentinelLang, Record<string, string>> = {
   },
   en: {
     ACTION_REQUIRED_BEFORE_DEADLINE: "Action required before the deadline",
-    FUNDS_STRANDED_AFTER_SHUTDOWN: "Funds stranded after the exit deadline",
-    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposure unknown after the exit deadline",
+    FUNDS_STRANDED_AFTER_SHUTDOWN: "Funds stranded: exit closed",
+    EXPOSURE_UNKNOWN_AFTER_SHUTDOWN: "Exposure unknown: exit closed",
     RECOVERY_WINDOW_OPEN: "Recovery window open",
     RECOVERY_PLANNED: "Recovery announced (not open yet)",
     RETIRED_NO_EXPOSURE: "Network retired, no exposure attested",

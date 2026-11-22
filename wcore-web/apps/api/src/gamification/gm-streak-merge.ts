@@ -332,6 +332,9 @@ export async function reconcileGeneralFromOnchain(args: {
   userId: string;
   createdAts: Date[];
   now?: Date;
+  /** Avant la reclamation : ne jamais baisser gmStreak (une serie jugee expiree par rapport a maintenant peut
+   * encore etre prolongee par un GM tardif de la veille ; la reclamation tranche). */
+  neverLower?: boolean;
 }): Promise<{ merged: MergedGeneralStreak; applied: boolean } | null> {
   const now = args.now ?? new Date();
   const proven = computeOnchainGeneralStreak(args.createdAts, now);
@@ -339,8 +342,17 @@ export async function reconcileGeneralFromOnchain(args: {
   return applyMergedStreak({
     store: args.store,
     userId: args.userId,
-    compute: (stored) => mergeGeneralStreak({
-      computedStreak: proven.currentStreak, computedLongest: proven.longest, latestEventMs: proven.latestTs, stored, now,
-    }),
+    compute: (stored) => {
+      const merged = mergeGeneralStreak({
+        computedStreak: proven.currentStreak, computedLongest: proven.longest, latestEventMs: proven.latestTs, stored, now,
+      });
+      if (!args.neverLower || merged.gmStreak >= stored.gmStreak) return merged;
+      const lastChanged = (merged.lastGmDate?.getTime() ?? null) !== (stored.lastGmDate?.getTime() ?? null);
+      return {
+        ...merged,
+        gmStreak: stored.gmStreak,
+        changed: lastChanged || merged.longestStreak !== stored.longestStreak,
+      };
+    },
   });
 }

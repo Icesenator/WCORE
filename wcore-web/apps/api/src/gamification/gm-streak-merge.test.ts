@@ -197,7 +197,7 @@ function fakeUserStore(row: { id: string; score: number } & StoredGmState) {
 async function postOnchainGm(store: ReturnType<typeof fakeUserStore>, priorRows: Date[], eventAt: Date, now: Date) {
   const gmDate = gmEventDate(eventAt, now);
   const scoringDay = new Date(utcDayStartMs(gmDate));
-  await reconcileGeneralFromOnchain({ store: store as never, userId: "u1", createdAts: priorRows, now });
+  await reconcileGeneralFromOnchain({ store: store as never, userId: "u1", createdAts: priorRows, now, neverLower: true });
   const general = await claimGeneralDailyGmWithRetry({ tx: store as never, userId: "u1", initial: { ...store.row }, scoringDay, gmDate });
   await reconcileGeneralFromOnchain({ store: store as never, userId: "u1", createdAts: [...priorRows, gmDate], now });
   return general;
@@ -241,4 +241,14 @@ test("point 3: a lastGmDate stored in the future no longer refuses the on-chain 
   assert.equal(general.claimed, true, "the claim is not refused as already done");
   assert.equal(store.row.gmStreak, 6);
   assert.ok(store.row.lastGmDate!.getTime() <= NOW.getTime(), "lastGmDate is no longer in the future");
+});
+
+test("a late GM of J-1 still continues a stored streak ending at J-2 when an older on-chain GM is recorded (11)", async () => {
+  // La reconciliation avant la reclamation juge la serie expiree par rapport a maintenant : elle ne doit pas la
+  // baisser, la reclamation du jour J-1 la prolonge.
+  const store = fakeUserStore({ id: "u1", score: 0, gmStreak: 10, longestStreak: 10, lastGmDate: at(-2) });
+  const general = await postOnchainGm(store, [at(-10)], at(-1), NOW);
+  assert.equal(general.generalStreak, 11);
+  assert.equal(store.row.gmStreak, 11);
+  assert.equal(store.row.longestStreak, 11);
 });

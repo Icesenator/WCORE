@@ -200,6 +200,28 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
     expect(a.severity).toBe("P0");
     expect(a.officialSourceUrls).toEqual(["https://help.zerion.io/en/articles/15214238-how-to-bridge-your-assets-off-zer%CE%B8-network"]);
   });
+  it("Dogechain, Step Network, ShimmerEVM, HYCHAIN : RETIRED, recuperation UNKNOWN, une source officielle relue chacune", () => {
+    const expected: Record<string, { chainId: number; kinds: string[]; url: string }> = {
+      dogechain: { chainId: 2000, kinds: ["BRIDGE_WITHDRAW_LAST", "NETWORK_SHUTDOWN"], url: "https://x.com/DogechainFamily/status/2063978930462175735" },
+      step_network: { chainId: 1234, kinds: ["UNSTAKE_LAST", "NETWORK_SHUTDOWN"], url: "https://x.com/StepApp_/status/2085038602828783837" },
+      shimmer_evm: { chainId: 148, kinds: ["BRIDGE_WITHDRAW_LAST", "NETWORK_SHUTDOWN"], url: "https://shimmer.network/" },
+      hychain: { chainId: 2911, kinds: ["CLAIM_END"], url: "https://x.com/hy_fdn/status/1960071791411626000" },
+    };
+    for (const [k, e] of Object.entries(expected)) {
+      const r = get(k);
+      expect(r.chainId, k).toBe(e.chainId);
+      expect(r.status, k).toBe("RETIRED");
+      expect(r.deadlines.map((d) => d.kind), k).toEqual(e.kinds);
+      expect(r.deadlines.every((d) => d.approximate === true), k).toBe(true);
+      expect(r.recoveryAfterShutdown, k).toBe("UNKNOWN");
+      expect(Object.values(r.sources).map((s) => s.url), k).toEqual([e.url]);
+      expect(Object.values(r.sources).every((s) => s.official === true && !!s.publisherEn), k).toBe(true);
+      expect(r.recoveryNoteEn, k).toBeTruthy();
+      const a = evaluateChain(r, pos("ETH"), NOW)!;
+      expect(a.severity, k).toBe("P0");
+      expect(a.officialSourceUrls, k).toEqual([e.url]);
+    }
+  });
   it("Moonbeam et Moonriver : traduction anglaise de la note et des editeurs fournie", () => {
     for (const k of ["moonbeam", "moonriver"]) {
       const r = get(k);

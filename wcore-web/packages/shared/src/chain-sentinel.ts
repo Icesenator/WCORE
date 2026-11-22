@@ -324,6 +324,87 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     lastVerifiedAt: "2026-11-21T18:00:00Z",
   },
   {
+    chainKey: "dogechain",
+    chainId: 2000,
+    name: "Dogechain",
+    status: "RETIRED",
+    // 2026-11-22 : annonce officielle du 08/06/2026 (compte X @DogechainFamily, post relu) : « we are announcing the sunset of
+    // Dogechain », fenetre de deux mois pour bridger et retirer, puis bridge mis hors ligne. Date exacte non citee dans le post :
+    // environ le 08/08/2026, marque approximate. Instantane final des soldes DC avant l'arret du bridge ; aucun engagement de
+    // relance (« No commitment is being made that Dogechain will return »). Observation WCORE, hors source officielle : tous les
+    // RPC connus hors service le 22/11/2026. Reseau retire du scan WCORE (isRetiredChain).
+    deadlines: [
+      { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-08-08T00:00:00Z", sourceIds: ["dogechain-sunset"], approximate: true },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-08-08T00:00:00Z", sourceIds: ["dogechain-sunset"], approximate: true },
+    ],
+    sources: {
+      "dogechain-sunset": { url: "https://x.com/DogechainFamily/status/2063978930462175735", publisher: "Dogechain (annonce officielle du 08/06/2026)", publisherEn: "Dogechain (official announcement of 2026-06-08)", official: true, retrievedAt: "2026-11-22T14:30:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Arret annonce le 08/06/2026 avec une fenetre de deux mois pour bridger (vers le 08/08/2026). Un instantane des soldes DC est conserve et « may serve as the basis for any future token distribution », sans engagement de relance ; les autres actifs restes sur la chaine ne sont pas presumes recuperables. RPC hors service le 22/11/2026 (observation WCORE).",
+    recoveryNoteEn: "Shutdown announced on 2026-06-08 with a two-month window to bridge out (around 2026-08-08). A snapshot of DC balances is kept and “may serve as the basis for any future token distribution”, with no commitment to a relaunch; other assets left on the chain are not presumed recoverable. RPCs down on 2026-11-22 (WCORE observation).",
+    lastVerifiedAt: "2026-11-22T14:30:00Z",
+  },
+  {
+    chainKey: "step_network",
+    chainId: 1234,
+    name: "Step Network",
+    status: "RETIRED",
+    // 2026-11-22 : annonce officielle du 05/08/2026 (compte X @StepApp_, post relu) : « Step App is shutting down », « All services
+    // will be winding down by August 21 », desengager les jetons avant cette date. Le post ne nomme pas la chaine Step Network :
+    // son arret est deduit de l'arret de tous les services, et constate par WCORE (domaine RPC disparu le 22/11/2026).
+    deadlines: [
+      { kind: "UNSTAKE_LAST", at: "2026-08-21T00:00:00Z", sourceIds: ["stepapp-shutdown"], approximate: true },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-08-21T00:00:00Z", sourceIds: ["stepapp-shutdown"], approximate: true },
+    ],
+    sources: {
+      "stepapp-shutdown": { url: "https://x.com/StepApp_/status/2085038602828783837", publisher: "Step App (annonce officielle du 05/08/2026)", publisherEn: "Step App (official announcement of 2026-08-05)", official: true, retrievedAt: "2026-11-22T14:30:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Step App a annonce le 05/08/2026 l'arret de tous ses services au 21/08/2026 et demande de desengager les jetons avant cette date ; rien n'est publie pour apres. Domaine RPC disparu le 22/11/2026 (observation WCORE).",
+    recoveryNoteEn: "Step App announced on 2026-08-05 that all its services would wind down by 2026-08-21 and asked users to unstake before that date; nothing is published for afterwards. RPC domain gone on 2026-11-22 (WCORE observation).",
+    lastVerifiedAt: "2026-11-22T14:30:00Z",
+  },
+  {
+    chainKey: "shimmer_evm",
+    chainId: 148,
+    name: "ShimmerEVM",
+    status: "RETIRED",
+    // 2026-11-22 : page officielle shimmer.network (relue) : « Shimmer & ShimmerEVM Have Officially Shut Down » ; bridge LayerZero
+    // ferme le 29/08/2026, production de blocs arretee le 30/09/2026, explorateurs et services termines. Heure non precisee.
+    deadlines: [
+      { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-08-29T00:00:00Z", sourceIds: ["shimmer-shutdown"], approximate: true },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-09-30T00:00:00Z", sourceIds: ["shimmer-shutdown"], approximate: true },
+    ],
+    sources: {
+      "shimmer-shutdown": { url: "https://shimmer.network/", publisher: "Shimmer Network (page officielle)", publisherEn: "Shimmer Network (official page)", official: true, retrievedAt: "2026-11-22T14:30:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Bridge LayerZero ferme le 29/08/2026 et production de blocs arretee le 30/09/2026 (page officielle shimmer.network) ; aucune voie de recuperation n'est mentionnee.",
+    recoveryNoteEn: "LayerZero bridge closed on 2026-08-29 and block production stopped on 2026-09-30 (official shimmer.network page); no recovery path is mentioned.",
+    lastVerifiedAt: "2026-11-22T14:30:00Z",
+  },
+  {
+    chainKey: "hychain",
+    chainId: 2911,
+    name: "HYCHAIN",
+    status: "RETIRED",
+    // 2026-11-22 : annonce officielle du 25/08/2025 (compte X @hy_fdn, ex-@HYCHAIN_GAMES, article relu) : « HYCHAIN itself
+    // (Arbitrum-based L2) will be sunset », $TOPIA remplace par $HYBUX sur Base (airdrop 2 HYBUX pour 1 TOPIA), actions a faire
+    // avant le 01/09/2025 pour l'airdrop. Aucune date d'arret de la chaine n'est donnee ; arret constate par WCORE (RPC hors
+    // service le 22/11/2026).
+    deadlines: [
+      { kind: "CLAIM_END", at: "2025-09-01T00:00:00Z", sourceIds: ["hychain-sunset"], approximate: true },
+    ],
+    sources: {
+      "hychain-sunset": { url: "https://x.com/hy_fdn/status/1960071791411626000", publisher: "HY Foundation (annonce officielle du 25/08/2025)", publisherEn: "HY Foundation (official announcement of 2025-08-25)", official: true, retrievedAt: "2026-11-22T14:30:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "HYCHAIN annoncee en fin de vie le 25/08/2025 au profit de Base ; le $TOPIA donnait droit a 2 $HYBUX sur Base si les actions etaient faites avant le 01/09/2025. Rien n'est publie pour apres. RPC hors service le 22/11/2026 (observation WCORE).",
+    recoveryNoteEn: "HYCHAIN announced as sunset on 2025-08-25 in favour of Base; $TOPIA gave 2 $HYBUX on Base if the required steps were done before 2025-09-01. Nothing is published for afterwards. RPCs down on 2026-11-22 (WCORE observation).",
+    lastVerifiedAt: "2026-11-22T14:30:00Z",
+  },
+  {
     chainKey: "forma",
     chainId: 984122,
     name: "Forma",

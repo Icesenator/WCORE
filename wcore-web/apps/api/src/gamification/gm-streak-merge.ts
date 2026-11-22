@@ -335,6 +335,8 @@ export async function reconcileGeneralFromOnchain(args: {
   /** Avant la reclamation : ne jamais baisser gmStreak (une serie jugee expiree par rapport a maintenant peut
    * encore etre prolongee par un GM tardif de la veille ; la reclamation tranche). */
   neverLower?: boolean;
+  /** Avec neverLower : jour de scoring du GM qui va etre reclame. */
+  scoringDay?: Date;
 }): Promise<{ merged: MergedGeneralStreak; applied: boolean } | null> {
   const now = args.now ?? new Date();
   const proven = computeOnchainGeneralStreak(args.createdAts, now);
@@ -347,6 +349,11 @@ export async function reconcileGeneralFromOnchain(args: {
         computedStreak: proven.currentStreak, computedLongest: proven.longest, latestEventMs: proven.latestTs, stored, now,
       });
       if (!args.neverLower || merged.gmStreak >= stored.gmStreak) return merged;
+      // Compteur stocke expire, mais une suite jointive de GM en chaine se termine la veille du jour de scoring :
+      // elle remplace le compteur expire (gmStreak = sa longueur, lastGmDate = son dernier GM), et la reclamation
+      // fait +1 avec le bonus de la serie reellement etablie (10 a J-3 + J-1, POST de J : 2, bonus 24).
+      if (args.scoringDay && proven.currentStreak > 0
+        && utcDayStartMs(proven.latestTs) === utcDayStartMs(args.scoringDay) - DAY_MS) return merged;
       // La fusion baisserait le compteur : aucune continuite prouvee depuis la fin stockee. Rien n'avance (ni
       // gmStreak ni lastGmDate : avancer la date sur l'ancien compteur gonflerait la serie, 10 a J-3 + J-1 donnait
       // 11) ; seule une date future reparee (qui recule) est ecrite. La reclamation fait ensuite son calcul normal.

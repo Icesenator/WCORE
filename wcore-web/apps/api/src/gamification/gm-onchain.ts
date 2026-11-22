@@ -205,7 +205,7 @@ export async function registerGmOnchainRoutes(
         // J-2 while a GM of J-1 is recorded continues before today's bonus is computed, and a lastGmDate stored
         // in the future no longer refuses the claim.
         const priorGms = await tx.onchainGm.findMany({ where: { userId: req.user!.id }, select: { createdAt: true } });
-        await reconcileGeneralFromOnchain({ store: tx, userId: req.user!.id, createdAts: priorGms.map((g) => g.createdAt), now, neverLower: true });
+        await reconcileGeneralFromOnchain({ store: tx, userId: req.user!.id, createdAts: priorGms.map((g) => g.createdAt), now, neverLower: true, scoringDay });
         try {
           await tx.onchainGm.create({
             data: { userId: req.user!.id, txHash, chainKey, contractId: gmContract.id, tipWei: gmTipWei ?? "0", createdAt: gmDate },

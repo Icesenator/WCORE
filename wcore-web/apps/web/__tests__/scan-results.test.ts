@@ -37,11 +37,11 @@ describe("scan result merging", () => {
 
   test("merges partial async poll chains without waiting for job completion", () => {
     const existing = [chain("BASE", 10), chain("GNOSIS", 5)];
-    const incoming = [chain("BASE", 12), chain("NEXUS", 3)];
+    const incoming = [chain("BASE", 12), chain("LINEA", 3)];
 
     const merged = mergeChainResults(existing, incoming);
 
-    assert.deepEqual(merged.chains.map((c) => c.chainKey), ["BASE", "GNOSIS", "NEXUS"]);
+    assert.deepEqual(merged.chains.map((c) => c.chainKey), ["BASE", "GNOSIS", "LINEA"]);
     assert.equal(merged.chains[0]?.totals.valueEur, 12);
     assert.equal(merged.totalEur, 20);
   });

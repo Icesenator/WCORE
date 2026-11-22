@@ -3,7 +3,6 @@ import type { ChainConfig } from "../types.js";
 
 import { ABSTRACT } from "./ABSTRACT.js";
 import { AEVO } from "./AEVO.js";
-import { AIRDAO } from "./AIRDAO.js";
 import { ANCIENT8 } from "./ANCIENT8.js";
 import { APECHAIN } from "./APECHAIN.js";
 import { APPCHAIN } from "./APPCHAIN.js";
@@ -31,16 +30,12 @@ import { CORE } from "./CORE.js";
 import { COSMOS_HUB } from "./COSMOS_HUB.js";
 import { CREDITCOIN } from "./CREDITCOIN.js";
 import { CRONOS } from "./CRONOS.js";
-import { CROSSBELL } from "./CROSSBELL.js";
 import { CYBER } from "./CYBER.js";
 import { CYSIC } from "./CYSIC.js";
 import { DBK_CHAIN } from "./DBK_CHAIN.js";
-import { DOGECHAIN } from "./DOGECHAIN.js";
 import { DOMA } from "./DOMA.js";
-import { DOS_CHAIN } from "./DOS_CHAIN.js";
 import { DYDX } from "./DYDX.js";
 import { EDEN } from "./EDEN.js";
-import { EDGELESS } from "./EDGELESS.js";
 import { EDU_CHAIN } from "./EDU_CHAIN.js";
 import { ELYSIUM } from "./ELYSIUM.js";
 import { ENDURANCE } from "./ENDURANCE.js";
@@ -63,7 +58,6 @@ import { HARMONY } from "./HARMONY.js";
 import { HASHKEY } from "./HASHKEY.js";
 import { HAVEN1 } from "./HAVEN1.js";
 import { HEMI } from "./HEMI.js";
-import { HYCHAIN } from "./HYCHAIN.js";
 import { HYPEREVM } from "./HYPEREVM.js";
 import { ICB_NETWORK } from "./ICB_NETWORK.js";
 import { IMMUTABLE } from "./IMMUTABLE.js";
@@ -81,8 +75,6 @@ import { LENS } from "./LENS.js";
 import { LIGHTLINK } from "./LIGHTLINK.js";
 import { LINEA } from "./LINEA.js";
 import { LISK } from "./LISK.js";
-import { LORENZO } from "./LORENZO.js";
-import { LUMIO } from "./LUMIO.js";
 import { MANTA_PACIFIC } from "./MANTA_PACIFIC.js";
 import { MANTLE } from "./MANTLE.js";
 import { MATCHAIN } from "./MATCHAIN.js";
@@ -100,7 +92,6 @@ import { MORPH } from "./MORPH.js";
 import { NEO_X } from "./NEO_X.js";
 import { NEON } from "./NEON.js";
 import { NEUTRON } from "./NEUTRON.js";
-import { NEXUS } from "./NEXUS.js";
 import { NOBLE } from "./NOBLE.js";
 import { NUMINE } from "./NUMINE.js";
 import { OPBNB } from "./OPBNB.js";
@@ -112,7 +103,6 @@ import { PLASMA } from "./PLASMA.js";
 import { PLAYNANCE_PLAYBLOCK } from "./PLAYNANCE_PLAYBLOCK.js";
 import { PLUME } from "./PLUME.js";
 import { POLYGON } from "./POLYGON.js";
-import { PROOF_OF_PLAY_APEX } from "./PROOF_OF_PLAY_APEX.js";
 import { PULSECHAIN } from "./PULSECHAIN.js";
 import { REI_NETWORK } from "./REI_NETWORK.js";
 import { REYA } from "./REYA.js";
@@ -125,14 +115,12 @@ import { SEI } from "./SEI.js";
 import { SHAPE } from "./SHAPE.js";
 import { SHIBARIUM } from "./SHIBARIUM.js";
 import { SHIDO_NETWORK } from "./SHIDO_NETWORK.js";
-import { SHIMMER_EVM } from "./SHIMMER_EVM.js";
 import { SKALE } from "./SKALE.js";
 import { SOLANA } from "./SOLANA.js";
 import { SOMNIA } from "./SOMNIA.js";
 import { SONEIUM } from "./SONEIUM.js";
 import { SONIC } from "./SONIC.js";
 import { STABLE } from "./STABLE.js";
-import { STEP_NETWORK } from "./STEP_NETWORK.js";
 import { STORY } from "./STORY.js";
 import { STRIDE } from "./STRIDE.js";
 import { SWAN } from "./SWAN.js";
@@ -159,7 +147,6 @@ import { ZORA } from "./ZORA.js";
 export const chains = {
   ABSTRACT,
   AEVO,
-  AIRDAO,
   ANCIENT8,
   APECHAIN,
   APPCHAIN,
@@ -187,16 +174,12 @@ export const chains = {
   COSMOS_HUB,
   CREDITCOIN,
   CRONOS,
-  CROSSBELL,
   CYBER,
   CYSIC,
   DBK_CHAIN,
-  DOGECHAIN,
   DOMA,
-  DOS_CHAIN,
   DYDX,
   EDEN,
-  EDGELESS,
   EDU_CHAIN,
   ELYSIUM,
   ENDURANCE,
@@ -219,7 +202,6 @@ export const chains = {
   HASHKEY,
   HAVEN1,
   HEMI,
-  HYCHAIN,
   HYPEREVM,
   ICB_NETWORK,
   IMMUTABLE,
@@ -237,8 +219,6 @@ export const chains = {
   LIGHTLINK,
   LINEA,
   LISK,
-  LORENZO,
-  LUMIO,
   MANTA_PACIFIC,
   MANTLE,
   MATCHAIN,
@@ -256,7 +236,6 @@ export const chains = {
   NEO_X,
   NEON,
   NEUTRON,
-  NEXUS,
   NOBLE,
   NUMINE,
   OPBNB,
@@ -268,7 +247,6 @@ export const chains = {
   PLAYNANCE_PLAYBLOCK,
   PLUME,
   POLYGON,
-  PROOF_OF_PLAY_APEX,
   PULSECHAIN,
   REI_NETWORK,
   REYA,
@@ -281,14 +259,12 @@ export const chains = {
   SHAPE,
   SHIBARIUM,
   SHIDO_NETWORK,
-  SHIMMER_EVM,
   SKALE,
   SOLANA,
   SOMNIA,
   SONEIUM,
   SONIC,
   STABLE,
-  STEP_NETWORK,
   STORY,
   STRIDE,
   SWAN,

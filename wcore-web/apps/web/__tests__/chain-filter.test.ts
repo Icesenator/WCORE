@@ -4,9 +4,9 @@ import { matchCompatibleChains } from "../lib/chain-filter";
 
 describe("matchCompatibleChains", () => {
   test("filters disabled chains from URL-provided chain lists", () => {
-    const matched = matchCompatibleChains("EVM", ["ETHEREUM", "AIRDAO", "TON"], {
+    const matched = matchCompatibleChains("EVM", ["ETHEREUM", "LINEA", "TON"], {
       ETHEREUM: { vm: "EVM", disabled: false },
-      AIRDAO: { vm: "EVM", disabled: true },
+      LINEA: { vm: "EVM", disabled: true },
       TON: { vm: "TON", disabled: false },
     });
 

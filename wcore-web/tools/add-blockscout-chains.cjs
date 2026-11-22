@@ -3,7 +3,6 @@ const path = require('path');
 const chainsDir = path.join(__dirname, '../packages/core/src/chains');
 
 const chains = [
-  { id: 148, name: 'Shimmer EVM', key: 'SHIMMER_EVM', symbol: 'SMR', llamaId: 'coingecko:shimmer', geckoId: 'shimmer', dexSlug: 'shimmer-evm', gtNetwork: 'shimmer-evm' },
   { id: 488, name: 'BXN', key: 'BXN', symbol: 'BXN', llamaId: null, geckoId: null, dexSlug: 'bxn', gtNetwork: 'bxn' },
   { id: 714, name: 'Eden', key: 'EDEN', symbol: 'EDEN', llamaId: null, geckoId: null, dexSlug: 'eden', gtNetwork: 'eden' },
   { id: 869, name: 'World Mobile', key: 'WORLD_MOBILE', symbol: 'WMTX', llamaId: 'coingecko:world-mobile-token', geckoId: 'world-mobile-token', dexSlug: 'world-mobile', gtNetwork: 'world-mobile' },

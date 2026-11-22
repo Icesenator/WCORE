@@ -1,34 +1,12 @@
-/**
- * EDGELESS.gs - Edgeless (v4.15.51)
- * Phase 3 bulk port from wcore-web chain config.
- */
-
-var _EDGELESS = ChainFactory.createEvmChain("EDGELESS", {
-  CACHE_VERSION: 1,
-  FLAGS: { DISABLE_CHAIN: true },
-  RPC: {
-    ENDPOINTS: [
-      "https://2026.rpc.thirdweb.com",
-      "https://rpc.edgeless.network/http"
-    ]
-  },
-  CHAIN: {
-    NAME: "Edgeless",
-    CHAIN_ID: 2026,
-    NATIVE_SYMBOL: "EDG",
-    NATIVE_NAME: "Edgeless Native",
-    NATIVE_DECIMALS: 18,
-    NATIVE_LLAMA_ID: "coingecko:edgeless",
-    NATIVE_GECKO_ID: "edgeless",
-    DEX_SLUG: "edgeless",
-    GT_NETWORK: "edgeless"
-  },
-  LLAMA_ID_MAP: {
-    EDG: "coingecko:edgeless"
-  }
-});
-
-function GET_WALLET_ASSETS_EDGELESS(a,r,t,f,g){return _EDGELESS.getWalletAssets(a,r,t,f,g);}
-function CACHED_WALLET_ASSETS_EDGELESS(a){return _EDGELESS.getCachedWalletAssets(a);}
-function EDGELESS_REFRESH_STATUS(a,r,t,f,g){return _EDGELESS.getRefreshStatus(a,r,t,f,g);}
-function EDGELESS_STATS(a,t){return _EDGELESS.getStats(a,t);}
+/** Edgeless (2026) retirée du traitement actif (RPC publics hors service le 2026-11-22). Cache conservé ; aucun onglet Ledger n'existe. */
+function _edgelessRemovedCell_() { return [[EDGELESS_REFRESH_STATUS()]]; }
+function GET_WALLET_ASSETS_EDGELESS() { return _edgelessRemovedCell_(); }
+function CACHED_WALLET_ASSETS_EDGELESS() { return _edgelessRemovedCell_(); }
+function EDGELESS_REFRESH_STATUS() { return "[CHAIN_REMOVED] Edgeless (2026)"; }
+function EDGELESS_STATS() { return _edgelessRemovedCell_(); }
+// Diagnostic d’archive séparé des formules du Ledger.
+function DIAG_EDGELESS_CACHE_ASSETS(w) {
+ var keys = (typeof EvmConfigBuilder !== "undefined" && EvmConfigBuilder.generateKeys) ? EvmConfigBuilder.generateKeys("EDGELESS") : null;
+ if (!keys || !keys.PREFIX) keys = { PREFIX: "EDGELESS_CACHE_" };
+ return Diagnostic.cacheListAssets({ CHAIN: { NAME: "Edgeless (archive)", CHAIN_ID: 2026, NATIVE_SYMBOL: "EDG", NATIVE_DECIMALS: 18 }, KEYS: keys }, w);
+}

@@ -69,7 +69,22 @@ var WCORE_REMOVED_CHAINS = [
   { label: "Swellchain (1923)", ids: ["1923", "SWELLCHAIN", "0X783", "LEDGER - SWELLCHAIN", "LEDGER - SWELLCHAIN CRYPTO", "LEDGER - SWELL CHAIN", "LEDGER - SWELL CHAIN CRYPTO"] },
   // ZERO Network (543210) : arret annonce pour le 2026-07-31 (Zerion), chaine constatee a l arret. Cache conserve ; aucun onglet "Ledger - ZERO" n existe.
   // Le token ZERO n est PAS concerne : seuls les identifiants de la chaine 543210 figurent ici.
-  { label: "ZERO Network (543210)", ids: ["543210", "ZERO", "0X849EA", "LEDGER - ZERO", "LEDGER - ZERO CRYPTO", "LEDGER - ZERO NETWORK", "LEDGER - ZERO NETWORK CRYPTO"] }
+  { label: "ZERO Network (543210)", ids: ["543210", "ZERO", "0X849EA", "LEDGER - ZERO", "LEDGER - ZERO CRYPTO", "LEDGER - ZERO NETWORK", "LEDGER - ZERO NETWORK CRYPTO"] },
+  // Douze chaines sans RPC (constat WCORE du 2026-11-22) : RPC publics tous hors service, domaines RPC disparus.
+  // Cache conserve ; aucun onglet Ledger n existe pour ces chaines. Les jetons ne sont PAS concernes :
+  // seuls la cle de chaine, le chainId et les noms d onglet figurent ici, jamais un symbole.
+  { label: "Nexus Mainnet (3946)", ids: ["3946", "NEXUS", "0XF6A", "LEDGER - NEXUS", "LEDGER - NEXUS CRYPTO", "LEDGER - NEXUS MAINNET", "LEDGER - NEXUS MAINNET CRYPTO"] },
+  { label: "AirDAO (16718)", ids: ["16718", "AIRDAO", "0X414E", "LEDGER - AIRDAO", "LEDGER - AIRDAO CRYPTO"] },
+  { label: "Crossbell (3737)", ids: ["3737", "CROSSBELL", "0XE99", "LEDGER - CROSSBELL", "LEDGER - CROSSBELL CRYPTO"] },
+  { label: "Edgeless (2026)", ids: ["2026", "EDGELESS", "0X7EA", "LEDGER - EDGELESS", "LEDGER - EDGELESS CRYPTO"] },
+  { label: "Lumio (8866)", ids: ["8866", "LUMIO", "0X22A2", "LEDGER - LUMIO", "LEDGER - LUMIO CRYPTO"] },
+  { label: "Dogechain (2000)", ids: ["2000", "DOGECHAIN", "0X7D0", "LEDGER - DOGECHAIN", "LEDGER - DOGECHAIN CRYPTO"] },
+  { label: "Hychain (2911)", ids: ["2911", "HYCHAIN", "0XB5F", "LEDGER - HYCHAIN", "LEDGER - HYCHAIN CRYPTO"] },
+  { label: "Proof of Play Apex (70700)", ids: ["70700", "PROOF_OF_PLAY_APEX", "0X1142C", "LEDGER - PROOF OF PLAY APEX", "LEDGER - PROOF OF PLAY APEX CRYPTO"] },
+  { label: "Step Network (1234)", ids: ["1234", "STEP_NETWORK", "0X4D2", "LEDGER - STEP NETWORK", "LEDGER - STEP NETWORK CRYPTO"] },
+  { label: "Shimmer EVM (148)", ids: ["148", "SHIMMER_EVM", "0X94", "LEDGER - SHIMMER EVM", "LEDGER - SHIMMER EVM CRYPTO"] },
+  { label: "Lorenzo (8329)", ids: ["8329", "LORENZO", "0X2089", "LEDGER - LORENZO", "LEDGER - LORENZO CRYPTO"] },
+  { label: "DOS Chain (7979)", ids: ["7979", "DOS_CHAIN", "0X1F2B", "LEDGER - DOS CHAIN", "LEDGER - DOS CHAIN CRYPTO"] }
 ];
 
 function _wcoreRemovedChainLabel_(input) {

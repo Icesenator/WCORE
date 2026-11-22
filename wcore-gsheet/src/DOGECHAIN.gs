@@ -1,36 +1,12 @@
-/**
- * DOGECHAIN.gs - Dogechain (v4.15.51)
- * Phase 3 bulk port from wcore-web chain config.
- */
-
-var _DOGECHAIN = ChainFactory.createEvmChain("DOGECHAIN", {
-  CACHE_VERSION: 1,
-  FLAGS: { DISABLE_CHAIN: true },
-  RPC: {
-    ENDPOINTS: [
-      "https://2000.rpc.thirdweb.com",
-      "https://rpc.dogechain.dog",
-      "https://rpc01-sg.dogechain.dog",
-      "https://rpc.ankr.com/dogechain"
-    ]
-  },
-  CHAIN: {
-    NAME: "Dogechain",
-    CHAIN_ID: 2000,
-    NATIVE_SYMBOL: "DOGE",
-    NATIVE_NAME: "Dogechain Native",
-    NATIVE_DECIMALS: 18,
-    NATIVE_LLAMA_ID: "coingecko:dogecoin",
-    NATIVE_GECKO_ID: "dogecoin",
-    DEX_SLUG: "dogechain",
-    GT_NETWORK: "dogechain"
-  },
-  LLAMA_ID_MAP: {
-    DOGE: "coingecko:dogecoin"
-  }
-});
-
-function GET_WALLET_ASSETS_DOGECHAIN(a,r,t,f,g){return _DOGECHAIN.getWalletAssets(a,r,t,f,g);}
-function CACHED_WALLET_ASSETS_DOGECHAIN(a){return _DOGECHAIN.getCachedWalletAssets(a);}
-function DOGECHAIN_REFRESH_STATUS(a,r,t,f,g){return _DOGECHAIN.getRefreshStatus(a,r,t,f,g);}
-function DOGECHAIN_STATS(a,t){return _DOGECHAIN.getStats(a,t);}
+/** Dogechain (2000) retirée du traitement actif (RPC publics hors service le 2026-11-22). Cache conservé ; aucun onglet Ledger n'existe. */
+function _dogechainRemovedCell_() { return [[DOGECHAIN_REFRESH_STATUS()]]; }
+function GET_WALLET_ASSETS_DOGECHAIN() { return _dogechainRemovedCell_(); }
+function CACHED_WALLET_ASSETS_DOGECHAIN() { return _dogechainRemovedCell_(); }
+function DOGECHAIN_REFRESH_STATUS() { return "[CHAIN_REMOVED] Dogechain (2000)"; }
+function DOGECHAIN_STATS() { return _dogechainRemovedCell_(); }
+// Diagnostic d’archive séparé des formules du Ledger.
+function DIAG_DOGECHAIN_CACHE_ASSETS(w) {
+ var keys = (typeof EvmConfigBuilder !== "undefined" && EvmConfigBuilder.generateKeys) ? EvmConfigBuilder.generateKeys("DOGECHAIN") : null;
+ if (!keys || !keys.PREFIX) keys = { PREFIX: "DOGECHAIN_CACHE_" };
+ return Diagnostic.cacheListAssets({ CHAIN: { NAME: "Dogechain (archive)", CHAIN_ID: 2000, NATIVE_SYMBOL: "DOGE", NATIVE_DECIMALS: 18 }, KEYS: keys }, w);
+}

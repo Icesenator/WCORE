@@ -50,7 +50,6 @@ const BLOCKSCOUT_CHAIN_IDS: Record<string, number> = {
   ETHEREUM_CLASSIC: 61,
   ZILLIQA_EVM: 32769,
   // Chaînes Blockscout Pro API ajoutées (2026-05-18)
-  SHIMMER_EVM: 148,
   BXN: 488,
   EDEN: 714,
   WORLD_MOBILE: 869,

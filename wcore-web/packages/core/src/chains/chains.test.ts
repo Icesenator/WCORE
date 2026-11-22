@@ -11,7 +11,7 @@ test("every published chain satisfies the runtime schema", () => {
       : [`${chain.key}: ${result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`];
   });
 
-  assert.equal(chainList.length, 154, "registry count changed: update the verified roadmaps with the same commit");
+  assert.equal(chainList.length, 142, "registry count changed: update the verified roadmaps with the same commit");
 
   assert.equal(new Set(chainList.map((chain) => chain.key)).size, chainList.length, "chain keys must be unique");
   assert.deepEqual(failures, []);
@@ -32,18 +32,6 @@ test("runtime schema rejects corrupt published metadata", () => {
   const missingNativeSymbol = structuredClone(ethereum);
   missingNativeSymbol.CHAIN = { ...missingNativeSymbol.CHAIN, NATIVE_SYMBOL: "" };
   assert.equal(RUNTIME_CHAIN_CONFIG_SCHEMA.safeParse(missingNativeSymbol).success, false);
-});
-
-test("Nexus Mainnet is registered with verified RPC metadata", () => {
-  const chain = getChain("NEXUS");
-
-  assert.ok(chain, "NEXUS chain should be registered");
-  assert.equal(chain.vm, "EVM");
-  assert.equal(chain.CHAIN?.NAME, "Nexus Mainnet");
-  assert.equal(chain.CHAIN?.CHAIN_ID, 3946);
-  assert.equal(chain.CHAIN?.NATIVE_SYMBOL, "NEX");
-  assert.equal(chain.CHAIN?.NATIVE_DECIMALS, 18);
-  assert.deepEqual(chain.RPC?.ENDPOINTS, ["https://mainnet.rpc.nexus.xyz/"]);
 });
 
 test("Elysium is Kinetiq's mainnet (99901), with HYPE priced like HyperEVM", () => {

@@ -1,33 +1,12 @@
-/**
- * SHIMMER_EVM.gs - Shimmer EVM (v4.15.51)
- * Phase 3 bulk port from wcore-web chain config.
- */
-
-var _SHIMMER_EVM = ChainFactory.createEvmChain("SHIMMER_EVM", {
-  CACHE_VERSION: 1,
-  RPC: {
-    ENDPOINTS: [
-      "https://148.rpc.thirdweb.com",
-      "https://json-rpc.evm.shimmer.network"
-    ]
-  },
-  CHAIN: {
-    NAME: "Shimmer EVM",
-    CHAIN_ID: 148,
-    NATIVE_SYMBOL: "SMR",
-    NATIVE_NAME: "Shimmer EVM Native",
-    NATIVE_DECIMALS: 18,
-    NATIVE_LLAMA_ID: "coingecko:shimmer",
-    NATIVE_GECKO_ID: "shimmer",
-    DEX_SLUG: "shimmer-evm",
-    GT_NETWORK: "shimmer-evm"
-  },
-  LLAMA_ID_MAP: {
-    SMR: "coingecko:shimmer"
-  }
-});
-
-function GET_WALLET_ASSETS_SHIMMER_EVM(a,r,t,f,g){return _SHIMMER_EVM.getWalletAssets(a,r,t,f,g);}
-function CACHED_WALLET_ASSETS_SHIMMER_EVM(a){return _SHIMMER_EVM.getCachedWalletAssets(a);}
-function SHIMMER_EVM_REFRESH_STATUS(a,r,t,f,g){return _SHIMMER_EVM.getRefreshStatus(a,r,t,f,g);}
-function SHIMMER_EVM_STATS(a,t){return _SHIMMER_EVM.getStats(a,t);}
+/** Shimmer EVM (148) retirée du traitement actif (RPC publics hors service le 2026-11-22). Cache conservé ; aucun onglet Ledger n'existe. */
+function _shimmer_evmRemovedCell_() { return [[SHIMMER_EVM_REFRESH_STATUS()]]; }
+function GET_WALLET_ASSETS_SHIMMER_EVM() { return _shimmer_evmRemovedCell_(); }
+function CACHED_WALLET_ASSETS_SHIMMER_EVM() { return _shimmer_evmRemovedCell_(); }
+function SHIMMER_EVM_REFRESH_STATUS() { return "[CHAIN_REMOVED] Shimmer EVM (148)"; }
+function SHIMMER_EVM_STATS() { return _shimmer_evmRemovedCell_(); }
+// Diagnostic d’archive séparé des formules du Ledger.
+function DIAG_SHIMMER_EVM_CACHE_ASSETS(w) {
+ var keys = (typeof EvmConfigBuilder !== "undefined" && EvmConfigBuilder.generateKeys) ? EvmConfigBuilder.generateKeys("SHIMMER_EVM") : null;
+ if (!keys || !keys.PREFIX) keys = { PREFIX: "SHIMMER_EVM_CACHE_" };
+ return Diagnostic.cacheListAssets({ CHAIN: { NAME: "Shimmer EVM (archive)", CHAIN_ID: 148, NATIVE_SYMBOL: "SMR", NATIVE_DECIMALS: 18 }, KEYS: keys }, w);
+}

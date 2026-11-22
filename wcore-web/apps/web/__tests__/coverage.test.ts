@@ -32,7 +32,7 @@ describe("coverage stats", () => {
     assert.equal(stats.cexProviderCount, CEX_PROVIDERS.length);
     assert.equal(stats.gmEnabledChainCount, Object.keys(GM_FACTORIES).length);
     assert.equal(stats.cexProviderCount, 7);
-    assert.equal(stats.chainConfigCount, 154); // Superseed 5330, B3 Mainnet 8333, Moonbeam 1284, Moonriver 1285, Swellchain 1923 et ZERO Network 543210 retirés ; Elysium Kinetiq 99901 ajouté (2026-11-10).
+    assert.equal(stats.chainConfigCount, 142); // Superseed 5330, B3 Mainnet 8333, Moonbeam 1284, Moonriver 1285, Swellchain 1923, ZERO Network 543210 et douze chaînes sans RPC (Nexus 3946, AirDAO 16718, Crossbell 3737, Edgeless 2026, Lumio 8866, Dogechain 2000, Hychain 2911, Proof of Play Apex 70700, Step Network 1234, Shimmer EVM 148, Lorenzo 8329, DOS Chain 7979, 2026-11-22) retirés ; Elysium Kinetiq 99901 ajouté (2026-11-10).
     assert.notEqual(stats.chainConfigCount, 325);
   });
 

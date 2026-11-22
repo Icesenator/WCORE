@@ -1,34 +1,12 @@
-/**
- * CROSSBELL.gs - Crossbell (v4.15.51)
- * Phase 3 bulk port from wcore-web chain config.
- */
-
-var _CROSSBELL = ChainFactory.createEvmChain("CROSSBELL", {
-  CACHE_VERSION: 1,
-  FLAGS: { DISABLE_CHAIN: true },
-  RPC: {
-    ENDPOINTS: [
-      "https://3737.rpc.thirdweb.com",
-      "https://rpc.crossbell.io"
-    ]
-  },
-  CHAIN: {
-    NAME: "Crossbell",
-    CHAIN_ID: 3737,
-    NATIVE_SYMBOL: "CSB",
-    NATIVE_NAME: "Crossbell Native",
-    NATIVE_DECIMALS: 18,
-    NATIVE_LLAMA_ID: "coingecko:crossbell",
-    NATIVE_GECKO_ID: "crossbell",
-    DEX_SLUG: "crossbell",
-    GT_NETWORK: "crossbell"
-  },
-  LLAMA_ID_MAP: {
-    CSB: "coingecko:crossbell"
-  }
-});
-
-function GET_WALLET_ASSETS_CROSSBELL(a,r,t,f,g){return _CROSSBELL.getWalletAssets(a,r,t,f,g);}
-function CACHED_WALLET_ASSETS_CROSSBELL(a){return _CROSSBELL.getCachedWalletAssets(a);}
-function CROSSBELL_REFRESH_STATUS(a,r,t,f,g){return _CROSSBELL.getRefreshStatus(a,r,t,f,g);}
-function CROSSBELL_STATS(a,t){return _CROSSBELL.getStats(a,t);}
+/** Crossbell (3737) retirée du traitement actif (RPC publics hors service le 2026-11-22). Cache conservé ; aucun onglet Ledger n'existe. */
+function _crossbellRemovedCell_() { return [[CROSSBELL_REFRESH_STATUS()]]; }
+function GET_WALLET_ASSETS_CROSSBELL() { return _crossbellRemovedCell_(); }
+function CACHED_WALLET_ASSETS_CROSSBELL() { return _crossbellRemovedCell_(); }
+function CROSSBELL_REFRESH_STATUS() { return "[CHAIN_REMOVED] Crossbell (3737)"; }
+function CROSSBELL_STATS() { return _crossbellRemovedCell_(); }
+// Diagnostic d’archive séparé des formules du Ledger.
+function DIAG_CROSSBELL_CACHE_ASSETS(w) {
+ var keys = (typeof EvmConfigBuilder !== "undefined" && EvmConfigBuilder.generateKeys) ? EvmConfigBuilder.generateKeys("CROSSBELL") : null;
+ if (!keys || !keys.PREFIX) keys = { PREFIX: "CROSSBELL_CACHE_" };
+ return Diagnostic.cacheListAssets({ CHAIN: { NAME: "Crossbell (archive)", CHAIN_ID: 3737, NATIVE_SYMBOL: "CSB", NATIVE_DECIMALS: 18 }, KEYS: keys }, w);
+}

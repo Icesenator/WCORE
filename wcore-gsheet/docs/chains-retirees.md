@@ -139,3 +139,28 @@ Onglet Google Sheets `Ledger - B3` : **non supprimé**. Archivage à exécuter s
 - **Aucun onglet `Ledger - ZERO` dans le classeur** : aucun onglet à retirer ni à archiver. Le cache WalletCache `ZERO_CACHE_*` éventuel est conservé (preuve de détention).
 - **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Non fait (aucune publication dans ce lot).
 - Test : `wcore-gsheet/tests/zero-retired.test.js`.
+
+# Douze chaînes sans RPC — retrait du traitement actif, 2026-11-22
+
+| Chaîne | chainId | Constat |
+|---|---|---|
+| Nexus Mainnet | 3946 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| AirDAO | 16718 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Crossbell | 3737 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Edgeless | 2026 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Lumio | 8866 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Dogechain | 2000 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Hychain | 2911 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Proof of Play Apex | 70700 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Step Network | 1234 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Shimmer EVM | 148 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| Lorenzo | 8329 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) |
+| DOS Chain | 7979 | tous les RPC connus hors service le 2026-11-22 (domaine RPC disparu ou proxy en erreur) ; dernier bloc observé le 2026-08-12 |
+
+- **Sources officielles** : voir les fiches Chain Sentinel.
+- **Même mécanisme que ZERO Network** : tombstone `_wcoreRemovedChain_` (clé, chainId décimal et hexadécimal, noms d'onglet `Ledger - <Nom>`, avec ou sans `Crypto` ; pour Nexus aussi `Ledger - Nexus`) ; formules `[CHAIN_REMOVED] <Nom> (<chainId>)` sans nombre ; noms retirés dans `LEDGER_RETIRED_NAMES` ; côté web, `RETIRED_CHAINS` de `chain-lifecycle.ts`.
+- **Aucun contrat GM** : aucune de ces chaînes n'a de factory GM, active ni historique.
+- **Fichiers `<CLE>.gs` conservés** (réduits aux formules) : safe-push ne supprime pas de fichier distant. Les jetons natifs ou homonymes ne sont pas concernés.
+- **Aucun onglet Ledger dans le classeur pour ces chaînes** : aucun onglet à retirer ni à archiver. Caches conservés (`<CLE>_CACHE_*`, preuve de détention).
+- **Après publication** : exécuter une fois `REFRESH_LEDGER_CACHE()`. Non fait (aucune publication dans ce lot).
+- Test : `wcore-gsheet/tests/dead-rpc-chains-retired.test.js`.

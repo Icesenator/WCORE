@@ -1,34 +1,12 @@
-/**
- * HYCHAIN.gs - Hychain (v4.15.51)
- * Phase 3 bulk port from wcore-web chain config.
- */
-
-var _HYCHAIN = ChainFactory.createEvmChain("HYCHAIN", {
-  CACHE_VERSION: 1,
-  FLAGS: { DISABLE_CHAIN: true },
-  RPC: {
-    ENDPOINTS: [
-      "https://2911.rpc.thirdweb.com",
-      "https://rpc.hychain.com/http"
-    ]
-  },
-  CHAIN: {
-    NAME: "Hychain",
-    CHAIN_ID: 2911,
-    NATIVE_SYMBOL: "TOPIA",
-    NATIVE_NAME: "Hychain Native",
-    NATIVE_DECIMALS: 18,
-    NATIVE_LLAMA_ID: "coingecko:hychain",
-    NATIVE_GECKO_ID: "hychain",
-    DEX_SLUG: "hychain",
-    GT_NETWORK: "hychain"
-  },
-  LLAMA_ID_MAP: {
-    TOPIA: "coingecko:hychain"
-  }
-});
-
-function GET_WALLET_ASSETS_HYCHAIN(a,r,t,f,g){return _HYCHAIN.getWalletAssets(a,r,t,f,g);}
-function CACHED_WALLET_ASSETS_HYCHAIN(a){return _HYCHAIN.getCachedWalletAssets(a);}
-function HYCHAIN_REFRESH_STATUS(a,r,t,f,g){return _HYCHAIN.getRefreshStatus(a,r,t,f,g);}
-function HYCHAIN_STATS(a,t){return _HYCHAIN.getStats(a,t);}
+/** Hychain (2911) retirée du traitement actif (RPC publics hors service le 2026-11-22). Cache conservé ; aucun onglet Ledger n'existe. */
+function _hychainRemovedCell_() { return [[HYCHAIN_REFRESH_STATUS()]]; }
+function GET_WALLET_ASSETS_HYCHAIN() { return _hychainRemovedCell_(); }
+function CACHED_WALLET_ASSETS_HYCHAIN() { return _hychainRemovedCell_(); }
+function HYCHAIN_REFRESH_STATUS() { return "[CHAIN_REMOVED] Hychain (2911)"; }
+function HYCHAIN_STATS() { return _hychainRemovedCell_(); }
+// Diagnostic d’archive séparé des formules du Ledger.
+function DIAG_HYCHAIN_CACHE_ASSETS(w) {
+ var keys = (typeof EvmConfigBuilder !== "undefined" && EvmConfigBuilder.generateKeys) ? EvmConfigBuilder.generateKeys("HYCHAIN") : null;
+ if (!keys || !keys.PREFIX) keys = { PREFIX: "HYCHAIN_CACHE_" };
+ return Diagnostic.cacheListAssets({ CHAIN: { NAME: "Hychain (archive)", CHAIN_ID: 2911, NATIVE_SYMBOL: "TOPIA", NATIVE_DECIMALS: 18 }, KEYS: keys }, w);
+}

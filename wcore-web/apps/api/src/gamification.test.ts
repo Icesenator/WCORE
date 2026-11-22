@@ -231,7 +231,8 @@ describe("GM API regressions", () => {
       const fresh = await prisma.user.findUnique({ where: { id: userFut.id } });
       assert.ok(fresh?.lastGmDate && fresh.lastGmDate.getTime() <= Date.now(), "lastGmDate is not moved into the future");
 
-      // A timestamp only slightly ahead (chain clock drift, within the margin) keeps its own exact time.
+      // A timestamp only slightly ahead (chain clock drift) is dated now too: never after now, so the scoring day
+      // never passes the current UTC day (relecture Codex, point 1).
       const driftSec = BigInt(Math.floor(Date.now() / 1000) + 60);
       globalThis.fetch = async () => jsonResponse({
         result: {
@@ -249,11 +250,53 @@ describe("GM API regressions", () => {
       });
       assert.equal(drift.statusCode, 200, drift.payload);
       const driftRow = await prisma.onchainGm.findFirst({ where: { userId: userFut.id, txHash: "0x0c82" } });
-      assert.equal(driftRow?.createdAt.getTime(), Number(driftSec) * 1000, "a GM 60 s ahead keeps its own date");
+      assert.ok(driftRow && driftRow.createdAt.getTime() <= Date.now(), "a GM 60 s ahead is dated now, not in the future");
     } finally {
       await prisma.onchainGm.deleteMany({ where: { userId: userFut.id } });
       await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_FUT } });
       await prisma.user.delete({ where: { id: userFut.id } }).catch(() => undefined);
+    }
+  });
+
+  // Relecture Codex, point 2 : serie stockee de 10 arretee a J-2, GM de J-1 deja enregistre ; le POST de J
+  // reconcilie avant sa reclamation et credite 12 (avant : 1, puis 2 apres la reconciliation).
+  test("POST /api/gm/onchain continues a stored streak ending at J-2 when a GM of J-1 is recorded (12)", async () => {
+    const ADDR_GAP = "0x1000000000000000000000000000000000000009";
+    const CONTRACT_GAP = "0x2000000000000000000000000000000000000009";
+    await prisma.onchainGm.deleteMany({ where: { user: { address: ADDR_GAP } } });
+    await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_GAP } });
+    await prisma.user.deleteMany({ where: { address: ADDR_GAP } });
+    const today = startOfUtcDay(new Date()).getTime();
+    const userGap = await prisma.user.create({
+      data: { address: ADDR_GAP, gmStreak: 10, longestStreak: 10, lastGmDate: new Date(today - 2 * 86_400_000 + 8 * 3_600_000) },
+    });
+    try {
+      const gapContract = await prisma.gmContract.create({ data: { chainKey: "base", contractAddress: CONTRACT_GAP, ownerId: userGap.id, creatorAddress: ADDR_GAP } });
+      await prisma.onchainGm.create({ data: { userId: userGap.id, txHash: "0x0c90", chainKey: "BASE", contractId: gapContract.id, tipWei: "0", createdAt: new Date(today - 86_400_000 + 8 * 3_600_000) } });
+      // Never before UTC midnight: the GM must fall on today.
+      const eventSec = BigInt(Math.floor(Math.max(Date.now() - 60_000, today + 1_000) / 1000));
+      globalThis.fetch = async () => jsonResponse({
+        result: {
+          from: ADDR_GAP,
+          to: CONTRACT_GAP,
+          status: "0x1",
+          logs: [{ address: CONTRACT_GAP, topics: [GM_EVENT_SIG, topicAddress(ADDR_GAP)], data: gmEventData(eventSec, 1n, 1n) }],
+        },
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/gm/onchain",
+        headers: { authorization: `Bearer ${token(userGap.id, ADDR_GAP)}`, "x-forwarded-for": "198.51.100.91" },
+        payload: { chainKey: "base", contractAddress: CONTRACT_GAP, txHash: "0x0c91" },
+      });
+      assert.equal(res.statusCode, 200, res.payload);
+      const fresh = await prisma.user.findUnique({ where: { id: userGap.id } });
+      assert.equal(fresh?.gmStreak, 12);
+      assert.equal(fresh?.longestStreak, 12);
+    } finally {
+      await prisma.onchainGm.deleteMany({ where: { userId: userGap.id } });
+      await prisma.gmContract.deleteMany({ where: { contractAddress: CONTRACT_GAP } });
+      await prisma.user.delete({ where: { id: userGap.id } }).catch(() => undefined);
     }
   });
 

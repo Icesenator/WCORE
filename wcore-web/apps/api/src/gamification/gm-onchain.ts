@@ -6,9 +6,9 @@ import { canonicalChainKey, getFactory } from "@wcore/shared";
 import { z } from "zod";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
-import { GM_CLOCK_MARGIN_MS, GmBackfillRpcError, rebuildChainStreakFromOnchain, scanGmBackfillCandidates, type BackfillCandidate } from "./gm-streak-rebuild.js";
+import { GmBackfillRpcError, rebuildChainStreakFromOnchain, scanGmBackfillCandidates, type BackfillCandidate } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
-import { applyMergedStreak, claimChainDailyGmWithRetry, claimGeneralDailyGmWithRetry, mergeGeneralStreak } from "./gm-streak-merge.js";
+import { claimChainDailyGmWithRetry, claimGeneralDailyGmWithRetry, gmEventDate, reconcileGeneralFromOnchain } from "./gm-streak-merge.js";
 
 const backfillBody = z.object({
   chainKey: z.string().trim().min(1).optional(),
@@ -187,11 +187,10 @@ export async function registerGmOnchainRoutes(
         // the GmCheckedIn event), not the day the API call lands. A late
         // submission uses the same UTC claims as backfill: each bonus is
         // available only if the event day strictly follows its last claim.
-        // One fixed date per GM, also the stored createdAt (P1-GM-SERIE-SUIVIS-20261114, defect 3): an event at
-        // most GM_CLOCK_MARGIN_MS ahead of our clock (chain clock drift) keeps its own time and day, so a GM
-        // mined at 00:00:01 is never moved back to the previous day; anything further ahead is not a usable
-        // date and counts as now. The stored date never changes afterwards, so a GM is never counted on two days.
-        const gmDate = gmEventCreatedAt && gmEventCreatedAt.getTime() <= now.getTime() + GM_CLOCK_MARGIN_MS ? gmEventCreatedAt : now;
+        // One fixed date per GM, also the stored createdAt (P1-GM-SERIE-SUIVIS-20261114, defect 3): never after
+        // now, so the scoring day never passes the current UTC day (see gmEventDate). The stored date never
+        // changes afterwards, so a GM is never counted on two days.
+        const gmDate = gmEventDate(gmEventCreatedAt, now);
         const scoringDay = startOfUtcDay(gmDate);
         // Anti-replay: the (chainKey, txHash) unique is case-sensitive in
         // Postgres, so a legacy lowercase row would NOT collide with a new
@@ -202,6 +201,11 @@ export async function registerGmOnchainRoutes(
           select: { id: true },
         });
         if (replay) throw new Error("tx_already_used");
+        // Reconciliation from the GMs already recorded, before this GM's claim: a stored streak that stopped at
+        // J-2 while a GM of J-1 is recorded continues before today's bonus is computed, and a lastGmDate stored
+        // in the future no longer refuses the claim.
+        const priorGms = await tx.onchainGm.findMany({ where: { userId: req.user!.id }, select: { createdAt: true } });
+        await reconcileGeneralFromOnchain({ store: tx, userId: req.user!.id, createdAts: priorGms.map((g) => g.createdAt), now });
         try {
           await tx.onchainGm.create({
             data: { userId: req.user!.id, txHash, chainKey, contractId: gmContract.id, tipWei: gmTipWei ?? "0", createdAt: gmDate },
@@ -289,61 +293,18 @@ export async function registerGmOnchainRoutes(
         // to the general streak (user.gmStreak / longestStreak / lastGmDate).
         // Without this, the general streak can diverge from on-chain reality.
         // Rows further ahead than the clock margin (stored before the on-chain timestamp was capped) are left
-        // out: their latest date would become lastGmDate, and every general GM until that date would be refused
-        // as already done. Every other row keeps its own fixed date (never re-capped).
-        const futureLimit = Date.now() + GM_CLOCK_MARGIN_MS;
-        const allGms = (await prisma.onchainGm.findMany({
+        // out (see computeOnchainGeneralStreak), and a lastGmDate stored beyond it is repaired.
+        // Les GM gratuits (bouton) n'ont pas de ligne par jour : la serie recalculee depuis les seuls
+        // GM en chaine ne doit jamais baisser une serie stockee encore valide. Ecriture par comparaison
+        // atomique : un GM gratuit concurrent n'est jamais ecrase.
+        const allGms = await prisma.onchainGm.findMany({
           where: { userId: req.user!.id },
           select: { createdAt: true },
-        })).filter((g) => g.createdAt.getTime() <= futureLimit);
-        if (allGms.length > 0) {
-          const DAY_MS = 86_400_000;
-          const dayMsSet = new Set<number>(allGms.map((g) => {
-            const d = new Date(g.createdAt);
-            d.setUTCHours(0, 0, 0, 0);
-            return d.getTime();
-          }));
-          const days = [...dayMsSet].sort((a, b) => a - b);
-          const lastDay = days[days.length - 1]!;
-          const latestTs = allGms.reduce((max, g) => Math.max(max, new Date(g.createdAt).getTime()), 0);
-
-          // Compute longest streak across all days
-          let longest = 0;
-          let run = 0;
-          let prevDay = -1;
-          for (const d of days) {
-            if (prevDay !== -1 && d === prevDay + DAY_MS) run += 1;
-            else run = 1;
-            if (run > longest) longest = run;
-            prevDay = d;
-          }
-
-          // Compute current streak (only if last day is today or yesterday)
-          const todayMs = (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d.getTime(); })();
-          const yesterdayMs = todayMs - DAY_MS;
-          let currentStreak = 0;
-          if (lastDay === todayMs || lastDay === yesterdayMs) {
-            let expected = lastDay;
-            for (let i = days.length - 1; i >= 0; i--) {
-              const d = days[i]!;
-              if (d === expected) { currentStreak++; expected -= DAY_MS; }
-              else if (d < expected) break;
-            }
-          }
-
-          // Only update if values differ (avoid unnecessary writes)
-          // Les GM gratuits (bouton) n'ont pas de ligne par jour : la serie recalculee depuis les seuls
-          // GM en chaine ne doit jamais baisser une serie stockee encore valide. Ecriture par comparaison
-          // atomique : un GM gratuit concurrent n'est jamais ecrase.
-          const { merged, applied } = await applyMergedStreak({
-            store: prisma,
-            userId: req.user!.id,
-            compute: (stored) => mergeGeneralStreak({ computedStreak: currentStreak, computedLongest: longest, latestEventMs: latestTs, stored }),
-          });
-          if (applied) {
-            result.streak = merged.gmStreak;
-            result.longestStreak = merged.longestStreak;
-          }
+        });
+        const reconciled = await reconcileGeneralFromOnchain({ store: prisma, userId: req.user!.id, createdAts: allGms.map((g) => g.createdAt) });
+        if (reconciled?.applied) {
+          result.streak = reconciled.merged.gmStreak;
+          result.longestStreak = reconciled.merged.longestStreak;
         }
       }
     } catch (e) {

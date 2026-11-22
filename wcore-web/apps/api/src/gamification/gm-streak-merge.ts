@@ -9,6 +9,18 @@
 
 const DAY_MS = 86_400_000;
 
+// How far ahead of our clock a stored GM date may be and still count as its own date (DB or chain clock drift).
+// Further ahead, a stored date is no usable date: such rows are left out and such a lastGmDate is repaired.
+export const GM_CLOCK_MARGIN_MS = 10 * 60_000;
+
+// Date of an on-chain GM for scoring and storage (P1-GM-SERIE-SUIVIS-20261114, defaut 3) : jamais apres
+// maintenant. Un evenement date du futur (derive d'horloge de la chaine, ex. 00:01 vu a 23:59 UTC) compte
+// maintenant : il ne credite jamais le jour UTC suivant ni ne porte lastGmDate dans le futur, ce qui ferait
+// refuser le GM gratuit ou le GM tardif du jour courant. La date est fixe : stockee telle quelle, jamais recalculee.
+export function gmEventDate(eventAt: Date | undefined, now: Date): Date {
+  return eventAt && eventAt.getTime() <= now.getTime() ? eventAt : now;
+}
+
 export function utcDayStartMs(value: Date | number): number {
   const d = new Date(value);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -38,10 +50,18 @@ export function mergeGeneralStreak(args: {
   now?: Date;
 }): MergedGeneralStreak {
   const { computedStreak, computedLongest, latestEventMs, stored } = args;
-  const today = utcDayStartMs(args.now ?? new Date());
+  const nowMs = (args.now ?? new Date()).getTime();
+  const today = utcDayStartMs(nowMs);
   const yesterday = today - DAY_MS;
 
-  const storedDay = stored.lastGmDate ? utcDayStartMs(stored.lastGmDate) : null;
+  // Un lastGmDate stocke au-dela de maintenant + marge (ancien horodatage en chaine non plafonne) bloquerait
+  // toute reclamation jusqu'a cette date : il est ramene au dernier evenement en chaine non futur, sinon a
+  // maintenant. Une date legitime (au plus la marge en avance) n'est jamais touchee.
+  const storedLastRaw = stored.lastGmDate ? stored.lastGmDate.getTime() : null;
+  const storedLastMs = storedLastRaw != null && storedLastRaw > nowMs + GM_CLOCK_MARGIN_MS
+    ? Math.min(latestEventMs ?? nowMs, nowMs)
+    : storedLastRaw;
+  const storedDay = storedLastMs != null ? utcDayStartMs(storedLastMs) : null;
   const latestDay = latestEventMs != null ? utcDayStartMs(latestEventMs) : null;
   // >= hier : tolere aussi un lastGmDate legerement dans le futur (derive d'horloge) au lieu de le juger expire.
   const storedStillValid = storedDay != null && storedDay >= yesterday && stored.gmStreak > 0;
@@ -63,8 +83,8 @@ export function mergeGeneralStreak(args: {
   const gmStreak = Math.max(computedStreak, base);
   const longestStreak = Math.max(computedLongest, stored.longestStreak, gmStreak);
 
-  // lastGmDate ne recule jamais.
-  const lastCandidates = [stored.lastGmDate ? stored.lastGmDate.getTime() : null, latestEventMs].filter((x): x is number => x != null);
+  // lastGmDate ne recule jamais (hors date future reparee ci-dessus).
+  const lastCandidates = [storedLastMs, latestEventMs].filter((x): x is number => x != null);
   const lastMs = lastCandidates.length ? Math.max(...lastCandidates) : null;
   const lastGmDate = lastMs != null ? new Date(lastMs) : null;
 
@@ -267,4 +287,60 @@ export async function applyMergedStreak(args: {
   }
   // Conflits repetes : ne rien ecraser, le prochain recalcul repare.
   return { merged: merged!, applied: false };
+}
+
+// Serie generale prouvee par les GM en chaine enregistres (dates createdAt), deplacee depuis la reconciliation
+// du POST /api/gm/onchain. Les lignes datees au-dela de maintenant + marge sont ecartees.
+export function computeOnchainGeneralStreak(createdAts: Date[], now: Date = new Date()): { currentStreak: number; longest: number; latestTs: number } | null {
+  const futureLimit = now.getTime() + GM_CLOCK_MARGIN_MS;
+  const times = createdAts.map((d) => d.getTime()).filter((t) => t <= futureLimit);
+  if (times.length === 0) return null;
+  const days = [...new Set(times.map((t) => utcDayStartMs(t)))].sort((a, b) => a - b);
+  const lastDay = days[days.length - 1]!;
+  const latestTs = Math.max(...times);
+
+  let longest = 0;
+  let run = 0;
+  let prevDay = -1;
+  for (const d of days) {
+    if (prevDay !== -1 && d === prevDay + DAY_MS) run += 1;
+    else run = 1;
+    if (run > longest) longest = run;
+    prevDay = d;
+  }
+
+  // Serie courante seulement si le dernier jour est aujourd'hui ou hier.
+  const todayMs = utcDayStartMs(now);
+  let currentStreak = 0;
+  if (lastDay === todayMs || lastDay === todayMs - DAY_MS) {
+    let expected = lastDay;
+    for (let i = days.length - 1; i >= 0; i--) {
+      const d = days[i]!;
+      if (d === expected) { currentStreak++; expected -= DAY_MS; }
+      else if (d < expected) break;
+    }
+  }
+  return { currentStreak, longest, latestTs };
+}
+
+// Reconciliation de la serie generale depuis les GM en chaine enregistres : fusion (mergeGeneralStreak) et
+// ecriture par comparaison atomique. Le POST l'applique avant sa reclamation (sinon une serie stockee arretee a
+// J-2 et un GM de J-1 deja enregistre donnaient 1 puis 2 au lieu de 12, et un lastGmDate futur refusait le bonus)
+// puis apres sa transaction.
+export async function reconcileGeneralFromOnchain(args: {
+  store: StreakStore;
+  userId: string;
+  createdAts: Date[];
+  now?: Date;
+}): Promise<{ merged: MergedGeneralStreak; applied: boolean } | null> {
+  const now = args.now ?? new Date();
+  const proven = computeOnchainGeneralStreak(args.createdAts, now);
+  if (!proven) return null;
+  return applyMergedStreak({
+    store: args.store,
+    userId: args.userId,
+    compute: (stored) => mergeGeneralStreak({
+      computedStreak: proven.currentStreak, computedLongest: proven.longest, latestEventMs: proven.latestTs, stored, now,
+    }),
+  });
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeGeneralStreak } from "./gm-streak-merge.js";
+import { claimGeneralDailyGmWithRetry, gmEventDate, mergeGeneralStreak, reconcileGeneralFromOnchain, utcDayStartMs, type StoredGmState } from "./gm-streak-merge.js";
 
 const DAY_MS = 86_400_000;
 const NOW = new Date(Date.UTC(2026, 10, 14, 10, 0, 0)); // 14/11/2026 10:00 UTC
@@ -67,12 +67,35 @@ test("lastGmDate never goes backwards", () => {
 });
 
 test("a slightly future stored lastGmDate (clock drift) is not judged expired", () => {
+  // Dans la marge (5 min d'avance) : date legitime, jamais reculee.
+  const slightlyAhead = new Date(NOW.getTime() + 5 * 60_000);
+  const r = mergeGeneralStreak({
+    computedStreak: 1, computedLongest: 1, latestEventMs: at(0).getTime(),
+    stored: { gmStreak: 12, longestStreak: 12, lastGmDate: slightlyAhead }, now: NOW,
+  });
+  assert.equal(r.gmStreak, 12);
+  assert.equal(r.lastGmDate?.getTime(), slightlyAhead.getTime(), "lastGmDate never goes backwards");
+});
+
+// P1-GM-SERIE-SUIVIS-20261114, defaut 3 (relecture Codex, point 3) : au-dela de la marge, la date n'est pas
+// utilisable et bloquerait toute reclamation jusqu'a elle : elle est ramenee au dernier evenement non futur.
+test("a stored lastGmDate beyond the clock margin is brought back to the latest non-future event", () => {
   const r = mergeGeneralStreak({
     computedStreak: 1, computedLongest: 1, latestEventMs: at(0).getTime(),
     stored: { gmStreak: 12, longestStreak: 12, lastGmDate: at(1, 2) }, now: NOW,
   });
-  assert.equal(r.gmStreak, 12);
-  assert.equal(r.lastGmDate?.getTime(), at(1, 2).getTime(), "lastGmDate never goes backwards");
+  assert.equal(r.gmStreak, 12, "the stored streak is kept");
+  assert.equal(r.lastGmDate?.getTime(), at(0).getTime());
+  assert.equal(r.changed, true);
+});
+
+test("a far-future stored lastGmDate with no event is brought back to now, never left in the future", () => {
+  const r = mergeGeneralStreak({
+    computedStreak: 0, computedLongest: 0, latestEventMs: null,
+    stored: { gmStreak: 4, longestStreak: 4, lastGmDate: at(3) }, now: NOW,
+  });
+  assert.equal(r.lastGmDate?.getTime(), NOW.getTime());
+  assert.equal(r.gmStreak, 4);
 });
 
 test("no stored date and no event: nothing changes", () => {
@@ -139,4 +162,83 @@ test("the extension is idempotent: a second recomputation keeps 11", () => {
   });
   assert.equal(second.gmStreak, 11);
   assert.equal(second.changed, false);
+});
+
+// --- Relecture Codex de la PR 196 ---
+
+// Faux compte : findUnique et updateMany conditionne comme Prisma (egalites, OR lastGmDate null / lt).
+function fakeUserStore(row: { id: string; score: number } & StoredGmState) {
+  const same = (a: Date | null, b: Date | null) => (a == null && b == null) || (a != null && b != null && a.getTime() === b.getTime());
+  return {
+    row,
+    user: {
+      async findUnique(_args: { where: { id: string }; select?: unknown }) { return { ...row }; },
+      async updateMany(args: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+        const w = args.where;
+        if (w.gmStreak !== undefined && w.gmStreak !== row.gmStreak) return { count: 0 };
+        if (w.longestStreak !== undefined && w.longestStreak !== row.longestStreak) return { count: 0 };
+        if (w.lastGmDate !== undefined && !same(w.lastGmDate as Date | null, row.lastGmDate)) return { count: 0 };
+        const or = w.OR as Array<{ lastGmDate: null | { lt: Date } }> | undefined;
+        if (or && !or.some((c) => (c.lastGmDate === null ? row.lastGmDate === null : row.lastGmDate != null && row.lastGmDate.getTime() < c.lastGmDate.lt.getTime()))) return { count: 0 };
+        const d = args.data;
+        if (typeof d.gmStreak === "number") row.gmStreak = d.gmStreak;
+        if (typeof d.longestStreak === "number") row.longestStreak = d.longestStreak;
+        if (d.lastGmDate instanceof Date) row.lastGmDate = d.lastGmDate;
+        const inc = (d.score as { increment?: number } | undefined)?.increment;
+        if (inc) row.score += inc;
+        return { count: 1 };
+      },
+    },
+  };
+}
+
+// Meme enchainement que POST /api/gm/onchain : reconciliation depuis les GM deja enregistres, reclamation du jour
+// de scoring, puis reconciliation apres la transaction (avec la ligne du GM).
+async function postOnchainGm(store: ReturnType<typeof fakeUserStore>, priorRows: Date[], eventAt: Date, now: Date) {
+  const gmDate = gmEventDate(eventAt, now);
+  const scoringDay = new Date(utcDayStartMs(gmDate));
+  await reconcileGeneralFromOnchain({ store: store as never, userId: "u1", createdAts: priorRows, now });
+  const general = await claimGeneralDailyGmWithRetry({ tx: store as never, userId: "u1", initial: { ...store.row }, scoringDay, gmDate });
+  await reconcileGeneralFromOnchain({ store: store as never, userId: "u1", createdAts: [...priorRows, gmDate], now });
+  return general;
+}
+
+test("point 1: an event at 00:01 seen at 23:59 UTC is dated now, never on the next UTC day", () => {
+  const now = new Date(Date.UTC(2026, 10, 14, 23, 59));
+  const event = new Date(Date.UTC(2026, 10, 15, 0, 1));
+  assert.equal(gmEventDate(event, now).getTime(), now.getTime());
+  assert.equal(utcDayStartMs(gmEventDate(event, now)), Date.UTC(2026, 10, 14), "scoring day = current UTC day");
+  const past = new Date(Date.UTC(2026, 10, 14, 9));
+  assert.equal(gmEventDate(past, now).getTime(), past.getTime(), "a past event keeps its own date");
+  assert.equal(gmEventDate(undefined, now).getTime(), now.getTime());
+});
+
+test("point 1: after a GM at 23:59 whose event says 00:01, the next day's GM is not refused", async () => {
+  const store = fakeUserStore({ id: "u1", score: 0, gmStreak: 3, longestStreak: 3, lastGmDate: new Date(Date.UTC(2026, 10, 13, 8)) });
+  const nowJ = new Date(Date.UTC(2026, 10, 14, 23, 59));
+  const first = await postOnchainGm(store, [], new Date(Date.UTC(2026, 10, 15, 0, 1)), nowJ);
+  assert.equal(first.claimed, true);
+  assert.equal(store.row.lastGmDate!.getTime(), nowJ.getTime(), "lastGmDate stays on day J");
+  const nowJ1 = new Date(Date.UTC(2026, 10, 15, 9));
+  const second = await postOnchainGm(store, [nowJ], nowJ1, nowJ1);
+  assert.equal(second.claimed, true, "day J+1 is still open");
+  assert.equal(store.row.gmStreak, 5);
+});
+
+test("point 2: stored 10 ending J-2 + a recorded GM of J-1, the POST of J gives 12 end to end", async () => {
+  const store = fakeUserStore({ id: "u1", score: 0, gmStreak: 10, longestStreak: 10, lastGmDate: at(-2) });
+  const general = await postOnchainGm(store, [at(-1)], at(0, 9), NOW);
+  assert.equal(general.generalStreak, 12, "today's bonus is computed on the continued streak");
+  assert.equal(store.row.gmStreak, 12);
+  assert.equal(store.row.longestStreak, 12);
+  assert.equal(store.row.lastGmDate!.getTime(), at(0, 9).getTime());
+});
+
+test("point 3: a lastGmDate stored in the future no longer refuses the on-chain GM of today", async () => {
+  // Ancien GM d'hier stocke avec un horodatage futur (J+3) : lastGmDate J+3 bloquait toute reclamation.
+  const store = fakeUserStore({ id: "u1", score: 0, gmStreak: 5, longestStreak: 5, lastGmDate: at(3) });
+  const general = await postOnchainGm(store, [at(-1), at(3)], at(0, 9), NOW);
+  assert.equal(general.claimed, true, "the claim is not refused as already done");
+  assert.equal(store.row.gmStreak, 6);
+  assert.ok(store.row.lastGmDate!.getTime() <= NOW.getTime(), "lastGmDate is no longer in the future");
 });

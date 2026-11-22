@@ -20,5 +20,5 @@ test("la couverture des scans pour le registre est explicite", () => {
   const ids = new Set(chainList.map((c) => Number(c.CHAIN?.CHAIN_ID)));
   const scanned = VERIFIED_LIFECYCLE_REGISTRY.filter((r) => ids.has(r.chainId)).map((r) => r.chainKey).sort();
   // Etat au 2026-11-22 : Cronos zkEVM (388), Blast (81457) et Sophon (50104) ne sont pas scannees par WCORE-web.
-  assert.deepEqual(scanned, ["abstract", "forma", "gravity", "lisk", "neon", "zetachain", "zklinknova"]);
+  assert.deepEqual(scanned, ["abstract", "forma", "gravity", "kiteai", "lisk", "neon", "zetachain", "zklinknova"]);
 });

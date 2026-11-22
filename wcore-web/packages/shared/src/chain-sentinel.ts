@@ -233,6 +233,26 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     lastVerifiedAt: "2026-11-12T18:10:00Z",
   },
   {
+    chainKey: "kiteai",
+    chainId: 2366,
+    name: "Kite AI",
+    status: "WINDING_DOWN",
+    // 2026-11-22 : changelog officiel (docs.gokite.ai, release du 18/11/2026, relue) : « Kite Chain is removed from Passport
+    // ahead of the Dec 15 bridge shutdown ». Seule la fermeture du bridge est datee (15/12/2026, heure non precisee : debut
+    // de journee UTC, marque approximate) ; aucune date d'arret du reseau publiee : pas d'echeance NETWORK_SHUTDOWN.
+    // Relire la source avant le 15/12 et ajuster la fiche.
+    deadlines: [
+      { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-12-15T00:00:00Z", sourceIds: ["kite-changelog"], approximate: true },
+    ],
+    sources: {
+      "kite-changelog": { url: "https://docs.gokite.ai/changelog/2026/2026-11-18-release", publisher: "Kite AI (changelog officiel, 18/11/2026)", publisherEn: "Kite AI (official changelog, 2026-11-18)", official: true, retrievedAt: "2026-11-22T17:00:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Fermeture du bridge annoncee pour le 15/12/2026 (changelog officiel du 18/11/2026 : « ahead of the Dec 15 bridge shutdown ») ; rien n'est publie sur l'arret du reseau ni sur l'apres.",
+    recoveryNoteEn: "Bridge shutdown announced for 2026-12-15 (official changelog of 2026-11-18: “ahead of the Dec 15 bridge shutdown”); nothing is published about the network shutdown or afterwards.",
+    lastVerifiedAt: "2026-11-22T17:00:00Z",
+  },
+  {
     chainKey: "moonbeam",
     chainId: 1284,
     name: "Moonbeam",

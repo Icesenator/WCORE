@@ -222,6 +222,16 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
       expect(a.officialSourceUrls, k).toEqual([e.url]);
     }
   });
+  it("Kite AI : WINDING_DOWN, bridge ferme le 15/12/2026, source officielle relue", () => {
+    const r = get("kiteai");
+    expect(r.chainId).toBe(2366);
+    expect(r.status).toBe("WINDING_DOWN");
+    expect(r.deadlines.map((d) => [d.kind, d.at, d.approximate])).toEqual([["BRIDGE_WITHDRAW_LAST", "2026-12-15T00:00:00Z", true]]);
+    expect(r.recoveryAfterShutdown).toBe("UNKNOWN");
+    expect(Object.values(r.sources).map((s) => s.url)).toEqual(["https://docs.gokite.ai/changelog/2026/2026-11-18-release"]);
+    expect(Object.values(r.sources).every((s) => s.official === true && !!s.publisherEn)).toBe(true);
+    expect(evaluateChain(r, pos("KITE"), NOW)).not.toBeNull();
+  });
   it("Moonbeam et Moonriver : traduction anglaise de la note et des editeurs fournie", () => {
     for (const k of ["moonbeam", "moonriver"]) {
       const r = get(k);

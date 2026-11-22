@@ -123,4 +123,12 @@ export const WATCH_SOURCES: readonly WatchSource[] = [
   { chainKey: "ton", url: "https://github.com/ton-blockchain/ton/releases.atom", publisher: "TON Foundation", strict: true },
   { chainKey: "x_layer", url: "https://github.com/okx/xlayer-reth/releases.atom", publisher: "OKX (X Layer)", strict: true },
   { chainKey: "zilliqa_evm", url: "https://github.com/Zilliqa/zq2/releases.atom", publisher: "Zilliqa", strict: true },
+  // Ajouts du 22/11/2026 : chaines encore sans source ; chaque URL verifiee avec le code de la veille (2xx, texte servi,
+  // au moins 3 dates). strict pour les pages qui parlent aussi d'autres projets (newsletter, media, evenement « Sunset »).
+  { chainKey: "beam", url: "https://onbeam.substack.com/feed", publisher: "Beam", strict: true },
+  { chainKey: "etherlink", url: "https://spotlight.tezos.com/", publisher: "Tezos (Spotlight, Etherlink)" },
+  { chainKey: "kcc", url: "https://news.kcc.io/", publisher: "KCC" },
+  { chainKey: "reya", url: "https://blog.reya.network/rss/", publisher: "Reya Network", strict: true },
+  { chainKey: "shibarium", url: "https://news.shib.io/", publisher: "Shiba Inu (The Shib Daily)", strict: true },
+  { chainKey: "stable", url: "https://blog.stable.xyz/rss/", publisher: "Stable", strict: true },
 ];

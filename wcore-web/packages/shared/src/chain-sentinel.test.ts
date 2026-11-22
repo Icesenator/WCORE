@@ -202,10 +202,10 @@ describe("registre verifie (sources officielles lues le 2026-11-07)", () => {
   });
   it("Dogechain, Step Network, ShimmerEVM, HYCHAIN : RETIRED, recuperation UNKNOWN, une source officielle relue chacune", () => {
     const expected: Record<string, { chainId: number; kinds: string[]; url: string }> = {
-      dogechain: { chainId: 2000, kinds: ["BRIDGE_WITHDRAW_LAST", "NETWORK_SHUTDOWN"], url: "https://x.com/DogechainFamily/status/2063978930462175735" },
-      step_network: { chainId: 1234, kinds: ["UNSTAKE_LAST", "NETWORK_SHUTDOWN"], url: "https://x.com/StepApp_/status/2085038602828783837" },
+      dogechain: { chainId: 2000, kinds: ["BRIDGE_WITHDRAW_LAST"], url: "https://x.com/DogechainFamily/status/2063978930462175735" },
+      step_network: { chainId: 1234, kinds: ["UNSTAKE_LAST"], url: "https://x.com/StepApp_/status/2085038602828783837" },
       shimmer_evm: { chainId: 148, kinds: ["BRIDGE_WITHDRAW_LAST", "NETWORK_SHUTDOWN"], url: "https://shimmer.network/" },
-      hychain: { chainId: 2911, kinds: ["CLAIM_END"], url: "https://x.com/hy_fdn/status/1960071791411626000" },
+      hychain: { chainId: 2911, kinds: [], url: "https://x.com/hy_fdn/status/1960071791411626000" },
     };
     for (const [k, e] of Object.entries(expected)) {
       const r = get(k);

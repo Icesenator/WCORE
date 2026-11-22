@@ -330,19 +330,19 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     status: "RETIRED",
     // 2026-11-22 : annonce officielle du 08/06/2026 (compte X @DogechainFamily, post relu) : « we are announcing the sunset of
     // Dogechain », fenetre de deux mois pour bridger et retirer, puis bridge mis hors ligne. Date exacte non citee dans le post :
-    // environ le 08/08/2026, marque approximate. Instantane final des soldes DC avant l'arret du bridge ; aucun engagement de
+    // environ le 08/08/2026, marque approximate ; le post ne date pas l'arret du reseau lui-meme (aucune echeance
+    // NETWORK_SHUTDOWN). Instantane final des soldes DC ANNONCE avant l'arret du bridge (non verifie) ; aucun engagement de
     // relance (« No commitment is being made that Dogechain will return »). Observation WCORE, hors source officielle : tous les
     // RPC connus hors service le 22/11/2026. Reseau retire du scan WCORE (isRetiredChain).
     deadlines: [
       { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-08-08T00:00:00Z", sourceIds: ["dogechain-sunset"], approximate: true },
-      { kind: "NETWORK_SHUTDOWN", at: "2026-08-08T00:00:00Z", sourceIds: ["dogechain-sunset"], approximate: true },
     ],
     sources: {
       "dogechain-sunset": { url: "https://x.com/DogechainFamily/status/2063978930462175735", publisher: "Dogechain (annonce officielle du 08/06/2026)", publisherEn: "Dogechain (official announcement of 2026-06-08)", official: true, retrievedAt: "2026-11-22T14:30:00Z" },
     },
     recoveryAfterShutdown: "UNKNOWN",
-    recoveryNote: "Arret annonce le 08/06/2026 avec une fenetre de deux mois pour bridger (vers le 08/08/2026). Un instantane des soldes DC est conserve et « may serve as the basis for any future token distribution », sans engagement de relance ; les autres actifs restes sur la chaine ne sont pas presumes recuperables. RPC hors service le 22/11/2026 (observation WCORE).",
-    recoveryNoteEn: "Shutdown announced on 2026-06-08 with a two-month window to bridge out (around 2026-08-08). A snapshot of DC balances is kept and “may serve as the basis for any future token distribution”, with no commitment to a relaunch; other assets left on the chain are not presumed recoverable. RPCs down on 2026-11-22 (WCORE observation).",
+    recoveryNote: "Arret annonce le 08/06/2026 avec une fenetre de deux mois pour bridger (vers le 08/08/2026). Un instantane final des soldes DC est annonce (non verifie) et « may serve as the basis for any future token distribution », sans engagement de relance ; les autres actifs restes sur la chaine ne sont pas presumes recuperables. RPC hors service le 22/11/2026 (observation WCORE).",
+    recoveryNoteEn: "Shutdown announced on 2026-06-08 with a two-month window to bridge out (around 2026-08-08). A final snapshot of DC balances is announced (not verified) and “may serve as the basis for any future token distribution”, with no commitment to a relaunch; other assets left on the chain are not presumed recoverable. RPCs down on 2026-11-22 (WCORE observation).",
     lastVerifiedAt: "2026-11-22T14:30:00Z",
   },
   {
@@ -352,10 +352,10 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     status: "RETIRED",
     // 2026-11-22 : annonce officielle du 05/08/2026 (compte X @StepApp_, post relu) : « Step App is shutting down », « All services
     // will be winding down by August 21 », desengager les jetons avant cette date. Le post ne nomme pas la chaine Step Network :
-    // son arret est deduit de l'arret de tous les services, et constate par WCORE (domaine RPC disparu le 22/11/2026).
+    // aucune date d'arret du reseau n'est publiee (pas d'echeance NETWORK_SHUTDOWN) ; arret constate par WCORE (domaine RPC
+    // disparu le 22/11/2026).
     deadlines: [
       { kind: "UNSTAKE_LAST", at: "2026-08-21T00:00:00Z", sourceIds: ["stepapp-shutdown"], approximate: true },
-      { kind: "NETWORK_SHUTDOWN", at: "2026-08-21T00:00:00Z", sourceIds: ["stepapp-shutdown"], approximate: true },
     ],
     sources: {
       "stepapp-shutdown": { url: "https://x.com/StepApp_/status/2085038602828783837", publisher: "Step App (annonce officielle du 05/08/2026)", publisherEn: "Step App (official announcement of 2026-08-05)", official: true, retrievedAt: "2026-11-22T14:30:00Z" },
@@ -393,9 +393,8 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     // (Arbitrum-based L2) will be sunset », $TOPIA remplace par $HYBUX sur Base (airdrop 2 HYBUX pour 1 TOPIA), actions a faire
     // avant le 01/09/2025 pour l'airdrop. Aucune date d'arret de la chaine n'est donnee ; arret constate par WCORE (RPC hors
     // service le 22/11/2026).
-    deadlines: [
-      { kind: "CLAIM_END", at: "2025-09-01T00:00:00Z", sourceIds: ["hychain-sunset"], approximate: true },
-    ],
+    // La date du 01/09/2025 est une condition d'eligibilite a l'airdrop, pas une fin de reclamation : aucune echeance.
+    deadlines: [],
     sources: {
       "hychain-sunset": { url: "https://x.com/hy_fdn/status/1960071791411626000", publisher: "HY Foundation (annonce officielle du 25/08/2025)", publisherEn: "HY Foundation (official announcement of 2025-08-25)", official: true, retrievedAt: "2026-11-22T14:30:00Z" },
     },

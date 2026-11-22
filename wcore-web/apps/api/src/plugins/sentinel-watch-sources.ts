@@ -133,8 +133,7 @@ export const WATCH_SOURCES: readonly WatchSource[] = [
   // fermeture du bridge Kite du 15/12/2026). Ecartes : depots GitHub sans lien officiel prouve, newsroom de groupe.
   { chainKey: "ink", url: "https://status.inkonchain.com/history.rss", publisher: "Ink (page de statut)", strict: true },
   { chainKey: "kiteai", url: "https://docs.gokite.ai/changelog/rss.xml", publisher: "Kite AI (changelog)" },
-  // Releases du noeud officiel, lien prouve depuis la documentation du projet (22/11/2026) : docs.abs.xyz (page
-  // « running a node ») renvoie a Abstract-Foundation/abstract-node ; docs.shib.io renvoie a l organisation shibaone.
+  // Releases du noeud officiel, lien direct prouve depuis la documentation du projet (22/11/2026) : docs.abs.xyz (page
+  // « running a node ») renvoie a Abstract-Foundation/abstract-node.
   { chainKey: "abstract", url: "https://github.com/Abstract-Foundation/abstract-node/releases.atom", publisher: "Abstract Foundation (noeud)", strict: true },
-  { chainKey: "shibarium", url: "https://github.com/shibaone/bor/releases.atom", publisher: "Shiba Inu (client Bor de Shibarium)", strict: true },
 ];

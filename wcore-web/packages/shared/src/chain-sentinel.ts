@@ -240,7 +240,9 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     // 2026-11-22 : changelog officiel (docs.gokite.ai, release du 18/11/2026, relue) : « Kite Chain is removed from Passport
     // ahead of the Dec 15 bridge shutdown ». Seule la fermeture du bridge est datee (15/12/2026, heure non precisee : debut
     // de journee UTC, marque approximate) ; aucune date d'arret du reseau publiee : pas d'echeance NETWORK_SHUTDOWN.
-    // Relire la source avant le 15/12 et ajuster la fiche.
+    // Rattachement : « Kite Chain » est le reseau du RPC officiel rpc.gokite.ai (eth_chainId 0x93e = 2366, lu le 22/11/2026).
+    // Apres le 15/12, Sentinel tiendra la sortie pour fermee alors que la source ne dit rien de l'apres : relire la source
+    // avant cette date et ajuster la fiche (meme regle que Neon EVM).
     deadlines: [
       { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-12-15T00:00:00Z", sourceIds: ["kite-changelog"], approximate: true },
     ],

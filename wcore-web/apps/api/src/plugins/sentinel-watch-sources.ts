@@ -129,11 +129,8 @@ export const WATCH_SOURCES: readonly WatchSource[] = [
   { chainKey: "etherlink", url: "https://spotlight.tezos.com/", publisher: "Tezos (Spotlight, Etherlink)" },
   { chainKey: "kcc", url: "https://news.kcc.io/", publisher: "KCC" },
   { chainKey: "reya", url: "https://blog.reya.network/rss/", publisher: "Reya Network", strict: true },
-  // Ajouts du 22/11/2026 (suite) : changelog, page de statut et releases du noeud officiels (strict sauf le changelog Kite,
-  // qui annonce la fermeture du bridge Kite du 15/12/2026).
-  { chainKey: "abstract", url: "https://github.com/Abstract-Foundation/abstract-node/releases.atom", publisher: "Abstract Foundation (noeud)", strict: true },
-  { chainKey: "hashkey", url: "https://group.hashkey.com/en/category/news/feed/", publisher: "HashKey Group (newsroom)", strict: true },
+  // Ajouts du 22/11/2026 (suite) : changelog et page de statut sur les domaines officiels (le changelog Kite annonce la
+  // fermeture du bridge Kite du 15/12/2026). Ecartes : depots GitHub sans lien officiel prouve, newsroom de groupe.
   { chainKey: "ink", url: "https://status.inkonchain.com/history.rss", publisher: "Ink (page de statut)", strict: true },
   { chainKey: "kiteai", url: "https://docs.gokite.ai/changelog/rss.xml", publisher: "Kite AI (changelog)" },
-  { chainKey: "shibarium", url: "https://github.com/shibaone/bor/releases.atom", publisher: "Shiba Inu (client Bor de Shibarium)", strict: true },
 ];

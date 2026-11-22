@@ -73,20 +73,17 @@ if (typeof PORTFOLIO_SHARED_COLUMN_WIDTHS === "undefined") {
 
 var CRYPTO_PORTFOLIO_ROW1_WIDTH = 28;
 
-// Garde du 22/11/2026 : SETUP et REPAIR des formules sont refuses des que l onglet contient des lignes,
-// car le generateur ne reproduit plus les formules de la feuille (colonne G notamment).
-function _cryptoPortfolioLegacyFormulaGuard_(sh) {
-  if (sh && sh.getLastRow() >= CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
-    return "REFUSED: les generateurs de formules de ce script sont en retard sur la feuille (22/11/2026) ; une reparation ecraserait des formules saisies a la main. Corriger la feuille directement, ou mettre le generateur a jour avant de l utiliser.";
-  }
-  return null;
+// Garde du 22/11/2026 : SETUP et REPAIR des formules sont toujours refuses. Le generateur ne reproduit plus
+// les formules de la feuille (colonne G notamment) : une reparation, ou une installation neuve, poserait
+// des formules fausses. Le refus precede toute lecture ou ecriture de l onglet (pas de course possible).
+function _cryptoPortfolioLegacyFormulaGuard_() {
+  return "REFUSED: les generateurs de formules de ce script sont en retard sur la feuille (22/11/2026) ; une reparation ou une installation poserait des formules fausses. Corriger la feuille directement, ou mettre le generateur a jour avant de l utiliser.";
 }
 
 function SETUP_CRYPTO_PORTFOLIO_V2() {
+  return _cryptoPortfolioLegacyFormulaGuard_();
   var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
-  var legacyGuard = _cryptoPortfolioLegacyFormulaGuard_(sh);
-  if (legacyGuard) return legacyGuard;
   if (!sh) sh = ss.insertSheet(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
   _cryptoPortfolioEnsureLayout_(sh);
   REPAIR_CRYPTO_PORTFOLIO_V2_FORMULAS();
@@ -569,11 +566,10 @@ function _cryptoPortfolioBuildFormulaMatrixForRows_(rowCount) {
 }
 
 function REPAIR_CRYPTO_PORTFOLIO_V2_FORMULAS() {
+  return _cryptoPortfolioLegacyFormulaGuard_();
   var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
   if (!sh) throw new Error("Missing sheet " + CRYPTO_PORTFOLIO_CONFIG.SHEET_NAME);
-  var legacyGuard = _cryptoPortfolioLegacyFormulaGuard_(sh);
-  if (legacyGuard) return legacyGuard;
   var last = sh.getLastRow();
   if (last < CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW) return "OK: no source rows";
   var rowCount = last - CRYPTO_PORTFOLIO_CONFIG.FIRST_DATA_ROW + 1;

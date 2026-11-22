@@ -85,20 +85,17 @@ var PORTFOLIO_SHARED_COLUMN_WIDTHS = [87, 131, 91, 131, 168, 91, 69, 78, 74, 83,
 
 var STOCK_PORTFOLIO_ROW1_WIDTH = 28;
 
-// Garde du 22/11/2026 : SETUP et REPAIR des formules sont refuses des que l onglet contient des lignes,
-// car le generateur ne reproduit plus les formules de la feuille (colonne G notamment).
-function _stockPortfolioLegacyFormulaGuard_(sh) {
-  if (sh && sh.getLastRow() >= STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW) {
-    return "REFUSED: les generateurs de formules de ce script sont en retard sur la feuille (22/11/2026) ; une reparation ecraserait des formules saisies a la main. Corriger la feuille directement, ou mettre le generateur a jour avant de l utiliser.";
-  }
-  return null;
+// Garde du 22/11/2026 : SETUP et REPAIR des formules sont toujours refuses. Le generateur ne reproduit plus
+// les formules de la feuille (colonne G notamment) : une reparation, ou une installation neuve, poserait
+// des formules fausses. Le refus precede toute lecture ou ecriture de l onglet (pas de course possible).
+function _stockPortfolioLegacyFormulaGuard_() {
+  return "REFUSED: les generateurs de formules de ce script sont en retard sur la feuille (22/11/2026) ; une reparation ou une installation poserait des formules fausses. Corriger la feuille directement, ou mettre le generateur a jour avant de l utiliser.";
 }
 
 function SETUP_STOCK_PORTFOLIO() {
+  return _stockPortfolioLegacyFormulaGuard_();
   var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
-  var legacyGuard = _stockPortfolioLegacyFormulaGuard_(sh);
-  if (legacyGuard) return legacyGuard;
   if (!sh) sh = ss.insertSheet(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
   _stockPortfolioEnsureLayout_(sh);
   REPAIR_STOCK_PORTFOLIO_FORMULAS();
@@ -577,11 +574,10 @@ function _stockPortfolioBuildFormulaMatrixForRows_(rowCount) {
 }
 
 function REPAIR_STOCK_PORTFOLIO_FORMULAS() {
+  return _stockPortfolioLegacyFormulaGuard_();
   var ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(BITPANDA_SYNC_CONFIG.SPREADSHEET_ID);
   var sh = ss.getSheetByName(STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
   if (!sh) throw new Error("Missing sheet " + STOCK_PORTFOLIO_CONFIG.SHEET_NAME);
-  var legacyGuard = _stockPortfolioLegacyFormulaGuard_(sh);
-  if (legacyGuard) return legacyGuard;
   var last = sh.getLastRow();
   if (last < STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW) return "OK: no source rows";
   var rowCount = last - STOCK_PORTFOLIO_CONFIG.FIRST_DATA_ROW + 1;

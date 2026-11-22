@@ -323,6 +323,54 @@ export const VERIFIED_LIFECYCLE_REGISTRY: readonly ChainLifecycleRecord[] = [
     recoveryNoteEn: "Network shutdown ANNOUNCED for 2026-07-31 (Zerion help page of 2026-05-21); inbound bridge suspended since the announcement; chain reported halted by zero.network and RPCs answering “Node is not available” on 2026-11-21 (WCORE observation). No recovery rule after the deadline is published: only a help form appears on zero.network (“submit your address and we'll help you recover them”).",
     lastVerifiedAt: "2026-11-21T18:00:00Z",
   },
+  {
+    chainKey: "forma",
+    chainId: 984122,
+    name: "Forma",
+    status: "RETIRED",
+    // 2026-11-22 : annonce officielle du 22/10/2026 (compte X de l'equipe, renomme @modularium_art ; post relu) : arret au bloc
+    // 34 567 890, « estimated around November 5 », environ deux semaines pour retirer avant l'arret, puis instantane et
+    // migration du TIA restant vers Eden (meme adresse, reseau EVM). Page officielle du bridge (docs.forma.art, relue le
+    // 22/11/2026) : « Forma has shut down » et « All unbridged TIA on Forma has been airdropped to Eden » : recuperation
+    // AVAILABLE (le TIA est deja credite sur Eden, a bridger vers Celestia). Les NFT se reclament sur le site Modularium relance
+    // (pas de largage automatique). Observation WCORE, hors source officielle : le RPC public rend un dernier bloc
+    // (34 262 256) date du 29/10/2026, avant le bloc annonce. Heure non precisee : debut de journee UTC, marque approximate.
+    deadlines: [
+      { kind: "BRIDGE_WITHDRAW_LAST", at: "2026-11-05T00:00:00Z", sourceIds: ["forma-shutdown-block"], approximate: true },
+      { kind: "NETWORK_SHUTDOWN", at: "2026-11-05T00:00:00Z", sourceIds: ["forma-shutdown-block"], approximate: true },
+    ],
+    sources: {
+      "forma-shutdown-block": { url: "https://x.com/modularium_art/status/2113385579555495982", publisher: "Forma / Modularium (compte X officiel, annonce du 22/10/2026)", publisherEn: "Forma / Modularium (official X account, announcement of 2026-10-22)", official: true, retrievedAt: "2026-11-22T08:30:00Z" },
+      "forma-bridge-shutdown": { url: "https://docs.forma.art/", publisher: "Forma (page officielle du bridge)", publisherEn: "Forma (official bridge page)", official: true, retrievedAt: "2026-11-22T08:30:00Z" },
+    },
+    recoveryAfterShutdown: "AVAILABLE",
+    recoveryNote: "« All unbridged TIA on Forma has been airdropped to Eden. » Le TIA reste sur Forma a l'arret est credite sur Eden, a la meme adresse (reseau EVM) : le retirer depuis eden.zone vers Celestia. Les NFT Forma se reclament sur le site Modularium relance, sur Ethereum (aucun largage automatique). Aucune date limite de reclamation publiee.",
+    recoveryNoteEn: "“All unbridged TIA on Forma has been airdropped to Eden.” TIA left on Forma at the halt is credited on Eden, at the same address (EVM network): withdraw it from eden.zone to Celestia. Forma NFTs are claimed on the relaunched Modularium site, on Ethereum (no automatic airdrop). No claim deadline published.",
+    lastVerifiedAt: "2026-11-22T08:30:00Z",
+  },
+  {
+    chainKey: "zklinknova",
+    chainId: 810180,
+    name: "zkLink Nova",
+    status: "RETIRED",
+    // 2026-11-22 : RETIRED faute de mieux, ce n'est PAS un arret annonce. Compte X officiel (posts du 29 et du 30/10/2026,
+    // relus) : exploit du contrat Arbitrator sur Ethereum et Optimism ; « Block production on zkLink Nova suspended » et
+    // canaux de retrait « temporarily disabled » ; reprise seulement « after we have fully confirmed that all risks have been
+    // eliminated ». Prime de recuperation des fonds voles (jusqu'a 20 %), sans plan de remboursement des utilisateurs.
+    // Aucune mise a jour officielle lue apres le 30/10/2026. Le reseau ne produit plus de blocs et rien ne peut sortir :
+    // un statut ACTIVE ou UNKNOWN masquerait des fonds bloques. Si la reprise est annoncee, repasser la fiche en ACTIVE.
+    // Observation WCORE, hors source officielle : le RPC public rend un dernier bloc date du 29/10/2026.
+    // Aucune echeance publiee : pas de deadline. Recuperation UNKNOWN, jamais NOT_AVAILABLE sans source.
+    deadlines: [],
+    sources: {
+      "zklink-halt": { url: "https://x.com/zkLink_Official/status/2115792847098216545", publisher: "zkLink (compte X officiel, mise a jour du 29/10/2026)", publisherEn: "zkLink (official X account, update of 2026-10-29)", official: true, retrievedAt: "2026-11-22T08:40:00Z" },
+      "zklink-bounty": { url: "https://x.com/zkLink_Official/status/2116211025104216124", publisher: "zkLink (compte X officiel, 30/10/2026)", publisherEn: "zkLink (official X account, 2026-10-30)", official: true, retrievedAt: "2026-11-22T08:40:00Z" },
+    },
+    recoveryAfterShutdown: "UNKNOWN",
+    recoveryNote: "Reseau suspendu, pas ferme : « Block production on zkLink Nova suspended » et retraits « temporarily disabled » depuis l'exploit du 28-29/10/2026. Reprise annoncee seulement « after we have fully confirmed that all risks have been eliminated », sans date. Aucun plan de remboursement des utilisateurs publie a ce jour (seule une prime pour retrouver les fonds voles).",
+    recoveryNoteEn: "Network suspended, not closed: “Block production on zkLink Nova suspended” and withdrawals “temporarily disabled” since the 2026-10-28/29 exploit. Restoration announced only “after we have fully confirmed that all risks have been eliminated”, with no date. No user reimbursement plan published to date (only a bounty to recover the stolen funds).",
+    lastVerifiedAt: "2026-11-22T08:40:00Z",
+  },
 ];
 
 // ---------------------------------------------------------------------------

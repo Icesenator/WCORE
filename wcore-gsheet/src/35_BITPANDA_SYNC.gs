@@ -1,3 +1,4 @@
+// v4.16.83 - Verif CEX crypto : une ligne valorisee a 0 EUR (colonne E) n'est plus marquee X (poussiere sans fiche Details).
 // v4.16.82 - Leasing CEX : la liberation ne peut plus etre perdue en silence (CEX_RELEASE_LOCK/_cexWorkerReleaseLease_ retryent le script lock au lieu de laisser la lease 10 min -> BUSY muet sur tout le connecteur), et le libelle d'echec ecrit dans le B1 de l'onglet est horodate comme la cellule de statut (P2-OBS-CEX-STATUS-STALE-LABEL, chemin B1).
 // v4.16.81 - Statut manuel CEX (Portefeuille Crypto!V2): un echec porte un horodatage lisible en tete (P2-OBS-CEX-STATUS-STALE-LABEL).
 // v4.16.75 - UPDATE_BITPANDA_SPOT/STOCKS_FIAT flush HttpCounter en sortie (telemetrie budget pas perdue).
@@ -2095,10 +2096,19 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     var priceEur = null;
     var directValueEur = null;
 
+    // v4.16.99 - Kraken fiat USD : la devise est valorisee au taux USD->EUR. Sans cela,
+    // /api/cex/prices (bucket stocks) prenait "USD" pour un ticker boursier (~47 EUR/USD).
+    var krakenFiatUsd = String(provider || "").toLowerCase() === "kraken" && symbol === "USD";
     if (symbol && balance > 0) {
+      if (krakenFiatUsd) {
+        try {
+          var usdFx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null;
+          if (isFinite(Number(usdFx)) && Number(usdFx) > 0) priceEur = Number(usdFx);
+        } catch (eUsdFx) {}
+      }
       var relayValueUsd = Number(row[4] || 0);
       var relayPriceUsd = Number(row[5] || 0);
-      if ((isFinite(relayValueUsd) && relayValueUsd > 0) || (isFinite(relayPriceUsd) && relayPriceUsd > 0)) {
+      if (!krakenFiatUsd && ((isFinite(relayValueUsd) && relayValueUsd > 0) || (isFinite(relayPriceUsd) && relayPriceUsd > 0))) {
         var relayFx = null;
         try { relayFx = (typeof FxRate !== "undefined" && FxRate.getUsdToEur) ? FxRate.getUsdToEur() : null; } catch (eRelayFx) {}
         if (isFinite(Number(relayFx)) && Number(relayFx) > 0) {
@@ -2108,18 +2118,18 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
       }
       // Stocks: Portefeuille Action FIRST (WCORE source of truth), then web API
       // (Yahoo relay) as fallback. Keeps CEX - Bitpanda Stocks consistent with PA.
-      if (directValueEur == null && isStocks && stockPriceMap[priceSymbol] != null) priceEur = stockPriceMap[priceSymbol];
-      if (priceEur == null && webPrices && webPrices.hasOwnProperty(priceSymbol)) {
+      if (!krakenFiatUsd && directValueEur == null && isStocks && stockPriceMap[priceSymbol] != null) priceEur = stockPriceMap[priceSymbol];
+      if (!krakenFiatUsd && priceEur == null && webPrices && webPrices.hasOwnProperty(priceSymbol)) {
         if (webPrices[priceSymbol] != null && webPrices[priceSymbol] > 0) priceEur = Number(webPrices[priceSymbol]);
       }
-      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol))) {
+      if (!krakenFiatUsd && priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol))) {
         var t = null;
         if (priceSymbol === "EUR") t = "EUR";
         if (!t && typeof WCORE_STABLECOINS !== "undefined" && WCORE_STABLECOINS.getType) t = WCORE_STABLECOINS.getType(priceSymbol);
         if (!t && typeof ChainFactory !== "undefined" && ChainFactory.STABLECOINS && ChainFactory.STABLECOINS.getType) t = ChainFactory.STABLECOINS.getType(priceSymbol);
         if (t === "EUR" || t === "USD" || priceSymbol === "EUR") priceEur = 1.0;
       }
-      if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol)) && _cexSymbolToGeckoId_(priceSymbol)) {
+      if (!krakenFiatUsd && priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol)) && _cexSymbolToGeckoId_(priceSymbol)) {
         try {
           var geckoId = _cexSymbolToGeckoId_(priceSymbol);
           var usd = PriceSources.llamaPriceUsd("coingecko:" + geckoId, null, {});
@@ -2130,7 +2140,7 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
           }
         } catch (eLlama) {}
         if (priceEur == null && priceMap[priceSymbol] != null) priceEur = priceMap[priceSymbol];
-      } else if (priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol)) && priceMap[priceSymbol] != null) {
+      } else if (!krakenFiatUsd && priceEur == null && (!webPrices || !webPrices.hasOwnProperty(priceSymbol)) && priceMap[priceSymbol] != null) {
         priceEur = priceMap[priceSymbol];
       }
     }
@@ -2138,13 +2148,17 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     // v4.16.35: ticker says EUR 0.0000 (delisted) -> explicit webPrices[sym] = null.
     // Authoritative: write 0, never resurrect via last-known (prevVal) — that value
     // feeds Details!D -> Portfolio C (rank-5002 formula) -> priceMap -> back here.
-    var authoritativeZero = webPrices && webPrices.hasOwnProperty(priceSymbol) && webPrices[priceSymbol] == null;
+    var authoritativeZero = !krakenFiatUsd && webPrices && webPrices.hasOwnProperty(priceSymbol) && webPrices[priceSymbol] == null;
 
     if (directValueEur != null && isFinite(directValueEur) && directValueEur > 0) {
       total += directValueEur; eValues.push([directValueEur]); valued++;
     } else if (priceEur != null && isFinite(priceEur) && priceEur > 0) {
       var val = Math.round(balance * priceEur * 100) / 100;
       total += val; eValues.push([val]); valued++;
+    } else if (krakenFiatUsd) {
+      // Sans taux USD->EUR valide : aucune valeur, jamais le dernier cours connu (ancien cours d'ETF errone).
+      Logger.log("[CEX_TOTAL] skip no-fx: USD in " + sheetName);
+      eValues.push([0]); skipped++;
     } else if (authoritativeZero) {
       Logger.log("[CEX_TOTAL] authoritative-zero: " + symbol + " (bitpanda-ticker EUR 0) in " + sheetName);
       eValues.push([0]); skipped++;
@@ -2287,8 +2301,9 @@ function _cexWriteVerifMap_(sh, sheetName) {
 
 // v4.16.85 - P1-DATA-CEX-CRYPTO-TICKER-PARITY : rapprocher le ticker F et traiter position/ticker Crypto comme criteres litteraux.
 function _cexBuildVerifFormula_(sheetName) {
-  var cryptoDetailsV2Formula = '=MAP(A3:A;B3:B;LAMBDA(s;b;IF(s="";"";IF(N(b)<=0;"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + String(sheetName || "").replace(/~/g, '~~').replace(/\*/g, '~*').replace(/\?/g, '~?').replace(/"/g, '""') + '";\'Portefeuille Crypto Details\'!$F:$F;SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(s;"~";"~~");"*";"~*");"?";"~?"))>0;"V";"X")))))';
-  var ls = String(sheetName || "").toLowerCase();
+  // Ligne valorisee a 0 EUR (poussiere, ou actif sans prix) : ni V ni X, elle ne met plus l'onglet en erreur (decision de Florian, 22/11/2026).
+  var cryptoDetailsV2Formula = '=MAP(A3:A;B3:B;E3:E;LAMBDA(s;b;v;IF(s="";"";IF(N(b)<=0;"";IF(AND(ISNUMBER(v);v=0);"";IF(COUNTIFS(\'Portefeuille Crypto Details\'!$E:$E;"' + String(sheetName || "").replace(/~/g, '~~').replace(/\*/g, '~*').replace(/\?/g, '~?').replace(/"/g, '""') + '";\'Portefeuille Crypto Details\'!$F:$F;SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(s;"~";"~~");"*";"~*");"?";"~?"))>0;"V";"X"))))))';
+  var ls =String(sheetName || "").toLowerCase();
   var isFiatOrStocks = ls.indexOf("fiat") >= 0 || ls.indexOf("stocks") >= 0;
   if (!isFiatOrStocks) return cryptoDetailsV2Formula;
   if (isFiatOrStocks) {

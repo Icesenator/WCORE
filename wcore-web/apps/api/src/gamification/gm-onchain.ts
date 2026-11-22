@@ -6,7 +6,7 @@ import { canonicalChainKey, getFactory } from "@wcore/shared";
 import { z } from "zod";
 import type { GmHelpersDeps } from "./gm-helpers.js";
 import { createGmHelpers } from "./gm-helpers.js";
-import { GmBackfillRpcError, rebuildChainStreakFromOnchain, scanGmBackfillCandidates, type BackfillCandidate } from "./gm-streak-rebuild.js";
+import { GM_CLOCK_MARGIN_MS, GmBackfillRpcError, rebuildChainStreakFromOnchain, scanGmBackfillCandidates, type BackfillCandidate } from "./gm-streak-rebuild.js";
 import { createTtlCache } from "./ttl-cache.js";
 import { applyMergedStreak, claimChainDailyGmWithRetry, claimGeneralDailyGmWithRetry, mergeGeneralStreak } from "./gm-streak-merge.js";
 
@@ -163,7 +163,6 @@ export async function registerGmOnchainRoutes(
     }
 
     const now = new Date();
-    const today = startOfUtcDay(now);
 
     // Wrap all DB writes in a transaction: anti-replay, score, streak, badges
     const tipWei = (req as unknown as Record<string, unknown>)["_gmTipWei"] as string | undefined;
@@ -184,6 +183,16 @@ export async function registerGmOnchainRoutes(
         await tx.$queryRaw`SELECT id FROM "users" WHERE id = ${req.user!.id} FOR NO KEY UPDATE`;
         const gmTipWei = (req as unknown as Record<string, unknown>)["_gmTipWei"] as string | undefined;
         const gmEventCreatedAt = (req as unknown as Record<string, unknown>)["_gmEventCreatedAt"] as Date | undefined;
+        // Score against the day the GM actually happened on-chain (decoded from
+        // the GmCheckedIn event), not the day the API call lands. A late
+        // submission uses the same UTC claims as backfill: each bonus is
+        // available only if the event day strictly follows its last claim.
+        // One fixed date per GM, also the stored createdAt (P1-GM-SERIE-SUIVIS-20261114, defect 3): an event at
+        // most GM_CLOCK_MARGIN_MS ahead of our clock (chain clock drift) keeps its own time and day, so a GM
+        // mined at 00:00:01 is never moved back to the previous day; anything further ahead is not a usable
+        // date and counts as now. The stored date never changes afterwards, so a GM is never counted on two days.
+        const gmDate = gmEventCreatedAt && gmEventCreatedAt.getTime() <= now.getTime() + GM_CLOCK_MARGIN_MS ? gmEventCreatedAt : now;
+        const scoringDay = startOfUtcDay(gmDate);
         // Anti-replay: the (chainKey, txHash) unique is case-sensitive in
         // Postgres, so a legacy lowercase row would NOT collide with a new
         // canonical (UPPERCASE) insert. Pre-check case-insensitively to block
@@ -195,7 +204,7 @@ export async function registerGmOnchainRoutes(
         if (replay) throw new Error("tx_already_used");
         try {
           await tx.onchainGm.create({
-            data: { userId: req.user!.id, txHash, chainKey, contractId: gmContract.id, tipWei: gmTipWei ?? "0", ...(gmEventCreatedAt ? { createdAt: gmEventCreatedAt } : {}) },
+            data: { userId: req.user!.id, txHash, chainKey, contractId: gmContract.id, tipWei: gmTipWei ?? "0", createdAt: gmDate },
           });
         } catch {
           throw new Error("tx_already_used");
@@ -204,18 +213,6 @@ export async function registerGmOnchainRoutes(
         const firstRead = await tx.user.findUnique({ where: { id: req.user!.id } });
         if (!firstRead) throw new Error("user_not_found");
         let user = firstRead;
-
-        // Score against the day the GM actually happened on-chain (decoded from
-        // the GmCheckedIn event), not the day the API call lands. A late
-        // submission uses the same UTC claims as backfill: each bonus is
-        // available only if the event day strictly follows its last claim.
-        // Clamp future event times to now for interactive submissions.
-        const scoringDay = (() => {
-          if (!gmEventCreatedAt) return today;
-          const eventDay = startOfUtcDay(gmEventCreatedAt);
-          return eventDay.getTime() > today.getTime() ? today : eventDay;
-        })();
-        const gmDate = gmEventCreatedAt && gmEventCreatedAt.getTime() < now.getTime() ? gmEventCreatedAt : now;
 
         // --- General GM streak (once per day across all chains) ---
         // Lecture, calcul, reclamation atomique ; sur perte de la reclamation sans que le jour soit pris
@@ -291,10 +288,14 @@ export async function registerGmOnchainRoutes(
         // may have discovered prior GMs on other chains that should contribute
         // to the general streak (user.gmStreak / longestStreak / lastGmDate).
         // Without this, the general streak can diverge from on-chain reality.
-        const allGms = await prisma.onchainGm.findMany({
+        // Rows further ahead than the clock margin (stored before the on-chain timestamp was capped) are left
+        // out: their latest date would become lastGmDate, and every general GM until that date would be refused
+        // as already done. Every other row keeps its own fixed date (never re-capped).
+        const futureLimit = Date.now() + GM_CLOCK_MARGIN_MS;
+        const allGms = (await prisma.onchainGm.findMany({
           where: { userId: req.user!.id },
           select: { createdAt: true },
-        });
+        })).filter((g) => g.createdAt.getTime() <= futureLimit);
         if (allGms.length > 0) {
           const DAY_MS = 86_400_000;
           const dayMsSet = new Set<number>(allGms.map((g) => {

@@ -312,3 +312,18 @@ test("resolveCexRequestTransition clears fail-closed when the active session is 
 
   assert.deepEqual(next, { sessionKey: null, results: [] });
 });
+
+test("refreshCexAccounts never syncs Kraken from the site, and the other CEX still refresh (P2-DATA-KRAKEN-VIA-API)", async () => {
+  const calls: string[] = [];
+  const account = (id: string, provider: string) => ({ id, provider, label: null, lastSyncAt: null, lastSyncStatus: "ok", lastSyncError: null, holdings: [] });
+  const fetcher = async (path: string) => {
+    calls.push(path);
+    if (path === "/api/cex/accounts") return new Response(JSON.stringify({ accounts: [account("k1", "kraken"), account("o1", "okx")] }), { status: 200 });
+    if (path.includes("/k1/")) return new Response(JSON.stringify({ error: "sync_failed", message: "kraken_sync_via_gsheet_only" }), { status: 409 });
+    return new Response("{}", { status: 200 });
+  };
+  const outcome = await refreshCexAccounts(fetcher as never);
+  assert.equal(outcome.type, "success");
+  assert.equal(calls.some((path) => path.includes("/k1/sync")), false);
+  assert.ok(calls.includes("/api/cex/accounts/o1/sync"));
+});

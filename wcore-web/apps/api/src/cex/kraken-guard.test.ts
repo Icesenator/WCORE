@@ -125,16 +125,22 @@ test("Temporary lockout : pause persistee 60 min, aucune relance, refus sans app
   assert.match(new KrakenGuardError("kraken_paused", c.now()).message, /temporary lockout/i);
 });
 
-test("pause non enregistrable en base : cette instance la tient quand meme, aucun nouvel appel", async () => {
+test("pause non enregistrable en base : aucune instance ne rappelle Kraken (bail bloquant + pause locale)", async () => {
   const c = clock();
   const inner = createMemoryKrakenGuardStore(c.now);
   const failing: KrakenGuardStore = { claim: inner.claim, release: async () => { throw new Error("db down"); } };
   const k = fakeKraken([{ body: { error: ["EGeneral:Temporary lockout"] } }]);
   const reader = createKrakenBalanceReader({ store: failing, fetchImpl: k.fetchImpl, now: c.now });
   await assert.rejects(reader.readBalances(creds), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_paused");
-  c.advance(KRAKEN_LEASE_MS + KRAKEN_MIN_INTERVAL_MS + 1);
+  c.advance(KRAKEN_MIN_INTERVAL_MS + 1);
   await assert.rejects(reader.readBalances(creds), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_paused");
+  // Autre instance, sans copie locale de la pause : le bail jamais rendu bloque toujours.
+  const other = createKrakenBalanceReader({ store: failing, fetchImpl: k.fetchImpl, now: c.now });
+  await assert.rejects(other.readBalances(creds), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_busy");
+  c.advance(KRAKEN_LEASE_MS - KRAKEN_MIN_INTERVAL_MS - 2000);
+  await assert.rejects(other.readBalances(creds), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_busy");
   assert.equal(k.calls.length, 1);
+  assert.ok(KRAKEN_LEASE_MS >= KRAKEN_LOCKOUT_PAUSE_MS, "un bail jamais rendu dure au moins une pause");
 });
 
 test("titulaire en retard : sa liberation ne libere pas le bail du successeur, mais sa pause est enregistree", async () => {
@@ -159,6 +165,16 @@ test("bail trop entame avant l'envoi : aucun envoi", async () => {
   await assert.rejects(createKrakenBalanceReader({ store: slow, fetchImpl: k.fetchImpl, now: c.now }).readBalances(creds), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_busy");
   assert.equal(k.calls.length, 0);
   assert.equal(inner.rows.get(keyId)!.leaseUntilMs, null, "bail rendu");
+});
+
+test("nonce hors de la plage commune (> 2^53 - 1) : aucun envoi", async () => {
+  const { k, reader } = setup([]);
+  await assert.rejects(reader.readBalances(creds, { nonceFloor: "9007199254740991" }), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_busy");
+  assert.equal(k.calls.length, 0);
+});
+
+test("intervalle : deux envois reels jamais a moins de 60 s, meme avec le delai d'envoi maximal", () => {
+  assert.ok(KRAKEN_MIN_INTERVAL_MS - KRAKEN_MAX_SEND_DELAY_MS >= 60_000);
 });
 
 test("bail en cours sur une autre instance : busy, aucun appel", async () => {

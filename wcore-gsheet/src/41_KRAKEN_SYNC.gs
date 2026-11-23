@@ -59,6 +59,10 @@ var KRAKEN_SYNC_CONFIG = {
   REFRESH_FLAG_PROP: "KRAKEN_REFRESH_REQUESTED",
   // v4.16.47 : "API" = Balance lu via l'API WCORE (aucun appel direct) ; absent/DIRECT = direct.
   SOURCE_PROP: "KRAKEN_SOURCE",
+  // Appel API dont l'issue n'est pas confirmee (reponse perdue, nonce non enregistre) :
+  // un retour en DIRECT attend API_DRAIN_MS avant de signer (drainage du signataire API).
+  API_UNSETTLED_PROP: "KRAKEN_API_UNSETTLED_MS",
+  API_DRAIN_MS: 3600000,
   API_BALANCES_PATH: "/api/gsheet/kraken/balances",
   SHEET: "CEX - Kraken Crypto",
   SHEET_STOCKS: "CEX - Kraken Stocks",
@@ -292,14 +296,30 @@ function _krakenSource_() {
 
 // v4.16.47 : continuite du nonce a la bascule. Le classeur envoie son dernier nonce comme
 // plancher a l'API et garde le nonce de l'API, pour qu'un retour en DIRECT reste croissant.
+// Renvoie false si le nonce de l'API est hors plage ou n'a pas pu etre enregistre.
 function _krakenAdoptNonce_(nonce) {
-  if (typeof nonce !== "string" || !/^\d{1,16}$/.test(nonce) || !Number.isSafeInteger(Number(nonce))) return;
+  if (typeof nonce !== "string" || !/^\d{1,16}$/.test(nonce) || !Number.isSafeInteger(Number(nonce))) return false;
   try {
     var props = PropertiesService.getScriptProperties();
     var raw = props.getProperty(KRAKEN_SYNC_CONFIG.NONCE_PROP);
     var last = raw && /^\d+$/.test(raw) ? Number(raw) : 0;
     if (Number(nonce) > last) props.setProperty(KRAKEN_SYNC_CONFIG.NONCE_PROP, nonce);
-  } catch (e) {}
+    return true;
+  } catch (e) { return false; }
+}
+
+// Fin du drainage (0 si aucun appel API non confirme ; lecture en echec = drainage plein).
+function _krakenApiUnsettledUntilMs_() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(KRAKEN_SYNC_CONFIG.API_UNSETTLED_PROP);
+    var at = raw && /^\d+$/.test(raw) ? Number(raw) : 0;
+    var until = at ? at + KRAKEN_SYNC_CONFIG.API_DRAIN_MS : 0;
+    return until > Date.now() ? until : 0;
+  } catch (e) { return Date.now() + KRAKEN_SYNC_CONFIG.API_DRAIN_MS; }
+}
+
+function _krakenSettleApiCall_() {
+  try { PropertiesService.getScriptProperties().deleteProperty(KRAKEN_SYNC_CONFIG.API_UNSETTLED_PROP); } catch (e) {}
 }
 
 // Bascule et retour arriere sans redeploiement. Executer depuis l'editeur.
@@ -324,6 +344,9 @@ function _krakenViaApiBalance_() {
     var rawNonce = PropertiesService.getScriptProperties().getProperty(KRAKEN_SYNC_CONFIG.NONCE_PROP);
     if (rawNonce && /^\d{1,19}$/.test(rawNonce)) floor = rawNonce;
   } catch (eFloor) {}
+  // Marque l'appel comme non confirme AVANT l'envoi ; impossible a marquer = aucun envoi.
+  try { PropertiesService.getScriptProperties().setProperty(KRAKEN_SYNC_CONFIG.API_UNSETTLED_PROP, String(Date.now())); }
+  catch (eMark) { throw _krakenFail_("LOCAL", "Kraken via API WCORE : etat de drainage non enregistrable (aucun appel envoye)"); }
   _krakenCountPrivateCall_();
   _KRAKEN_CYCLE_PRIVATE_CALLS++;
   try {
@@ -340,13 +363,17 @@ function _krakenViaApiBalance_() {
     var body = null;
     try { body = JSON.parse(resp.getContentText()); } catch (eJson) { body = null; }
     if (code === 200 && body && body.ok === true && body.balances && typeof body.balances === "object" && !Array.isArray(body.balances)) {
-      _krakenAdoptNonce_(body.nonce);
+      // Issue confirmee seulement si le nonce de l'API est garde (sinon le drainage reste arme).
+      if (_krakenAdoptNonce_(body.nonce)) _krakenSettleApiCall_();
       _krakenRecordEvent_(KRAKEN_SYNC_CONFIG.LAST_SUCCESS_PROP, "SUCCESS");
       return body.balances;
     }
     var reason = body && typeof body.error === "string" && /^[a-z0-9_]{1,40}$/.test(body.error) ? body.error : "";
+    // Refus structure de l'API = son appel est termine ; une reponse illisible reste non confirmee.
+    if (reason && reason !== "kraken_paused") _krakenSettleApiCall_();
     if (reason === "kraken_paused") {
       var armed = _krakenArmLockoutCooldown_(Date.parse(String(body.resumeAt || "")));
+      if (armed) _krakenSettleApiCall_();
       throw _krakenFail_("TEMPORARY_LOCKOUT", "Kraken API error: EGeneral:Temporary lockout (pause tenue par l'API WCORE : ne pas relancer"
         + (armed ? ")" : " ; pause locale NON enregistree)"));
     }
@@ -484,6 +511,12 @@ function _krakenPrivatePost_(path, params, creds) {
     return _krakenViaApiBalance_();
   }
   if (!creds || !creds.key || !creds.secret) throw _krakenFail_("LOCAL", "Kraken cle locale absente (aucun appel envoye)");
+  // Retour en DIRECT : jamais de signature tant qu'un appel API n'est pas confirme.
+  var drainUntil = _krakenApiUnsettledUntilMs_();
+  if (drainUntil) {
+    throw _krakenFail_("LOCAL", "Kraken retour direct differe : appel API non confirme, reprise apres "
+      + Utilities.formatDate(new Date(drainUntil), "Europe/Paris", "HH:mm") + " (aucun appel envoye)");
+  }
   params = params || {};
   try { params.nonce = _krakenNextNonce_(); }
   catch (eNonce) { throw _krakenFail_("LOCAL", "Kraken nonce persistant indisponible (aucun appel envoye)"); }
@@ -1292,7 +1325,8 @@ function DIAG_KRAKEN_TICKERS() {
 function DIAG_KRAKEN_XSTOCK_PRICES() {
   try {
     var buckets = _krakenDiagBuckets_();
-    return JSON.stringify({ rows: buckets.xstocks, pricesUsd: _krakenFetchXStockPricesUsd_(buckets.xstocks) });
+    // v4.16.47 : symboles seulement, jamais de quantite.
+    return JSON.stringify({ symbols: buckets.xstocks.map(function(r) { return r[0]; }), pricesUsd: _krakenFetchXStockPricesUsd_(buckets.xstocks) });
   } catch (err) {
     return "ERROR: " + (err && err.message ? err.message : err);
   }
@@ -1331,6 +1365,7 @@ function KRAKEN_BUDGET_STATUS() {
   return JSON.stringify({
     version: KRAKEN_SYNC_VERSION,
     source: _krakenSource_(),
+    api_drain_until_ms: _krakenApiUnsettledUntilMs_() || null,
     private_calls_24h: used === null ? null : used.length,
     private_budget_max: KRAKEN_SYNC_CONFIG.PRIVATE_BUDGET_MAX,
     budget_remaining: used === null ? null : Math.max(0, KRAKEN_SYNC_CONFIG.PRIVATE_BUDGET_MAX - used.length),

@@ -27,11 +27,18 @@ export type KrakenBalanceMap = Record<string, string>;
 
 export const KRAKEN_LOCKOUT_PAUSE_MS = 60 * 60_000;
 export const KRAKEN_REUSE_MS = 5 * 60_000;
-export const KRAKEN_MIN_INTERVAL_MS = 60_000;
-export const KRAKEN_LEASE_MS = 45_000;
+/** Mesure entre deux prises de bail ; avec KRAKEN_MAX_SEND_DELAY_MS, garantit >= 60 s entre deux envois. */
+export const KRAKEN_MIN_INTERVAL_MS = 70_000;
+/**
+ * Le bail reste BLOQUANT jusqu'a une issue confirmee : s'il n'est jamais rendu (instance
+ * tuee, base indisponible, reponse perdue), il dure autant qu'une pause apres lockout.
+ */
+export const KRAKEN_LEASE_MS = 60 * 60_000;
 export const KRAKEN_TIMEOUT_MS = 30_000;
-/** Bail entame de plus que cela avant l'envoi = aucun envoi (45 >= 10 + 30 + marge). */
+/** Plus de 10 s (horloge monotone) entre la demande du bail et l'envoi = aucun envoi. */
 export const KRAKEN_MAX_SEND_DELAY_MS = 10_000;
+/** Plage commune au classeur (Number) et a l'API (BigInt) : jamais au-dela de 2^53 - 1. */
+export const KRAKEN_MAX_NONCE = 9_007_199_254_740_991n;
 const KRAKEN_MAX_ASSETS = 5_000;
 const NONCE_RE = /^\d{1,19}$/;
 const BIGINT_MAX = 9_223_372_036_854_775_807n;
@@ -136,9 +143,10 @@ async function postBalance(creds: KrakenCredentials, nonce: string, fetchImpl: F
   return parseBalanceMap(json?.result ?? null);
 }
 
-export function createKrakenBalanceReader(deps: { store: KrakenGuardStore; fetchImpl?: FetchLike; now?: () => number }): KrakenBalanceReader {
+export function createKrakenBalanceReader(deps: { store: KrakenGuardStore; fetchImpl?: FetchLike; now?: () => number; monotonic?: () => number }): KrakenBalanceReader {
   const fetchImpl: FetchLike = deps.fetchImpl ?? ((url, init) => fetch(url, init));
   const now = deps.now ?? Date.now;
+  const monotonic = deps.monotonic ?? deps.now ?? (() => performance.now());
   const memo = new Map<string, { balances: KrakenBalanceMap; fetchedAtMs: number; nonce: string }>();
   const inflight = new Map<string, Promise<KrakenBalanceResult>>();
   // Filet si le magasin ne peut pas enregistrer une pause : cette instance la tient.
@@ -147,14 +155,15 @@ export function createKrakenBalanceReader(deps: { store: KrakenGuardStore; fetch
   async function callOnce(keyId: string, creds: KrakenCredentials, nonceFloor: string | null): Promise<KrakenBalanceResult> {
     const local = localPause.get(keyId) ?? 0;
     if (local > now()) throw new KrakenGuardError("kraken_paused", local);
-    // Mesure AVANT la demande : le bail court depuis un instant de cet intervalle.
-    const claimedAt = now();
-    const claim = await deps.store.claim(keyId, String(BigInt(claimedAt) * 1000n), nonceFloor);
+    // Mesure AVANT la demande (horloge monotone) : le bail court depuis un instant de cet intervalle.
+    const claimedAt = monotonic();
+    const claim = await deps.store.claim(keyId, String(BigInt(now()) * 1000n), nonceFloor);
     if (claim.kind === "paused") throw new KrakenGuardError("kraken_paused", claim.untilMs);
     if (claim.kind === "busy") throw new KrakenGuardError("kraken_busy");
     if (claim.kind === "too_soon") throw new KrakenGuardError("kraken_too_soon");
-    if (now() - claimedAt > KRAKEN_MAX_SEND_DELAY_MS) {
-      // Bail trop entame : un successeur pourrait le reprendre pendant l'appel.
+    if (monotonic() - claimedAt > KRAKEN_MAX_SEND_DELAY_MS || BigInt(claim.nonce) > KRAKEN_MAX_NONCE) {
+      // Bail trop entame (l'intervalle entre envois ne serait plus garanti) ou nonce hors de
+      // la plage commune : aucun envoi, le nonce reclame n'est pas utilise.
       await deps.store.release(keyId, claim.nonce, { ok: false, lockout: false }).catch(() => undefined);
       throw new KrakenGuardError("kraken_busy");
     }

@@ -1209,7 +1209,8 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
       if (result.ok) return result;
       return reply.code(result.status).send({ ok: false, error: result.error, ...(result.resumeAt ? { resumeAt: result.resumeAt } : {}) });
     } catch (e) {
-      app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "gsheet kraken balances failed");
+      // Code fixe seulement : jamais le texte d'une exception (corps distant, contexte de compte).
+      app.log.warn({ kind: e instanceof Error ? e.name : typeof e }, "gsheet kraken balances failed");
       return reply.code(503).send({ ok: false, error: "kraken_unavailable" });
     }
   });

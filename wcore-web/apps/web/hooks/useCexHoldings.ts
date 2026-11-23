@@ -170,7 +170,11 @@ export async function refreshCexAccounts(fetcher: CexFetcher = apiFetch): Promis
   if (initial.accounts.length === 0) return { type: "success", results: [] };
 
   try {
-    const responses = await Promise.allSettled(initial.accounts.map((account) =>
+    // P2-DATA-KRAKEN-VIA-API : Kraken n'est plus synchronise par le site (appelant unique
+    // de la cle = classeur via l'API) ; son dernier etat reste affiche, les autres CEX
+    // se rafraichissent normalement.
+    const syncable = initial.accounts.filter((account) => account.provider !== "kraken");
+    const responses = await Promise.allSettled(syncable.map((account) =>
       cexFetch(`/api/cex/accounts/${account.id}/sync`, { method: "POST" }, undefined, fetcher)
     ));
     const failed = responses.find((result) => result.status === "fulfilled" && !result.value.ok);

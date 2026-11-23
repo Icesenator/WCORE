@@ -244,3 +244,37 @@ test('diagnostics : aucune quantite dans le journal', () => {
   assert.ok(text.length > 0);
   for (const amount of ['0.123456', '7.89', '3.21']) assert.equal(text.includes(amount), false, amount);
 });
+
+test('retour en DIRECT : drainage tant qu un appel API n est pas confirme (transport perdu, reponse illisible)', () => {
+  for (const opts of [{ throwTransport: true }, { api: () => ({ code: 502, body: '<html>bad gateway</html>' }) }]) {
+    const nowMs = 1790000000000;
+    const h = harness(Object.assign({ nowMs, props: apiMode.slice() }, opts));
+    assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, null));
+    assert.equal(h.props.get('KRAKEN_API_UNSETTLED_MS'), String(nowMs), 'issue inconnue : drainage arme');
+    h.props.set('KRAKEN_SOURCE', 'DIRECT');
+    const before = h.fetches.length;
+    assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, { key: 'k', secret: 's' }), /retour direct differe : appel API non confirme/);
+    assert.equal(h.fetches.length, before, 'aucune signature directe pendant le drainage');
+    assert.equal(JSON.parse(h.ctx.KRAKEN_BUDGET_STATUS()).api_drain_until_ms, nowMs + 3600000);
+  }
+});
+
+test('drainage leve par une issue confirmee (succes avec nonce garde, ou refus structure)', () => {
+  const ok = harness({ props: apiMode, api: () => ({ code: 200, body: { ok: true, balances: {}, nonce: '1790000000000001' } }) });
+  ok.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
+  assert.equal(ok.props.has('KRAKEN_API_UNSETTLED_MS'), false);
+  const busy = harness({ props: apiMode, api: () => ({ code: 409, body: { ok: false, error: 'kraken_busy' } }) });
+  assert.throws(() => busy.ctx._krakenPrivatePost_('/0/private/Balance', {}, null));
+  assert.equal(busy.props.has('KRAKEN_API_UNSETTLED_MS'), false);
+  const noNonce = harness({ props: apiMode, api: () => ({ code: 200, body: { ok: true, balances: {} } }) });
+  noNonce.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
+  assert.equal(noNonce.props.has('KRAKEN_API_UNSETTLED_MS'), true, 'nonce de l API non garde : le drainage reste arme');
+});
+
+test('DIAG_KRAKEN_XSTOCK_PRICES : symboles seulement, aucune quantite', () => {
+  const h = harness({ api: () => ({ code: 200, body: { error: [], result: { 'NVDAx.T': '3.21' } } }) });
+  h.ctx._krakenFetchXStockPricesUsd_ = () => ({});
+  const out = h.ctx.DIAG_KRAKEN_XSTOCK_PRICES();
+  assert.equal(out.includes('3.21'), false, out);
+  assert.deepEqual(JSON.parse(out).symbols, ['NVDAx']);
+});

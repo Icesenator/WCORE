@@ -27,7 +27,7 @@ function harness(opts) {
     HttpCallCounter: { setTrigger() {}, clearTrigger() {} },
     PropertiesService: {
       getScriptProperties: () => ({
-        getProperty: (k) => (props.has(k) ? props.get(k) : null),
+        getProperty: (k) => { if (opts.throwOn === k) throw new Error('props down'); return props.has(k) ? props.get(k) : null; },
         setProperty: (k, v) => { props.set(k, String(v)); },
         deleteProperty: (k) => { props.delete(k); },
       }),
@@ -48,12 +48,12 @@ function harness(opts) {
         return { getResponseCode: () => r.code, getContentText: () => (typeof r.body === 'string' ? r.body : JSON.stringify(r.body)) };
       },
     },
-    _cexGetWebApiUrl_: () => (opts.noApiConfig ? null : API),
+    _cexGetWebApiUrl_: () => (opts.noApiConfig ? null : opts.apiUrl || API),
     _cexGetWebApiToken_: () => (opts.noApiConfig ? null : 'test-gsheet-token-0123456789'),
   };
   vm.createContext(ctx);
   vm.runInContext(krakenSource, ctx);
-  ctx._krakenGetCreds_ = () => ({ key: 'k', secret: 's' });
+  if (!opts.realCreds) ctx._krakenGetCreds_ = () => ({ key: 'k', secret: 's' });
   ctx._cexRelayFetchWithRetry_ = (fn) => fn();
   ctx._krakenWriteSheet_ = (ss, sheetName, rows) => { writes.push([sheetName, rows]); return rows.length; };
   return { ctx, props, fetches, writes, now: () => nowMs };
@@ -89,7 +89,7 @@ test('mode API : UPDATE_KRAKEN_SPOT ecrit Crypto et Stocks a partir des quantite
 });
 
 test('sans KRAKEN_SOURCE (ou DIRECT) : appel direct inchange, l API n est pas appelee', () => {
-  for (const props of [[], [['KRAKEN_SOURCE', 'DIRECT']], [['KRAKEN_SOURCE', 'api-typo']]]) {
+  for (const props of [[], [['KRAKEN_SOURCE', 'DIRECT']], [['KRAKEN_SOURCE', ' direct ']]]) {
     const h = harness({ props, api: () => ({ code: 200, body: { error: [], result: { XXBT: '0.1' } } }) });
     h.ctx._krakenPrivatePost_('/0/private/Balance', {}, { key: 'k', secret: 's' });
     assert.equal(h.fetches.length, 1);
@@ -173,4 +173,74 @@ test('SET_KRAKEN_SOURCE bascule et revient en arriere, valeurs inconnues refusee
   assert.throws(() => h.ctx.SET_KRAKEN_SOURCE('both'), /API ou DIRECT/);
   assert.equal(h.props.get('KRAKEN_SOURCE'), 'DIRECT');
   assert.equal(h.fetches.length, 0, 'basculer n appelle rien');
+});
+
+test('source inconnue ou illisible : aucun envoi, ni Kraken ni API', () => {
+  for (const opts of [{ props: [['KRAKEN_SOURCE', 'api-typo']] }, { props: [['KRAKEN_SOURCE', 'BOTH']] }, { throwOn: 'KRAKEN_SOURCE' }]) {
+    const h = harness(opts);
+    assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, { key: 'k', secret: 's' }), /source illisible \(KRAKEN_SOURCE doit valoir API ou DIRECT, aucun appel envoye\)/);
+    assert.equal(h.fetches.length, 0);
+    assert.equal(h.props.has('KRAKEN_LAST_NONCE'), false, 'aucun nonce consomme');
+    if (!opts.throwOn) assert.equal(JSON.parse(h.props.get('KRAKEN_LAST_LOCAL_REFUSAL')).kind, 'SOURCE_UNKNOWN');
+  }
+  assert.equal(JSON.parse(harness({ props: [['KRAKEN_SOURCE', 'x']] }).ctx.KRAKEN_BUDGET_STATUS()).source, 'UNKNOWN');
+});
+
+test('mode API : la cle Kraken locale n est ni lue ni exigee', () => {
+  const h = harness({ props: apiMode, realCreds: true });
+  assert.equal(h.ctx._krakenGetCreds_(), null);
+  const out = JSON.parse(h.ctx.UPDATE_KRAKEN_SPOT());
+  assert.equal(out.ok, true, 'sans cle locale, le mode API fonctionne');
+  const direct = harness({ realCreds: true });
+  assert.throws(() => direct.ctx._krakenGetCreds_(), /Missing KRAKEN_API_KEY/);
+  assert.throws(() => direct.ctx._krakenPrivatePost_('/0/private/Balance', {}, null), /cle locale absente \(aucun appel envoye\)/);
+  assert.equal(direct.fetches.length, 0);
+});
+
+test('mode API : HTTPS obligatoire, aucune redirection suivie', () => {
+  const h = harness({ props: apiMode, apiUrl: 'http://api.example.test' });
+  assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, null), /URL non HTTPS refusee \(aucun appel envoye\)/);
+  assert.equal(h.fetches.length, 0);
+  const ok = harness({ props: apiMode });
+  ok.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
+  assert.equal(ok.fetches[0].options.followRedirects, false);
+});
+
+test('mode API : continuite du nonce dans les deux sens (plancher envoye, nonce de l API adopte)', () => {
+  const gasLast = '1790000000000000';
+  const apiNonce = '1790000000500000';
+  const h = harness({ props: apiMode.concat([['KRAKEN_LAST_NONCE', gasLast]]), api: () => ({ code: 200, body: { ok: true, balances: { XXBT: '1' }, fetchedAt: '2026-11-23T20:30:00.000Z', reused: false, nonce: apiNonce } }) });
+  h.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
+  assert.deepEqual(JSON.parse(h.fetches[0].options.payload), { nonceFloor: gasLast });
+  assert.equal(h.props.get('KRAKEN_LAST_NONCE'), apiNonce, 'un retour en DIRECT repartira au-dessus du dernier nonce de l API');
+  // Nonce plus ancien ou invalide : jamais de recul.
+  const older = harness({ props: apiMode.concat([['KRAKEN_LAST_NONCE', apiNonce]]), api: () => ({ code: 200, body: { ok: true, balances: {}, nonce: gasLast } }) });
+  older.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
+  assert.equal(older.props.get('KRAKEN_LAST_NONCE'), apiNonce);
+  const bad = harness({ props: apiMode, api: () => ({ code: 200, body: { ok: true, balances: {}, nonce: '99999999999999999999' } }) });
+  bad.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
+  assert.equal(bad.props.has('KRAKEN_LAST_NONCE'), false);
+  // Puis retour en DIRECT : le nonce direct depasse celui de l API.
+  h.props.set('KRAKEN_SOURCE', 'DIRECT');
+  h.ctx._krakenPrivatePost_('/0/private/Balance', {}, { key: 'k', secret: 's' });
+  assert.ok(Number(h.props.get('KRAKEN_LAST_NONCE')) > Number(apiNonce));
+});
+
+test('mode API : une pause impossible a enregistrer localement est signalee', () => {
+  const h = harness({ props: apiMode, api: () => ({ code: 503, body: { ok: false, error: 'kraken_paused', resumeAt: '2026-11-23T21:00:00.000Z' } }) });
+  const orig = h.ctx.PropertiesService.getScriptProperties;
+  h.ctx.PropertiesService.getScriptProperties = () => { const p = orig(); return Object.assign({}, p, { setProperty: (k, v) => { if (k === 'KRAKEN_LOCKOUT_UNTIL_MS') throw new Error('quota'); p.setProperty(k, v); } }); };
+  assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, null), /pause locale NON enregistree/);
+});
+
+test('diagnostics : aucune quantite dans le journal', () => {
+  const logs = [];
+  const h = harness({ api: () => ({ code: 200, body: { error: [], result: { XXBT: '0.123456', ZEUR: '7.89', 'NVDAx.T': '3.21' } } }) });
+  h.ctx.Logger = { log: (m) => logs.push(String(m)) };
+  h.ctx.DIAG_KRAKEN_LOOP();
+  h.ctx._krakenInvalidateDiagCache_();
+  h.ctx.DIAG_KRAKEN_TICKERS();
+  const text = logs.join('\n');
+  assert.ok(text.length > 0);
+  for (const amount of ['0.123456', '7.89', '3.21']) assert.equal(text.includes(amount), false, amount);
 });

@@ -51,8 +51,8 @@ export interface GsheetPluginOptions {
   stockPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetStockPortfolioSnapshot>;
   cryptoPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetCryptoPortfolioSnapshot>;
   /** Soldes Kraken bruts (appelant unique de la cle) ; absent = 503 kraken_unavailable. */
-  krakenBalancesProvider?: () => Promise<
-    | { ok: true; balances: Record<string, string>; fetchedAt: string; reused: boolean }
+  krakenBalancesProvider?: (opts: { nonceFloor: string | null }) => Promise<
+    | { ok: true; balances: Record<string, string>; fetchedAt: string; reused: boolean; nonce: string }
     | { ok: false; status: number; error: string; resumeAt?: string }
   >;
   scamEnrichment?: GsheetScamEnrichment;
@@ -1198,11 +1198,14 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
 
   // P2-DATA-KRAKEN-VIA-API : le classeur ne signe plus rien, l'API est l'appelant unique.
   // POST et no-store : chaque appel peut consommer un nonce Kraken, rien ne doit le cacher.
-  app.post("/api/gsheet/kraken/balances", async (_req, reply) => {
+  // Corps optionnel { nonceFloor } : dernier nonce du classeur (continuite a la bascule).
+  app.post("/api/gsheet/kraken/balances", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
     if (!opts.krakenBalancesProvider) return reply.code(503).send({ ok: false, error: "kraken_unavailable" });
+    const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+    const nonceFloor = typeof body.nonceFloor === "string" && /^\d{1,19}$/.test(body.nonceFloor) ? body.nonceFloor : null;
     try {
-      const result = await opts.krakenBalancesProvider();
+      const result = await opts.krakenBalancesProvider({ nonceFloor });
       if (result.ok) return result;
       return reply.code(result.status).send({ ok: false, error: result.error, ...(result.resumeAt ? { resumeAt: result.resumeAt } : {}) });
     } catch (e) {

@@ -2241,20 +2241,24 @@ describe("POST /api/gsheet/kraken/balances (P2-DATA-KRAKEN-VIA-API)", () => {
   test("refuse sans jeton : aucun appel au fournisseur", async () => {
     const app = Fastify();
     let called = 0;
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => { called++; return { ok: true, balances: {}, fetchedAt: "", reused: false }; } });
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => { called++; return { ok: true, balances: {}, fetchedAt: "", reused: false, nonce: "1" }; } });
     const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances" });
     assert.equal(res.statusCode, 401);
     assert.equal(called, 0);
     await app.close();
   });
 
-  test("renvoie les quantites brutes, sans cache HTTP", async () => {
+  test("renvoie les quantites brutes et le nonce, sans cache HTTP", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => ({ ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true }) });
-    const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" } });
+    const seen: Array<string | null> = [];
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async (o) => { seen.push(o.nonceFloor); return { ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true, nonce: "1800000000000001" }; } });
+    const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" }, payload: { nonceFloor: "1800000000000000" } });
+    const bad = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" }, payload: { nonceFloor: "1e18" } });
+    assert.equal(bad.statusCode, 200);
+    assert.deepEqual(seen, ["1800000000000000", null], "plancher transmis s il est valide, ignore sinon");
     assert.equal(res.statusCode, 200);
     assert.equal(res.headers["cache-control"], "no-store");
-    assert.deepEqual(JSON.parse(res.body), { ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true });
+    assert.deepEqual(JSON.parse(res.body), { ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true, nonce: "1800000000000001" });
     await app.close();
   });
 

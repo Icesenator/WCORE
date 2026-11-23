@@ -437,9 +437,9 @@ const enrichmentStep = createEnrichmentScanStepIfConfigured({
 await scanPlugin(app, { prisma, sharedCache, getCircuitBreaker, validateChains, resolveCustomTokens, buildChainScan, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN, ...(enrichmentStep ? { enrichment: { enabled: true, step: enrichmentStep } } : {}) });
 await adminPlugin(app, { prisma, checkRedis, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION });
 await walletPlugin(app, { prisma, validateCustomToken });
-// Un seul lecteur Kraken pour le site et le classeur : un seul appelant de la cle.
+// Un seul lecteur Kraken (route du classeur) : un seul appelant de la cle.
 const krakenReader = createDefaultKrakenReader(prisma);
-await cexPlugin(app, { prisma, sharedCache, krakenReader });
+await cexPlugin(app, { prisma, sharedCache });
 await chainsPlugin(app, { circuitBreakers, cache: sharedCache });
 await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized, cacheBackend });
 await analyticsPlugin(app, { store: createPrismaAnalyticsStore(prisma), isAdminAuthorized });
@@ -492,7 +492,7 @@ if (gsheetApiToken) {
         return await sharedCache.get<unknown>(key);
       },
     },
-    krakenBalancesProvider: () => readGsheetKrakenBalances(prisma, krakenReader, apiConfig.integrations.gsheetOwnerAddress),
+    krakenBalancesProvider: ({ nonceFloor }) => readGsheetKrakenBalances(prisma, krakenReader, apiConfig.integrations.gsheetOwnerAddress, nonceFloor),
     stockPortfolioProvider: async ({ fresh }) => {
       const ownerAddress = apiConfig.integrations.gsheetOwnerAddress;
       if (!ownerAddress) throw new Error("GSHEET_OWNER_ADDRESS is not configured");

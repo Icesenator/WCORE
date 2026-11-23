@@ -240,6 +240,8 @@ test('diagnostics : aucune quantite dans le journal', () => {
   h.ctx.DIAG_KRAKEN_LOOP();
   h.ctx._krakenInvalidateDiagCache_();
   h.ctx.DIAG_KRAKEN_TICKERS();
+  h.ctx._krakenInvalidateDiagCache_();
+  h.ctx.DIAG_KRAKEN_API();
   const text = logs.join('\n');
   assert.ok(text.length > 0);
   for (const amount of ['0.123456', '7.89', '3.21']) assert.equal(text.includes(amount), false, amount);
@@ -255,17 +257,25 @@ test('retour en DIRECT : drainage tant qu un appel API n est pas confirme (trans
     const before = h.fetches.length;
     assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, { key: 'k', secret: 's' }), /retour direct differe : appel API non confirme/);
     assert.equal(h.fetches.length, before, 'aucune signature directe pendant le drainage');
-    assert.equal(JSON.parse(h.ctx.KRAKEN_BUDGET_STATUS()).api_drain_until_ms, nowMs + 3600000);
+    assert.equal(JSON.parse(h.ctx.KRAKEN_BUDGET_STATUS()).api_drain_until_ms, nowMs + 3720000);
   }
 });
 
-test('drainage leve par une issue confirmee (succes avec nonce garde, ou refus structure)', () => {
+test('drainage leve seulement par une issue confirmee (succes avec nonce garde, pause enregistree) ; toute issue ambigue le garde', () => {
   const ok = harness({ props: apiMode, api: () => ({ code: 200, body: { ok: true, balances: {}, nonce: '1790000000000001' } }) });
   ok.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
   assert.equal(ok.props.has('KRAKEN_API_UNSETTLED_MS'), false);
   const busy = harness({ props: apiMode, api: () => ({ code: 409, body: { ok: false, error: 'kraken_busy' } }) });
   assert.throws(() => busy.ctx._krakenPrivatePost_('/0/private/Balance', {}, null));
-  assert.equal(busy.props.has('KRAKEN_API_UNSETTLED_MS'), false);
+  assert.equal(busy.props.has('KRAKEN_API_UNSETTLED_MS'), true, 'busy : un envoi precedent peut etre en cours');
+  for (const err of ['kraken_too_soon', 'exchange_unreachable', 'rate_limited_by_exchange', 'credentials_rejected']) {
+    const h = harness({ props: apiMode, api: () => ({ code: 502, body: { ok: false, error: err } }) });
+    assert.throws(() => h.ctx._krakenPrivatePost_('/0/private/Balance', {}, null));
+    assert.equal(h.props.has('KRAKEN_API_UNSETTLED_MS'), true, err);
+  }
+  const paused = harness({ props: apiMode, api: () => ({ code: 503, body: { ok: false, error: 'kraken_paused', resumeAt: new Date(1790000000000 + 60000).toISOString() } }) });
+  assert.throws(() => paused.ctx._krakenPrivatePost_('/0/private/Balance', {}, null));
+  assert.equal(paused.props.has('KRAKEN_API_UNSETTLED_MS'), false, 'pause enregistree localement : issue confirmee');
   const noNonce = harness({ props: apiMode, api: () => ({ code: 200, body: { ok: true, balances: {} } }) });
   noNonce.ctx._krakenPrivatePost_('/0/private/Balance', {}, null);
   assert.equal(noNonce.props.has('KRAKEN_API_UNSETTLED_MS'), true, 'nonce de l API non garde : le drainage reste arme');

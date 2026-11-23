@@ -62,7 +62,8 @@ var KRAKEN_SYNC_CONFIG = {
   // Appel API dont l'issue n'est pas confirmee (reponse perdue, nonce non enregistre) :
   // un retour en DIRECT attend API_DRAIN_MS avant de signer (drainage du signataire API).
   API_UNSETTLED_PROP: "KRAKEN_API_UNSETTLED_MS",
-  API_DRAIN_MS: 3600000,
+  // >= bail API (pause 60 min + envoi 10 s + appel 30 s + marge) : couvre une pause non persistee.
+  API_DRAIN_MS: 3720000,
   API_BALANCES_PATH: "/api/gsheet/kraken/balances",
   SHEET: "CEX - Kraken Crypto",
   SHEET_STOCKS: "CEX - Kraken Stocks",
@@ -369,8 +370,8 @@ function _krakenViaApiBalance_() {
       return body.balances;
     }
     var reason = body && typeof body.error === "string" && /^[a-z0-9_]{1,40}$/.test(body.error) ? body.error : "";
-    // Refus structure de l'API = son appel est termine ; une reponse illisible reste non confirmee.
-    if (reason && reason !== "kraken_paused") _krakenSettleApiCall_();
+    // Tout autre retour (busy, too_soon, erreur Kraken, timeout, reponse illisible) laisse
+    // l'issue et le nonce du dernier envoi incertains : le drainage reste arme.
     if (reason === "kraken_paused") {
       var armed = _krakenArmLockoutCooldown_(Date.parse(String(body.resumeAt || "")));
       if (armed) _krakenSettleApiCall_();
@@ -912,9 +913,10 @@ function DIAG_KRAKEN_API() {
       "crypto=" + buckets.crypto.length,
       "fiat=" + buckets.fiat.length,
       "xstocks=" + buckets.xstocks.length,
-      "crypto sample=" + JSON.stringify(buckets.crypto.slice(0, 12)),
-      "fiat sample=" + JSON.stringify(buckets.fiat.slice(0, 6)),
-      "xstocks sample=" + JSON.stringify(buckets.xstocks.slice(0, 12))
+      // v4.16.47 : symboles seulement, jamais de quantite dans le journal.
+      "crypto sample=" + JSON.stringify(buckets.crypto.slice(0, 12).map(function(r) { return r[0]; })),
+      "fiat sample=" + JSON.stringify(buckets.fiat.slice(0, 6).map(function(r) { return r[0]; })),
+      "xstocks sample=" + JSON.stringify(buckets.xstocks.slice(0, 12).map(function(r) { return r[0]; }))
     ].join("\n");
     Logger.log(msg);
     return msg;

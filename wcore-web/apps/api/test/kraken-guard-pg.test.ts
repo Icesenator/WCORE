@@ -24,12 +24,20 @@ describe("kraken_call_state (PostgreSQL)", () => {
     assert.ok(results.filter((r) => r.kind !== "claimed").every((r) => r.kind === "busy"));
   });
 
-  test("nonce au-dela de Number.MAX_SAFE_INTEGER relu exactement, plancher + 1 respecte", async () => {
+  test("nonce en haut de la plage commune relu exactement, au-dela refuse sans rien ecrire", async () => {
     const store = createPrismaKrakenGuardStore(prisma);
     const key = `${prefix}-bigint`;
-    const floor = "9007199254740993000"; // > 2^53, < 2^63
-    const r = await store.claim(key, "1", floor);
-    assert.deepEqual(r, { kind: "claimed", nonce: "9007199254740993001" });
+    // Au-dela de 2^53 - 1 : refus, aucune ligne inutilisable en base, la demande valide suivante passe.
+    assert.deepEqual(await store.claim(key, "1", "9007199254740993000"), { kind: "too_soon" });
+    const rows = await prisma.$queryRawUnsafe<unknown[]>(`SELECT 1 FROM "kraken_call_state" WHERE "key_id" = $1`, key);
+    assert.equal(rows.length, 0);
+    assert.deepEqual(await store.claim(key, "1", "9007199254740989"), { kind: "claimed", nonce: "9007199254740990" });
+    await prisma.$executeRawUnsafe(`UPDATE "kraken_call_state" SET "lease_until_ms" = 0, "last_call_ms" = 0 WHERE "key_id" = $1`, key);
+    assert.deepEqual(await store.claim(key, "1", null), { kind: "claimed", nonce: "9007199254740991" });
+    await prisma.$executeRawUnsafe(`UPDATE "kraken_call_state" SET "lease_until_ms" = 0, "last_call_ms" = 0 WHERE "key_id" = $1`, key);
+    assert.deepEqual(await store.claim(key, "1", null), { kind: "busy" }, "plage epuisee : refus");
+    const last = await prisma.$queryRawUnsafe<{ n: string }[]>(`SELECT "last_nonce"::text AS "n" FROM "kraken_call_state" WHERE "key_id" = $1`, key);
+    assert.equal(last[0]!.n, "9007199254740991", "rien n'est ecrit au-dela");
   });
 
   test("liberation tardive : ne libere pas le bail d'un successeur, mais enregistre la pause", async () => {

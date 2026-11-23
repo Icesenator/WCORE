@@ -8,7 +8,9 @@ import {
   KRAKEN_LOCKOUT_PAUSE_MS,
   KRAKEN_MAX_SEND_DELAY_MS,
   KRAKEN_MIN_INTERVAL_MS,
+  KRAKEN_MAX_NONCE,
   KRAKEN_REUSE_MS,
+  KRAKEN_TIMEOUT_MS,
   KrakenGuardError,
   krakenKeyId,
   parseNonceFloor,
@@ -167,10 +169,26 @@ test("bail trop entame avant l'envoi : aucun envoi", async () => {
   assert.equal(inner.rows.get(keyId)!.leaseUntilMs, null, "bail rendu");
 });
 
-test("nonce hors de la plage commune (> 2^53 - 1) : aucun envoi", async () => {
-  const { k, reader } = setup([]);
-  await assert.rejects(reader.readBalances(creds, { nonceFloor: "9007199254740991" }), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_busy");
+test("plancher hors de la plage commune (>= 2^53 - 1) : ignore, rien d'inutilisable n'est ecrit, la demande passe", async () => {
+  const { store, k, reader, c } = setup([{ body: { error: [], result: {} } }]);
+  const r = await reader.readBalances(creds, { nonceFloor: "9007199254740991" });
+  assert.equal(r.nonce, String(BigInt(c.now()) * 1000n));
+  assert.equal(k.calls.length, 1);
+  assert.ok(store.rows.get(keyId)!.lastNonce <= KRAKEN_MAX_NONCE);
+});
+
+test("plage de nonce epuisee en base : aucun envoi, rien n'est ecrit", async () => {
+  const { store, k, reader } = setup([]);
+  await store.claim(keyId, String(KRAKEN_MAX_NONCE), null);
+  const row = store.rows.get(keyId)!;
+  row.leaseUntilMs = null; row.lastCallMs = 0;
+  await assert.rejects(reader.readBalances(creds), (e: unknown) => e instanceof KrakenGuardError && e.reason === "kraken_busy");
   assert.equal(k.calls.length, 0);
+  assert.equal(store.rows.get(keyId)!.lastNonce, KRAKEN_MAX_NONCE);
+});
+
+test("bail de secours >= fin la plus tardive d'une pause armee par l'appel", () => {
+  assert.ok(KRAKEN_LEASE_MS >= KRAKEN_LOCKOUT_PAUSE_MS + KRAKEN_MAX_SEND_DELAY_MS + KRAKEN_TIMEOUT_MS);
 });
 
 test("intervalle : deux envois reels jamais a moins de 60 s, meme avec le delai d'envoi maximal", () => {
@@ -228,7 +246,9 @@ test("magasin PostgreSQL : horloge de la base, UPSERT conditionne, liberation co
   assert.match(insert.sql, /"lease_until_ms" <= EXCLUDED\."last_call_ms"/);
   assert.match(insert.sql, /"lockout_until_ms" <= EXCLUDED\."last_call_ms"/);
   assert.match(insert.sql, /"last_call_ms" <= EXCLUDED\."last_call_ms" - \$5::bigint/);
-  assert.deepEqual(insert.values, [keyId, "1800000000000000", "1799999999999999", String(KRAKEN_LEASE_MS), String(KRAKEN_MIN_INTERVAL_MS)]);
+  assert.deepEqual(insert.values, [keyId, "1800000000000000", "1799999999999999", String(KRAKEN_LEASE_MS), String(KRAKEN_MIN_INTERVAL_MS), String(KRAKEN_MAX_NONCE)]);
+  assert.match(insert.sql, /WHERE GREATEST\(\$2::bigint, COALESCE\(\$3::bigint, 0\) \+ 1\) <= \$6::bigint/);
+  assert.match(insert.sql, /AND GREATEST\("kraken_call_state"\."last_nonce" \+ 1, EXCLUDED\."last_nonce"\) <= \$6::bigint/);
   const saved = await store.release(keyId, "42", { ok: false, lockout: true });
   assert.deepEqual(saved, { lockoutUntilMs: 1_800_003_600_000 });
   const release = queries.at(-1)!;

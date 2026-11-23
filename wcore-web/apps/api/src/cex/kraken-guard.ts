@@ -29,19 +29,19 @@ export const KRAKEN_LOCKOUT_PAUSE_MS = 60 * 60_000;
 export const KRAKEN_REUSE_MS = 5 * 60_000;
 /** Mesure entre deux prises de bail ; avec KRAKEN_MAX_SEND_DELAY_MS, garantit >= 60 s entre deux envois. */
 export const KRAKEN_MIN_INTERVAL_MS = 70_000;
-/**
- * Le bail reste BLOQUANT jusqu'a une issue confirmee : s'il n'est jamais rendu (instance
- * tuee, base indisponible, reponse perdue), il dure autant qu'une pause apres lockout.
- */
-export const KRAKEN_LEASE_MS = 60 * 60_000;
 export const KRAKEN_TIMEOUT_MS = 30_000;
 /** Plus de 10 s (horloge monotone) entre la demande du bail et l'envoi = aucun envoi. */
 export const KRAKEN_MAX_SEND_DELAY_MS = 10_000;
+/**
+ * Le bail reste BLOQUANT jusqu'a une issue confirmee. S'il n'est jamais rendu (instance
+ * tuee, base indisponible, reponse perdue), il couvre la fin la plus tardive d'une pause
+ * armee par cet appel : prise du bail + envoi + reponse + pause, avec une marge.
+ */
+export const KRAKEN_LEASE_MS = KRAKEN_LOCKOUT_PAUSE_MS + KRAKEN_MAX_SEND_DELAY_MS + KRAKEN_TIMEOUT_MS + 60_000;
 /** Plage commune au classeur (Number) et a l'API (BigInt) : jamais au-dela de 2^53 - 1. */
 export const KRAKEN_MAX_NONCE = 9_007_199_254_740_991n;
 const KRAKEN_MAX_ASSETS = 5_000;
 const NONCE_RE = /^\d{1,19}$/;
-const BIGINT_MAX = 9_223_372_036_854_775_807n;
 
 export type KrakenClaim =
   | { kind: "claimed"; nonce: string }
@@ -98,7 +98,8 @@ export function krakenKeyId(apiKey: string): string {
 /** Plancher de nonce venu du classeur : chiffres seulement, dans un BIGINT, sinon ignore. */
 export function parseNonceFloor(value: unknown): string | null {
   if (typeof value !== "string" || !NONCE_RE.test(value)) return null;
-  return BigInt(value) < BIGINT_MAX ? value : null;
+  // Le nonce suivant (plancher + 1) doit rester dans la plage commune, sinon plancher ignore.
+  return BigInt(value) < KRAKEN_MAX_NONCE ? value : null;
 }
 
 // Signature Kraken = HMAC-SHA512(path + SHA256(nonce + postData), base64decode(secret)).
@@ -228,6 +229,7 @@ export function createPrismaKrakenGuardStore(sql: SqlClient): KrakenGuardStore {
         `WITH clk AS (SELECT ${DB_NOW_MS} AS now_ms)
          INSERT INTO ${T} ("key_id", "last_nonce", "lease_until_ms", "last_call_ms", "updated_at")
          SELECT $1, GREATEST($2::bigint, COALESCE($3::bigint, 0) + 1), clk.now_ms + $4::bigint, clk.now_ms, now() FROM clk
+         WHERE GREATEST($2::bigint, COALESCE($3::bigint, 0) + 1) <= $6::bigint
          ON CONFLICT ("key_id") DO UPDATE SET
            "last_nonce" = GREATEST(${T}."last_nonce" + 1, EXCLUDED."last_nonce"),
            "lease_until_ms" = EXCLUDED."lease_until_ms",
@@ -236,19 +238,23 @@ export function createPrismaKrakenGuardStore(sql: SqlClient): KrakenGuardStore {
          WHERE (${T}."lease_until_ms" IS NULL OR ${T}."lease_until_ms" <= EXCLUDED."last_call_ms")
            AND (${T}."lockout_until_ms" IS NULL OR ${T}."lockout_until_ms" <= EXCLUDED."last_call_ms")
            AND (${T}."last_call_ms" IS NULL OR ${T}."last_call_ms" <= EXCLUDED."last_call_ms" - $5::bigint)
+           AND GREATEST(${T}."last_nonce" + 1, EXCLUDED."last_nonce") <= $6::bigint
          RETURNING "last_nonce"::text AS "nonce"`,
-        keyId, nonceCandidate, nonceFloor, String(KRAKEN_LEASE_MS), String(KRAKEN_MIN_INTERVAL_MS),
+        keyId, nonceCandidate, nonceFloor, String(KRAKEN_LEASE_MS), String(KRAKEN_MIN_INTERVAL_MS), String(KRAKEN_MAX_NONCE),
       );
       if (rows.length === 1 && NONCE_RE.test(rows[0]!.nonce)) return { kind: "claimed", nonce: rows[0]!.nonce };
-      const state = await sql.$queryRawUnsafe<{ lockout: string | null; lease: string | null; now_ms: string }[]>(
-        `SELECT "lockout_until_ms"::text AS "lockout", "lease_until_ms"::text AS "lease", ${DB_NOW_MS}::text AS "now_ms"
+      const state = await sql.$queryRawUnsafe<{ lockout: string | null; lease: string | null; now_ms: string; exhausted: boolean | null }[]>(
+        `SELECT "lockout_until_ms"::text AS "lockout", "lease_until_ms"::text AS "lease", ${DB_NOW_MS}::text AS "now_ms",
+                ("last_nonce" >= $2::bigint) AS "exhausted"
          FROM ${T} WHERE "key_id" = $1`,
-        keyId,
+        keyId, String(KRAKEN_MAX_NONCE),
       );
       const dbNow = Number(state[0]?.now_ms ?? 0);
       const lockout = Number(state[0]?.lockout ?? 0);
       if (lockout > dbNow) return { kind: "paused", untilMs: lockout };
       if (Number(state[0]?.lease ?? 0) > dbNow) return { kind: "busy" };
+      // Plage de nonce epuisee pour cette cle : refus, rien n'est ecrit.
+      if (state[0]?.exhausted) return { kind: "busy" };
       return { kind: "too_soon" };
     },
     async release(keyId, nonce, outcome) {
@@ -285,7 +291,9 @@ export function createMemoryKrakenGuardStore(now: () => number = Date.now): Krak
         if (row.lockoutUntilMs != null && row.lockoutUntilMs > t) return { kind: "paused", untilMs: row.lockoutUntilMs };
         if (row.leaseUntilMs != null && row.leaseUntilMs > t) return { kind: "busy" };
         if (row.lastCallMs != null && row.lastCallMs > t - KRAKEN_MIN_INTERVAL_MS) return { kind: "too_soon" };
-        row.lastNonce = row.lastNonce + 1n > candidate ? row.lastNonce + 1n : candidate;
+        const next = row.lastNonce + 1n > candidate ? row.lastNonce + 1n : candidate;
+        if (next > KRAKEN_MAX_NONCE) return { kind: "busy" };
+        row.lastNonce = next;
         row.leaseUntilMs = t + KRAKEN_LEASE_MS;
         row.lastCallMs = t;
         return { kind: "claimed", nonce: String(row.lastNonce) };

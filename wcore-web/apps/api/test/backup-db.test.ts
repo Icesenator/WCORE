@@ -5,10 +5,16 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const { BACKUP_MODELS, collectBackup } = require("../backup-db.cjs") as {
+const { BACKUP_MODELS, collectBackup, serializeBackup } = require("../backup-db.cjs") as {
   BACKUP_MODELS: string[];
   collectBackup: (client: Record<string, unknown>) => Promise<{ tables: Record<string, unknown[]> }>;
+  serializeBackup: (backup: unknown) => string;
 };
+
+test("JSON backup writes BIGINT columns (kraken_call_state) as exact text", () => {
+  const out = JSON.parse(serializeBackup({ tables: { krakenCallState: [{ keyId: "kraken:x", lastNonce: 9007199254740993n, leaseUntilMs: null }] } }));
+  assert.deepEqual(out.tables.krakenCallState, [{ keyId: "kraken:x", lastNonce: "9007199254740993", leaseUntilMs: null }]);
+});
 
 test("JSON backup covers every Prisma schema model", () => {
   const schemaPath = fileURLToPath(new URL("../../../packages/db/prisma/schema.prisma", import.meta.url));

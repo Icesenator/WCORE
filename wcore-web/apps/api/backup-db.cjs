@@ -14,7 +14,14 @@ const BACKUP_MODELS = [
   'scamVerdict', 'scamScanLog',
   'gmContract', 'onchainGm', 'userChainGm', 'notification', 'ticket',
   'systemMetricSnapshot', 'opsEvent', 'funnelEventAggregate', 'sentinelState',
+  'krakenCallState',
 ];
+
+// kraken_call_state porte des BIGINT (nonce, horodatages) : JSON.stringify leverait sur un
+// BigInt. Ils sont ecrits en texte, sans perte (jamais via un Number).
+function serializeBackup(backup) {
+  return JSON.stringify(backup, (_key, value) => (typeof value === 'bigint' ? value.toString() : value), 2);
+}
 
 async function collectBackup(client, timestamp = new Date().toISOString(), onModel = () => {}) {
   const backup = { timestamp, tables: {} };
@@ -52,7 +59,7 @@ async function main() {
     const backup = await collectBackup(p, new Date().toISOString(), (modelName, count) => {
       console.log(`  ${modelName}: ${count} rows`);
     });
-    fs.writeFileSync(tempFile, JSON.stringify(backup, null, 2));
+    fs.writeFileSync(tempFile, serializeBackup(backup));
     fs.renameSync(tempFile, outFile);
     console.log(`Backup complete: ${outFile}`);
 
@@ -71,7 +78,7 @@ async function main() {
   }
 }
 
-module.exports = { BACKUP_MODELS, collectBackup };
+module.exports = { BACKUP_MODELS, collectBackup, serializeBackup };
 
 if (require.main === module) {
   main().catch((error) => {

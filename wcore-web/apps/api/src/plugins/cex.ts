@@ -8,10 +8,48 @@ import { CexAccountBodySchema, CexAccountParamsSchema } from "../schemas.js";
 import { normalizeBinanceBuckets, normalizeBitpandaBuckets, normalizeBitfinexBuckets, normalizeBybitBuckets, normalizeCoinbaseBuckets, normalizeOkxBuckets, normalizeKrakenBuckets, type BitfinexBuckets, type BitpandaBuckets, type BybitBuckets, type CoinbaseBuckets, type KrakenBuckets, type OkxBuckets, type RawCexRow, type RelayBuckets } from "../cex/normalizers.js";
 import { type StockPriceCache } from "../cex/stock-pricing.js";
 import { fetchStockPricesViaRelay } from "../cex/stock-relay.js";
+import { createKrakenBalanceReader, createPrismaKrakenGuardStore, KrakenGuardError, type KrakenBalanceReader } from "../cex/kraken-guard.js";
 
 export interface CexPluginDeps {
   prisma: PrismaClient;
   sharedCache?: CacheStore;
+  /** Lecteur Kraken unique, partage avec la route du classeur (server.ts). */
+  krakenReader?: KrakenBalanceReader;
+}
+
+export function createDefaultKrakenReader(prisma: PrismaClient): KrakenBalanceReader {
+  return createKrakenBalanceReader({ store: createPrismaKrakenGuardStore(prisma) });
+}
+
+export type GsheetKrakenBalancesResult =
+  | { ok: true; balances: Record<string, string>; fetchedAt: string; reused: boolean }
+  | { ok: false; status: number; error: string; resumeAt?: string };
+
+/**
+ * Soldes Kraken bruts du proprietaire du classeur (GSHEET_OWNER_ADDRESS), pour la route
+ * /api/gsheet/kraken/balances. Quantites seulement : aucun prix, aucune ecriture en base
+ * des soldes. Les refus de garde ne contiennent jamais de texte distant.
+ */
+export async function readGsheetKrakenBalances(prisma: PrismaClient, reader: KrakenBalanceReader, ownerAddress: string | undefined): Promise<GsheetKrakenBalancesResult> {
+  if (!ownerAddress) return { ok: false, status: 503, error: "kraken_owner_unconfigured" };
+  const user = await prisma.user.findFirst({
+    where: { address: { equals: ownerAddress, mode: "insensitive" } },
+    select: { cexAccounts: { where: { provider: "kraken" }, orderBy: { createdAt: "asc" }, select: { id: true, encryptedCredentials: true } } },
+  });
+  const account = user?.cexAccounts[0];
+  if (!account) return { ok: false, status: 503, error: "kraken_account_missing" };
+  try {
+    const result = await reader.readBalances(account.id, decryptJson<KrakenCredentials>(account.encryptedCredentials));
+    return { ok: true, balances: result.balances, fetchedAt: new Date(result.fetchedAtMs).toISOString(), reused: result.reused };
+  } catch (e) {
+    if (e instanceof KrakenGuardError) {
+      if (e.reason === "kraken_paused") return { ok: false, status: 503, error: "kraken_paused", resumeAt: new Date(e.resumeAtMs ?? 0).toISOString() };
+      return { ok: false, status: e.reason === "kraken_busy" ? 409 : 429, error: e.reason };
+    }
+    const raw = e instanceof Error ? e.message : String(e);
+    console.error(`[cex] gsheet kraken balances failed for account ${account.id}:`, raw);
+    return { ok: false, status: 502, error: describeCexSyncFailure(raw) };
+  }
 }
 
 // Adapt the generic CacheStore (get returns undefined) to the StockPriceCache
@@ -265,45 +303,11 @@ async function fetchBitfinexRows(creds: BitfinexCredentials): Promise<RawCexRow[
   return normalizeBitfinexBuckets(buckets);
 }
 
-// Kraken uses HMAC-SHA512 with a different signing scheme than Bitfinex.
-// Signature = HMAC-SHA512(path + nonce + postData, base64decode(apiSecret)), base64 encoded.
-// Nonce must be strictly increasing (Kraken rejects equal or lower nonces).
-// Use microsecond precision (Date.now() * 1000) like Bitfinex, plus a
-// module-level counter to ensure uniqueness within the same microsecond tick.
-let _krakenNonceCounter = 0;
-let _krakenLastNonce = 0;
-async function krakenAuthPost(path: string, creds: KrakenCredentials): Promise<unknown> {
-  // Nonce strictement croissant par cle : combine horloge microseconde + compteur,
-  // puis force la croissance meme si l'horloge recule ou si deux syncs partent dans
-  // la meme microseconde. Ne protege pas contre 2 instances partageant la meme cle
-  // (utiliser une cle API dediee par client : GSheet vs web).
-  let nonce = Date.now() * 1000 + (++_krakenNonceCounter % 1000);
-  if (nonce <= _krakenLastNonce) nonce = _krakenLastNonce + 1;
-  _krakenLastNonce = nonce;
-  const nonceStr = String(nonce);
-  const body = "nonce=" + nonceStr;
-  const hash = createHash("sha256").update(nonceStr + body).digest();
-  const hmac = createHmac("sha512", Buffer.from(creds.apiSecret, "base64")).update(Buffer.from(path)).update(hash).digest("base64");
-  const res = await fetch(`https://api.kraken.com${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "API-Key": creds.apiKey,
-      "API-Sign": hmac,
-    },
-    body,
-    signal: AbortSignal.timeout(30_000),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`Kraken ${path} HTTP ${res.status}: ${text.slice(0, 300)}`);
-  const json = text ? JSON.parse(text) : null;
-  if (json?.error && json.error.length > 0) throw new Error(`Kraken error: ${json.error.join(", ")}`);
-  return json?.result ?? null;
-}
-
-async function fetchKrakenRows(creds: KrakenCredentials): Promise<RawCexRow[]> {
-  const data = await krakenAuthPost("/0/private/Balance", creds);
-  const balances: Record<string, string> = data ? data as Record<string, string> : {};
+// Kraken : tous les appels Balance passent par le lecteur garde unique
+// (cex/kraken-guard.ts : bail, nonce et pause persistes en base, reutilisation 5 min),
+// partage avec la route du classeur /api/gsheet/kraken/balances.
+async function fetchKrakenRows(accountId: string, creds: KrakenCredentials, reader: KrakenBalanceReader): Promise<RawCexRow[]> {
+  const { balances } = await reader.readBalances(accountId, creds);
   const spot: Array<[string, number]> = [];
   for (const [rawSymbol, rawAmount] of Object.entries(balances)) {
     const amount = Number(String(rawAmount ?? "0").replace(",", "."));
@@ -494,6 +498,7 @@ export function describeCexSyncFailure(raw: string): string {
 export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
   const { prisma } = deps;
   const stockPriceCache = toStockPriceCache(deps.sharedCache);
+  const krakenReader = deps.krakenReader ?? createDefaultKrakenReader(prisma);
 
   app.get("/api/cex/prices", async (req, reply) => {
     const expectedToken = apiConfig.integrations.gsheetApiToken;
@@ -633,7 +638,7 @@ export async function cexPlugin(app: FastifyInstance, deps: CexPluginDeps) {
         : account.provider === "bitfinex"
         ? await fetchBitfinexRows(decryptJson<BitfinexCredentials>(account.encryptedCredentials))
         : account.provider === "kraken"
-        ? await fetchKrakenRows(decryptJson<KrakenCredentials>(account.encryptedCredentials))
+        ? await fetchKrakenRows(account.id, decryptJson<KrakenCredentials>(account.encryptedCredentials), krakenReader)
         : await fetchBitpandaRows(decryptJson<BitpandaCredentials>(account.encryptedCredentials));
       const holdings = await pricedRows(rows, stockPriceCache, deps.sharedCache);
       const writes: Prisma.PrismaPromise<unknown>[] = [

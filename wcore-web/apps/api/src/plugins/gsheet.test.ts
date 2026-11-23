@@ -2236,3 +2236,43 @@ test("a cashtag token with a sub-scam GeckoTerminal score is removed from the ta
   const declared = await run(39.8, [montra]);
   assert.deepEqual([declared.kept, declared.blocked], [true, false], "a token the tab declared needs structural or strong proof");
 });
+
+describe("POST /api/gsheet/kraken/balances (P2-DATA-KRAKEN-VIA-API)", () => {
+  test("refuse sans jeton : aucun appel au fournisseur", async () => {
+    const app = Fastify();
+    let called = 0;
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => { called++; return { ok: true, balances: {}, fetchedAt: "", reused: false }; } });
+    const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances" });
+    assert.equal(res.statusCode, 401);
+    assert.equal(called, 0);
+    await app.close();
+  });
+
+  test("renvoie les quantites brutes, sans cache HTTP", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => ({ ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true }) });
+    const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" } });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers["cache-control"], "no-store");
+    assert.deepEqual(JSON.parse(res.body), { ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true });
+    await app.close();
+  });
+
+  test("pause apres lockout : 503 avec l'heure de reprise", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => ({ ok: false, status: 503, error: "kraken_paused", resumeAt: "2026-11-23T21:00:00.000Z" }) });
+    const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" } });
+    assert.equal(res.statusCode, 503);
+    assert.deepEqual(JSON.parse(res.body), { ok: false, error: "kraken_paused", resumeAt: "2026-11-23T21:00:00.000Z" });
+    await app.close();
+  });
+
+  test("fournisseur absent ou en echec : 503 kraken_unavailable", async () => {
+    const app = Fastify();
+    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => { throw new Error("db down"); } });
+    const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" } });
+    assert.equal(res.statusCode, 503);
+    assert.deepEqual(JSON.parse(res.body), { ok: false, error: "kraken_unavailable" });
+    await app.close();
+  });
+});

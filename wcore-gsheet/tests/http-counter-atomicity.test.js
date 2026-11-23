@@ -1039,8 +1039,8 @@ assert.match(bitpandaSource, /var\s+BITPANDA_SYNC_VERSION\s*=\s*["']4\.16\.82["'
 assert.match(bitfinexSource, /var\s+BITFINEX_SYNC_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
   'BITFINEX_SYNC_VERSION must be bumped to 4.16.35 (CEX exit flush)');
 // v4.16.44 = candidat local OpenOrders (LIVE reste 4.16.43 tant que non publié).
-assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.45["']\s*;/,
-  'KRAKEN_SYNC_VERSION must be bumped to 4.16.44 (BalanceEx/OpenOrders + projection H:Q, candidat local)');
+assert.match(krakenSource, /var\s+KRAKEN_SYNC_VERSION\s*=\s*["']4\.16\.47["']\s*;/,
+  'KRAKEN_SYNC_VERSION must be bumped to 4.16.47 (lecture Balance via API WCORE, P2-DATA-KRAKEN-VIA-API)');
 assert.match(cexBulkSource, /var\s+CEX_BULK_VERSION\s*=\s*["']4\.16\.35["']\s*;/,
   'CEX_BULK_VERSION must be bumped to 4.16.35 (CEX exit flush)');
 

@@ -401,3 +401,17 @@ model SentinelState {
 
   @@map("sentinel_state")
 }
+
+// Kraken via l'API (P2-DATA-KRAKEN-VIA-API) : etat de l'appelant unique de la cle Kraken.
+// Ecrit et lu en SQL brut par apps/api/src/cex/kraken-guard.ts (nonce BIGINT relu en texte).
+model KrakenCallState {
+  accountId      String   @id @map("account_id")
+  lastNonce      BigInt   @map("last_nonce")
+  leaseUntilMs   BigInt?  @map("lease_until_ms")
+  lockoutUntilMs BigInt?  @map("lockout_until_ms")
+  lastCallMs     BigInt?  @map("last_call_ms")
+  lastOkMs       BigInt?  @map("last_ok_ms")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("kraken_call_state")
+}

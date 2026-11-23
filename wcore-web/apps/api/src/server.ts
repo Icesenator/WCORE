@@ -23,7 +23,7 @@ import { sentinelPlugin, startSentinelScheduler, type SentinelDeps } from "./plu
 import { createSentinelStore, exposuresForUser, type WalletScanReader } from "./plugins/sentinel-store.js";
 import { safeFetch } from "./lib/safe-http.js";
 import { walletPlugin } from "./plugins/wallet.js";
-import { cexPlugin } from "./plugins/cex.js";
+import { cexPlugin, createDefaultKrakenReader, readGsheetKrakenBalances } from "./plugins/cex.js";
 import { chainsPlugin } from "./plugins/chains.js";
 import { metricsPlugin } from "./plugins/metrics-plugin.js";
 import { analyticsPlugin, createPrismaAnalyticsStore } from "./plugins/analytics.js";
@@ -437,7 +437,9 @@ const enrichmentStep = createEnrichmentScanStepIfConfigured({
 await scanPlugin(app, { prisma, sharedCache, getCircuitBreaker, validateChains, resolveCustomTokens, buildChainScan, getScanLimit, MAX_CHAINS_PER_SCAN, ANONYMOUS_MAX_CHAINS_PER_SCAN, ...(enrichmentStep ? { enrichment: { enabled: true, step: enrichmentStep } } : {}) });
 await adminPlugin(app, { prisma, checkRedis, circuitBreakers, isAdminAuthorized, recordOpsEvent, CORE_VERSION });
 await walletPlugin(app, { prisma, validateCustomToken });
-await cexPlugin(app, { prisma, sharedCache });
+// Un seul lecteur Kraken pour le site et le classeur : un seul appelant de la cle.
+const krakenReader = createDefaultKrakenReader(prisma);
+await cexPlugin(app, { prisma, sharedCache, krakenReader });
 await chainsPlugin(app, { circuitBreakers, cache: sharedCache });
 await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized, cacheBackend });
 await analyticsPlugin(app, { store: createPrismaAnalyticsStore(prisma), isAdminAuthorized });
@@ -490,6 +492,7 @@ if (gsheetApiToken) {
         return await sharedCache.get<unknown>(key);
       },
     },
+    krakenBalancesProvider: () => readGsheetKrakenBalances(prisma, krakenReader, apiConfig.integrations.gsheetOwnerAddress),
     stockPortfolioProvider: async ({ fresh }) => {
       const ownerAddress = apiConfig.integrations.gsheetOwnerAddress;
       if (!ownerAddress) throw new Error("GSHEET_OWNER_ADDRESS is not configured");

@@ -50,6 +50,11 @@ export interface GsheetPluginOptions {
   chainbaseStakingProvider?: (address: string) => Promise<unknown>;
   stockPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetStockPortfolioSnapshot>;
   cryptoPortfolioProvider?: (opts: { fresh: boolean }) => Promise<GsheetCryptoPortfolioSnapshot>;
+  /** Soldes Kraken bruts (appelant unique de la cle) ; absent = 503 kraken_unavailable. */
+  krakenBalancesProvider?: () => Promise<
+    | { ok: true; balances: Record<string, string>; fetchedAt: string; reused: boolean }
+    | { ok: false; status: number; error: string; resumeAt?: string }
+  >;
   scamEnrichment?: GsheetScamEnrichment;
   /** Phone notification relay (ntfy); absent = POST /api/gsheet/notify answers 503. */
   notify?: NotifyDeps;
@@ -1188,6 +1193,21 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
     } catch (e) {
       app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "gsheet stock portfolio failed");
       return reply.code(503).send({ error: "stock_portfolio_unavailable" });
+    }
+  });
+
+  // P2-DATA-KRAKEN-VIA-API : le classeur ne signe plus rien, l'API est l'appelant unique.
+  // POST et no-store : chaque appel peut consommer un nonce Kraken, rien ne doit le cacher.
+  app.post("/api/gsheet/kraken/balances", async (_req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    if (!opts.krakenBalancesProvider) return reply.code(503).send({ ok: false, error: "kraken_unavailable" });
+    try {
+      const result = await opts.krakenBalancesProvider();
+      if (result.ok) return result;
+      return reply.code(result.status).send({ ok: false, error: result.error, ...(result.resumeAt ? { resumeAt: result.resumeAt } : {}) });
+    } catch (e) {
+      app.log.warn({ err: e instanceof Error ? e.message : String(e) }, "gsheet kraken balances failed");
+      return reply.code(503).send({ ok: false, error: "kraken_unavailable" });
     }
   });
 

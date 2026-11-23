@@ -60,5 +60,5 @@ test('recovery admission used+1 : dernier appel permis, suivant refusé',()=>{
 });
 test('recovery télémétrie statique 1 appel/cycle, 24/jour, budget 220',()=>{
   const h=harness(), st=JSON.parse(h.ctx.KRAKEN_BUDGET_STATUS());
-  assert.equal(st.version,'4.16.45'); assert.equal(st.projected_calls_per_day,24); assert.equal(st.private_budget_max,220); assert.match(st.cadence,/1 appel.*Balance/); assert.equal(h.calls.length,0);
+  assert.equal(st.version,'4.16.47'); assert.equal(st.projected_calls_per_day,24); assert.equal(st.private_budget_max,220); assert.match(st.cadence,/1 appel.*Balance/); assert.equal(h.calls.length,0);
 });

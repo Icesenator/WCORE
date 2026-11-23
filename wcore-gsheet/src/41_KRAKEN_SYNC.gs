@@ -1,3 +1,7 @@
+// v4.16.47 - P2-DATA-KRAKEN-VIA-API : avec KRAKEN_SOURCE=API (ScriptProperty), le classeur ne
+//            signe plus rien et lit la carte Balance brute depuis l'API WCORE (appelant unique
+//            de la cle : bail, nonce et pause persistes en base). Absente ou DIRECT = appel
+//            direct inchange. Pause, budget 24 h, compteur de cycle et evenements restent ici.
 // v4.16.45 - CANDIDAT LOCAL recovery Balance seul (non publie)
 // Parseurs/projection 4.16.44 conservés, réservations UNKNOWN ; historique : P1-DATA-KRAKEN-STOCKS-OPEN-ORDERS : Balance remplace
 //            par BalanceEx + OpenOrders (2 appels prives/cycle partage, aucun rejeu apres un
@@ -25,7 +29,7 @@
 // v4.15.119 - Kraken sync via official REST API (read-only Funds Query)
 // Onglet de sortie: "CEX - Kraken Crypto" (crypto) et "CEX - Kraken Stocks" (fiat + actions).
 
-var KRAKEN_SYNC_VERSION = "4.16.45";
+var KRAKEN_SYNC_VERSION = "4.16.47";
 
 var KRAKEN_SYNC_CONFIG = {
   BASE_URL: "https://api.kraken.com",
@@ -52,6 +56,9 @@ var KRAKEN_SYNC_CONFIG = {
   DIAG_CACHE_TTL_MS: 240000,
   STATUS_PROP: "KRAKEN_SYNC_STATUS",
   REFRESH_FLAG_PROP: "KRAKEN_REFRESH_REQUESTED",
+  // v4.16.47 : "API" = Balance lu via l'API WCORE (aucun appel direct) ; absent/DIRECT = direct.
+  SOURCE_PROP: "KRAKEN_SOURCE",
+  API_BALANCES_PATH: "/api/gsheet/kraken/balances",
   SHEET: "CEX - Kraken Crypto",
   SHEET_STOCKS: "CEX - Kraken Stocks",
   SPREADSHEET_ID: "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4"
@@ -255,10 +262,74 @@ function _krakenLockoutUntilMs_() {
   } catch (e) { return 0; }
 }
 
-function _krakenArmLockoutCooldown_() {
+function _krakenArmLockoutCooldown_(opt_untilMs) {
+  // v4.16.47 : l'API WCORE renvoie sa propre fin de pause ; bornee a [maintenant, +2 h].
+  var now = Date.now();
+  var until = typeof opt_untilMs === "number" && isFinite(opt_untilMs) && opt_untilMs > now
+    ? Math.min(opt_untilMs, now + 2 * KRAKEN_SYNC_CONFIG.LOCKOUT_COOLDOWN_MS)
+    : now + KRAKEN_SYNC_CONFIG.LOCKOUT_COOLDOWN_MS;
   try {
-    PropertiesService.getScriptProperties().setProperty(KRAKEN_SYNC_CONFIG.LOCKOUT_UNTIL_PROP, String(Date.now() + KRAKEN_SYNC_CONFIG.LOCKOUT_COOLDOWN_MS));
+    PropertiesService.getScriptProperties().setProperty(KRAKEN_SYNC_CONFIG.LOCKOUT_UNTIL_PROP, String(until));
   } catch (e) {}
+}
+
+// v4.16.47 : source des soldes. Seule la valeur exacte "API" bascule ; toute autre valeur,
+// absente ou illisible garde l'appel direct (comportement d'avant).
+function _krakenSource_() {
+  try {
+    var v = PropertiesService.getScriptProperties().getProperty(KRAKEN_SYNC_CONFIG.SOURCE_PROP);
+    return String(v || "").trim().toUpperCase() === "API" ? "API" : "DIRECT";
+  } catch (e) { return "DIRECT"; }
+}
+
+// Bascule et retour arriere sans redeploiement. Executer depuis l'editeur.
+function SET_KRAKEN_SOURCE(mode) {
+  var m = String(mode || "").trim().toUpperCase();
+  if (m !== "API" && m !== "DIRECT") throw new Error("SET_KRAKEN_SOURCE : API ou DIRECT");
+  PropertiesService.getScriptProperties().setProperty(KRAKEN_SYNC_CONFIG.SOURCE_PROP, m);
+  return "OK: KRAKEN_SOURCE=" + m;
+}
+
+// v4.16.47 : Balance via l'API WCORE. Aucun nonce, aucune signature, aucune cle envoyee :
+// l'API est l'appelant unique. Messages fixes, jamais le corps distant, et aucun motif de
+// _KRAKEN_TRANSIENT_PATTERN (pas de rejeu par _cexRelayFetchWithRetry_).
+function _krakenViaApiBalance_() {
+  var base = typeof _cexGetWebApiUrl_ === "function" ? _cexGetWebApiUrl_() : null;
+  var token = typeof _cexGetWebApiToken_ === "function" ? _cexGetWebApiToken_() : null;
+  if (!base || !token) throw _krakenFail_("LOCAL", "Kraken via API WCORE non configuree (aucun appel envoye)");
+  _krakenCountPrivateCall_();
+  _KRAKEN_CYCLE_PRIVATE_CALLS++;
+  try {
+    var resp = UrlFetchApp.fetch(base + KRAKEN_SYNC_CONFIG.API_BALANCES_PATH, {
+      method: "post",
+      contentType: "application/json",
+      payload: "{}",
+      muteHttpExceptions: true,
+      headers: { "x-gsheet-token": token }
+    });
+    if (!resp) throw _krakenFail_("OTHER", "Kraken via API WCORE reponse vide (aucun rejeu)");
+    var code = resp.getResponseCode();
+    var body = null;
+    try { body = JSON.parse(resp.getContentText()); } catch (eJson) { body = null; }
+    if (code === 200 && body && body.ok === true && body.balances && typeof body.balances === "object" && !Array.isArray(body.balances)) {
+      _krakenRecordEvent_(KRAKEN_SYNC_CONFIG.LAST_SUCCESS_PROP, "SUCCESS");
+      return body.balances;
+    }
+    var reason = body && typeof body.error === "string" && /^[a-z0-9_]{1,40}$/.test(body.error) ? body.error : "";
+    if (reason === "kraken_paused") {
+      _krakenArmLockoutCooldown_(Date.parse(String(body.resumeAt || "")));
+      throw _krakenFail_("TEMPORARY_LOCKOUT", "Kraken API error: EGeneral:Temporary lockout (pause tenue par l'API WCORE : ne pas relancer)");
+    }
+    if (reason === "kraken_busy" || reason === "kraken_too_soon" || reason === "rate_limited_by_exchange") {
+      throw _krakenFail_("RATE_LIMIT", "Kraken via API WCORE : rate limit (" + reason + "), aucun rejeu");
+    }
+    if (reason === "credentials_rejected") throw _krakenFail_("AUTH", "Kraken via API WCORE : authentication refusee");
+    throw _krakenFail_("HTTP", "Kraken via API WCORE HTTP " + code + (reason ? " (" + reason + ")" : ""));
+  } catch (err) {
+    if (!err || !err._krakenKind) err = _krakenFail_("OTHER", "Kraken via API WCORE erreur transport (aucun rejeu)");
+    _krakenRecordEvent_(KRAKEN_SYNC_CONFIG.LAST_REMOTE_ERROR_PROP, err._krakenKind);
+    throw err;
+  }
 }
 
 // v4.16.43 - compteur glissant d appels PRIVES sur 24 h, stocke en packed string
@@ -371,6 +442,11 @@ function _krakenPrivatePost_(path, params, creds) {
   // v4.16.43 : garde de budget AVANT de consommer un nonce, pour qu'un budget epuise
   // ne gaspille pas de nonce et ne fasse pas avancer la sequence.
   _krakenAssertPrivateBudget_();
+  // v4.16.47 : en mode API, plus aucun appel direct (ni nonce consomme, ni signature).
+  if (_krakenSource_() === "API") {
+    if (path !== "/0/private/Balance") throw _krakenFail_("LOCAL", "Kraken via API WCORE : seul Balance est relaye (aucun appel envoye)");
+    return _krakenViaApiBalance_();
+  }
   params = params || {};
   try { params.nonce = _krakenNextNonce_(); }
   catch (eNonce) { throw _krakenFail_("LOCAL", "Kraken nonce persistant indisponible (aucun appel envoye)"); }
@@ -1215,6 +1291,7 @@ function KRAKEN_BUDGET_STATUS() {
   var oldest = used && used.length ? Math.min.apply(null, used) : null;
   return JSON.stringify({
     version: KRAKEN_SYNC_VERSION,
+    source: _krakenSource_(),
     private_calls_24h: used === null ? null : used.length,
     private_budget_max: KRAKEN_SYNC_CONFIG.PRIVATE_BUDGET_MAX,
     budget_remaining: used === null ? null : Math.max(0, KRAKEN_SYNC_CONFIG.PRIVATE_BUDGET_MAX - used.length),

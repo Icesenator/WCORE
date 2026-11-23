@@ -288,7 +288,8 @@ test('projection OK écrit J1 en date (numérique Sheets), pas en texte ISO', ()
 });
 
 // ------------------------------------------------------------------ version
-test('version candidate 4.16.45 (recovery Balance seul), recovery statique Balance seul', () => {
-  assert.match(source, /var\s+KRAKEN_SYNC_VERSION\s*=\s*"4\.16\.45"\s*;/);
+test('version 4.16.47 (via API WCORE), historique 4.16.45 recovery statique Balance seul conserve', () => {
+  assert.match(source, /var\s+KRAKEN_SYNC_VERSION\s*=\s*"4\.16\.47"\s*;/);
+  assert.match(source.split('\n').slice(0, 6).join('\n'), /v4\.16\.47/);
   assert.match(source.split('\n').slice(0, 6).join('\n'), /v4\.16\.45/);
 });

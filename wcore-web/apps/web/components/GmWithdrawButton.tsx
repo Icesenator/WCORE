@@ -102,9 +102,14 @@ export function GmWithdrawButton({
     // A failed or empty answer used to leave "(—)" until a full reload: retry a
     // few times, spaced out, while the button is mounted (B2, 24/11/2026).
     const attempt = (n: number) => {
+      // Another button of the same chain may have got the price meanwhile.
+      const known = _nativePriceCache.get(ck);
+      if (known) { setFetchedPrice(known); return; }
       let promise = _nativePricePromises.get(ck);
       if (!promise) {
-        promise = fetch(`${getApiUrl()}/api/price/native?chain=${encodeURIComponent(ck)}`)
+        // A retry must not be served the same empty answer from the HTTP cache
+        // (the API sends max-age=60 even on `price: null`).
+        promise = fetch(`${getApiUrl()}/api/price/native?chain=${encodeURIComponent(ck)}`, n > 0 ? { cache: "no-store" } : undefined)
           .then(r => (r.ok ? r.json() : null)).then((d: { price?: number | null } | null) => { const p = d?.price ?? null; if (p) _nativePriceCache.set(ck, p); return p; })
           .catch(() => null)
           .finally(() => { _nativePricePromises.delete(ck); });

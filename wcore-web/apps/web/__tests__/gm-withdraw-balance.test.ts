@@ -16,6 +16,10 @@ describe("GM withdraw value in EUR", () => {
     const src = readFileSync(new URL("../components/GmWithdrawButton.tsx", import.meta.url), "utf8");
     assert.match(src, /else if \(n < NATIVE_PRICE_RETRIES\) timer = setTimeout\(\(\) => attempt\(n \+ 1\)/);
     assert.match(src, /nativeValueEur\(amount, nativePriceEurProp, fetchedPrice, eurUsd\)/);
+    // Retries bypass the HTTP cache (an empty answer is cacheable for 60 s) and reuse
+    // a price another button of the same chain already obtained.
+    assert.match(src, /n > 0 \? \{ cache: "no-store" \} : undefined/);
+    assert.match(src, /const known = _nativePriceCache\.get\(ck\);\s*if \(known\) \{ setFetchedPrice\(known\); return; \}/);
   });
 });
 

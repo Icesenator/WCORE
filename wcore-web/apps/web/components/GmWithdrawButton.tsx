@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Logo } from "./Logo";
-import { type GmContractWithBalance, getNativeSymbol, hasWithdrawableBalance, weiToNative, MIN_WITHDRAW_WEI } from "@/hooks/useGmContracts";
+import { type GmContractWithBalance, getNativeSymbol, hasWithdrawableBalance, weiToNative, withdrawBlockedMessage } from "@/hooks/useGmContracts";
 import { usePreferences } from "./PreferencesProvider";
 import { getApiUrl } from "@/lib/api";
 import { getFactory } from "@wcore/shared";
@@ -176,14 +176,9 @@ export function GmWithdrawButton({
             // contract just burns gas on a "nothing to withdraw" revert.
             const refreshed = await refreshBalanceViaMetaMask();
             if (refreshed == null) return;
-            if (!hasWithdrawableBalance(refreshed)) {
-              // Below the dust floor: say why nothing happens instead of returning silently.
-              const min = `${weiToNative(MIN_WITHDRAW_WEI.toString())} ${symbol}`;
-              setError(BigInt(refreshed || "0") > 0n
-                ? (language === "fr" ? `Montant sous le minimum retirable (${min})` : `Below the minimum withdrawable amount (${min})`)
-                : (language === "fr" ? "Rien à retirer" : "Nothing to withdraw"));
-              return;
-            }
+            // Below the dust floor: say why nothing happens instead of returning silently.
+            const blocked = withdrawBlockedMessage(refreshed, symbol, language);
+            if (blocked) { setError(blocked); return; }
           }
           try {
             await onWithdraw(contract!);

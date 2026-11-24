@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { getGmContractChainId } from "../hooks/useGmContracts";
+import { getGmContractChainId, withdrawBlockedMessage } from "../hooks/useGmContracts";
 import { getGmChainId } from "../hooks/useOnChainGm";
 
 describe("GM contract helpers", () => {
@@ -36,9 +36,15 @@ describe("GM contract helpers", () => {
   test("a balance below the withdraw floor explains itself instead of doing nothing", () => {
     // Regression (B2, 24/11/2026): 7.5e-7 BTC is below MIN_WITHDRAW_WEI, so the click
     // refreshed the balance and returned silently. It must now show the reason.
+    const b2 = "749960000000"; // 7.4996e-7 BTC
+    assert.equal(withdrawBlockedMessage(b2, "BTC", "fr"), "Montant sous le minimum retirable (0.000001 BTC)");
+    assert.equal(withdrawBlockedMessage(b2, "BTC", "en"), "Below the minimum withdrawable amount (0.000001 BTC)");
+    assert.equal(withdrawBlockedMessage("0", "ETH", "fr"), "Rien à retirer");
+    assert.equal(withdrawBlockedMessage("0", "ETH", "en"), "Nothing to withdraw");
+    assert.equal(withdrawBlockedMessage("1000000000000", "BTC", "fr"), null, "exactly the floor is withdrawable");
+    assert.equal(withdrawBlockedMessage("5000000000000000", "ETH", "en"), null);
+    // The button must show that message rather than returning silently.
     const source = readFileSync(new URL("../components/GmWithdrawButton.tsx", import.meta.url), "utf8");
-    assert.doesNotMatch(source, /!hasWithdrawableBalance\(refreshed\)\) return;/, "no silent return under the floor");
-    assert.match(source, /Montant sous le minimum retirable/);
-    assert.match(source, /Below the minimum withdrawable amount/);
+    assert.match(source, /const blocked = withdrawBlockedMessage\(refreshed, symbol, language\);\s*if \(blocked\) \{ setError\(blocked\); return; \}/);
   });
 });

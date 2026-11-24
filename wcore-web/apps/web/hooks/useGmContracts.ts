@@ -10,7 +10,7 @@ import { useSafeSwitchChain } from "./useSafeSwitchChain";
 import { switchChainAny, sendTransactionAny } from "@/lib/onchain-tx";
 import { useWallet } from "@/components/ConnectButton";
 
-export const MIN_WITHDRAW_WEI = 1_000_000_000_000n;
+const MIN_WITHDRAW_WEI = 1_000_000_000_000n;
 const LEGACY_GM_CHAIN_IDS: Record<string, number> = {
   duckchain: 5545,
   degen: 666666666,
@@ -55,6 +55,20 @@ export function hasWithdrawableBalance(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Why a withdraw click stops, or null when the balance can be withdrawn.
+ * Shown under the button instead of returning silently (B2, 24/11/2026).
+ */
+export function withdrawBlockedMessage(value: string, symbol: string, language: string): string | null {
+  if (hasWithdrawableBalance(value)) return null;
+  let positive: boolean;
+  try { positive = BigInt(value || "0") > 0n; } catch { positive = false; }
+  const fr = language === "fr";
+  if (!positive) return fr ? "Rien à retirer" : "Nothing to withdraw";
+  const min = `${weiToNative(MIN_WITHDRAW_WEI.toString())} ${symbol}`;
+  return fr ? `Montant sous le minimum retirable (${min})` : `Below the minimum withdrawable amount (${min})`;
 }
 
 export function getGmContractChainId(chainKey: string): number | undefined {

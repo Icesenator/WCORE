@@ -57,7 +57,7 @@ test('Sheets API fallback also drains pending work before persisting diagnostics
 test('drain diagnostics are persisted after drain and include measured outcomes and duration', () => {
   const fn = extract('WATCHDOG_FROM_RECAP');
   const drain = fn.indexOf('_webScanQueueDrain_({');
-  const persist = fn.indexOf('var diagJsonOut = JSON.stringify(diagOut)');
+  const persist = fn.indexOf('var diagJsonOut = _wd_boundDiagJson_(diagOut)');
   assert.ok(drain >= 0 && persist > drain);
   assert.match(fn.slice(drain, persist), /stats\.scanQueueOutcomes/);
   assert.match(fn.slice(drain, persist), /stats\.exec_ms = Date\.now\(\) - t0/);

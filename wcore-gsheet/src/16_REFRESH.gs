@@ -1442,6 +1442,32 @@ function _wd_persistQueueHist_(row) {
   } catch (eHist) { return false; }
 }
 
+// v4.16.101 : une ScriptProperty est limitee a 9 Ko (octets UTF-8) ; un diag trop gros serait
+// perdu en entier (ecriture refusee). Reduction par paliers, taille reverifiee a chaque palier :
+// 20 lignes perSheet, puis aucune ligne ni sonde, puis stats seules.
+var WCORE_WD_DIAG_MAX_BYTES = 8500;
+function _wd_utf8Bytes_(s) {
+  s = String(s == null ? "" : s);
+  try { return unescape(encodeURIComponent(s)).length; } catch (e) { return s.length * 3; }
+}
+function _wd_boundDiagJson_(diagOut) {
+  var out = JSON.stringify(diagOut);
+  if (_wd_utf8Bytes_(out) <= WCORE_WD_DIAG_MAX_BYTES) return out;
+  var per = (diagOut && diagOut.perSheet) || [];
+  diagOut.perSheetTruncatedFrom = per.length;
+  diagOut.perSheet = per.slice(0, 20);
+  out = JSON.stringify(diagOut);
+  if (_wd_utf8Bytes_(out) <= WCORE_WD_DIAG_MAX_BYTES) return out;
+  diagOut.perSheet = [];
+  diagOut.probeNames = [];
+  diagOut.tempoEntry = null;
+  out = JSON.stringify(diagOut);
+  if (_wd_utf8Bytes_(out) <= WCORE_WD_DIAG_MAX_BYTES) return out;
+  out = JSON.stringify({ lastRunTs: diagOut && diagOut.lastRunTs, stats: diagOut && diagOut.stats, diagTruncated: true });
+  if (_wd_utf8Bytes_(out) <= WCORE_WD_DIAG_MAX_BYTES) return out;
+  return JSON.stringify({ lastRunTs: diagOut && diagOut.lastRunTs, diagTruncated: true, statsTooLarge: true });
+}
+
 /** Admin read of the drain history (lecture seule). */
 function WCORE_WD_QUEUE_HIST_READ() {
   try { return PropertiesService.getScriptProperties().getProperty(WCORE_WD_QUEUE_HIST_KEY) || "[]"; }
@@ -2597,14 +2623,7 @@ function WATCHDOG_FROM_RECAP() {
           perSheet: diagPerSheet,
           phaseC: props.getProperty("PHASE_C_ENABLED") || "false"
         };
-        var diagJsonOut = JSON.stringify(diagOut);
-        // v4.16.101 : une ScriptProperty est limitee a 9 Ko ; un diag trop gros serait perdu en
-        // entier (ecriture refusee). Au-dela de 8 000 caracteres, ne garder que 20 lignes perSheet.
-        if (diagJsonOut.length > 8000) {
-          diagOut.perSheet = diagPerSheet.slice(0, 20);
-          diagOut.perSheetTruncatedFrom = diagPerSheet.length;
-          diagJsonOut = JSON.stringify(diagOut);
-        }
+        var diagJsonOut = _wd_boundDiagJson_(diagOut);
         props.setProperty("WCORE_WD_LAST_DIAG", diagJsonOut);
         try {
           var _diagSs3 = SpreadsheetApp.getActiveSpreadsheet();

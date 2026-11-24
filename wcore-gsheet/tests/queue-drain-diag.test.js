@@ -115,7 +115,7 @@ test('main watchdog: timings recorded after the drain, history written only afte
   assert.ok(skipped > ack && persist > skipped && diag > persist, 'skipped pass recorded, history after ack, before diag');
   assert.match(fn.slice(drain, rec), /ms: Number\(r\.durationMs\) \|\| 0/);
   assert.match(fn, /budgetMs: _qBudget/);
-  assert.match(fn, /diagJsonOut\.length > 8000[\s\S]{0,200}diagPerSheet\.slice\(0, 20\)/, 'oversized diag is trimmed, not lost');
+  assert.match(fn, /var diagJsonOut = _wd_boundDiagJson_\(diagOut\);\s*props\.setProperty\("WCORE_WD_LAST_DIAG", diagJsonOut\)/, 'oversized diag is trimmed, not lost');
 });
 
 test('Sheets API fallback: timings recorded after the drain, history before the diag', () => {
@@ -128,12 +128,43 @@ test('Sheets API fallback: timings recorded after the drain, history before the 
   assert.ok(drain >= 0 && rec > drain && skipped > rec && persist > skipped && diag > persist);
 });
 
-test('trimmed diagnostic of a realistic oversized pass fits the 9 KB property limit', () => {
-  const row = n => ({ name: 'Ledger - Robinhood Chain Crypto ' + n, vI1: '[REFRESH_QUEUE_DEFERRED] 2026-11-24 15:43:57', vJ1: '2026-11-24 15:43:57', vB1: '2026-11-24 15:44:05' });
-  const per = Array.from({ length: 40 }, (_, i) => row(i));
-  const diagOut = { lastRunTs: new Date().toISOString(), stats: { pad: 'x'.repeat(2000) }, perSheet: per };
-  let out = JSON.stringify(diagOut);
-  assert.ok(out.length > 8000, 'fixture is oversized');
-  diagOut.perSheet = per.slice(0, 20); diagOut.perSheetTruncatedFrom = per.length; out = JSON.stringify(diagOut);
-  assert.ok(Buffer.byteLength(out, 'utf8') < 9216);
+function bound() {
+  const ctx = { JSON, String, unescape, encodeURIComponent };
+  vm.createContext(ctx);
+  vm.runInContext('var WCORE_WD_DIAG_MAX_BYTES = 8500;\n' + extract('_wd_utf8Bytes_') + '\n' + extract('_wd_boundDiagJson_'), ctx);
+  return ctx;
+}
+const LIMIT = 9216;
+const rowOf = (n, name) => ({ name: (name || 'Ledger - Robinhood Chain Crypto ') + n, vI1: '[REFRESH_QUEUE_DEFERRED] 2026-11-24 15:43:57', vJ1: '2026-11-24 15:43:57', vB1: '2026-11-24 15:44:05' });
+
+test('a normal diagnostic is written unchanged', () => {
+  const b = bound();
+  const d = { lastRunTs: 't', stats: { a: 1 }, perSheet: [rowOf(1)], probeNames: ['x'] };
+  assert.equal(b._wd_boundDiagJson_(d), JSON.stringify({ lastRunTs: 't', stats: { a: 1 }, perSheet: [rowOf(1)], probeNames: ['x'] }));
+});
+
+test('multibyte names are measured in UTF-8 bytes, not characters', () => {
+  const b = bound();
+  assert.equal(b._wd_utf8Bytes_('é'), 2);
+  assert.equal(b._wd_utf8Bytes_('€'), 3);
+  // ~7 900 characters but well over 9 KB in UTF-8: must be trimmed.
+  const per = Array.from({ length: 40 }, (_, i) => rowOf(i, '€'.repeat(80)));
+  const d = { lastRunTs: 't', stats: { a: 1 }, perSheet: per, probeNames: [] };
+  const out = b._wd_boundDiagJson_(d);
+  assert.ok(Buffer.byteLength(out, 'utf8') <= 8500);
+  assert.equal(JSON.parse(out).perSheetTruncatedFrom, 40);
+});
+
+test('each trimming step re-checks the size; stats survive, the write always fits', () => {
+  const b = bound();
+  const per = Array.from({ length: 40 }, (_, i) => rowOf(i, 'x'.repeat(400)));
+  let out = b._wd_boundDiagJson_({ lastRunTs: 't', stats: { a: 1 }, perSheet: per, probeNames: ['p'] });
+  assert.ok(Buffer.byteLength(out, 'utf8') <= 8500);
+  assert.deepEqual(JSON.parse(out).perSheet, [], '20 rows still too big -> no rows');
+  assert.deepEqual(JSON.parse(out).stats, { a: 1 });
+  out = b._wd_boundDiagJson_({ lastRunTs: 't', stats: { pad: 'x'.repeat(8300) }, extra: 'y'.repeat(600), perSheet: per, probeNames: ['x'.repeat(2000)] });
+  assert.ok(Buffer.byteLength(out, 'utf8') <= 8500 && JSON.parse(out).diagTruncated === true);
+  assert.equal(JSON.parse(out).stats.pad.length, 8300, 'stats kept whole when they fit alone');
+  out = b._wd_boundDiagJson_({ lastRunTs: 't', stats: { pad: 'x'.repeat(12000) }, perSheet: [] });
+  assert.ok(Buffer.byteLength(out, 'utf8') < LIMIT && JSON.parse(out).statsTooLarge === true);
 });

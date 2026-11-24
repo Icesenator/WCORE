@@ -130,9 +130,31 @@ const NORMAL_MODE = m => ({ getMode: () => m, getEffectiveMode: () => m, isAllow
 control('CACHE_ONLY refuse normal et activity', () => {
   for (const p of ['normal', 'activity']) assert.equal(ctxWith({ mode: NORMAL_MODE('CACHE_ONLY') }).WCORE_IS_SAFE(p).reason, 'HTTP_MODE_CACHE_ONLY');
 });
+// Témoin de la seule branche de 01_INIT : le vrai WcoreHttpMode.isAllowed ne rend jamais true en
+// CACHE_ONLY (cas suivant, P2-MAINT-WATCHDOG-CACHE-ONLY-COMMENT).
 control('CACHE_ONLY reste admis pour recovery si isAllowed le permet', () => {
   const m = { getMode: () => 'CACHE_ONLY', getEffectiveMode: () => 'CACHE_ONLY', isAllowed: () => true };
   assert.equal(ctxWith({ mode: m }).WCORE_IS_SAFE('recovery').safe, true);
+});
+// Vrai WcoreHttpMode (03E) : disjoncteur déclenché ⇒ CACHE_ONLY ⇒ recovery (watchdog 16) refusé aussi.
+function realModeCtx(tripped) {
+  const c = ctxWith({ mode: undefined });
+  c.QuotaCircuitBreaker = { isTripped: () => tripped };
+  c.PropertiesService = { getScriptProperties: () => memProps({}) };
+  const a = E03.indexOf('var WcoreHttpMode = '), b = E03.indexOf('function SET_WCORE_HTTP_MODE(');
+  assert.ok(a >= 0 && b > a, 'WcoreHttpMode introuvable dans 03E');
+  vm.runInContext(E03.slice(a, b), c);
+  return c;
+}
+control('vrai WcoreHttpMode : CACHE_ONLY refuse aussi recovery (watchdog), NORMAL l\'admet', () => {
+  const cut = realModeCtx(true);
+  assert.equal(cut.WcoreHttpMode.getEffectiveMode(), 'CACHE_ONLY');
+  for (const p of ['recovery', 'normal', 'activity', 'critical']) {
+    assert.deepEqual({ ...cut.WCORE_IS_SAFE(p) }, { safe: false, reason: 'HTTP_MODE_CACHE_ONLY', mode: 'CACHE_ONLY' }, p);
+  }
+  const ok = realModeCtx(false);
+  assert.equal(ok.WcoreHttpMode.getEffectiveMode(), 'NORMAL');
+  assert.equal(ok.WCORE_IS_SAFE('recovery').safe, true);
 });
 control('recovery : mode illisible reste admis (le gate 16 garde sa propre attestation ; ne pas figer le watchdog)', () => {
   assert.equal(ctxWith(UNREADABLE['getEffectiveMode lève']).WCORE_IS_SAFE('recovery').safe, true);

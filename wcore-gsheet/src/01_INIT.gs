@@ -618,10 +618,13 @@ function WCORE_IS_SAFE(priority) {
     var _prio = String(priority || "normal").toLowerCase();
     if (typeof WcoreHttpMode !== 'undefined' && WcoreHttpMode.getMode) {
       var mode = WcoreHttpMode.getEffectiveMode ? WcoreHttpMode.getEffectiveMode() : WcoreHttpMode.getMode();
-      // v4.15.62: in recovery mode, CACHE_ONLY is acceptable (no HTTP needed for
-      // the recovery sweep / J1 sync / B1 pulse). Blocking the watchdog on a
-      // tripped breaker is what froze everything on 2026-06-01 — the watchdog
-      // needs to run to *clear* the trip.
+      // v4.15.62 intended to let "recovery" through CACHE_ONLY, but the next
+      // line still refuses it: WcoreHttpMode.isAllowed (03E) returns false in
+      // CACHE_ONLY for every category, so the watchdog's WCORE_IS_SAFE("recovery")
+      // gets HTTP_MODE_CACHE_ONLY there too (pinned by
+      // tests/wcore-is-safe-failclosed.test.js). Clearing a tripped breaker is
+      // done by QUOTA_RECOVERY_SWEEP (16) and QuotaCircuitBreaker.testOnce (03E),
+      // which probe then reset it without this gate.
       if (mode === "CACHE_ONLY" && _prio !== "recovery") {
         return { safe: false, reason: "HTTP_MODE_CACHE_ONLY", mode: mode };
       }

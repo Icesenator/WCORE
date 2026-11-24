@@ -31,12 +31,31 @@ export async function registerLeaderboardRoutes(
           ? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
           : null;
 
-    const users = await prisma.user.findMany({
-      select: { id: true, address: true, score: true, gmStreak: true, longestStreak: true },
-      orderBy: { score: "desc" },
-      take: 51,
+    // Classement par nombre de GM on-chain sur la periode (decision de Florian, 24/11/2026), puis par
+    // points a egalite. Les GM sont comptes avant de choisir les 50 : un tri sur les points d'abord
+    // laisserait de cote un utilisateur tres actif sur la periode mais peu dote en points.
+    const gmAgg = await prisma.onchainGm.groupBy({
+      by: ["userId"],
+      _count: { id: true },
+      where: since ? { createdAt: { gte: since } } : {},
+      orderBy: { _count: { id: "desc" } },
+      take: 200, // large marge sur les 50 affiches (+ l'exclusion du proprietaire de la plateforme)
     });
-    const filtered = users.filter((u: { address: string }) => u.address.toLowerCase() !== PLATFORM_OWNER.EVM).slice(0, 50);
+    const gmMap = new Map(gmAgg.map((g: { userId: string; _count: { id: number } }) => [g.userId, g._count.id]));
+    const gmUserIds = gmAgg.map((g: { userId: string }) => g.userId);
+    const candidates = gmUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: gmUserIds } },
+          select: { id: true, address: true, score: true, gmStreak: true, longestStreak: true },
+        })
+      : [];
+    const filtered = candidates
+      .filter((u: { address: string }) => u.address.toLowerCase() !== PLATFORM_OWNER.EVM)
+      .sort((a: { id: string; score: number; address: string }, b: { id: string; score: number; address: string }) =>
+        ((gmMap.get(b.id) as number) ?? 0) - ((gmMap.get(a.id) as number) ?? 0)
+        || b.score - a.score
+        || a.address.localeCompare(b.address))
+      .slice(0, 50);
     const userIds = filtered.map((u: { id: string }) => u.id);
     // Prisma.join([]) leve une erreur : sans utilisateur hors proprietaire, la route repondait 500 et le site
     // affichait le meme message vide qu'un classement sans points.
@@ -49,14 +68,6 @@ export async function registerLeaderboardRoutes(
       where: { ownerId: { in: userIds }, ...(since ? { createdAt: { gte: since } } : {}) },
     });
     const contractsMap = new Map(contractsAgg.map((c: { ownerId: string | null; _count: { id: number } }) => [c.ownerId, c._count.id]));
-
-    // Batch aggregate: GM count per user
-    const gmAgg = await prisma.onchainGm.groupBy({
-      by: ["userId"],
-      _count: { id: true },
-      where: { userId: { in: userIds }, ...(since ? { createdAt: { gte: since } } : {}) },
-    });
-    const gmMap = new Map(gmAgg.map((g: { userId: string; _count: { id: number } }) => [g.userId, g._count.id]));
 
     // Batch aggregate: tips received per user (contract owner)
     const tipsAgg = since

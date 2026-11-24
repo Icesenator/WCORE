@@ -43,6 +43,7 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
       <h1 className="mb-8 text-2xl font-bold">Leaderboard</h1>
 
       <PeriodSelector active={period} />
+      <p className="mb-6 text-xs text-muted">Ranked by number of on-chain GMs in the selected period, then by points.</p>
 
       <section className="mb-10 rounded-2xl border border-border bg-card p-6">
         <h2 className="mb-5 text-sm font-semibold uppercase tracking-wider text-muted">How to earn points</h2>
@@ -94,10 +95,10 @@ export default async function LeaderboardPage({ searchParams }: { searchParams: 
       </section>
 
       <div className="space-y-1">
-        {users.filter(u => u.score > 0).length === 0 ? (
-          <p className="text-muted text-sm text-center py-8">No users yet. Connect and scan to appear here.</p>
+        {users.filter(u => u.gmCount > 0).length === 0 ? (
+          <p className="text-muted text-sm text-center py-8">No GM yet{period === "all" ? "" : " in this period"}. Say GM on-chain to appear here.</p>
         ) : (
-          users.filter(u => u.score > 0).map((u, i) => (
+          users.filter(u => u.gmCount > 0).map((u, i) => (
             <div key={u.address} className={`flex items-center justify-between rounded-lg border px-4 py-3 text-sm ${i < 3 ? "border-accent/30 bg-accent/5" : "border-border bg-card"}`}>
               <div className="flex items-center gap-3">
                 <span className={`w-6 text-center font-bold ${i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-amber-600" : "text-muted"}`}>

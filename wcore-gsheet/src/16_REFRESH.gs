@@ -1313,8 +1313,10 @@ function _wd_shouldPulseB1_(b1DisplayValue, nowMs, cooldownMin) {
 // Only proven OK scans carry an ACK. v4.16.89: a proven DEGRADED scan is pulsed
 // as well so the cells read the rewritten cache; it re-enqueues (no ACK), which
 // keeps retrying the degraded source. PRESERVED wrote nothing and is never
-// pulsed. Force rows (C1 TRUE) are skipped: their revision
+// pulsed. Force rows (C1 TRUE) are skipped here: their revision
 // includes the B1 trigger, so a new B1 can never match the ACK.
+// v4.16.100: they get their own pass (_wd_ackPulseForceTargets_) with a receipt
+// re-signed for the watchdog's own pulse.
 // Rows are matched on the queue's opaque source label, never on raw addresses.
 function _wd_ackPulseProven_(r) {
   return !!(r && (r.outcome === "OK" || r.outcome === "DEGRADED") && r.cacheWriteReread === true && r.queueCommitted === true);
@@ -1361,6 +1363,43 @@ function _wd_ackPulseDrained_(ss, results, sheetData, nowStr, deadlineMs) {
     sh.getRange("B1").setValue(nowStr);
     out.pulsed++;
   }
+  // v4.16.100 : lignes C1=TRUE au scan force prouve OK. Le recu est re-signe pour ce pulse
+  // precis avant l'ecriture de B1 ; sans re-signature possible, aucun pulse (pas de rescan force).
+  if (out.reason === "OK" && typeof _webScanQueueResignForcePulse_ === "function" &&
+      typeof _wd_ackPulseForceTargets_ === "function") {
+    var forceTargets = _wd_ackPulseForceTargets_(proven, rows.map(function(d, i) {
+      var v = data.valueRanges[i].values;
+      return { name: d.name, vC1: d.vC1, formula: v && v[0] ? v[0][0] : "" };
+    }));
+    out.forceTargets = forceTargets.length;
+    out.forcePulsed = 0;
+    for (var f = 0; f < forceTargets.length; f++) {
+      if (Date.now() >= deadlineMs) { out.reason = "BUDGET"; break; }
+      var fsh = ss.getSheetByName(forceTargets[f].name);
+      if (!fsh || !_webScanQueueResignForcePulse_(forceTargets[f].id, nowStr)) continue;
+      fsh.getRange("B1").setValue(nowStr);
+      out.forcePulsed++;
+    }
+  }
+  return out;
+}
+
+// v4.16.100 : cibles C1=TRUE, seulement pour un scan OK prouve (un DEGRADED n'a pas d'ACK
+// consommable : le re-pulser relancerait un scan force). Retourne { name, id } pour la re-signature.
+function _wd_ackPulseForceTargets_(results, rows) {
+  var sources = {};
+  (results || []).forEach(function(r) {
+    if (_wd_ackPulseProven_(r) && r.outcome === "OK" && r.source) sources[r.source] = true;
+  });
+  var out = [];
+  if (!Object.keys(sources).length) return out;
+  (rows || []).forEach(function(row) {
+    if (!row || !/^TRUE$/i.test(_wd_norm_(row.vC1 || ""))) return;
+    var m = String(row.formula || "").match(/^\s*=\s*([A-Za-z0-9_]+)_REFRESH_STATUS\s*\(\s*"([^"]+)"/);
+    if (!m) return;
+    var id = m[1].toUpperCase() + "|" + String(m[2]).trim().toLowerCase();
+    if (sources[_webScanQueueOpaque_(id)]) out.push({ name: row.name, id: id });
+  });
   return out;
 }
 

@@ -1910,7 +1910,9 @@ var EvmEngine = {
         try {
           queuedScan = _webScanQueueEnqueue_(addrLower, _webScanTokenList_(tokensRange), forceFull, config,
             forceBypass ? "MANUAL" : "AUTO",
-            typeof _webScanCacheTimestamp_ === "function" ? _webScanCacheTimestamp_(cacheBefore) : beforeTs);
+            typeof _webScanCacheTimestamp_ === "function" ? _webScanCacheTimestamp_(cacheBefore) : beforeTs,
+            // v4.16.100 : la revision forcee porte le B1 de la demande, comme l'ACK ci-dessus.
+            triggerRefresh);
         } catch (eQueue) { queuedScan = null; }
         if (queuedScan && queuedScan.ok) {
           if (typeof _statusPhaseMark_ === "function") _statusPhaseMark_(statusChainKey, "QUEUED");

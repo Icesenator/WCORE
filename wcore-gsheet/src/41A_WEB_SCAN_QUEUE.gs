@@ -33,7 +33,7 @@
  *     backoff and a cooldown after terminal failure.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.97-force-priority";
+var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.100-force-ack";
 // 2026-11-09 : retablit 4.16.88 (efface du LIVE avant le 07/11). Le watchdog impulse ~10 B1 a la fois ;
 // leurs cellules s'inscrivent en parallele pendant que le drain tient le ScriptLock. Avec 250 ms
 // (GSHEET_WEB_SCAN_LOCK_WAIT_MS du scan), elles perdaient le verrou : [REFRESH_QUEUE_ERROR], puis
@@ -66,8 +66,39 @@ function _webScanQueueOpaque_(value) {
   for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return (h >>> 0).toString(16);
 }
+// v4.16.100 : B1 arrive dans la fonction personnalisee comme une Date (cellule datee) ou un texte.
+// Une seule forme normalisee, pour que l'enfilement, l'ACK et la re-signature du watchdog concordent.
+function _webScanQueueTrigger_(trigger) {
+  try {
+    if (Object.prototype.toString.call(trigger) === "[object Date]") {
+      var t = trigger.getTime();
+      return isFinite(t) && t > 0 ? Format.datetime(t) : "";
+    }
+    var s = String(trigger == null ? "" : trigger).trim();
+    return s === "false" || s === "FALSE" ? "" : s;
+  } catch (eTrig) { return ""; }
+}
 function _webScanQueueRevision_(tokens, force, trigger) {
-  return JSON.stringify([tokens || [], force ? 1 : 0, force ? String(trigger || "") : ""]);
+  return JSON.stringify([tokens || [], force ? 1 : 0, force ? _webScanQueueTrigger_(trigger) : ""]);
+}
+// v4.16.100 : un scan force (C1=TRUE) prouve OK porte la revision du B1 de la demande ; le pulse B1
+// du watchdog apres le drain la changeait, donc l'ACK ne concordait jamais et l'onglet restait
+// [REFRESH_QUEUED]. Le watchdog re-signe le recu pour SON pulse, juste avant de l'ecrire, si :
+// recu OK prouve et encore valable, revision forcee, aucune nouvelle demande en file pour ce wallet.
+// Un nouveau B1 de l'utilisateur reste une nouvelle demande (sa revision ne concorde pas).
+function _webScanQueueResignForcePulse_(id, trigger) {
+  var key = String(id || "");
+  var trig = _webScanQueueTrigger_(trigger);
+  if (!key || !trig) return false;
+  var receipt = _webScanQueueReceipt_(key);
+  if (!receipt || receipt.l !== "OK" || !(receipt.q > 0) || !(receipt.s > receipt.b) || !(receipt.nx > Date.now())) return false;
+  var rev = null;
+  try { rev = JSON.parse(String(receipt.v || "")); } catch (eRev) { return false; }
+  if (!Array.isArray(rev) || rev.length !== 3 || rev[1] !== 1 || !Array.isArray(rev[0])) return false;
+  var pending = _webScanQueueRead_();
+  for (var i = 0; i < pending.length; i++) if (_webScanQueueEntryId_(pending[i]) === key) return false;
+  receipt.v = _webScanQueueRevision_(rev[0], 1, trig);
+  return !!_webScanQueueReceipt_(key, receipt);
 }
 // Packed cache dates are script-timezone strings with second precision.
 // Parse local format via GAS Utilities, never Date.parse/local host assumptions.

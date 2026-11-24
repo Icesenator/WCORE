@@ -156,7 +156,7 @@ test('e. watchdog : un résultat DEGRADED prouvé seul pulse le B1 correspondant
     } } } }
   });
   const src = readSource('16_REFRESH.js');
-  for (const name of ['_wd_ackPulseProven_', '_wd_ackPulseTargets_', '_wd_ackPulseDrained_']) {
+  for (const name of ['_wd_ackPulseProven_', '_wd_ackPulseTargets_', '_wd_ackPulseForceTargets_', '_wd_ackPulseDrained_']) {
     const start = src.indexOf('function ' + name + '(');
     if (start < 0) continue;
     const end = src.indexOf('\n}', start);

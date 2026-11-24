@@ -32,4 +32,13 @@ describe("GM contract helpers", () => {
     assert.match(source, /lookupAddChain:/,
       "useGmContracts buildSenders must pass lookupAddChain so withdrawals can add missing chains");
   });
+
+  test("a balance below the withdraw floor explains itself instead of doing nothing", () => {
+    // Regression (B2, 24/11/2026): 7.5e-7 BTC is below MIN_WITHDRAW_WEI, so the click
+    // refreshed the balance and returned silently. It must now show the reason.
+    const source = readFileSync(new URL("../components/GmWithdrawButton.tsx", import.meta.url), "utf8");
+    assert.doesNotMatch(source, /!hasWithdrawableBalance\(refreshed\)\) return;/, "no silent return under the floor");
+    assert.match(source, /Montant sous le minimum retirable/);
+    assert.match(source, /Below the minimum withdrawable amount/);
+  });
 });

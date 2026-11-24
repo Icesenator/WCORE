@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Logo } from "./Logo";
-import { type GmContractWithBalance, getNativeSymbol, hasWithdrawableBalance, weiToNative } from "@/hooks/useGmContracts";
+import { type GmContractWithBalance, getNativeSymbol, hasWithdrawableBalance, weiToNative, MIN_WITHDRAW_WEI } from "@/hooks/useGmContracts";
 import { usePreferences } from "./PreferencesProvider";
 import { getApiUrl } from "@/lib/api";
 import { getFactory } from "@wcore/shared";
@@ -87,7 +87,7 @@ export function GmWithdrawButton({
   });
   // Authoritative balance read from the wallet RPC (any value, including 0).
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
-  const { formatValue } = usePreferences();
+  const { formatValue, language } = usePreferences();
   const backendBalance = balanceKind === "platform" ? contract?.platformBalance : contract?.creatorBalance;
   const balance = resolveGmBalance({ walletBalance, backendBalance, cachedBalance });
 
@@ -175,7 +175,15 @@ export function GmWithdrawButton({
             // wallet can tell them apart — and submitting against an empty
             // contract just burns gas on a "nothing to withdraw" revert.
             const refreshed = await refreshBalanceViaMetaMask();
-            if (refreshed == null || !hasWithdrawableBalance(refreshed)) return;
+            if (refreshed == null) return;
+            if (!hasWithdrawableBalance(refreshed)) {
+              // Below the dust floor: say why nothing happens instead of returning silently.
+              const min = `${weiToNative(MIN_WITHDRAW_WEI.toString())} ${symbol}`;
+              setError(BigInt(refreshed || "0") > 0n
+                ? (language === "fr" ? `Montant sous le minimum retirable (${min})` : `Below the minimum withdrawable amount (${min})`)
+                : (language === "fr" ? "Rien à retirer" : "Nothing to withdraw"));
+              return;
+            }
           }
           try {
             await onWithdraw(contract!);

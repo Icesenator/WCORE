@@ -10,7 +10,7 @@ import { useSafeSwitchChain } from "./useSafeSwitchChain";
 import { switchChainAny, sendTransactionAny } from "@/lib/onchain-tx";
 import { useWallet } from "@/components/ConnectButton";
 
-const MIN_WITHDRAW_WEI = 1_000_000_000_000n;
+export const MIN_WITHDRAW_WEI = 1_000_000_000_000n;
 const LEGACY_GM_CHAIN_IDS: Record<string, number> = {
   duckchain: 5545,
   degen: 666666666,

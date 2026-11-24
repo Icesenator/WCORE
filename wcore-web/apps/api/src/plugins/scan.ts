@@ -14,7 +14,7 @@ import { classifyScanError, consumeScanBudget, isUnreachableScan, scanRequestCos
 import { apiConfig } from "../config.js";
 import { applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus } from "./gsheet.js";
 import { runEnrichmentDiagnostics } from "../integrations/portfolio-enrichment/scan-enrichment.js";
-import { awardFirstScanQuest } from "../gamification/quest-award.js";
+import { awardFirstScanQuest, isScannedChain } from "../gamification/quest-award.js";
 import type { PortfolioEnrichmentScanStep } from "../integrations/portfolio-enrichment/scan-step.js";
 
 const SCAN_CONCURRENCY = apiConfig.scan.scanConcurrency;
@@ -310,7 +310,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       // Fire-and-forget: history persistence must not add latency to the response path.
       prisma.walletScan.create({ data: { userId: req.user.id, address: parsedAddress.data, chains: requestedChains, totalEur: cleanTotalEur, tokenCount: chains.reduce((sum, c) => sum + c.totals.tokenCount, 0), result: result as never } })
         .catch((err) => { console.error("walletScan.create failed:", (err as Error).message); });
-      void awardFirstScanQuest(prisma, req.user.id);
+      if (chains.some(isScannedChain)) void awardFirstScanQuest(prisma, req.user.id);
     }
 
     return result;
@@ -610,7 +610,7 @@ export async function scanPlugin(app: FastifyInstance, deps: ScanPluginDeps) {
       });
     }
 
-    if (req.user && walletResults.length > 0) void awardFirstScanQuest(prisma, req.user.id);
+    if (req.user && walletResults.some((wallet) => wallet.chains.some(isScannedChain))) void awardFirstScanQuest(prisma, req.user.id);
     return { wallets: walletResults, generatedAt: new Date().toISOString() };
   });
 

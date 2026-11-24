@@ -2,7 +2,13 @@
 // Base en memoire : la contrainte unique (userId, questId) est simulee par un Set, comme skipDuplicates en Postgres.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { awardFirstScanQuest, awardQuestOnce, FIRST_SCAN_QUEST_KEY } from "./quest-award.js";
+import { awardFirstScanQuest, awardQuestOnce, FIRST_SCAN_QUEST_KEY, isScannedChain } from "./quest-award.js";
+
+test("isScannedChain: an empty wallet scanned cleanly counts, a chain with only errors does not", () => {
+  assert.equal(isScannedChain({ errors: [], tokens: [] }), true, "empty wallet, no error");
+  assert.equal(isScannedChain({ errors: ["timeout"], tokens: [{}] }), true, "partial error with tokens");
+  assert.equal(isScannedChain({ errors: ["timeout"], tokens: [] }), false, "nothing scanned");
+});
 
 function memoryStore(quests: Record<string, { id: string; scoreReward: number }>) {
   const completions = new Set<string>();

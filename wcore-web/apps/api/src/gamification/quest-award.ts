@@ -29,6 +29,13 @@ export async function awardQuestOnce(
   });
 }
 
+// Une chaine compte comme scannee avec la meme regle que le job asynchrone (plugins/scan.ts, statut "done") :
+// sans erreur, meme si le portefeuille est vide, ou avec des jetons malgre une erreur partielle. Un scan dont
+// toutes les chaines ont echoue ne rapporte donc la quete sur aucun parcours (synchrone, lot, asynchrone).
+export function isScannedChain(chain: { errors: readonly unknown[]; tokens: readonly unknown[] }): boolean {
+  return chain.errors.length === 0 || chain.tokens.length > 0;
+}
+
 // Appel des routes de scan : ne leve jamais et n'attend rien du resultat, pour ne pas retarder ni faire
 // echouer le scan lui-meme.
 export function awardFirstScanQuest(prisma: Pick<PrismaClient, "$transaction">, userId: string): Promise<void> {

@@ -44,7 +44,21 @@ const prismaStub = {
       return { id: "stub" };
     },
   },
+  // Quete first_scan : chaque transaction d'attribution est enregistree (userId, cle de quete).
+  $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn({
+    quest: { findUnique: async (args: { where: { key: string } }) => ({ id: `quest:${args.where.key}`, scoreReward: 25 }) },
+    userQuest: {
+      createMany: async (args: { data: Array<{ userId: string; questId: string }> }) => {
+        for (const row of args.data) questAwards.push(row);
+        return { count: args.data.length };
+      },
+    },
+    user: { update: async () => ({}) },
+  }),
 } as unknown as PrismaClient;
+
+const questAwards: Array<{ userId: string; questId: string }> = [];
+async function flushFireAndForget() { await new Promise((r) => setTimeout(r, 50)); }
 
 const sharedCache = new MemoryCacheStore();
 
@@ -334,6 +348,19 @@ describe("POST /api/scan", () => {
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(walletScanCreates.length, 0);
   });
+
+  test("awards the first_scan quest to an authenticated user, never to an anonymous one", async () => {
+    questAwards.length = 0;
+    const anon = await app.inject({ method: "POST", url: "/api/scan", payload: { address: ADDR_A, chains: [FAKE_CHAIN] } });
+    assert.equal(anon.statusCode, 200);
+    await flushFireAndForget();
+    assert.deepEqual(questAwards, [], "an anonymous scan earns nothing");
+
+    const res = await app.inject({ method: "POST", url: "/api/scan", payload: { address: ADDR_A, chains: [FAKE_CHAIN] }, headers: { "x-test-user": "user-quest" } });
+    assert.equal(res.statusCode, 200);
+    await flushFireAndForget();
+    assert.deepEqual(questAwards, [{ userId: "user-quest", questId: "quest:first_scan" }]);
+  });
 });
 
 // --- POST /api/scan/batch ----------------------------------------------------
@@ -375,6 +402,19 @@ describe("POST /api/scan/batch", () => {
       assert.ok(wallet.chains[0].errors.length > 0, "fake chain must surface an error");
       assert.equal(wallet.totals.valueEur, 0);
     }
+  });
+
+  test("awards the first_scan quest to an authenticated batch scan only", async () => {
+    questAwards.length = 0;
+    const anon = await app.inject({ method: "POST", url: "/api/scan/batch", payload: { addresses: [ADDR_A], chains: [FAKE_CHAIN] } });
+    assert.equal(anon.statusCode, 200);
+    await flushFireAndForget();
+    assert.deepEqual(questAwards, []);
+
+    const res = await app.inject({ method: "POST", url: "/api/scan/batch", payload: { addresses: [ADDR_A, ADDR_B], chains: [FAKE_CHAIN] }, headers: { "x-test-user": "user-batch" } });
+    assert.equal(res.statusCode, 200);
+    await flushFireAndForget();
+    assert.deepEqual(questAwards, [{ userId: "user-batch", questId: "quest:first_scan" }], "one award per batch, not one per wallet");
   });
 
   test("serves cached EVM results without engine calls (batch mget path)", async () => {
@@ -604,5 +644,26 @@ describe("async scan job lifecycle", () => {
 
     const owner = await pollJob(app, jobId, { user: "owner-1" });
     assert.equal(owner.statusCode, 200, "owner can poll the job");
+  });
+
+  test("a done authenticated job awards first_scan; a failed or anonymous job does not", async () => {
+    const runJob = async (chains: string[], user?: string) => {
+      const res = await app.inject({ method: "POST", url: "/api/scan/async", payload: { address: ADDR_A, chains, forceRefresh: true }, headers: user ? { "x-test-user": user } : {} });
+      assert.equal(res.statusCode, 200);
+      const { jobId, pollToken } = res.json() as { jobId: string; pollToken: string };
+      const settled = await waitForJobSettled(app, jobId, user ? { user } : { pollToken });
+      await flushFireAndForget();
+      return settled.status;
+    };
+    questAwards.length = 0;
+    try {
+      assert.equal(await runJob([FAKE_CHAIN], "user-failed"), "error");
+      assert.equal(await runJob([ENGINE_CHAIN]), "done");
+      assert.deepEqual(questAwards, [], "neither a failed job nor an anonymous one earns the quest");
+      assert.equal(await runJob([ENGINE_CHAIN], "user-async"), "done");
+      assert.deepEqual(questAwards, [{ userId: "user-async", questId: "quest:first_scan" }]);
+    } finally {
+      await sharedCache.delete(scanCacheKey(ADDR_A, ENGINE_CHAIN));
+    }
   });
 });

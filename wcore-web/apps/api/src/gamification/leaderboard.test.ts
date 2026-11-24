@@ -21,13 +21,16 @@ async function appWith(users: U[], gms: Record<string, Record<string, number>> =
     },
     gmContract: { groupBy: async () => [] },
     onchainGm: {
-      groupBy: async (args: { where?: { createdAt?: unknown } }) => {
+      // Le stub respecte `take` comme Prisma (tri stable par compteur decroissant, ordre d'insertion a
+      // egalite) : sans cela, une coupe dans une egalite passerait inapercue (revue Codex, PR 211).
+      groupBy: async (args: { where?: { createdAt?: unknown }; take?: number }) => {
         seenWhere.push(args.where);
         const period = args.where?.createdAt ? "since" : "all";
         const byUser = gms[period] ?? gms.all ?? {};
-        return Object.entries(byUser)
+        const rows = Object.entries(byUser)
           .map(([userId, n]) => ({ userId, _count: { id: n } }))
           .sort((a, b) => b._count.id - a._count.id);
+        return typeof args.take === "number" ? rows.slice(0, args.take) : rows;
       },
     },
     $queryRaw: async () => { rawQueries++; return []; },

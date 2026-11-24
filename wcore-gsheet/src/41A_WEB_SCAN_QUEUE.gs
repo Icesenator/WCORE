@@ -33,7 +33,7 @@
  *     backoff and a cooldown after terminal failure.
  ************************************************************/
 
-var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.100-force-ack";
+var GSHEET_WEB_SCAN_QUEUE_VERSION = "4.16.101-drain-cap";
 // 2026-11-09 : retablit 4.16.88 (efface du LIVE avant le 07/11). Le watchdog impulse ~10 B1 a la fois ;
 // leurs cellules s'inscrivent en parallele pendant que le drain tient le ScriptLock. Avec 250 ms
 // (GSHEET_WEB_SCAN_LOCK_WAIT_MS du scan), elles perdaient le verrou : [REFRESH_QUEUE_ERROR], puis
@@ -54,7 +54,10 @@ var GSHEET_WEB_SCAN_QUEUE_ACK_WINDOW_MS = 45 * 60 * 1000;
 // 2026-11-07 (C1) : plafond par passage de drain, 3 -> 8. Le budget de temps reste la vraie
 // borne : aucun scan n'est lance si le temps restant est inferieur a MIN_SCAN_MS ou a 1,5 fois
 // le scan le plus long deja observe dans ce passage ; un refus de quota arrete le passage.
-var GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN = 8;
+// 2026-11-24 (P2-REL-GAS-QUEUE-AND-J1) : 8 -> 16. Mesure LIVE (WCORE_WD_QUEUE_HIST, 6 passages) :
+// chaque passage s'arretait sur MAX_ITEMS apres 50 a 123 s, sur un budget de 157 a 180 s ; jamais
+// sur le budget. Le plafond, pas le temps, freinait la file. Le budget reste la borne reelle.
+var GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN = 16;
 var GSHEET_WEB_SCAN_QUEUE_DRAIN_TRIGGER = "QUEUE_DRAIN";
 var _WCORE_WEB_SCAN_QUEUE_DRAINING = false;
 // Set by the EVM status path (11_EVM_ENGINE) after a drained scan rereads the cache.

@@ -41,6 +41,20 @@ RUN node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package
 RUN mkdir -p packages/db/dist && echo 'export { PrismaClient, Prisma } from "@prisma/client";' > packages/db/dist/index.js
 RUN node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('packages/db/package.json','utf8')); p.main='./dist/index.js'; fs.writeFileSync('packages/db/package.json',JSON.stringify(p,null,2))"
 
+# P2-MAINT-DOCKERFILE-PROD-ONLY: the runner copies node_modules as is, so the build tools
+# (vitest, vite, esbuild, solc, typescript, eslint, tsx...) are dropped once everything is
+# built. pnpm prune does not run recursively in a workspace: node_modules are wiped and
+# reinstalled --prod from the store filled above (offline). The hoisted layout still holds the
+# production dependencies of the apps/web importer of the shared lockfile (next, react-dom,
+# wagmi), as before: --filter does not narrow a hoisted install. prisma stays (dependency of
+# @wcore/db; start-production.sh runs prisma migrate deploy). The compiled @wcore/chains copy
+# and the generated Prisma client are not installed packages: rebuilt as above.
+RUN rm -rf node_modules packages/*/node_modules apps/*/node_modules && \
+    pnpm install --frozen-lockfile --prod --offline && \
+    mkdir -p packages/core/node_modules packages/db/node_modules && \
+    rm -rf node_modules/@wcore/chains && mkdir -p node_modules/@wcore/chains && cp -R /wcore-gsheet/dist/* node_modules/@wcore/chains/ && cp -R /tmp/wcore-chains-out/* node_modules/@wcore/chains/ && \
+    pnpm --filter "@wcore/db" db:generate
+
 # Last in the builder so a new commit id does not invalidate the cached build layers.
 # Written by scripts/railway-deploy.mjs into the upload; absent from a GitHub-triggered
 # build (package.json keeps the COPY valid when it is). Served by /health as `build`.

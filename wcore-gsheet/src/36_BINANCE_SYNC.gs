@@ -36,11 +36,21 @@ var BINANCE_SYNC_CONFIG = {
   SPREADSHEET_ID: "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4"
 };
 
+// 24/11/2026 (P2-MAINT-API-SMALL-HARDENING) : le jeton du relais part vers l'URL enregistree.
+// Les quatre SET_*_RELAY n'acceptent plus que https et un hote connu (avant : tout ce qui
+// commencait par "http", donc http en clair et n'importe quel hote). Une URL deja enregistree
+// n'est pas relue ici : seul un nouvel enregistrement est controle.
+var WCORE_CEX_RELAY_HOSTS = ["cex-relay-production.up.railway.app", "cex-relay.up.railway.app", "binance-relay.up.railway.app"];
+function _cexRelayUrlAllowed_(url) {
+  var m = /^https:\/\/([a-z0-9.-]+)(?::443)?(?:\/[^\s?#]*)?$/i.exec(String(url == null ? "" : url).trim());
+  return !!m && WCORE_CEX_RELAY_HOSTS.indexOf(m[1].toLowerCase()) >= 0;
+}
+
 // v4.15.79: Binance bloque les IP datacenter Google (HTTP 451). On passe par un
 // relais Railway (IP non bloquee) qui signe les requetes. Apps Script n'envoie
 // qu'un token; le secret Binance reste dans Railway.
 function SET_BINANCE_RELAY(url, token) {
-  if (!url || String(url).indexOf("http") !== 0) throw new Error("URL relais invalide");
+  if (!_cexRelayUrlAllowed_(url)) throw new Error("URL relais invalide (https et hote de relais connu requis)");
   if (!token || String(token).length < 20) throw new Error("Token relais invalide");
   var props = PropertiesService.getUserProperties();
   props.setProperty(BINANCE_SYNC_CONFIG.RELAY_URL_PROP, String(url).trim().replace(/\/+$/, ""));

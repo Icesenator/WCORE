@@ -29,7 +29,7 @@ async function fixture(t: TestContext) {
   };
   const app = Fastify();
   t.after(() => app.close());
-  await app.register(gsheetPlugin, { token: "test-token", cacheStore: { get: async () => null }, cacheWriter: cache });
+  await app.register(gsheetPlugin, { token: "test-token", cacheWriter: cache });
   return { app, entries, cache };
 }
 

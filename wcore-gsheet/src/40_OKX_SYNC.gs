@@ -29,7 +29,7 @@ var OKX_SYNC_CONFIG = {
 };
 
 function SET_OKX_RELAY(url, token) {
-  if (!url || String(url).indexOf("http") !== 0) throw new Error("URL relais invalide");
+  if (!_cexRelayUrlAllowed_(url)) throw new Error("URL relais invalide (https et hote de relais connu requis)");
   if (!token || String(token).length < 20) throw new Error("Token relais invalide");
   var cleanUrl = String(url).trim().replace(/\/+$/, "");
   var cleanToken = String(token).trim();

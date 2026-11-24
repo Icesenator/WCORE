@@ -445,11 +445,9 @@ await metricsPlugin(app, { getCircuitBreaker, isAdminAuthorized, cacheBackend })
 await analyticsPlugin(app, { store: createPrismaAnalyticsStore(prisma), isAdminAuthorized });
 await sharePlugin(app);
 
-// Gsheet bridge: expose /api/gsheet/cache/get to GAS for delegated reads of
-// the shared cache (Redis or in-memory). Gated by GSHEET_API_TOKEN so envs
-// without the token keep their existing route set untouched. The wrapper
-// narrows sharedCache.get<T>(): T | undefined -> string | null to match the
-// plugin's expected cacheStore contract.
+// Gsheet bridge (/api/gsheet/*), gated by GSHEET_API_TOKEN so envs without the
+// token keep their existing route set untouched. 24/11/2026: the uncalled
+// /api/gsheet/cache/get route (any key of the shared auth cache) is removed.
 const gsheetApiToken = apiConfig.integrations.gsheetApiToken;
 if (gsheetApiToken) {
   // v0.3.x: WCT Stake dynamic [Lock] → [Flex] determination via lockUntil query.
@@ -478,12 +476,6 @@ if (gsheetApiToken) {
       : undefined,
     ack: ntfyTopic ? { topic: ntfyTopic, store: createPrismaAckStore(prisma) } : undefined,
     cache: sharedCache,
-    cacheStore: {
-      get: async (key: string): Promise<string | null> => {
-        const v = await sharedCache.get<string>(key);
-        return v ?? null;
-      },
-    },
     cacheWriter: {
       set: async (key: string, value: unknown, ttlMs: number) => {
         await sharedCache.set(key, value, ttlMs);

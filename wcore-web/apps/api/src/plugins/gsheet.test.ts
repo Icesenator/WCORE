@@ -1,4 +1,4 @@
-﻿import { describe, test } from "node:test";
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
 import { gsheetPlugin, mapWithConcurrencyLimit, applyStakedPriceMirrors, applyDeFiPositionMirrorsToWalletAssets, precomputeWCTStakeLockStatus, setWCTStakeLockStatusFetcher } from "./gsheet.js";
@@ -10,7 +10,6 @@ test("scam enrichment receives nested CHAIN.CHAIN_ID and filters PICKLE", async 
   const pickle = "0x9347e04ea939b15f5965dd1adb5e496423d21956";
   await app.register(gsheetPlugin, {
     token: "secret",
-    cacheStore: { get: async () => null },
     scamEnrichment: {
       loader: async (chainId) => {
         receivedChainId = chainId;
@@ -60,7 +59,6 @@ test("gsheet scan filters a GoPlus-confirmed honeypot without a manual blocklist
   const moon = "0xd418f9fe0052856558b88f3f530130e0dd306a82";
   await app.register(gsheetPlugin, {
     token: "secret",
-    cacheStore: { get: async () => null },
     scamEnrichment: {
       loader: async () => new Map([[moon, { goPlus: {
         available: true,
@@ -118,56 +116,27 @@ describe("gsheetPlugin", () => {
 
   test("returns 401 without token", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
-    const res = await app.inject({ method: "GET", url: "/api/gsheet/cache/get?key=k" });
+    await app.register(gsheetPlugin, { token: "secret" });
+    const res = await app.inject({ method: "GET", url: "/api/gsheet/crypto/portfolio" });
     assert.equal(res.statusCode, 401);
     await app.close();
   });
 
-  test("returns cached value with valid token", async () => {
+  // 24/11/2026 (P2-MAINT-API-SMALL-HARDENING): the uncalled route that read any key
+  // of the shared cache (auth nonces included) is gone, even with a valid token.
+  test("cache/get route is removed", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, {
-      token: "secret",
-      cacheStore: { get: async (key) => (key === "k" ? "v" : null) },
-    });
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/gsheet/cache/get?key=k",
-      headers: { "x-gsheet-token": "secret" },
-    });
-    assert.equal(res.statusCode, 200);
-    assert.deepEqual(JSON.parse(res.body), { found: true, value: "v" });
-    await app.close();
-  });
-
-  test("returns found:false for missing key", async () => {
-    const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/gsheet/cache/get?key=missing",
-      headers: { "x-gsheet-token": "secret" },
-    });
-    assert.equal(res.statusCode, 200);
-    assert.deepEqual(JSON.parse(res.body), { found: false, value: null });
-    await app.close();
-  });
-
-  test("returns 400 when key is missing", async () => {
-    const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/gsheet/cache/get",
-      headers: { "x-gsheet-token": "secret" },
-    });
-    assert.equal(res.statusCode, 400);
+    await app.register(gsheetPlugin, { token: "secret" });
+    const res = await app.inject({ method: "GET", url: "/api/gsheet/cache/get?key=k", headers: { "x-gsheet-token": "secret" } });
+    assert.equal(res.statusCode, 404);
+    const anon = await app.inject({ method: "GET", url: "/api/gsheet/cache/get?key=k" });
+    assert.equal(anon.statusCode, 404);
     await app.close();
   });
 
   test("does not block non-gsheet routes", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
+    await app.register(gsheetPlugin, { token: "secret" });
     app.get("/api/scan/foo", async () => ({ ok: true }));
     const res = await app.inject({ method: "GET", url: "/api/scan/foo" });
     assert.equal(res.statusCode, 200);
@@ -179,7 +148,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       stockPortfolioProvider: async () => ({
         ok: true,
         generatedAt: "2026-07-11T12:00:00.000Z",
@@ -213,7 +181,6 @@ describe("gsheetPlugin", () => {
     let providerOpts: { fresh: boolean } | undefined;
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       stockPortfolioProvider: async (opts) => {
         providerOpts = opts;
         return { ok: true, generatedAt: "", ownerAddress: "", dynamicLimit: 300, holdingsStale: false, rows: [], stats: { ranked: 0, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 } };
@@ -235,7 +202,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       stockPortfolioProvider: async () => ({ ok: true, generatedAt: "", ownerAddress: "", dynamicLimit: 300, holdingsStale: false, rows: [], stats: { ranked: 0, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 } }),
     });
     const res = await app.inject({
@@ -252,7 +218,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       stockPortfolioProvider: async () => ({ ok: true, generatedAt: "", ownerAddress: "", dynamicLimit: 300, holdingsStale: false, rows: [], stats: { ranked: 0, held: 0, heldOutsideRankedUniverse: 0, pricedFresh: 0, pricedStale: 0, unpriced: 0 } }),
     });
     const res = await app.inject({
@@ -268,7 +233,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       stockPortfolioProvider: async () => { throw new Error("owner not configured"); },
     });
     const res = await app.inject({
@@ -285,7 +249,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       cryptoPortfolioProvider: async () => ({
         ok: true,
         generatedAt: "2026-07-11T12:00:00.000Z",
@@ -313,7 +276,6 @@ describe("gsheetPlugin", () => {
     let providerOpts: { fresh: boolean } | undefined;
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       cryptoPortfolioProvider: async (opts) => {
         providerOpts = opts;
         return { ok: true, generatedAt: "", rows: [], stats: { ranked: 0, unpriced: 0 } };
@@ -335,7 +297,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       cryptoPortfolioProvider: async () => ({ ok: true, generatedAt: "", rows: [], stats: { ranked: 0, unpriced: 0 } }),
     });
     const res = await app.inject({
@@ -352,7 +313,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       cryptoPortfolioProvider: async () => { throw new Error("cmc down"); },
     });
     const res = await app.inject({
@@ -369,7 +329,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       priceBatcher: async (input) => ({
         fxRate: 0.88,
         prices: Object.fromEntries(input.tokens.map((token) => [token.toLowerCase(), {
@@ -410,7 +369,7 @@ describe("gsheetPlugin", () => {
 
   test("rejects invalid gsheet price requests", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
+    await app.register(gsheetPlugin, { token: "secret" });
     const res = await app.inject({
       method: "POST",
       url: "/api/gsheet/prices",
@@ -426,7 +385,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
@@ -486,7 +444,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       priceBatcher: async () => ({ prices: {}, fxRate: 0.86 }),
       scanRunner: async (input) => ({
@@ -532,7 +489,6 @@ describe("gsheetPlugin", () => {
     let batcherCalls = 0;
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       // A message shaped like a benign gap: relayed raw, it would have cleared the degraded flag.
       priceBatcher: async () => { batcherCalls += 1; throw new Error("LEAK price: NO_PRICE"); },
@@ -588,7 +544,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       priceBatcher: async () => ({ prices: {}, fxRate: 0.86 }),
       scanRunner: async () => { throw new Error("rpc timeout"); },
@@ -609,7 +564,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
@@ -647,7 +601,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
@@ -699,7 +652,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
@@ -738,7 +690,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       priceBatcher: async () => ({ prices: {}, fxRate: 0.8781 }),
       scanRunner: async (input) => ({
@@ -793,7 +744,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       scanRunner: async (input) => ({
         ok: true,
@@ -833,7 +783,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       scanRunner: async (input) => ({
         ok: true,
@@ -878,7 +827,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       scanRunner: async (input) => ({
         ok: true,
@@ -925,7 +873,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       scanRunner: async (input) => ({
         ok: true,
@@ -970,7 +917,6 @@ describe("gsheetPlugin", () => {
     const usdcMint = "uSd2czE61Evaf76RNbq4KPpXnkiL3irdzgLFUMe3NoG";
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       scanRunner: async (input) => ({
         ok: true,
@@ -1011,7 +957,6 @@ describe("gsheetPlugin", () => {
     const chaseMint = "GPK71dya1H975s3U4gYaJjrRCp3BGyAD8fmZCtSmBCcz";
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: noChainbaseStakingProvider,
       scanRunner: async (input) => ({
         ok: true,
@@ -1050,7 +995,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1093,7 +1037,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1135,7 +1078,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1174,7 +1116,6 @@ describe("gsheetPlugin", () => {
     const vanity = "0x192d50c369192e492df0aaecdf79d95172fd4444";
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1210,7 +1151,6 @@ describe("gsheetPlugin", () => {
     const vbtc = "0x992d55321d3e8f5778b11a3789467c4711fe580c";
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scamEnrichment: {
         loader: async () => new Map([[vbtc, {
           goPlus: { available: true, isHoneypot: false, isBlacklisted: false },
@@ -1250,7 +1190,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1293,7 +1232,6 @@ describe("gsheetPlugin", () => {
     let sawForceRefresh: boolean | undefined;
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1332,7 +1270,6 @@ describe("gsheetPlugin", () => {
     const missingTokens = Array.from({ length: 25 }, (_, i) => `0x${String(i + 1).padStart(40, "0")}`);
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1365,7 +1302,7 @@ describe("gsheetPlugin", () => {
 
   test("rejects invalid gsheet scan requests", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null } });
+    await app.register(gsheetPlugin, { token: "secret" });
     const res = await app.inject({
       method: "POST",
       url: "/api/gsheet/scan",
@@ -1381,7 +1318,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: async () => ({
         stakingContract: "0x0297e997b56017164110f75f71ecd58da823085b",
         airdropContract: "0x3f2061547174d206613bc70869a454c25f84a0df",
@@ -1443,7 +1379,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       chainbaseStakingProvider: async () => ({
         stakingContract: "0x0297e997b56017164110f75f71ecd58da823085b",
         airdropContract: "0x3f2061547174d206613bc70869a454c25f84a0df",
@@ -1494,7 +1429,6 @@ describe("gsheetPlugin", () => {
     try {
       await app.register(gsheetPlugin, {
         token: "secret",
-        cacheStore: { get: async () => null },
         scanRunner: async (input) => ({
           ok: true,
           chain: input.chain,
@@ -1531,7 +1465,6 @@ describe("gsheetPlugin", () => {
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async (input) => ({
         ok: true,
         chain: input.chain,
@@ -1567,7 +1500,6 @@ describe("gsheetPlugin", () => {
     let scanRunnerCalls = 0;
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async () => {
         scanRunnerCalls++;
         throw new Error("scan_runner_invoked");
@@ -1590,7 +1522,6 @@ describe("gsheetPlugin", () => {
     let scanRunnerCalls = 0;
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async () => {
         scanRunnerCalls++;
         throw new Error("scan_runner_invoked");
@@ -1615,7 +1546,6 @@ describe("gsheetPlugin", () => {
     let scanRunnerCalls = 0;
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       scanRunner: async () => {
         scanRunnerCalls++;
         throw new Error("scan_runner_invoked");
@@ -2111,7 +2041,6 @@ test("a fake stablecoin is filtered even when the GSheet sends it back as a cust
   const real = "0xb47c4c8f73f009cc0c0d3f92b388d13e293f0b65";
   await app.register(gsheetPlugin, {
     token: "secret",
-    cacheStore: { get: async () => null },
     scanRunner: async () => ({
       ok: true,
       chain: "ELYSIUM",
@@ -2152,7 +2081,6 @@ test("a token already shown in the tab stays at unknown value when its price is 
   const heldScam = "0x00000000000000000000000000000000000f4e01";
   await app.register(gsheetPlugin, {
     token: "secret",
-    cacheStore: { get: async () => null },
     // Service de prix deterministe : aucun prix disponible (panne simulee).
     priceBatcher: async () => ({ prices: {}, fxRate: 0.88 }),
     scanRunner: async () => ({
@@ -2204,7 +2132,6 @@ test("a cashtag token with a sub-scam GeckoTerminal score is removed from the ta
     const app = Fastify();
     await app.register(gsheetPlugin, {
       token: "secret",
-      cacheStore: { get: async () => null },
       priceBatcher: async () => ({ prices: {}, fxRate: 0.88 }),
       scamEnrichment: {
         loader: async () => new Map(gtScore == null ? [] : [[montra, { gt: { available: true, gtScore } }]]),
@@ -2241,7 +2168,7 @@ describe("POST /api/gsheet/kraken/balances (P2-DATA-KRAKEN-VIA-API)", () => {
   test("refuse sans jeton : aucun appel au fournisseur", async () => {
     const app = Fastify();
     let called = 0;
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => { called++; return { ok: true, balances: {}, fetchedAt: "", reused: false, nonce: "1" }; } });
+    await app.register(gsheetPlugin, { token: "secret", krakenBalancesProvider: async () => { called++; return { ok: true, balances: {}, fetchedAt: "", reused: false, nonce: "1" }; } });
     const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances" });
     assert.equal(res.statusCode, 401);
     assert.equal(called, 0);
@@ -2251,7 +2178,7 @@ describe("POST /api/gsheet/kraken/balances (P2-DATA-KRAKEN-VIA-API)", () => {
   test("renvoie les quantites brutes et le nonce, sans cache HTTP", async () => {
     const app = Fastify();
     const seen: Array<string | null> = [];
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async (o) => { seen.push(o.nonceFloor); return { ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true, nonce: "1800000000000001" }; } });
+    await app.register(gsheetPlugin, { token: "secret", krakenBalancesProvider: async (o) => { seen.push(o.nonceFloor); return { ok: true, balances: { XXBT: "0.1" }, fetchedAt: "2026-11-23T20:00:00.000Z", reused: true, nonce: "1800000000000001" }; } });
     const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" }, payload: { nonceFloor: "1800000000000000" } });
     const bad = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" }, payload: { nonceFloor: "1e18" } });
     assert.equal(bad.statusCode, 200);
@@ -2264,7 +2191,7 @@ describe("POST /api/gsheet/kraken/balances (P2-DATA-KRAKEN-VIA-API)", () => {
 
   test("pause apres lockout : 503 avec l'heure de reprise", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => ({ ok: false, status: 503, error: "kraken_paused", resumeAt: "2026-11-23T21:00:00.000Z" }) });
+    await app.register(gsheetPlugin, { token: "secret", krakenBalancesProvider: async () => ({ ok: false, status: 503, error: "kraken_paused", resumeAt: "2026-11-23T21:00:00.000Z" }) });
     const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" } });
     assert.equal(res.statusCode, 503);
     assert.deepEqual(JSON.parse(res.body), { ok: false, error: "kraken_paused", resumeAt: "2026-11-23T21:00:00.000Z" });
@@ -2273,7 +2200,7 @@ describe("POST /api/gsheet/kraken/balances (P2-DATA-KRAKEN-VIA-API)", () => {
 
   test("fournisseur absent ou en echec : 503 kraken_unavailable", async () => {
     const app = Fastify();
-    await app.register(gsheetPlugin, { token: "secret", cacheStore: { get: async () => null }, krakenBalancesProvider: async () => { throw new Error("db down"); } });
+    await app.register(gsheetPlugin, { token: "secret", krakenBalancesProvider: async () => { throw new Error("db down"); } });
     const res = await app.inject({ method: "POST", url: "/api/gsheet/kraken/balances", headers: { "x-gsheet-token": "secret" } });
     assert.equal(res.statusCode, 503);
     assert.deepEqual(JSON.parse(res.body), { ok: false, error: "kraken_unavailable" });

@@ -60,7 +60,7 @@ function _bybitCanonicalSymbol_(symbol) {
 // Relais Railway (contourne le geo-block CloudFront sur api.bybit.eu depuis GAS).
 // La cle Bybit vit cote Railway; GAS n'envoie que le RELAY_TOKEN.
 function SET_BYBIT_RELAY(url, token) {
-  if (!url || String(url).indexOf("http") !== 0) throw new Error("Relay URL invalide");
+  if (!_cexRelayUrlAllowed_(url)) throw new Error("URL relais invalide (https et hote de relais connu requis)");
   if (!token || String(token).length < 10) throw new Error("Relay token invalide ou trop court");
   var props = PropertiesService.getUserProperties();
   props.setProperty(BYBIT_SYNC_CONFIG.RELAY_URL_PROP, String(url).trim().replace(/\/+$/, ""));

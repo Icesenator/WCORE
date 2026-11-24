@@ -39,7 +39,6 @@ export interface GsheetCryptoPortfolioSnapshot {
 
 export interface GsheetPluginOptions {
   token: string;
-  cacheStore: { get: (key: string) => Promise<string | null> };
   cache?: CacheStore;
   priceBatcher?: (input: GsheetPriceBatchInput) => Promise<GsheetPriceBatchResult>;
   scanRunner?: (input: GsheetScanInput) => Promise<GsheetScanResult>;
@@ -1160,13 +1159,6 @@ async function gsheetProtectedRoutes(app: FastifyInstance, opts: GsheetPluginOpt
     if (!opts.ack) return reply.code(503).send({ ok: false, error: "ack_disabled" });
     const result = await handleTradeAckTake(opts.ack.store);
     return reply.code(result.status).send(result.body);
-  });
-
-  app.get("/api/gsheet/cache/get", async (req, reply) => {
-    const { key } = req.query as { key?: string };
-    if (!key) return reply.code(400).send({ error: "missing_key" });
-    const value = await opts.cacheStore.get(key);
-    return { found: value !== null, value };
   });
 
   app.delete("/api/gsheet/cache/price", async (req, reply) => {

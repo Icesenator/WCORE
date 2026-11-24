@@ -7,7 +7,6 @@ import { gsheetPlugin, type GsheetPluginOptions } from "./gsheet.js";
 // No real cache, credentials, provider or listener: every request uses inject.
 const token = "local-auth-test-token";
 const routes = [
-  { method: "GET", path: "cache/get?key=sentinel", status: 200, effect: "read" },
   { method: "GET", path: "crypto/portfolio?fresh=true", status: 200, effect: "crypto" },
   { method: "GET", path: "stocks/portfolio?fresh=true", status: 200, effect: "stocks" },
   { method: "DELETE", path: "cache/price?chain=ETHEREUM&contract=sentinel", status: 200, effect: "delete" },
@@ -28,7 +27,6 @@ for (const registration of ["registered", "direct"] as const) {
         app.get("/public-before", async () => ({ public: true }));
         const opts: GsheetPluginOptions = {
           token,
-          cacheStore: { get: async () => { effects.push("read"); return "synthetic-sentinel"; } },
           cache: {
             get: async () => { assert.fail("unexpected cache read"); },
             set: async () => { assert.fail("unexpected cache write"); },
@@ -77,14 +75,18 @@ test("encoded query values remain legitimate and normalized paths remain protect
   const app = Fastify();
   t.after(() => app.close());
   const keys: string[] = [];
-  await gsheetPlugin(app, { token, cacheStore: { get: async (key) => { keys.push(key); return "sentinel"; } } });
-  const response = await app.inject({ url: "/api/gsheet/cache/get?key=path%2Fpercent%25space%20value", headers: { "x-gsheet-token": token } });
+  const cache = {
+    get: async () => undefined, set: async () => {}, clear: async () => {}, mget: async () => [], add: async () => true,
+    delete: async (key: string) => { keys.push(key); },
+  } as unknown as CacheStore;
+  await gsheetPlugin(app, { token, cache });
+  const response = await app.inject({ method: "DELETE", url: "/api/gsheet/cache/price?chain=eth&contract=path%2Fpercent%25space%20value", headers: { "x-gsheet-token": token } });
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(keys, ["path/percent%space value"]);
+  assert.deepEqual(keys, ["price:eth:path/percent%space value"]);
   keys.length = 0;
-  for (const path of ["/api/gsheet/../gsheet/cache/get?key=k", "/api/gsheet/cache%2Fget?key=k", "/api/gsheet%2Fcache/get?key=k", "/%ZZpi/gsheet/cache/get?key=k", "/api/%2567sheet/cache/get?key=k"]) {
-    const res = await app.inject({ url: path });
+  for (const path of ["/api/gsheet/../gsheet/cache/price?chain=e&contract=k", "/api/gsheet/cache%2Fprice?chain=e&contract=k", "/api/gsheet%2Fcache/price?chain=e&contract=k", "/%ZZpi/gsheet/cache/price?chain=e&contract=k", "/api/%2567sheet/cache/price?chain=e&contract=k"]) {
+    const res = await app.inject({ method: "DELETE", url: path });
     assert.ok([400, 401, 404].includes(res.statusCode), `${path}: ${res.statusCode}`);
   }
-  assert.deepEqual(keys, [], "noncanonical paths cannot read the cache without authentication");
+  assert.deepEqual(keys, [], "noncanonical paths cannot touch the cache without authentication");
 });

@@ -123,7 +123,7 @@ test("a bad topic disables the relay", async () => {
 test("the route needs the GSheet token, and answers 503 when the relay is off", async () => {
   const d = deps();
   const app = Fastify();
-  await app.register(gsheetPlugin, { token: "tok", cacheStore: { get: async () => null }, notify: d.deps });
+  await app.register(gsheetPlugin, { token: "tok", notify: d.deps });
   const noTok = await app.inject({ method: "POST", url: "/api/gsheet/notify", payload: BODY });
   assert.equal(noTok.statusCode, 401);
   const badTok = await app.inject({ method: "POST", url: "/api/gsheet/notify", headers: { "x-gsheet-token": "nope" }, payload: BODY });
@@ -134,7 +134,7 @@ test("the route needs the GSheet token, and answers 503 when the relay is off", 
   assert.equal(d.calls.length, 1);
   await app.close();
   const off = Fastify();
-  await off.register(gsheetPlugin, { token: "tok", cacheStore: { get: async () => null } });
+  await off.register(gsheetPlugin, { token: "tok" });
   const r = await off.inject({ method: "POST", url: "/api/gsheet/notify", headers: { "x-gsheet-token": "tok" }, payload: BODY });
   assert.equal(r.statusCode, 503);
   await off.close();

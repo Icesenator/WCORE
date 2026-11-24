@@ -11,7 +11,8 @@ const root = path.join(__dirname, '..', 'src');
 const pad = n => String(n).padStart(2, '0');
 const fmt = ms => { const d = new Date(ms); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()); };
 
-function harness() {
+const parisFmt = ms => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(ms)).replace('T', ' ');
+function harness(opts = {}) {
   const clock = { now: Date.UTC(2026, 10, 24, 8, 0, 0) };
   class Clock extends Date { constructor(...a) { super(...(a.length ? a : [clock.now])); } static now() { return clock.now; } }
   const store = new Map();
@@ -19,7 +20,7 @@ function harness() {
     CacheService: { getScriptCache: () => ({ get: k => store.get(k) || null, put: (k, v) => store.set(k, v), remove: k => store.delete(k) }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Utilities: { parseDate: s => new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13), +s.slice(14, 16), +s.slice(17, 19))) },
-    Session: { getScriptTimeZone: () => 'UTC' }, Format: { datetime: x => fmt(Number(x)) },
+    Session: { getScriptTimeZone: () => opts.paris ? 'Europe/Paris' : 'UTC' }, Format: { datetime: x => (opts.paris ? parisFmt : fmt)(Number(x)) },
     _webScanProp_: () => '', _webScanEnabled_: () => true,
     _webScanChainKey_: cfg => cfg.CHAIN.NAME, _webScanForce_: x => x === true, _webScanTokenList_: x => x || [] };
   c.cacheMs = clock.now - 7 * 3600000;
@@ -51,7 +52,7 @@ test('scan force prouve OK : acquitte au pulse du watchdog, une seule fois', () 
   const wdB1 = fmt(h.clock.now);
   // Sans re-signature, le pulse du watchdog serait une nouvelle demande forcee (le defaut).
   assert.equal(h.c._webScanQueueAck_('x', [], true, { CHAIN: { NAME: 'E' } }, wdB1, h.c.cacheMs), false);
-  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, wdB1), true);
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, wdB1, userB1), true);
   assert.equal(h.cell(wdB1), 'WEB_SCAN_OK');
   // Recalcul naturel au meme B1 : toujours acquitte, aucun nouveau scan.
   assert.equal(h.cell(wdB1), 'WEB_SCAN_OK');
@@ -61,17 +62,19 @@ test('scan force prouve OK : acquitte au pulse du watchdog, une seule fois', () 
 
 test('B1 lu comme une Date par la fonction personnalisee : meme revision', () => {
   const h = harness();
-  h.cell(fmt(h.clock.now)); h.clock.now += 60000; h.drain();
+  const userB1 = fmt(h.clock.now);
+  h.cell(userB1); h.clock.now += 60000; h.drain();
   const wdMs = Math.floor(h.clock.now / 1000) * 1000;
-  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, fmt(wdMs)), true);
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, fmt(wdMs), userB1), true);
   assert.equal(h.cell(new Date(wdMs)), 'WEB_SCAN_OK');
 });
 
 test("un nouveau B1 de l'utilisateur avec C1 coche relance un scan force", () => {
   const h = harness();
-  h.cell(fmt(h.clock.now)); h.clock.now += 60000; h.drain();
+  const userB1 = fmt(h.clock.now);
+  h.cell(userB1); h.clock.now += 60000; h.drain();
   const wdB1 = fmt(h.clock.now);
-  h.c._webScanQueueResignForcePulse_(h.id, wdB1);
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, wdB1, userB1), true);
   assert.equal(h.cell(wdB1), 'WEB_SCAN_OK');
   h.clock.now += 5 * 60000;
   assert.equal(h.cell(fmt(h.clock.now)), 'QUEUED');
@@ -81,22 +84,25 @@ test("un nouveau B1 de l'utilisateur avec C1 coche relance un scan force", () =>
 
 test('re-signature refusee : demande en file, recu non OK, recu expire, declencheur vide', () => {
   const h = harness();
-  h.cell(fmt(h.clock.now)); h.clock.now += 60000; h.drain();
+  const userB1 = fmt(h.clock.now);
+  h.cell(userB1); h.clock.now += 60000; h.drain();
   // Nouvelle demande de l'utilisateur deja en file : le watchdog ne l'ecrase pas.
   h.clock.now += 60000; assert.equal(h.cell(fmt(h.clock.now)), 'QUEUED');
-  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, fmt(h.clock.now + 1000)), false);
-  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, ''), false);
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, fmt(h.clock.now + 1000), userB1), false);
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, '', userB1), false);
 
   const d = harness();
   d.c.outcome = 'WEB_SCAN_DEGRADED';
-  d.cell(fmt(d.clock.now)); d.clock.now += 60000;
+  const dB1 = fmt(d.clock.now);
+  d.cell(dB1); d.clock.now += 60000;
   assert.equal(d.drain().results[0].outcome, 'DEGRADED');
-  assert.equal(d.c._webScanQueueResignForcePulse_(d.id, fmt(d.clock.now)), false);
+  assert.equal(d.c._webScanQueueResignForcePulse_(d.id, fmt(d.clock.now), dB1), false);
 
   const e = harness();
-  e.cell(fmt(e.clock.now)); e.clock.now += 60000; e.drain();
+  const eB1 = fmt(e.clock.now);
+  e.cell(eB1); e.clock.now += 60000; e.drain();
   e.clock.now += 46 * 60000; // fenetre d'ACK (45 min) depassee
-  assert.equal(e.c._webScanQueueResignForcePulse_(e.id, fmt(e.clock.now)), false);
+  assert.equal(e.c._webScanQueueResignForcePulse_(e.id, fmt(e.clock.now), eB1), false);
 });
 
 test('revision perimee refusee apres re-signature : autres jetons, ancien B1, mode non force', () => {
@@ -104,7 +110,7 @@ test('revision perimee refusee apres re-signature : autres jetons, ancien B1, mo
   const userB1 = fmt(h.clock.now);
   h.cell(userB1); h.clock.now += 60000; h.drain();
   const wdB1 = fmt(h.clock.now);
-  h.c._webScanQueueResignForcePulse_(h.id, wdB1);
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, wdB1, userB1), true);
   const cfg = { CHAIN: { NAME: 'E' } };
   assert.equal(h.c._webScanQueueAck_('x', ['0xtok'], true, cfg, wdB1, h.c.cacheMs), false);
   assert.equal(h.c._webScanQueueAck_('x', [], true, cfg, userB1, h.c.cacheMs), false);
@@ -126,7 +132,8 @@ test('chaine complete : drain force, watchdog (pulse re-signe), recalcul de I1 a
   h.clock.now += 60000;
   const results = h.drain().results;
   const writes = [];
-  const ss = { getId: () => 'test-sheet', getSheetByName: name => ({ getRange: range => ({ setValue: value => writes.push({ name, range, value }) }) }) };
+  const b1 = { Wallet: userB1, Other: userB1 };
+  const ss = { getId: () => 'test-sheet', getSheetByName: name => ({ getRange: range => ({ getValue: () => b1[name], setValue: value => { b1[name] = value; writes.push({ name, range, value }); } }) }) };
   Object.assign(h.c, {
     _wd_norm_: v => String(v).trim(), _wd_isCexSheet_: () => false,
     Sheets: { Spreadsheets: { Values: { batchGet: () => ({ valueRanges: [
@@ -168,4 +175,29 @@ test('watchdog : cibles forcees seulement pour C1 coche et un scan OK prouve', (
   assert.equal(c._wd_ackPulseForceTargets_([res('OK')], [row('T', 'FALSE')]).length, 0);
   // Le passage normal continue d'exclure les lignes C1 cochees.
   assert.equal(c._wd_ackPulseTargets_([res('OK')], [row('T', 'TRUE')]).length, 0);
+});
+
+test("pulse de l'utilisateur apres le drain, recalcul pas encore fait : jamais ecrase ni acquitte", () => {
+  const h = harness();
+  const userB1 = fmt(h.clock.now);
+  h.cell(userB1); h.clock.now += 60000; h.drain();
+  h.clock.now += 1000;
+  const userB2 = fmt(h.clock.now); // saisi dans B1, I1 pas encore recalcule (file vide)
+  const wdB1 = fmt(h.clock.now + 1000);
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, wdB1, userB2), false);
+  assert.equal(h.cell(userB2), 'QUEUED', 'la demande de l utilisateur doit donner un nouveau scan');
+  h.clock.now += 60000; h.drain();
+  assert.equal(h.c.scans, 2);
+});
+
+test('fuseau Europe/Paris : B1 en Date (cellule datee) et pulse texte du watchdog concordent', () => {
+  const h = harness({ paris: true });
+  const userMs = Math.floor(h.clock.now / 1000) * 1000;
+  assert.equal(h.cell(new Date(userMs)), 'QUEUED');
+  h.clock.now += 60000; h.drain();
+  const wdMs = Math.floor(h.clock.now / 1000) * 1000;
+  const wdB1 = parisFmt(wdMs); // Utilities.formatDate(new Date(), "Europe/Paris", ...)
+  assert.notEqual(wdB1, fmt(wdMs), 'le test doit bien differer de UTC');
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, wdB1, new Date(userMs)), true);
+  assert.equal(h.cell(new Date(wdMs)), 'WEB_SCAN_OK');
 });

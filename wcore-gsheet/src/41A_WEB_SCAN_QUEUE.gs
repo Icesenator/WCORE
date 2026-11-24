@@ -85,20 +85,27 @@ function _webScanQueueRevision_(tokens, force, trigger) {
 // du watchdog apres le drain la changeait, donc l'ACK ne concordait jamais et l'onglet restait
 // [REFRESH_QUEUED]. Le watchdog re-signe le recu pour SON pulse, juste avant de l'ecrire, si :
 // recu OK prouve et encore valable, revision forcee, aucune nouvelle demande en file pour ce wallet.
-// Un nouveau B1 de l'utilisateur reste une nouvelle demande (sa revision ne concorde pas).
-function _webScanQueueResignForcePulse_(id, trigger) {
+// Un nouveau B1 de l'utilisateur reste une nouvelle demande : le B1 courant (relu par l'appelant
+// juste avant) doit etre celui de la demande drainee, sinon refus. Verification de la file et
+// re-signature sous le verrou de la file : aucun enfilement concurrent entre les deux.
+// Residuel assume : une saisie de B1 entre cette relecture et l'ecriture du pulse (millisecondes).
+function _webScanQueueResignForcePulse_(id, trigger, currentTrigger) {
   var key = String(id || "");
   var trig = _webScanQueueTrigger_(trigger);
   if (!key || !trig) return false;
-  var receipt = _webScanQueueReceipt_(key);
-  if (!receipt || receipt.l !== "OK" || !(receipt.q > 0) || !(receipt.s > receipt.b) || !(receipt.nx > Date.now())) return false;
-  var rev = null;
-  try { rev = JSON.parse(String(receipt.v || "")); } catch (eRev) { return false; }
-  if (!Array.isArray(rev) || rev.length !== 3 || rev[1] !== 1 || !Array.isArray(rev[0])) return false;
-  var pending = _webScanQueueRead_();
-  for (var i = 0; i < pending.length; i++) if (_webScanQueueEntryId_(pending[i]) === key) return false;
-  receipt.v = _webScanQueueRevision_(rev[0], 1, trig);
-  return !!_webScanQueueReceipt_(key, receipt);
+  var res = _webScanQueueMutate_(function (list) {
+    var receipt = _webScanQueueReceipt_(key);
+    if (!receipt || receipt.l !== "OK" || !(receipt.q > 0) || !(receipt.s > receipt.b) || !(receipt.nx > Date.now())) return { ok: false };
+    var rev = null;
+    try { rev = JSON.parse(String(receipt.v || "")); } catch (eRev) { return { ok: false }; }
+    if (!Array.isArray(rev) || rev.length !== 3 || rev[1] !== 1 || !Array.isArray(rev[0])) return { ok: false };
+    var current = _webScanQueueTrigger_(currentTrigger);
+    if (!current || current !== rev[2]) return { ok: false, reason: "TRIGGER_CHANGED" };
+    for (var i = 0; i < list.length; i++) if (_webScanQueueEntryId_(list[i]) === key) return { ok: false, reason: "PENDING" };
+    receipt.v = _webScanQueueRevision_(rev[0], 1, trig);
+    return { ok: !!_webScanQueueReceipt_(key, receipt) };
+  });
+  return !!(res && res.ok);
 }
 // Packed cache dates are script-timezone strings with second precision.
 // Parse local format via GAS Utilities, never Date.parse/local host assumptions.

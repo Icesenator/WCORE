@@ -1376,8 +1376,11 @@ function _wd_ackPulseDrained_(ss, results, sheetData, nowStr, deadlineMs) {
     for (var f = 0; f < forceTargets.length; f++) {
       if (Date.now() >= deadlineMs) { out.reason = "BUDGET"; break; }
       var fsh = ss.getSheetByName(forceTargets[f].name);
-      if (!fsh || !_webScanQueueResignForcePulse_(forceTargets[f].id, nowStr)) continue;
-      fsh.getRange("B1").setValue(nowStr);
+      if (!fsh) continue;
+      // B1 relu juste avant : un pulse de l'utilisateur depuis la demande drainee n'est jamais ecrase.
+      var fB1 = fsh.getRange("B1");
+      if (!_webScanQueueResignForcePulse_(forceTargets[f].id, nowStr, fB1.getValue())) continue;
+      fB1.setValue(nowStr);
       out.forcePulsed++;
     }
   }

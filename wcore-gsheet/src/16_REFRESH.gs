@@ -469,14 +469,17 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
       // only 30 s. Queued delegated scans are drained here, never in the cell.
       try {
         if (typeof _webScanQueueDrain_ === "function" && typeof _webScanQueueEnabled_ === "function" && _webScanQueueEnabled_()) {
-          var _qRemaining = 300000 - (Date.now() - t0) - 30000;
+          var _qPreMs = Date.now() - t0;
+          var _qRemaining = 300000 - _qPreMs - 30000;
           if (_qRemaining > GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS) {
             try { stats.scanQueueDepthBefore = _webScanQueueRead_().length; } catch (eQd0) {}
-            var _qRes = _webScanQueueDrain_({ maxItems: (typeof GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN === "number" ? GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN : 3), budgetMs: Math.min(_qRemaining, 180000) });
+            var _qBudget = Math.min(_qRemaining, 180000);
+            var _qRes = _webScanQueueDrain_({ maxItems: (typeof GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN === "number" ? GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN : 3), budgetMs: _qBudget });
             try { stats.scanQueueDepthAfter = _webScanQueueRead_().length; } catch (eQd1) {}
             stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
             stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
-            stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome }; });
+            stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome, ms: Number(r.durationMs) || 0 }; });
+            _wd_recordQueueDrain_(stats, _qRes, _qPreMs, _qBudget, "SHEETS_API");
           } else {
             stats.scanQueueReason = "WATCHDOG_BUDGET";
           }
@@ -1386,6 +1389,54 @@ function _wd_ackPulseDrained_(ss, results, sheetData, nowStr, deadlineMs) {
     }
   }
   return out;
+}
+
+// v4.16.101 : mesure du drain de la file (P2-REL-GAS-QUEUE-AND-J1) : temps avant le drain,
+// budget accorde, duree du drain et du scan le plus long. Garde les 12 derniers passages dans
+// WCORE_WD_QUEUE_HIST (compact, sans statut, source ni adresse) ; un echec d'ecriture est ignore.
+var WCORE_WD_QUEUE_HIST_KEY = "WCORE_WD_QUEUE_HIST";
+var WCORE_WD_QUEUE_HIST_MAX = 12;
+function _wd_recordQueueDrain_(stats, res, preMs, budgetMs, path) {
+  var results = (res && res.results) || [];
+  var longest = 0, ok = 0;
+  for (var i = 0; i < results.length; i++) {
+    var ms = Number(results[i] && results[i].durationMs) || 0;
+    if (ms > longest) longest = ms;
+    if (results[i] && results[i].outcome === "OK") ok++;
+  }
+  var row = {
+    t: new Date().toISOString().substring(0, 19),
+    w: String(path || ""),
+    p: Math.max(0, Math.round(Number(preMs) || 0)),
+    b: Math.max(0, Math.round(Number(budgetMs) || 0)),
+    e: Math.max(0, Math.round(Number(res && res.elapsedMs) || 0)),
+    n: results.length,
+    ok: ok,
+    mx: longest,
+    r: String((res && res.reason) || "").substring(0, 24),
+    d0: typeof stats.scanQueueDepthBefore === "number" ? stats.scanQueueDepthBefore : -1,
+    d1: typeof stats.scanQueueDepthAfter === "number" ? stats.scanQueueDepthAfter : -1
+  };
+  stats.scanQueuePreDrainMs = row.p;
+  stats.scanQueueBudgetMs = row.b;
+  stats.scanQueueElapsedMs = row.e;
+  stats.scanQueueLongestMs = row.mx;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var hist = [];
+    try { hist = JSON.parse(props.getProperty(WCORE_WD_QUEUE_HIST_KEY) || "[]"); } catch (eParse) { hist = []; }
+    if (Object.prototype.toString.call(hist) !== "[object Array]") hist = [];
+    hist.push(row);
+    if (hist.length > WCORE_WD_QUEUE_HIST_MAX) hist = hist.slice(hist.length - WCORE_WD_QUEUE_HIST_MAX);
+    props.setProperty(WCORE_WD_QUEUE_HIST_KEY, JSON.stringify(hist));
+  } catch (eHist) {}
+  return row;
+}
+
+/** Admin read of the drain history (lecture seule). */
+function WCORE_WD_QUEUE_HIST_READ() {
+  try { return PropertiesService.getScriptProperties().getProperty(WCORE_WD_QUEUE_HIST_KEY) || "[]"; }
+  catch (e) { return "ERROR: " + String(e && e.message || e); }
 }
 
 // v4.16.100 : cibles C1=TRUE, seulement pour un scan OK prouve (un DEGRADED n'a pas d'ACK
@@ -2487,14 +2538,17 @@ function WATCHDOG_FROM_RECAP() {
       // only 30 s. Queued delegated scans are drained here, never in the cell.
       try {
         if (typeof _webScanQueueDrain_ === "function" && typeof _webScanQueueEnabled_ === "function" && _webScanQueueEnabled_()) {
-          var _qRemaining = 300000 - (Date.now() - t0) - 30000;
+          var _qPreMs = Date.now() - t0;
+          var _qRemaining = 300000 - _qPreMs - 30000;
           if (_qRemaining > GSHEET_WEB_SCAN_QUEUE_MIN_SCAN_MS) {
             try { stats.scanQueueDepthBefore = _webScanQueueRead_().length; } catch (eQd0) {}
-            var _qRes = _webScanQueueDrain_({ maxItems: (typeof GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN === "number" ? GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN : 3), budgetMs: Math.min(_qRemaining, 180000) });
+            var _qBudget = Math.min(_qRemaining, 180000);
+            var _qRes = _webScanQueueDrain_({ maxItems: (typeof GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN === "number" ? GSHEET_WEB_SCAN_QUEUE_DRAIN_MAX_PER_RUN : 3), budgetMs: _qBudget });
             try { stats.scanQueueDepthAfter = _webScanQueueRead_().length; } catch (eQd1) {}
             stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
             stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
-            stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome }; });
+            stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome, ms: Number(r.durationMs) || 0 }; });
+            _wd_recordQueueDrain_(stats, _qRes, _qPreMs, _qBudget, "MAIN");
             // v4.16.87/89: let I1 read the ACK (OK) or the rewritten cache (DEGRADED) at once.
             try {
               var _ackNowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm:ss");

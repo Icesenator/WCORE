@@ -18,7 +18,7 @@ function harness(opts = {}) {
   const store = new Map();
   const c = { Date: Clock, Math, JSON, Object, Array, String, Number, isFinite,
     CacheService: { getScriptCache: () => ({ get: k => store.get(k) || null, put: (k, v) => store.set(k, v), remove: k => store.delete(k) }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => { const f = c.onLock; c.onLock = null; if (f) f(); return true; }, releaseLock() {} }) },
     Utilities: { parseDate: s => new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10), +s.slice(11, 13), +s.slice(14, 16), +s.slice(17, 19))) },
     Session: { getScriptTimeZone: () => opts.paris ? 'Europe/Paris' : 'UTC' }, Format: { datetime: x => (opts.paris ? parisFmt : fmt)(Number(x)) },
     _webScanProp_: () => '', _webScanEnabled_: () => true,
@@ -200,4 +200,42 @@ test('fuseau Europe/Paris : B1 en Date (cellule datee) et pulse texte du watchdo
   assert.notEqual(wdB1, fmt(wdMs), 'le test doit bien differer de UTC');
   assert.equal(h.c._webScanQueueResignForcePulse_(h.id, wdB1, new Date(userMs)), true);
   assert.equal(h.cell(new Date(wdMs)), 'WEB_SCAN_OK');
+});
+
+test("saisie de B1 pendant l'attente du verrou de la file : B1 relu sous le verrou, jamais ecrase", () => {
+  const h = harness();
+  const userB1 = fmt(h.clock.now);
+  h.cell(userB1); h.clock.now += 60000;
+  const results = h.drain().results;
+  const writes = [];
+  const b1 = { Wallet: userB1 };
+  const ss = { getId: () => 'test-sheet', getSheetByName: name => ({ getRange: range => ({ getValue: () => b1[name], setValue: value => { b1[name] = value; writes.push({ name, range, value }); } }) }) };
+  Object.assign(h.c, {
+    _wd_norm_: v => String(v).trim(), _wd_isCexSheet_: () => false,
+    Sheets: { Spreadsheets: { Values: { batchGet: () => ({ valueRanges: [{ values: [['=E_REFRESH_STATUS("x";A3:A;C1;B1)']] }] }) } } }
+  });
+  const src = fs.readFileSync(path.join(root, '16_REFRESH.gs'), 'utf8');
+  for (const n of ['_wd_ackPulseProven_', '_wd_ackPulseTargets_', '_wd_ackPulseForceTargets_', '_wd_ackPulseDrained_']) {
+    const s = src.indexOf('function ' + n + '(');
+    vm.runInContext(src.slice(s, src.indexOf('\n}', s) + 2), h.c);
+  }
+  // L'utilisateur saisit B1 pendant que le watchdog attend le verrou (jusqu'a 3 s en production).
+  const userB2 = fmt(h.clock.now + 2000);
+  h.c.onLock = () => { h.clock.now += 2000; b1.Wallet = userB2; };
+  const out = h.c._wd_ackPulseDrained_(ss, results, [{ name: 'Wallet', vC1: 'TRUE' }], fmt(h.clock.now + 3000), h.clock.now + 60000);
+  assert.equal(out.forceTargets, 1);
+  assert.equal(out.forcePulsed, 0);
+  assert.equal(writes.length, 0);
+  assert.equal(b1.Wallet, userB2);
+  assert.equal(h.cell(userB2), 'QUEUED');
+});
+
+test("echec d'ecriture du pulse : recu remis dans son etat d'origine", () => {
+  const h = harness();
+  const userB1 = fmt(h.clock.now);
+  h.cell(userB1); h.clock.now += 60000; h.drain();
+  const before = h.c._webScanQueueReceipt_(h.id).v;
+  assert.equal(h.c._webScanQueueResignForcePulse_(h.id, fmt(h.clock.now), () => userB1, () => { throw new Error('quota'); }), false);
+  assert.equal(h.c._webScanQueueReceipt_(h.id).v, before);
+  assert.equal(h.cell(userB1), 'WEB_SCAN_OK', 'le recu d origine reste valable pour le B1 de la demande');
 });

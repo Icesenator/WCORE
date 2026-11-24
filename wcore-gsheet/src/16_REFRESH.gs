@@ -1377,10 +1377,11 @@ function _wd_ackPulseDrained_(ss, results, sheetData, nowStr, deadlineMs) {
       if (Date.now() >= deadlineMs) { out.reason = "BUDGET"; break; }
       var fsh = ss.getSheetByName(forceTargets[f].name);
       if (!fsh) continue;
-      // B1 relu juste avant : un pulse de l'utilisateur depuis la demande drainee n'est jamais ecrase.
+      // B1 relu puis ecrit sous le verrou de la file : un pulse de l'utilisateur pose depuis la
+      // demande drainee n'est jamais ecrase.
       var fB1 = fsh.getRange("B1");
-      if (!_webScanQueueResignForcePulse_(forceTargets[f].id, nowStr, fB1.getValue())) continue;
-      fB1.setValue(nowStr);
+      if (!_webScanQueueResignForcePulse_(forceTargets[f].id, nowStr,
+          function() { return fB1.getValue(); }, function() { fB1.setValue(nowStr); })) continue;
       out.forcePulsed++;
     }
   }

@@ -1,7 +1,23 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolveGmBalance } from "../lib/gm-withdraw-balance";
+import { resolveGmBalance, nativeValueEur } from "../lib/gm-withdraw-balance";
+
+describe("GM withdraw value in EUR", () => {
+  test("a USD native price is converted to EUR; an EUR price is used as is", () => {
+    // /api/price/native answers in USD: B2 7.4996e-7 BTC at 60 000 USD with 1 EUR = 1.2 USD.
+    assert.equal(nativeValueEur(7.4996e-7, undefined, 60_000, 1.2)!.toFixed(6), (7.4996e-7 * 50_000).toFixed(6));
+    assert.equal(nativeValueEur(2, 1500, 9999, 1.2), 3000, "the chain card price is already EUR");
+    assert.equal(nativeValueEur(2, undefined, null, 1.2), null, "no price → no value, the label shows (—)");
+    assert.equal(nativeValueEur(2, undefined, 100, 0), null, "never divide by a missing rate");
+  });
+
+  test("the button retries the native price instead of keeping (—) until a reload", () => {
+    const src = readFileSync(new URL("../components/GmWithdrawButton.tsx", import.meta.url), "utf8");
+    assert.match(src, /else if \(n < NATIVE_PRICE_RETRIES\) timer = setTimeout\(\(\) => attempt\(n \+ 1\)/);
+    assert.match(src, /nativeValueEur\(amount, nativePriceEurProp, fetchedPrice, eurUsd\)/);
+  });
+});
 
 describe("GM withdraw balance selection", () => {
   test("a fresh server zero beats a stale non-zero cache", () => {

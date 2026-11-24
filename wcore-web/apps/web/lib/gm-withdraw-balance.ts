@@ -22,6 +22,22 @@ export interface GmBalanceSources {
   cachedBalance?: string | null;
 }
 
+/**
+ * EUR value of a withdrawable native amount, or null when no price is known.
+ * `priceEur` (from the chain card) is already in EUR; `/api/price/native` answers in
+ * USD (DefiLlama / CoinGecko `usd`), so `priceUsd` is converted with the EUR→USD rate.
+ */
+export function nativeValueEur(
+  amount: number,
+  priceEur: number | null | undefined,
+  priceUsd: number | null | undefined,
+  eurUsd: number,
+): number | null {
+  if (priceEur != null) return amount * priceEur;
+  if (priceUsd != null && eurUsd > 0) return (amount * priceUsd) / eurUsd;
+  return null;
+}
+
 export function resolveGmBalance({
   walletBalance,
   backendBalance,

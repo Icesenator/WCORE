@@ -7,10 +7,12 @@ import { usePreferences } from "./PreferencesProvider";
 import { getApiUrl } from "@/lib/api";
 import { getFactory } from "@wcore/shared";
 import { lsGetBalance, lsSetBalance, lsClearBalance } from "@/lib/gm-storage";
-import { resolveGmBalance } from "@/lib/gm-withdraw-balance";
+import { resolveGmBalance, nativeValueEur } from "@/lib/gm-withdraw-balance";
 
 const _nativePriceCache = new Map<string, number>();
 const _nativePricePromises = new Map<string, Promise<number | null>>();
+const NATIVE_PRICE_RETRIES = 3;
+const NATIVE_PRICE_RETRY_MS = 5_000;
 
 const CREATOR_BALANCE_SELECTOR = "0xaf55ec73";
 const PLATFORM_BALANCE_SELECTOR = "0x62a5dbbc";
@@ -87,7 +89,7 @@ export function GmWithdrawButton({
   });
   // Authoritative balance read from the wallet RPC (any value, including 0).
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
-  const { formatValue, language } = usePreferences();
+  const { formatValue, language, eurUsd } = usePreferences();
   const backendBalance = balanceKind === "platform" ? contract?.platformBalance : contract?.creatorBalance;
   const balance = resolveGmBalance({ walletBalance, backendBalance, cachedBalance });
 
@@ -95,14 +97,27 @@ export function GmWithdrawButton({
     if (nativePriceEurProp != null || !contract) return;
     const ck = contract.chainKey;
     if (_nativePriceCache.has(ck)) { setFetchedPrice(_nativePriceCache.get(ck)!); return; }
-    if (_nativePricePromises.has(ck)) { _nativePricePromises.get(ck)!.then(p => { if (p) setFetchedPrice(p); }); return; }
-    const API_URL = getApiUrl();
-    const promise = fetch(`${API_URL}/api/price/native?chain=${encodeURIComponent(ck)}`)
-      .then(r => r.json()).then((d: { price?: number }) => { const p = d.price ?? null; if (p) _nativePriceCache.set(ck, p); return p; })
-      .catch(() => null)
-      .finally(() => { _nativePricePromises.delete(ck); });
-    _nativePricePromises.set(ck, promise);
-    promise.then(p => { if (p) setFetchedPrice(p); });
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A failed or empty answer used to leave "(—)" until a full reload: retry a
+    // few times, spaced out, while the button is mounted (B2, 24/11/2026).
+    const attempt = (n: number) => {
+      let promise = _nativePricePromises.get(ck);
+      if (!promise) {
+        promise = fetch(`${getApiUrl()}/api/price/native?chain=${encodeURIComponent(ck)}`)
+          .then(r => (r.ok ? r.json() : null)).then((d: { price?: number | null } | null) => { const p = d?.price ?? null; if (p) _nativePriceCache.set(ck, p); return p; })
+          .catch(() => null)
+          .finally(() => { _nativePricePromises.delete(ck); });
+        _nativePricePromises.set(ck, promise);
+      }
+      promise.then(p => {
+        if (cancelled) return;
+        if (p) setFetchedPrice(p);
+        else if (n < NATIVE_PRICE_RETRIES) timer = setTimeout(() => attempt(n + 1), NATIVE_PRICE_RETRY_MS * (n + 1));
+      });
+    };
+    attempt(0);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [contract, contract?.chainKey, nativePriceEurProp]);
 
   useEffect(() => {
@@ -155,8 +170,7 @@ export function GmWithdrawButton({
   const symbol = getNativeSymbol(contract.chainKey);
   const amount = weiToNative(balance);
   const amountStr = amount > 0 && amount < 0.000001 ? amount.toExponential(4) : amount.toFixed(6);
-  const priceEur = nativePriceEurProp ?? fetchedPrice;
-  const valueEur = priceEur != null ? amount * priceEur : null;
+  const valueEur = nativeValueEur(amount, nativePriceEurProp, fetchedPrice, eurUsd);
   const withdrawing = withdrawingId === contract.id;
   const label = isPlatform ? "Fees Platform" : "Fees Earned";
   const colorClass = isPlatform

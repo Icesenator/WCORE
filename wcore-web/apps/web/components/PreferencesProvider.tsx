@@ -13,6 +13,8 @@ interface Preferences {
   setCurrency: (c: Currency) => void;
   setLanguage: (l: Language) => void;
   formatValue: (valueEur: number) => string;
+  /** EUR → USD rate (1 EUR = eurUsd USD), to convert USD prices to EUR. */
+  eurUsd: number;
   t: (key: string) => string;
 }
 
@@ -92,7 +94,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   }, [language]);
 
   return (
-    <Ctx.Provider value={{ currency, language, setCurrency, setLanguage, formatValue, t }}>
+    <Ctx.Provider value={{ currency, language, setCurrency, setLanguage, formatValue, eurUsd: eurUsdRate, t }}>
       {children}
     </Ctx.Provider>
   );

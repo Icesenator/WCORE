@@ -406,6 +406,7 @@ function _wd_flushApiWrites_(actions) {
 function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
   var t0 = Date.now();
   var props = PropertiesService.getScriptProperties();
+  var _wdQueueHistRow = null;
   var stats = { ts: new Date().toISOString(), mode: "SHEETS_API_NO_ACTIVE_SPREADSHEET", ok: false,
     exec_ms: 0, N: 0, probe: 0, toSync: 0, synced: 0, b1Set: 0, b1Empty: 0,
     b1Stale: 0, b1Error: 0, b1Blocked: 0, b1Partial: 0, staleThresholdHours: WD_STALE_I1_HOURS };
@@ -479,9 +480,10 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
             stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
             stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
             stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome, ms: Number(r.durationMs) || 0 }; });
-            _wd_recordQueueDrain_(stats, _qRes, _qPreMs, _qBudget, "SHEETS_API");
+            _wdQueueHistRow = _wd_recordQueueDrain_(stats, _qRes, _qPreMs, _qBudget, "SHEETS_API");
           } else {
             stats.scanQueueReason = "WATCHDOG_BUDGET";
+            _wdQueueHistRow = _wd_recordQueueDrain_(stats, { reason: "WATCHDOG_BUDGET", results: [] }, _qPreMs, 0, "SHEETS_API");
           }
         }
       } catch (eQueueDrain) {
@@ -494,6 +496,7 @@ function _wd_watchdogFromRecapViaSheetsApi_(nowMs) {
     stats.stateErrors = Number(stats.stateErrors || 0) + Number(e.stateErrors || 0);
   }
   stats.exec_ms = Date.now() - t0;
+  _wd_persistQueueHist_(_wdQueueHistRow);
   try { props.setProperty("WCORE_WD_LAST_DIAG", JSON.stringify(stats)); } catch (eDiag) {}
   Logger.log("[WATCHDOG_API] " + JSON.stringify(stats));
   return stats;
@@ -1421,6 +1424,12 @@ function _wd_recordQueueDrain_(stats, res, preMs, budgetMs, path) {
   stats.scanQueueBudgetMs = row.b;
   stats.scanQueueElapsedMs = row.e;
   stats.scanQueueLongestMs = row.mx;
+  return row;
+}
+
+// Ecrit la ligne apres l'acquittement B1 du passage (jamais avant) ; ne leve jamais.
+function _wd_persistQueueHist_(row) {
+  if (!row || typeof row !== "object") return false;
   try {
     var props = PropertiesService.getScriptProperties();
     var hist = [];
@@ -1429,8 +1438,8 @@ function _wd_recordQueueDrain_(stats, res, preMs, budgetMs, path) {
     hist.push(row);
     if (hist.length > WCORE_WD_QUEUE_HIST_MAX) hist = hist.slice(hist.length - WCORE_WD_QUEUE_HIST_MAX);
     props.setProperty(WCORE_WD_QUEUE_HIST_KEY, JSON.stringify(hist));
-  } catch (eHist) {}
-  return row;
+    return true;
+  } catch (eHist) { return false; }
 }
 
 /** Admin read of the drain history (lecture seule). */
@@ -2387,6 +2396,7 @@ function WATCHDOG_FROM_RECAP() {
 
     const t0 = Date.now();
     const nowMs = t0;
+    var _wdQueueHistRow = null;
 
     // v4.16.77: prix natifs observes independamment des scans complets
     // (au plus 2 appels groupes toutes les 25 min, bornes par WATCHDOG_BUDGET_MS ;
@@ -2548,7 +2558,7 @@ function WATCHDOG_FROM_RECAP() {
             stats.scanQueueReason = String((_qRes && _qRes.reason) || "");
             stats.scanQueueResults = (_qRes && _qRes.results) ? _qRes.results.length : 0;
             stats.scanQueueOutcomes = ((_qRes && _qRes.results) || []).map(function(r) { return { chain: r.chain, outcome: r.outcome, ms: Number(r.durationMs) || 0 }; });
-            _wd_recordQueueDrain_(stats, _qRes, _qPreMs, _qBudget, "MAIN");
+            _wdQueueHistRow = _wd_recordQueueDrain_(stats, _qRes, _qPreMs, _qBudget, "MAIN");
             // v4.16.87/89: let I1 read the ACK (OK) or the rewritten cache (DEGRADED) at once.
             try {
               var _ackNowStr = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd HH:mm:ss");
@@ -2558,12 +2568,15 @@ function WATCHDOG_FROM_RECAP() {
             }
           } else {
             stats.scanQueueReason = "WATCHDOG_BUDGET";
+            _wdQueueHistRow = _wd_recordQueueDrain_(stats, { reason: "WATCHDOG_BUDGET", results: [] }, _qPreMs, 0, "MAIN");
           }
         }
       } catch (eQueueDrain) {
         stats.scanQueueError = String(eQueueDrain && (eQueueDrain.message || eQueueDrain) || eQueueDrain);
       }
       stats.exec_ms = Date.now() - t0;
+      // Apres l'acquittement B1 : l'ecriture de l'historique ne retarde jamais l'ACK.
+      _wd_persistQueueHist_(_wdQueueHistRow);
 
       // v4.15.23 DIAG: capture per-probe state so user-visible diag cell can inspect sync
       try {
@@ -2585,6 +2598,13 @@ function WATCHDOG_FROM_RECAP() {
           phaseC: props.getProperty("PHASE_C_ENABLED") || "false"
         };
         var diagJsonOut = JSON.stringify(diagOut);
+        // v4.16.101 : une ScriptProperty est limitee a 9 Ko ; un diag trop gros serait perdu en
+        // entier (ecriture refusee). Au-dela de 8 000 caracteres, ne garder que 20 lignes perSheet.
+        if (diagJsonOut.length > 8000) {
+          diagOut.perSheet = diagPerSheet.slice(0, 20);
+          diagOut.perSheetTruncatedFrom = diagPerSheet.length;
+          diagJsonOut = JSON.stringify(diagOut);
+        }
         props.setProperty("WCORE_WD_LAST_DIAG", diagJsonOut);
         try {
           var _diagSs3 = SpreadsheetApp.getActiveSpreadsheet();

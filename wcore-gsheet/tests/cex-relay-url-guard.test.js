@@ -52,6 +52,10 @@ test('refus : http en clair, hote inconnu, identifiants dans l URL, requete, sou
     'https://cex-relay-production.up.railway.app.evil.example',
     'https://cex-relay-production.up.railway.app/x?to=evil',
     'https://cex-relay-production.up.railway.app:8443',
+    'https://cex-relay.up.railway.app',
+    'https://binance-relay.up.railway.app',
+    'https://cex-relay-production%2eup.railway.app',
+    'https://cex-relay-production.up.railway.app%2f@evil.example',
     'ftp://cex-relay-production.up.railway.app',
     '',
     null,
@@ -68,4 +72,19 @@ test('refus : http en clair, hote inconnu, identifiants dans l URL, requete, sou
 test('le controle du jeton reste en place', () => {
   const c = load();
   assert.throws(() => c.SET_BINANCE_RELAY('https://cex-relay-production.up.railway.app', 'court'), /Token relais invalide/);
+});
+
+test('majuscules et port 443 explicite : meme hote, accepte', () => {
+  const c = load();
+  c.SET_OKX_RELAY('HTTPS://CEX-RELAY-PRODUCTION.UP.RAILWAY.APP:443/', TOKEN);
+  assert.equal(c.saved.OKX_RELAY_URL, 'HTTPS://CEX-RELAY-PRODUCTION.UP.RAILWAY.APP:443');
+});
+
+test('les appels au relais ne suivent pas les redirections (le jeton ne change pas d hote)', () => {
+  for (const file of ['36_BINANCE_SYNC.gs', '38_BYBIT_SYNC.gs', '39_COINBASE_SYNC.gs', '40_OKX_SYNC.gs', '44_CEX_BULK.gs']) {
+    const src = fs.readFileSync(path.join(root, file), 'utf8');
+    const calls = src.split(/\r?\n/).filter((line) => line.includes('"x-relay-token"'));
+    assert.ok(calls.length >= 1, file + ' : appel au relais introuvable');
+    for (const call of calls) assert.match(call, /followRedirects:\s*false/, file + ' : ' + call.trim());
+  }
 });

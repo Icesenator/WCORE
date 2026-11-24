@@ -39,8 +39,9 @@ var BINANCE_SYNC_CONFIG = {
 // 24/11/2026 (P2-MAINT-API-SMALL-HARDENING) : le jeton du relais part vers l'URL enregistree.
 // Les quatre SET_*_RELAY n'acceptent plus que https et un hote connu (avant : tout ce qui
 // commencait par "http", donc http en clair et n'importe quel hote). Une URL deja enregistree
-// n'est pas relue ici : seul un nouvel enregistrement est controle.
-var WCORE_CEX_RELAY_HOSTS = ["cex-relay-production.up.railway.app", "cex-relay.up.railway.app", "binance-relay.up.railway.app"];
+// n'est pas relue ici : seul un nouvel enregistrement est controle. Les appels au relais ne
+// suivent plus les redirections (le jeton ne part pas vers un autre hote), comme Kraken.
+var WCORE_CEX_RELAY_HOSTS = ["cex-relay-production.up.railway.app"]; // seul domaine documente (docs/integrations/cex)
 function _cexRelayUrlAllowed_(url) {
   var m = /^https:\/\/([a-z0-9.-]+)(?::443)?(?:\/[^\s?#]*)?$/i.exec(String(url == null ? "" : url).trim());
   return !!m && WCORE_CEX_RELAY_HOSTS.indexOf(m[1].toLowerCase()) >= 0;
@@ -74,7 +75,7 @@ function _binFetchBucketsViaRelay_() {
   // Token sent as a header, not in the URL: a query string lands in the relay access
   // logs, in any intermediate proxy log and in Referer headers.
   var url = relay.url + "/binance";
-  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": relay.token } });
+  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, followRedirects: false, headers: { "x-relay-token": relay.token } });
   if (!resp) throw new Error("Binance relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();

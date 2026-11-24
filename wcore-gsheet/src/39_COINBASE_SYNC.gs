@@ -100,7 +100,7 @@ function _cbFetchBucketsViaRelay_() {
   var relay = _cbGetRelay_();
   // Token as a header, not in the URL: a query string leaks it into access logs.
   var url = relay.url + "/coinbase";
-  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": relay.token } });
+  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, followRedirects: false, headers: { "x-relay-token": relay.token } });
   if (!resp) throw new Error("Coinbase relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();

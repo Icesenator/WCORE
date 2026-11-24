@@ -136,7 +136,7 @@ function _cexBulkGetRelayToken_() {
 function _cexBulkFetchAll_() {
   // Token as a header rather than in the URL, so it stays out of access and proxy logs.
   var url = _cexBulkGetRelayUrl_() + "/all";
-  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": _cexBulkGetRelayToken_() } });
+  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, followRedirects: false, headers: { "x-relay-token": _cexBulkGetRelayToken_() } });
   if (!resp) throw new Error("CEX bulk relay: null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();

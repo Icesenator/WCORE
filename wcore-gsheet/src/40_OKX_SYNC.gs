@@ -105,7 +105,7 @@ function _okxFetchBucketsViaRelay_() {
   var relay = _okxGetRelay_();
   // Token as a header, not in the URL: a query string leaks it into access logs.
   var url = relay.url + "/okx";
-  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, headers: { "x-relay-token": relay.token } });
+  var resp = UrlFetchApp.fetch(url, { method: "get", muteHttpExceptions: true, followRedirects: false, headers: { "x-relay-token": relay.token } });
   if (!resp) throw new Error("OKX relay HTTP blocked/null response");
   var code = resp.getResponseCode();
   var text = resp.getContentText();

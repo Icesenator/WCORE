@@ -49,6 +49,7 @@ test('the row fills stats without any property I/O; persistence carries no statu
   assert.equal(stats.scanQueueElapsedMs, 88000);
   assert.equal(stats.scanQueueLongestMs, 63000);
   assert.deepEqual([row.n, row.ok, row.r, row.d0, row.d1, row.w], [3, 2, 'BUDGET_EXHAUSTED', 40, 37, 'MAIN']);
+  assert.deepEqual([row.mx, row.mc, row.mo], [63000, 'GNOSIS', 'ERROR'], 'chain and outcome of the slowest scan');
   assert.equal(c._wd_persistQueueHist_(row), true);
   const raw = store.WCORE_WD_QUEUE_HIST;
   assert.doesNotMatch(raw, /opaque|WEB_SCAN|secret|0x/);
@@ -100,6 +101,21 @@ test('empty or missing drain result is recorded without throwing', () => {
   c._wd_persistQueueHist_(c._wd_recordQueueDrain_(stats, null, 0, 0, 'MAIN'));
   assert.equal(stats.scanQueueElapsedMs, 0);
   assert.equal(JSON.parse(store.WCORE_WD_QUEUE_HIST)[0].n, 0);
+  assert.equal(JSON.parse(store.WCORE_WD_QUEUE_HIST)[0].mc, '', 'no slowest chain without a scan');
+});
+
+test('slowest chain: first of equal durations kept, long names bounded, missing chain is empty', () => {
+  const c = load({});
+  const row = c._wd_recordQueueDrain_({}, { results: [
+    { chain: 'A', outcome: 'OK', durationMs: 9000 },
+    { chain: 'B', outcome: 'OK', durationMs: 9000 },
+  ] }, 0, 0, 'MAIN');
+  assert.equal(row.mc, 'A');
+  const long = c._wd_recordQueueDrain_({}, { results: [{ chain: 'X'.repeat(60), outcome: 'Y'.repeat(60), durationMs: 1 }] }, 0, 0, 'MAIN');
+  assert.equal(long.mc.length, 24);
+  assert.equal(long.mo.length, 24);
+  const none = c._wd_recordQueueDrain_({}, { results: [{ outcome: 'THROWN', durationMs: 5 }] }, 0, 0, 'MAIN');
+  assert.deepEqual([none.mc, none.mo], ['', 'THROWN']);
 });
 
 test('main watchdog: timings recorded after the drain, history written only after the B1 acknowledgement', () => {

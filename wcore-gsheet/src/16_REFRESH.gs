@@ -1401,10 +1401,15 @@ var WCORE_WD_QUEUE_HIST_KEY = "WCORE_WD_QUEUE_HIST";
 var WCORE_WD_QUEUE_HIST_MAX = 12;
 function _wd_recordQueueDrain_(stats, res, preMs, budgetMs, path) {
   var results = (res && res.results) || [];
-  var longest = 0, ok = 0;
+  var longest = 0, ok = 0, slowChain = "", slowOutcome = "";
   for (var i = 0; i < results.length; i++) {
     var ms = Number(results[i] && results[i].durationMs) || 0;
-    if (ms > longest) longest = ms;
+    // 24/11 : chaine et resultat du scan le plus long (un scan de 169 s a occupe tout un passage).
+    if (ms > longest) {
+      longest = ms;
+      slowChain = String(results[i].chain || "").substring(0, 24);
+      slowOutcome = String(results[i].outcome || "").substring(0, 24);
+    }
     if (results[i] && results[i].outcome === "OK") ok++;
   }
   var row = {
@@ -1416,6 +1421,8 @@ function _wd_recordQueueDrain_(stats, res, preMs, budgetMs, path) {
     n: results.length,
     ok: ok,
     mx: longest,
+    mc: slowChain,
+    mo: slowOutcome,
     r: String((res && res.reason) || "").substring(0, 24),
     d0: typeof stats.scanQueueDepthBefore === "number" ? stats.scanQueueDepthBefore : -1,
     d1: typeof stats.scanQueueDepthAfter === "number" ? stats.scanQueueDepthAfter : -1

@@ -38,6 +38,9 @@ export async function registerLeaderboardRoutes(
     });
     const filtered = users.filter((u: { address: string }) => u.address.toLowerCase() !== PLATFORM_OWNER.EVM).slice(0, 50);
     const userIds = filtered.map((u: { id: string }) => u.id);
+    // Prisma.join([]) leve une erreur : sans utilisateur hors proprietaire, la route repondait 500 et le site
+    // affichait le meme message vide qu'un classement sans points.
+    if (userIds.length === 0) return { leaderboard: [], period };
 
     // Batch aggregate: contracts deployed per user
     const contractsAgg = await prisma.gmContract.groupBy({

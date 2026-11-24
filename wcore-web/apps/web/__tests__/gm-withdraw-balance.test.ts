@@ -58,7 +58,7 @@ describe("GM withdraw button wiring", () => {
   });
 
   test("withdrawal is guarded by a fresh on-chain read when the balance is unavailable", () => {
-    assert.match(buttonSource, /if \(isBalanceUnavailable\) \{[\s\S]*?refreshBalanceViaMetaMask\(\)[\s\S]*?hasWithdrawableBalance\(refreshed\)[\s\S]*?return;/,
+    assert.match(buttonSource, /if \(isBalanceUnavailable\) \{[\s\S]*?refreshBalanceViaMetaMask\(\)[\s\S]*?withdrawBlockedMessage\(refreshed, symbol, language\)[\s\S]*?return;/,
       "GmWithdrawButton must re-verify the balance on-chain before withdrawing when the label cannot be trusted");
   });
 });

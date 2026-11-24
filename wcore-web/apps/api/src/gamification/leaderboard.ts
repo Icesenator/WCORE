@@ -39,10 +39,14 @@ export async function registerLeaderboardRoutes(
       _count: { id: true },
       where: since ? { createdAt: { gte: since } } : {},
       orderBy: { _count: { id: "desc" } },
-      take: 200, // large marge sur les 50 affiches (+ l'exclusion du proprietaire de la plateforme)
     });
-    const gmMap = new Map(gmAgg.map((g: { userId: string; _count: { id: number } }) => [g.userId, g._count.id]));
-    const gmUserIds = gmAgg.map((g: { userId: string }) => g.userId);
+    // Frontiere : le 100e compteur (large marge sur les 50 affiches et l'exclusion du proprietaire de la
+    // plateforme). Tous les ex aequo de la frontiere sont gardes : une coupe nette (take) pourrait ecarter
+    // un utilisateur au meilleur score parmi des egalites avant le depart par points.
+    const gmCutoff = gmAgg.length > 100 ? (gmAgg[99] as { _count: { id: number } })._count.id : 0;
+    const gmKept = gmAgg.filter((g: { _count: { id: number } }) => g._count.id >= gmCutoff);
+    const gmMap = new Map(gmKept.map((g: { userId: string; _count: { id: number } }) => [g.userId, g._count.id]));
+    const gmUserIds = gmKept.map((g: { userId: string }) => g.userId);
     const candidates = gmUserIds.length
       ? await prisma.user.findMany({
           where: { id: { in: gmUserIds } },

@@ -105,6 +105,36 @@ test("stats period filters the GM count itself, so the ranking can differ from a
   await app.close();
 });
 
+test("stats: 250 users tied on GM count, the best score is still first (no cut inside a tie)", async () => {
+  const users: U[] = [];
+  const gms: Record<string, number> = {};
+  for (let i = 0; i < 250; i++) {
+    // le meilleur score est le dernier de la liste : une coupe a 200 le perdrait
+    users.push({ id: `u${i}`, address: `0x${String(i).padStart(40, "0")}`, score: i });
+    gms[`u${i}`] = 1;
+  }
+  const { app } = await appWith(users, { all: gms });
+  const body = (await app.inject({ method: "GET", url: "/api/leaderboard/stats?period=all" })).json() as { leaderboard: Row[] };
+  assert.equal(body.leaderboard.length, 50);
+  assert.deepEqual(body.leaderboard.slice(0, 3).map((u) => u.score), [249, 248, 247]);
+  assert.equal(body.leaderboard[49]?.score, 200);
+  await app.close();
+});
+
+test("stats: a tie below the 100th rank does not displace users with more GMs", async () => {
+  const users: U[] = [];
+  const gms: Record<string, number> = {};
+  for (let i = 0; i < 120; i++) {
+    users.push({ id: `u${i}`, address: `0x${String(i).padStart(40, "0")}`, score: 1 });
+    gms[`u${i}`] = i < 60 ? 5 : 1;
+  }
+  const { app } = await appWith(users, { all: gms });
+  const body = (await app.inject({ method: "GET", url: "/api/leaderboard/stats?period=all" })).json() as { leaderboard: Row[] };
+  assert.equal(body.leaderboard.length, 50);
+  assert.ok(body.leaderboard.every((u) => u.gmCount === 5));
+  await app.close();
+});
+
 test("stats keep at most 50 rows", async () => {
   const users: U[] = [];
   const gms: Record<string, number> = {};

@@ -346,13 +346,16 @@ test('"enough" follows the amounts of each send: a retry with a smaller or large
 
 // 2026-11-25 : lecture groupée (Sheets API batchGet) au lieu d'un aller-retour par onglet.
 function withSheetsApi(h, tabs, opts = {}) {
+  let batches = 0;
   const calls = { get: 0, batch: [] };
   h.ss.getId = () => 'ss-id';
   h.ctx.Sheets = { Spreadsheets: {
     get: () => { calls.get++; return { sheets: Object.keys(tabs).map((t) => ({ properties: { title: t, gridProperties: { rowCount: tabs[t].data.length, columnCount: tabs[t].data[0].length } } })) }; },
     Values: { batchGet: (id, req) => {
       calls.batch.push(req.ranges.length);
-      if (opts.fail) throw new Error('quota');
+      batches++;
+      if (opts.fail && batches >= (opts.failAt || 1)) throw new Error('quota');
+      if (opts.slowAfter) opts.slowAfter();
       assert.equal(req.valueRenderOption, 'UNFORMATTED_VALUE');
       return { valueRanges: req.ranges.map((rg) => {
         const m = /^'(.*)'!A2:([A-Z])$/.exec(rg);
@@ -412,4 +415,27 @@ test('batch read keeps the budget: no batch after the deadline, and the read is 
   withSheetsApi(h, tabs);
   const got = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE'], -1);
   assert.equal(got.complete, false);
+});
+
+test('a batch failing after another one succeeded restarts from empty lists (no double count)', () => {
+  const tabs = {};
+  for (let i = 0; i < 40; i++) tabs['T' + i] = tab('cex', [['AAVE', 1]]);
+  const h = harness({ tabs });
+  withSheetsApi(h, tabs, { fail: true, failAt: 2 });
+  const got = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE'], 60000);
+  assert.equal(got.held.AAVE.length, 40);
+  assert.equal(got.complete, true);
+});
+
+test('a last call that crosses the deadline makes the read incomplete', () => {
+  const tabs = {};
+  for (let i = 0; i < 10; i++) tabs['T' + i] = tab('cex', [['AAVE', 1]]);
+  const h = harness({ tabs });
+  const realNow = Date.now;
+  let t = 1000;
+  h.ctx.Date = { now: () => t };
+  withSheetsApi(h, tabs, { slowAfter: () => { t += 200; } });
+  const got = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE'], 100);
+  assert.equal(got.complete, false);
+  Date.now = realNow;
 });

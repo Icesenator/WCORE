@@ -169,7 +169,8 @@ function _wcoreStratAlertHoldingsBatch_(ss, names, out, canon, deadline) {
         if (_wcoreStratAlertReadTab_(vr[k].values, chunk[k], out, canon)) tabs++;
       }
     }
-    return { tabs: tabs, complete: complete };
+    // The last call may itself have crossed the deadline: the read is then not proposed as complete.
+    return { tabs: tabs, complete: complete && Date.now() <= deadline };
   } catch (e) { return null; }
 }
 
@@ -187,7 +188,7 @@ function _wcoreStratAlertHoldingsPerTab_(ss, names, out, canon, deadline) {
       if (_wcoreStratAlertReadTab_(sh.getRange(2, 1, rows - 1, cols).getValues(), name, out, canon)) tabs++;
     } catch (eTab) { complete = false; }
   }
-  return { tabs: tabs, complete: complete };
+  return { tabs: tabs, complete: complete && Date.now() <= deadline };
 }
 
 /** Berkshire B shares are written BRK.B, BRK-B or BRKB; every other symbol is only upper-cased. */

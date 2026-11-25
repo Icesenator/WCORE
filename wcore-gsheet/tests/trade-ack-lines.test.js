@@ -115,6 +115,25 @@ test('a crypto tab holding only ETHx does not claim ETH', () => {
   assert.deepEqual(held.ETH, []);
 });
 
+test('Berkshire aliases: a strategy on BRKB or BRK-B finds BRK.Bx, and BRK.B finds BRK-B', () => {
+  const h = harness({ tabs: { 'CEX - Kraken Stocks': tab('cex', [['BRK.Bx', 35.35]]), 'CEX - Bitpanda Stocks': tab('cex', [['BRK-B-LEG', 12], ['BRKB', 3]]) } });
+  for (const want of ['BRKB', 'BRK-B', 'BRK.B']) {
+    const { held } = h.ctx._wcoreStratAlertHoldings_(h.ss, [want], 60000);
+    assert.deepEqual(held[want].map((x) => [x.name, x.eur]).sort(), [['CEX - Bitpanda Stocks', 15], ['CEX - Kraken Stocks', 35.35]], want);
+  }
+});
+
+test('each suffix only applies in the tab of the broker that writes it', () => {
+  const h = harness({ tabs: {
+    'Stocks': tab('cex', [['ETHx', 500], ['MU-LEG', 4]]),             // mixed tab that merely has "Stocks" in its name
+    'CEX - Kraken Stocks': tab('cex', [['MU-LEG', 6]]),              // -LEG is not a Kraken suffix
+    'CEX - Bitpanda Stocks': tab('cex', [['MUx', 8]]),               // x is not a Bitpanda suffix
+  } });
+  const { held } = h.ctx._wcoreStratAlertHoldings_(h.ss, ['MU', 'ETH'], 60000);
+  assert.deepEqual(held.MU, [], 'no tab writes the suffix it carries');
+  assert.deepEqual(held.ETH, [], 'a mixed tab named Stocks keeps ETHx as its own token');
+});
+
 test('the proposed lines for MU and ANT name the Kraken Stocks tab instead of "nobody holds it"', () => {
   const h = harness({ tabs: STOCK_TABS() });
   const entry = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'BE1-111111111', { sell: { symbol: 'MU', eur: 8 }, buy: { symbol: 'ANT', eur: 12 } });

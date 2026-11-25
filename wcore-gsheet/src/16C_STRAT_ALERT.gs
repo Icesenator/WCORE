@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 16C_STRAT_ALERT.gs - v4.17.3
  *
  * Phone alert when a Strat rebalancing cell turns to X, called by WATCHDOG_FROM_RECAP (every
@@ -14,7 +14,7 @@
  * previous state of that cell, so the next pass tries again; the API deduplicates.
  *
  * Content: category, the two symbols from Q1/S1 of the portfolio tab and their gap (column P,
- * real minus target, whole euros) â€” explicit decisions of Florian on 2026-11-12.
+ * real minus target, whole euros) — explicit decisions of Florian on 2026-11-12.
  * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X","occ":{"AY1":"AY1-<ms>"}} (occurrence
  * ids of undelivered transitions). One check at a time (script lock).
  */
@@ -84,7 +84,8 @@ function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
   var out = {};
   var tabs = 0;
   var complete = true;
-  for (var s0 = 0; s0 < symbols.length; s0++) out[symbols[s0]] = [];
+  var canon = {};
+  for (var s0 = 0; s0 < symbols.length; s0++) { out[symbols[s0]] = []; canon[_wcoreStratAlertCanonSymbol_(symbols[s0])] = symbols[s0]; }
   var recap = ss && ss.getSheetByName("Recap Portfolio");
   if (!recap) return { held: out, tabs: 0, complete: false };
   var last = recap.getLastRow();
@@ -111,13 +112,13 @@ function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
       }
       if (si < 0 || vi < 0) continue;
       tabs++;
-      var stockTab = /\bStocks?\b/i.test(name);
       var sums = {};
       for (var r = 1; r < vals.length; r++) {
         var rawSym = String(vals[r][si] || "").trim();
-        // The exact symbol wins; otherwise, in a stock tab only, the broker's own form: Kraken xStocks "MUx",
-        // Bitpanda "AAPL-LEG". Never in a crypto tab: "ETHx" there is another token, not ETH.
-        var sym = out[rawSym.toUpperCase()] ? rawSym.toUpperCase() : (stockTab ? _wcoreStratAlertBaseSymbol_(rawSym) : "");
+        // The exact symbol wins; otherwise, in the tab of the broker that writes the suffix, its own form
+        // (Kraken xStocks "MUx", Bitpanda "AAPL-LEG"), then the Berkshire aliases. Never in another tab:
+        // "ETHx" in a crypto tab, or in a mixed tab that merely has "Stocks" in its name, is another token.
+        var sym = out[rawSym.toUpperCase()] ? rawSym.toUpperCase() : _wcoreStratAlertMatchSymbol_(rawSym, name, canon);
         var v = Number(vals[r][vi]);
         if (sym && isFinite(v) && out[sym]) sums[sym] = (sums[sym] || 0) + v;
       }
@@ -127,16 +128,28 @@ function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
   return { held: out, tabs: tabs, complete: complete };
 }
 
+/** Berkshire B shares are written BRK.B, BRK-B or BRKB; every other symbol is only upper-cased. */
+function _wcoreStratAlertCanonSymbol_(raw) {
+  var s = String(raw || "").trim().toUpperCase();
+  return /^BRK[-.]?B$/.test(s) ? "BRK.B" : s;
+}
+
 /**
- * Strategy symbol behind a broker's own tab symbol. Kraken tokenised stocks end with a lowercase "x"
- * ("MUx", "ANTx", "BRK.Bx"; an uppercase "X" such as "SPCX" belongs to the ticker), Bitpanda legacy
- * stocks end with "-LEG". Anything else is returned upper-cased and unchanged. 2026-11-25: without this,
- * the notification claimed that no line held MU or ANT while the Kraken tab held both.
+ * Requested strategy symbol (a key of `canon`) behind a tab symbol that does not match it exactly, or "".
+ * Kraken tokenised stocks end with a lowercase "x" ("MUx", "ANTx", "BRK.Bx"; the uppercase X of "SPCX"
+ * belongs to the ticker) and only in a "Kraken ... Stocks" tab; Bitpanda legacy stocks end with "-LEG" and
+ * only in a "Bitpanda ... Stocks" tab. 2026-11-25: without this, the notification claimed that no line held
+ * MU or ANT while the Kraken tab held both.
  */
-function _wcoreStratAlertBaseSymbol_(raw) {
-  var s = String(raw || "").trim().replace(/-LEG$/i, "");
-  if (/^[A-Z0-9][A-Z0-9.]*x$/.test(s)) s = s.slice(0, -1);
-  return s.toUpperCase();
+function _wcoreStratAlertMatchSymbol_(raw, tabName, canon) {
+  var s = String(raw || "").trim();
+  var direct = canon[_wcoreStratAlertCanonSymbol_(s)]; // Berkshire alias written another way
+  if (direct) return direct;
+  var tab = String(tabName).replace(/^CEX\s*-\s*/i, "");
+  if (/^Kraken\b.*\bStocks?\b/i.test(tab) && /^[A-Z0-9][A-Z0-9.]*x$/.test(s)) s = s.slice(0, -1);
+  else if (/^Bitpanda\b.*\bStocks?\b/i.test(tab) && /-LEG$/i.test(s)) s = s.replace(/-LEG$/i, "");
+  else return "";
+  return canon[_wcoreStratAlertCanonSymbol_(s)] || "";
 }
 
 function _wcoreStratAlertLinesStore_() {

@@ -10,6 +10,13 @@ const REGISTRY_TTL_MS = 6 * 60 * 60 * 1000;
 const REGISTRY_REDIS_SAFETY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const PRODUCT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 15_000;
+// 2026-11-25 : api.realtoken.community repondait 522 apres ~20 s. Sans registre en cache, chaque vague
+// de jetons relancait un chargement (une instance par scan, et la pause n'etait posee qu'avec un
+// registre) : un scan GNOSIS a passe 60 s dans les prix puis 77 s dans leur reparation. Apres un echec
+// sans registre utilisable, plus aucun chargement pendant cette pause, partagee entre les instances par
+// le cache (Redis en production).
+const REGISTRY_FAILURE_COOLDOWN_MS = 30 * 60 * 1000;
+const REGISTRY_FAILURE_KEY = "realt:registry:failed:v1";
 const SUPPORTED_CHAINS = new Set(["GNOSIS", "ETHEREUM"]);
 
 interface RealTEntry {
@@ -54,11 +61,26 @@ export class RealTPriceSource implements RealTSource {
   private registry: Map<string, RealTEntry> | null = null;
   private registryLoadedAt = 0;
   private inflight: Promise<void> | null = null;
+  private registryFailedAt = 0;
 
   constructor(private readonly store?: CacheStore, private readonly fetchImpl: typeof fetch = fetch) {}
 
+  private inFailureCooldown(): boolean {
+    return this.registryFailedAt > 0 && Date.now() - this.registryFailedAt < REGISTRY_FAILURE_COOLDOWN_MS;
+  }
+
+  // Failure without any usable registry: pause the loads for this instance and, through the cache,
+  // for the next scans (each scan builds its own instance).
+  private async markRegistryFailure(): Promise<void> {
+    this.registryFailedAt = Date.now();
+    if (this.store) {
+      try { await this.store.set(REGISTRY_FAILURE_KEY, { ts: this.registryFailedAt }, REGISTRY_FAILURE_COOLDOWN_MS); } catch { /* ignore */ }
+    }
+  }
+
   private async ensureRegistry(): Promise<void> {
     if (this.registry && Date.now() - this.registryLoadedAt < REGISTRY_TTL_MS) return;
+    if (!this.registry && this.inFailureCooldown()) return;
     if (this.inflight) return this.inflight;
     this.inflight = this.loadRegistry().finally(() => { this.inflight = null; });
     return this.inflight;
@@ -78,6 +100,16 @@ export class RealTPriceSource implements RealTSource {
           hasStaleCache = true;
         }
       } catch { /* ignore */ }
+      if (!this.registry) {
+        try {
+          const failed = await this.store.get<{ ts: number }>(REGISTRY_FAILURE_KEY);
+          const ts = Number(failed?.ts);
+          if (Number.isFinite(ts) && ts > 0 && Date.now() - ts < REGISTRY_FAILURE_COOLDOWN_MS) {
+            this.registryFailedAt = ts;
+            return;
+          }
+        } catch { /* ignore */ }
+      }
     }
     try {
       const res = await this.fetchImpl("https://api.realtoken.community/v1/token", {
@@ -86,6 +118,7 @@ export class RealTPriceSource implements RealTSource {
       });
       if (!res.ok) {
         if (hasStaleCache || this.registry) this.registryLoadedAt = Date.now();
+        else await this.markRegistryFailure();
         return;
       }
       const rows = (await res.json()) as RealTApiRow[];
@@ -100,6 +133,7 @@ export class RealTPriceSource implements RealTSource {
       }
       if (map.size === 0) {
         if (hasStaleCache || this.registry) this.registryLoadedAt = Date.now();
+        else await this.markRegistryFailure();
         return;
       }
       this.registry = map;
@@ -111,6 +145,7 @@ export class RealTPriceSource implements RealTSource {
       // Always set a cooldown after a failed fetch, even without stale cache,
       // to prevent hammering the API on every scan.
       this.registryLoadedAt = Date.now();
+      if (!this.registry) await this.markRegistryFailure();
     }
   }
 
@@ -147,7 +182,8 @@ export class RealTPriceSource implements RealTSource {
     // ensureRegistry() has already attempted (and either succeeded or set a cooldown).
     // Without this gate, a vague of N REALTOKEN- tokens fires N + 1 fetches per scan.
     const symbol = String(token.symbol ?? "");
-    const withinCooldown = this.registryLoadedAt > 0 && (Date.now() - this.registryLoadedAt) < REGISTRY_TTL_MS;
+    const withinCooldown = this.inFailureCooldown()
+      || (this.registryLoadedAt > 0 && (Date.now() - this.registryLoadedAt) < REGISTRY_TTL_MS);
     if (symbol.startsWith("REALTOKEN-") && !withinCooldown) {
       // Try one more direct fetch in case the registry wasn't loaded
       try {

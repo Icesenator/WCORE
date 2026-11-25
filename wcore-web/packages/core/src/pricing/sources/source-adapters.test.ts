@@ -498,3 +498,69 @@ test("RealT source refuses ambiguous WooCommerce product matches", async () => {
 
   assert.equal(result, null);
 });
+
+// 2026-11-25 : panne de api.realtoken.community (522 apres ~20 s), sans registre en cache. Avant le
+// correctif, chaque vague de jetons relancait un chargement et un scan GNOSIS passait 60 s dans les prix.
+const REGISTRY_URL = "https://api.realtoken.community/v1/token";
+function countingFetch(registryResponse: () => Response | Promise<Response>) {
+  const calls = { registry: 0, other: 0 };
+  const impl = (async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url === REGISTRY_URL) { calls.registry++; return registryResponse(); }
+    calls.other++;
+    return jsonResponse([]);
+  }) as typeof fetch;
+  return { calls, impl };
+}
+const RT_A = "0x3333333333333333333333333333333333333333";
+const RT_B = "0x4444444444444444444444444444444444444444";
+
+test("RealT: an HTTP failure without any registry pauses further loads in the same instance", async () => {
+  const { calls, impl } = countingFetch(() => jsonResponse({}, 522));
+  const source = new RealTPriceSource(new MemoryCacheStore(), impl);
+  for (let i = 0; i < 5; i++) await source.isKnownRealTContract(token(gnosisChain, RT_A));
+  await source.getTokenPriceUsd(realtToken(RT_B, "REALTOKEN-S-1-TEST-ST", "RealToken 1 Test St"));
+  assert.equal(calls.registry, 1, "a single registry load during the pause, no direct-fetch fallback either");
+});
+
+test("RealT: the failure pause is shared with the next scans through the cache", async () => {
+  const cache = new MemoryCacheStore();
+  const first = countingFetch(() => jsonResponse({}, 522));
+  await new RealTPriceSource(cache, first.impl).isKnownRealTContract(token(gnosisChain, RT_A));
+  assert.equal(first.calls.registry, 1);
+  // Each scan builds its own instance (evm-scan.ts) : the next one must not fetch again.
+  const second = countingFetch(() => jsonResponse({}, 522));
+  const next = new RealTPriceSource(cache, second.impl);
+  for (let i = 0; i < 3; i++) await next.isKnownRealTContract(token(gnosisChain, RT_A));
+  assert.equal(second.calls.registry, 0);
+});
+
+test("RealT: a network error or an empty registry also pauses the loads", async () => {
+  const thrown = countingFetch(() => { throw new Error("timeout"); });
+  const a = new RealTPriceSource(new MemoryCacheStore(), thrown.impl);
+  for (let i = 0; i < 3; i++) await a.isKnownRealTContract(token(gnosisChain, RT_A));
+  assert.equal(thrown.calls.registry, 1);
+  const empty = countingFetch(() => jsonResponse([]));
+  const b = new RealTPriceSource(new MemoryCacheStore(), empty.impl);
+  for (let i = 0; i < 3; i++) await b.isKnownRealTContract(token(gnosisChain, RT_A));
+  assert.equal(empty.calls.registry, 1);
+});
+
+test("RealT: after the pause, a working API is loaded again and prices the token", async () => {
+  const cache = new MemoryCacheStore();
+  await cache.set("realt:registry:failed:v1", { ts: Date.now() - 31 * 60 * 1000 }, 60 * 60 * 1000);
+  const ok = countingFetch(() => jsonResponse([{ gnosisContract: RT_A, tokenPrice: 52.5, currency: "USD", symbol: "REALTOKEN-A" }]));
+  const source = new RealTPriceSource(cache, ok.impl);
+  const price = await source.getTokenPriceUsd(realtToken(RT_A, "REALTOKEN-A", "RealToken A"));
+  assert.equal(ok.calls.registry, 1);
+  assert.equal(price?.priceUsd, 52.5);
+});
+
+test("RealT: a stale registry is still served during an outage (no failure pause needed)", async () => {
+  const cache = new MemoryCacheStore();
+  await cache.set("realt:registry:v2", { ts: Date.now() - 7 * 60 * 60 * 1000, entries: [[RT_A, { priceUsd: 40, currency: "USD", symbol: "REALTOKEN-A" }]] });
+  const down = countingFetch(() => jsonResponse({}, 522));
+  const source = new RealTPriceSource(cache, down.impl);
+  for (let i = 0; i < 3; i++) assert.equal((await source.getTokenPriceUsd(realtToken(RT_A, "REALTOKEN-A", "RealToken A")))?.priceUsd, 40);
+  assert.equal(down.calls.registry, 1);
+});

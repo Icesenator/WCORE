@@ -17,3 +17,4 @@ export * from "./scam-detector";
 export * from "./scan-result";
 export * from "./vm";
 export * from "./chain-sentinel";
+export * from "./chain-sentinel-guides";

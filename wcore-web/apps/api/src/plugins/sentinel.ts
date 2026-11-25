@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { CacheStore } from "@wcore/core";
 import {
-  VERIFIED_LIFECYCLE_REGISTRY, evaluateChain, diffAlerts, pendingNotifications, monitorHealthAlert, toPublicAlert,
-  type ChainLifecycleRecord, type ExposureInput, type SentinelAlert,
+  VERIFIED_LIFECYCLE_REGISTRY, evaluateChain, diffAlerts, pendingNotifications, monitorHealthAlert, toPublicAlert, recoveryGuideFor,
+  type ChainLifecycleRecord, type RecoveryGuideItem, type SourceRef, type ExposureInput, type SentinelAlert,
 } from "@wcore/shared";
 import { isPublicHttp } from "../lib/safe-http.js";
 import { runAnnouncementWatch, saveWatchState, type WatchSource, type WatchStateMap } from "./sentinel-watch.js";
@@ -186,6 +186,25 @@ export interface SentinelPluginOptions extends SentinelDeps {
   exposuresFor: (userId: string, chainKeys: string[]) => Promise<ExposureInput[]>;
 }
 
+const publicSource = (s: SourceRef) => ({ url: s.url, publisher: s.publisher, publisherEn: s.publisherEn ?? null, official: s.official });
+
+/**
+ * Guide « Comment recuperer mes fonds » de la fiche, sources resolues ; null si la chaine n'en a pas
+ * ou si la fiche a change d'etat de recuperation depuis la redaction du guide (recoveryGuideFor).
+ */
+function publicRecoveryGuide(rec: ChainLifecycleRecord) {
+  const g = recoveryGuideFor(rec);
+  if (!g) return null;
+  const src = (ids: string[]) => ids.map((id) => g.sources[id]).filter(Boolean).map((s) => publicSource(s!));
+  const items = (xs: RecoveryGuideItem[] | undefined) => (xs ?? []).map((x) => ({ fr: x.fr, en: x.en, sources: src(x.sourceIds) }));
+  return {
+    links: g.links.filter((l) => g.sources[l.sourceId]).map((l) => ({ ...publicSource(g.sources[l.sourceId]!), labelFr: l.labelFr, labelEn: l.labelEn })),
+    steps: items(g.steps), eligibility: items(g.eligibility), feesAndRisks: items(g.feesAndRisks),
+    opensAt: g.opensAt ? { at: g.opensAt.at, approximate: g.opensAt.approximate === true, labelFr: g.opensAt.labelFr ?? null, labelEn: g.opensAt.labelEn ?? null, sources: src(g.opensAt.sourceIds) } : null,
+    verifiedAt: g.verifiedAt,
+  };
+}
+
 function publicChainView(rec: ChainLifecycleRecord, nowMs: number) {
   return {
     chainKey: rec.chainKey, chainId: rec.chainId, name: rec.name, status: rec.status, successorChainId: rec.successorChainId ?? null,
@@ -196,6 +215,7 @@ function publicChainView(rec: ChainLifecycleRecord, nowMs: number) {
     })),
     // Toutes les sources de la fiche, y compris celles qui ne portent aucune echeance (reseau suspendu, recuperation).
     sources: Object.values(rec.sources).map((s) => ({ url: s.url, publisher: s.publisher, publisherEn: s.publisherEn ?? null, official: s.official })),
+    recoveryGuide: publicRecoveryGuide(rec),
   };
 }
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 16C_STRAT_ALERT.gs - v4.17.3
  *
  * Phone alert when a Strat rebalancing cell turns to X, called by WATCHDOG_FROM_RECAP (every
@@ -14,7 +14,7 @@
  * previous state of that cell, so the next pass tries again; the API deduplicates.
  *
  * Content: category, the two symbols from Q1/S1 of the portfolio tab and their gap (column P,
- * real minus target, whole euros) — explicit decisions of Florian on 2026-11-12.
+ * real minus target, whole euros) â€” explicit decisions of Florian on 2026-11-12.
  * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X","occ":{"AY1":"AY1-<ms>"}} (occurrence
  * ids of undelivered transitions). One check at a time (script lock).
  */
@@ -111,9 +111,13 @@ function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
       }
       if (si < 0 || vi < 0) continue;
       tabs++;
+      var stockTab = /\bStocks?\b/i.test(name);
       var sums = {};
       for (var r = 1; r < vals.length; r++) {
-        var sym = String(vals[r][si] || "").toUpperCase();
+        var rawSym = String(vals[r][si] || "").trim();
+        // The exact symbol wins; otherwise, in a stock tab only, the broker's own form: Kraken xStocks "MUx",
+        // Bitpanda "AAPL-LEG". Never in a crypto tab: "ETHx" there is another token, not ETH.
+        var sym = out[rawSym.toUpperCase()] ? rawSym.toUpperCase() : (stockTab ? _wcoreStratAlertBaseSymbol_(rawSym) : "");
         var v = Number(vals[r][vi]);
         if (sym && isFinite(v) && out[sym]) sums[sym] = (sums[sym] || 0) + v;
       }
@@ -121,6 +125,18 @@ function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
     } catch (eTab) { complete = false; }
   }
   return { held: out, tabs: tabs, complete: complete };
+}
+
+/**
+ * Strategy symbol behind a broker's own tab symbol. Kraken tokenised stocks end with a lowercase "x"
+ * ("MUx", "ANTx", "BRK.Bx"; an uppercase "X" such as "SPCX" belongs to the ticker), Bitpanda legacy
+ * stocks end with "-LEG". Anything else is returned upper-cased and unchanged. 2026-11-25: without this,
+ * the notification claimed that no line held MU or ANT while the Kraken tab held both.
+ */
+function _wcoreStratAlertBaseSymbol_(raw) {
+  var s = String(raw || "").trim().replace(/-LEG$/i, "");
+  if (/^[A-Z0-9][A-Z0-9.]*x$/.test(s)) s = s.slice(0, -1);
+  return s.toUpperCase();
 }
 
 function _wcoreStratAlertLinesStore_() {

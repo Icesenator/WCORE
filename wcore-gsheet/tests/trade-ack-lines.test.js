@@ -83,6 +83,46 @@ test('holdings are read from both tab shapes, summed per tab, and unreadable tab
   assert.equal(held.CRO.length, 2);
 });
 
+// 2026-11-25 : la notification disait « Aucune ligne ne détient MU / ANT » alors que l'onglet Kraken
+// Stocks les range sous MUx et ANTx (Bitpanda : AAPL-LEG).
+const STOCK_TABS = () => ({
+  'CEX - Kraken Stocks': tab('cex', [['MUx', 28.27], ['ANTx', 41.36], ['BRK.Bx', 35.35], ['Vx', 26.86], ['SPCXx', 53.31], ['EUR', 41.09]]),
+  'CEX - Bitpanda Stocks': tab('cex', [['EUR', 53.01], ['AAPL-LEG', 39.39], ['MU-LEG', 10], ['SSU', 38.14]]),
+  'CEX - Kraken Crypto': tab('cex', [['ETHx', 500], ['ETH', 20]]),
+});
+
+test('stock tabs: Kraken "x" and Bitpanda "-LEG" symbols count for the strategy symbol', () => {
+  const h = harness({ tabs: STOCK_TABS() });
+  const { held } = h.ctx._wcoreStratAlertHoldings_(h.ss, ['MU', 'ANT', 'BRK.B', 'V', 'SPCX', 'AAPL'], 60000);
+  assert.deepEqual(held.MU.map((x) => [x.name, x.eur]).sort(), [['CEX - Bitpanda Stocks', 10], ['CEX - Kraken Stocks', 28.27]]);
+  assert.deepEqual(held.ANT, [{ name: 'CEX - Kraken Stocks', eur: 41.36 }]);
+  assert.deepEqual(held['BRK.B'], [{ name: 'CEX - Kraken Stocks', eur: 35.35 }]);
+  assert.deepEqual(held.V, [{ name: 'CEX - Kraken Stocks', eur: 26.86 }]);
+  assert.deepEqual(held.SPCX, [{ name: 'CEX - Kraken Stocks', eur: 53.31 }], 'the uppercase X of SPCX stays part of the ticker');
+  assert.deepEqual(held.AAPL, [{ name: 'CEX - Bitpanda Stocks', eur: 39.39 }]);
+});
+
+test('in a stock tab MU and MUx add up, and crypto tabs never strip a trailing x', () => {
+  const h = harness({ tabs: { 'CEX - Kraken Stocks': tab('cex', [['MU', 5], ['MUx', 7]]), 'CEX - Kraken Crypto': tab('cex', [['ETHx', 500], ['ETH', 20]]) } });
+  const { held } = h.ctx._wcoreStratAlertHoldings_(h.ss, ['MU', 'ETH'], 60000);
+  assert.deepEqual(held.MU, [{ name: 'CEX - Kraken Stocks', eur: 12 }], 'both forms are MU shares in a stock tab');
+  assert.deepEqual(held.ETH, [{ name: 'CEX - Kraken Crypto', eur: 20 }], 'ETHx (another token) is not ETH');
+});
+
+test('a crypto tab holding only ETHx does not claim ETH', () => {
+  const h = harness({ tabs: { 'CEX - Kraken Crypto': tab('cex', [['ETHx', 500]]) } });
+  const { held } = h.ctx._wcoreStratAlertHoldings_(h.ss, ['ETH'], 60000);
+  assert.deepEqual(held.ETH, []);
+});
+
+test('the proposed lines for MU and ANT name the Kraken Stocks tab instead of "nobody holds it"', () => {
+  const h = harness({ tabs: STOCK_TABS() });
+  const entry = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'BE1-111111111', { sell: { symbol: 'MU', eur: 8 }, buy: { symbol: 'ANT', eur: 12 } });
+  assert.deepEqual(entry.sell, ['CEX - Kraken Stocks', 'CEX - Bitpanda Stocks']);
+  assert.deepEqual(entry.buy, ['CEX - Kraken Stocks']);
+  assert.equal(entry.enough, true, 'the first sell line (28,27 €) covers the 8 € to trade');
+});
+
 test('bad names and repeated Recap lines are never read twice, and an empty budget reads nothing', () => {
   const h = harness({ tabs: TABS(), recap: ['CEX - OKX', 'CEX - OKX', 'http://evil.test', 'bad\nname', ''] });
   const { tabs } = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE'], 60000);

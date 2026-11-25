@@ -5,12 +5,11 @@ import { resolve } from "node:path";
 import { buildAddEthereumChainParams } from "../app/dev/deploy/chain-params";
 import { PARIS_BUILD_CHAINS } from "../app/dev/deploy/build-selector";
 import { DEPLOY_CHAIN_PARAMS, SUPPORTED_CHAIN_IDS } from "../app/dev/deploy/chain-data";
-import { getFactoryAddress } from "@wcore/shared";
 
 /**
  * ApeChain (33139), XRPL EVM (1440000) et Peaq (3338) sont ajoutees au menu
  * /dev/deploy pour que le proprietaire puisse y deployer la fabrique GM. Elles
- * ne sont PAS encore actives sur /gm : aucune fabrique n'est inscrite ici.
+ * ont ete activees ensuite sur /gm (voir four-chains-gm-onboarding.test.ts).
  * Le build standard (Shanghai, PUSH0) convient : eth_estimateGas du bin
  * GmOnChain passe sur les trois chaines (mesure du 25/11/2026).
  */
@@ -50,9 +49,8 @@ for (const c of CHAINS) {
       assert.ok(SUPPORTED_CHAIN_IDS.has(c.chainId));
     });
 
-    test("build standard (pas de repli Paris) et aucune fabrique GM inscrite", () => {
+    test("build standard (pas de repli Paris)", () => {
       assert.equal(PARIS_BUILD_CHAINS.has(c.key), false);
-      assert.equal(getFactoryAddress(c.key.toLowerCase()), undefined);
     });
   });
 }

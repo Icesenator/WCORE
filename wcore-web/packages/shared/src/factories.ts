@@ -190,6 +190,11 @@ export const GM_FACTORIES: Record<string, { address: string; chainId: number }> 
   // platformOwner() = GM_PLATFORM_OWNER, implementation() -> 0xef4e94691589224a92e26741e098a3cbcd63d169 (GmOnChain,
   // 2237 octets, runtime contenu dans le bin de contracts/build.json).
   dbk_chain: { address: "0x5863a056ad0cbe06876b49c9ab7c50bcd0432718", chainId: 20240603 },
+  matchain: { address: "0xd5a3ec8e07759c175dfe03945c1ae46613af1193", chainId: 698 },
+  xrplevm: { address: "0xd931e6991691a8d40c5155a10a1767c2ea19ea73", chainId: 1440000 },
+  apechain: { address: "0x8d0872fba64b04e4f1b630065bc4bf88749dbb72", chainId: 33139 },
+  // Meme adresse que DBK Chain (meme deployeur, meme nonce) : le chainId identifie la chaine.
+  peaq: { address: "0x5863a056ad0cbe06876b49c9ab7c50bcd0432718", chainId: 3338 },
 };
 
 export function getFactoryChainIds(): number[] {

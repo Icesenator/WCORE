@@ -343,3 +343,73 @@ test('"enough" follows the amounts of each send: a retry with a smaller or large
   assert.equal(h.ctx._wcoreStratAlertEnough_(entry, { sell: { symbol: 'AAVE' }, buy: { symbol: 'CRO' } }), false, 'no amount known: never "enough"');
   assert.equal(h.ctx._wcoreStratAlertEnough_({ sell: [], firstEur: 0 }, first), false, 'no sell line: never "enough"');
 });
+
+// 2026-11-25 : lecture groupée (Sheets API batchGet) au lieu d'un aller-retour par onglet.
+function withSheetsApi(h, tabs, opts = {}) {
+  const calls = { get: 0, batch: [] };
+  h.ss.getId = () => 'ss-id';
+  h.ctx.Sheets = { Spreadsheets: {
+    get: () => { calls.get++; return { sheets: Object.keys(tabs).map((t) => ({ properties: { title: t, gridProperties: { rowCount: tabs[t].data.length, columnCount: tabs[t].data[0].length } } })) }; },
+    Values: { batchGet: (id, req) => {
+      calls.batch.push(req.ranges.length);
+      if (opts.fail) throw new Error('quota');
+      assert.equal(req.valueRenderOption, 'UNFORMATTED_VALUE');
+      return { valueRanges: req.ranges.map((rg) => {
+        const m = /^'(.*)'!A2:([A-Z])$/.exec(rg);
+        const t = tabs[m[1].replace(/''/g, "'")];
+        const n = m[2].charCodeAt(0) - 64;
+        // The API trims trailing empty cells and rows.
+        const rows = t.data.slice(1).map((r) => r.slice(0, n)).map((r) => { while (r.length && r[r.length - 1] === '') r.pop(); return r; });
+        while (rows.length && !rows[rows.length - 1].length) rows.pop();
+        return rows.length ? { values: rows } : {};
+      }) };
+    } },
+  } };
+  return calls;
+}
+
+test('batch read gives the same holdings as the per-tab read, in one metadata call and one batch', () => {
+  const tabs = Object.assign(TABS(), STOCK_TABS());
+  const legacy = harness({ tabs });
+  const want = legacy.ctx._wcoreStratAlertHoldings_(legacy.ss, ['AAVE', 'CRO', 'MU', 'ANT'], 60000);
+  const h = harness({ tabs });
+  const calls = withSheetsApi(h, tabs);
+  const got = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE', 'CRO', 'MU', 'ANT'], 60000);
+  assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)));
+  assert.equal(got.complete, true);
+  assert.equal(calls.get, 1);
+  assert.deepEqual(calls.batch, [Object.keys(tabs).length - 1], 'Notes has a single column in the mock: not requested');
+  assert.equal(h.calls.reads, 0, 'no per-tab SpreadsheetApp read');
+});
+
+test('batch read: chunks of tabs, and a tab listed in the Recap but missing makes the read incomplete', () => {
+  const tabs = {};
+  for (let i = 0; i < 65; i++) tabs['T' + i] = tab('cex', [['AAVE', 1]]);
+  const h = harness({ tabs, recap: Object.keys(tabs).concat(['Ghost']) });
+  const calls = withSheetsApi(h, tabs);
+  const got = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE'], 60000);
+  assert.deepEqual(calls.batch, [30, 30, 5]);
+  assert.equal(got.tabs, 65);
+  assert.equal(got.held.AAVE.length, 65);
+  assert.equal(got.complete, false, 'Ghost is listed but has no tab');
+});
+
+test('a failing batch falls back to the per-tab read with the same result', () => {
+  const tabs = Object.assign(TABS(), STOCK_TABS());
+  const h = harness({ tabs });
+  withSheetsApi(h, tabs, { fail: true });
+  const got = h.ctx._wcoreStratAlertHoldings_(h.ss, ['MU', 'AAVE'], 60000);
+  assert.equal(got.complete, true);
+  assert.ok(h.calls.reads > 0);
+  assert.deepEqual(got.held.MU.map((x) => x.name).sort(), ['CEX - Bitpanda Stocks', 'CEX - Kraken Stocks']);
+  assert.equal(got.held.AAVE.length, 2, 'no double count after the failed batch');
+});
+
+test('batch read keeps the budget: no batch after the deadline, and the read is then incomplete', () => {
+  const tabs = {};
+  for (let i = 0; i < 40; i++) tabs['T' + i] = tab('cex', [['AAVE', 1]]);
+  const h = harness({ tabs });
+  withSheetsApi(h, tabs);
+  const got = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE'], -1);
+  assert.equal(got.complete, false);
+});

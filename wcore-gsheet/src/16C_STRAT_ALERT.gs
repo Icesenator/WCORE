@@ -78,54 +78,116 @@ var STRAT_ALERT_LINE_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()&+-]{0,59}$/;
  * tabs: {held: {SYMBOL: [{name, eur}, ...]}, tabs: number of tabs actually read,
  * complete: false when the budget ran out, a listed tab was missing or a read failed}. Two tab shapes exist (exchange tabs: cryptocoin_symbol / value_eur,
  * wallet tabs: token_ticker / value_eur); a tab with neither header pair is ignored. Stops reading after
- * budgetMs and returns what it has.
+ * budgetMs and returns what it has. The tabs are read with one Sheets API batchGet per chunk of tabs
+ * (2026-11-25: one SpreadsheetApp round trip per tab took 53 to 124 s for 135 tabs); if that service is
+ * unavailable or a batch fails, the per-tab SpreadsheetApp read does the work, with the same rules.
+ * forceLegacy only serves the manual preview to compare both paths.
  */
-function _wcoreStratAlertHoldings_(ss, symbols, budgetMs) {
+function _wcoreStratAlertHoldings_(ss, symbols, budgetMs, forceLegacy) {
   var out = {};
-  var tabs = 0;
-  var complete = true;
   var canon = {};
   for (var s0 = 0; s0 < symbols.length; s0++) { out[symbols[s0]] = []; canon[_wcoreStratAlertCanonSymbol_(symbols[s0])] = symbols[s0]; }
   var recap = ss && ss.getSheetByName("Recap Portfolio");
   if (!recap) return { held: out, tabs: 0, complete: false };
   var last = recap.getLastRow();
   if (last < 2) return { held: out, tabs: 0, complete: false };
-  var names = recap.getRange(2, 1, last - 1, 1).getValues();
-  var deadline = Date.now() + budgetMs;
-  var seen = {};
-  for (var i = 0; i < names.length; i++) {
-    if (Date.now() > deadline) { complete = false; break; }
-    var name = String(names[i][0] || "").trim();
+  var raw = recap.getRange(2, 1, last - 1, 1).getValues();
+  var names = [], seen = {};
+  for (var i = 0; i < raw.length; i++) {
+    var name = String(raw[i][0] || "").trim();
     if (!name || seen[name] || !STRAT_ALERT_LINE_NAME.test(name)) continue;
     seen[name] = true;
+    names.push(name);
+  }
+  var deadline = Date.now() + budgetMs;
+  var res = forceLegacy ? null : _wcoreStratAlertHoldingsBatch_(ss, names, out, canon, deadline);
+  if (!res) {
+    // The batch path may have added lines before failing: start again from empty lists.
+    for (var s1 = 0; s1 < symbols.length; s1++) out[symbols[s1]] = [];
+    res = _wcoreStratAlertHoldingsPerTab_(ss, names, out, canon, deadline);
+  }
+  return { held: out, tabs: res.tabs, complete: res.complete };
+}
+
+/**
+ * One tab: vals = its rows from row 2 (header first). Adds the euro value of the requested symbols to
+ * out[symbol] and returns true when the tab has a symbol column and a value column, false otherwise.
+ */
+function _wcoreStratAlertReadTab_(vals, name, out, canon) {
+  if (!vals || vals.length < 2) return false; // an empty tab holds nothing
+  var head = vals[0], si = -1, vi = -1;
+  for (var c = 0; c < head.length && c < 12; c++) {
+    var h = String(head[c] == null ? "" : head[c]);
+    if (si < 0 && /^(cryptocoin_symbol|token_ticker|symbol|ticker)$/i.test(h)) si = c;
+    if (vi < 0 && /^(value_eur|total_eur)$/i.test(h)) vi = c;
+  }
+  if (si < 0 || vi < 0) return false;
+  var sums = {};
+  for (var r = 1; r < vals.length; r++) {
+    var rawSym = String(vals[r][si] == null ? "" : vals[r][si]).trim();
+    // The exact symbol wins; otherwise, in the tab of the broker that writes the suffix, its own form
+    // (Kraken xStocks "MUx", Bitpanda "AAPL-LEG"), then the Berkshire aliases. Never in another tab:
+    // "ETHx" in a crypto tab, or in a mixed tab that merely has "Stocks" in its name, is another token.
+    var sym = out[rawSym.toUpperCase()] ? rawSym.toUpperCase() : _wcoreStratAlertMatchSymbol_(rawSym, name, canon);
+    var v = Number(vals[r][vi]);
+    if (sym && isFinite(v) && out[sym]) sums[sym] = (sums[sym] || 0) + v;
+  }
+  for (var key in sums) if (sums[key] > 0) out[key].push({ name: name, eur: sums[key] });
+  return true;
+}
+
+var STRAT_ALERT_BATCH_SIZE = 30;
+
+/** Batch read through the Sheets API; null when it cannot be used (the caller then reads tab by tab). */
+function _wcoreStratAlertHoldingsBatch_(ss, names, out, canon, deadline) {
+  try {
+    if (typeof Sheets === "undefined" || !Sheets.Spreadsheets || typeof ss.getId !== "function") return null;
+    var id = ss.getId();
+    var meta = Sheets.Spreadsheets.get(id, { fields: "sheets.properties(title,gridProperties(rowCount,columnCount))" });
+    var cols = {}, rowsOf = {};
+    var list = meta && meta.sheets || [];
+    for (var m = 0; m < list.length; m++) {
+      var p = list[m].properties || {};
+      cols[p.title] = Math.min(Number(p.gridProperties && p.gridProperties.columnCount) || 12, 12);
+      rowsOf[p.title] = Number(p.gridProperties && p.gridProperties.rowCount) || 1000;
+    }
+    var tabs = 0, complete = true, todo = [];
+    for (var i = 0; i < names.length; i++) {
+      if (cols[names[i]] == null) complete = false; // listed in the Recap, no such tab
+      else if (cols[names[i]] >= 2 && rowsOf[names[i]] >= 3) todo.push(names[i]);
+    }
+    for (var from = 0; from < todo.length; from += STRAT_ALERT_BATCH_SIZE) {
+      if (Date.now() > deadline) { complete = false; break; }
+      var chunk = todo.slice(from, from + STRAT_ALERT_BATCH_SIZE);
+      var ranges = chunk.map(function (n) {
+        return "'" + n.replace(/'/g, "''") + "'!A2:" + String.fromCharCode(64 + cols[n]);
+      });
+      var resp = Sheets.Spreadsheets.Values.batchGet(id, { ranges: ranges, valueRenderOption: "UNFORMATTED_VALUE", majorDimension: "ROWS" });
+      var vr = resp && resp.valueRanges;
+      if (!vr || vr.length !== chunk.length) return null;
+      for (var k = 0; k < chunk.length; k++) {
+        if (_wcoreStratAlertReadTab_(vr[k].values, chunk[k], out, canon)) tabs++;
+      }
+    }
+    return { tabs: tabs, complete: complete };
+  } catch (e) { return null; }
+}
+
+/** Reads the tabs one by one with SpreadsheetApp (the slow path). */
+function _wcoreStratAlertHoldingsPerTab_(ss, names, out, canon, deadline) {
+  var tabs = 0, complete = true;
+  for (var i = 0; i < names.length; i++) {
+    if (Date.now() > deadline) { complete = false; break; }
+    var name = names[i];
     try {
       var sh = ss.getSheetByName(name);
       if (!sh) { complete = false; continue; }
       var rows = sh.getLastRow(), cols = Math.min(sh.getLastColumn(), 12);
       if (rows < 3 || cols < 2) continue; // an empty tab holds nothing
-      var vals = sh.getRange(2, 1, rows - 1, cols).getValues();
-      var head = vals[0], si = -1, vi = -1;
-      for (var c = 0; c < head.length; c++) {
-        var h = String(head[c] || "");
-        if (si < 0 && /^(cryptocoin_symbol|token_ticker|symbol|ticker)$/i.test(h)) si = c;
-        if (vi < 0 && /^(value_eur|total_eur)$/i.test(h)) vi = c;
-      }
-      if (si < 0 || vi < 0) continue;
-      tabs++;
-      var sums = {};
-      for (var r = 1; r < vals.length; r++) {
-        var rawSym = String(vals[r][si] || "").trim();
-        // The exact symbol wins; otherwise, in the tab of the broker that writes the suffix, its own form
-        // (Kraken xStocks "MUx", Bitpanda "AAPL-LEG"), then the Berkshire aliases. Never in another tab:
-        // "ETHx" in a crypto tab, or in a mixed tab that merely has "Stocks" in its name, is another token.
-        var sym = out[rawSym.toUpperCase()] ? rawSym.toUpperCase() : _wcoreStratAlertMatchSymbol_(rawSym, name, canon);
-        var v = Number(vals[r][vi]);
-        if (sym && isFinite(v) && out[sym]) sums[sym] = (sums[sym] || 0) + v;
-      }
-      for (var key in sums) if (sums[key] > 0) out[key].push({ name: name, eur: sums[key] });
+      if (_wcoreStratAlertReadTab_(sh.getRange(2, 1, rows - 1, cols).getValues(), name, out, canon)) tabs++;
     } catch (eTab) { complete = false; }
   }
-  return { held: out, tabs: tabs, complete: complete };
+  return { tabs: tabs, complete: complete };
 }
 
 /** Berkshire B shares are written BRK.B, BRK-B or BRKB; every other symbol is only upper-cased. */
@@ -232,13 +294,13 @@ function _wcoreStratAlertLinesAnnounce_(id) {
  * Manual preview (no notification, nothing saved): the Recap lines that would be proposed for a pair of
  * symbols, with the number of tabs read and the time it took. Run by hand from the editor.
  */
-function WCORE_STRAT_ALERT_LINES_PREVIEW(sellSymbol, buySymbol) {
+function WCORE_STRAT_ALERT_LINES_PREVIEW(sellSymbol, buySymbol, forceLegacy) {
   var sell = String(sellSymbol || "").toUpperCase(), buy = String(buySymbol || "").toUpperCase();
   if (!/^[A-Z0-9.$_-]{1,15}$/.test(sell) || !/^[A-Z0-9.$_-]{1,15}$/.test(buy)) return { ok: false, reason: "BAD_SYMBOL" };
   var ss = typeof _wcoreGetSpreadsheet_ === "function" ? _wcoreGetSpreadsheet_() : null;
   if (!ss) return { ok: false, reason: "NO_SPREADSHEET" };
   var t0 = Date.now();
-  var read = _wcoreStratAlertHoldings_(ss, sell === buy ? [sell] : [sell, buy], STRAT_ALERT_LINES_BUDGET_MS);
+  var read = _wcoreStratAlertHoldings_(ss, sell === buy ? [sell] : [sell, buy], STRAT_ALERT_LINES_BUDGET_MS, forceLegacy === true);
   var top = function (sym) {
     return (read.held[sym] || []).slice().sort(function (x, y) { return y.eur - x.eur; }).slice(0, 3).map(function (v) { return v.name; });
   };

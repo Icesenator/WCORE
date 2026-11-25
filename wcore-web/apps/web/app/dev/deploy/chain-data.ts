@@ -554,7 +554,7 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     chainId: "0x15f900",
     chainName: "XRPL EVM",
     nativeCurrency: { name: "XRP", symbol: "XRP", decimals: 18 },
-    rpcUrls: ["https://rpc.xrplevm.org", "https://xrpl.drpc.org"],
+    rpcUrls: ["https://rpc.xrplevm.org", "https://xrpl.drpc.org", "https://evmrpc.xrp.nodestake.org"],
   },
   PEAQ: {
     chainId: "0xd0a",

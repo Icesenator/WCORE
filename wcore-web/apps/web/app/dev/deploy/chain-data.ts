@@ -544,6 +544,24 @@ export const DEPLOY_CHAIN_PARAMS: Record<string, AddEthereumChainParams> = {
     nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
     rpcUrls: ["https://rpc.mainnet.arc.io", "https://rpc.blockdaemon.mainnet.arc.io", "https://rpc.drpc.mainnet.arc.io", "https://rpc.quicknode.mainnet.arc.io"],
   },
+  APECHAIN: {
+    chainId: "0x8173",
+    chainName: "ApeChain",
+    nativeCurrency: { name: "ApeCoin", symbol: "APE", decimals: 18 },
+    rpcUrls: ["https://rpc.apechain.com/http", "https://apechain.drpc.org"],
+  },
+  XRPLEVM: {
+    chainId: "0x15f900",
+    chainName: "XRPL EVM",
+    nativeCurrency: { name: "XRP", symbol: "XRP", decimals: 18 },
+    rpcUrls: ["https://rpc.xrplevm.org", "https://xrpl.drpc.org"],
+  },
+  PEAQ: {
+    chainId: "0xd0a",
+    chainName: "Peaq",
+    nativeCurrency: { name: "Peaq", symbol: "PEAQ", decimals: 18 },
+    rpcUrls: ["https://peaq-rpc.publicnode.com", "https://peaq.api.onfinality.io/public", "https://quicknode1.peaq.xyz"],
+  },
 };
 
 /** Numeric chainIds we support, derived from DEPLOY_CHAIN_PARAMS keys. */
@@ -637,4 +655,7 @@ export const SUPPORTED_CHAIN_IDS: Set<number> = new Set([
   200901, // BITLAYER
   747, // FLOW
   5042, // ARC
+  33139, // APECHAIN
+  1440000, // XRPLEVM
+  3338, // PEAQ
 ]);

@@ -56,6 +56,7 @@ const DEPLOY_CHAIN_KEYS = [
   "B2", "CODEX", "JUCHAIN", "KATANA", "LENS",
   "OG", "ZETACHAIN", "ZKLINKNOVA", "DBK_CHAIN", "GEB",
   "BITLAYER", "FLOW", "ARC",
+  "APECHAIN", "XRPLEVM", "PEAQ",
 ] as const;
 
 const CHAIN_META: Record<string, { name: string; chainId: number }> = {
@@ -158,6 +159,9 @@ const CHAIN_META: Record<string, { name: string; chainId: number }> = {
   BITLAYER: { name: "Bitlayer", chainId: 200901 },
   FLOW: { name: "Flow EVM", chainId: 747 },
   ARC: { name: "Arc", chainId: 5042 },
+  APECHAIN: { name: "ApeChain", chainId: 33139 },
+  XRPLEVM: { name: "XRPL EVM", chainId: 1440000 },
+  PEAQ: { name: "Peaq", chainId: 3338 },
 };
 
 type DeployBuildOutput = BuildOutput;

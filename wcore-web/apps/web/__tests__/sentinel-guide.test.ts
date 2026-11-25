@@ -36,6 +36,7 @@ test("recoveryGuideView : un lien non https, non officiel ou une etape sans sour
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, steps: [{ fr: "x", en: "x", sources: [] }] } })), null);
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, steps: [] } })), null);
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, opensAt: { at: "pas une date", sources: [src] } } })), null);
+  assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, opensAt: { at: "2027-01-01T00:00:00Z", sources: [] } } })), null);
 });
 
 test("guideText et opensAtLabel suivent la langue, libelle publie prioritaire", () => {
@@ -49,14 +50,16 @@ test("guideText et opensAtLabel suivent la langue, libelle publie prioritaire", 
 test("alertGroup : chaine fermee sans echeance a venir = closed ; echeance future, recuperation ou P0 = now", () => {
   const past = [{ kind: "NETWORK_SHUTDOWN", at: "2026-07-31T00:00:00Z", assets: null, countdownMs: -1, sources: [] }];
   const future = [{ kind: "NETWORK_SHUTDOWN", at: "2026-11-30T00:00:00Z", assets: null, countdownMs: 1, sources: [] }];
-  assert.equal(alertGroup({ code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: past }), NOW), "closed");
+  assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: past }), NOW), "closed");
   // Sophon : retraits clos mais arret du reseau a venir -> encore « maintenant ».
-  assert.equal(alertGroup({ code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: [...past, ...future] }), NOW), "now");
-  assert.equal(alertGroup({ code: "RECOVERY_PLANNED", severity: "P1" }, chain({ deadlines: past }), NOW), "now");
-  assert.equal(alertGroup({ code: "RECOVERY_WINDOW_OPEN", severity: "P0" }, chain({ deadlines: past }), NOW), "now");
-  assert.equal(alertGroup({ code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P0" }, chain({ deadlines: past }), NOW), "now");
-  assert.equal(alertGroup({ code: "FUNDS_STRANDED_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: past }), NOW), "now");
-  assert.equal(alertGroup({ code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, undefined, NOW), "now");
+  assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: [...past, ...future] }), NOW), "now");
+  assert.equal(alertGroup({ actionByMs: null, code: "RECOVERY_PLANNED", severity: "P1" }, chain({ deadlines: past }), NOW), "now");
+  assert.equal(alertGroup({ actionByMs: null, code: "RECOVERY_WINDOW_OPEN", severity: "P0" }, chain({ deadlines: past }), NOW), "now");
+  assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P0" }, chain({ deadlines: past }), NOW), "now");
+  assert.equal(alertGroup({ actionByMs: null, code: "FUNDS_STRANDED_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: past }), NOW), "now");
+  assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, undefined, NOW), "now");
+  // Echeance future portee par l'alerte, fiche en cache plus ancienne (echeances passees) : jamais repliee.
+  assert.equal(alertGroup({ actionByMs: NOW + D, code: "RETIRED_NO_EXPOSURE", severity: "P2" }, chain({ deadlines: past }), NOW), "now");
 });
 
 test("alertAnchorId : ancre stable, sans caractere hors [a-z0-9_]", () => {

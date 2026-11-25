@@ -397,7 +397,7 @@ export function recoveryGuideView(chain: Pick<SentinelChainView, "recoveryGuide"
   if (g.opensAt !== null && g.opensAt !== undefined) {
     const o = g.opensAt;
     const sources = isObj(o) ? asSources(o.sources) : null;
-    if (!isObj(o) || typeof o.at !== "string" || !Number.isFinite(Date.parse(o.at)) || !sources) return null;
+    if (!isObj(o) || typeof o.at !== "string" || !Number.isFinite(Date.parse(o.at)) || !sources || !sources.length) return null;
     const label = (x: unknown) => (typeof x === "string" && x.trim() ? x : null);
     opensAt = { at: o.at, approximate: o.approximate === true, labelFr: label(o.labelFr), labelEn: label(o.labelEn), sources };
   }
@@ -412,8 +412,10 @@ export const guideText = (it: Pick<SentinelGuideItemView, "fr" | "en">, lang: Se
  * l'exposition n'est pas connue (rien a faire tout de suite). Tout le reste, et toujours une P0,
  * est « now ». Une chaine sans fiche connue reste « now » (lecture prudente).
  */
-export function alertGroup(a: Pick<SentinelAlertView, "code" | "severity">, chain: Pick<SentinelChainView, "deadlines"> | undefined, nowMs: number): "now" | "closed" {
+export function alertGroup(a: Pick<SentinelAlertView, "code" | "severity" | "actionByMs">, chain: Pick<SentinelChainView, "deadlines"> | undefined, nowMs: number): "now" | "closed" {
   if (a.severity === "P0") return "now";
+  // L'echeance portee par l'alerte elle-meme prime : une fiche en cache plus ancienne ne la replie jamais.
+  if (typeof a.actionByMs === "number" && a.actionByMs > nowMs) return "now";
   if (a.code !== "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN" && a.code !== "RETIRED_NO_EXPOSURE") return "now";
   if (!chain || !Array.isArray(chain.deadlines)) return "now";
   return chain.deadlines.some((d) => Date.parse(d.at) > nowMs) ? "now" : "closed";

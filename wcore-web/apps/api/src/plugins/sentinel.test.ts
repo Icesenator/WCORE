@@ -100,6 +100,17 @@ describe("routes", () => {
     assert.ok(deadlinesOf("gravity").every((d) => d.approximate === false));
   });
 
+  test("GET /api/sentinel/chains : guide de recuperation joint, sources resolues ; absent si la chaine n'en a pas", async () => {
+    const { app } = await build();
+    const body = (await app.inject({ method: "GET", url: "/api/sentinel/chains" })).json() as { chains: { chainKey: string; recoveryGuide: null | { links: { url: string; official: boolean; labelFr: string }[]; steps: { fr: string; en: string; sources: { url: string }[] }[]; opensAt: { at: string; approximate: boolean } | null } }[] };
+    const guide = (k: string) => body.chains.find((c) => c.chainKey === k)?.recoveryGuide;
+    const blast = guide("blast");
+    assert.ok(blast && blast.links.some((l) => l.url === "https://blast.io/" && l.official && l.labelFr));
+    assert.ok(blast.steps.length > 0 && blast.steps.every((s) => s.fr && s.en && s.sources.length > 0));
+    assert.equal(guide("lisk")?.opensAt?.approximate, true);
+    assert.equal(guide("zklinknova"), null);
+  });
+
   test("GET /api/sentinel/alerts : 401 sans session ; avec session, P0 Gravity a fonds bloques + notification en attente", async () => {
     const { app } = await build({ exposures: [gravityPositive] });
     assert.equal((await app.inject({ method: "GET", url: "/api/sentinel/alerts" })).statusCode, 401);

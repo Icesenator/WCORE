@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { useSentinelAlerts, useSentinelChains, useSentinelHealth } from "@/lib/use-sentinel";
 import {
-  codeLabel, deadlineLabel, formatDeadlineAt, formatDeadlineCountdown, nextDeadline, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel,
-  type SentinelAlertView, type SentinelChainView, type SentinelLang, type SentinelText,
+  alertAnchorId, alertGroup, codeLabel, deadlineLabel, formatDeadlineAt, formatDeadlineCountdown, guideText, nextDeadline, opensAtLabel, recoveryGuideView, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel, upcomingTimeline,
+  type SentinelAlertView, type SentinelChainView, type SentinelGuideItemView, type SentinelLang, type SentinelSourceView, type SentinelText,
 } from "@/lib/sentinel-view";
 
 function useNow(stepMs = 60_000): number {
@@ -27,16 +27,83 @@ function SourceLinks({ urls, tx, lang }: { urls: { url: string; publisher: strin
   );
 }
 
-function AlertCard({ a, chain, onAck, now, generatedAt, lang, tx }: { a: SentinelAlertView; chain?: SentinelChainView; onAck?: (id: string) => void; now: number; generatedAt: number; lang: SentinelLang; tx: SentinelText }) {
+function InlineSources({ sources, lang }: { sources: SentinelSourceView[]; lang: SentinelLang }) {
+  return (
+    <span className="ml-1 opacity-70">
+      ({sources.map((s, i) => (
+        <span key={s.url}>{i > 0 ? ", " : ""}<a href={s.url} target="_blank" rel="noopener noreferrer nofollow" className="underline decoration-dotted hover:text-fg">{sourcePublisherFor(s, lang)}</a></span>
+      ))})
+    </span>
+  );
+}
+
+function GuideList({ title, items, ordered, lang }: { title: string; items: SentinelGuideItemView[]; ordered?: boolean; lang: SentinelLang }) {
+  if (!items.length) return null;
+  const Tag = ordered ? "ol" : "ul";
+  return (
+    <div className="mt-2">
+      <div className="font-semibold">{title}</div>
+      <Tag className={`ml-4 mt-1 space-y-1 ${ordered ? "list-decimal" : "list-disc"}`}>
+        {items.map((it, i) => <li key={i}>{guideText(it, lang)}<InlineSources sources={it.sources} lang={lang} /></li>)}
+      </Tag>
+    </div>
+  );
+}
+
+/** Bloc repliable « Comment recuperer mes fonds » ; rien si la chaine n'a pas de guide valide. */
+function RecoveryGuideBlock({ chain, lang, tx }: { chain?: SentinelChainView; lang: SentinelLang; tx: SentinelText }) {
+  const g = recoveryGuideView(chain);
+  if (!g) return null;
+  return (
+    <details className="mt-2 rounded-md border border-current/30 bg-black/20 px-3 py-1 text-xs" data-testid="sentinel-recovery-guide">
+      <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">{tx.guideTitle}</summary>
+      {g.opensAt && <p className="mt-1 font-semibold">{tx.guideOpensAt(opensAtLabel(g.opensAt, lang))}<InlineSources sources={g.opensAt.sources} lang={lang} /></p>}
+      {g.links.length > 0 && (
+        <div className="mt-2">
+          <div className="font-semibold">{tx.guideLinks}</div>
+          <ul className="ml-4 mt-1 list-disc space-y-1">
+            {g.links.map((l) => (
+              <li key={l.url}>
+                <a href={l.url} target="_blank" rel="noopener noreferrer nofollow" className="font-medium underline hover:text-fg">{lang === "en" ? l.labelEn : l.labelFr}</a>
+                <span className="ml-1 opacity-70">{new URL(l.url).hostname}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <GuideList title={tx.guideSteps} items={g.steps} ordered lang={lang} />
+      <GuideList title={tx.guideEligibility} items={g.eligibility} lang={lang} />
+      <GuideList title={tx.guideFeesRisks} items={g.feesAndRisks} lang={lang} />
+      <p className="my-2 opacity-70">{tx.guideVerified(g.verifiedAt.slice(0, 10))}</p>
+    </details>
+  );
+}
+
+function CopyLinkButton({ anchorId, tx }: { anchorId: string; tx: SentinelText }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const url = `${window.location.origin}${window.location.pathname}#${anchorId}`;
+    window.history.replaceState(null, "", `#${anchorId}`);
+    void navigator.clipboard?.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }, () => undefined);
+  };
+  return (
+    <button type="button" onClick={copy} className="ml-auto min-h-11 rounded px-2 text-xs underline decoration-dotted opacity-80 hover:opacity-100 focus-visible:outline focus-visible:outline-2">
+      {copied ? tx.linkCopied : tx.copyLink}
+    </button>
+  );
+}
+
+function AlertCard({ a, chain, onAck, now, generatedAt, lang, tx, anchorId }: { a: SentinelAlertView; chain?: SentinelChainView; onAck?: (id: string) => void; now: number; generatedAt: number; lang: SentinelLang; tx: SentinelText; anchorId?: string }) {
   const countdown = a.actionByMs === null ? null : a.actionByMs - now;
   return (
-    <li className={`rounded-lg border p-3 ${severityClass(a.severity)}`} data-testid="sentinel-alert">
+    <li id={anchorId} className={`scroll-mt-4 rounded-lg border p-3 ${severityClass(a.severity)}`} data-testid="sentinel-alert">
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded bg-black/30 px-1.5 py-0.5 text-xs font-bold">{a.severity}</span>
         <span className="font-semibold">{chain?.name ?? a.chainKey}</span>
         <span className="text-sm">{codeLabel(a.code, lang)}</span>
         {a.conflict && <span className="rounded bg-black/30 px-1.5 text-xs">{tx.conflictingDates}</span>}
-        {a.acknowledged && <span className="ml-auto text-xs opacity-80">{tx.acknowledged}</span>}
+        {a.acknowledged && <span className="text-xs opacity-80">{tx.acknowledged}</span>}
+        {anchorId && <CopyLinkButton anchorId={anchorId} tx={tx} />}
       </div>
       <div className="mt-1 text-sm opacity-90">
         {a.deadlineKind ? `${deadlineLabel(a.deadlineKind, lang)}${lang === "fr" ? " :" : ":"} ` : ""}
@@ -47,6 +114,7 @@ function AlertCard({ a, chain, onAck, now, generatedAt, lang, tx }: { a: Sentine
       <div className="mt-1 text-xs opacity-80">
         <SourceLinks urls={a.officialSourceUrls.map((u) => ({ url: u, publisher: new URL(u).hostname, official: true }))} tx={tx} lang={lang} />
       </div>
+      <RecoveryGuideBlock chain={chain} lang={lang} tx={tx} />
       {onAck && a.id && !a.acknowledged && (a.severity === "P0" || a.severity === "P1") && (
         <button type="button" onClick={() => onAck(a.id!)} className="mt-2 min-h-11 rounded-md border border-current px-3 py-1 text-xs font-semibold hover:bg-black/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
           {tx.acknowledge}
@@ -71,11 +139,35 @@ export function SentinelClient() {
   const active = (chains?.chains ?? []).filter((c) => c.status === "WINDING_DOWN" || c.status === "UNKNOWN");
   const retired = (chains?.chains ?? []).filter((c) => c.status === "RETIRED");
   const genAt = chains ? Date.parse(chains.generatedAt) : now;
-  // Les ancres (#chain-…, #alertes) visent des elements rendus apres chargement : defiler une fois les donnees la.
+  // Les ancres (#chain-…, #alertes, #alerte-<cle>) visent des elements rendus apres chargement : defiler une fois
+  // les donnees la, en ouvrant d'abord le groupe replie qui contient la cible (sinon le lien tomberait dans le vide).
+  // Une seule fois par chargement : un rafraichissement des donnees ne fait pas redefiler la page.
+  const scrolledToHash = useRef(false);
   useEffect(() => {
-    if (!chains || typeof window === "undefined" || !window.location.hash) return;
-    document.getElementById(decodeURIComponent(window.location.hash.slice(1)))?.scrollIntoView({ block: "start" });
+    if (!chains || scrolledToHash.current || typeof window === "undefined" || !window.location.hash) return;
+    let id: string;
+    try { id = decodeURIComponent(window.location.hash.slice(1)); } catch { return; }
+    const el = document.getElementById(id);
+    if (!el) return;
+    scrolledToHash.current = true;
+    for (let d = el.closest("details"); d; d = d.parentElement?.closest("details") ?? null) d.open = true;
+    el.scrollIntoView({ block: "start" });
   }, [chains]);
+  // Groupes d'urgence : ce qui demande une action (echeance a venir, recuperation ouverte ou annoncee, P0)
+  // d'abord ; les chaines deja fermees sans exposition connue ensuite, repliees.
+  const nowAlerts = shownAlerts.filter((a) => alertGroup(a, byKey.get(a.chainKey), now) === "now");
+  const closedAlerts = shownAlerts.filter((a) => alertGroup(a, byKey.get(a.chainKey), now) === "closed");
+  // Une seule ancre par chaine : la premiere alerte rendue (ordre de gravite) la porte.
+  const anchored = new Set<string>();
+  const anchorFor = (a: SentinelAlertView) => {
+    if (a.chainKey === "sentinel" || anchored.has(a.chainKey)) return undefined;
+    anchored.add(a.chainKey);
+    return alertAnchorId(a.chainKey);
+  };
+  const timeline = upcomingTimeline(chains?.chains, now);
+  const renderCard = (a: SentinelAlertView, i: number) => (
+    <AlertCard key={a.id ?? `${a.chainKey}-${a.code}-${i}`} a={a} chain={byKey.get(a.chainKey)} now={now} generatedAt={genAt} lang={lang} tx={tx} anchorId={anchorFor(a)} onAck={state.status === "ok" ? (id) => { void ack(id); } : undefined} />
+  );
   // Bannière P0 : alertes critiques non acquittées (personnelles si connecté, sinon générales).
   const criticalOpen = shownAlerts.filter((a) => a.severity === "P0" && !a.acknowledged);
 
@@ -109,6 +201,33 @@ export function SentinelClient() {
         )}
       </section>
 
+      {chains && (
+        <section aria-label={tx.timelineTitle} className="mb-6" data-testid="sentinel-timeline">
+          <h2 className="mb-2 text-lg font-semibold">{tx.timelineTitle}</h2>
+          {timeline.length === 0 ? <p className="text-sm text-muted">{tx.timelineEmpty}</p> : (
+            <>
+              <div className="relative mb-3 h-6 rounded-full border border-border bg-card" aria-hidden="true">
+                {timeline.map((e) => (
+                  <span key={`${e.chainKey}-${e.kind}-${e.atMs}`} title={`${e.name} · ${e.kind === "RECOVERY_OPENS" ? tx.recoveryOpens : deadlineLabel(e.kind, lang)}`}
+                    className={`absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40 ${e.kind === "RECOVERY_OPENS" ? "bg-emerald-400" : e.kind === "NETWORK_SHUTDOWN" ? "bg-red-400" : "bg-amber-300"}`}
+                    style={{ left: `${Math.min(98, Math.max(2, ((e.atMs - now) / (90 * 86400000)) * 100))}%` }} />
+                ))}
+              </div>
+              <ol className="space-y-1 text-sm">
+                {timeline.map((e) => (
+                  <li key={`${e.chainKey}-${e.kind}-${e.atMs}`} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-mono text-xs text-muted">{e.kind === "RECOVERY_OPENS" ? opensAtLabel(e, lang) : formatDeadlineAt(e.at, e.approximate, lang)}</span>
+                    <a href={`#${alertAnchorId(e.chainKey)}`} className="font-medium underline decoration-dotted">{e.name}</a>
+                    <span>{e.kind === "RECOVERY_OPENS" ? tx.recoveryOpens : deadlineLabel(e.kind, lang)}</span>
+                    <span className="text-xs text-muted">{formatDeadlineCountdown(e.atMs - now, e.approximate, lang)}</span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </section>
+      )}
+
       <section id="alertes" aria-label={tx.alertsTitle} className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">{tx.alertsTitle}</h2>
         {state.status === "anonymous" && <p className="mb-2 text-sm text-muted">{tx.signInForExposure}</p>}
@@ -118,11 +237,20 @@ export function SentinelClient() {
         ) : shownAlerts.length === 0 ? (
           <p className="text-sm text-muted">{tx.noAlerts}</p>
         ) : (
-          <ul className="space-y-2">
-            {shownAlerts.map((a, i) => (
-              <AlertCard key={a.id ?? `${a.chainKey}-${a.code}-${i}`} a={a} chain={byKey.get(a.chainKey)} now={now} generatedAt={genAt} lang={lang} tx={tx} onAck={state.status === "ok" ? (id) => { void ack(id); } : undefined} />
-            ))}
-          </ul>
+          <>
+            {nowAlerts.length > 0 && (
+              <>
+                <h3 className="mb-2 text-sm font-semibold uppercase text-muted">{tx.groupNow}</h3>
+                <ul className="space-y-2" data-testid="sentinel-alerts-now">{nowAlerts.map(renderCard)}</ul>
+              </>
+            )}
+            {closedAlerts.length > 0 && (
+              <details className="mt-4" data-testid="sentinel-alerts-closed">
+                <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold uppercase text-muted">{tx.groupClosed(closedAlerts.length)}</summary>
+                <ul className="mt-2 space-y-2">{closedAlerts.map(renderCard)}</ul>
+              </details>
+            )}
+          </>
         )}
       </section>
 

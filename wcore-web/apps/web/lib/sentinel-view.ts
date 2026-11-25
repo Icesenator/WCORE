@@ -16,6 +16,14 @@ export interface SentinelChainView {
   lastVerifiedAt: string; deadlines: SentinelDeadlineView[];
   /** Toutes les sources de la fiche (absent dans les reponses anciennes). */
   sources?: SentinelSourceView[] | null;
+  /** Guide « Comment recuperer mes fonds » (absent dans les reponses anciennes ; lire via recoveryGuideView). */
+  recoveryGuide?: unknown;
+}
+export interface SentinelGuideItemView { fr: string; en: string; sources: SentinelSourceView[] }
+export interface SentinelGuideLinkView extends SentinelSourceView { labelFr: string; labelEn: string }
+export interface SentinelGuideView {
+  links: SentinelGuideLinkView[]; steps: SentinelGuideItemView[]; eligibility: SentinelGuideItemView[]; feesAndRisks: SentinelGuideItemView[];
+  opensAt: { at: string; approximate: boolean; labelFr: string | null; labelEn: string | null; sources: SentinelSourceView[] } | null; verifiedAt: string;
 }
 export interface SentinelAlertView {
   id?: string; chainKey: string; chainId: number; code: string; severity: SentinelSeverity;
@@ -164,6 +172,20 @@ const SENTINEL_TEXTS = {
     retiredTitle: "Chaînes retirées et récupération",
     recovery: "Récupération",
     bellLabel: (n: number) => `${n} alerte(s) Chain Sentinel non acquittée(s)`,
+    guideTitle: "Comment récupérer mes fonds",
+    guideLinks: "Liens officiels",
+    guideSteps: "Étapes",
+    guideEligibility: "Qui est concerné",
+    guideFeesRisks: "Frais et risques",
+    guideOpensAt: (d: string) => `Ouverture annoncée : ${d}`,
+    guideVerified: (d: string) => `Relu sur les sources officielles le ${d}. Rien n'est garanti : vérifiez toujours sur le site officiel avant d'agir.`,
+    groupNow: "À faire maintenant",
+    groupClosed: (n: number) => `Chaînes déjà fermées, exposition inconnue (${n})`,
+    copyLink: "Copier le lien",
+    linkCopied: "Lien copié",
+    timelineTitle: "Prochaines échéances (90 jours)",
+    timelineEmpty: "Aucune échéance dans les 90 prochains jours.",
+    recoveryOpens: "Ouverture de la récupération (annoncée)",
   },
   en: {
     intro: "Network shutdowns and migrations: deadlines, official sources, exposure of your wallet. No transaction is ever made.",
@@ -200,6 +222,20 @@ const SENTINEL_TEXTS = {
     retiredTitle: "Retired chains and recovery",
     recovery: "Recovery",
     bellLabel: (n: number) => `${n} unacknowledged Chain Sentinel alert(s)`,
+    guideTitle: "How to recover my funds",
+    guideLinks: "Official links",
+    guideSteps: "Steps",
+    guideEligibility: "Who is concerned",
+    guideFeesRisks: "Fees and risks",
+    guideOpensAt: (d: string) => `Announced opening: ${d}`,
+    guideVerified: (d: string) => `Checked against the official sources on ${d}. Nothing is guaranteed: always check the official site before acting.`,
+    groupNow: "Act now",
+    groupClosed: (n: number) => `Chains already closed, exposure unknown (${n})`,
+    copyLink: "Copy link",
+    linkCopied: "Link copied",
+    timelineTitle: "Upcoming deadlines (90 days)",
+    timelineEmpty: "No deadline in the next 90 days.",
+    recoveryOpens: "Recovery opening (announced)",
   },
 } satisfies Record<SentinelLang, Record<string, unknown>>;
 
@@ -316,4 +352,112 @@ export function recoveryNoteFor(chain: Pick<SentinelChainView, "recoveryNote" | 
 /** Nom de la source dans la langue de l'interface ; repli sur le nom d'origine. */
 export function sourcePublisherFor(source: Pick<SentinelSourceView, "publisher" | "publisherEn">, lang: "fr" | "en"): string {
   return (lang === "en" && source.publisherEn) || source.publisher;
+}
+
+const isHttpsUrl = (v: unknown) => { if (typeof v !== "string") return false; try { return new URL(v).protocol === "https:"; } catch { return false; } };
+function asSourceView(v: unknown): SentinelSourceView | null {
+  if (!isObj(v) || !isHttpsUrl(v.url) || typeof v.publisher !== "string" || typeof v.official !== "boolean") return null;
+  if (v.publisherEn !== undefined && !isStrOrNull(v.publisherEn)) return null;
+  return { url: v.url as string, publisher: v.publisher, publisherEn: (v.publisherEn as string | null | undefined) ?? null, official: v.official };
+}
+function asSources(v: unknown): SentinelSourceView[] | null {
+  if (!Array.isArray(v)) return null;
+  const out = v.map(asSourceView);
+  return out.every((x): x is SentinelSourceView => x !== null) ? out : null;
+}
+function asItems(v: unknown): SentinelGuideItemView[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: SentinelGuideItemView[] = [];
+  for (const it of v) {
+    if (!isObj(it) || typeof it.fr !== "string" || typeof it.en !== "string" || !it.fr.trim() || !it.en.trim()) return null;
+    const sources = asSources(it.sources);
+    if (!sources || !sources.length) return null;
+    out.push({ fr: it.fr, en: it.en, sources });
+  }
+  return out;
+}
+
+/**
+ * Guide « Comment recuperer mes fonds » d'une chaine, valide. Un guide mal forme (lien non https,
+ * affirmation sans source...) est ecarte en entier (null) : jamais de lien ni d'etape non sourcee.
+ * Seul le bloc du guide disparait ; les alertes et echeances restent affichees.
+ */
+export function recoveryGuideView(chain: Pick<SentinelChainView, "recoveryGuide"> | null | undefined): SentinelGuideView | null {
+  const g = chain?.recoveryGuide;
+  if (!isObj(g) || typeof g.verifiedAt !== "string" || !Number.isFinite(Date.parse(g.verifiedAt)) || !Array.isArray(g.links) || !g.links.length) return null;
+  const links: SentinelGuideLinkView[] = [];
+  for (const l of g.links) {
+    const src = asSourceView(l);
+    if (!src || !src.official || !isObj(l) || typeof l.labelFr !== "string" || typeof l.labelEn !== "string" || !l.labelFr.trim() || !l.labelEn.trim()) return null;
+    links.push({ ...src, labelFr: l.labelFr, labelEn: l.labelEn });
+  }
+  const steps = asItems(g.steps), eligibility = asItems(g.eligibility ?? []), feesAndRisks = asItems(g.feesAndRisks ?? []);
+  if (!steps || !steps.length || !eligibility || !feesAndRisks) return null;
+  let opensAt: SentinelGuideView["opensAt"] = null;
+  if (g.opensAt !== null && g.opensAt !== undefined) {
+    const o = g.opensAt;
+    const sources = isObj(o) ? asSources(o.sources) : null;
+    if (!isObj(o) || typeof o.at !== "string" || !Number.isFinite(Date.parse(o.at)) || !sources || !sources.length) return null;
+    const label = (x: unknown) => (typeof x === "string" && x.trim() ? x : null);
+    opensAt = { at: o.at, approximate: o.approximate === true, labelFr: label(o.labelFr), labelEn: label(o.labelEn), sources };
+  }
+  return { links, steps, eligibility, feesAndRisks, opensAt, verifiedAt: g.verifiedAt };
+}
+
+/** Texte d'une etape du guide dans la langue de l'interface. */
+export const guideText = (it: Pick<SentinelGuideItemView, "fr" | "en">, lang: SentinelLang): string => (lang === "en" ? it.en || it.fr : it.fr || it.en);
+
+/**
+ * Groupe d'urgence d'une alerte. « closed » : chaine deja arretee sans echeance a venir et dont
+ * l'exposition n'est pas connue (rien a faire tout de suite). Tout le reste, et toujours une P0,
+ * est « now ». Une chaine sans fiche connue reste « now » (lecture prudente).
+ */
+export function alertGroup(a: Pick<SentinelAlertView, "code" | "severity" | "actionByMs">, chain: Pick<SentinelChainView, "deadlines" | "recoveryAfterShutdown"> | undefined, nowMs: number): "now" | "closed" {
+  if (a.severity === "P0") return "now";
+  // L'echeance portee par l'alerte elle-meme prime : une fiche en cache plus ancienne ne la replie jamais.
+  if (typeof a.actionByMs === "number" && a.actionByMs > nowMs) return "now";
+  if (a.code !== "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN" && a.code !== "RETIRED_NO_EXPOSURE") return "now";
+  if (!chain || !Array.isArray(chain.deadlines)) return "now";
+  // Recuperation ouverte ou annoncee : il y a quelque chose a faire, meme sur une chaine arretee.
+  if (chain.recoveryAfterShutdown === "AVAILABLE" || chain.recoveryAfterShutdown === "PLANNED") return "now";
+  // Une date illisible n'est jamais lue comme passee (lecture prudente).
+  return chain.deadlines.some((d) => { const t = Date.parse(d?.at); return !Number.isFinite(t) || t > nowMs; }) ? "now" : "closed";
+}
+
+/** Ancre stable et partageable d'une alerte de chaine (#alerte-<cle>). */
+export function alertAnchorId(chainKey: string): string {
+  return `alerte-${normalizeKey(chainKey).replace(/[^a-z0-9_]/g, "")}`;
+}
+
+export interface TimelineEvent { chainKey: string; name: string; kind: string; at: string; atMs: number; approximate: boolean; labelFr?: string | null; labelEn?: string | null }
+
+/** Date lisible d'une ouverture annoncee : libelle publie (« janvier 2027 ») s'il existe, sinon la date. */
+export function opensAtLabel(o: { at: string; approximate: boolean; labelFr?: string | null; labelEn?: string | null }, lang: SentinelLang): string {
+  return (lang === "en" ? o.labelEn || o.labelFr : o.labelFr || o.labelEn) || formatDeadlineAt(o.at, o.approximate, lang);
+}
+/**
+ * Echeances des `horizonDays` prochains jours, triees, toutes chaines confondues, plus les
+ * ouvertures de recuperation annoncees par un guide (kind « RECOVERY_OPENS »). Une meme echeance
+ * (chaine, type, date) n'apparait qu'une fois.
+ */
+export function upcomingTimeline(chains: readonly SentinelChainView[] | null | undefined, nowMs: number, horizonDays = 90): TimelineEvent[] {
+  if (!Array.isArray(chains)) return [];
+  const end = nowMs + horizonDays * DAY;
+  const seen = new Set<string>();
+  const out: TimelineEvent[] = [];
+  const push = (c: SentinelChainView, kind: string, at: string, approximate: boolean, labels?: { labelFr: string | null; labelEn: string | null }) => {
+    const atMs = Date.parse(at);
+    if (!Number.isFinite(atMs) || atMs <= nowMs || atMs > end) return;
+    const k = `${c.chainKey}|${kind}|${atMs}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ chainKey: c.chainKey, name: c.name, kind, at, atMs, approximate, ...(labels ?? {}) });
+  };
+  for (const c of chains) {
+    if (!c || !Array.isArray(c.deadlines)) continue;
+    for (const d of c.deadlines) push(c, d.kind, d.at, d.approximate === true);
+    const g = recoveryGuideView(c);
+    if (g?.opensAt) push(c, "RECOVERY_OPENS", g.opensAt.at, g.opensAt.approximate, { labelFr: g.opensAt.labelFr, labelEn: g.opensAt.labelEn });
+  }
+  return out.sort((a, b) => a.atMs - b.atMs || String(a.name ?? "").localeCompare(String(b.name ?? "")));
 }

@@ -195,6 +195,9 @@ const publicSource = (s: SourceRef) => ({ url: s.url, publisher: s.publisher, pu
 function publicRecoveryGuide(rec: ChainLifecycleRecord) {
   const g = recoveryGuideFor(rec);
   if (!g) return null;
+  // Une source citee mais absente : le guide entier est ecarte, jamais servi ampute en silence.
+  const cited = [...g.links.map((l) => l.sourceId), ...[...g.steps, ...(g.eligibility ?? []), ...(g.feesAndRisks ?? [])].flatMap((x) => x.sourceIds), ...(g.opensAt?.sourceIds ?? [])];
+  if (!cited.every((id) => Object.prototype.hasOwnProperty.call(g.sources, id))) return null;
   const src = (ids: string[]) => ids.map((id) => g.sources[id]).filter(Boolean).map((s) => publicSource(s!));
   const items = (xs: RecoveryGuideItem[] | undefined) => (xs ?? []).map((x) => ({ fr: x.fr, en: x.en, sources: src(x.sourceIds) }));
   return {

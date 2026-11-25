@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { useSentinelAlerts, useSentinelChains, useSentinelHealth } from "@/lib/use-sentinel";
 import {
@@ -141,10 +141,15 @@ export function SentinelClient() {
   const genAt = chains ? Date.parse(chains.generatedAt) : now;
   // Les ancres (#chain-…, #alertes, #alerte-<cle>) visent des elements rendus apres chargement : defiler une fois
   // les donnees la, en ouvrant d'abord le groupe replie qui contient la cible (sinon le lien tomberait dans le vide).
+  // Une seule fois par chargement : un rafraichissement des donnees ne fait pas redefiler la page.
+  const scrolledToHash = useRef(false);
   useEffect(() => {
-    if (!chains || typeof window === "undefined" || !window.location.hash) return;
-    const el = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+    if (!chains || scrolledToHash.current || typeof window === "undefined" || !window.location.hash) return;
+    let id: string;
+    try { id = decodeURIComponent(window.location.hash.slice(1)); } catch { return; }
+    const el = document.getElementById(id);
     if (!el) return;
+    scrolledToHash.current = true;
     for (let d = el.closest("details"); d; d = d.parentElement?.closest("details") ?? null) d.open = true;
     el.scrollIntoView({ block: "start" });
   }, [chains]);

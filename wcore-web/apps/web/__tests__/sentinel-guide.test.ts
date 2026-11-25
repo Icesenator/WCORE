@@ -15,7 +15,7 @@ const guide = {
   opensAt: null, verifiedAt: "2026-11-25T05:50:00Z",
 };
 const chain = (over: Partial<SentinelChainView> = {}): SentinelChainView => ({
-  chainKey: "blast", chainId: 81457, name: "Blast", status: "RETIRED", successorChainId: null, recoveryAfterShutdown: "AVAILABLE",
+  chainKey: "blast", chainId: 81457, name: "Blast", status: "RETIRED", successorChainId: null, recoveryAfterShutdown: "UNKNOWN",
   recoveryNote: null, lastVerifiedAt: "2026-11-07T12:24:00Z", deadlines: [], ...over,
 });
 
@@ -35,6 +35,9 @@ test("recoveryGuideView : un lien non https, non officiel ou une etape sans sour
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, links: [{ ...guide.links[0], official: false }] } })), null);
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, steps: [{ fr: "x", en: "x", sources: [] }] } })), null);
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, steps: [] } })), null);
+  assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, links: [] } })), null);
+  assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, steps: [{ fr: " ", en: "x", sources: [src] }] } })), null);
+  assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, verifiedAt: "jamais" } })), null);
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, opensAt: { at: "pas une date", sources: [src] } } })), null);
   assert.equal(recoveryGuideView(chain({ recoveryGuide: { ...guide, opensAt: { at: "2027-01-01T00:00:00Z", sources: [] } } })), null);
 });
@@ -58,6 +61,9 @@ test("alertGroup : chaine fermee sans echeance a venir = closed ; echeance futur
   assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P0" }, chain({ deadlines: past }), NOW), "now");
   assert.equal(alertGroup({ actionByMs: null, code: "FUNDS_STRANDED_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: past }), NOW), "now");
   assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, undefined, NOW), "now");
+  // Recuperation ouverte ou annoncee sur une chaine arretee : jamais repliee ; date illisible : prudence.
+  assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: past, recoveryAfterShutdown: "PLANNED" }), NOW), "now");
+  assert.equal(alertGroup({ actionByMs: null, code: "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN", severity: "P1" }, chain({ deadlines: [{ ...past[0]!, at: "?" }], recoveryAfterShutdown: "UNKNOWN" }), NOW), "now");
   // Echeance future portee par l'alerte, fiche en cache plus ancienne (echeances passees) : jamais repliee.
   assert.equal(alertGroup({ actionByMs: NOW + D, code: "RETIRED_NO_EXPOSURE", severity: "P2" }, chain({ deadlines: past }), NOW), "now");
 });

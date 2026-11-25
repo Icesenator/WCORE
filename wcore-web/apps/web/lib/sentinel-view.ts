@@ -369,7 +369,7 @@ function asItems(v: unknown): SentinelGuideItemView[] | null {
   if (!Array.isArray(v)) return null;
   const out: SentinelGuideItemView[] = [];
   for (const it of v) {
-    if (!isObj(it) || typeof it.fr !== "string" || typeof it.en !== "string") return null;
+    if (!isObj(it) || typeof it.fr !== "string" || typeof it.en !== "string" || !it.fr.trim() || !it.en.trim()) return null;
     const sources = asSources(it.sources);
     if (!sources || !sources.length) return null;
     out.push({ fr: it.fr, en: it.en, sources });
@@ -384,11 +384,11 @@ function asItems(v: unknown): SentinelGuideItemView[] | null {
  */
 export function recoveryGuideView(chain: Pick<SentinelChainView, "recoveryGuide"> | null | undefined): SentinelGuideView | null {
   const g = chain?.recoveryGuide;
-  if (!isObj(g) || typeof g.verifiedAt !== "string" || !Array.isArray(g.links)) return null;
+  if (!isObj(g) || typeof g.verifiedAt !== "string" || !Number.isFinite(Date.parse(g.verifiedAt)) || !Array.isArray(g.links) || !g.links.length) return null;
   const links: SentinelGuideLinkView[] = [];
   for (const l of g.links) {
     const src = asSourceView(l);
-    if (!src || !src.official || !isObj(l) || typeof l.labelFr !== "string" || typeof l.labelEn !== "string") return null;
+    if (!src || !src.official || !isObj(l) || typeof l.labelFr !== "string" || typeof l.labelEn !== "string" || !l.labelFr.trim() || !l.labelEn.trim()) return null;
     links.push({ ...src, labelFr: l.labelFr, labelEn: l.labelEn });
   }
   const steps = asItems(g.steps), eligibility = asItems(g.eligibility ?? []), feesAndRisks = asItems(g.feesAndRisks ?? []);
@@ -412,13 +412,16 @@ export const guideText = (it: Pick<SentinelGuideItemView, "fr" | "en">, lang: Se
  * l'exposition n'est pas connue (rien a faire tout de suite). Tout le reste, et toujours une P0,
  * est « now ». Une chaine sans fiche connue reste « now » (lecture prudente).
  */
-export function alertGroup(a: Pick<SentinelAlertView, "code" | "severity" | "actionByMs">, chain: Pick<SentinelChainView, "deadlines"> | undefined, nowMs: number): "now" | "closed" {
+export function alertGroup(a: Pick<SentinelAlertView, "code" | "severity" | "actionByMs">, chain: Pick<SentinelChainView, "deadlines" | "recoveryAfterShutdown"> | undefined, nowMs: number): "now" | "closed" {
   if (a.severity === "P0") return "now";
   // L'echeance portee par l'alerte elle-meme prime : une fiche en cache plus ancienne ne la replie jamais.
   if (typeof a.actionByMs === "number" && a.actionByMs > nowMs) return "now";
   if (a.code !== "EXPOSURE_UNKNOWN_AFTER_SHUTDOWN" && a.code !== "RETIRED_NO_EXPOSURE") return "now";
   if (!chain || !Array.isArray(chain.deadlines)) return "now";
-  return chain.deadlines.some((d) => Date.parse(d.at) > nowMs) ? "now" : "closed";
+  // Recuperation ouverte ou annoncee : il y a quelque chose a faire, meme sur une chaine arretee.
+  if (chain.recoveryAfterShutdown === "AVAILABLE" || chain.recoveryAfterShutdown === "PLANNED") return "now";
+  // Une date illisible n'est jamais lue comme passee (lecture prudente).
+  return chain.deadlines.some((d) => { const t = Date.parse(d?.at); return !Number.isFinite(t) || t > nowMs; }) ? "now" : "closed";
 }
 
 /** Ancre stable et partageable d'une alerte de chaine (#alerte-<cle>). */
@@ -456,5 +459,5 @@ export function upcomingTimeline(chains: readonly SentinelChainView[] | null | u
     const g = recoveryGuideView(c);
     if (g?.opensAt) push(c, "RECOVERY_OPENS", g.opensAt.at, g.opensAt.approximate, { labelFr: g.opensAt.labelFr, labelEn: g.opensAt.labelEn });
   }
-  return out.sort((a, b) => a.atMs - b.atMs || a.name.localeCompare(b.name));
+  return out.sort((a, b) => a.atMs - b.atMs || String(a.name ?? "").localeCompare(String(b.name ?? "")));
 }

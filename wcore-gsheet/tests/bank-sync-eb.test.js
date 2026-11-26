@@ -154,3 +154,17 @@ test('virement entre comptes : montants compares au centime (formats differents)
   const b = Object.assign(tx('2026-11-10', 'CRDT', '70.00', 'VIR PRENOM TESTNOM'), { _bank: 'caisse-epargne' });
   assert.strictEqual(h.sandbox._wcoreEbCrossBank_([a, b], /TESTNOM/i).length, 2);
 });
+
+test('exception inattendue : seul un code de raison sort, rien n est journalise, meme sans fenetre', () => {
+  const h = harness();
+  h.sandbox.SpreadsheetApp.openById = () => { throw new Error('SECRET-LEAK 123.45'); };
+  const logs = [];
+  h.sandbox.Logger.log = (m) => logs.push(m);
+  const r = run(h, true);
+  assert.deepStrictEqual(r, { ran: false, wrote: false, reason: 'UNEXPECTED' });
+  assert.ok(!JSON.stringify(r).includes('SECRET'));
+  assert.strictEqual(h.writes.length, 0);
+  h.sandbox.SpreadsheetApp.getUi = () => { throw new Error('no ui'); };
+  assert.strictEqual(h.sandbox.WCORE_EB_DRYRUN().reason, 'UNEXPECTED');
+  assert.strictEqual(logs.length, 0);
+});

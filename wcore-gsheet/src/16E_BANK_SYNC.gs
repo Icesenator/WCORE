@@ -191,7 +191,12 @@ function _wcoreEbNum_(v) {
 function _wcoreEbRefreshSecurisation_(write) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) return { ran: false, wrote: false, reason: "LOCK_BUSY" };
-  try { return _wcoreEbRefreshLocked_(write); } finally { try { lock.releaseLock(); } catch (e) {} }
+  try {
+    return _wcoreEbRefreshLocked_(write);
+  } catch (eUnexpected) {
+    // The raw exception could carry bank data into the logs: only a reason code leaves this function.
+    return { ran: false, wrote: false, reason: "UNEXPECTED" };
+  } finally { try { lock.releaseLock(); } catch (eRelease) {} }
 }
 
 function _wcoreEbRefreshLocked_(write) {

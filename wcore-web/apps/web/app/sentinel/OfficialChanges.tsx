@@ -33,7 +33,7 @@ export function OfficialChanges({ chains, lang, now }: { chains: ReadonlyArray<{
   const tx = OFFICIAL_CHANGES_TEXT[lang];
   const { vigilance, info, minor } = collectOfficialChanges(chains, now);
   if (chains == null) return null;
-  const flat = (g: ChainOfficialChanges[]) => g.flatMap((c) => c.changes.map((x, i) => ({ chain: c.name, key: `${c.chainKey}-${i}-${x.sourceId}-${x.detectedAt}-${x.level}`, x })));
+  const flat = (g: ChainOfficialChanges[]) => g.flatMap((c) => c.changes.map((x) => ({ chain: c.name, key: JSON.stringify([c.chainKey, x.sourceId, x.detectedAt, x.level, x.excerpts]), x })));
   const infos = flat(info);
   const minors = flat(minor);
   return (

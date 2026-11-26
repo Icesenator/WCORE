@@ -2474,6 +2474,10 @@ function WATCHDOG_FROM_RECAP() {
       try {
         if (typeof _wcoreCheckTradeAck_ === "function") stats.tradeAck = _wcoreCheckTradeAck_(ss);
       } catch (eTradeAck) { stats.tradeAck = { ran: false, reason: "ERROR" }; }
+      // "C'est fait" button of the low-balance alert: one guarded re-read of the bank accounts (16F_VIREMENT_ACK.gs).
+      try {
+        if (typeof _wcoreCheckVirementAck_ === "function") stats.virementAck = _wcoreCheckVirementAck_();
+      } catch (eVirementAck) { stats.virementAck = { ran: false, reason: "ERROR" }; }
       const recap = ss.getSheetByName(RECAP_SHEET_NAME);
       if (!recap) throw new Error("Sheet not found: " + RECAP_SHEET_NAME);
 

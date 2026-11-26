@@ -211,10 +211,13 @@ test('echec de la banque : le code d erreur (enum) et l appel en cause sortent, 
 });
 
 test('periode d historique : 92 jours pour Fortuneo, 60 pour la Caisse d Epargne (l API CE refuse plus de 62)', () => {
+  const expected = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+  const before = { fo: expected(92), ce: expected(60) };
   const h = harness();
   assert.strictEqual(run(h, true).reason, 'WRITTEN');
+  const after = { fo: expected(92), ce: expected(60) };
   const from = (acct) => /date_from=(\d{4}-\d{2}-\d{2})/.exec(h.fetches.find((u) => u.includes('/accounts/' + acct + '/transactions')))[1];
-  const expected = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
-  assert.strictEqual(from('fo'), expected(92));
-  assert.strictEqual(from('ce'), expected(60));
+  // une date calculee avant ou apres l execution : pas de faux echec a minuit UTC
+  assert.ok([before.fo, after.fo].includes(from('fo')));
+  assert.ok([before.ce, after.ce].includes(from('ce')));
 });

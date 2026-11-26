@@ -1,6 +1,6 @@
 /** Aides pures de la vue d'administration Chain Sentinel (propositions a valider). */
 
-export type ProposalStatus = "PENDING_ADMIN_REVIEW" | "APPROVED" | "REJECTED";
+export type ProposalStatus = "PENDING_ADMIN_REVIEW" | "AUTO_PUBLISHED" | "APPROVED" | "REJECTED";
 export type ProposalKind = "SOURCE_CHANGED" | "ANNOUNCEMENT_KEYWORD";
 
 export interface SentinelProposal {
@@ -16,6 +16,7 @@ export interface SentinelProposal {
   note?: string;
   kind?: ProposalKind;
   snippet?: string;
+  analysis?: { level: "VIGILANCE" | "INFO" | "MINEUR"; excerpts: string[] };
 }
 
 export interface SentinelChainName { chainKey: string; name: string }
@@ -61,5 +62,6 @@ export function kindLabel(kind: ProposalKind | undefined): string {
 export function statusLabel(status: ProposalStatus): string {
   if (status === "APPROVED") return "Approuvée";
   if (status === "REJECTED") return "Rejetée";
+  if (status === "AUTO_PUBLISHED") return "Traitée automatiquement";
   return "En attente";
 }

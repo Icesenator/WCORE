@@ -237,7 +237,7 @@ describe("Chain Sentinel — PostgreSQL + Redis reels", () => {
     await runSentinelCheck({ store: ctx.store, fetchText, watchSources: [] });
     fetchMode = "ok";
     const props = (await ctx.app.inject({ method: "GET", url: "/api/admin/sentinel/proposals", headers: { "x-admin-token": ADMIN_TOKEN } })).json().proposals;
-    const pending = props.filter((p: { status: string; newSha256: string }) => p.status === "PENDING_ADMIN_REVIEW");
+    const pending = props.filter((p: { status: string; newSha256: string }) => p.status === "AUTO_PUBLISHED");
     const official = VERIFIED_LIFECYCLE_REGISTRY.flatMap((rec) => Object.values(rec.sources).filter((s) => s.official)).length;
     assert.equal(new Set(pending.map((p: { id: string }) => p.id)).size, pending.length, "aucun doublon");
     assert.equal(pending.filter((p: { newSha256: string; previousSha256: string }) => p.previousSha256 !== null).length >= official, true);
@@ -254,7 +254,7 @@ describe("Chain Sentinel — PostgreSQL + Redis reels", () => {
     assert.ok(cited, "une alerte citant une echeance du registre");
     const target = VERIFIED_LIFECYCLE_REGISTRY.find((r) => r.chainKey === cited.chainKey)!;
     const citedIdx = target.deadlines.findIndex((d) => Date.parse(d.at) === cited.actionByMs);
-    const p = props.find((x: { chainKey: string; status: string }) => x.chainKey === target.chainKey && x.status === "PENDING_ADMIN_REVIEW");
+    const p = props.find((x: { chainKey: string; status: string }) => x.chainKey === target.chainKey && x.status === "AUTO_PUBLISHED");
     assert.ok(p, "proposition en attente pour " + target.chainKey);
     const url = `/api/admin/sentinel/proposals/${encodeURIComponent(p.id)}`;
     const h = { "x-admin-token": ADMIN_TOKEN };

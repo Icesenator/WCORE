@@ -8,6 +8,7 @@ import {
 import { isPublicHttp } from "../lib/safe-http.js";
 import { runAnnouncementWatch, saveWatchState, type WatchSource, type WatchStateMap } from "./sentinel-watch.js";
 import { WATCH_SOURCES } from "./sentinel-watch-sources.js";
+import { analyzeChange, analyzeSnippet, countOpenVigilance, expiryMs, normalizeSnapshot, publicOfficialChanges, type ChangeAnalysis } from "./sentinel-analysis.js";
 
 /**
  * Chain Sentinel — API.
@@ -26,6 +27,8 @@ export const SENTINEL_KEYS = {
   sources: "sentinel:v1:sources",
   proposals: "sentinel:v1:proposals",
   health: "sentinel:v1:health",
+  /** Dernier texte normalise (borne) d'une source : base de comparaison du prochain changement. */
+  snap: (sourceKey: string) => `sentinel:v1:snap:${sourceKey}`,
   lock: "sentinel:v1:lock",
   alerts: (userId: string) => `sentinel:v1:alerts:${userId}`,
   acks: (userId: string) => `sentinel:v1:acks:${userId}`,
@@ -33,7 +36,7 @@ export const SENTINEL_KEYS = {
 } as const;
 
 export interface SourceState { url: string; sha256: string | null; checkedAt: string; status: "OK" | "CHANGED" | "CHECK_FAILED"; httpStatus?: number; error?: string }
-export interface Proposal { id: string; chainKey: string; sourceId: string; url: string; previousSha256: string | null; newSha256: string; detectedAt: string; status: "PENDING_ADMIN_REVIEW" | "APPROVED" | "REJECTED"; decidedAt?: string; note?: string; kind?: "SOURCE_CHANGED" | "ANNOUNCEMENT_KEYWORD"; snippet?: string }
+export interface Proposal { id: string; chainKey: string; sourceId: string; url: string; previousSha256: string | null; newSha256: string; detectedAt: string; status: "PENDING_ADMIN_REVIEW" | "AUTO_PUBLISHED" | "APPROVED" | "REJECTED"; decidedAt?: string; note?: string; kind?: "SOURCE_CHANGED" | "ANNOUNCEMENT_KEYWORD"; snippet?: string; analysis?: ChangeAnalysis }
 export interface SentinelHealth { lastRunAt: string | null; lastSuccessAt: string | null; sourcesChecked: number; sourcesFailed: number; proposalsCreated: number; lastError: string | null; watchChecked?: number; watchFailed?: number }
 export interface RegistryState { version: number; records: ChainLifecycleRecord[]; updatedAt: string }
 
@@ -125,6 +128,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     const registry = await loadRegistry(deps.store);
     const sources = (await deps.store.get<Record<string, SourceState>>(SENTINEL_KEYS.sources)) || {};
     const proposals = (await deps.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
+    const snapWrites = new Map<string, string>();
     for (const rec of registry.records) {
       for (const [sourceId, src] of Object.entries(rec.sources)) {
         if (!src.official) continue;
@@ -137,11 +141,16 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
         const h = sha(res.text);
         const prev = sources[key]?.sha256 ?? null;
         const changed = prev !== null && prev !== h;
+        const snapKey = SENTINEL_KEYS.snap(key);
+        const prevText = (await deps.store.get<string>(snapKey)) ?? null;
+        const newText = normalizeSnapshot(res.text);
         sources[key] = { url: src.url, sha256: h, checkedAt: iso(now), status: changed ? "CHANGED" : "OK", httpStatus: res.status };
         if (changed && !proposals.some((p) => p.chainKey === rec.chainKey && p.sourceId === sourceId && p.newSha256 === h)) {
-          proposals.push({ id: `${key}:${h.slice(0, 12)}`, chainKey: rec.chainKey, sourceId, url: src.url, previousSha256: prev, newSha256: h, detectedAt: iso(now), status: "PENDING_ADMIN_REVIEW" });
+          // Traitement automatique : aucune validation humaine requise ; l'analyse locale classe le changement.
+          proposals.push({ id: `${key}:${h.slice(0, 12)}`, chainKey: rec.chainKey, sourceId, url: src.url, previousSha256: prev, newSha256: h, detectedAt: iso(now), status: "AUTO_PUBLISHED", kind: "SOURCE_CHANGED", analysis: analyzeChange(prevText, newText, now) });
           health.proposalsCreated++;
         }
+        if (changed || prevText === null) snapWrites.set(snapKey, newText);
       }
     }
     // Veille des annonces : un echec ici ne doit pas faire perdre la collecte des sources du registre,
@@ -153,8 +162,18 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
       for (const p of watch.proposals) if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); health.proposalsCreated++; }
       watchState = watch.state;
     } catch { /* la veille est un plus : le registre reste la source de verite */ }
+    // Propositions encore en attente (veille d'annonces, anciennes propositions) : meme traitement automatique.
+    for (const p of proposals) {
+      if (p.status !== "PENDING_ADMIN_REVIEW" || p.analysis) continue;
+      p.analysis = p.kind === "ANNOUNCEMENT_KEYWORD" && p.snippet ? analyzeSnippet(p.snippet, now) : analyzeChange(null, "", now);
+      p.status = "AUTO_PUBLISHED";
+    }
+    // Les traitements automatiques expires depuis longtemps sont retires (la liste ne grossit pas sans fin).
+    const kept = proposals.filter((p) => !(p.status === "AUTO_PUBLISHED" && p.analysis && Date.parse(p.detectedAt) + 2 * expiryMs(p.analysis.level) < now));
+    proposals.splice(0, proposals.length, ...kept);
     await deps.store.set(SENTINEL_KEYS.sources, sources);
     await deps.store.set(SENTINEL_KEYS.proposals, proposals);
+    for (const [k, v] of snapWrites) await deps.store.set(k, v);
     // L'etat « deja vu » n'est ecrit qu'apres les propositions : une panne de stockage ne perd pas une annonce.
     if (watchState) await saveWatchState(deps.store, watchState);
     // Succes = au moins une source officielle relue ; tout en echec n est pas un succes.
@@ -229,7 +248,13 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
   app.get("/api/sentinel/chains", async () => {
     const reg = await loadRegistry(opts.store);
     const n = now();
-    const chains = reg.records.map((r) => publicChainView(r, n));
+    let proposals: Proposal[] = [];
+    try { proposals = (await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || []; } catch { /* pas de bandeau, jamais d'erreur */ }
+    const watch = opts.watchSources ?? WATCH_SOURCES;
+    const chains = reg.records.map((r) => {
+      const allowed = new Set<string>([...Object.values(r.sources).map((x) => x.url), ...watch.filter((w) => w.chainKey === r.chainKey).map((w) => w.url)]);
+      return { ...publicChainView(r, n), officialChanges: publicOfficialChanges(proposals.filter((p) => p.chainKey === r.chainKey), allowed, r.lastVerifiedAt, n) };
+    });
     // Alertes publiques evaluees SANS portefeuille : exposition masquee.
     const alerts = reg.records.map((r) => evaluateChain(r, [], n)).filter((a): a is SentinelAlert => !!a).map(toPublicAlert);
     return { version: reg.version, generatedAt: iso(n), chains, alerts };
@@ -242,8 +267,15 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
     // Relais d'alerte : nombre seul (jamais de chaine, d'extrait ni d'URL) de propositions d'annonces a valider ;
     // le detail reste reserve a l'administrateur. Null = decompte indisponible (jamais « 0 » par defaut).
     let announcementsPending: number | null = null;
+    let vigilanceOpen: number | null = null;
     try { announcementsPending = ((await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || []).filter((p) => p.kind === "ANNOUNCEMENT_KEYWORD" && p.status === "PENDING_ADMIN_REVIEW").length; } catch { /* inconnu */ }
-    return { lastRunAt: h?.lastRunAt ?? null, lastSuccessAt: h?.lastSuccessAt ?? null, sourcesChecked: h?.sourcesChecked ?? 0, sourcesFailed: h?.sourcesFailed ?? 0, watchChecked: h?.watchChecked ?? 0, watchFailed: h?.watchFailed ?? 0, announcementsPending, monitoring: stale ? { status: "STALE", severity: stale.severity } : { status: "OK" } };
+    // Vigilances traitees automatiquement, non expirees et non couvertes par une fiche validee : nombre seul.
+    try {
+      const reg = await loadRegistry(opts.store);
+      const verified = new Map(reg.records.map((r) => [r.chainKey, r.lastVerifiedAt]));
+      vigilanceOpen = countOpenVigilance((await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [], verified, n);
+    } catch { /* inconnu */ }
+    return { lastRunAt: h?.lastRunAt ?? null, lastSuccessAt: h?.lastSuccessAt ?? null, sourcesChecked: h?.sourcesChecked ?? 0, sourcesFailed: h?.sourcesFailed ?? 0, watchChecked: h?.watchChecked ?? 0, watchFailed: h?.watchFailed ?? 0, announcementsPending, vigilanceOpen, monitoring: stale ? { status: "STALE", severity: stale.severity } : { status: "OK" } };
   });
 
   app.get("/api/sentinel/alerts", async (req, reply) => {
@@ -312,7 +344,7 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
     const proposals = (await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
     const p = proposals.find((x) => x.id === id);
     if (!p) return reply.code(404).send({ error: "unknown_proposal" });
-    if (p.status !== "PENDING_ADMIN_REVIEW") return reply.code(409).send({ error: "already_decided" });
+    if (p.status !== "PENDING_ADMIN_REVIEW" && p.status !== "AUTO_PUBLISHED") return reply.code(409).send({ error: "already_decided" });
     const decision = req.body?.decision;
     if (decision !== "APPROVED" && decision !== "REJECTED") return reply.code(400).send({ error: "invalid_decision" });
     if (decision === "APPROVED") {

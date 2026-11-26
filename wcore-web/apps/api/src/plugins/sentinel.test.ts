@@ -68,7 +68,7 @@ describe("collecteur serveur", () => {
     const proposals = (await store.get<{ chainKey: string; status: string }[]>(SENTINEL_KEYS.proposals)) || [];
     assert.equal(proposals.length, 1);
     assert.equal(proposals[0]!.chainKey, "abstract");
-    assert.equal(proposals[0]!.status, "PENDING_ADMIN_REVIEW");
+    assert.equal(proposals[0]!.status, "AUTO_PUBLISHED");
     assert.deepEqual(await loadRegistry(store), before);
     // meme contenu une seconde fois : pas de doublon
     await runSentinelCheck({ store, fetchText: fetchFrom({ [url]: { status: 200, text: "v2 nouvelle date" } }), now: () => NOW + 2 * H });
@@ -156,7 +156,7 @@ describe("routes", () => {
     const raw = (await app.inject({ method: "GET", url: "/api/sentinel/health" })).body;
     assert.equal((JSON.parse(raw) as { announcementsPending: number }).announcementsPending, 1);
     assert.ok(!/sunset|secret\.example/.test(raw), "aucun extrait ni URL dans la reponse publique");
-    assert.deepEqual(Object.keys(JSON.parse(raw)).sort(), ["announcementsPending", "lastRunAt", "lastSuccessAt", "monitoring", "sourcesChecked", "sourcesFailed", "watchChecked", "watchFailed"]);
+    assert.deepEqual(Object.keys(JSON.parse(raw)).sort(), ["announcementsPending", "lastRunAt", "lastSuccessAt", "monitoring", "sourcesChecked", "sourcesFailed", "vigilanceOpen", "watchChecked", "watchFailed"]);
   });
 
   test("relais d'alerte : liste vide = 0, lecture des propositions en panne = null avec STALE conserve", async () => {
@@ -359,7 +359,7 @@ test("approving a proposal saves only validated records: embedded ones keep foll
 
   // A second approval keeps the first validated record and adds nothing else.
   await runSentinelCheck({ store, fetchText: fetchFrom({ [url]: { status: 200, text: "v3" } }), now: () => NOW + 2 * H });
-  const pending = ((await store.get<{ id: string; status: string }[]>(SENTINEL_KEYS.proposals)) || []).find((p) => p.status === "PENDING_ADMIN_REVIEW")!;
+  const pending = ((await store.get<{ id: string; status: string }[]>(SENTINEL_KEYS.proposals)) || []).find((p) => p.status === "AUTO_PUBLISHED")!;
   abs.deadlines = abs.deadlines.map((d) => ({ ...d, at: "2026-12-21T00:00:00Z" }));
   await app.inject({ method: "POST", url: `/api/admin/sentinel/proposals/${encodeURIComponent(pending.id)}`, headers: { "x-admin": "yes" }, payload: { decision: "APPROVED", record: abs } });
   const saved2 = (await store.get<{ version: number; records: { chainKey: string; deadlines: { at: string }[] }[] }>(SENTINEL_KEYS.registry))!;

@@ -201,6 +201,8 @@ test('echec de la banque : le code d erreur (enum) et l appel en cause sortent, 
   assert.strictEqual(bad({ error: 'WRONG_TRANSACTIONS_PERIOD_X' }), 'CE_422_B_OTHER');
   assert.strictEqual(bad('pas un objet'), 'CE_422_B');
   assert.strictEqual(bad({}), 'CE_422_B');
+  assert.strictEqual(bad({ error: 422 }), 'CE_422_B_OTHER');
+  assert.strictEqual(bad({ error: { detail: 'x' } }), 'CE_422_B_OTHER');
   // appel d operations (T) : le solde repond, les operations sont refusees
   const h = harness();
   const orig = h.sandbox.UrlFetchApp.fetch;

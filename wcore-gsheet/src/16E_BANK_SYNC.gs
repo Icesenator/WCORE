@@ -190,9 +190,8 @@ var EB_ERROR_CODES = ["WRONG_TRANSACTIONS_PERIOD", "DATE_FROM_IN_FUTURE", "DATE_
 
 /** Bank error code of a failed answer when it is one of the whole codes above, "OTHER" when not, "" when absent. */
 function _wcoreEbErrTag_(json) {
-  var e = json && typeof json.error === "string" ? json.error : "";
-  if (!e) return "";
-  return EB_ERROR_CODES.indexOf(e) >= 0 ? e : "OTHER";
+  if (!json || typeof json !== "object" || json.error === undefined || json.error === null || json.error === "") return "";
+  return typeof json.error === "string" && EB_ERROR_CODES.indexOf(json.error) >= 0 ? json.error : "OTHER";
 }
 
 /** Reason code of a failed read: "<bank>_<http code>[_B|_T][_<bank error enum>]" (B = balances call, T = transactions). */

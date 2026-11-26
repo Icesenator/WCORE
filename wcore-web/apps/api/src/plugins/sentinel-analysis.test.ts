@@ -175,7 +175,7 @@ describe("garanties de la revue (perte de signal, ecriture, verrou, retention)",
     const p: AnalyzedProposal = { sourceId: "s", url: "https://a.example/n", detectedAt: new Date(NOW - DAY).toISOString(), status: "AUTO_PUBLISHED", analysis: analyzeSnippet("sunset", NOW) };
     assert.equal(publicOfficialChanges([p], new Set(["https://a.example/n"]), "2020-01-01T00:00:00Z", NOW)[0]!.verified, false);
   });
-  test("texte conserve lie a l'empreinte : un texte d'une autre version n'est pas une base de comparaison", async () => {
+  test("dernier texte conserve (empreinte non ecrite) : sert de base, la fermeture apparue entre-temps garde son extrait", async () => {
     const store = new MemoryCacheStore();
     let body = page("Welcome", "Docs");
     const run = (at: number) => runSentinelCheck({ store, fetchText: mkFetch(() => body), now: () => at, watchSources: [] });
@@ -187,7 +187,9 @@ describe("garanties de la revue (perte de signal, ecriture, verrou, retention)",
     body = page("Welcome", "Docs", "We will shut down");
     await run(NOW + 6 * 3600_000);
     const props = (await store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
-    assert.equal(props[0]!.analysis?.detail, "UNAVAILABLE");
+    assert.equal(props[0]!.analysis?.detail, "DIFF");
+    assert.equal(props[0]!.analysis?.level, "VIGILANCE");
+    assert.match(props[0]!.analysis?.excerpts[0] ?? "", /shut down/);
   });
   test("ecriture : proposition ecrite AVANT l'empreinte ; une panne sur l'empreinte ne perd pas le changement", async () => {
     const store = new MemoryCacheStore();

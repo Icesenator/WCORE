@@ -178,9 +178,10 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
         const prev = sources[key]?.sha256 ?? null;
         const changed = prev !== null && prev !== h;
         const snapKey = SENTINEL_KEYS.snap(key);
-        // Le texte conserve n'est la base de comparaison que s'il correspond a l'empreinte precedente.
+        // Le dernier texte conserve (meme s'il date d'une passe dont l'empreinte n'a pas pu etre ecrite) reste une version
+        // anterieure de CETTE source : base de comparaison valide, qui garde l'extrait d'une fermeture apparue entre-temps.
         const savedSnap = (await deps.store.get<SourceSnapshot>(snapKey)) ?? null;
-        const prevText = savedSnap && prev !== null && savedSnap.sha === prev && typeof savedSnap.text === "string" ? savedSnap.text : null;
+        const prevText = savedSnap && prev !== null && typeof savedSnap.text === "string" ? savedSnap.text : null;
         const newText = normalizeSnapshot(res.text);
         sources[key] = { url: src.url, sha256: h, checkedAt: iso(now), status: changed ? "CHANGED" : "OK", httpStatus: res.status };
         if (changed && !proposals.some((p) => p.chainKey === rec.chainKey && p.sourceId === sourceId && p.newSha256 === h)) {

@@ -209,3 +209,12 @@ test('echec de la banque : le code d erreur (enum) et l appel en cause sortent, 
   h.sandbox.UrlFetchApp.fetch = (url) => (url.includes('/accounts/ce/') && url.includes('/transactions') ? { getResponseCode: () => 422, getContentText: () => JSON.stringify({ error: 'WRONG_TRANSACTIONS_PERIOD' }) } : orig(url));
   assert.strictEqual(run(h, true).reason, 'CE_422_T_WRONG_TRANSACTIONS_PERIOD');
 });
+
+test('periode d historique : 92 jours pour Fortuneo, 60 pour la Caisse d Epargne (l API CE refuse plus de 62)', () => {
+  const h = harness();
+  assert.strictEqual(run(h, true).reason, 'WRITTEN');
+  const from = (acct) => /date_from=(\d{4}-\d{2}-\d{2})/.exec(h.fetches.find((u) => u.includes('/accounts/' + acct + '/transactions')))[1];
+  const days = (d) => Math.round((Date.now() - Date.parse(d)) / 864e5);
+  assert.ok(Math.abs(days(from('fo')) - 92) <= 1);
+  assert.ok(Math.abs(days(from('ce')) - 60) <= 1);
+});

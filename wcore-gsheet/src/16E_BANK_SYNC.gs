@@ -17,6 +17,8 @@ var EB_PROP_SELF = "EB_SELF_PATTERN";
 var EB_PROP_READS = "EB_READS_LOG";
 var EB_PROP_PAUSE = "EB_PAUSE_UNTIL";
 var EB_HISTORY_DAYS = 92;
+// The Caisse d'Epargne API refuses more than 62 days of history (HTTP 422 WRONG_TRANSACTIONS_PERIOD): 60 for it.
+var EB_HISTORY_DAYS_CE = 60;
 var EB_MAX_PAGES = 50;
 var EB_READ_TIME_BUDGET_MS = 120 * 1000;
 var EB_READS_PER_DAY = 2;
@@ -164,7 +166,7 @@ function _wcoreEbReadAccount_(bank, uid, now) {
   if (b.code !== 200) { if (b.code === 429) _wcoreEbPauseBank_(bank, now); return { code: b.code, stage: "B", err: _wcoreEbErrTag_(b.json) }; }
   var balance = _wcoreEbBalanceOf_(b.json);
   if (balance === null) return { code: -2 };
-  var from = new Date(now - EB_HISTORY_DAYS * 864e5).toISOString().slice(0, 10);
+  var from = new Date(now - (bank === "caisse-epargne" ? EB_HISTORY_DAYS_CE : EB_HISTORY_DAYS) * 864e5).toISOString().slice(0, 10);
   var txs = [], ck = null, pages = 0, seenKeys = {};
   do {
     if (Date.now() - t0 > EB_READ_TIME_BUDGET_MS) return { code: -6 };

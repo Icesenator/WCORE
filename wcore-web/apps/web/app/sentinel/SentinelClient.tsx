@@ -7,6 +7,7 @@ import {
   alertAnchorId, alertGroup, codeLabel, deadlineLabel, formatDeadlineAt, formatDeadlineCountdown, guideText, nextDeadline, opensAtLabel, recoveryGuideView, recoveryLabel, recoveryNoteFor, sentinelText, severityClass, sortAlerts, sourcePublisherFor, statusClass, statusLabel, upcomingTimeline,
   type SentinelAlertView, type SentinelChainView, type SentinelGuideItemView, type SentinelLang, type SentinelSourceView, type SentinelText,
 } from "@/lib/sentinel-view";
+import { OfficialChanges } from "./OfficialChanges";
 
 function useNow(stepMs = 60_000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -253,6 +254,8 @@ export function SentinelClient() {
           </>
         )}
       </section>
+
+      <OfficialChanges chains={chains?.chains} lang={lang === "fr" ? "fr" : "en"} now={now} />
 
       <section aria-label={tx.chainsTitle} className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">{tx.chainsTitle}</h2>

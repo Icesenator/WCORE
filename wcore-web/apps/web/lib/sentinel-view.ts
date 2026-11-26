@@ -18,6 +18,8 @@ export interface SentinelChainView {
   sources?: SentinelSourceView[] | null;
   /** Guide « Comment recuperer mes fonds » (absent dans les reponses anciennes ; lire via recoveryGuideView). */
   recoveryGuide?: unknown;
+  /** Changements detectes automatiquement sur les pages officielles (indices non verifies ; lire via collectOfficialChanges). */
+  officialChanges?: unknown;
 }
 export interface SentinelGuideItemView { fr: string; en: string; sources: SentinelSourceView[] }
 export interface SentinelGuideLinkView extends SentinelSourceView { labelFr: string; labelEn: string }

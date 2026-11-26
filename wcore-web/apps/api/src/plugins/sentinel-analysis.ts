@@ -154,10 +154,12 @@ export function analyzeChange(prev: string | null, next: string, nowMs: number):
     const nl = next.split(String.fromCharCode(10));
     const addedSet = new Set(added);
     const near = nl.flatMap((l, i) => (addedSet.has(l) ? [nl[i - 1], nl[i + 1]] : [])).filter((l): l is string => !!l).map((l) => inspectLine(l, nowMs)).filter((h) => h.strong.length > 0);
-    const negationRemoved = removed.some((l) => NEGATION.test(fold(l))) && nl.some((l) => inspectLine(l, nowMs).strong.length > 0);
+    // Mention de fermeture lue d'un seul tenant sur toute la page (mots repartis sur plusieurs blocs inchanges).
+    const whole = inspectLine(nl.join(" ").slice(0, SNAPSHOT_MAX), nowMs);
+    const negationRemoved = removed.some((l) => NEGATION.test(fold(l))) && whole.strong.length > 0;
     if (near.length > 0 || negationRemoved) {
       if (level === "MINEUR") level = "INFO";
-      const src = near[0] ?? nl.map((l) => inspectLine(l, nowMs)).find((h) => h.strong.length > 0);
+      const src = near[0] ?? (whole.strong.length > 0 ? whole : undefined);
       if (src && excerpts.length === 0) excerpts = [sanitizeExcerpt(windowAround(src.line, src.at))];
     }
   }

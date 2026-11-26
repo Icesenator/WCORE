@@ -293,3 +293,20 @@ describe("second tour de revue : store de production, contexte, hors registre", 
     assert.ok(((await store.get<Record<string, unknown>>(SENTINEL_KEYS.sources)) || {})["ancienne:src"]);
   });
 });
+
+describe("troisieme tour : mots repartis, premiere lecture", () => {
+  test("negation retiree, mention de fermeture repartie sur deux blocs inchanges => au moins INFO", () => {
+    const a = change(["We will not", "shut", "down", "x y z"], ["We will", "shut", "down", "x y z"]);
+    assert.notEqual(a.level, "MINEUR");
+  });
+  test("premiere lecture : texte ecrit apres l'index (jamais de texte pour une source absente de l'index)", async () => {
+    const store = new MemoryCacheStore();
+    const order: string[] = [];
+    const realSet = store.set.bind(store);
+    store.set = (async (k: string, v: unknown, ttl?: number) => { order.push(k); return realSet(k, v, ttl); }) as typeof store.set;
+    await runSentinelCheck({ store, fetchText: async (u) => (u === "https://migrate.abs.xyz/" ? { status: 200, text: page("a b c") } : { status: 404, text: "" }), now: () => NOW, watchSources: [] });
+    const iSrc = order.indexOf(SENTINEL_KEYS.sources);
+    const iSnap = order.indexOf(SENTINEL_KEYS.snap("abstract:abs-migrate"));
+    assert.ok(iSrc >= 0 && iSnap > iSrc);
+  });
+});

@@ -57,6 +57,8 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 /** Bail du verrou de collecte et de decision (une passe normale dure bien moins). */
 const LOCK_TTL_MS = 20 * 60 * 1000;
+/** Duree maximale du releve du registre (+ veille 3 min + ecritures) : une passe normale ne depasse jamais le bail. */
+const PASS_BUDGET_MS = 12 * 60 * 1000;
 type MaybeAtomic = CacheStore & { compareAndDelete?: (key: string, expected: unknown) => Promise<boolean> };
 /** Libere le verrou seulement si on en est encore le proprietaire (atomique quand le stockage le permet). */
 async function releaseLock(store: CacheStore, token: string): Promise<void> {
@@ -143,13 +145,19 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     const registry = await loadRegistry(deps.store);
     const sources = (await deps.store.get<Record<string, SourceState>>(SENTINEL_KEYS.sources)) || {};
     const proposals = (await deps.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
-    const snapWrites = new Map<string, SourceSnapshot>();
+    // Textes a ecrire AVANT l'empreinte (source deja connue qui change) ou APRES (premiere lecture, reprise d'une source sans
+    // texte) : ainsi un texte n'est jamais ecrit pour une source absente de l'index, donc jamais orphelin sans retour.
+    const snapBefore = new Map<string, SourceSnapshot>();
+    const snapAfter = new Map<string, SourceSnapshot>();
+    const t0 = Date.now();
     const liveKeys = new Set<string>();
     for (const rec of registry.records) {
       for (const [sourceId, src] of Object.entries(rec.sources)) {
         if (!src.official) continue;
         const key = `${rec.chainKey}:${sourceId}`;
         liveKeys.add(key);
+        // Budget de temps : la passe reste largement sous le bail du verrou ; le reste est releve a la passe suivante.
+        if (Date.now() - t0 > PASS_BUDGET_MS) continue;
         health.sourcesChecked++;
         let res: { status: number; text: string } | null = null;
         try { res = await deps.fetchText(src.url); } catch (e) { res = null; sources[key] = { url: src.url, sha256: sources[key]?.sha256 ?? null, checkedAt: iso(now), status: "CHECK_FAILED", error: e instanceof Error ? e.message.slice(0, 120) : "fetch_failed" }; }
@@ -169,7 +177,8 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
           proposals.push({ id: `${key}:${h.slice(0, 12)}`, chainKey: rec.chainKey, sourceId, url: src.url, previousSha256: prev, newSha256: h, detectedAt: iso(now), status: "AUTO_PUBLISHED", kind: "SOURCE_CHANGED", analysis: analyzeChange(prevText, newText, now) });
           health.proposalsCreated++;
         }
-        if (changed || savedSnap === null || savedSnap.sha !== h) snapWrites.set(snapKey, { sha: h, text: newText });
+        if (changed) snapBefore.set(snapKey, { sha: h, text: newText });
+        else if (savedSnap === null || savedSnap.sha !== h) snapAfter.set(snapKey, { sha: h, text: newText });
       }
     }
     // Veille des annonces : un echec ici ne doit pas faire perdre la collecte des sources du registre,
@@ -201,10 +210,11 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     // fait redetecter le changement a la passe suivante (sans doublon : la proposition porte l'empreinte), jamais le perdre.
     if (!(await owns())) throw new Error("LOCK_LOST");
     await deps.store.set(SENTINEL_KEYS.proposals, proposals);
-    for (const [k, v] of snapWrites) await deps.store.set(k, v);
+    for (const [k, v] of snapBefore) await deps.store.set(k, v);
     // Le texte est supprime AVANT l'etat de la source : un echec garde l'etat, la purge reprend a la passe suivante.
     for (const k of orphanKeys) { try { await deps.store.delete(SENTINEL_KEYS.snap(k)); delete sources[k]; } catch { /* retente a la passe suivante */ } }
     await deps.store.set(SENTINEL_KEYS.sources, sources);
+    for (const [k, v] of snapAfter) await deps.store.set(k, v);
     // L'etat « deja vu » n'est ecrit qu'apres les propositions : une panne de stockage ne perd pas une annonce.
     if (watchState) await saveWatchState(deps.store, watchState);
     // Succes = au moins une source officielle relue ; tout en echec n est pas un succes.

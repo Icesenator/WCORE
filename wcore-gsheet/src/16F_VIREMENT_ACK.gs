@@ -12,13 +12,13 @@
 var EB_PROP_NTFY_SERVER = "EB_NTFY_SERVER";
 var EB_PROP_NTFY_TOPIC = "EB_NTFY_ACK_TOPIC";
 var EB_PROP_NTFY_TOKEN = "EB_NTFY_TOKEN";
-var EB_PROP_ACK_DONE = "EB_ACK_DONE";
+var EB_PROP_ACK_MARK = "EB_ACK_WATERMARK";
 var EB_PROP_ACK_POLLED = "EB_ACK_POLLED_AT";
 var EB_PROP_ACK_LAST = "EB_ACK_LAST";
 var EB_ACK_PROJECT = "wcoreRoot";
 var EB_ACK_MAX_AGE_MS = 2 * 3600 * 1000;
 var EB_ACK_MIN_POLL_GAP_MS = 2 * 60 * 1000;
-var EB_ACK_DONE_KEEP = 200;
+// UrlFetchApp has no real timeout: "deadline" (seconds) is the same best-effort option the other HTTP helpers use.
 var EB_ACK_DEADLINE_S = 8;
 
 /** Owner, from the editor: stores the ntfy server, the reply topic and (optional) access token. Nothing is shown back. */
@@ -62,12 +62,14 @@ function _wcoreEbParseAcks_(ndjson, now) {
   return out.sort(function (a, b) { return a.ts - b.ts; });
 }
 
-function _wcoreEbAckDone_() {
-  try { var d = JSON.parse(_wcoreEbProps_().getProperty(EB_PROP_ACK_DONE) || "[]"); return Array.isArray(d) ? d : []; } catch (e) { return []; }
+/** Time (ms) of the newest tap already taken: only newer taps count, so a flood of distinct tokens cannot replay. */
+function _wcoreEbAckMark_() {
+  var n = Number(_wcoreEbProps_().getProperty(EB_PROP_ACK_MARK) || 0);
+  return isFinite(n) ? n : 0;
 }
 
 /**
- * Watchdog pass. Takes the new taps at most once each (marked BEFORE the read, so a failed read is a lost refresh,
+ * Watchdog pass. Takes the new taps at most once each (watermark moved BEFORE the read, so a failed read is a lost refresh,
  * never a second one) and runs a single guarded re-read. Returns reason codes only.
  */
 function _wcoreCheckVirementAck_() {
@@ -84,11 +86,11 @@ function _wcoreCheckVirementAck_() {
     var resp = UrlFetchApp.fetch(server + "/" + topic + "/json?poll=1&since=2h", { method: "get", headers: headers, muteHttpExceptions: true, followRedirects: false, deadline: EB_ACK_DEADLINE_S });
     out.ran = true;
     if (resp.getResponseCode() !== 200) { out.reason = "HTTP_" + resp.getResponseCode(); return out; }
-    var done = _wcoreEbAckDone_();
-    var fresh = _wcoreEbParseAcks_(resp.getContentText(), now).filter(function (a) { return done.indexOf(a.token) < 0; });
+    var mark = _wcoreEbAckMark_();
+    var fresh = _wcoreEbParseAcks_(resp.getContentText(), now).filter(function (a) { return a.ts > mark; });
     if (!fresh.length) { out.reason = "NONE"; return out; }
     out.taken = fresh.length;
-    props.setProperty(EB_PROP_ACK_DONE, JSON.stringify(done.concat(fresh.map(function (a) { return a.token; })).slice(-EB_ACK_DONE_KEEP)));
+    props.setProperty(EB_PROP_ACK_MARK, String(fresh[fresh.length - 1].ts));
     var r = _wcoreEbRefreshSecurisation_(true);
     out.reason = r.reason;
     props.setProperty(EB_PROP_ACK_LAST, JSON.stringify({ at: now, reason: r.reason }));

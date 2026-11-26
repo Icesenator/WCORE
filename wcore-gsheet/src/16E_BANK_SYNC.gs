@@ -158,13 +158,14 @@ function _wcoreEbPauseBank_(bank, now) {
  */
 function _wcoreEbReadAccount_(bank, uid, now) {
   if (!_wcoreEbReserveRead_(bank, now)) return { code: -1 };
+  var t0 = Date.now();
   var base = "/accounts/" + encodeURIComponent(uid);
   var b = _wcoreEbGet_(base + "/balances");
   if (b.code !== 200) { if (b.code === 429) _wcoreEbPauseBank_(bank, now); return { code: b.code }; }
   var balance = _wcoreEbBalanceOf_(b.json);
   if (balance === null) return { code: -2 };
   var from = new Date(now - EB_HISTORY_DAYS * 864e5).toISOString().slice(0, 10);
-  var txs = [], ck = null, pages = 0, seenKeys = {}, t0 = Date.now();
+  var txs = [], ck = null, pages = 0, seenKeys = {};
   do {
     if (Date.now() - t0 > EB_READ_TIME_BUDGET_MS) return { code: -6 };
     var r = _wcoreEbGet_(base + "/transactions?date_from=" + from + (ck ? "&continuation_key=" + encodeURIComponent(ck) : ""));
@@ -175,6 +176,7 @@ function _wcoreEbReadAccount_(bank, uid, now) {
     pages++;
   } while (ck && pages < EB_MAX_PAGES);
   if (ck) return { code: -4 };
+  if (Date.now() - t0 > EB_READ_TIME_BUDGET_MS) return { code: -6 };
   return { code: 200, balance: balance, txs: txs };
 }
 

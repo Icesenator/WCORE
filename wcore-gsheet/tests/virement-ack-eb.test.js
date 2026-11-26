@@ -50,7 +50,7 @@ test('un appui recent : une seule relecture, ecriture groupee, appui marque comm
   const r = check(h);
   assert.deepStrictEqual(r, { ran: true, reason: 'WRITTEN', taken: 1 });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(h.writes)), [[[200], [500], [540], [950]]]);
-  assert.ok(JSON.parse(h.user.EB_ACK_DONE).includes('virement-20261126-19'));
+  assert.strictEqual(Number(h.user.EB_ACK_WATERMARK), NOW - 5 * 60000);
   const n = ebCalls(h);
   h.user.EB_ACK_POLLED_AT = '0';
   assert.strictEqual(check(h).reason, 'NONE');
@@ -64,7 +64,7 @@ test('le meme appui n est jamais traite deux fois, plusieurs appuis = une seule 
 });
 
 test('appuis ignores : trop vieux, autre projet, jeton hors format, trop dans le futur', () => {
-  const h = harness({ taps: [tap('virement-20261126-19', 180), tap('virement-20261126-19', 5, 'autreProjet'), tap('Virement-X', 5), tap('virement-ok', -30), 'pas du json', JSON.stringify({ event: 'message', time: '1790000000', message: 'wcoreRoot:virement-20261126-19' })] });
+  const h = harness({ taps: [tap('virement-20261126-19', 180), tap('virement-20261126-19', 5, 'autreProjet'), tap('Virement-X', 5), tap('virement-ok', -30), 'pas du json', JSON.stringify({ event: 'message', time: String(Math.floor(NOW / 1000) - 60), message: 'wcoreRoot:virement-20261126-19' })] });
   const r = check(h);
   assert.deepStrictEqual(r, { ran: true, reason: 'NONE', taken: 0 });
   assert.strictEqual(ebCalls(h), 0);
@@ -84,7 +84,7 @@ test('hors mode securisation : l appui est consomme, aucune ecriture', () => {
   const h = harness({ bw1: false, taps: [tap('virement-20261126-19', 5)] });
   assert.strictEqual(check(h).reason, 'NOT_SECURING_MODE');
   assert.strictEqual(h.writes.length, 0);
-  assert.ok(JSON.parse(h.user.EB_ACK_DONE).length === 1);
+  assert.strictEqual(Number(h.user.EB_ACK_WATERMARK), NOW - 5 * 60000);
 });
 
 test('jeton ntfy en en-tete, jamais dans l URL ; exception = code ERROR sans message', () => {
@@ -115,11 +115,13 @@ test('installation : adresse https et sujet valides exiges, rien n est affiche',
   assert.strictEqual(bad.user.EB_NTFY_SERVER, '');
 });
 
-test('au-dela de 200 jetons deja traites, le plus ancien est oublie mais les recents restent proteges', () => {
-  const done = Array.from({ length: 200 }, (_, i) => 'virement-old-' + i);
-  const h = harness({ props: { EB_ACK_DONE: JSON.stringify(done) }, taps: [tap('virement-old-150', 5), tap('virement-neuf', 4)] });
-  assert.strictEqual(check(h).taken, 1);
-  const kept = JSON.parse(h.user.EB_ACK_DONE);
-  assert.strictEqual(kept.length, 200);
-  assert.ok(kept.includes('virement-neuf') && kept.includes('virement-old-150'));
+test('inondation de jetons distincts : seuls les appuis plus recents que le dernier traite comptent, une relecture par passage', () => {
+  const flood = Array.from({ length: 300 }, (_, i) => tap('virement-x-' + i, 100 - (i % 60)));
+  const h = harness({ taps: flood });
+  const first = check(h);
+  assert.strictEqual(first.reason, 'WRITTEN');
+  assert.strictEqual(h.fetches.filter((f) => f.url.includes('/accounts/fo/balances')).length, 1);
+  h.user.EB_ACK_POLLED_AT = '0';
+  assert.strictEqual(check(h).reason, 'NONE');
+  assert.strictEqual(h.fetches.filter((f) => f.url.includes('/accounts/fo/balances')).length, 1);
 });

@@ -161,7 +161,7 @@ function _wcoreEbReadAccount_(bank, uid, now) {
   var t0 = Date.now();
   var base = "/accounts/" + encodeURIComponent(uid);
   var b = _wcoreEbGet_(base + "/balances");
-  if (b.code !== 200) { if (b.code === 429) _wcoreEbPauseBank_(bank, now); return { code: b.code }; }
+  if (b.code !== 200) { if (b.code === 429) _wcoreEbPauseBank_(bank, now); return { code: b.code, stage: "B", err: _wcoreEbErrTag_(b.json) }; }
   var balance = _wcoreEbBalanceOf_(b.json);
   if (balance === null) return { code: -2 };
   var from = new Date(now - EB_HISTORY_DAYS * 864e5).toISOString().slice(0, 10);
@@ -169,7 +169,7 @@ function _wcoreEbReadAccount_(bank, uid, now) {
   do {
     if (Date.now() - t0 > EB_READ_TIME_BUDGET_MS) return { code: -6 };
     var r = _wcoreEbGet_(base + "/transactions?date_from=" + from + (ck ? "&continuation_key=" + encodeURIComponent(ck) : ""));
-    if (r.code !== 200 || !r.json) { if (r.code === 429) _wcoreEbPauseBank_(bank, now); return { code: r.code || -3 }; }
+    if (r.code !== 200 || !r.json) { if (r.code === 429) _wcoreEbPauseBank_(bank, now); return { code: r.code || -3, stage: "T", err: _wcoreEbErrTag_(r.json) }; }
     (r.json.transactions || []).forEach(function (t) { if (t.booking_date) { t._bank = bank; txs.push(t); } });
     ck = r.json.continuation_key || null;
     if (ck) { if (seenKeys[ck]) return { code: -5 }; seenKeys[ck] = 1; }
@@ -178,6 +178,17 @@ function _wcoreEbReadAccount_(bank, uid, now) {
   if (ck) return { code: -4 };
   if (Date.now() - t0 > EB_READ_TIME_BUDGET_MS) return { code: -6 };
   return { code: 200, balance: balance, txs: txs };
+}
+
+/** Bank error code of a failed answer (an upper-case enum like WRONG_TRANSACTIONS_PERIOD), never a free message. */
+function _wcoreEbErrTag_(json) {
+  var e = json && typeof json.error === "string" ? json.error : "";
+  return /^[A-Z][A-Z0-9_]{2,40}$/.test(e) ? e : "";
+}
+
+/** Reason code of a failed read: "<bank>_<http code>[_B|_T][_<bank error enum>]" (B = balances call, T = transactions). */
+function _wcoreEbReadReason_(prefix, r) {
+  return prefix + r.code + (r.stage ? "_" + r.stage : "") + (r.err ? "_" + r.err : "");
 }
 
 function _wcoreEbNum_(v) {
@@ -226,9 +237,9 @@ function _wcoreEbRefreshLocked_(write) {
   if (!_wcoreEbCanRead_("caisse-epargne", now)) { out.reason = "CE_BUDGET_OR_PAUSE"; return out; }
   out.ran = true;
   var fo = _wcoreEbReadAccount_("fortuneo", foUid, now);
-  if (fo.code !== 200) { out.reason = "FORTUNEO_" + fo.code; return out; }
+  if (fo.code !== 200) { out.reason = _wcoreEbReadReason_("FORTUNEO_", fo); return out; }
   var ce = _wcoreEbReadAccount_("caisse-epargne", ceUid, now);
-  if (ce.code !== 200) { out.reason = "CE_" + ce.code; return out; }
+  if (ce.code !== 200) { out.reason = _wcoreEbReadReason_("CE_", ce); return out; }
   var txs = fo.txs.concat(ce.txs);
   var cross = _wcoreEbCrossBank_(txs, selfRe);
   var lp = _wcoreEbEstimateLivret_("fortuneo", txs, cross, selfRe, fo.balance, anchor[1], anchor[3]);

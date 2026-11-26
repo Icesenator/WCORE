@@ -90,7 +90,7 @@ test('jour de la derniere saisie introuvable : rien n est ecrit', () => {
 
 test('429 : un seul essai, rien d ecrit, pause de la banque, pas de nouvel appel', () => {
   const h = harness({ ceCode: 429 });
-  assert.strictEqual(run(h, true).reason, 'CE_429');
+  assert.strictEqual(run(h, true).reason, 'CE_429_B');
   assert.strictEqual(h.writes.length, 0);
   const n = h.fetches.length;
   assert.strictEqual(run(h, true).reason, 'CE_BUDGET_OR_PAUSE');
@@ -184,4 +184,16 @@ test('lecture trop longue (budget de temps depasse) : arret sans ecriture', () =
   const r = run(h, true);
   assert.match(r.reason, /_-6$/);
   assert.strictEqual(h.writes.length, 0);
+});
+
+test('echec de la banque : le code d erreur (enum) et l appel en cause sortent, jamais un message libre', () => {
+  const bad = (body) => {
+    const h = harness({ ceCode: 422 });
+    const orig = h.sandbox.UrlFetchApp.fetch;
+    h.sandbox.UrlFetchApp.fetch = (url) => (url.includes('/accounts/ce/') ? { getResponseCode: () => 422, getContentText: () => JSON.stringify(body) } : orig(url));
+    return run(h, true).reason;
+  };
+  assert.strictEqual(bad({ error: 'WRONG_TRANSACTIONS_PERIOD', message: 'solde 12.34 pour 123456789' }), 'CE_422_B_WRONG_TRANSACTIONS_PERIOD');
+  assert.strictEqual(bad({ error: 'texte libre avec 12.34', message: 'x' }), 'CE_422_B');
+  assert.strictEqual(bad('pas un objet'), 'CE_422_B');
 });

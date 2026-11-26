@@ -168,3 +168,11 @@ test('exception inattendue : seul un code de raison sort, rien n est journalise,
   assert.strictEqual(h.sandbox.WCORE_EB_DRYRUN().reason, 'UNEXPECTED');
   assert.strictEqual(logs.length, 0);
 });
+
+test('exception pendant l acquisition du verrou : code de raison seulement', () => {
+  const h = harness();
+  h.sandbox.LockService.getScriptLock = () => { throw new Error('SECRET-LEAK 9.99'); };
+  const r = run(h, true);
+  assert.deepStrictEqual(r, { ran: false, wrote: false, reason: 'UNEXPECTED' });
+  assert.strictEqual(h.fetches.length, 0);
+});

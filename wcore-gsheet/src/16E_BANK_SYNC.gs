@@ -189,14 +189,18 @@ function _wcoreEbNum_(v) {
  * Returns diagnostics only (reason codes), never an amount.
  */
 function _wcoreEbRefreshSecurisation_(write) {
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(5000)) return { ran: false, wrote: false, reason: "LOCK_BUSY" };
+  var lock = null, got = false;
   try {
+    lock = LockService.getScriptLock();
+    got = lock.tryLock(5000);
+    if (!got) return { ran: false, wrote: false, reason: "LOCK_BUSY" };
     return _wcoreEbRefreshLocked_(write);
   } catch (eUnexpected) {
     // The raw exception could carry bank data into the logs: only a reason code leaves this function.
     return { ran: false, wrote: false, reason: "UNEXPECTED" };
-  } finally { try { lock.releaseLock(); } catch (eRelease) {} }
+  } finally {
+    if (got) { try { lock.releaseLock(); } catch (eRelease) {} }
+  }
 }
 
 function _wcoreEbRefreshLocked_(write) {

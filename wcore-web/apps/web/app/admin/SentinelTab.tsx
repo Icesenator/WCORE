@@ -29,13 +29,16 @@ export function SentinelTab() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Acces perdu : aucune donnee Sentinel ne reste a l'ecran ni dans l'etat.
+  const lose = () => { setProposals(null); setChains([]); setNotes({}); setConfirming(null); setError("Authentification administrateur requise."); };
+
   const load = useCallback(async () => {
     try {
       const [pRes, cRes] = await Promise.all([
-        fetch(`${API_URL}/api/admin/sentinel/proposals`, { credentials: "include" }),
+        fetch(`${API_URL}/api/admin/sentinel/proposals`, { credentials: "include", cache: "no-store" }),
         fetch(`${API_URL}/api/sentinel/chains`),
       ]);
-      if (pRes.status === 401) { setError("Authentification administrateur requise."); return; }
+      if (pRes.status === 401) { lose(); return; }
       if (!pRes.ok) { setError(`Erreur API ${pRes.status}`); return; }
       const body = await pRes.json() as { proposals?: SentinelProposal[] };
       setProposals(Array.isArray(body.proposals) ? body.proposals : []);
@@ -58,7 +61,9 @@ export function SentinelTab() {
         method: "POST", credentials: "include", headers: { "content-type": "application/json" },
         body: JSON.stringify({ decision: "REJECTED", note: (notes[id] || "").trim() || undefined }),
       });
-      if (!res.ok) setError(`Rejet refusé (${res.status})`);
+      if (res.status === 401) lose();
+      else if (res.status === 409) { setError("Proposition déjà traitée ou collecte en cours : réessaie dans un instant."); setConfirming(null); await load(); }
+      else if (!res.ok) setError(`Rejet refusé (${res.status})`);
       else { setConfirming(null); await load(); }
     } catch (e) {
       setError((e as Error).message);

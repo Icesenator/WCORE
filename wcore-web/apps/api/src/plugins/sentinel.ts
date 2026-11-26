@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CacheStore } from "@wcore/core";
 import {
   VERIFIED_LIFECYCLE_REGISTRY, evaluateChain, diffAlerts, pendingNotifications, monitorHealthAlert, toPublicAlert, recoveryGuideFor,
@@ -291,21 +291,34 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
   // --- Administration ---
   app.get("/api/admin/sentinel/proposals", async (req, reply) => {
     if (!opts.isAdmin(req)) return reply.code(401).send({ error: "unauthorized" });
+    reply.header("Cache-Control", "no-store");
     return { proposals: (await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [], sources: (await opts.store.get<Record<string, SourceState>>(SENTINEL_KEYS.sources)) || {} };
   });
 
   app.post<{ Params: { id: string }; Body: { decision?: string; record?: ChainLifecycleRecord; note?: string } }>("/api/admin/sentinel/proposals/:id", async (req, reply) => {
     if (!opts.isAdmin(req)) return reply.code(401).send({ error: "unauthorized" });
+    // Meme verrou que la collecte : une decision ne se melange jamais a une passe qui reecrit la liste.
+    const got = await opts.store.add(SENTINEL_KEYS.lock, iso(now()), 10 * 60 * 1000);
+    if (!got) return reply.code(409).send({ error: "busy" });
+    try {
+      return await decideProposal(req, reply);
+    } finally {
+      try { await opts.store.delete(SENTINEL_KEYS.lock); } catch { /* le TTL libere le verrou */ }
+    }
+  });
+
+  const decideProposal = async (req: FastifyRequest<{ Params: { id: string }; Body: { decision?: string; record?: ChainLifecycleRecord; note?: string } }>, reply: FastifyReply) => {
     const id = decodeURIComponent(req.params.id);
     const proposals = (await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
     const p = proposals.find((x) => x.id === id);
     if (!p) return reply.code(404).send({ error: "unknown_proposal" });
+    if (p.status !== "PENDING_ADMIN_REVIEW") return reply.code(409).send({ error: "already_decided" });
     const decision = req.body?.decision;
     if (decision !== "APPROVED" && decision !== "REJECTED") return reply.code(400).send({ error: "invalid_decision" });
     if (decision === "APPROVED") {
       const rec = req.body?.record;
       // Validation minimale : meme chaine, dates ISO valides, au moins une source officielle par echeance.
-      if (!rec || rec.chainKey !== p.chainKey || !Array.isArray(rec.deadlines) || rec.deadlines.length === 0 || !rec.sources || typeof rec.sources !== "object" || rec.deadlines.some((d) => !Number.isFinite(Date.parse(d.at)) || !d.sourceIds?.some((s) => rec.sources?.[s]?.official))) {
+      if (!rec || rec.chainKey !== p.chainKey || typeof rec.name !== "string" || !rec.name || !Number.isFinite(rec.chainId) || typeof rec.status !== "string" || !rec.status || !Array.isArray(rec.deadlines) || rec.deadlines.length === 0 || !rec.sources || typeof rec.sources !== "object" || rec.deadlines.some((d) => !Number.isFinite(Date.parse(d.at)) || !d.sourceIds?.some((s) => rec.sources?.[s]?.official))) {
         return reply.code(400).send({ error: "invalid_record" });
       }
       // Revue securite M1 (2026-11-08) : toute URL de source doit etre https et publique (anti-SSRF au stockage,
@@ -325,5 +338,5 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
     p.status = decision; p.decidedAt = iso(now()); p.note = req.body?.note?.slice(0, 500);
     await opts.store.set(SENTINEL_KEYS.proposals, proposals);
     return { ok: true, proposal: p };
-  });
+  };
 }

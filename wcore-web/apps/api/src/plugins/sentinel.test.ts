@@ -181,6 +181,28 @@ describe("routes", () => {
     assert.equal(h.history.length, 1);
   });
 
+  test("admin : rejet avec note, double decision refusee (409), verrou de collecte respecte, liste jamais mise en cache", async () => {
+    const url = "https://migrate.abs.xyz/";
+    const { app, store } = await build();
+    await runSentinelCheck({ store, fetchText: fetchFrom({ [url]: { status: 200, text: "v1" } }), now: () => NOW });
+    await runSentinelCheck({ store, fetchText: fetchFrom({ [url]: { status: 200, text: "v2" } }), now: () => NOW + H });
+    const admin = { "x-admin": "yes" };
+    const listRes = await app.inject({ method: "GET", url: "/api/admin/sentinel/proposals", headers: admin });
+    assert.equal(listRes.headers["cache-control"], "no-store");
+    const pid = encodeURIComponent((listRes.json() as { proposals: { id: string }[] }).proposals[0]!.id);
+    await store.add(SENTINEL_KEYS.lock, "x", 60_000);
+    assert.equal((await app.inject({ method: "POST", url: `/api/admin/sentinel/proposals/${pid}`, headers: admin, payload: { decision: "REJECTED" } })).statusCode, 409);
+    await store.delete(SENTINEL_KEYS.lock);
+    const ok = await app.inject({ method: "POST", url: `/api/admin/sentinel/proposals/${pid}`, headers: admin, payload: { decision: "REJECTED", note: "sans suite" } });
+    assert.equal(ok.statusCode, 200);
+    assert.ok(!(await store.get(SENTINEL_KEYS.lock)));
+    const again = await app.inject({ method: "POST", url: `/api/admin/sentinel/proposals/${pid}`, headers: admin, payload: { decision: "REJECTED", note: "ecrase" } });
+    assert.equal(again.statusCode, 409);
+    const after = (await app.inject({ method: "GET", url: "/api/admin/sentinel/proposals", headers: admin })).json() as { proposals: { status: string; note?: string }[] };
+    assert.equal(after.proposals[0]!.status, "REJECTED");
+    assert.equal(after.proposals[0]!.note, "sans suite");
+  });
+
   test("admin : 401 sans droits ; approbation exige des dates valides et une source officielle par echeance", async () => {
     const url = "https://migrate.abs.xyz/";
     const { app, store } = await build();

@@ -138,3 +138,13 @@ test('deux appuis distincts dans la meme seconde sur deux passages : aucun n est
   h.user.EB_ACK_POLLED_AT = '0';
   assert.strictEqual(check(h).reason, 'NONE');
 });
+
+test('plus de 20 appuis dans la meme seconde : tous consideres comme pris, jamais rejoues', () => {
+  const same = Array.from({ length: 25 }, (_, i) => tap('virement-s-' + i, 5));
+  const h = harness({ taps: same });
+  assert.strictEqual(check(h).taken, 25);
+  const n = h.fetches.filter((f) => f.url.includes('/accounts/fo/balances')).length;
+  h.user.EB_ACK_POLLED_AT = '0';
+  assert.strictEqual(check(h).reason, 'NONE');
+  assert.strictEqual(h.fetches.filter((f) => f.url.includes('/accounts/fo/balances')).length, n);
+});

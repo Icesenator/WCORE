@@ -93,14 +93,16 @@ function _wcoreCheckVirementAck_() {
     if (resp.getResponseCode() !== 200) { out.reason = "HTTP_" + resp.getResponseCode(); return out; }
     var mark = _wcoreEbAckMark_(), atMark = _wcoreEbAckMarkTokens_();
     // Newer than the watermark, or in the same second but a token not yet taken (ntfy times have 1 s resolution).
-    var fresh = _wcoreEbParseAcks_(resp.getContentText(), now).filter(function (a) { return a.ts > mark || (a.ts === mark && atMark.indexOf(a.token) < 0); });
+    var fresh = _wcoreEbParseAcks_(resp.getContentText(), now).filter(function (a) { return a.ts > mark || (a.ts === mark && atMark.indexOf("*") < 0 && atMark.indexOf(a.token) < 0); });
     if (!fresh.length) { out.reason = "NONE"; return out; }
     out.taken = fresh.length;
     var newMark = fresh[fresh.length - 1].ts;
     var tokens = fresh.filter(function (a) { return a.ts === newMark; }).map(function (a) { return a.token; });
     if (newMark === mark) tokens = atMark.concat(tokens);
     props.setProperty(EB_PROP_ACK_MARK, String(newMark));
-    props.setProperty(EB_PROP_ACK_MARK_TOKENS, JSON.stringify(tokens.slice(-20)));
+    // More than 20 taps in one second: every tap of that second counts as taken ("*"), never replayed.
+    if (tokens.length > 20) tokens = ["*"];
+    props.setProperty(EB_PROP_ACK_MARK_TOKENS, JSON.stringify(tokens));
     var r = _wcoreEbRefreshSecurisation_(true);
     out.reason = r.reason;
     props.setProperty(EB_PROP_ACK_LAST, JSON.stringify({ at: now, reason: r.reason }));

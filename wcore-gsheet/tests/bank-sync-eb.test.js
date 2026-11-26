@@ -58,12 +58,18 @@ test('lecture complete : soldes, Livret+ et Livret A estimes comme le lecteur lo
   assert.strictEqual(h.fetches.filter((u) => u.includes('/balances')).length, 2);
 });
 
-test('lecture a blanc : tout est calcule, rien n est ecrit, la fonction publique ne renvoie aucun montant', () => {
+test('lecture a blanc : rien n est ecrit, le retour ne contient aucun montant, les valeurs ne vont que dans la fenetre du proprietaire', () => {
   const h = harness();
   assert.strictEqual(run(h, false).reason, 'DRY_RUN_OK');
   assert.strictEqual(h.writes.length, 0);
-  const pub = JSON.stringify(h.sandbox.WCORE_EB_DRYRUN());
-  assert.strictEqual(pub, '{"reason":"DRY_RUN_OK"}');
+  const alerts = [];
+  h.sandbox.SpreadsheetApp.getUi = () => ({ ButtonSet: { OK: 1 }, alert: (t, m) => { alerts.push(m); } });
+  const logs = [];
+  h.sandbox.Logger.log = (m) => logs.push(m);
+  assert.strictEqual(JSON.stringify(h.sandbox.WCORE_EB_DRYRUN()), '{"reason":"DRY_RUN_OK"}');
+  assert.match(alerts[0], /200\.00 ; 500\.00 ; 540\.00 ; 950\.00/);
+  assert.strictEqual(logs.length, 0);
+  assert.strictEqual(h.writes.length, 0);
 });
 
 test('hors mode securisation (Strat!BW1 faux) : aucun appel bancaire, aucune ecriture', () => {

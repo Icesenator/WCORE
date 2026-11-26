@@ -235,11 +235,19 @@ function _wcoreEbRefreshLocked_(write) {
   return out;
 }
 
-/** Owner, from the editor: full read WITHOUT writing; tells only whether it would have worked. */
+/**
+ * Owner, from the editor: full read WITHOUT writing. The four values it WOULD write (G5 to G8) are shown only in
+ * the owner's own dialog, for a check against the local reader; the function returns the reason code only and
+ * nothing is logged.
+ */
 function WCORE_EB_DRYRUN() {
   var r = _wcoreEbRefreshSecurisation_(false);
-  var msg = r.reason === "DRY_RUN_OK" ? "Lecture a blanc reussie, rien ecrit." : "Arret : " + r.reason;
-  try { SpreadsheetApp.getUi().alert("Relecture a blanc", msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { Logger.log(msg); }
+  var msg = "Arret : " + r.reason;
+  if (r.reason === "DRY_RUN_OK" && r.values) {
+    msg = "Lecture a blanc reussie, rien ecrit. Valeurs qui seraient ecrites (G5 a G8) : "
+      + r.values.map(function (v) { return v[0].toFixed(2); }).join(" ; ");
+  }
+  try { SpreadsheetApp.getUi().alert("Relecture a blanc", msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { /* no UI: nothing is logged */ }
   return { reason: r.reason };
 }
 

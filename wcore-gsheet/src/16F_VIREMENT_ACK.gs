@@ -13,6 +13,7 @@ var EB_PROP_NTFY_SERVER = "EB_NTFY_SERVER";
 var EB_PROP_NTFY_TOPIC = "EB_NTFY_ACK_TOPIC";
 var EB_PROP_NTFY_TOKEN = "EB_NTFY_TOKEN";
 var EB_PROP_ACK_MARK = "EB_ACK_WATERMARK";
+var EB_PROP_ACK_MARK_TOKENS = "EB_ACK_WATERMARK_TOKENS";
 var EB_PROP_ACK_POLLED = "EB_ACK_POLLED_AT";
 var EB_PROP_ACK_LAST = "EB_ACK_LAST";
 var EB_ACK_PROJECT = "wcoreRoot";
@@ -42,6 +43,10 @@ function WCORE_EB_INSTALL_NTFY() {
     _wcoreEbProps_().setProperties(o);
   }
   ui.alert("Bouton", ok ? "Installe." : "Refuse : INVALID", ui.ButtonSet.OK);
+}
+
+function _wcoreEbAckMarkTokens_() {
+  try { var d = JSON.parse(_wcoreEbProps_().getProperty(EB_PROP_ACK_MARK_TOKENS) || "[]"); return Array.isArray(d) ? d : []; } catch (e) { return []; }
 }
 
 /** Taps ("<project>:<token>") of the last EB_ACK_MAX_AGE_MS in an ntfy NDJSON answer, oldest first, deduplicated. */
@@ -86,11 +91,16 @@ function _wcoreCheckVirementAck_() {
     var resp = UrlFetchApp.fetch(server + "/" + topic + "/json?poll=1&since=2h", { method: "get", headers: headers, muteHttpExceptions: true, followRedirects: false, deadline: EB_ACK_DEADLINE_S });
     out.ran = true;
     if (resp.getResponseCode() !== 200) { out.reason = "HTTP_" + resp.getResponseCode(); return out; }
-    var mark = _wcoreEbAckMark_();
-    var fresh = _wcoreEbParseAcks_(resp.getContentText(), now).filter(function (a) { return a.ts > mark; });
+    var mark = _wcoreEbAckMark_(), atMark = _wcoreEbAckMarkTokens_();
+    // Newer than the watermark, or in the same second but a token not yet taken (ntfy times have 1 s resolution).
+    var fresh = _wcoreEbParseAcks_(resp.getContentText(), now).filter(function (a) { return a.ts > mark || (a.ts === mark && atMark.indexOf(a.token) < 0); });
     if (!fresh.length) { out.reason = "NONE"; return out; }
     out.taken = fresh.length;
-    props.setProperty(EB_PROP_ACK_MARK, String(fresh[fresh.length - 1].ts));
+    var newMark = fresh[fresh.length - 1].ts;
+    var tokens = fresh.filter(function (a) { return a.ts === newMark; }).map(function (a) { return a.token; });
+    if (newMark === mark) tokens = atMark.concat(tokens);
+    props.setProperty(EB_PROP_ACK_MARK, String(newMark));
+    props.setProperty(EB_PROP_ACK_MARK_TOKENS, JSON.stringify(tokens.slice(-20)));
     var r = _wcoreEbRefreshSecurisation_(true);
     out.reason = r.reason;
     props.setProperty(EB_PROP_ACK_LAST, JSON.stringify({ at: now, reason: r.reason }));

@@ -125,3 +125,16 @@ test('inondation de jetons distincts : seuls les appuis plus recents que le dern
   assert.strictEqual(check(h).reason, 'NONE');
   assert.strictEqual(h.fetches.filter((f) => f.url.includes('/accounts/fo/balances')).length, 1);
 });
+
+test('deux appuis distincts dans la meme seconde sur deux passages : aucun n est perdu, aucun n est rejoue', () => {
+  const h = harness({ taps: [tap('virement-aa', 5)] });
+  assert.strictEqual(check(h).taken, 1);
+  h.user.EB_ACK_POLLED_AT = '0';
+  h.sandbox.UrlFetchApp.fetch = ((orig) => (url, o) => (url.startsWith(SERVER)
+    ? { getResponseCode: () => 200, getContentText: () => [tap('virement-aa', 5), tap('virement-bb', 5)].join('\n') }
+    : orig(url, o)))(h.sandbox.UrlFetchApp.fetch);
+  const second = check(h);
+  assert.strictEqual(second.taken, 1);
+  h.user.EB_ACK_POLLED_AT = '0';
+  assert.strictEqual(check(h).reason, 'NONE');
+});

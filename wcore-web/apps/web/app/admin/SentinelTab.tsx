@@ -77,7 +77,7 @@ export function SentinelTab() {
 
   if (error && !proposals) return <p className="text-sm text-red-400">{error}</p>;
   if (!proposals) return <p className="text-muted">Chargement…</p>;
-  const { pending, decided } = splitProposals(proposals);
+  const { pending, auto, decided } = splitProposals(proposals);
 
   return (
     <div>
@@ -118,6 +118,34 @@ export function SentinelTab() {
           </div>
         ))}
       </div>
+
+      <details className="mb-6">
+        <summary className="cursor-pointer text-sm font-semibold">Trait&eacute;es automatiquement, affich&eacute;es sur /sentinel ({auto.length})</summary>
+        <p className="mt-2 text-xs text-muted">Aucune action requise. &laquo; Masquer &raquo; (rejeter) retire un bandeau erron&eacute; de la page publique.</p>
+        <div className="mt-3 space-y-2">
+          {auto.map((p) => (
+            <div key={p.id} className="rounded border border-border/60 bg-bg/30 px-3 py-2 text-xs">
+              <div className="flex flex-wrap justify-between gap-2">
+                <span className="font-semibold">{chainDisplayName(p.chainKey, chains)} <span className="font-mono text-muted">{p.sourceId}</span></span>
+                <span className="text-muted">{p.analysis?.level ?? "?"} &middot; {fmt(p.detectedAt)}</span>
+              </div>
+              {(p.analysis?.excerpts ?? []).map((e, i) => <p key={i} className="mt-1 italic text-muted">{e}</p>)}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <SourceLink url={p.url} />
+                {confirming === p.id ? (
+                  <>
+                    <button disabled={busy === p.id} onClick={() => reject(p.id)} className="rounded border border-red-500/60 px-2 py-0.5 text-red-400 disabled:opacity-50">Confirmer</button>
+                    <button onClick={() => setConfirming(null)} className="rounded border border-border px-2 py-0.5 text-muted">Annuler</button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirming(p.id)} className="rounded border border-border px-2 py-0.5">Masquer</button>
+                )}
+              </div>
+            </div>
+          ))}
+          {auto.length === 0 ? <p className="text-xs text-muted">Aucune.</p> : null}
+        </div>
+      </details>
 
       <details>
         <summary className="cursor-pointer text-sm font-semibold">D&eacute;j&agrave; trait&eacute;es ({decided.length})</summary>

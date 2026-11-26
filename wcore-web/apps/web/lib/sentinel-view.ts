@@ -32,7 +32,7 @@ export interface SentinelAlertView {
   actionByMs: number | null; countdownMs: number | null; deadlineKind: string | null; deadlineApproximate?: boolean | null; conflict: boolean;
   officialSourceUrls: string[]; exposure: string; acknowledged?: boolean;
 }
-export interface SentinelChainsResponse { version: number; generatedAt: string; chains: SentinelChainView[]; alerts: SentinelAlertView[] }
+export interface SentinelChainsResponse { version: number; generatedAt: string; chains: SentinelChainView[]; alerts: SentinelAlertView[]; /** Chaines surveillees hors registre (annonces seulement) : meme forme qu'une chaine, sans fiche. */ extraOfficialChanges?: { chainKey: string; name: string; officialChanges?: unknown }[] }
 export interface SentinelAlertsResponse { generatedAt: string; alerts: SentinelAlertView[]; pendingNotificationIds: string[] }
 export interface SentinelHealthResponse { lastRunAt: string | null; lastSuccessAt: string | null; sourcesChecked: number; sourcesFailed: number; monitoring: { status: "OK" | "STALE"; severity?: SentinelSeverity } }
 

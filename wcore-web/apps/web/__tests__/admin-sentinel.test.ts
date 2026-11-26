@@ -28,6 +28,12 @@ describe("admin sentinel helpers", () => {
     assert.deepEqual(pending.map((x) => x.id), ["2", "1"]);
     assert.deepEqual(decided.map((x) => x.id), ["4", "3"]);
   });
+  test("traitees automatiquement : liste a part, rejet possible (masquage)", () => {
+    const { pending, auto, decided } = splitProposals([p({ id: "1", status: "AUTO_PUBLISHED" }), p({ id: "2" }), p({ id: "3", status: "REJECTED", decidedAt: "2026-11-02T00:00:00Z" })]);
+    assert.deepEqual([pending.length, auto.length, decided.length], [1, 1, 1]);
+    const src = readFileSync(new URL("../app/admin/SentinelTab.tsx", import.meta.url), "utf8");
+    assert.match(src, /Masquer/);
+  });
   test("libelles", () => {
     assert.match(kindLabel("ANNOUNCEMENT_KEYWORD"), /fermeture/);
     assert.equal(statusLabel("REJECTED"), "Rejetée");

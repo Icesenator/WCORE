@@ -47,12 +47,13 @@ function byDateDesc(a: SentinelProposal, b: SentinelProposal): number {
 }
 
 /** En attente (plus recentes d'abord) et deja traitees (decision la plus recente d'abord). */
-export function splitProposals(list: readonly SentinelProposal[]): { pending: SentinelProposal[]; decided: SentinelProposal[] } {
+export function splitProposals(list: readonly SentinelProposal[]): { pending: SentinelProposal[]; auto: SentinelProposal[]; decided: SentinelProposal[] } {
   const pending = list.filter((p) => p.status === "PENDING_ADMIN_REVIEW").sort(byDateDesc);
+  const auto = list.filter((p) => p.status === "AUTO_PUBLISHED").sort(byDateDesc);
   const decided = list
-    .filter((p) => p.status !== "PENDING_ADMIN_REVIEW")
+    .filter((p) => p.status !== "PENDING_ADMIN_REVIEW" && p.status !== "AUTO_PUBLISHED")
     .sort((a, b) => (Date.parse(b.decidedAt || b.detectedAt) || 0) - (Date.parse(a.decidedAt || a.detectedAt) || 0));
-  return { pending, decided };
+  return { pending, auto, decided };
 }
 
 export function kindLabel(kind: ProposalKind | undefined): string {

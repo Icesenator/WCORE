@@ -43,6 +43,9 @@ describe("composant OfficialChanges (source)", () => {
     assert.equal((src.match(/target="_blank"/g) || []).length, (src.match(/rel="noopener noreferrer"/g) || []).length);
     assert.match(src, /tx\.seems/);
   });
+  test("chaines hors registre incluses dans la page publique", () => {
+    assert.match(readFileSync(new URL("../app/sentinel/SentinelClient.tsx", import.meta.url), "utf8"), /extraOfficialChanges/);
+  });
   test("branche dans la page publique", () => {
     assert.match(readFileSync(new URL("../app/sentinel/SentinelClient.tsx", import.meta.url), "utf8"), /<OfficialChanges /);
   });

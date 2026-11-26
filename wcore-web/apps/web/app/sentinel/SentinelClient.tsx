@@ -255,7 +255,7 @@ export function SentinelClient() {
         )}
       </section>
 
-      <OfficialChanges chains={chains?.chains} lang={lang === "fr" ? "fr" : "en"} now={now} />
+      <OfficialChanges chains={chains ? [...chains.chains, ...(chains.extraOfficialChanges ?? [])] : chains} lang={lang === "fr" ? "fr" : "en"} now={now} />
 
       <section aria-label={tx.chainsTitle} className="mb-6">
         <h2 className="mb-2 text-lg font-semibold">{tx.chainsTitle}</h2>

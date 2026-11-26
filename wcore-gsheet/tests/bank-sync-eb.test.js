@@ -194,6 +194,14 @@ test('echec de la banque : le code d erreur (enum) et l appel en cause sortent, 
     return run(h, true).reason;
   };
   assert.strictEqual(bad({ error: 'WRONG_TRANSACTIONS_PERIOD', message: 'solde 12.34 pour 123456789' }), 'CE_422_B_WRONG_TRANSACTIONS_PERIOD');
-  assert.strictEqual(bad({ error: 'texte libre avec 12.34', message: 'x' }), 'CE_422_B');
+  assert.strictEqual(bad({ error: 'texte libre avec 12.34', message: 'x' }), 'CE_422_B_OTHER');
+  assert.strictEqual(bad({ error: 'ABCDEFGHIJKLMNOPQRSTUV' }), 'CE_422_B_OTHER');
+  assert.strictEqual(bad({ error: 'ACCOUNT_NOMDUPROPRIETAIRE' }), 'CE_422_B_OTHER');
   assert.strictEqual(bad('pas un objet'), 'CE_422_B');
+  assert.strictEqual(bad({}), 'CE_422_B');
+  // appel d operations (T) : le solde repond, les operations sont refusees
+  const h = harness();
+  const orig = h.sandbox.UrlFetchApp.fetch;
+  h.sandbox.UrlFetchApp.fetch = (url) => (url.includes('/accounts/ce/') && url.includes('/transactions') ? { getResponseCode: () => 422, getContentText: () => JSON.stringify({ error: 'WRONG_TRANSACTIONS_PERIOD' }) } : orig(url));
+  assert.strictEqual(run(h, true).reason, 'CE_422_T_WRONG_TRANSACTIONS_PERIOD');
 });

@@ -180,10 +180,23 @@ function _wcoreEbReadAccount_(bank, uid, now) {
   return { code: 200, balance: balance, txs: txs };
 }
 
-/** Bank error code of a failed answer (an upper-case enum like WRONG_TRANSACTIONS_PERIOD), never a free message. */
+// Words an Enable Banking error code may be made of. A code is shown only when EVERY word is in this list:
+// a shape check alone would let an identifier or an encoded amount through.
+var EB_ERROR_WORDS = ("WRONG TRANSACTIONS PERIOD DATE FROM TO IN FUTURE BEFORE AFTER ACCOUNT ACCOUNTS ACCESS ACCESSIBLE NOT DOES EXIST " +
+  "SESSION EXPIRED CLOSED INVALID UNAUTHORIZED FORBIDDEN RATE LIMIT EXCEEDED ASPSP ERROR UNAVAILABLE TIMEOUT PSU HEADER " +
+  "PROVIDED REQUIRED MISSING STATUS BALANCES BALANCE HISTORY EXTENDED CONSENT REVOKED AUTHORIZATION PARAMETER PARAMETERS " +
+  "REQUEST FORMAT TOO OLD LONG LARGE UNSUPPORTED FOUND ALLOWED TEMPORARILY INTERNAL SERVER BAD GATEWAY UNEXPECTED " +
+  "RESPONSE VALIDATION FAILED UID ID IP TYPE NO ONE OR AND MAX MIN CONTINUATION KEY PAGE PAGES BLOCKED SUSPENDED INACTIVE " +
+  "CREDENTIALS TOKEN SIGNATURE APPLICATION").split(" ");
+
+/** Bank error code of a failed answer when it is made only of known words, "OTHER" when not, "" when absent. */
 function _wcoreEbErrTag_(json) {
   var e = json && typeof json.error === "string" ? json.error : "";
-  return /^[A-Z][A-Z0-9_]{2,40}$/.test(e) ? e : "";
+  if (!e) return "";
+  if (!/^[A-Z][A-Z_]{1,60}$/.test(e)) return "OTHER";
+  var words = e.split("_");
+  for (var i = 0; i < words.length; i++) if (words[i] && EB_ERROR_WORDS.indexOf(words[i]) < 0) return "OTHER";
+  return e;
 }
 
 /** Reason code of a failed read: "<bank>_<http code>[_B|_T][_<bank error enum>]" (B = balances call, T = transactions). */

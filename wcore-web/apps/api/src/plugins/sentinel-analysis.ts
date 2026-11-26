@@ -37,6 +37,7 @@ export function normalizeSnapshot(html: string): string {
   return lines.join("\n").slice(0, SNAPSHOT_MAX);
 }
 
+const NEGATION = /\b(no|not|never|cannot|aucun\w*|pas|jamais|sans)\b/;
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
 const SEP = "[\\s\\-\\u00a0\\u2010-\\u2015]";
@@ -145,8 +146,22 @@ export function analyzeChange(prev: string | null, next: string, nowMs: number):
   const c = classify(added, nowMs);
   // Une page plus longue que la zone analysee peut cacher la fin du changement : jamais « mineur » dans ce cas.
   const truncated = next.length >= SNAPSHOT_MAX || prev.length >= SNAPSHOT_MAX;
-  const level: ChangeLevel = truncated && c.level === "MINEUR" ? "INFO" : c.level;
-  return { level, detail: "DIFF", excerpts: c.excerpts, addedCount: added.length, removedCount: removed.length, keywords: c.keywords, dates: c.dates, analyzedAt };
+  let level: ChangeLevel = truncated && c.level === "MINEUR" ? "INFO" : c.level;
+  let excerpts = c.excerpts;
+  // Contexte : une ligne modifiee juste a cote d'une mention de fermeture (ou une negation retiree alors que la page
+  // en contient une) peut changer le sens sans contenir elle-meme le mot : jamais « mineur », extrait = la mention voisine.
+  if (level !== "VIGILANCE") {
+    const nl = next.split(String.fromCharCode(10));
+    const addedSet = new Set(added);
+    const near = nl.flatMap((l, i) => (addedSet.has(l) ? [nl[i - 1], nl[i + 1]] : [])).filter((l): l is string => !!l).map((l) => inspectLine(l, nowMs)).filter((h) => h.strong.length > 0);
+    const negationRemoved = removed.some((l) => NEGATION.test(fold(l))) && nl.some((l) => inspectLine(l, nowMs).strong.length > 0);
+    if (near.length > 0 || negationRemoved) {
+      if (level === "MINEUR") level = "INFO";
+      const src = near[0] ?? nl.map((l) => inspectLine(l, nowMs)).find((h) => h.strong.length > 0);
+      if (src && excerpts.length === 0) excerpts = [sanitizeExcerpt(windowAround(src.line, src.at))];
+    }
+  }
+  return { level, detail: "DIFF", excerpts, addedCount: added.length, removedCount: removed.length, keywords: c.keywords, dates: c.dates, analyzedAt };
 }
 
 /** Passage d'annonce deja isole par la veille : meme classement, sur le seul passage. */

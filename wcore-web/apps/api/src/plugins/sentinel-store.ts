@@ -39,11 +39,16 @@ export interface SqlClient {
   $executeRawUnsafe(query: string, ...values: unknown[]): Promise<number>;
 }
 
-export function createSentinelStore(sql: SqlClient, lock: Pick<CacheStore, "add" | "delete">): CacheStore {
+/** Verrou : Redis atomique (add/get/compareAndDelete) ; le repli sans Redis n'a que add (toujours faux) et delete. */
+export type SentinelLockStore = Pick<CacheStore, "add" | "delete"> & Partial<Pick<CacheStore, "get"> & { compareAndDelete: (key: string, expected: unknown) => Promise<boolean> }>;
+
+export function createSentinelStore(sql: SqlClient, lock: SentinelLockStore): CacheStore {
   const LOCK_PREFIX = "sentinel:v1:lock";
   const isLock = (key: string) => key === LOCK_PREFIX || key.startsWith(`${LOCK_PREFIX}:`);
 
   const get = async <T>(key: string): Promise<T | undefined> => {
+    // Le verrou vit dans Redis : sa lecture (controle du proprietaire) ne passe jamais par PostgreSQL.
+    if (isLock(key)) return lock.get ? lock.get<T>(key) : undefined;
     const rows = await sql.$queryRawUnsafe<{ value: T }[]>(`SELECT "value" FROM "sentinel_state" WHERE "key" = $1`, key);
     return rows.length ? rows[0]!.value : undefined;
   };
@@ -67,6 +72,13 @@ export function createSentinelStore(sql: SqlClient, lock: Pick<CacheStore, "add"
     },
     async mget<T>(keys: string[]): Promise<(T | undefined)[]> {
       return Promise.all(keys.map((k) => get<T>(k)));
+    },
+    /** Suppression atomique du verrou, seulement si on en est encore le proprietaire. */
+    async compareAndDelete(key: string, expected: unknown): Promise<boolean> {
+      if (!isLock(key)) throw new Error("only the sentinel lock uses compareAndDelete()");
+      if (lock.compareAndDelete) return lock.compareAndDelete(key, expected);
+      if (lock.get && (await lock.get(key)) === expected) { await lock.delete(key); return true; }
+      return false;
     },
     async add<T>(key: string, value: T, ttlMs?: number): Promise<boolean> {
       if (!isLock(key)) throw new Error("only the sentinel lock uses add()");

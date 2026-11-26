@@ -241,3 +241,55 @@ describe("garanties de la revue (perte de signal, ecriture, verrou, retention)",
     assert.equal(((await app.inject({ method: "GET", url: "/api/sentinel/health" })).json() as { vigilanceOpen: number }).vigilanceOpen, 0);
   });
 });
+
+describe("second tour de revue : store de production, contexte, hors registre", () => {
+  test("store de production : le verrou se lit et se libere dans Redis, jamais dans PostgreSQL", async () => {
+    const { createSentinelStore } = await import("./sentinel-store.js");
+    const redis = new Map<string, unknown>();
+    const lock = {
+      add: async (k: string, v: unknown) => (redis.has(k) ? false : (redis.set(k, v), true)),
+      get: async (k: string) => redis.get(k),
+      delete: async (k: string) => { redis.delete(k); },
+      compareAndDelete: async (k: string, e: unknown) => (redis.get(k) === e ? (redis.delete(k), true) : false),
+    };
+    const sqlRows = new Map<string, unknown>();
+    const sql = {
+      $queryRawUnsafe: async (_q: string, key: string) => (sqlRows.has(key) ? [{ value: sqlRows.get(key) }] : []),
+      $executeRawUnsafe: async (_q: string, key: string, value: string) => { sqlRows.set(key, JSON.parse(value)); return 1; },
+    };
+    const store = createSentinelStore(sql as never, lock as never);
+    // Un verrou lu dans PostgreSQL ne serait jamais trouve : la passe se croirait toujours depossedee.
+    await runSentinelCheck({ store, fetchText: async () => ({ status: 404, text: "" }), now: () => NOW, watchSources: [] });
+    assert.equal(redis.size, 0, "verrou libere par son proprietaire");
+    assert.ok(sqlRows.has(SENTINEL_KEYS.proposals), "ecritures effectuees (le verrou n'a pas ete juge perdu)");
+    redis.set(SENTINEL_KEYS.lock, "autre");
+    assert.equal(await (store as unknown as { compareAndDelete: (k: string, e: unknown) => Promise<boolean> }).compareAndDelete(SENTINEL_KEYS.lock, "pas-moi"), false);
+    assert.equal(redis.get(SENTINEL_KEYS.lock), "autre");
+  });
+  test("negation retiree dans un bloc, mention de fermeture dans un bloc inchange => au moins INFO, extrait de la mention", () => {
+    const a = change(["There are no plans to", "The network will shut down.", "x y z"], ["There are plans to", "The network will shut down.", "x y z"]);
+    assert.notEqual(a.level, "MINEUR");
+    assert.match(a.excerpts[0] ?? "", /shut down/);
+    const b = change(["Intro", "x y z"], ["Intro changed", "x y z"]);
+    assert.equal(b.level, "MINEUR");
+  });
+  test("chaine surveillee hors registre : annonce servie dans extraOfficialChanges et comptee", async () => {
+    const store = new MemoryCacheStore();
+    const p: Proposal = { id: "horsreg:watch:1", chainKey: "horsreg", sourceId: "watch", url: "https://news.example/", previousSha256: null, newSha256: "1", detectedAt: new Date(NOW - DAY).toISOString(), status: "AUTO_PUBLISHED", analysis: analyzeSnippet("chain sunset announced", NOW - DAY) };
+    await store.set(SENTINEL_KEYS.proposals, [p]);
+    const app = Fastify();
+    await app.register(sentinelPlugin, { store, fetchText: async () => ({ status: 404, text: "" }), isAdmin: () => false, userId: () => null, exposuresFor: async () => [], now: () => NOW, watchSources: [{ chainKey: "horsreg", url: "https://news.example/", publisher: "Hors Registre" }] });
+    const body = (await app.inject({ method: "GET", url: "/api/sentinel/chains" })).json() as { extraOfficialChanges: { chainKey: string; name: string; officialChanges: { level: string }[] }[] };
+    assert.equal(body.extraOfficialChanges[0]!.name, "Hors Registre");
+    assert.equal(body.extraOfficialChanges[0]!.officialChanges[0]!.level, "VIGILANCE");
+    assert.equal(((await app.inject({ method: "GET", url: "/api/sentinel/health" })).json() as { vigilanceOpen: number }).vigilanceOpen, 1);
+  });
+  test("purge d'un texte orphelin en echec : l'etat est conserve pour retenter", async () => {
+    const store = new MemoryCacheStore();
+    await store.set(SENTINEL_KEYS.sources, { "ancienne:src": { url: "https://x.example", sha256: "a", checkedAt: "2026-01-01T00:00:00Z", status: "OK" } });
+    const realDelete = store.delete.bind(store);
+    store.delete = (async (k: string) => { if (k === SENTINEL_KEYS.snap("ancienne:src")) throw new Error("panne"); return realDelete(k); }) as typeof store.delete;
+    await runSentinelCheck({ store, fetchText: async () => ({ status: 404, text: "" }), now: () => NOW, watchSources: [] });
+    assert.ok(((await store.get<Record<string, unknown>>(SENTINEL_KEYS.sources)) || {})["ancienne:src"]);
+  });
+});

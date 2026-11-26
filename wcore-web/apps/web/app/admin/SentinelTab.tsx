@@ -43,7 +43,8 @@ export function SentinelTab() {
     } catch (e) {
       setError((e as Error).message);
     }
-    // Noms lisibles : plus tard et sans jamais bloquer ni effacer le reste (lecture publique, un echec laisse les cles brutes).
+    // Noms lisibles : lances apres la liste, jamais attendus (ni le bouton ni la purge ne dependent d'eux) ni effacer le reste (lecture publique, un echec laisse les cles brutes).
+    void (async () => {
     try {
       const cRes = await fetch(`${API_URL}/api/sentinel/chains`);
       if (cRes.ok) {
@@ -51,6 +52,7 @@ export function SentinelTab() {
         setChains(Array.isArray(c.chains) ? c.chains.map((x) => ({ chainKey: x.chainKey, name: x.name })) : []);
       }
     } catch { /* cles brutes */ }
+    })();
   }, []);
 
   useEffect(() => { void load(); }, [load]);

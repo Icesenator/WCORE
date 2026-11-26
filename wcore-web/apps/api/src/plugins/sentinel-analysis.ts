@@ -202,8 +202,19 @@ export function publicOfficialChanges(
     const exp = at + expiryMs(p.analysis.level);
     if (exp <= nowMs) continue;
     if (p.analysis.level === "VIGILANCE" && Number.isFinite(verified) && verified >= at) continue;
+    // Changement dont la version precedente n'a pas ete conservee (anciennes propositions) : rien a montrer, pas du bruit.
+    if (p.analysis.detail === "UNAVAILABLE") continue;
     out.push({ sourceId: p.sourceId, url: p.url, detectedAt: p.detectedAt, level: p.analysis.level, excerpts: p.analysis.level === "MINEUR" ? [] : p.analysis.excerpts.slice(0, EXCERPT_MAX).map((e) => sanitizeExcerpt(e)), expiresAt: new Date(exp).toISOString(), verified: false });
   }
   const order = { VIGILANCE: 0, INFO: 1, MINEUR: 2 } as const;
+  // Une entree par (source, niveau), la plus recente ; une vigilance de la source masque ses entrees de niveau inferieur.
+  const newest = new Map<string, PublicOfficialChange>();
+  for (const c of out) {
+    const k = c.sourceId + "|" + c.level;
+    const cur = newest.get(k);
+    if (!cur || Date.parse(c.detectedAt) > Date.parse(cur.detectedAt)) newest.set(k, c);
+  }
+  const vigilantSources = new Set([...newest.values()].filter((c) => c.level === "VIGILANCE").map((c) => c.sourceId));
+  out.splice(0, out.length, ...[...newest.values()].filter((c) => c.level === "VIGILANCE" || !vigilantSources.has(c.sourceId)));
   return out.sort((a, b) => order[a.level] - order[b.level] || Date.parse(b.detectedAt) - Date.parse(a.detectedAt)).slice(0, 6);
 }

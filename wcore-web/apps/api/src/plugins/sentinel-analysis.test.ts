@@ -105,7 +105,7 @@ describe("affichage public", () => {
     assert.equal(publicOfficialChanges([mk({ status: "PENDING_ADMIN_REVIEW" })], allowed, "2020-01-01T00:00:00Z", NOW).length, 0);
   });
   test("tri : vigilance d'abord ; mineur sans extrait", () => {
-    const minor = mk({ analysis: { ...analyzeSnippet("sunset", NOW), level: "MINEUR" }, detectedAt: new Date(NOW - 1000).toISOString() });
+    const minor = mk({ sourceId: "autre", analysis: { ...analyzeSnippet("sunset", NOW), level: "MINEUR" }, detectedAt: new Date(NOW - 1000).toISOString() });
     const out = publicOfficialChanges([minor, mk({})], allowed, "2020-01-01T00:00:00Z", NOW);
     assert.equal(out[0]!.level, "VIGILANCE");
     assert.deepEqual(out[1]!.excerpts, []);
@@ -310,5 +310,23 @@ describe("troisieme tour : mots repartis, premiere lecture", () => {
     const iSrc = order.indexOf(SENTINEL_KEYS.sources);
     const iSnap = order.indexOf(SENTINEL_KEYS.snap("abstract:abs-migrate"));
     assert.ok(iSrc >= 0 && iSnap > iSrc);
+  });
+});
+
+describe("doublons et entrees sans detail", () => {
+  const allowed = new Set(["https://a.example/n"]);
+  const mkp = (o: Partial<AnalyzedProposal>): AnalyzedProposal => ({ sourceId: "s", url: "https://a.example/n", detectedAt: new Date(NOW - DAY).toISOString(), status: "AUTO_PUBLISHED", analysis: { ...analyzeSnippet("migration notes", NOW), level: "INFO" }, ...o });
+  test("une seule entree par source et niveau, la plus recente", () => {
+    const out = publicOfficialChanges([mkp({}), mkp({ detectedAt: new Date(NOW - 2 * DAY).toISOString() }), mkp({ detectedAt: new Date(NOW - 3 * DAY).toISOString() })], allowed, "2020-01-01T00:00:00Z", NOW);
+    assert.equal(out.length, 1);
+    assert.equal(out[0]!.detectedAt, new Date(NOW - DAY).toISOString());
+  });
+  test("version precedente non conservee : non servie", () => {
+    assert.equal(publicOfficialChanges([mkp({ analysis: analyzeChange(null, "x", NOW) })], allowed, "2020-01-01T00:00:00Z", NOW).length, 0);
+  });
+  test("une vigilance de la source masque ses entrees de niveau inferieur", () => {
+    const v = mkp({ analysis: analyzeSnippet("chain sunset", NOW) });
+    const out = publicOfficialChanges([mkp({}), v], allowed, "2020-01-01T00:00:00Z", NOW);
+    assert.deepEqual(out.map((c) => c.level), ["VIGILANCE"]);
   });
 });

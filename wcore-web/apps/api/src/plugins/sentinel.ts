@@ -151,11 +151,12 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     const snapAfter = new Map<string, SourceSnapshot>();
     const t0 = Date.now();
     const liveKeys = new Set<string>();
-    for (const rec of registry.records) {
-      for (const [sourceId, src] of Object.entries(rec.sources)) {
-        if (!src.official) continue;
-        const key = `${rec.chainKey}:${sourceId}`;
-        liveKeys.add(key);
+    const todo = registry.records.flatMap((rec) => Object.entries(rec.sources).filter(([, s]) => s.official).map(([sourceId, src]) => ({ rec, sourceId, src, key: `${rec.chainKey}:${sourceId}` })));
+    for (const t of todo) liveKeys.add(t.key);
+    // Les sources relevees le plus anciennement (ou jamais) d'abord : budget epuise, aucune n'est ecartee indefiniment.
+    todo.sort((a, b) => (sources[a.key]?.checkedAt ?? "").localeCompare(sources[b.key]?.checkedAt ?? ""));
+    for (const { rec, sourceId, src, key } of todo) {
+      {
         // Budget de temps : la passe reste largement sous le bail du verrou ; le reste est releve a la passe suivante.
         if (Date.now() - t0 > PASS_BUDGET_MS) continue;
         health.sourcesChecked++;
@@ -208,6 +209,8 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     const orphanKeys = Object.keys(sources).filter((k) => !liveKeys.has(k));
     // Ordre d'ecriture : propositions, puis textes (lies a leur empreinte), puis empreintes. Une panne entre deux etapes
     // fait redetecter le changement a la passe suivante (sans doublon : la proposition porte l'empreinte), jamais le perdre.
+    // Passe trop longue (hors stockage) : aucune ecriture, un successeur a pu prendre le relais.
+    if (Date.now() - t0 > LOCK_TTL_MS - 2 * 60 * 1000) throw new Error("PASS_TOO_LONG");
     if (!(await owns())) throw new Error("LOCK_LOST");
     await deps.store.set(SENTINEL_KEYS.proposals, proposals);
     for (const [k, v] of snapBefore) await deps.store.set(k, v);

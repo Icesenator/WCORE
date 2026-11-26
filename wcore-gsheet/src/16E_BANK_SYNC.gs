@@ -180,23 +180,19 @@ function _wcoreEbReadAccount_(bank, uid, now) {
   return { code: 200, balance: balance, txs: txs };
 }
 
-// Words an Enable Banking error code may be made of. A code is shown only when EVERY word is in this list:
-// a shape check alone would let an identifier or an encoded amount through.
-var EB_ERROR_WORDS = ("WRONG TRANSACTIONS PERIOD DATE FROM TO IN FUTURE BEFORE AFTER ACCOUNT ACCOUNTS ACCESS ACCESSIBLE NOT DOES EXIST " +
-  "SESSION EXPIRED CLOSED INVALID UNAUTHORIZED FORBIDDEN RATE LIMIT EXCEEDED ASPSP ERROR UNAVAILABLE TIMEOUT PSU HEADER " +
-  "PROVIDED REQUIRED MISSING STATUS BALANCES BALANCE HISTORY EXTENDED CONSENT REVOKED AUTHORIZATION PARAMETER PARAMETERS " +
-  "REQUEST FORMAT TOO OLD LONG LARGE UNSUPPORTED FOUND ALLOWED TEMPORARILY INTERNAL SERVER BAD GATEWAY UNEXPECTED " +
-  "RESPONSE VALIDATION FAILED UID ID IP TYPE NO ONE OR AND MAX MIN CONTINUATION KEY PAGE PAGES BLOCKED SUSPENDED INACTIVE " +
-  "CREDENTIALS TOKEN SIGNATURE APPLICATION").split(" ");
+// Complete error codes that may be shown. Anything else is reported as OTHER: a fixed list of whole codes is the
+// only way to be sure that no identifier, name or amount ever travels in a reason code.
+var EB_ERROR_CODES = ["WRONG_TRANSACTIONS_PERIOD", "DATE_FROM_IN_FUTURE", "DATE_TO_BEFORE_DATE_FROM", "ACCOUNT_NOT_ACCESSIBLE",
+  "ACCOUNT_DOES_NOT_EXIST", "SESSION_DOES_NOT_EXIST", "CLOSED_SESSION", "EXPIRED_SESSION", "ASPSP_ERROR", "ASPSP_UNAVAILABLE",
+  "ASPSP_TIMEOUT", "ASPSP_RATE_LIMIT_EXCEEDED", "PSU_HEADER_NOT_PROVIDED", "UNAUTHORIZED_ACCESS", "INVALID_CONTINUATION_KEY",
+  "TRANSACTIONS_EXTENDED_HISTORY_NOT_ALLOWED", "UNSUPPORTED_REQUEST", "ALREADY_AUTHORIZED", "WRONG_ACCOUNT_STATUS",
+  "ACCOUNT_ACCESS_NOT_GRANTED", "REQUEST_VALIDATION_FAILED", "INVALID_PARAMETER"];
 
-/** Bank error code of a failed answer when it is made only of known words, "OTHER" when not, "" when absent. */
+/** Bank error code of a failed answer when it is one of the whole codes above, "OTHER" when not, "" when absent. */
 function _wcoreEbErrTag_(json) {
   var e = json && typeof json.error === "string" ? json.error : "";
   if (!e) return "";
-  if (!/^[A-Z][A-Z_]{1,60}$/.test(e)) return "OTHER";
-  var words = e.split("_");
-  for (var i = 0; i < words.length; i++) if (words[i] && EB_ERROR_WORDS.indexOf(words[i]) < 0) return "OTHER";
-  return e;
+  return EB_ERROR_CODES.indexOf(e) >= 0 ? e : "OTHER";
 }
 
 /** Reason code of a failed read: "<bank>_<http code>[_B|_T][_<bank error enum>]" (B = balances call, T = transactions). */

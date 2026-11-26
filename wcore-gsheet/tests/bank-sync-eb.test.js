@@ -197,6 +197,8 @@ test('echec de la banque : le code d erreur (enum) et l appel en cause sortent, 
   assert.strictEqual(bad({ error: 'texte libre avec 12.34', message: 'x' }), 'CE_422_B_OTHER');
   assert.strictEqual(bad({ error: 'ABCDEFGHIJKLMNOPQRSTUV' }), 'CE_422_B_OTHER');
   assert.strictEqual(bad({ error: 'ACCOUNT_NOMDUPROPRIETAIRE' }), 'CE_422_B_OTHER');
+  assert.strictEqual(bad({ error: 'ONE_KEY_MAX' }), 'CE_422_B_OTHER');
+  assert.strictEqual(bad({ error: 'WRONG_TRANSACTIONS_PERIOD_X' }), 'CE_422_B_OTHER');
   assert.strictEqual(bad('pas un objet'), 'CE_422_B');
   assert.strictEqual(bad({}), 'CE_422_B');
   // appel d operations (T) : le solde repond, les operations sont refusees

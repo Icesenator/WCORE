@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePreferences } from "@/components/PreferencesProvider";
 import { ConnectButton, useWallet } from "@/components/ConnectButton";
+import { SentinelTab } from "./SentinelTab";
 import { processFunnelEvents, formatFunnelRate, type FunnelEventRow, type FunnelStats } from "@/lib/admin-funnel-stats";
 
 const API_URL = getApiUrl();
@@ -102,7 +103,7 @@ export function AdminClient() {
   const { t } = usePreferences();
   const { address: walletAddress, authStep } = useWallet();
   const isAdmin = (authStep as string) === "authenticated";
-  const [tab, setTab] = useState<"overview" | "pricing" | "funnel">("overview");
+  const [tab, setTab] = useState<"overview" | "pricing" | "funnel" | "sentinel">("overview");
   const [funnelRows, setFunnelRows] = useState<FunnelEventRow[] | null>(null);
   const [funnelLoading, setFunnelLoading] = useState(false);
   const [funnelError, setFunnelError] = useState("");
@@ -239,9 +240,12 @@ export function AdminClient() {
         <button onClick={() => setTab("overview")} className={`pb-2 text-sm font-medium border-b-2 transition ${tab === "overview" ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}>Overview</button>
         <button onClick={() => setTab("pricing")} className={`pb-2 text-sm font-medium border-b-2 transition ${tab === "pricing" ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}>Pricing</button>
         <button onClick={() => setTab("funnel")} className={`pb-2 text-sm font-medium border-b-2 transition ${tab === "funnel" ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}>Funnel</button>
+        <button onClick={() => setTab("sentinel")} className={`pb-2 text-sm font-medium border-b-2 transition ${tab === "sentinel" ? "border-accent text-fg" : "border-transparent text-muted hover:text-fg"}`}>Sentinel</button>
       </div>
 
-      {tab === "funnel" ? (
+      {tab === "sentinel" ? (
+        <SentinelTab />
+      ) : tab === "funnel" ? (
         <FunnelTab rows={funnelRows} loading={funnelLoading} error={funnelError} range={funnelRange} onRangeChange={setFunnelRange} campaign={funnelCampaign} onCampaignChange={setFunnelCampaign} />
       ) : tab === "pricing" ? (
         <div>

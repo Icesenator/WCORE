@@ -34,22 +34,23 @@ export function SentinelTab() {
 
   const load = useCallback(async (keepError = false) => {
     try {
-      const [pRes, cRes] = await Promise.all([
-        fetch(`${API_URL}/api/admin/sentinel/proposals`, { credentials: "include", cache: "no-store" }),
-        fetch(`${API_URL}/api/sentinel/chains`).catch(() => null),
-      ]);
+      const pRes = await fetch(`${API_URL}/api/admin/sentinel/proposals`, { credentials: "include", cache: "no-store" });
       if (pRes.status === 401) { lose(); return; }
       if (!pRes.ok) { setError(`Erreur API ${pRes.status}`); return; }
       const body = await pRes.json() as { proposals?: SentinelProposal[] };
       setProposals(Array.isArray(body.proposals) ? body.proposals : []);
-      if (cRes?.ok) {
-        const c = await cRes.json() as { chains?: SentinelChainName[] };
-        setChains(Array.isArray(c.chains) ? c.chains.map((x) => ({ chainKey: x.chainKey, name: x.name })) : []);
-      }
       if (!keepError) setError("");
     } catch (e) {
       setError((e as Error).message);
     }
+    // Noms lisibles : plus tard et sans jamais bloquer ni effacer le reste (lecture publique, un echec laisse les cles brutes).
+    try {
+      const cRes = await fetch(`${API_URL}/api/sentinel/chains`);
+      if (cRes.ok) {
+        const c = await cRes.json() as { chains?: SentinelChainName[] };
+        setChains(Array.isArray(c.chains) ? c.chains.map((x) => ({ chainKey: x.chainKey, name: x.name })) : []);
+      }
+    } catch { /* cles brutes */ }
   }, []);
 
   useEffect(() => { void load(); }, [load]);

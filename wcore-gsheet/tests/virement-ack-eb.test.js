@@ -64,7 +64,7 @@ test('le meme appui n est jamais traite deux fois, plusieurs appuis = une seule 
 });
 
 test('appuis ignores : trop vieux, autre projet, jeton hors format, trop dans le futur', () => {
-  const h = harness({ taps: [tap('virement-20261126-19', 180), tap('virement-20261126-19', 5, 'autreProjet'), tap('Virement-X', 5), tap('virement-ok', -30), 'pas du json'] });
+  const h = harness({ taps: [tap('virement-20261126-19', 180), tap('virement-20261126-19', 5, 'autreProjet'), tap('Virement-X', 5), tap('virement-ok', -30), 'pas du json', JSON.stringify({ event: 'message', time: '1790000000', message: 'wcoreRoot:virement-20261126-19' })] });
   const r = check(h);
   assert.deepStrictEqual(r, { ran: true, reason: 'NONE', taken: 0 });
   assert.strictEqual(ebCalls(h), 0);
@@ -92,6 +92,7 @@ test('jeton ntfy en en-tete, jamais dans l URL ; exception = code ERROR sans mes
   check(h);
   assert.strictEqual(h.fetches[0].o.headers.Authorization, 'Bearer tk_fictif');
   assert.ok(!h.fetches[0].url.includes('tk_fictif'));
+  assert.strictEqual(h.fetches[0].o.deadline, 8);
   assert.strictEqual(h.fetches[0].o.followRedirects, false);
   const boom = harness({ taps: [] });
   boom.sandbox.UrlFetchApp.fetch = () => { throw new Error('SECRET-LEAK ' + TOPIC); };
@@ -112,4 +113,13 @@ test('installation : adresse https et sujet valides exiges, rien n est affiche',
   bad.sandbox.SpreadsheetApp.getUi = () => ({ ButtonSet: { OK_CANCEL: 1, OK: 2 }, Button: { OK: 'OK' }, prompt: () => ({ getSelectedButton: () => 'OK', getResponseText: () => a2.shift() }), alert: () => {} });
   bad.sandbox.WCORE_EB_INSTALL_NTFY();
   assert.strictEqual(bad.user.EB_NTFY_SERVER, '');
+});
+
+test('au-dela de 200 jetons deja traites, le plus ancien est oublie mais les recents restent proteges', () => {
+  const done = Array.from({ length: 200 }, (_, i) => 'virement-old-' + i);
+  const h = harness({ props: { EB_ACK_DONE: JSON.stringify(done) }, taps: [tap('virement-old-150', 5), tap('virement-neuf', 4)] });
+  assert.strictEqual(check(h).taken, 1);
+  const kept = JSON.parse(h.user.EB_ACK_DONE);
+  assert.strictEqual(kept.length, 200);
+  assert.ok(kept.includes('virement-neuf') && kept.includes('virement-old-150'));
 });

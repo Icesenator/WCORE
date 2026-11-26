@@ -18,6 +18,7 @@ var EB_PROP_READS = "EB_READS_LOG";
 var EB_PROP_PAUSE = "EB_PAUSE_UNTIL";
 var EB_HISTORY_DAYS = 92;
 var EB_MAX_PAGES = 50;
+var EB_READ_TIME_BUDGET_MS = 120 * 1000;
 var EB_READS_PER_DAY = 2;
 var EB_PAUSE_AFTER_429_MS = 6 * 3600 * 1000;
 var EB_SECU_SHEET = "S\u00e9curisation";
@@ -163,8 +164,9 @@ function _wcoreEbReadAccount_(bank, uid, now) {
   var balance = _wcoreEbBalanceOf_(b.json);
   if (balance === null) return { code: -2 };
   var from = new Date(now - EB_HISTORY_DAYS * 864e5).toISOString().slice(0, 10);
-  var txs = [], ck = null, pages = 0, seenKeys = {};
+  var txs = [], ck = null, pages = 0, seenKeys = {}, t0 = Date.now();
   do {
+    if (Date.now() - t0 > EB_READ_TIME_BUDGET_MS) return { code: -6 };
     var r = _wcoreEbGet_(base + "/transactions?date_from=" + from + (ck ? "&continuation_key=" + encodeURIComponent(ck) : ""));
     if (r.code !== 200 || !r.json) { if (r.code === 429) _wcoreEbPauseBank_(bank, now); return { code: r.code || -3 }; }
     (r.json.transactions || []).forEach(function (t) { if (t.booking_date) { t._bank = bank; txs.push(t); } });

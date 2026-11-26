@@ -100,7 +100,7 @@ function _wcoreEbGet_(path) {
   var resp;
   try {
     resp = UrlFetchApp.fetch(EB_API_BASE + path, {
-      method: "get", headers: { Authorization: "Bearer " + jwt }, muteHttpExceptions: true, followRedirects: false
+      method: "get", headers: { Authorization: "Bearer " + jwt }, muteHttpExceptions: true, followRedirects: false, deadline: 15
     });
   } catch (e) { return { code: 0, json: null }; }
   var json = null;

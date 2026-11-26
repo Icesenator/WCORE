@@ -18,7 +18,8 @@ var EB_PROP_ACK_LAST = "EB_ACK_LAST";
 var EB_ACK_PROJECT = "wcoreRoot";
 var EB_ACK_MAX_AGE_MS = 2 * 3600 * 1000;
 var EB_ACK_MIN_POLL_GAP_MS = 2 * 60 * 1000;
-var EB_ACK_DONE_KEEP = 30;
+var EB_ACK_DONE_KEEP = 200;
+var EB_ACK_DEADLINE_S = 8;
 
 /** Owner, from the editor: stores the ntfy server, the reply topic and (optional) access token. Nothing is shown back. */
 function WCORE_EB_INSTALL_NTFY() {
@@ -50,7 +51,7 @@ function _wcoreEbParseAcks_(ndjson, now) {
     if (!line.trim()) return;
     var ev;
     try { ev = JSON.parse(line); } catch (e) { return; }
-    if (!ev || ev.event !== "message" || typeof ev.message !== "string" || !isFinite(ev.time)) return;
+    if (!ev || ev.event !== "message" || typeof ev.message !== "string" || typeof ev.time !== "number" || !isFinite(ev.time)) return;
     var ts = Number(ev.time) * 1000;
     if (ts > now + 5 * 60 * 1000 || now - ts > EB_ACK_MAX_AGE_MS) return;
     var m = /^([A-Za-z][A-Za-z-]{1,30}):(virement-[a-z0-9-]{2,30})$/.exec(ev.message.trim());
@@ -80,7 +81,7 @@ function _wcoreCheckVirementAck_() {
     props.setProperty(EB_PROP_ACK_POLLED, String(now));
     var token = props.getProperty(EB_PROP_NTFY_TOKEN);
     var headers = token ? { Authorization: "Bearer " + token } : {};
-    var resp = UrlFetchApp.fetch(server + "/" + topic + "/json?poll=1&since=2h", { method: "get", headers: headers, muteHttpExceptions: true, followRedirects: false });
+    var resp = UrlFetchApp.fetch(server + "/" + topic + "/json?poll=1&since=2h", { method: "get", headers: headers, muteHttpExceptions: true, followRedirects: false, deadline: EB_ACK_DEADLINE_S });
     out.ran = true;
     if (resp.getResponseCode() !== 200) { out.reason = "HTTP_" + resp.getResponseCode(); return out; }
     var done = _wcoreEbAckDone_();

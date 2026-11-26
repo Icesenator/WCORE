@@ -176,3 +176,12 @@ test('exception pendant l acquisition du verrou : code de raison seulement', () 
   assert.deepStrictEqual(r, { ran: false, wrote: false, reason: 'UNEXPECTED' });
   assert.strictEqual(h.fetches.length, 0);
 });
+
+test('lecture trop longue (budget de temps depasse) : arret sans ecriture', () => {
+  const h = harness();
+  let clock = Date.now();
+  h.sandbox.Date = class extends Date { static now() { clock += 130000; return clock; } };
+  const r = run(h, true);
+  assert.match(r.reason, /_-6$/);
+  assert.strictEqual(h.writes.length, 0);
+});

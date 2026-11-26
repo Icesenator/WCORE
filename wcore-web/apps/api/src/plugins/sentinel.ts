@@ -59,6 +59,15 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const LOCK_TTL_MS = 20 * 60 * 1000;
 /** Duree maximale du releve du registre (+ veille 3 min + ecritures) : une passe normale ne depasse jamais le bail. */
 const PASS_BUDGET_MS = 12 * 60 * 1000;
+/** Au-dela, aucune ecriture : 4 minutes de marge sous le bail. */
+const PASS_MAX_MS = LOCK_TTL_MS - 4 * 60 * 1000;
+/** Delai dur par page (resolution DNS comprise) : une page lente compte comme un echec, jamais comme un blocage de la passe. */
+const FETCH_HARD_MS = 15_000;
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error("fetch_timeout")), ms); timer.unref?.(); });
+  return Promise.race([p, limit]).finally(() => { if (timer) clearTimeout(timer); });
+}
 type MaybeAtomic = CacheStore & { compareAndDelete?: (key: string, expected: unknown) => Promise<boolean> };
 /** Libere le verrou seulement si on en est encore le proprietaire (atomique quand le stockage le permet). */
 async function releaseLock(store: CacheStore, token: string): Promise<void> {
@@ -150,6 +159,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     const snapBefore = new Map<string, SourceSnapshot>();
     const snapAfter = new Map<string, SourceSnapshot>();
     const t0 = Date.now();
+    const fetchText: SentinelFetch = (u) => withDeadline(deps.fetchText(u), FETCH_HARD_MS);
     const liveKeys = new Set<string>();
     const todo = registry.records.flatMap((rec) => Object.entries(rec.sources).filter(([, s]) => s.official).map(([sourceId, src]) => ({ rec, sourceId, src, key: `${rec.chainKey}:${sourceId}` })));
     for (const t of todo) liveKeys.add(t.key);
@@ -161,7 +171,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
         if (Date.now() - t0 > PASS_BUDGET_MS) continue;
         health.sourcesChecked++;
         let res: { status: number; text: string } | null = null;
-        try { res = await deps.fetchText(src.url); } catch (e) { res = null; sources[key] = { url: src.url, sha256: sources[key]?.sha256 ?? null, checkedAt: iso(now), status: "CHECK_FAILED", error: e instanceof Error ? e.message.slice(0, 120) : "fetch_failed" }; }
+        try { res = await fetchText(src.url); } catch (e) { res = null; sources[key] = { url: src.url, sha256: sources[key]?.sha256 ?? null, checkedAt: iso(now), status: "CHECK_FAILED", error: e instanceof Error ? e.message.slice(0, 120) : "fetch_failed" }; }
         if (!res) { health.sourcesFailed++; continue; }
         if (res.status < 200 || res.status >= 300) { health.sourcesFailed++; sources[key] = { url: src.url, sha256: sources[key]?.sha256 ?? null, checkedAt: iso(now), status: "CHECK_FAILED", httpStatus: res.status }; continue; }
         const h = sha(res.text);
@@ -186,7 +196,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     // ni fausser la sante (calculee sur les seules sources du registre, source de verite).
     let watchState: WatchStateMap | null = null;
     try {
-      const watch = await runAnnouncementWatch(deps.store, deps.fetchText, now, deps.watchSources ?? WATCH_SOURCES);
+      const watch = await runAnnouncementWatch(deps.store, fetchText, now, deps.watchSources ?? WATCH_SOURCES);
       health.watchChecked = watch.checked; health.watchFailed = watch.failed;
       for (const p of watch.proposals) if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); health.proposalsCreated++; }
       watchState = watch.state;
@@ -210,7 +220,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     // Ordre d'ecriture : propositions, puis textes (lies a leur empreinte), puis empreintes. Une panne entre deux etapes
     // fait redetecter le changement a la passe suivante (sans doublon : la proposition porte l'empreinte), jamais le perdre.
     // Passe trop longue (hors stockage) : aucune ecriture, un successeur a pu prendre le relais.
-    if (Date.now() - t0 > LOCK_TTL_MS - 2 * 60 * 1000) throw new Error("PASS_TOO_LONG");
+    if (Date.now() - t0 > PASS_MAX_MS) throw new Error("PASS_TOO_LONG");
     if (!(await owns())) throw new Error("LOCK_LOST");
     await deps.store.set(SENTINEL_KEYS.proposals, proposals);
     for (const [k, v] of snapBefore) await deps.store.set(k, v);

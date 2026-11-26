@@ -214,7 +214,7 @@ test('periode d historique : 92 jours pour Fortuneo, 60 pour la Caisse d Epargne
   const h = harness();
   assert.strictEqual(run(h, true).reason, 'WRITTEN');
   const from = (acct) => /date_from=(\d{4}-\d{2}-\d{2})/.exec(h.fetches.find((u) => u.includes('/accounts/' + acct + '/transactions')))[1];
-  const days = (d) => Math.round((Date.now() - Date.parse(d)) / 864e5);
-  assert.ok(Math.abs(days(from('fo')) - 92) <= 1);
-  assert.ok(Math.abs(days(from('ce')) - 60) <= 1);
+  const expected = (n) => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+  assert.strictEqual(from('fo'), expected(92));
+  assert.strictEqual(from('ce'), expected(60));
 });

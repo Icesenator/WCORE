@@ -157,7 +157,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     // Textes a ecrire AVANT l'empreinte (source deja connue qui change) ou APRES (premiere lecture, reprise d'une source sans
     // texte) : ainsi un texte n'est jamais ecrit pour une source absente de l'index, donc jamais orphelin sans retour.
     const snapBefore = new Map<string, SourceSnapshot>();
-    const snapAfter = new Map<string, SourceSnapshot>();
+    const snapAfter = new Map<string, { sourceKey: string; snap: SourceSnapshot }>();
     const t0 = Date.now();
     const fetchText: SentinelFetch = (u) => withDeadline(deps.fetchText(u), FETCH_HARD_MS);
     const liveKeys = new Set<string>();
@@ -190,7 +190,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
           health.proposalsCreated++;
         }
         if (changed) snapBefore.set(snapKey, { sha: h, text: newText });
-        else if (savedSnap === null || savedSnap.sha !== h) snapAfter.set(snapKey, { sha: h, text: newText });
+        else if (savedSnap === null || savedSnap.sha !== h) snapAfter.set(snapKey, { sourceKey: key, snap: { sha: h, text: newText } });
       }
     }
     // Veille des annonces : un echec ici ne doit pas faire perdre la collecte des sources du registre,
@@ -228,7 +228,14 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     // Le texte est supprime AVANT l'etat de la source : un echec garde l'etat, la purge reprend a la passe suivante.
     for (const k of orphanKeys) { try { await deps.store.delete(SENTINEL_KEYS.snap(k)); delete sources[k]; } catch { /* retente a la passe suivante */ } }
     await deps.store.set(SENTINEL_KEYS.sources, sources);
-    for (const [k, v] of snapAfter) await deps.store.set(k, v);
+    // Texte de premiere lecture non ecrit : l'empreinte est annulee pour que la prochaine passe refasse la ligne de base
+    // (sinon une fermeture apparue ensuite serait comparee a rien).
+    const unsaved: string[] = [];
+    for (const [k, v] of snapAfter) { try { await deps.store.set(k, v.snap); } catch { unsaved.push(v.sourceKey); } }
+    if (unsaved.length) {
+      for (const key of unsaved) if (sources[key]) sources[key] = { ...sources[key]!, sha256: null };
+      await deps.store.set(SENTINEL_KEYS.sources, sources);
+    }
     // L'etat « deja vu » n'est ecrit qu'apres les propositions : une panne de stockage ne perd pas une annonce.
     if (watchState) await saveWatchState(deps.store, watchState);
     // Succes = au moins une source officielle relue ; tout en echec n est pas un succes.

@@ -207,14 +207,21 @@ export function publicOfficialChanges(
     out.push({ sourceId: p.sourceId, url: p.url, detectedAt: p.detectedAt, level: p.analysis.level, excerpts: p.analysis.level === "MINEUR" ? [] : p.analysis.excerpts.slice(0, EXCERPT_MAX).map((e) => sanitizeExcerpt(e)), expiresAt: new Date(exp).toISOString(), verified: false });
   }
   const order = { VIGILANCE: 0, INFO: 1, MINEUR: 2 } as const;
-  // Une entree par (source, niveau), la plus recente ; une vigilance de la source masque ses entrees de niveau inferieur.
+  // INFO / MINEUR : une entree par (source, niveau), la plus recente ; une vigilance de la source masque ces niveaux.
+  // VIGILANCE : toutes les annonces distinctes restent (deux echeances differentes ne se masquent pas), sans doublon d'extraits.
+  const vigilant = new Set(out.filter((c) => c.level === "VIGILANCE").map((c) => c.sourceId));
   const newest = new Map<string, PublicOfficialChange>();
-  for (const c of out) {
-    const k = c.sourceId + "|" + c.level;
-    const cur = newest.get(k);
-    if (!cur || Date.parse(c.detectedAt) > Date.parse(cur.detectedAt)) newest.set(k, c);
+  const seenVigilance = new Set<string>();
+  const kept: PublicOfficialChange[] = [];
+  for (const c of [...out].sort((a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt))) {
+    if (c.level === "VIGILANCE") {
+      const sig = c.sourceId + "|" + c.excerpts.join("~");
+      if (!seenVigilance.has(sig)) { seenVigilance.add(sig); kept.push(c); }
+    } else if (!vigilant.has(c.sourceId) && !newest.has(c.sourceId + "|" + c.level)) {
+      newest.set(c.sourceId + "|" + c.level, c);
+      kept.push(c);
+    }
   }
-  const vigilantSources = new Set([...newest.values()].filter((c) => c.level === "VIGILANCE").map((c) => c.sourceId));
-  out.splice(0, out.length, ...[...newest.values()].filter((c) => c.level === "VIGILANCE" || !vigilantSources.has(c.sourceId)));
+  out.splice(0, out.length, ...kept);
   return out.sort((a, b) => order[a.level] - order[b.level] || Date.parse(b.detectedAt) - Date.parse(a.detectedAt)).slice(0, 6);
 }

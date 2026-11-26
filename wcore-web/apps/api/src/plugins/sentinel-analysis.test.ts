@@ -330,3 +330,29 @@ describe("doublons et entrees sans detail", () => {
     assert.deepEqual(out.map((c) => c.level), ["VIGILANCE"]);
   });
 });
+
+describe("revue de la correction", () => {
+  const allowed = new Set(["https://a.example/n"]);
+  const vig = (text: string, days: number): AnalyzedProposal => ({ sourceId: "s", url: "https://a.example/n", detectedAt: new Date(NOW - days * DAY).toISOString(), status: "AUTO_PUBLISHED", analysis: analyzeSnippet(text, NOW) });
+  test("deux vigilances distinctes de la meme source restent toutes deux visibles", () => {
+    const out = publicOfficialChanges([vig("bridge shutdown on Monday", 2), vig("withdrawals sunset on Friday", 1), vig("withdrawals sunset on Friday", 3)], allowed, "2020-01-01T00:00:00Z", NOW);
+    assert.equal(out.length, 2);
+  });
+  test("texte de premiere lecture non ecrit : la ligne de base est refaite, la fermeture suivante garde son extrait", async () => {
+    const store = new MemoryCacheStore();
+    const URL_ = "https://migrate.abs.xyz/";
+    let body = page("Welcome", "Docs");
+    const run = (at: number) => runSentinelCheck({ store, fetchText: async (u) => (u === URL_ ? { status: 200, text: body } : { status: 404, text: "" }), now: () => at, watchSources: [] });
+    const realSet = store.set.bind(store);
+    store.set = (async (k: string, v: unknown, ttl?: number) => { if (k.startsWith("sentinel:v1:snap:")) throw new Error("panne"); return realSet(k, v, ttl); }) as typeof store.set;
+    await run(NOW);
+    store.set = realSet;
+    await run(NOW + 6 * 3600_000);
+    body = page("Welcome", "Docs", "The chain will sunset");
+    await run(NOW + 12 * 3600_000);
+    const props = (await store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
+    assert.equal(props.length, 1);
+    assert.equal(props[0]!.analysis?.level, "VIGILANCE");
+    assert.match(props[0]!.analysis?.excerpts[0] ?? "", /sunset/);
+  });
+});

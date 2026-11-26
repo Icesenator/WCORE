@@ -231,15 +231,19 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     // Texte de premiere lecture non ecrit : l'empreinte est annulee pour que la prochaine passe refasse la ligne de base
     // (sinon une fermeture apparue ensuite serait comparee a rien).
     const unsaved: string[] = [];
+    let snapshotsFailed = false;
     for (const [k, v] of snapAfter) { try { await deps.store.set(k, v.snap); } catch { unsaved.push(v.sourceKey); } }
     if (unsaved.length) {
+      snapshotsFailed = true;
       for (const key of unsaved) if (sources[key]) sources[key] = { ...sources[key]!, sha256: null };
       await deps.store.set(SENTINEL_KEYS.sources, sources);
     }
     // L'etat « deja vu » n'est ecrit qu'apres les propositions : une panne de stockage ne perd pas une annonce.
     if (watchState) await saveWatchState(deps.store, watchState);
     // Succes = au moins une source officielle relue ; tout en echec n est pas un succes.
-    if (health.sourcesChecked > 0 && health.sourcesFailed < health.sourcesChecked) health.lastSuccessAt = iso(now);
+    // Un texte qui ne peut plus etre conserve prive la comparaison de base : pas de succes, la supervision finit par alerter.
+    if (snapshotsFailed) health.lastError = "SNAPSHOT_WRITE_FAILED";
+    else if (health.sourcesChecked > 0 && health.sourcesFailed < health.sourcesChecked) health.lastSuccessAt = iso(now);
     else health.lastError = "ALL_SOURCES_FAILED";
   } catch (e) {
     health.lastError = e instanceof Error ? e.message.slice(0, 160) : "unknown_error";

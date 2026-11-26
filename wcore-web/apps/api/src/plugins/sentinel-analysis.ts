@@ -215,7 +215,7 @@ export function publicOfficialChanges(
   const kept: PublicOfficialChange[] = [];
   for (const c of [...out].sort((a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt))) {
     if (c.level === "VIGILANCE") {
-      const sig = c.sourceId + "|" + c.excerpts.join("~");
+      const sig = JSON.stringify([c.sourceId, c.excerpts]);
       if (!seenVigilance.has(sig)) { seenVigilance.add(sig); kept.push(c); }
     } else if (!vigilant.has(c.sourceId) && !newest.has(c.sourceId + "|" + c.level)) {
       newest.set(c.sourceId + "|" + c.level, c);

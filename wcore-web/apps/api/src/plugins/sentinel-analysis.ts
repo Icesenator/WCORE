@@ -28,7 +28,7 @@ export interface ChangeAnalysis {
 export const SNAPSHOT_MAX = 20_000;
 export const EXCERPT_MAX = 3;
 export const EXCERPT_LEN = 200;
-const LINES_MAX = 500;
+const LINES_MAX = 10_000;
 const DAY = 86_400_000;
 
 /** Texte normalise et borne d'une page : une ligne par bloc, sans HTML ni script. */
@@ -41,9 +41,9 @@ const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCas
 
 const SEP = "[\\s\\-\\u00a0\\u2010-\\u2015]";
 // Mots forts : suffisent seuls (vigilance). Francais et anglais, accents ignores (texte replie).
-const STRONG = new RegExp(`\\b(sunset\\w*|shut(?:ting)?${SEP}?down|wind(?:ing)?${SEP}?down|end${SEP}of${SEP}(?:life|support|service)|eol|discontinu\\w*|decommission\\w*|cease[sd]?(?:${SEP}all)?${SEP}operations?|final(?:ly)?${SEP}withdraw\\w*|withdrawal${SEP}deadline|fermeture|fin${SEP}de${SEP}vie|date${SEP}limite|arret${SEP}(?:du${SEP}reseau|de${SEP}la${SEP}chaine|du${SEP}service|definitif))\\b`, "g");
+const STRONG = new RegExp(`\\b(sunset\\w*|shut(?:ting)?${SEP}?down|wind(?:ing)?${SEP}?down|end${SEP}of${SEP}(?:life|support|service)|eol|discontinu\\w*|decommission\\w*|cease[sd]?(?:${SEP}all)?${SEP}operations?|final(?:ly)?${SEP}withdraw\\w*|withdrawal${SEP}deadline|fermeture|fermer|fermera\\w*|clotur\\w*|cessation|cessera\\w*|arret\\w*|fin${SEP}(?:de${SEP}vie|du${SEP}support|de${SEP}support|du${SEP}service)|mise${SEP}hors${SEP}service|date${SEP}limite|abandon\\w*|sera${SEP}(?:arrete|ferme|desactive|retire)\\w*)\\b`, "g");
 // Mots faibles : retenus avec une date proche (meme ligne) ou comme simple information.
-const WEAK = new RegExp(`\\b(deprecat\\w*|migrat\\w*|withdraw\\w*|retrait\\w*|bridge\\w*|deadline|final|last${SEP}day|claim\\w*|reclamation\\w*|relaunch\\w*|retire[sd]?|retiring)\\b`, "g");
+const WEAK = new RegExp(`\\b(deprecat\\w*|migrat\\w*|withdraw\\w*|retrait\\w*|bridge\\w*|deadline|final|last${SEP}day|claim\\w*|reclamation\\w*|relaunch\\w*|retire[sd]?|retiring|desactiv\\w*|deprecie\\w*|obsolet\\w*|migrer|basculer)\\b`, "g");
 
 const MONTHS: Record<string, number> = {
   january: 1, jan: 1, janvier: 1, february: 2, feb: 2, fevrier: 2, fev: 2, march: 3, mar: 3, mars: 3, april: 4, apr: 4, avril: 4, avr: 4,
@@ -107,6 +107,11 @@ function inspectLine(line: string, nowMs: number): LineHit {
 
 function classify(lines: string[], nowMs: number): { level: ChangeLevel; excerpts: string[]; keywords: string[]; dates: string[] } {
   const hits = lines.slice(0, LINES_MAX).map((l) => inspectLine(l, nowMs));
+  // Annonce fragmentee entre blocs (liens, spans) : le texte des lignes ajoutees est aussi lu d'un seul tenant.
+  if (lines.length > 1) {
+    const j = inspectLine(lines.slice(0, LINES_MAX).join(" ").slice(0, SNAPSHOT_MAX), nowMs);
+    if (j.strong.length > 0 && !hits.some((h) => h.strong.length > 0)) hits.push(j);
+  }
   const isVigil = (h: LineHit) => h.strong.length > 0 || (h.weak.length > 0 && h.relevantDate);
   const rank = (h: LineHit) => (isVigil(h) ? 3 : h.weak.length ? 2 : h.dates.length ? 1 : 0);
   const keywords = [...new Set(hits.flatMap((h) => [...h.strong, ...h.weak]))].slice(0, 12);
@@ -138,7 +143,10 @@ export function analyzeChange(prev: string | null, next: string, nowMs: number):
     return { level: next.length >= SNAPSHOT_MAX ? "INFO" : "MINEUR", detail: "DIFF", excerpts: [], addedCount: 0, removedCount: 0, keywords: [], dates: [], analyzedAt };
   }
   const c = classify(added, nowMs);
-  return { level: c.level, detail: "DIFF", excerpts: c.excerpts, addedCount: added.length, removedCount: removed.length, keywords: c.keywords, dates: c.dates, analyzedAt };
+  // Une page plus longue que la zone analysee peut cacher la fin du changement : jamais « mineur » dans ce cas.
+  const truncated = next.length >= SNAPSHOT_MAX || prev.length >= SNAPSHOT_MAX;
+  const level: ChangeLevel = truncated && c.level === "MINEUR" ? "INFO" : c.level;
+  return { level, detail: "DIFF", excerpts: c.excerpts, addedCount: added.length, removedCount: removed.length, keywords: c.keywords, dates: c.dates, analyzedAt };
 }
 
 /** Passage d'annonce deja isole par la veille : meme classement, sur le seul passage. */
@@ -155,7 +163,8 @@ export function expiryMs(level: ChangeLevel): number {
   return (level === "VIGILANCE" ? 90 : level === "INFO" ? 30 : 7) * DAY;
 }
 
-export interface PublicOfficialChange { sourceId: string; url: string; detectedAt: string; level: ChangeLevel; excerpts: string[]; expiresAt: string }
+/** `verified: false` : indice issu d'une analyse automatique de page, jamais une echeance de fiche validee. */
+export interface PublicOfficialChange { sourceId: string; url: string; detectedAt: string; level: ChangeLevel; excerpts: string[]; expiresAt: string; verified: false }
 
 export interface AnalyzedProposal { sourceId: string; url: string; detectedAt: string; status: string; analysis?: ChangeAnalysis }
 
@@ -176,21 +185,8 @@ export function publicOfficialChanges(
     const exp = at + expiryMs(p.analysis.level);
     if (exp <= nowMs) continue;
     if (p.analysis.level === "VIGILANCE" && Number.isFinite(verified) && verified >= at) continue;
-    out.push({ sourceId: p.sourceId, url: p.url, detectedAt: p.detectedAt, level: p.analysis.level, excerpts: p.analysis.level === "MINEUR" ? [] : p.analysis.excerpts.slice(0, EXCERPT_MAX).map((e) => sanitizeExcerpt(e)), expiresAt: new Date(exp).toISOString() });
+    out.push({ sourceId: p.sourceId, url: p.url, detectedAt: p.detectedAt, level: p.analysis.level, excerpts: p.analysis.level === "MINEUR" ? [] : p.analysis.excerpts.slice(0, EXCERPT_MAX).map((e) => sanitizeExcerpt(e)), expiresAt: new Date(exp).toISOString(), verified: false });
   }
   const order = { VIGILANCE: 0, INFO: 1, MINEUR: 2 } as const;
   return out.sort((a, b) => order[a.level] - order[b.level] || Date.parse(b.detectedAt) - Date.parse(a.detectedAt)).slice(0, 6);
-}
-
-/** Vigilances non expirees et non couvertes par une fiche validee (compteur de controle, sans detail). */
-export function countOpenVigilance(
-  proposals: readonly (AnalyzedProposal & { chainKey: string })[], verifiedByChain: ReadonlyMap<string, string>, nowMs: number,
-): number {
-  return proposals.filter((p) => {
-    if (p.status !== "AUTO_PUBLISHED" || p.analysis?.level !== "VIGILANCE") return false;
-    const at = Date.parse(p.detectedAt);
-    if (!Number.isFinite(at) || at + expiryMs("VIGILANCE") <= nowMs) return false;
-    const v = Date.parse(verifiedByChain.get(p.chainKey) ?? "");
-    return !(Number.isFinite(v) && v >= at);
-  }).length;
 }

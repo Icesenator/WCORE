@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { CacheStore } from "@wcore/core";
 import {
@@ -8,7 +8,7 @@ import {
 import { isPublicHttp } from "../lib/safe-http.js";
 import { runAnnouncementWatch, saveWatchState, type WatchSource, type WatchStateMap } from "./sentinel-watch.js";
 import { WATCH_SOURCES } from "./sentinel-watch-sources.js";
-import { analyzeChange, analyzeSnippet, countOpenVigilance, expiryMs, normalizeSnapshot, publicOfficialChanges, type ChangeAnalysis } from "./sentinel-analysis.js";
+import { analyzeChange, analyzeSnippet, expiryMs, normalizeSnapshot, publicOfficialChanges, type ChangeAnalysis } from "./sentinel-analysis.js";
 
 /**
  * Chain Sentinel — API.
@@ -38,6 +38,8 @@ export const SENTINEL_KEYS = {
 export interface SourceState { url: string; sha256: string | null; checkedAt: string; status: "OK" | "CHANGED" | "CHECK_FAILED"; httpStatus?: number; error?: string }
 export interface Proposal { id: string; chainKey: string; sourceId: string; url: string; previousSha256: string | null; newSha256: string; detectedAt: string; status: "PENDING_ADMIN_REVIEW" | "AUTO_PUBLISHED" | "APPROVED" | "REJECTED"; decidedAt?: string; note?: string; kind?: "SOURCE_CHANGED" | "ANNOUNCEMENT_KEYWORD"; snippet?: string; analysis?: ChangeAnalysis }
 export interface SentinelHealth { lastRunAt: string | null; lastSuccessAt: string | null; sourcesChecked: number; sourcesFailed: number; proposalsCreated: number; lastError: string | null; watchChecked?: number; watchFailed?: number }
+/** Texte normalise borne d'une source, lie a l'empreinte de la version qu'il represente. */
+export interface SourceSnapshot { sha: string; text: string }
 export interface RegistryState { version: number; records: ChainLifecycleRecord[]; updatedAt: string }
 
 export type SentinelFetch = (url: string) => Promise<{ status: number; text: string }>;
@@ -120,19 +122,24 @@ export async function loadRegistry(store: CacheStore): Promise<RegistryState> {
 export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boolean; reason?: string; health?: SentinelHealth }> {
   const now = (deps.now || Date.now)();
   const lockTtl = 10 * 60 * 1000;
-  const got = await deps.store.add(SENTINEL_KEYS.lock, iso(now), lockTtl);
+  // Jeton propre a cette passe : on ne libere (et on n'ecrit) que si le verrou nous appartient encore.
+  const token = `${now}:${randomUUID()}`;
+  const got = await deps.store.add(SENTINEL_KEYS.lock, token, lockTtl);
   if (!got) return { ran: false, reason: "LOCKED" };
+  const owns = async () => (await deps.store.get<string>(SENTINEL_KEYS.lock)) === token;
   const prevHealth = (await deps.store.get<SentinelHealth>(SENTINEL_KEYS.health)) || null;
   const health: SentinelHealth = { lastRunAt: iso(now), lastSuccessAt: prevHealth?.lastSuccessAt || null, sourcesChecked: 0, sourcesFailed: 0, proposalsCreated: 0, lastError: null };
   try {
     const registry = await loadRegistry(deps.store);
     const sources = (await deps.store.get<Record<string, SourceState>>(SENTINEL_KEYS.sources)) || {};
     const proposals = (await deps.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
-    const snapWrites = new Map<string, string>();
+    const snapWrites = new Map<string, SourceSnapshot>();
+    const liveKeys = new Set<string>();
     for (const rec of registry.records) {
       for (const [sourceId, src] of Object.entries(rec.sources)) {
         if (!src.official) continue;
         const key = `${rec.chainKey}:${sourceId}`;
+        liveKeys.add(key);
         health.sourcesChecked++;
         let res: { status: number; text: string } | null = null;
         try { res = await deps.fetchText(src.url); } catch (e) { res = null; sources[key] = { url: src.url, sha256: sources[key]?.sha256 ?? null, checkedAt: iso(now), status: "CHECK_FAILED", error: e instanceof Error ? e.message.slice(0, 120) : "fetch_failed" }; }
@@ -142,7 +149,9 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
         const prev = sources[key]?.sha256 ?? null;
         const changed = prev !== null && prev !== h;
         const snapKey = SENTINEL_KEYS.snap(key);
-        const prevText = (await deps.store.get<string>(snapKey)) ?? null;
+        // Le texte conserve n'est la base de comparaison que s'il correspond a l'empreinte precedente.
+        const savedSnap = (await deps.store.get<SourceSnapshot>(snapKey)) ?? null;
+        const prevText = savedSnap && prev !== null && savedSnap.sha === prev && typeof savedSnap.text === "string" ? savedSnap.text : null;
         const newText = normalizeSnapshot(res.text);
         sources[key] = { url: src.url, sha256: h, checkedAt: iso(now), status: changed ? "CHANGED" : "OK", httpStatus: res.status };
         if (changed && !proposals.some((p) => p.chainKey === rec.chainKey && p.sourceId === sourceId && p.newSha256 === h)) {
@@ -150,7 +159,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
           proposals.push({ id: `${key}:${h.slice(0, 12)}`, chainKey: rec.chainKey, sourceId, url: src.url, previousSha256: prev, newSha256: h, detectedAt: iso(now), status: "AUTO_PUBLISHED", kind: "SOURCE_CHANGED", analysis: analyzeChange(prevText, newText, now) });
           health.proposalsCreated++;
         }
-        if (changed || prevText === null) snapWrites.set(snapKey, newText);
+        if (changed || savedSnap === null || savedSnap.sha !== h) snapWrites.set(snapKey, { sha: h, text: newText });
       }
     }
     // Veille des annonces : un echec ici ne doit pas faire perdre la collecte des sources du registre,
@@ -169,11 +178,23 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
       p.status = "AUTO_PUBLISHED";
     }
     // Les traitements automatiques expires depuis longtemps sont retires (la liste ne grossit pas sans fin).
-    const kept = proposals.filter((p) => !(p.status === "AUTO_PUBLISHED" && p.analysis && Date.parse(p.detectedAt) + 2 * expiryMs(p.analysis.level) < now));
+    const DECIDED_KEEP_MS = 180 * 86_400_000;
+    const kept = proposals.filter((p) => {
+      if (p.status === "AUTO_PUBLISHED" && p.analysis) return Date.parse(p.detectedAt) + 2 * expiryMs(p.analysis.level) >= now;
+      if (p.status === "APPROVED" || p.status === "REJECTED") return (Date.parse(p.decidedAt || p.detectedAt) || 0) + DECIDED_KEEP_MS >= now;
+      return true;
+    });
     proposals.splice(0, proposals.length, ...kept);
-    await deps.store.set(SENTINEL_KEYS.sources, sources);
+    // Sources retirees du registre : leur etat et leur texte conserve sont supprimes (pas de stockage orphelin).
+    const orphanSnaps: string[] = [];
+    for (const k of Object.keys(sources)) if (!liveKeys.has(k)) { delete sources[k]; orphanSnaps.push(SENTINEL_KEYS.snap(k)); }
+    // Ordre d'ecriture : propositions, puis textes (lies a leur empreinte), puis empreintes. Une panne entre deux etapes
+    // fait redetecter le changement a la passe suivante (sans doublon : la proposition porte l'empreinte), jamais le perdre.
+    if (!(await owns())) throw new Error("LOCK_LOST");
     await deps.store.set(SENTINEL_KEYS.proposals, proposals);
     for (const [k, v] of snapWrites) await deps.store.set(k, v);
+    await deps.store.set(SENTINEL_KEYS.sources, sources);
+    for (const k of orphanSnaps) { try { await deps.store.delete(k); } catch { /* purge au passage suivant */ } }
     // L'etat « deja vu » n'est ecrit qu'apres les propositions : une panne de stockage ne perd pas une annonce.
     if (watchState) await saveWatchState(deps.store, watchState);
     // Succes = au moins une source officielle relue ; tout en echec n est pas un succes.
@@ -183,7 +204,7 @@ export async function runSentinelCheck(deps: SentinelDeps): Promise<{ ran: boole
     health.lastError = e instanceof Error ? e.message.slice(0, 160) : "unknown_error";
   } finally {
     await deps.store.set(SENTINEL_KEYS.health, health);
-    try { await deps.store.delete(SENTINEL_KEYS.lock); } catch { /* le TTL libere le verrou */ }
+    try { if (await owns()) await deps.store.delete(SENTINEL_KEYS.lock); } catch { /* le TTL libere le verrou */ }
   }
   return { ran: true, health };
 }
@@ -252,7 +273,7 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
     try { proposals = (await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || []; } catch { /* pas de bandeau, jamais d'erreur */ }
     const watch = opts.watchSources ?? WATCH_SOURCES;
     const chains = reg.records.map((r) => {
-      const allowed = new Set<string>([...Object.values(r.sources).map((x) => x.url), ...watch.filter((w) => w.chainKey === r.chainKey).map((w) => w.url)]);
+      const allowed = new Set<string>([...Object.values(r.sources).filter((x) => x.official).map((x) => x.url), ...watch.filter((w) => w.chainKey === r.chainKey).map((w) => w.url)]);
       return { ...publicChainView(r, n), officialChanges: publicOfficialChanges(proposals.filter((p) => p.chainKey === r.chainKey), allowed, r.lastVerifiedAt, n) };
     });
     // Alertes publiques evaluees SANS portefeuille : exposition masquee.
@@ -271,9 +292,14 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
     try { announcementsPending = ((await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || []).filter((p) => p.kind === "ANNOUNCEMENT_KEYWORD" && p.status === "PENDING_ADMIN_REVIEW").length; } catch { /* inconnu */ }
     // Vigilances traitees automatiquement, non expirees et non couvertes par une fiche validee : nombre seul.
     try {
+      // Meme calcul que l'affichage public : une vigilance non servie (source hors fiche, expiree, couverte) n'est pas comptee.
       const reg = await loadRegistry(opts.store);
-      const verified = new Map(reg.records.map((r) => [r.chainKey, r.lastVerifiedAt]));
-      vigilanceOpen = countOpenVigilance((await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [], verified, n);
+      const all = (await opts.store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
+      const watch = opts.watchSources ?? WATCH_SOURCES;
+      vigilanceOpen = reg.records.reduce((sum, r) => {
+        const allowed = new Set<string>([...Object.values(r.sources).filter((x) => x.official).map((x) => x.url), ...watch.filter((w) => w.chainKey === r.chainKey).map((w) => w.url)]);
+        return sum + publicOfficialChanges(all.filter((p) => p.chainKey === r.chainKey), allowed, r.lastVerifiedAt, n).filter((c) => c.level === "VIGILANCE").length;
+      }, 0);
     } catch { /* inconnu */ }
     return { lastRunAt: h?.lastRunAt ?? null, lastSuccessAt: h?.lastSuccessAt ?? null, sourcesChecked: h?.sourcesChecked ?? 0, sourcesFailed: h?.sourcesFailed ?? 0, watchChecked: h?.watchChecked ?? 0, watchFailed: h?.watchFailed ?? 0, announcementsPending, vigilanceOpen, monitoring: stale ? { status: "STALE", severity: stale.severity } : { status: "OK" } };
   });
@@ -330,12 +356,13 @@ export async function sentinelPlugin(app: FastifyInstance, opts: SentinelPluginO
   app.post<{ Params: { id: string }; Body: { decision?: string; record?: ChainLifecycleRecord; note?: string } }>("/api/admin/sentinel/proposals/:id", async (req, reply) => {
     if (!opts.isAdmin(req)) return reply.code(401).send({ error: "unauthorized" });
     // Meme verrou que la collecte : une decision ne se melange jamais a une passe qui reecrit la liste.
-    const got = await opts.store.add(SENTINEL_KEYS.lock, iso(now()), 10 * 60 * 1000);
+    const token = `${now()}:${randomUUID()}`;
+    const got = await opts.store.add(SENTINEL_KEYS.lock, token, 10 * 60 * 1000);
     if (!got) return reply.code(409).send({ error: "busy" });
     try {
       return await decideProposal(req, reply);
     } finally {
-      try { await opts.store.delete(SENTINEL_KEYS.lock); } catch { /* le TTL libere le verrou */ }
+      try { if ((await opts.store.get<string>(SENTINEL_KEYS.lock)) === token) await opts.store.delete(SENTINEL_KEYS.lock); } catch { /* le TTL libere le verrou */ }
     }
   });
 

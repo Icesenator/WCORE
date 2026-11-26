@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MemoryCacheStore } from "@wcore/core";
 import Fastify from "fastify";
 import {
-  analyzeChange, analyzeSnippet, diffLines, extractDates, normalizeSnapshot, sanitizeExcerpt, publicOfficialChanges, countOpenVigilance,
+  analyzeChange, analyzeSnippet, diffLines, extractDates, normalizeSnapshot, sanitizeExcerpt, publicOfficialChanges,
   expiryMs, SNAPSHOT_MAX, type AnalyzedProposal,
 } from "./sentinel-analysis.js";
 import { runSentinelCheck, sentinelPlugin, SENTINEL_KEYS, type Proposal } from "./sentinel.js";
@@ -110,11 +110,6 @@ describe("affichage public", () => {
     assert.equal(out[0]!.level, "VIGILANCE");
     assert.deepEqual(out[1]!.excerpts, []);
   });
-  test("compteur de controle : seulement les vigilances ouvertes", () => {
-    const p = { ...mk({}), chainKey: "c" };
-    assert.equal(countOpenVigilance([p, { ...p, status: "REJECTED" }], new Map(), NOW), 1);
-    assert.equal(countOpenVigilance([p], new Map([["c", new Date(NOW).toISOString()]]), NOW), 0);
-  });
 });
 
 describe("collecteur : traitement automatique de bout en bout", () => {
@@ -130,7 +125,8 @@ describe("collecteur : traitement automatique de bout en bout", () => {
     assert.equal(props[0]!.status, "AUTO_PUBLISHED");
     assert.equal(props[0]!.analysis?.level, "VIGILANCE");
     assert.equal(props.filter((p) => p.status === "PENDING_ADMIN_REVIEW").length, 0);
-    assert.match((await store.get<string>(SENTINEL_KEYS.snap("abstract:abs-migrate"))) ?? "", /shut down/);
+    const snapEntry = await store.get<{ text: string }>(SENTINEL_KEYS.snap("abstract:abs-migrate"));
+    assert.match(snapEntry?.text ?? "", /shut down/);
 
     const app = Fastify();
     await app.register(sentinelPlugin, { store, fetchText: fetchFrom(""), isAdmin: () => false, userId: () => null, exposuresFor: async () => [], now: () => NOW + 7 * 3600_000, watchSources: [] });
@@ -151,5 +147,97 @@ describe("collecteur : traitement automatique de bout en bout", () => {
     const props = (await store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
     assert.equal(props[0]!.status, "AUTO_PUBLISHED");
     assert.equal(props[0]!.analysis?.level, "VIGILANCE");
+  });
+});
+
+describe("garanties de la revue (perte de signal, ecriture, verrou, retention)", () => {
+  const URL_ = "https://migrate.abs.xyz/";
+  const mkFetch = (body: () => string) => async (u: string) => (u === URL_ ? { status: 200, text: body() } : { status: 404, text: "" });
+  test("annonce fragmentee entre blocs => VIGILANCE (pas MINEUR)", () => {
+    const a = change(["x y z"], ["x y z", "The network will be", "shut", "down soon"]);
+    assert.notEqual(a.level, "MINEUR");
+    const b = change(["x y z"], ["x y z", "Le réseau sera", "fermé", "bientôt"]);
+    assert.equal(b.level, "VIGILANCE");
+  });
+  test("francais : arret, cloture, fin du support, mise hors service", () => {
+    for (const l of ["Arrêt du réseau annoncé", "Clôture du réseau", "Fin du support le mois prochain", "Mise hors service prévue"]) assert.equal(change(["x y z"], ["x y z", l]).level, "VIGILANCE", l);
+  });
+  test("beaucoup de lignes ajoutees : la fermeture en fin de liste est vue", () => {
+    const many = Array.from({ length: 900 }, (_, i) => `ligne ${i} bla`);
+    assert.equal(change(["x y z"], ["x y z", ...many, "The chain will sunset"]).level, "VIGILANCE");
+  });
+  test("page plus longue que la zone analysee : jamais MINEUR", () => {
+    const big = Array.from({ length: 4000 }, (_, i) => `ligne numero ${i}`);
+    const a = analyzeChange(normalizeSnapshot(page(...big)), normalizeSnapshot(page(...big.slice(0, 3999), "autre ligne finale")), NOW);
+    assert.notEqual(a.level, "MINEUR");
+  });
+  test("extraits publics marques non verifies", () => {
+    const p: AnalyzedProposal = { sourceId: "s", url: "https://a.example/n", detectedAt: new Date(NOW - DAY).toISOString(), status: "AUTO_PUBLISHED", analysis: analyzeSnippet("sunset", NOW) };
+    assert.equal(publicOfficialChanges([p], new Set(["https://a.example/n"]), "2020-01-01T00:00:00Z", NOW)[0]!.verified, false);
+  });
+  test("texte conserve lie a l'empreinte : un texte d'une autre version n'est pas une base de comparaison", async () => {
+    const store = new MemoryCacheStore();
+    let body = page("Welcome", "Docs");
+    const run = (at: number) => runSentinelCheck({ store, fetchText: mkFetch(() => body), now: () => at, watchSources: [] });
+    await run(NOW);
+    const key = SENTINEL_KEYS.snap("abstract:abs-migrate");
+    const snap = await store.get<{ sha: string; text: string }>(key);
+    assert.ok(snap && /^[0-9a-f]{64}$/.test(snap.sha));
+    await store.set(key, { sha: "0".repeat(64), text: "autre version" });
+    body = page("Welcome", "Docs", "We will shut down");
+    await run(NOW + 6 * 3600_000);
+    const props = (await store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
+    assert.equal(props[0]!.analysis?.detail, "UNAVAILABLE");
+  });
+  test("ecriture : proposition ecrite AVANT l'empreinte ; une panne sur l'empreinte ne perd pas le changement", async () => {
+    const store = new MemoryCacheStore();
+    let body = page("Welcome", "Docs");
+    const run = (at: number) => runSentinelCheck({ store, fetchText: mkFetch(() => body), now: () => at, watchSources: [] });
+    await run(NOW);
+    body = page("Welcome", "Docs", "The chain will sunset");
+    const realSet = store.set.bind(store);
+    store.set = (async (k: string, v: unknown, ttl?: number) => { if (k === SENTINEL_KEYS.sources) throw new Error("panne"); return realSet(k, v, ttl); }) as typeof store.set;
+    await run(NOW + 6 * 3600_000);
+    store.set = realSet;
+    const after = (await store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
+    assert.equal(after.length, 1);
+    await run(NOW + 12 * 3600_000);
+    const final = (await store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || [];
+    assert.equal(final.length, 1, "pas de doublon a la redetection");
+    assert.equal(final[0]!.analysis?.level, "VIGILANCE");
+  });
+  test("verrou : une passe qui a perdu son verrou n'ecrit rien et ne supprime pas celui de son successeur", async () => {
+    const store = new MemoryCacheStore();
+    // Comme un vrai stockage (Redis/PostgreSQL) : chaque lecture rend une copie, jamais la reference interne.
+    const rawGet = store.get.bind(store);
+    store.get = (async (k: string) => { const v = await rawGet(k); return v === undefined ? v : structuredClone(v); }) as typeof store.get;
+    let body = page("Welcome", "Docs");
+    await runSentinelCheck({ store, fetchText: mkFetch(() => body), now: () => NOW, watchSources: [] });
+    body = page("Welcome", "Docs", "The chain will sunset");
+    const before = JSON.stringify((await store.get(SENTINEL_KEYS.proposals)) ?? []);
+    let hijacked = false;
+    const fetchText = async (u: string) => { if (!hijacked) { hijacked = true; await store.set(SENTINEL_KEYS.lock, "successeur", 600_000); } return mkFetch(() => body)(u); };
+    await runSentinelCheck({ store, fetchText, now: () => NOW + 6 * 3600_000, watchSources: [] });
+    assert.equal(await store.get(SENTINEL_KEYS.lock), "successeur");
+    assert.equal(JSON.stringify((await store.get(SENTINEL_KEYS.proposals)) ?? []), before);
+  });
+  test("retention : source retiree => etat et texte supprimes ; decisions anciennes purgees", async () => {
+    const store = new MemoryCacheStore();
+    await store.set(SENTINEL_KEYS.sources, { "ancienne:src": { url: "https://x.example", sha256: "a", checkedAt: "2026-01-01T00:00:00Z", status: "OK" } });
+    await store.set(SENTINEL_KEYS.snap("ancienne:src"), { sha: "a", text: "t" });
+    const old = (id: string, status: Proposal["status"], d: number): Proposal => ({ id, chainKey: "abstract", sourceId: "s", url: "https://x.example", previousSha256: null, newSha256: id, detectedAt: new Date(NOW - d * DAY).toISOString(), decidedAt: new Date(NOW - d * DAY).toISOString(), status });
+    await store.set(SENTINEL_KEYS.proposals, [old("r1", "REJECTED", 400), old("r2", "REJECTED", 10)]);
+    await runSentinelCheck({ store, fetchText: async () => ({ status: 404, text: "" }), now: () => NOW, watchSources: [] });
+    assert.ok(!(await store.get(SENTINEL_KEYS.snap("ancienne:src"))));
+    assert.ok(!((await store.get<Record<string, unknown>>(SENTINEL_KEYS.sources)) || {})["ancienne:src"]);
+    assert.deepEqual(((await store.get<Proposal[]>(SENTINEL_KEYS.proposals)) || []).map((p) => p.id), ["r2"]);
+  });
+  test("compteur de sante aligne sur l'affichage : vigilance hors fiche non comptee", async () => {
+    const store = new MemoryCacheStore();
+    const v: Proposal = { id: "x", chainKey: "abstract", sourceId: "s", url: "https://inconnue.example/", previousSha256: null, newSha256: "x", detectedAt: new Date(NOW - DAY).toISOString(), status: "AUTO_PUBLISHED", analysis: analyzeSnippet("sunset", NOW) };
+    await store.set(SENTINEL_KEYS.proposals, [v]);
+    const app = Fastify();
+    await app.register(sentinelPlugin, { store, fetchText: async () => ({ status: 404, text: "" }), isAdmin: () => false, userId: () => null, exposuresFor: async () => [], now: () => NOW, watchSources: [] });
+    assert.equal(((await app.inject({ method: "GET", url: "/api/sentinel/health" })).json() as { vigilanceOpen: number }).vigilanceOpen, 0);
   });
 });

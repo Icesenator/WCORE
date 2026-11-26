@@ -36,7 +36,8 @@ export function readOfficialChange(raw: unknown, nowMs: number): OfficialChangeV
   const level = LEVELS.find((l) => l === r.level);
   if (!url || !level || typeof r.detectedAt !== "string" || !Number.isFinite(Date.parse(r.detectedAt))) return null;
   const exp = typeof r.expiresAt === "string" ? Date.parse(r.expiresAt) : NaN;
-  if (Number.isFinite(exp) && exp <= nowMs) return null;
+  // Sans expiration valide, une entree n'est jamais affichee (aucune duree d'affichage illimitee).
+  if (!Number.isFinite(exp) || exp <= nowMs) return null;
   const excerpts = level === "MINEUR" ? [] : (Array.isArray(r.excerpts) ? r.excerpts : []).slice(0, EXCERPTS_MAX).map(cleanExcerpt).filter(Boolean);
   return { sourceId: cleanExcerpt(r.sourceId).slice(0, 40), url, detectedAt: r.detectedAt, level, excerpts, expiresAt: typeof r.expiresAt === "string" ? r.expiresAt : "" };
 }

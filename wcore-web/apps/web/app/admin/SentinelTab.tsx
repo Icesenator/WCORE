@@ -108,7 +108,7 @@ export function SentinelTab() {
               />
               {confirming === p.id ? (
                 <>
-                  <button disabled={busy === p.id} onClick={() => reject(p.id)} className="rounded border border-red-500/60 px-3 py-1 text-red-400 hover:bg-red-950/30 disabled:opacity-50">Confirmer le rejet</button>
+                  <button autoFocus disabled={busy === p.id} onClick={() => reject(p.id)} className="rounded border border-red-500/60 px-3 py-1 text-red-400 hover:bg-red-950/30 disabled:opacity-50">Confirmer le rejet</button>
                   <button onClick={() => setConfirming(null)} className="rounded border border-border px-3 py-1 text-muted hover:text-fg">Annuler</button>
                 </>
               ) : (
@@ -134,7 +134,7 @@ export function SentinelTab() {
                 <SourceLink url={p.url} />
                 {confirming === p.id ? (
                   <>
-                    <button disabled={busy === p.id} onClick={() => reject(p.id)} className="rounded border border-red-500/60 px-2 py-0.5 text-red-400 disabled:opacity-50">Confirmer</button>
+                    <button autoFocus disabled={busy === p.id} onClick={() => reject(p.id)} className="rounded border border-red-500/60 px-2 py-0.5 text-red-400 disabled:opacity-50">Confirmer</button>
                     <button onClick={() => setConfirming(null)} className="rounded border border-border px-2 py-0.5 text-muted">Annuler</button>
                   </>
                 ) : (

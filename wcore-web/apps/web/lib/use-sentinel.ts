@@ -23,9 +23,15 @@ export function loadSentinelChains(force = false): Promise<SentinelChainsRespons
 }
 
 /** undefined = chargement en cours ; null = registre indisponible (API injoignable ou erreur). */
-export function useSentinelChains(): SentinelChainsResponse | null | undefined {
+export function useSentinelChains(refreshMs = 10 * 60 * 1000): SentinelChainsResponse | null | undefined {
   const [data, setData] = useState<SentinelChainsResponse | null | undefined>(undefined);
-  useEffect(() => { let alive = true; loadSentinelChains().then((d) => { if (alive) setData(d); }); return () => { alive = false; }; }, []);
+  useEffect(() => {
+    let alive = true;
+    loadSentinelChains().then((d) => { if (alive) setData(d); });
+    // Rafraichissement : un bandeau masque ou expire disparait d'un onglet reste ouvert ; un echec garde les dernieres donnees.
+    const t = setInterval(() => { loadSentinelChains().then((d) => { if (alive && d) setData(d); }); }, refreshMs);
+    return () => { alive = false; clearInterval(t); };
+  }, [refreshMs]);
   return data;
 }
 

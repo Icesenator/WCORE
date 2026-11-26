@@ -18,7 +18,7 @@ describe("changements de pages officielles (affichage)", () => {
     assert.ok(e.length <= 200);
   });
   test("entrees malformees, non https, niveau inconnu ou expirees ecartees", () => {
-    for (const bad of [null, "x", ok({ url: "http://a.example" }), ok({ level: "CRITIQUE" }), ok({ detectedAt: "pas une date" }), ok({ expiresAt: "2026-11-01T00:00:00Z" })]) assert.equal(readOfficialChange(bad, NOW), null);
+    for (const bad of [null, "x", ok({ url: "http://a.example" }), ok({ level: "CRITIQUE" }), ok({ detectedAt: "pas une date" }), ok({ expiresAt: "2026-11-01T00:00:00Z" }), ok({ expiresAt: undefined }), ok({ expiresAt: "n importe quoi" })]) assert.equal(readOfficialChange(bad, NOW), null);
   });
   test("mineur : jamais d'extrait ; au plus 3 extraits sinon", () => {
     assert.deepEqual(readOfficialChange(ok({ level: "MINEUR", excerpts: ["secret"] }), NOW)!.excerpts, []);

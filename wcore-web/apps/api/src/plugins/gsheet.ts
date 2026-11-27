@@ -1366,7 +1366,11 @@ export async function gsheetPlugin(app: FastifyInstance, opts: GsheetPluginOptio
     // The ntfy web app (https://ntfy.sh) sends the tap from the browser: without this header the
     // browser hides the answer and shows a red cross although the tap was recorded. Only that
     // origin, no credentials; the answer carries nothing but ok / error.
-    if (request.headers.origin === "https://ntfy.sh") reply.header("access-control-allow-origin", "https://ntfy.sh");
+    // The global CORS plugin (credentials: true) may already have added the credentials header: drop it.
+    if (request.headers.origin === "https://ntfy.sh") {
+      reply.header("access-control-allow-origin", "https://ntfy.sh");
+      reply.removeHeader("access-control-allow-credentials");
+    }
     if (!opts.ack) return reply.code(503).send({ ok: false, error: "ack_disabled" });
     const result = await handleTradeAck(request.query, opts.ack);
     return reply.code(result.status).send(result.body);

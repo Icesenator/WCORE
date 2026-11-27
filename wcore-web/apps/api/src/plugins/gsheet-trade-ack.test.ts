@@ -183,6 +183,28 @@ test("the workbook takes each acknowledgement once, and not after two hours", as
   assert.deepEqual(late.status === 200 ? late.body.categories : null, [], "an old acknowledgement is not replayed");
 });
 
+test("routes: with the real global CORS plugin (credentials on), ntfy.sh reads the answer without credentials, nobody else", async () => {
+  const { default: cors } = await import("@fastify/cors");
+  const app = Fastify();
+  await app.register(cors, { origin: ["https://wcore.xyz"], credentials: true, methods: ["GET", "POST", "OPTIONS"] });
+  await app.register(gsheetPlugin, { token: TOKEN, ack: { topic: TOPIC, store: memoryStore() } } as never);
+  const liveExp = Math.floor((Date.now() + 60 * 60 * 1000) / 1000);
+  const q = new URLSearchParams(query("crypto", OCC, undefined, liveExp) as Record<string, string>).toString();
+  const post = (origin?: string) => app.inject({ method: "POST", url: "/api/trade-ack?" + q, headers: origin === undefined ? {} : { origin } });
+
+  const ntfy = await post("https://ntfy.sh");
+  assert.equal(ntfy.statusCode, 200);
+  assert.equal(ntfy.headers["access-control-allow-origin"], "https://ntfy.sh");
+  assert.equal(ntfy.headers["access-control-allow-credentials"], undefined, "no credentials for the ntfy origin");
+  assert.equal(String(ntfy.headers["access-control-allow-origin"]).includes(","), false, "a single allowed origin");
+  for (const other of ["null", "https://NTFY.SH", "https://ntfy.sh.evil.test", "https://wcore.xyz"]) {
+    const r = await post(other);
+    assert.notEqual(r.headers["access-control-allow-origin"], "https://ntfy.sh", "not granted to " + other);
+  }
+  assert.equal((await post()).headers["access-control-allow-origin"], undefined);
+  await app.close();
+});
+
 test("routes: the tap needs no workbook token, the take needs it, both are off without a store", async () => {
   const store = memoryStore();
   const app = Fastify();

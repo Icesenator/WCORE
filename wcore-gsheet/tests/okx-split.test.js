@@ -125,6 +125,12 @@ test('les deux onglets coexistent (ancien OKX + Crypto cree a la main) : la lect
   const other = fakeSpreadsheet(['CEX - OKX', 'CEX - OKX Crypto', 'CEX - OKX Stocks'], { legacyHeader: 'autre chose' });
   const { context: c2 } = okxContext();
   assert.doesNotThrow(() => c2._okxWriteSheet_(other, { spot: SPOT }));
+  // lecture de l ancien onglet impossible a cet instant : dans le doute la lecture s arrete, rien n est ecrit
+  const flaky = fakeSpreadsheet(['CEX - OKX', 'CEX - OKX Crypto', 'CEX - OKX Stocks']);
+  flaky.getSheetByName('CEX - OKX').getRange = () => { throw new Error('Service Spreadsheets timed out'); };
+  const { context: c3, calls: calls3 } = okxContext();
+  assert.throws(() => c3._okxWriteSheet_(flaky, { spot: SPOT }), /OKX_LEGACY_AND_NEW_SHEETS_COEXIST/);
+  assert.deepEqual(calls3, []);
 });
 
 test('Stocks vide ou onglets absents : creation, jamais d erreur', () => {

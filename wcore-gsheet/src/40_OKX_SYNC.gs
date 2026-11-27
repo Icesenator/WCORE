@@ -210,7 +210,8 @@ function _okxGetOrCreateSheet_(ss, name, legacyName) {
     // Les deux onglets existent (ex. « CEX - OKX Crypto » cree a la main alors que l'ancien porte encore les soldes) :
     // ecrire dans le nouveau laisserait l'ancien perime. La lecture s'arrete, a resoudre a la main.
     var coexisting = legacyName ? ss.getSheetByName(legacyName) : null;
-    if (coexisting && coexisting !== sh && _okxLooksLikeOutputSheet_(coexisting)) {
+    // Seul un ancien onglet CONFIRME etranger a OKX laisse passer ; illisible a cet instant = dans le doute, on s'arrete.
+    if (coexisting && coexisting !== sh && _okxSheetKind_(coexisting) !== "OTHER") {
       throw new Error("OKX_LEGACY_AND_NEW_SHEETS_COEXIST: '" + legacyName + "' and '" + name + "' both exist; nothing written");
     }
     return sh;
@@ -228,8 +229,13 @@ function _okxGetOrCreateSheet_(ss, name, legacyName) {
   return ss.insertSheet(name);
 }
 
+/** "OKX" : en-tete de sortie OKX (A2 = cryptocoin_symbol) ; "OTHER" : lu, autre chose ; "UNREADABLE" : lecture impossible. */
+function _okxSheetKind_(sh) {
+  try { return String(sh.getRange(2, 1).getValue() || "").trim() === "cryptocoin_symbol" ? "OKX" : "OTHER"; } catch (e) { return "UNREADABLE"; }
+}
+
 function _okxLooksLikeOutputSheet_(sh) {
-  try { return String(sh.getRange(2, 1).getValue() || "").trim() === "cryptocoin_symbol"; } catch (e) { return false; }
+  return _okxSheetKind_(sh) === "OKX";
 }
 
 function _okxSetupOneSheet_(ss, name, legacyName) {

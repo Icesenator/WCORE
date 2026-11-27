@@ -59,3 +59,67 @@ test('alertes : XNFLX dans OKX Stocks vaut NFLX, jamais dans OKX Crypto ni pour 
   assert.equal(ctx._wcoreStratAlertMatchSymbol_('XLM', 'CEX - OKX Stocks', { LM: 'LM' }), '', 'XLM n est pas une action tokenisee connue');
   assert.equal(ctx._wcoreStratAlertMatchSymbol_('XNFLX', 'CEX - Kraken Stocks', canon), '', 'le suffixe/prefixe ne s applique qu a son courtier');
 });
+
+// ---- Action Details reconstruit par la lecture OKX quand un titre detenu n'y a pas sa ligne ----
+function detailsContext(detailsRows, { refresh = true, routing = true } = {}) {
+  const calls = { refresh: 0 };
+  const ctx = load('40_OKX_SYNC.gs');
+  ctx.OKX_STOCKS_ROUTING_ENABLED = routing;
+  if (refresh) ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => { calls.refresh++; return 'OK: details rebuilt'; };
+  const sheet = detailsRows === null ? null : {
+    getLastRow: () => detailsRows.length + 1,
+    getRange: (r, c, nr, nc) => ({ getValues: () => detailsRows.slice(r - 2, r - 2 + nr).map((row) => row.slice(0, nc)) }),
+  };
+  const ss = { getSheetByName: (n) => (n === 'Portefeuille Action Details' ? sheet : null) };
+  return { ctx, ss, calls };
+}
+const HELD = [['XNFLX', '2', 'funding'], ['XSPCX', 0, 'earn']];
+
+test('Action Details : un titre OKX detenu sans ligne declenche UNE reconstruction', () => {
+  const { ctx, ss, calls } = detailsContext([['CEX - Bitpanda Stocks', 'AAPL']]);
+  assert.match(ctx._okxEnsureActionDetails_(ss, HELD), /^REFRESHED:/);
+  assert.equal(calls.refresh, 1);
+});
+
+test('Action Details : la ligne existe deja (source OKX Stocks, ticker brut) : aucune reconstruction', () => {
+  const { ctx, ss, calls } = detailsContext([['CEX - OKX Stocks', 'xnflx'], ['CEX - Bitpanda Stocks', 'AAPL']]);
+  assert.equal(ctx._okxEnsureActionDetails_(ss, HELD), 'OK');
+  assert.equal(calls.refresh, 0);
+  // meme ticker mais autre source : ne compte pas
+  const other = detailsContext([['CEX - Kraken Stocks', 'XNFLX']]);
+  assert.match(other.ctx._okxEnsureActionDetails_(other.ss, HELD), /^REFRESHED:/);
+});
+
+test('Action Details : rien de detenu, onglet absent ou fonction absente : jamais d erreur, jamais de reconstruction inutile', () => {
+  const none = detailsContext([]);
+  assert.equal(none.ctx._okxEnsureActionDetails_(none.ss, [['XNFLX', 0, 'funding'], ['.', 'INFO_TOTAL', 'okx']]), 'NONE');
+  assert.equal(none.calls.refresh, 0);
+  const absent = detailsContext(null);
+  assert.equal(absent.ctx._okxEnsureActionDetails_(absent.ss, HELD), 'NO_DETAILS_SHEET');
+  const nofn = detailsContext([], { refresh: false });
+  assert.equal(nofn.ctx._okxEnsureActionDetails_(nofn.ss, HELD), 'NO_REFRESH_FUNCTION');
+  const boom = detailsContext([]);
+  boom.ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => { throw new Error('Service Spreadsheets timed out'); };
+  assert.equal(boom.ctx._okxEnsureActionDetails_(boom.ss, HELD), 'ERROR', 'une erreur de reconstruction n est jamais fatale');
+});
+
+test('lecture OKX : la reconstruction n est tentee que routage actif et Stocks non vide', () => {
+  const calls = { refresh: 0, written: [] };
+  const mk = (routing) => {
+    const ctx = load('40_OKX_SYNC.gs');
+    ctx.OKX_STOCKS_ROUTING_ENABLED = routing;
+    ctx.Utilities = { formatDate: () => '2026-11-27 22:00:00' };
+    ctx._cexComputeAndAppendTotal_ = (ss, name, rows) => { calls.written.push([name, rows.length]); };
+    ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => { calls.refresh++; return 'OK'; };
+    return ctx;
+  };
+  const sheets = new Map();
+  const make = (name) => ({ getName: () => name, getMaxColumns: () => 26, getRange: () => ({ getValue: () => 'cryptocoin_symbol' }), getLastRow: () => 1 });
+  const ss = { getSheetByName: (n) => { if (['CEX - OKX Crypto', 'CEX - OKX Stocks', 'Portefeuille Action Details'].includes(n)) { if (!sheets.has(n)) sheets.set(n, make(n)); return sheets.get(n); } return null; }, insertSheet: (n) => make(n) };
+  const spot = [['BTC', '1', 'earn', '1', '1'], ['XNFLX', '2', 'funding', '1', '1']];
+  assert.equal(mk(true)._okxWriteSheet_(ss, { spot }).details.startsWith('REFRESHED'), true);
+  assert.equal(calls.refresh, 1);
+  assert.equal(mk(false)._okxWriteSheet_(ss, { spot }).details, 'SKIPPED');
+  assert.equal(mk(true)._okxWriteSheet_(ss, { spot: [['BTC', '1', 'earn', '1', '1']] }).details, 'SKIPPED');
+  assert.equal(calls.refresh, 1, 'ni routage coupe, ni Stocks vide ne reconstruisent');
+});

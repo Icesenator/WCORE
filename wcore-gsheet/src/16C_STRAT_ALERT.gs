@@ -231,10 +231,11 @@ function _wcoreStratAlertLinesStore_() {
  * occurrence and kept in the script properties, so a retry sends the same lines and the "Trade fait"
  * acknowledgement refreshes exactly what was proposed. Returns null when the alert has no symbols.
  */
-function _wcoreStratAlertLinesFor_(ss, id, trade) {
+function _wcoreStratAlertLinesFor_(ss, id, trade, info) {
   if (!trade || !trade.sell || !trade.buy) return null;
   var store = _wcoreStratAlertLinesStore_();
   if (store[id] && Array.isArray(store[id].sell) && Array.isArray(store[id].buy)) return store[id];
+  if (info) info.read = true; // the tabs are read by this call (the saved entry was not used)
   var sellSym = String(trade.sell.symbol).toUpperCase(), buySym = String(trade.buy.symbol).toUpperCase();
   var read = _wcoreStratAlertHoldings_(ss, sellSym === buySym ? [sellSym] : [sellSym, buySym], STRAT_ALERT_LINES_BUDGET_MS);
   // Nothing readable, or an incomplete read (budget, missing tab, failed read): no claim at all, never a
@@ -438,9 +439,9 @@ function _wcoreCheckStratAlert_(ss) {
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }
       var lines = null;
       // Only the pass that reads the tabs judges plausibility: saved lines (a retry) are never judged again.
-      var cached = !!_wcoreStratAlertLinesStore_()[todo[t].id];
-      try { lines = _wcoreStratAlertLinesFor_(ss, todo[t].id, trade); } catch (eLines0) { lines = null; }
-      if (lines && !cached && _wcoreStratAlertImplausible_(lines, trade)) {
+      var info = { read: false };
+      try { lines = _wcoreStratAlertLinesFor_(ss, todo[t].id, trade, info); } catch (eLines0) { lines = null; }
+      if (lines && info.read && _wcoreStratAlertImplausible_(lines, trade)) {
         // Discarded, not sent: settled like a delivery (cell marked X, occurrence dropped), so it is never
         // retried; it is re-armed only when the cell goes back to V. The trace holds the symbol and a code.
         out.discarded.push({ category: c2.category, symbol: trade.sell.symbol, code: "SELL_EXCEEDS_HOLDINGS" });

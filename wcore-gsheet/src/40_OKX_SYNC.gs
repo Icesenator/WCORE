@@ -23,11 +23,10 @@ var OKX_STOCK_TOKENS = {
   // (ex. SNX est aussi une crypto) : absents de la liste, ils restent en Crypto, donc visibles, jamais mal valorises.
 };
 
-// Interrupteur du routage Crypto / Stocks. FALSE tant que Portefeuille Action et Action Details ne lisent pas
-// « CEX - OKX Stocks » (phase 2) : un titre route en Stocks sans ligne dans Action Details ferait passer la colonne
-// Verif a X. Les deux onglets existent et sont ecrits ; Stocks reste vide, tout reste en Crypto (comportement actuel).
-// Passer a true avec la phase 2 : les lignes deja en Crypto sont alors ignorees par la reprise (filtre de classe, 35).
-var OKX_STOCKS_ROUTING_ENABLED = false;
+// Interrupteur du routage Crypto / Stocks. TRUE depuis la phase 2 (v4.16.104) : Portefeuille Action (quantites) et
+// Action Details (une ligne par titre OKX Stocks) lisent « CEX - OKX Stocks ». Repasser a FALSE remet tout en Crypto
+// (les lignes de l'autre classe encore presentes sont alors ignorees par la reprise : filtre de classe, 35).
+var OKX_STOCKS_ROUTING_ENABLED = true;
 
 /** True si le symbole OKX (casse indifferente) figure dans la liste des actions tokenisees connues. */
 function _okxIsListedStockToken_(sym) {
@@ -283,13 +282,76 @@ function _okxWriteOneSheet_(ss, sheetName, legacyName, buckets, stamp) {
   return dataRows.length;
 }
 
-/** Ecrit les deux onglets OKX depuis UNE lecture du relais. Retourne {crypto, stocks} = nombre de lignes de chacun. */
+/**
+ * Un titre OKX Stocks detenu sans ligne dans « Portefeuille Action Details » laisse sa valeur a zero dans Portefeuille Action
+ * (colonne G = SUMIFS sur Details) et la Verif de l'onglet a X. Rien d'autre ne reconstruit Details : si un ticker detenu n'y a
+ * pas sa ligne (source = OKX Stocks, ticker brut en F), on la fait reconstruire (REFRESH_STOCK_PORTFOLIO_DETAILS).
+ * Jamais fatal : la lecture OKX a deja reussi. Retourne un statut court.
+ */
+function _okxEnsureActionDetails_(ss, stockRows) {
+  try {
+    var wanted = {};
+    var list = stockRows || [];
+    for (var i = 0; i < list.length; i++) {
+      var sym = String(list[i][0] == null ? "" : list[i][0]).trim().toUpperCase();
+      if (sym && _okxParseAmount_(list[i][1]) > 0) wanted[sym] = true;
+    }
+    var keys = Object.keys(wanted);
+    if (!keys.length) return "NONE";
+    var sh = ss.getSheetByName("Portefeuille Action Details");
+    if (!sh) return "NO_DETAILS_SHEET";
+    var have = {};
+    var last = Number(sh.getLastRow()) || 0;
+    if (last >= 2) {
+      var vals = sh.getRange(2, 5, last - 1, 2).getValues();
+      for (var r = 0; r < vals.length; r++) {
+        if (String(vals[r][0]).trim() === OKX_SYNC_CONFIG.SHEET_STOCKS) have[String(vals[r][1]).trim().toUpperCase()] = true;
+      }
+    }
+    var missing = keys.filter(function (k) { return !have[k]; });
+    if (!missing.length) return "OK";
+    if (typeof REFRESH_STOCK_PORTFOLIO_DETAILS !== "function") return "NO_REFRESH_FUNCTION";
+    // Plafond : pour le meme ensemble de tickers manquants, une reconstruction au plus toutes les 15 min (si la ligne
+    // n'apparait pas apres une reconstruction, on ne relance pas une reconstruction complete a chaque lecture OKX).
+    var rebuildKey = missing.slice().sort().join(",");
+    try {
+      var propsRebuild = PropertiesService.getScriptProperties();
+      var lastRaw = propsRebuild.getProperty("OKX_DETAILS_REBUILD");
+      var tries = lastRaw ? JSON.parse(lastRaw) : {};
+      var lastTs = tries && typeof tries === "object" ? Number(tries[rebuildKey]) : NaN;
+      if (isFinite(lastTs) && Date.now() - lastTs >= 0 && Date.now() - lastTs < 15 * 60 * 1000) return "THROTTLED";
+    } catch (eThrottle) { /* sans memoire des tentatives, on tente (jamais bloquant) */ }
+    var out = String(REFRESH_STOCK_PORTFOLIO_DETAILS());
+    // Le plafond ne court qu'apres une reconstruction REUSSIE (un BUSY ou un ABORTED passager est retente au passage suivant),
+    // et par ensemble de tickers manquants (A, B, A ne se remplacent pas).
+    if (out.indexOf("OK") === 0) {
+      try {
+        var store = PropertiesService.getScriptProperties();
+        var mem = {};
+        try { mem = JSON.parse(store.getProperty("OKX_DETAILS_REBUILD") || "{}") || {}; } catch (eMem) { mem = {}; }
+        var nowMs = Date.now();
+        var kept = {};
+        for (var mk in mem) { if (Object.prototype.hasOwnProperty.call(mem, mk) && isFinite(Number(mem[mk])) && nowMs - Number(mem[mk]) < 15 * 60 * 1000) kept[mk] = mem[mk]; }
+        kept[rebuildKey] = nowMs;
+        store.setProperty("OKX_DETAILS_REBUILD", JSON.stringify(kept));
+      } catch (eStamp) {}
+    }
+    Logger.log("[OKX_STOCKS] Action Details rebuild requested for " + missing.join(",") + " : " + out.substring(0, 120));
+    return (out.indexOf("OK") === 0 ? "REFRESHED:" : "NOT_REFRESHED:") + out.substring(0, 60);
+  } catch (e) {
+    try { Logger.log("[OKX_STOCKS] Action Details check failed: " + (e && e.message ? e.message : e)); } catch (eLog) {}
+    return "ERROR";
+  }
+}
+
+/** Ecrit les deux onglets OKX depuis UNE lecture du relais. Retourne {crypto, stocks, details} (lignes de chacun, statut Details). */
 function _okxWriteSheet_(ss, buckets) {
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var split = _okxSplitSpot_(buckets);
   var nCrypto = _okxWriteOneSheet_(ss, OKX_SYNC_CONFIG.SHEET, OKX_SYNC_CONFIG.LEGACY_SHEET, split.crypto, stamp);
   var nStocks = _okxWriteOneSheet_(ss, OKX_SYNC_CONFIG.SHEET_STOCKS, null, split.stocks, stamp);
-  return { crypto: nCrypto, stocks: nStocks };
+  var details = (OKX_STOCKS_ROUTING_ENABLED === true && nStocks > 0) ? _okxEnsureActionDetails_(ss, split.stocks.spot) : "SKIPPED";
+  return { crypto: nCrypto, stocks: nStocks, details: details };
 }
 
 function UPDATE_OKX_SPOT() {
@@ -299,7 +361,7 @@ function UPDATE_OKX_SPOT() {
     var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
     var buckets = _cexRelayFetchWithRetry_(function() { return _okxFetchBucketsViaRelay_(); }, "OKX");
     var written = _okxWriteSheet_(ss, buckets);
-    var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written.crypto + written.stocks, crypto: written.crypto, stocks: written.stocks };
+    var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written.crypto + written.stocks, crypto: written.crypto, stocks: written.stocks, details: written.details };
     _okxSetStatus_(status);
     return JSON.stringify(status);
   } catch (err) {

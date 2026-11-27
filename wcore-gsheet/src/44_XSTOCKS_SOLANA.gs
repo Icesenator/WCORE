@@ -1,4 +1,4 @@
-﻿// v4.16.75 - FIX: EURC net depuis Portefeuille Action G; tri TOP croissant; NOVOÔåÆNVO; headers sur une ligne.
+// v4.16.75 - FIX: EURC net depuis Portefeuille Action G; tri TOP croissant; NOVOÔåÆNVO; headers sur une ligne.
 // v4.16.73 - FEAT: ligne cash EUR Bitpanda dans Action Details +
 // hyperliens colonne E restaur├®s d├¿s la fin du refresh (best effort).
 // v4.16.72 - FIX: Details C align├® sur les symboles canoniques de Portefeuille
@@ -268,6 +268,7 @@ var STOCK_PORTFOLIO_DETAILS_CONFIG = {
   BITPANDA_SHEET_NAME: "CEX - Bitpanda Stocks",
    EURC_FIAT_SHEET_NAME: "CEX - Bitpanda Stocks",
   KRAKEN_STOCKS_SHEET_NAME: "CEX - Kraken Stocks",
+  OKX_STOCKS_SHEET_NAME: "CEX - OKX Stocks",
   ACTION_LEDGER_SHEET_NAME: "Ledger - Solana Action",
  FIRST_DATA_ROW: 2,
  SOURCE_FIRST_DATA_ROW: 3,
@@ -303,7 +304,7 @@ function _xstocksStockDetailsRow_(sheetRow, symbol, source, sourceTicker, mint, 
   var libre = quantity;
   var flex = 0;
   var locked = 0;
-   if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME || source === STOCK_PORTFOLIO_DETAILS_CONFIG.KRAKEN_STOCKS_SHEET_NAME) {
+   if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME || source === STOCK_PORTFOLIO_DETAILS_CONFIG.KRAKEN_STOCKS_SHEET_NAME || source === STOCK_PORTFOLIO_DETAILS_CONFIG.OKX_STOCKS_SHEET_NAME) {
     var bpRef = "'" + source.replace(/'/g, "''") + "'!";
     if (source === STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME && String(symbol || "").toUpperCase() === "EUR") {
      var eurPrice = "D" + sheetRow;
@@ -446,7 +447,7 @@ function _xstocksCollectManualDetailRows_(existingRows) {
   return out;
 }
 
-function _xstocksBuildActionDetailsRows_(firstDataRow, bitpandaValues, solanaTitleRows, portfolioSymbols, eurcFiatQuantity, rankBySymbol, existingRows) {
+function _xstocksBuildActionDetailsRows_(firstDataRow, bitpandaValues, solanaTitleRows, portfolioSymbols, eurcFiatQuantity, rankBySymbol, existingRows, okxValues) {
  var items = new Array();
  var values = Array.isArray(bitpandaValues) ? bitpandaValues : [];
  for (var i = 0; i < values.length; i++) {
@@ -458,6 +459,22 @@ function _xstocksBuildActionDetailsRows_(firstDataRow, bitpandaValues, solanaTit
   if (!isFinite(quantity) || quantity <= 0) continue;
   items.push({ symbol: _xstocksResolveCanonicalSymbol_(symbol, portfolioSymbols), source: STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME, ticker: symbol, mint: "", quantity: quantity, order: items.length });
  }
+  // OKX Stocks (v4.16.104) : une ligne par titre tokenise detenu. Le ticker source (colonne F) est le symbole OKX brut
+  // (XNFLX), le symbole canonique celui de la strategie (NFLX) ; la quantite vient de la somme SUMIFS sur l'onglet.
+  var okxRows = Array.isArray(okxValues) ? okxValues : [];
+  for (var oi = 0; oi < okxRows.length; oi++) {
+   var okxRow = okxRows[oi];
+   if (!okxRow) continue;
+   var okxSymbol = String(okxRow[0] || "").trim().toUpperCase();
+   if (!okxSymbol || okxSymbol === "." || okxSymbol === "TOTAL" || okxSymbol === "ERROR" || okxSymbol.indexOf("INFO") === 0) continue;
+   var okxQuantity = Number(okxRow[1]);
+   if (!isFinite(okxQuantity) || okxQuantity <= 0) continue;
+   var okxCanonical = typeof _okxCanonicalStockSymbol_ === "function" ? _okxCanonicalStockSymbol_(okxSymbol) : okxSymbol;
+   var okxAlready = false;
+   for (var oj = 0; oj < items.length; oj++) { if (items[oj].source === STOCK_PORTFOLIO_DETAILS_CONFIG.OKX_STOCKS_SHEET_NAME && items[oj].ticker === okxSymbol) { okxAlready = true; break; } }
+   if (okxAlready) continue; // plusieurs sources OKX (funding, trading, earn) : une seule ligne par ticker, SUMIFS les additionne
+   items.push({ symbol: _xstocksResolveCanonicalSymbol_(okxCanonical, portfolioSymbols), source: STOCK_PORTFOLIO_DETAILS_CONFIG.OKX_STOCKS_SHEET_NAME, ticker: okxSymbol, mint: "", quantity: okxQuantity, order: items.length });
+  }
   // Le cash EUR arrive désormais directement dans CEX - Bitpanda Stocks et a déjà
   // été ajouté depuis bitpandaValues. Ne pas créer une seconde ligne synthétique EURC.
  var titles = Array.isArray(solanaTitleRows) ? solanaTitleRows : [];
@@ -593,6 +610,22 @@ function _refreshStockPortfolioDetailsCore_() {
   } else {
     missing.push(STOCK_PORTFOLIO_DETAILS_CONFIG.BITPANDA_SHEET_NAME);
    }
+  // OKX Stocks : lecture facultative (absent ou vide = aucune ligne OKX, jamais une erreur).
+  var okxValues = [];
+  var okxReadFailed = false;
+  try {
+   var okxSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.OKX_STOCKS_SHEET_NAME);
+   if (okxSheet) {
+    var okxAvailableRows = Number(okxSheet.getMaxRows()) || 0;
+    var okxDataRowCount = okxAvailableRows - STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW + 1;
+    if (okxDataRowCount > 0) okxValues = okxSheet.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW, 1, okxDataRowCount, 2).getValues();
+   }
+  } catch (eOkxRead) { okxValues = []; okxReadFailed = true; }
+  // Un onglet OKX Stocks illisible a cet instant ne doit pas faire disparaitre ses lignes de Details : on s'arrete sans rien ecrire.
+  if (okxReadFailed) {
+   try { Logger.log("[XSTOCKS_DETAILS] OKX Stocks unreadable: nothing written"); } catch (eLogOkx) {}
+   return "ABORTED: " + STOCK_PORTFOLIO_DETAILS_CONFIG.OKX_STOCKS_SHEET_NAME + " unreadable; nothing written";
+  }
   var eurcFiatQuantity = null;
   var ledgerSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.ACTION_LEDGER_SHEET_NAME);
   var address = null;
@@ -635,14 +668,21 @@ try {
  }
  } catch (ePortfolio) {}
   var existingRows = [];
+  var existingReadFailed = false;
   try {
     var existingLastRow = Number(sh.getLastRow()) || 0;
     var existingCount = existingLastRow - STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW + 1;
     if (existingCount > 0) {
       existingRows = sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 1, existingCount, STOCK_PORTFOLIO_DETAILS_CONFIG.MANAGED_LAST_COLUMN).getValues();
     }
-  } catch (eExisting) {}
-var rows = _xstocksBuildActionDetailsRows_(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, bitpandaValues || [], _xstocksCollectSolanaActionTitles_(walletRows), portfolioSymbols, eurcFiatQuantity, rankBySymbol, existingRows);
+  } catch (eExisting) { existingReadFailed = true; }
+  // Les lignes Kraken saisies a la main ne vivent que dans cet onglet : si on ne peut pas les lire (erreur de service
+  // passagere), reconstruire avec une liste vide les ecraserait. On s'arrete sans rien ecrire ; le prochain passage reessaie.
+  if (existingReadFailed) {
+   try { Logger.log("[XSTOCKS_DETAILS] existing rows unreadable: nothing written"); } catch (eLogRead) {}
+   return "ABORTED: existing rows of " + STOCK_PORTFOLIO_DETAILS_CONFIG.SHEET_NAME + " unreadable; nothing written";
+  }
+var rows = _xstocksBuildActionDetailsRows_(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, bitpandaValues || [], _xstocksCollectSolanaActionTitles_(walletRows), portfolioSymbols, eurcFiatQuantity, rankBySymbol, existingRows, okxValues);
   _stockPortfolioDetailsEnsureLayout_(sh);
   var spreadsheetId = ss.getId();
   var batchData = [];

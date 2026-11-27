@@ -1216,9 +1216,12 @@ function BITPANDA_ON_EDIT(e) {
       if (!ackStock) _bpSetExternalRefreshStatus_(sheet, "U2", "QUEUED: " + _bpFmtStamp_());
       var stockJobs = [
         { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" },
-        { kind: "KRAKEN_STOCKS", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" },
-        { kind: "OKX_STOCKS", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
+        { kind: "KRAKEN_STOCKS", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
       ];
+      // OKX Stocks n'a de contenu que routage actif (phase 2) : sinon le lot U2 relit deja OKX, un second appel serait inutile.
+      if (typeof OKX_STOCKS_ROUTING_ENABLED !== "undefined" && OKX_STOCKS_ROUTING_ENABLED === true) {
+        stockJobs.push({ kind: "OKX_STOCKS", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" });
+      }
       // An acknowledgement never adds a second Kraken Balance call right after another one (or during a pause).
       if (ackStock) stockJobs = _wcoreTradeAckDropKraken_(stockJobs);
       var stockOut = _cexEnqueueManualJobs_(stockJobs, ackStock ? function (queue) { return _wcoreTradeAckBusy_(queue, name, "U2"); } : null);

@@ -209,8 +209,13 @@ function _okxGetOrCreateSheet_(ss, name, legacyName) {
   if (sh) return sh;
   if (legacyName) {
     var old = ss.getSheetByName(legacyName);
-    // Renomme seulement un onglet qui a bien la forme d'une sortie OKX (en-tete « cryptocoin_symbol » en A2).
-    if (old && _okxLooksLikeOutputSheet_(old)) { old.setName(name); return old; }
+    if (old) {
+      // Renomme seulement un onglet qui a bien la forme d'une sortie OKX (en-tete « cryptocoin_symbol » en A2).
+      if (_okxLooksLikeOutputSheet_(old)) { old.setName(name); return old; }
+      // Ancien onglet present mais non reconnu (ou illisible a cet instant) : on ne cree JAMAIS un second onglet
+      // a cote (il laisserait l'ancien avec ses soldes) ; la lecture echoue proprement et reessaie au passage suivant.
+      throw new Error("OKX_LEGACY_SHEET_UNRECOGNISED: '" + legacyName + "' exists but is not an OKX output tab; not renamed, nothing written");
+    }
   }
   return ss.insertSheet(name);
 }

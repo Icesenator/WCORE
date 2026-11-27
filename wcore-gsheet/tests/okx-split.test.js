@@ -105,12 +105,13 @@ test('avant la migration, l ancien onglet « CEX - OKX » est renomme en Crypto 
   assert.equal(ss.getSheetByName('CEX - OKX'), null);
 });
 
-test('un onglet « CEX - OKX » qui n a pas la forme d une sortie OKX n est jamais renomme', () => {
-  const { context } = okxContext();
+test('un onglet « CEX - OKX » non reconnu (ou illisible) n est ni renomme ni double : la lecture echoue sans rien ecrire', () => {
+  const { context, calls } = okxContext();
   const ss = fakeSpreadsheet(['CEX - OKX', 'CEX - OKX Stocks'], { legacyHeader: 'autre chose' });
-  context._okxWriteSheet_(ss, { spot: SPOT });
+  assert.throws(() => context._okxWriteSheet_(ss, { spot: SPOT }), /OKX_LEGACY_SHEET_UNRECOGNISED/);
   assert.deepEqual(ss.log.renamed, []);
-  assert.deepEqual(ss.log.inserted, ['CEX - OKX Crypto']);
+  assert.deepEqual(ss.log.inserted, [], 'aucun second onglet Crypto');
+  assert.deepEqual(calls, [], 'rien ecrit');
   assert.ok(ss.getSheetByName('CEX - OKX'), 'l onglet inconnu reste intact');
 });
 
@@ -139,7 +140,7 @@ test('le clic A1 de chaque onglet OKX (et de l ancien nom) lance la meme lecture
 test('la file manuelle et la reparation connaissent les deux onglets OKX, et Stocks est verifie contre Portefeuille Action Details', () => {
   assert.ok(bpSource.includes('kind === "OKX" || kind === "OKX_STOCKS"'), 'OKX_STOCKS lance UPDATE_OKX_SPOT');
   assert.ok(bpSource.includes('key === "OKX_STOCKS"'), 'le libelle OKX_STOCKS devient un type de job');
-  assert.ok(bpSource.includes('kind: "OKX_STOCKS"'), 'le lot T2 (Stocks) met OKX_STOCKS en file');
+  assert.ok(bpSource.includes('kind: "OKX_STOCKS"') && bpSource.includes('OKX_STOCKS_ROUTING_ENABLED === true'), 'le lot T2 (Stocks) met OKX_STOCKS en file seulement routage actif');
   const repair = bpSource.slice(bpSource.indexOf('function REPAIR_CEX_SHEETS_STRUCTURE'));
   assert.ok(repair.includes('"CEX - OKX Crypto"') && repair.includes('"CEX - OKX Stocks"'));
   assert.ok(!/"CEX - OKX"\s*\n/.test(repair.slice(0, repair.indexOf('}'))), 'plus d ancien nom dans la reparation');

@@ -194,8 +194,11 @@ test('reconstruction d Action Details : au plus une tentative toutes les 15 min 
   assert.match(ctx._okxEnsureActionDetails_(ss, other), /^REFRESHED:/);
   assert.equal(calls.refresh, 2);
   // apres 15 minutes on retente
-  const key = JSON.parse(ctx.__store.get('OKX_DETAILS_REBUILD'));
-  ctx.__store.set('OKX_DETAILS_REBUILD', JSON.stringify({ k: key.k, ts: Date.now() - 16 * 60 * 1000 }));
+  const mem = JSON.parse(ctx.__store.get('OKX_DETAILS_REBUILD'));
+  assert.equal(Object.keys(mem).length, 2, 'une memoire par ensemble de tickers : A et B coexistent');
+  const bKey = Object.keys(mem).find((k) => k === 'XLRCX');
+  mem[bKey] = Date.now() - 16 * 60 * 1000;
+  ctx.__store.set('OKX_DETAILS_REBUILD', JSON.stringify(mem));
   assert.match(ctx._okxEnsureActionDetails_(ss, other), /^REFRESHED:/);
   assert.equal(calls.refresh, 3);
 });

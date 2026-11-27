@@ -1,12 +1,39 @@
+// v4.16.103 - OKX scinde en "CEX - OKX Crypto" et "CEX - OKX Stocks" (comme Kraken et Bitpanda) :
+//   une seule lecture du relais alimente les deux onglets ; les actions tokenisees OKX (X+ticker)
+//   vont dans Stocks, tout le reste (y compris un X+ticker inconnu) reste dans Crypto.
 // v4.16.34 - Relay rotation scheduling and non-mutating legacy watchdog.
-// v4.16.30 - OKSOL (OKX liquid-staked SOL) aliased to SOL in "CEX - OKX" output.
+// v4.16.30 - OKSOL (OKX liquid-staked SOL) aliased to SOL in "CEX - OKX Crypto" output.
 // v4.15.97 - OKX sync via Railway cex-relay (HMAC signed relay-side).
-// Onglet de sortie: "CEX - OKX".
+// Onglets de sortie: "CEX - OKX Crypto" et "CEX - OKX Stocks".
 //
-// Recupere les soldes OKX et les ecrit dans l'onglet "OKX Crypto".
+// Recupere les soldes OKX et les ecrit dans les onglets ci-dessus.
 // Les secrets OKX restent dans Railway. Apps Script stocke seulement URL+token relais.
 
-var OKX_SYNC_VERSION = "4.16.34";
+var OKX_SYNC_VERSION = "4.16.103";
+
+// Actions tokenisees listees par OKX (liste publique des instruments SPOT, 27/11/2026) : symbole OKX -> ticker boursier.
+// Liste EXPLICITE : un X+ticker absent d'ici reste en Crypto (jamais deviné) ; a completer quand OKX en ajoute.
+var OKX_STOCK_TOKENS = {
+  "XNFLX": "NFLX",
+  "XSPCX": "SPCX",
+  "XLRCX": "LRCX",
+  "XCGNX": "CGNX",
+  "XFLEX": "FLEX",
+  "XSNXX": "SNX",
+  "XMINIMAX": "MINIMAX"
+};
+
+/** True si le symbole OKX (casse indifferente) est une action tokenisee connue. */
+function _okxIsStockToken_(sym) {
+  var s = String(sym == null ? "" : sym).trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(OKX_STOCK_TOKENS, s);
+}
+
+/** Ticker boursier canonique d'une action tokenisee OKX ; le symbole inchange sinon. */
+function _okxCanonicalStockSymbol_(sym) {
+  var s = String(sym == null ? "" : sym).trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(OKX_STOCK_TOKENS, s) ? OKX_STOCK_TOKENS[s] : s;
+}
 
 // v4.16.30: aliases appliques apres fetch relay, AVANT ecriture sheet.
 // OKSOL = SOL liquid-staked par OKX -> consolide sous SOL (pattern BITFINEX_SYMBOL_ALIASES).
@@ -24,7 +51,9 @@ var OKX_SYNC_CONFIG = {
   RELAY_TOKEN_PROP: "OKX_RELAY_TOKEN",
   STATUS_PROP: "OKX_SYNC_STATUS",
   REFRESH_FLAG_PROP: "OKX_REFRESH_REQUESTED",
-  SHEET: "CEX - OKX",
+  SHEET: "CEX - OKX Crypto",
+  SHEET_STOCKS: "CEX - OKX Stocks",
+  LEGACY_SHEET: "CEX - OKX",
   SPREADSHEET_ID: "1kxidZZoEM6fXubFpp54fKvzJeXFCSCWCfyMTPNwYRB4"
 };
 
@@ -160,15 +189,44 @@ function DIAG_OKX_RELAY_CONFIG() {
   }
 }
 
-function SETUP_OKX_SHEET() {
-  var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
-  var sh = ss.getSheetByName(OKX_SYNC_CONFIG.SHEET);
-  if (!sh) sh = ss.insertSheet(OKX_SYNC_CONFIG.SHEET);
+/**
+ * Onglet de sortie OKX. Si le nouvel onglet Crypto n'existe pas encore alors que l'ancien « CEX - OKX » existe,
+ * l'ancien est renomme (les formules du classeur suivent le renommage) au lieu d'en creer un second vide.
+ */
+function _okxGetOrCreateSheet_(ss, name, legacyName) {
+  var sh = ss.getSheetByName(name);
+  if (sh) return sh;
+  if (legacyName) {
+    var old = ss.getSheetByName(legacyName);
+    if (old) { old.setName(name); return old; }
+  }
+  return ss.insertSheet(name);
+}
+
+function _okxSetupOneSheet_(ss, name, legacyName) {
+  var sh = _okxGetOrCreateSheet_(ss, name, legacyName);
   if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1").setValue(Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@");
   sh.getRange(2, 1, 1, 4).setValues([["cryptocoin_symbol", "balance", "source", "updated_at"]]);
+  return sh;
+}
+
+function SETUP_OKX_SHEET() {
+  var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
+  _okxSetupOneSheet_(ss, OKX_SYNC_CONFIG.SHEET, OKX_SYNC_CONFIG.LEGACY_SHEET);
+  _okxSetupOneSheet_(ss, OKX_SYNC_CONFIG.SHEET_STOCKS, null);
   return "OK_OKX_SHEET_READY";
+}
+
+/** Repartit les lignes du relais : actions tokenisees connues -> stocks, tout le reste -> crypto. */
+function _okxSplitSpot_(buckets) {
+  var crypto = [], stocks = [];
+  var list = (buckets && buckets.spot) || [];
+  for (var i = 0; i < list.length; i++) {
+    if (_okxIsStockToken_(list[i][0])) stocks.push(list[i]); else crypto.push(list[i]);
+  }
+  return { crypto: { spot: crypto }, stocks: { spot: stocks } };
 }
 
 function _okxBuildValues_(buckets, stamp) {
@@ -181,15 +239,22 @@ function _okxBuildValues_(buckets, stamp) {
   return values;
 }
 
-function _okxWriteSheet_(ss, buckets) {
-  var sh = ss.getSheetByName(OKX_SYNC_CONFIG.SHEET);
-  if (!sh) sh = ss.insertSheet(OKX_SYNC_CONFIG.SHEET);
+function _okxWriteOneSheet_(ss, sheetName, legacyName, buckets, stamp) {
+  var sh = _okxGetOrCreateSheet_(ss, sheetName, legacyName);
   if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
-  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var dataRows = _okxBuildValues_(buckets, stamp);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
-  _cexComputeAndAppendTotal_(ss, OKX_SYNC_CONFIG.SHEET, dataRows, "okx", values);
+  _cexComputeAndAppendTotal_(ss, sheetName, dataRows, "okx", values);
   return dataRows.length;
+}
+
+/** Ecrit les deux onglets OKX depuis UNE lecture du relais. Retourne {crypto, stocks} = nombre de lignes de chacun. */
+function _okxWriteSheet_(ss, buckets) {
+  var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
+  var split = _okxSplitSpot_(buckets);
+  var nCrypto = _okxWriteOneSheet_(ss, OKX_SYNC_CONFIG.SHEET, OKX_SYNC_CONFIG.LEGACY_SHEET, split.crypto, stamp);
+  var nStocks = _okxWriteOneSheet_(ss, OKX_SYNC_CONFIG.SHEET_STOCKS, null, split.stocks, stamp);
+  return { crypto: nCrypto, stocks: nStocks };
 }
 
 function UPDATE_OKX_SPOT() {
@@ -199,7 +264,7 @@ function UPDATE_OKX_SPOT() {
     var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
     var buckets = _cexRelayFetchWithRetry_(function() { return _okxFetchBucketsViaRelay_(); }, "OKX");
     var written = _okxWriteSheet_(ss, buckets);
-    var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written };
+    var status = { ok: true, ts: new Date().toISOString(), spot: buckets.spot.length, rows: written.crypto + written.stocks, crypto: written.crypto, stocks: written.stocks };
     _okxSetStatus_(status);
     return JSON.stringify(status);
   } catch (err) {
@@ -219,7 +284,9 @@ function OKX_ON_EDIT(e) {
     var cell = range.getA1Notation ? range.getA1Notation() : "";
     if (cell !== "A1") return false;
     var sheet = range.getSheet ? range.getSheet() : null;
-    if (!sheet || sheet.getName() !== OKX_SYNC_CONFIG.SHEET) return false;
+    var okxSheetName = sheet ? sheet.getName() : "";
+    // Le clic A1 de l'un ou l'autre onglet (ou l'ancien nom, avant renommage) relance la meme lecture : elle alimente les deux.
+    if (!sheet || (okxSheetName !== OKX_SYNC_CONFIG.SHEET && okxSheetName !== OKX_SYNC_CONFIG.SHEET_STOCKS && okxSheetName !== OKX_SYNC_CONFIG.LEGACY_SHEET)) return false;
     var v = (typeof e.value !== "undefined") ? e.value : range.getValue();
     if (String(v).toUpperCase() !== "TRUE") return true;
     if (!e.triggerUid) {

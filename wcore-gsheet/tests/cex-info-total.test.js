@@ -141,7 +141,8 @@ for (const sheet of [
   'CEX - Bybit',
   'CEX - Coinbase',
    'CEX - Kraken Crypto',
-  'CEX - OKX',
+  'CEX - OKX Crypto',
+  'CEX - OKX Stocks',
 ]) {
   assert.ok(CEX_REPAIR_BODY.includes(`"${sheet}"`), `REPAIR_CEX_SHEETS_STRUCTURE must cover ${sheet}`);
 }

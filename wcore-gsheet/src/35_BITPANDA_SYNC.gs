@@ -322,6 +322,7 @@ function _cexManualJobKindFromLabel_(label) {
   if (key === "BYBIT") return "BYBIT";
   if (key === "COINBASE") return "COINBASE";
   if (key === "OKX") return "OKX";
+  if (key === "OKX_STOCKS") return "OKX_STOCKS";
   return key || "UNKNOWN";
 }
 
@@ -716,7 +717,8 @@ function _cexRunManualJob_(job) {
     else if (kind === "BITFINEX") result = typeof UPDATE_BITFINEX_SPOT === "function" ? String(UPDATE_BITFINEX_SPOT()) : "SKIPPED_MISSING_UPDATE_BITFINEX_SPOT";
     else if (kind === "BYBIT") result = typeof UPDATE_BYBIT_SPOT === "function" ? String(UPDATE_BYBIT_SPOT()) : "SKIPPED_MISSING_UPDATE_BYBIT_SPOT";
     else if (kind === "COINBASE") result = typeof UPDATE_COINBASE_SPOT === "function" ? String(UPDATE_COINBASE_SPOT()) : "SKIPPED_MISSING_UPDATE_COINBASE_SPOT";
-    else if (kind === "OKX") result = typeof UPDATE_OKX_SPOT === "function" ? String(UPDATE_OKX_SPOT()) : "SKIPPED_MISSING_UPDATE_OKX_SPOT";
+    // OKX Crypto et OKX Stocks sont alimentes par la meme lecture : OKX_STOCKS lance UPDATE_OKX_SPOT (ecrit les deux onglets).
+    else if (kind === "OKX" || kind === "OKX_STOCKS") result = typeof UPDATE_OKX_SPOT === "function" ? String(UPDATE_OKX_SPOT()) : "SKIPPED_MISSING_UPDATE_OKX_SPOT";
     else if (kind === "KRAKEN") result = typeof UPDATE_KRAKEN_SPOT === "function" ? String(UPDATE_KRAKEN_SPOT()) : "SKIPPED_MISSING_UPDATE_KRAKEN_SPOT";
     else if (kind === "KRAKEN_STOCKS") result = typeof UPDATE_KRAKEN_STOCKS_FIAT === "function" ? String(UPDATE_KRAKEN_STOCKS_FIAT()) : "SKIPPED_MISSING_UPDATE_KRAKEN_STOCKS_FIAT";
     // v4.16.x: routage portfolio optionnel — PAS enqueue par T2/U2 (décision :
@@ -1214,7 +1216,8 @@ function BITPANDA_ON_EDIT(e) {
       if (!ackStock) _bpSetExternalRefreshStatus_(sheet, "U2", "QUEUED: " + _bpFmtStamp_());
       var stockJobs = [
         { kind: "BITPANDA_STOCKS_FIAT", sheetName: BITPANDA_SYNC_CONFIG.SHEETS.STOCKS, refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" },
-        { kind: "KRAKEN_STOCKS", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
+        { kind: "KRAKEN_STOCKS", sheetName: typeof KRAKEN_SYNC_CONFIG !== "undefined" ? KRAKEN_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" },
+        { kind: "OKX_STOCKS", sheetName: typeof OKX_SYNC_CONFIG !== "undefined" ? OKX_SYNC_CONFIG.SHEET_STOCKS : "", refreshFlagProp: refreshFlagProp, statusSheetName: name, statusCell: "U2" }
       ];
       // An acknowledgement never adds a second Kraken Balance call right after another one (or during a pause).
       if (ackStock) stockJobs = _wcoreTradeAckDropKraken_(stockJobs);
@@ -2092,6 +2095,9 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
     if (isStocks && String(provider || "").toLowerCase() === "kraken" && typeof _krakenCanonicalStockSymbol_ === "function") {
       priceSymbol = _krakenCanonicalStockSymbol_(row[0]);
     }
+    if (isStocks && String(provider || "").toLowerCase() === "okx" && typeof _okxCanonicalStockSymbol_ === "function") {
+      priceSymbol = _okxCanonicalStockSymbol_(row[0]);
+    }
     var balance = Number(row[1] || 0);
     var priceEur = null;
     var directValueEur = null;
@@ -2245,6 +2251,9 @@ function _cexFetchWebPrices_(balances, sheetName, isStocks, providerSlug) {
         if (isStocks && String(providerSlug || "").toLowerCase() === "kraken" && typeof _krakenCanonicalStockSymbol_ === "function") {
           bs = _krakenCanonicalStockSymbol_(rawBalanceSymbol);
         }
+        if (isStocks && String(providerSlug || "").toLowerCase() === "okx" && typeof _okxCanonicalStockSymbol_ === "function") {
+          bs = _okxCanonicalStockSymbol_(rawBalanceSymbol);
+        }
         if (bs && Number((balances[bi] || [])[1] || 0) > 0 && allSymbols.indexOf(bs) < 0) allSymbols.push(bs);
       }
       if (allSymbols.length > 0) {
@@ -2354,7 +2363,8 @@ function REPAIR_CEX_SHEETS_STRUCTURE() {
     "CEX - Bybit",
     "CEX - Coinbase",
     "CEX - Kraken Crypto",
-    "CEX - OKX"
+    "CEX - OKX Crypto",
+    "CEX - OKX Stocks"
   ];
   var out = [];
   for (var i = 0; i < names.length; i++) out.push(_cexRepairSheetStructure_(ss, names[i]));

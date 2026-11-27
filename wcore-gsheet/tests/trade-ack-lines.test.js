@@ -67,7 +67,7 @@ function harness(opts = {}) {
 }
 
 const TABS = () => ({
-  'CEX - OKX': tab('cex', [['AAVE', 6], ['CRO', 16], ['ETH', 400]]),
+  'CEX - OKX Crypto': tab('cex', [['AAVE', 6], ['CRO', 16], ['ETH', 400]]),
   'Ledger - Cronos': tab('wallet', [['CRO', 3], ['CRO', 2]]),
   'Binance Web3 Wallet - Base': tab('wallet', [['ETH', 90], ['AAVE', 0.5]]),
   'CEX - Kraken Crypto': tab('cex', [['AAVE', 40]]),
@@ -78,7 +78,7 @@ test('holdings are read from both tab shapes, summed per tab, and unreadable tab
   const h = harness({ tabs: TABS() });
   const { held, tabs } = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE', 'CRO'], 60000);
   assert.equal(tabs, 4, 'Notes has no known header pair');
-  assert.deepEqual(held.AAVE.map((x) => x.name).sort(), ['Binance Web3 Wallet - Base', 'CEX - Kraken Crypto', 'CEX - OKX']);
+  assert.deepEqual(held.AAVE.map((x) => x.name).sort(), ['Binance Web3 Wallet - Base', 'CEX - Kraken Crypto', 'CEX - OKX Crypto']);
   assert.deepEqual(held.CRO.find((x) => x.name === 'Ledger - Cronos'), { name: 'Ledger - Cronos', eur: 5 });
   assert.equal(held.CRO.length, 2);
 });
@@ -143,7 +143,7 @@ test('the proposed lines for MU and ANT name the Kraken Stocks tab instead of "n
 });
 
 test('bad names and repeated Recap lines are never read twice, and an empty budget reads nothing', () => {
-  const h = harness({ tabs: TABS(), recap: ['CEX - OKX', 'CEX - OKX', 'http://evil.test', 'bad\nname', ''] });
+  const h = harness({ tabs: TABS(), recap: ['CEX - OKX Crypto', 'CEX - OKX Crypto', 'http://evil.test', 'bad\nname', ''] });
   const { tabs } = h.ctx._wcoreStratAlertHoldings_(h.ss, ['AAVE'], 60000);
   assert.equal(tabs, 1);
   assert.equal(h.calls.reads, 1);
@@ -157,9 +157,9 @@ test('proposed lines: the three largest holders, "enough" when the first covers 
   const h = harness({ tabs: TABS() });
   const trade = { sell: { symbol: 'AAVE', eur: 21 }, buy: { symbol: 'CRO', eur: 1235 } };
   const lines = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'AY1-1794470000000', trade);
-  assert.deepEqual(lines.sell, ['CEX - Kraken Crypto', 'CEX - OKX', 'Binance Web3 Wallet - Base']);
+  assert.deepEqual(lines.sell, ['CEX - Kraken Crypto', 'CEX - OKX Crypto', 'Binance Web3 Wallet - Base']);
   assert.equal(lines.enough, true, 'Kraken 40 covers 21');
-  assert.deepEqual(lines.buy, ['CEX - OKX', 'Ledger - Cronos']);
+  assert.deepEqual(lines.buy, ['CEX - OKX Crypto', 'Ledger - Cronos']);
   // "enough" is measured against the one amount shown: the smaller side (21 euros to sell, 1235 to buy).
   const smallBuy = h.ctx._wcoreStratAlertLinesFor_(h.ss, 'AY1-1794470000055', { sell: { symbol: 'AAVE', eur: 500 }, buy: { symbol: 'CRO', eur: 30 } });
   assert.equal(smallBuy.enough, true, 'the smaller side (30) is covered by Kraken (40), not the 500 on the sell side');
@@ -198,8 +198,8 @@ test('a symbol nobody holds gives an empty list, and the saved map is pruned (48
 
 function ackHarness(extra = {}) {
   const h = harness(Object.assign({ tabs: TABS() }, extra));
-  const lines = { sell: ['CEX - OKX', 'Binance Web3 Wallet - Base'], buy: ['Ledger - Cronos'], enough: true, announced: true, ts: Date.now() };
-  h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': lines, 'AY1-1794470000050': { sell: ['CEX - OKX'], buy: [], enough: false, announced: true, ts: Date.now() } }));
+  const lines = { sell: ['CEX - OKX Crypto', 'Binance Web3 Wallet - Base'], buy: ['Ledger - Cronos'], enough: true, announced: true, ts: Date.now() };
+  h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': lines, 'AY1-1794470000050': { sell: ['CEX - OKX Crypto'], buy: [], enough: false, announced: true, ts: Date.now() } }));
   return h;
 }
 
@@ -208,9 +208,9 @@ test('an acknowledgement refreshes exactly the lines proposed in its notificatio
   h.state.body = { ok: true, categories: ['crypto'], acks: [{ category: 'crypto', occurrence: 'AY1-1794470000000' }] };
   const out = h.ctx._wcoreCheckTradeAck_(h.ss);
   assert.equal(out.reason, 'LINES_REFRESHED');
-  assert.deepEqual(out.lines, ['CEX - OKX', 'Binance Web3 Wallet - Base', 'Ledger - Cronos']);
+  assert.deepEqual(out.lines, ['CEX - OKX Crypto', 'Binance Web3 Wallet - Base', 'Ledger - Cronos']);
   assert.deepEqual(h.calls.onEdit, [
-    { sheet: 'CEX - OKX', a: 'A1', value: 'TRUE', triggerUid: 'TRADE_ACK_LINE' },
+    { sheet: 'CEX - OKX Crypto', a: 'A1', value: 'TRUE', triggerUid: 'TRADE_ACK_LINE' },
     { sheet: 'Binance Web3 Wallet - Base', a: 'A1', value: 'TRUE', triggerUid: 'TRADE_ACK_LINE' },
     { sheet: 'Ledger - Cronos', a: 'A1', value: 'TRUE', triggerUid: 'TRADE_ACK_LINE' },
   ]);
@@ -225,8 +225,8 @@ test('two acknowledgements share their lines once; one without saved lines keeps
     { category: 'action', occurrence: 'BE1-1794470000077' },
   ] };
   const out = h.ctx._wcoreCheckTradeAck_(h.ss);
-  assert.deepEqual(out.lines, ['CEX - OKX', 'Binance Web3 Wallet - Base', 'Ledger - Cronos'], 'CEX - OKX only once');
-  assert.equal(h.calls.onEdit.filter((c) => c.sheet === 'CEX - OKX').length, 1);
+  assert.deepEqual(out.lines, ['CEX - OKX Crypto', 'Binance Web3 Wallet - Base', 'Ledger - Cronos'], 'CEX - OKX only once');
+  assert.equal(h.calls.onEdit.filter((c) => c.sheet === 'CEX - OKX Crypto').length, 1);
   // The action acknowledgement has no saved lines: the Portefeuille Action batch path is used (its sheet is absent here).
   assert.ok(out.taken >= 2);
 });
@@ -247,7 +247,7 @@ test('older answers without acks, and acknowledgements of a test notification, k
 test('Kraken lines are skipped right after a Kraken call or during a pause, kept otherwise', () => {
   const mk = (props, extraCtx) => {
     const h = harness({ tabs: TABS(), props });
-    h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': { sell: ['CEX - Kraken Crypto', 'CEX - OKX'], buy: [], enough: false, announced: true, ts: Date.now() } }));
+    h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': { sell: ['CEX - Kraken Crypto', 'CEX - OKX Crypto'], buy: [], enough: false, announced: true, ts: Date.now() } }));
     h.state.body = { ok: true, categories: ['crypto'], acks: [{ category: 'crypto', occurrence: 'AY1-1794470000000' }] };
     h.ctx.KRAKEN_SYNC_CONFIG = { SHARED_OK_PROP: 'K_SHARED' };
     if (extraCtx) extraCtx(h);
@@ -255,29 +255,29 @@ test('Kraken lines are skipped right after a Kraken call or during a pause, kept
   };
   const recent = mk({ K_SHARED: String(Date.now() - 60000) });
   const r1 = recent.ctx._wcoreCheckTradeAck_(recent.ss);
-  assert.deepEqual(r1.lines, ['CEX - OKX']);
+  assert.deepEqual(r1.lines, ['CEX - OKX Crypto']);
   assert.deepEqual(r1.linesSkipped, ['CEX - Kraken Crypto']);
   const paused = mk({}, (h) => { h.ctx._krakenLockoutUntilMs_ = () => Date.now() + 600000; });
-  assert.deepEqual(paused.ctx._wcoreCheckTradeAck_(paused.ss).lines, ['CEX - OKX']);
+  assert.deepEqual(paused.ctx._wcoreCheckTradeAck_(paused.ss).lines, ['CEX - OKX Crypto']);
   const fine = mk({ K_SHARED: String(Date.now() - 20 * 60000) });
-  assert.deepEqual(fine.ctx._wcoreCheckTradeAck_(fine.ss).lines, ['CEX - Kraken Crypto', 'CEX - OKX']);
+  assert.deepEqual(fine.ctx._wcoreCheckTradeAck_(fine.ss).lines, ['CEX - Kraken Crypto', 'CEX - OKX Crypto']);
 });
 
 test('a missing tab or a failing handler skips that line only', () => {
   const h = ackHarness();
-  h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': { sell: ['CEX - OKX', 'Gone Tab', 'Ledger - Cronos'], buy: [], enough: false, announced: true, ts: Date.now() } }));
+  h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': { sell: ['CEX - OKX Crypto', 'Gone Tab', 'Ledger - Cronos'], buy: [], enough: false, announced: true, ts: Date.now() } }));
   h.state.body = { ok: true, categories: ['crypto'], acks: [{ category: 'crypto', occurrence: 'AY1-1794470000000' }] };
   h.ctx.WCORE_ON_EDIT = (e) => { if (e.range.sheet === 'Ledger - Cronos') throw new Error('x'); };
   const out = h.ctx._wcoreCheckTradeAck_(h.ss);
-  assert.deepEqual(out.lines, ['CEX - OKX']);
+  assert.deepEqual(out.lines, ['CEX - OKX Crypto']);
   assert.deepEqual(out.linesSkipped, ['Gone Tab', 'Ledger - Cronos']);
 });
 
 test('names that are not plain tab names are never refreshed', () => {
   const h = ackHarness();
-  h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': { sell: ['../x', 'CEX - OKX', 'a\nb'], buy: [], enough: false, announced: true, ts: Date.now() } }));
+  h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({ 'AY1-1794470000000': { sell: ['../x', 'CEX - OKX Crypto', 'a\nb'], buy: [], enough: false, announced: true, ts: Date.now() } }));
   h.state.body = { ok: true, categories: ['crypto'], acks: [{ category: 'crypto', occurrence: 'AY1-1794470000000' }] };
-  assert.deepEqual(h.ctx._wcoreCheckTradeAck_(h.ss).lines, ['CEX - OKX']);
+  assert.deepEqual(h.ctx._wcoreCheckTradeAck_(h.ss).lines, ['CEX - OKX Crypto']);
 });
 
 test('the manual preview returns the proposed lines and the read time, and refuses odd symbols', () => {
@@ -286,15 +286,15 @@ test('the manual preview returns the proposed lines and the read time, and refus
   const r = h.ctx.WCORE_STRAT_ALERT_LINES_PREVIEW('aave', 'cro');
   assert.equal(r.ok, true);
   assert.equal(r.tabs, 4);
-  assert.deepEqual(JSON.parse(JSON.stringify(r.sell)), ['CEX - Kraken Crypto', 'CEX - OKX', 'Binance Web3 Wallet - Base']);
-  assert.deepEqual(JSON.parse(JSON.stringify(r.buy)), ['CEX - OKX', 'Ledger - Cronos']);
+  assert.deepEqual(JSON.parse(JSON.stringify(r.sell)), ['CEX - Kraken Crypto', 'CEX - OKX Crypto', 'Binance Web3 Wallet - Base']);
+  assert.deepEqual(JSON.parse(JSON.stringify(r.buy)), ['CEX - OKX Crypto', 'Ledger - Cronos']);
   assert.equal(h.store.get('WCORE_STRAT_ALERT_LINES'), undefined, 'nothing is saved');
   assert.deepEqual(JSON.parse(JSON.stringify(h.ctx.WCORE_STRAT_ALERT_LINES_PREVIEW('a b', 'cro'))), { ok: false, reason: 'BAD_SYMBOL' });
 });
 
 test('an incomplete read (missing tab, failed read, budget) proposes nothing rather than a wrong list', () => {
   const trade = { sell: { symbol: 'AAVE', eur: 21 }, buy: { symbol: 'CRO' } };
-  const gone = harness({ tabs: TABS(), recap: ['CEX - OKX', 'Ledger - Cronos', 'Deleted Tab'] });
+  const gone = harness({ tabs: TABS(), recap: ['CEX - OKX Crypto', 'Ledger - Cronos', 'Deleted Tab'] });
   assert.equal(gone.ctx._wcoreStratAlertLinesFor_(gone.ss, 'AY1-1794470000000', trade), null);
   assert.equal(gone.store.get('WCORE_STRAT_ALERT_LINES'), undefined, 'nothing saved for an alert sent without lines');
   const broken = harness({ tabs: TABS() });
@@ -321,8 +321,8 @@ test('lines that cannot be saved are not proposed (the acknowledgement could not
 test('lines not yet announced (notification not delivered, or the mark was lost) are never refreshed by an acknowledgement', () => {
   const h = harness({ tabs: TABS() });
   h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify({
-    'AY1-1794470000000': { sell: ['CEX - OKX'], buy: [], enough: false, announced: false, ts: Date.now() },
-    'AY1-1794470000001': { sell: ['CEX - OKX'], buy: [], enough: false, ts: Date.now() },
+    'AY1-1794470000000': { sell: ['CEX - OKX Crypto'], buy: [], enough: false, announced: false, ts: Date.now() },
+    'AY1-1794470000001': { sell: ['CEX - OKX Crypto'], buy: [], enough: false, ts: Date.now() },
   }));
   h.state.body = { ok: true, categories: ['crypto'], acks: [
     { category: 'crypto', occurrence: 'AY1-1794470000000' },
@@ -330,7 +330,7 @@ test('lines not yet announced (notification not delivered, or the mark was lost)
   ] };
   const out = h.ctx._wcoreCheckTradeAck_(h.ss);
   assert.deepEqual(out.lines, [], 'no line refreshed');
-  assert.equal(h.calls.onEdit.filter((c) => c.sheet === 'CEX - OKX').length, 0);
+  assert.equal(h.calls.onEdit.filter((c) => c.sheet === 'CEX - OKX Crypto').length, 0);
 });
 
 test('"enough" follows the amounts of each send: a retry with a smaller or larger amount recomputes it', () => {

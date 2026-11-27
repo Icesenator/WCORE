@@ -539,6 +539,8 @@ function _wcoreTradeAckRefreshLines_(ss, names) {
   var krakenBlocked = null;
   for (var i = 0; i < names.length; i++) {
     var name = String(names[i] || "");
+    // Notification partie avant la scission d'OKX (v4.16.103) : l'ancien nom designe maintenant l'onglet Crypto.
+    if (name === "CEX - OKX") name = "CEX - OKX Crypto";
     if (!STRAT_ALERT_LINE_NAME.test(name)) continue;
     var sheet = ss && ss.getSheetByName(name);
     if (!sheet) { res.skipped.push(name); continue; }

@@ -193,6 +193,13 @@ test("routes: the tap needs no workbook token, the take needs it, both are off w
   const tap = await app.inject({ method: "POST", url: "/api/trade-ack?" + q });
   assert.equal(tap.statusCode, 200);
 
+  assert.equal(tap.headers["access-control-allow-origin"], undefined, "no CORS header without an Origin");
+  const fromNtfy = await app.inject({ method: "POST", url: "/api/trade-ack?" + q, headers: { origin: "https://ntfy.sh" } });
+  assert.equal(fromNtfy.headers["access-control-allow-origin"], "https://ntfy.sh", "the ntfy web app may read the answer");
+  assert.equal(fromNtfy.headers["access-control-allow-credentials"], undefined);
+  const hostile = await app.inject({ method: "POST", url: "/api/trade-ack?" + q, headers: { origin: "https://ntfy.sh.evil.test" } });
+  assert.equal(hostile.headers["access-control-allow-origin"], undefined, "any other origin gets nothing");
+
   const noToken = await app.inject({ method: "POST", url: "/api/gsheet/trade-ack/take" });
   assert.equal(noToken.statusCode, 401);
   const take = await app.inject({ method: "POST", url: "/api/gsheet/trade-ack/take", headers: { "x-gsheet-token": TOKEN } });

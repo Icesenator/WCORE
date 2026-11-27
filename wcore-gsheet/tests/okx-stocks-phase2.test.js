@@ -42,16 +42,13 @@ test('Action Details : sans OKX Stocks (absent, vide ou omis) le resultat est id
   assert.equal(a.filter((r) => r[4] === 'CEX - OKX Stocks').length, 0);
 });
 
-test('Portefeuille Action : la quantite ajoute la part OKX (X+ticker) sans masquer Bitpanda ni Kraken', () => {
-  const ctx = load('42_STOCK_PORTFOLIO.gs');
-  const f = ctx._stockPortfolioSpotQtyFormula_(5);
-  assert.ok(f.startsWith('=((') && f.endsWith(')*C5'), f);
-  assert.ok(f.includes('+IFERROR(VLOOKUP("X"&A5;\'CEX - OKX Stocks\'!A:B;2;FALSE);0))*C5'), 'terme additif OKX');
-  const open = (f.match(/\(/g) || []).length, close = (f.match(/\)/g) || []).length;
-  assert.equal(open, close, 'parentheses equilibrees');
-  assert.ok(f.includes("'CEX - Bitpanda Stocks'!A:B") && f.includes("'CEX - Kraken Stocks'!A:B"), 'la chaine existante est conservee');
+test('Portefeuille Action : la quantite vient d Action Details (SUMIFS par symbole canonique), donc une ligne OKX suffit', () => {
+  // La colonne G de la feuille est =SUMIFS('Portefeuille Action Details'!K:K; ...!C:C; A)*C ; le generateur de formules du script est
+  // refuse depuis le 22/11 (en retard sur la feuille) et ne doit pas etre modifie pour OKX : aucun terme additif, aucun double comptage.
+  const src = read('42_STOCK_PORTFOLIO.gs');
+  assert.ok(!src.includes('CEX - OKX Stocks'), '42_STOCK_PORTFOLIO.gs ne cite pas OKX Stocks');
+  assert.ok(read('42_STOCK_PORTFOLIO.gs').includes('_stockPortfolioLegacyFormulaGuard_'), 'la garde du generateur reste en place');
 });
-
 test('alertes : XNFLX dans OKX Stocks vaut NFLX, jamais dans OKX Crypto ni pour une crypto en X', () => {
   const ctx = load('40_OKX_SYNC.gs', '16C_STRAT_ALERT.gs');
   const canon = { NFLX: 'NFLX', XRP: 'XRP' };

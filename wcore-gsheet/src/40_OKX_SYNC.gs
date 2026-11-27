@@ -23,11 +23,10 @@ var OKX_STOCK_TOKENS = {
   // (ex. SNX est aussi une crypto) : absents de la liste, ils restent en Crypto, donc visibles, jamais mal valorises.
 };
 
-// Interrupteur du routage Crypto / Stocks. FALSE tant que Portefeuille Action et Action Details ne lisent pas
-// « CEX - OKX Stocks » (phase 2) : un titre route en Stocks sans ligne dans Action Details ferait passer la colonne
-// Verif a X. Les deux onglets existent et sont ecrits ; Stocks reste vide, tout reste en Crypto (comportement actuel).
-// Passer a true avec la phase 2 : les lignes deja en Crypto sont alors ignorees par la reprise (filtre de classe, 35).
-var OKX_STOCKS_ROUTING_ENABLED = false;
+// Interrupteur du routage Crypto / Stocks. TRUE depuis la phase 2 (v4.16.104) : Portefeuille Action (quantites) et
+// Action Details (une ligne par titre OKX Stocks) lisent « CEX - OKX Stocks ». Repasser a FALSE remet tout en Crypto
+// (les lignes de l'autre classe encore presentes sont alors ignorees par la reprise : filtre de classe, 35).
+var OKX_STOCKS_ROUTING_ENABLED = true;
 
 /** True si le symbole OKX (casse indifferente) figure dans la liste des actions tokenisees connues. */
 function _okxIsListedStockToken_(sym) {

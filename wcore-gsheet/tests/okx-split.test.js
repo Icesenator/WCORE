@@ -62,7 +62,7 @@ test('les actions tokenisees OKX sont reconnues par une liste explicite (casse i
   assert.equal(context._okxCanonicalStockSymbol_('XYZ'), 'XYZ', 'un symbole inconnu est renvoye tel quel');
 });
 
-test('par defaut le routage est inactif : tout reste en Crypto, Stocks est vide', () => {
+test('routage coupe (OKX_STOCKS_ROUTING_ENABLED = false) : tout reste en Crypto, Stocks est vide', () => {
   const { context } = okxContext();
   assert.equal(context.OKX_STOCKS_ROUTING_ENABLED, false);
   assert.equal(context._okxIsStockToken_('XNFLX'), false);

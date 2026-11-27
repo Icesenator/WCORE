@@ -216,6 +216,9 @@ function _wcoreStratAlertMatchSymbol_(raw, tabName, canon) {
   var tab = String(tabName).replace(/^CEX\s*-\s*/i, "");
   if (/^Kraken\b.*\bStocks?\b/i.test(tab) && /^[A-Z0-9][A-Z0-9.]*x$/.test(s)) s = s.slice(0, -1);
   else if (/^Bitpanda\b.*\bStocks?\b/i.test(tab) && /-LEG$/i.test(s)) s = s.replace(/-LEG$/i, "");
+  // OKX tokenised stocks are written X+ticker (XNFLX for NFLX), only in an "OKX ... Stocks" tab and only for the
+  // tokens OKX lists explicitly (a crypto such as XRP or XLM is never read as a stock).
+  else if (/^OKX\b.*\bStocks?\b/i.test(tab) && typeof _okxIsListedStockToken_ === "function" && _okxIsListedStockToken_(s)) s = _okxCanonicalStockSymbol_(s);
   else return "";
   return canon[_wcoreStratAlertCanonSymbol_(s)] || "";
 }

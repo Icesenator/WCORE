@@ -439,3 +439,30 @@ test('a last call that crosses the deadline makes the read incomplete', () => {
   assert.equal(got.complete, false);
   Date.now = realNow;
 });
+
+// v4.16.103 : OKX scinde en Crypto / Stocks. Une notification partie avant (ancien nom « CEX - OKX ») doit relire le bon onglet,
+// avant, pendant et apres le renommage de l'onglet par la premiere lecture.
+test('OKX renomme : l ancien nom d une notification relit CEX - OKX Crypto', () => {
+  const h = harness({ tabs: { 'CEX - OKX Crypto': tab('cex', [['BTC', 10]]) } });
+  const out = h.ctx._wcoreTradeAckRefreshLines_(h.ss, ['CEX - OKX']);
+  assert.deepEqual(JSON.parse(JSON.stringify(out.refreshed)), ['CEX - OKX Crypto']);
+  assert.deepEqual(h.calls.onEdit.map((x) => x.sheet), ['CEX - OKX Crypto']);
+});
+
+test('OKX pendant la bascule (publie, pas encore renomme) : l onglet porte encore l ancien nom et est relu', () => {
+  const h = harness({ tabs: { 'CEX - OKX': tab('cex', [['BTC', 10]]) } });
+  const out = h.ctx._wcoreTradeAckRefreshLines_(h.ss, ['CEX - OKX', 'CEX - OKX Crypto']);
+  assert.ok(out.refreshed.length >= 1 && out.skipped.length === 0);
+  assert.ok(h.calls.onEdit.every((x) => x.sheet === 'CEX - OKX'), 'seul l ancien onglet existe, il est relu');
+});
+
+test('OKX : le renommage survenant entre les deux recherches ne fait pas perdre la relecture', () => {
+  const h = harness({ tabs: {} });
+  const sequence = [null, null, { getName: () => 'CEX - OKX Crypto', getRange: (a) => ({ sheet: 'CEX - OKX Crypto', a }) }];
+  const looked = [];
+  h.ss.getSheetByName = (n) => { looked.push(n); return sequence.length ? sequence.shift() : null; };
+  const out = h.ctx._wcoreTradeAckRefreshLines_(h.ss, ['CEX - OKX']);
+  assert.deepEqual(looked, ['CEX - OKX Crypto', 'CEX - OKX', 'CEX - OKX Crypto'], 'nouvelle recherche du nouveau nom apres l echec du repli');
+  assert.deepEqual(JSON.parse(JSON.stringify(out.refreshed)), ['CEX - OKX Crypto']);
+  assert.deepEqual(JSON.parse(JSON.stringify(out.skipped)), []);
+});

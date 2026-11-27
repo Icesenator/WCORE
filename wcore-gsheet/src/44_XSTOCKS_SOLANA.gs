@@ -1,4 +1,4 @@
-﻿// v4.16.75 - FIX: EURC net depuis Portefeuille Action G; tri TOP croissant; NOVOÔåÆNVO; headers sur une ligne.
+// v4.16.75 - FIX: EURC net depuis Portefeuille Action G; tri TOP croissant; NOVOÔåÆNVO; headers sur une ligne.
 // v4.16.73 - FEAT: ligne cash EUR Bitpanda dans Action Details +
 // hyperliens colonne E restaur├®s d├¿s la fin du refresh (best effort).
 // v4.16.72 - FIX: Details C align├® sur les symboles canoniques de Portefeuille
@@ -636,7 +636,7 @@ function _refreshStockPortfolioDetailsCore_() {
   if (missing.length) {
    try { Logger.log("[XSTOCKS_DETAILS] missing sources: " + missing.join(", ")); } catch (eLog) {}
   }
-  if (!bitpandaValues && !walletRows) {
+  if (!bitpandaValues && !walletRows && !okxValues.length) {
    return "WAITING: no source available for " + STOCK_PORTFOLIO_DETAILS_CONFIG.SHEET_NAME;
   }
 var portfolioSymbols = [];
@@ -662,13 +662,20 @@ try {
  }
  } catch (ePortfolio) {}
   var existingRows = [];
+  var existingReadFailed = false;
   try {
     var existingLastRow = Number(sh.getLastRow()) || 0;
     var existingCount = existingLastRow - STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW + 1;
     if (existingCount > 0) {
       existingRows = sh.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, 1, existingCount, STOCK_PORTFOLIO_DETAILS_CONFIG.MANAGED_LAST_COLUMN).getValues();
     }
-  } catch (eExisting) {}
+  } catch (eExisting) { existingReadFailed = true; }
+  // Les lignes Kraken saisies a la main ne vivent que dans cet onglet : si on ne peut pas les lire (erreur de service
+  // passagere), reconstruire avec une liste vide les ecraserait. On s'arrete sans rien ecrire ; le prochain passage reessaie.
+  if (existingReadFailed) {
+   try { Logger.log("[XSTOCKS_DETAILS] existing rows unreadable: nothing written"); } catch (eLogRead) {}
+   return "ABORTED: existing rows of " + STOCK_PORTFOLIO_DETAILS_CONFIG.SHEET_NAME + " unreadable; nothing written";
+  }
 var rows = _xstocksBuildActionDetailsRows_(STOCK_PORTFOLIO_DETAILS_CONFIG.FIRST_DATA_ROW, bitpandaValues || [], _xstocksCollectSolanaActionTitles_(walletRows), portfolioSymbols, eurcFiatQuantity, rankBySymbol, existingRows, okxValues);
   _stockPortfolioDetailsEnsureLayout_(sh);
   var spreadsheetId = ss.getId();

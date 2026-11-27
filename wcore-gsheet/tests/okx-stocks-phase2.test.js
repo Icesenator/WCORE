@@ -123,3 +123,50 @@ test('lecture OKX : la reconstruction n est tentee que routage actif et Stocks n
   assert.equal(mk(true)._okxWriteSheet_(ss, { spot: [['BTC', '1', 'earn', '1', '1']] }).details, 'SKIPPED');
   assert.equal(calls.refresh, 1, 'ni routage coupe, ni Stocks vide ne reconstruisent');
 });
+
+// ---- Reconstruction d'Action Details : jamais d'ecrasement des lignes manuelles si leur lecture echoue ----
+function coreContext({ existingReadFails, okxRows }) {
+  const calls = { batch: [], clear: 0 };
+  const ctx = load('40_OKX_SYNC.gs', '44_XSTOCKS_SOLANA.gs');
+  const detailsSheet = {
+    getLastRow() { if (existingReadFails) throw new Error('Service Spreadsheets timed out'); return 2; },
+    getRange: () => ({ getValues: () => [['', '', 'MU', '', 'CEX - Kraken Stocks', 'MUX', '', 5, 0, 0, '', '']] }),
+  };
+  const grid = (rows) => ({ getMaxRows: () => rows.length + 2, getRange: () => ({ getValues: () => rows }) });
+  const sheets = {
+    'Portefeuille Action Details': detailsSheet,
+    'CEX - Bitpanda Stocks': grid([['AAPL', 1.5]]),
+    'CEX - OKX Stocks': okxRows ? grid(okxRows) : null,
+    'Portefeuille Action': grid([['NFLX', 5], ['MU', 8], ['AAPL', 1]]),
+  };
+  const ss = { getSheetByName: (n) => sheets[n] || null, getId: () => 'id', getSheets: () => [] };
+  ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, openById: () => ss };
+  ctx.Sheets = { Spreadsheets: { Values: { batchUpdate: (req) => { calls.batch.push(req); }, clear: () => { calls.clear++; } } } };
+  ctx._stockPortfolioDetailsEnsureLayout_ = () => {};
+  return { ctx, calls };
+}
+
+test('reconstruction d Action Details : lecture des lignes existantes impossible = on s arrete sans rien ecrire (lignes Kraken manuelles preservees)', () => {
+  const { ctx, calls } = coreContext({ existingReadFails: true, okxRows: [['XNFLX', 2]] });
+  const out = ctx._refreshStockPortfolioDetailsCore_();
+  assert.match(out, /^ABORTED/);
+  assert.equal(calls.batch.length, 0, 'aucune ecriture');
+  assert.equal(calls.clear, 0, 'aucun effacement');
+});
+
+test('reconstruction d Action Details : lecture normale = lignes Kraken manuelles conservees et ligne OKX ajoutee', () => {
+  const { ctx, calls } = coreContext({ existingReadFails: false, okxRows: [['XNFLX', 2]] });
+  const out = ctx._refreshStockPortfolioDetailsCore_();
+  assert.match(out, /^OK/);
+  assert.equal(calls.batch.length, 1);
+  const rows = plain(calls.batch[0].data[0].values);
+  assert.ok(rows.some((r) => r[4] === 'CEX - Kraken Stocks' && r[5] === 'MUX'), 'ligne Kraken manuelle conservee');
+  assert.ok(rows.some((r) => r[4] === 'CEX - OKX Stocks' && r[5] === 'XNFLX' && r[2] === 'NFLX'), 'ligne OKX ajoutee');
+  assert.ok(rows.some((r) => r[4] === 'CEX - Bitpanda Stocks'), 'ligne Bitpanda conservee');
+});
+
+test('reconstruction d Action Details : un statut non OK n est pas annonce comme reconstruit', () => {
+  const { ctx, ss } = detailsContext([]);
+  ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => 'ABORTED: existing rows unreadable';
+  assert.match(ctx._okxEnsureActionDetails_(ss, HELD), /^NOT_REFRESHED:/);
+});

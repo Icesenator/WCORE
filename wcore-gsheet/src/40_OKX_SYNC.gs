@@ -313,7 +313,7 @@ function _okxEnsureActionDetails_(ss, stockRows) {
     if (typeof REFRESH_STOCK_PORTFOLIO_DETAILS !== "function") return "NO_REFRESH_FUNCTION";
     var out = String(REFRESH_STOCK_PORTFOLIO_DETAILS());
     Logger.log("[OKX_STOCKS] Action Details rebuilt for " + missing.join(",") + " : " + out.substring(0, 120));
-    return "REFRESHED:" + out.substring(0, 60);
+    return (out.indexOf("OK") === 0 ? "REFRESHED:" : "NOT_REFRESHED:") + out.substring(0, 60);
   } catch (e) {
     try { Logger.log("[OKX_STOCKS] Action Details check failed: " + (e && e.message ? e.message : e)); } catch (eLog) {}
     return "ERROR";

@@ -65,6 +65,8 @@ function detailsContext(detailsRows, { refresh = true, routing = true } = {}) {
   const calls = { refresh: 0 };
   const ctx = load('40_OKX_SYNC.gs');
   ctx.OKX_STOCKS_ROUTING_ENABLED = routing;
+  ctx.__store = new Map();
+  ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: (k) => (ctx.__store.has(k) ? ctx.__store.get(k) : null), setProperty: (k, v) => ctx.__store.set(k, v) }) };
   if (refresh) ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => { calls.refresh++; return 'OK: details rebuilt'; };
   const sheet = detailsRows === null ? null : {
     getLastRow: () => detailsRows.length + 1,
@@ -109,6 +111,7 @@ test('lecture OKX : la reconstruction n est tentee que routage actif et Stocks n
     const ctx = load('40_OKX_SYNC.gs');
     ctx.OKX_STOCKS_ROUTING_ENABLED = routing;
     ctx.Utilities = { formatDate: () => '2026-11-27 22:00:00' };
+    ctx.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null, setProperty() {} }) };
     ctx._cexComputeAndAppendTotal_ = (ss, name, rows) => { calls.written.push([name, rows.length]); };
     ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => { calls.refresh++; return 'OK'; };
     return ctx;
@@ -179,4 +182,20 @@ test('reconstruction d Action Details : onglet OKX Stocks illisible = arret sans
   // onglet OKX Stocks absent (pas encore cree) : pas une erreur, aucune ligne OKX
   const absent = coreContext({ existingReadFails: false, okxRows: null });
   assert.match(absent.ctx._refreshStockPortfolioDetailsCore_(), /^OK/);
+});
+
+test('reconstruction d Action Details : au plus une tentative toutes les 15 min pour le meme ensemble de tickers manquants', () => {
+  const { ctx, ss, calls } = detailsContext([]);
+  assert.match(ctx._okxEnsureActionDetails_(ss, HELD), /^REFRESHED:/);
+  assert.equal(ctx._okxEnsureActionDetails_(ss, HELD), 'THROTTLED', 'la ligne n est toujours pas la : pas de seconde reconstruction');
+  assert.equal(calls.refresh, 1);
+  // un autre ticker manquant n est pas freine par la tentative precedente
+  const other = [['XLRCX', '1', 'earn']];
+  assert.match(ctx._okxEnsureActionDetails_(ss, other), /^REFRESHED:/);
+  assert.equal(calls.refresh, 2);
+  // apres 15 minutes on retente
+  const key = JSON.parse(ctx.__store.get('OKX_DETAILS_REBUILD'));
+  ctx.__store.set('OKX_DETAILS_REBUILD', JSON.stringify({ k: key.k, ts: Date.now() - 16 * 60 * 1000 }));
+  assert.match(ctx._okxEnsureActionDetails_(ss, other), /^REFRESHED:/);
+  assert.equal(calls.refresh, 3);
 });

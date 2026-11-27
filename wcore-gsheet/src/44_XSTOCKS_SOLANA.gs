@@ -642,7 +642,7 @@ function _refreshStockPortfolioDetailsCore_() {
   if (missing.length) {
    try { Logger.log("[XSTOCKS_DETAILS] missing sources: " + missing.join(", ")); } catch (eLog) {}
   }
-  if (!bitpandaValues && !walletRows && !okxValues.length) {
+  if (!bitpandaValues && !walletRows) {
    return "WAITING: no source available for " + STOCK_PORTFOLIO_DETAILS_CONFIG.SHEET_NAME;
   }
 var portfolioSymbols = [];

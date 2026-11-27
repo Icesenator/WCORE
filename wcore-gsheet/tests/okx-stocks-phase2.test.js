@@ -199,3 +199,12 @@ test('reconstruction d Action Details : au plus une tentative toutes les 15 min 
   assert.match(ctx._okxEnsureActionDetails_(ss, other), /^REFRESHED:/);
   assert.equal(calls.refresh, 3);
 });
+
+test('reconstruction d Action Details : un echec passager (BUSY, ABORTED) ne declenche pas le plafond de 15 min', () => {
+  const { ctx, ss, calls } = detailsContext([]);
+  ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => { calls.refresh++; return calls.refresh === 1 ? 'BUSY: another portfolio refresh is running' : 'OK: rebuilt'; };
+  assert.match(ctx._okxEnsureActionDetails_(ss, HELD), /^NOT_REFRESHED:/);
+  assert.match(ctx._okxEnsureActionDetails_(ss, HELD), /^REFRESHED:/, 'retente tout de suite apres un BUSY');
+  assert.equal(ctx._okxEnsureActionDetails_(ss, HELD), 'THROTTLED', 'plafond seulement apres une reussite');
+  assert.equal(calls.refresh, 2);
+});

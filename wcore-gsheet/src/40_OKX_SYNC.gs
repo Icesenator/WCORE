@@ -317,11 +317,14 @@ function _okxEnsureActionDetails_(ss, stockRows) {
     try {
       var propsRebuild = PropertiesService.getScriptProperties();
       var lastRaw = propsRebuild.getProperty("OKX_DETAILS_REBUILD");
-      var last = lastRaw ? JSON.parse(lastRaw) : null;
-      if (last && last.k === rebuildKey && isFinite(Number(last.ts)) && Date.now() - Number(last.ts) >= 0 && Date.now() - Number(last.ts) < 15 * 60 * 1000) return "THROTTLED";
-      propsRebuild.setProperty("OKX_DETAILS_REBUILD", JSON.stringify({ k: rebuildKey, ts: Date.now() }));
+      var lastTry = lastRaw ? JSON.parse(lastRaw) : null;
+      if (lastTry && lastTry.k === rebuildKey && isFinite(Number(lastTry.ts)) && Date.now() - Number(lastTry.ts) >= 0 && Date.now() - Number(lastTry.ts) < 15 * 60 * 1000) return "THROTTLED";
     } catch (eThrottle) { /* sans memoire de la derniere tentative, on tente (jamais bloquant) */ }
     var out = String(REFRESH_STOCK_PORTFOLIO_DETAILS());
+    // Le plafond ne court qu'apres une reconstruction REUSSIE : un BUSY ou un ABORTED passager est retente au passage suivant.
+    if (out.indexOf("OK") === 0) {
+      try { PropertiesService.getScriptProperties().setProperty("OKX_DETAILS_REBUILD", JSON.stringify({ k: rebuildKey, ts: Date.now() })); } catch (eStamp) {}
+    }
     Logger.log("[OKX_STOCKS] Action Details rebuild requested for " + missing.join(",") + " : " + out.substring(0, 120));
     return (out.indexOf("OK") === 0 ? "REFRESHED:" : "NOT_REFRESHED:") + out.substring(0, 60);
   } catch (e) {

@@ -346,3 +346,89 @@ test('a duplicate answer never marks lines as announced (the notification that e
   assert.ok('sellLines' in h.posts[0].payload);
   assert.equal(JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES'))[occ].announced, false);
 });
+
+// Plausibility guard: nobody can sell what the portfolio does not hold (2026-11-27, a 138 euro sale of a 0.10 euro token).
+const okxTab = (rows) => [['', '', '', '', ''], ['cryptocoin_symbol', 'balance', 'source', 'updated_at', 'value_eur'], ...rows];
+
+test('an alert selling far more than is held is discarded, traced, never retried, and re-armed by V', () => {
+  const h = harness();
+  h.state.trade['Portefeuille Crypto'] = ['WUF', '>', 'BTC'];
+  h.state.gaps['Portefeuille Crypto'] = [[138.4, 'WUF', 'V'], [-500, 'BTC', 'X']];
+  h.state.detail = { 'CEX - OKX': okxTab([['WUF', 10056575, 'x', 'y', 0.1], ['BTC', 1, 'x', 'y', 900]]) };
+  assert.equal(h.run().reason, 'INIT');
+  h.state.strat = stratRow({ AY1: 'X' });
+  const out = h.run();
+  assert.equal(out.reason, 'DISCARDED');
+  assert.equal(h.posts.length, 0);
+  assert.equal(out.sent, 0);
+  assert.deepEqual(out.discarded, [{ category: 'crypto', symbol: 'WUF', code: 'SELL_EXCEEDS_HOLDINGS' }]);
+  const st = JSON.parse(h.store.get('WCORE_STRAT_ALERT_LAST'));
+  assert.equal(st.AY1, 'X');
+  assert.equal(st.occ && st.occ.AY1, undefined, 'no pending occurrence');
+  for (let i = 0; i < 3; i++) { h.tick(600000); assert.equal(h.run().reason, 'NO_NEW_X'); }
+  assert.equal(h.posts.length, 0, 'no loop every 10 minutes');
+  // Back to V, then a real rebalancing: the alert is admitted again.
+  h.state.strat = stratRow({});
+  h.run();
+  h.state.detail['CEX - OKX'] = okxTab([['WUF', 10056575, 'x', 'y', 400]]);
+  h.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h.run().reason, 'SENT');
+  assert.equal(h.posts.length, 1);
+  assert.deepEqual(h.posts[0].payload.sellLines, ['CEX - OKX']);
+});
+
+test('the guard counts every line held, and the 80 percent threshold is inclusive of a plausible alert', () => {
+  const h = harness();
+  h.state.trade['Portefeuille Crypto'] = ['WUF', '>', 'BTC'];
+  h.state.gaps['Portefeuille Crypto'] = [[100, 'WUF', 'V'], [-500, 'BTC', 'X']];
+  h.state.detail = { 'CEX - OKX': okxTab([['WUF', 1, 'x', 'y', 50]]), 'CEX - Bybit': okxTab([['WUF', 1, 'x', 'y', 30]]) };
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h.run().reason, 'SENT', '80 held for 100 to sell: exactly at the threshold, sent');
+  const h2 = harness();
+  h2.state.trade['Portefeuille Crypto'] = ['WUF', '>', 'BTC'];
+  h2.state.gaps['Portefeuille Crypto'] = [[100, 'WUF', 'V'], [-500, 'BTC', 'X']];
+  h2.state.detail = { 'CEX - OKX': okxTab([['WUF', 1, 'x', 'y', 50]]), 'CEX - Bybit': okxTab([['WUF', 1, 'x', 'y', 29]]) };
+  h2.run();
+  h2.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h2.run().reason, 'DISCARDED', '79 held for 100 to sell');
+});
+
+test('a normal alert is sent; an unreadable, incomplete or empty read keeps the previous behaviour', () => {
+  const h = harness(); // no detail tabs readable: sent without lines
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h.run().reason, 'SENT');
+  assert.equal('sellLines' in h.posts[0].payload, false);
+  // Incomplete read (a tab listed in the Recap is missing): no claim, the alert goes out.
+  const h2 = harness();
+  h2.state.trade['Portefeuille Crypto'] = ['WUF', '>', 'BTC'];
+  h2.state.gaps['Portefeuille Crypto'] = [[138, 'WUF', 'V'], [-500, 'BTC', 'X']];
+  h2.state.detail = { 'CEX - OKX': okxTab([['WUF', 1, 'x', 'y', 0.1]]), 'CEX - Ghost': null };
+  h2.run();
+  h2.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h2.run().reason, 'SENT');
+  assert.equal(h2.posts.length, 1);
+  // Complete read but the symbol is found nowhere: fail-open, the alert goes out.
+  const h3 = harness();
+  h3.state.trade['Portefeuille Crypto'] = ['WUF', '>', 'BTC'];
+  h3.state.gaps['Portefeuille Crypto'] = [[138, 'WUF', 'V'], [-500, 'BTC', 'X']];
+  h3.state.detail = { 'CEX - OKX': okxTab([['BTC', 1, 'x', 'y', 900]]) };
+  h3.run();
+  h3.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h3.run().reason, 'SENT');
+});
+
+test('one discarded and one sent in the same pass: each cell settles on its own', () => {
+  const h = harness();
+  h.state.trade['Portefeuille Crypto'] = ['WUF', '>', 'BTC'];
+  h.state.gaps['Portefeuille Crypto'] = [[138, 'WUF', 'V'], [-500, 'BTC', 'X']];
+  h.state.detail = { 'CEX - OKX': okxTab([['WUF', 1, 'x', 'y', 0.1]]) };
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X', BE1: 'X' });
+  const out = h.run();
+  assert.equal(out.reason, 'SENT_SOME_DISCARDED');
+  assert.equal(out.sent, 1);
+  assert.equal(out.discarded.length, 1);
+  assert.equal(h.posts[0].payload.category, 'action');
+});

@@ -15,6 +15,9 @@
  *
  * Content: category, the two symbols from Q1/S1 of the portfolio tab and their gap (column P,
  * real minus target, whole euros) — explicit decisions of Florian on 2026-11-12.
+ * Plausibility guard (2026-11-27): an alert whose symbol to sell is held, over a complete read, for less than
+ * 80 % of the amount is discarded (code SELL_EXCEEDS_HOLDINGS in the diagnostic); the cell is then settled as X
+ * like a delivered alert and re-armed only by a return to V.
  * State: WCORE_STRAT_ALERT_LAST = {"AY1":"V","BE1":"X","occ":{"AY1":"AY1-<ms>"}} (occurrence
  * ids of undelivered transitions). One check at a time (script lock).
  */
@@ -248,6 +251,9 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
     // Value of the first (largest) sell line, kept so "enough" can be recomputed against the amount of each
     // send: a retry recomputes the amounts, the flag must follow them.
     firstEur: sell.length ? sell[0].eur : 0,
+    // Total value held of the symbol to sell over every line read (not only the top three): the plausibility
+    // guard compares it with the amount announced.
+    sellTotal: (held[sellSym] || []).reduce(function (acc, x) { return acc + x.eur; }, 0),
     enough: sell.length > 0 && amount != null && sell[0].eur >= amount,
     // Set only once the notification carrying these lines was really delivered: until then (or if that
     // mark is lost) an acknowledgement does not use them, so nothing unannounced is ever refreshed.
@@ -275,6 +281,24 @@ function _wcoreStratAlertEnough_(entry, trade) {
     .filter(function (v) { return v != null && isFinite(v); });
   if (!sides.length || !entry || !entry.sell || !entry.sell.length) return false;
   return Number(entry.firstEur) >= Math.min.apply(null, sides);
+}
+
+var STRAT_ALERT_PLAUSIBLE_RATIO = 0.8;
+
+/**
+ * Plausibility guard (2026-11-27: an alert asked to sell 138 euros of a token worth 0.10 euro, from a
+ * transiently wrong price). True when a COMPLETE read found some value held of the symbol to sell and
+ * that total is under 80 % of the amount announced: nobody can sell what the portfolio does not hold.
+ * Fail-open: no lines (incomplete or unreadable read), no total saved (older entry), no amount, or nothing
+ * found at all (could be a naming mismatch, and the alert then goes out as it did before) never discard.
+ */
+function _wcoreStratAlertImplausible_(entry, trade) {
+  var sides = [trade && trade.sell ? trade.sell.eur : null, trade && trade.buy ? trade.buy.eur : null]
+    .filter(function (v) { return v != null && isFinite(v); });
+  if (!sides.length || !entry || entry.sellTotal == null) return false;
+  var total = Number(entry.sellTotal);
+  if (!isFinite(total) || total <= 0) return false;
+  return total < STRAT_ALERT_PLAUSIBLE_RATIO * Math.min.apply(null, sides);
 }
 
 /** Marks the lines of one occurrence as announced (the notification that carried them was delivered). */
@@ -341,10 +365,10 @@ function _wcoreStratAlertLocked_(fn) {
 }
 
 /**
- * @return {Object} diagnostic {ran, reason, newX, sent, abandoned}
+ * @return {Object} diagnostic {ran, reason, newX, sent, abandoned, discarded: [{category, symbol, code}]}
  */
 function _wcoreCheckStratAlert_(ss) {
-  var out = { ran: false, reason: "", newX: 0, sent: 0, abandoned: 0 };
+  var out = { ran: false, reason: "", newX: 0, sent: 0, abandoned: 0, discarded: [] };
   try {
     var api = _wcoreStratAlertApi_();
     if (!api) { out.reason = "NO_API"; return out; }
@@ -405,8 +429,17 @@ function _wcoreCheckStratAlert_(ss) {
       var body = { event: "strat_rebalance", category: c2.category, occurrence: todo[t].id };
       var trade = _wcoreStratAlertTrade_(ss, c2.tradeSheet);
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }
+      var lines = null;
+      try { lines = _wcoreStratAlertLinesFor_(ss, todo[t].id, trade); } catch (eLines0) { lines = null; }
+      if (lines && _wcoreStratAlertImplausible_(lines, trade)) {
+        // Discarded, not sent: settled like a delivery (cell marked X, occurrence dropped), so it is never
+        // retried; it is re-armed only when the cell goes back to V. The trace holds the symbol and a code.
+        out.discarded.push({ category: c2.category, symbol: trade.sell.symbol, code: "SELL_EXCEEDS_HOLDINGS" });
+        done[c2.cell] = todo[t].id;
+        Logger.log("[STRAT_ALERT] DISCARDED " + c2.category + " " + trade.sell.symbol + " SELL_EXCEEDS_HOLDINGS");
+        continue;
+      }
       try {
-        var lines = _wcoreStratAlertLinesFor_(ss, todo[t].id, trade);
         if (lines) { body.sellLines = lines.sell; body.sellEnough = _wcoreStratAlertEnough_(lines, trade); body.buyLines = lines.buy; }
       } catch (eLines) {} // the alert goes out without lines rather than not at all
       var res = _wcoreStratAlertPost_(api, body);
@@ -435,7 +468,8 @@ function _wcoreCheckStratAlert_(ss) {
       }
       props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(st));
     });
-    out.reason = out.sent === todo.length ? "SENT" : "PARTIAL_OR_FAILED";
+    out.reason = out.sent === todo.length ? "SENT"
+      : (out.discarded.length && out.sent + out.discarded.length === todo.length ? (out.sent ? "SENT_SOME_DISCARDED" : "DISCARDED") : "PARTIAL_OR_FAILED");
     Logger.log("[STRAT_ALERT] " + out.reason + " newX=" + out.newX + " sent=" + out.sent + " abandoned=" + out.abandoned);
   } catch (e) {
     out.reason = "ERROR";

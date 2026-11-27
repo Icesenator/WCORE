@@ -155,7 +155,7 @@ test('la file manuelle et la reparation connaissent les deux onglets OKX, et Sto
 test('une notification partie avant la scission (ancien nom « CEX - OKX ») relit l onglet Crypto', () => {
   const alert = fs.readFileSync(path.join(__dirname, '../src/16C_STRAT_ALERT.gs'), 'utf8');
   assert.ok(alert.includes('if (name === "CEX - OKX") name = "CEX - OKX Crypto";'));
-  assert.ok(alert.includes('if (!sheet && name === "CEX - OKX Crypto") sheet = ss && ss.getSheetByName("CEX - OKX");'), 'repli sur l ancien onglet pendant la bascule');
+  assert.ok(alert.includes('if (!sheet && name === "CEX - OKX Crypto") {') && alert.includes('sheet = ss && ss.getSheetByName("CEX - OKX");'), 'repli sur l ancien onglet pendant la bascule');
   assert.ok(alert.includes('renommage survenu entre les deux recherches'), 'nouvelle recherche si le renommage a lieu entre les deux');
   const heal = fs.readFileSync(path.join(__dirname, '../src/16B_AUTO_HEAL.gs'), 'utf8');
   assert.ok(heal.includes('"CEX - OKX Crypto"') && heal.includes('"CEX - OKX Stocks"') && !/"CEX - OKX",/.test(heal), 'la fraicheur B1 suit les deux onglets');

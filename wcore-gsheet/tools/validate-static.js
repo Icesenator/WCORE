@@ -478,8 +478,10 @@ if (!dynamicRpc.includes("BudgetHTTP.allow(\"admin\"")) {
 }
 
 const manifest = JSON.parse(read("src/appsscript.json"));
-if (!manifest.executionApi || manifest.executionApi.access !== "ANYONE") {
-  fail(errors, "Apps Script manifest must expose executionApi.access=ANYONE for clasp run");
+// 2026-11-27 (decision de Florian) : MYSELF, l'API d'execution n'est appelable que par le compte proprietaire
+// (clasp run et les outils run-gas passent par son jeton). ANYONE ouvrirait l'appel a tout client OAuth du projet.
+if (!manifest.executionApi || manifest.executionApi.access !== "MYSELF") {
+  fail(errors, "Apps Script manifest must set executionApi.access=MYSELF (owner-only Execution API)");
 }
 const scopes = manifest.oauthScopes || [];
 for (const scope of [

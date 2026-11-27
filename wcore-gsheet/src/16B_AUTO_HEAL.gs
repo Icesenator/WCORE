@@ -236,6 +236,7 @@ function _wcoreAutoHealCexStatus_(props) {
     "CEX - Bitpanda Stocks",
     "CEX - Bybit",
     "CEX - Coinbase",
+    "CEX - OKX",
     "CEX - OKX Crypto",
     "CEX - OKX Stocks",
     "CEX - Kraken Crypto"

@@ -206,7 +206,15 @@ function DIAG_OKX_RELAY_CONFIG() {
  */
 function _okxGetOrCreateSheet_(ss, name, legacyName) {
   var sh = ss.getSheetByName(name);
-  if (sh) return sh;
+  if (sh) {
+    // Les deux onglets existent (ex. « CEX - OKX Crypto » cree a la main alors que l'ancien porte encore les soldes) :
+    // ecrire dans le nouveau laisserait l'ancien perime. La lecture s'arrete, a resoudre a la main.
+    var coexisting = legacyName ? ss.getSheetByName(legacyName) : null;
+    if (coexisting && coexisting !== sh && _okxLooksLikeOutputSheet_(coexisting)) {
+      throw new Error("OKX_LEGACY_AND_NEW_SHEETS_COEXIST: '" + legacyName + "' and '" + name + "' both exist; nothing written");
+    }
+    return sh;
+  }
   if (legacyName) {
     var old = ss.getSheetByName(legacyName);
     if (old) {

@@ -115,6 +115,18 @@ test('un onglet « CEX - OKX » non reconnu (ou illisible) n est ni renomme ni d
   assert.ok(ss.getSheetByName('CEX - OKX'), 'l onglet inconnu reste intact');
 });
 
+test('les deux onglets coexistent (ancien OKX + Crypto cree a la main) : la lecture s arrete sans rien ecrire', () => {
+  const { context, calls } = okxContext();
+  const ss = fakeSpreadsheet(['CEX - OKX', 'CEX - OKX Crypto', 'CEX - OKX Stocks']);
+  assert.throws(() => context._okxWriteSheet_(ss, { spot: SPOT }), /OKX_LEGACY_AND_NEW_SHEETS_COEXIST/);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(ss.log.renamed, []);
+  // un ancien onglet qui n est pas une sortie OKX ne bloque pas l onglet Crypto existant
+  const other = fakeSpreadsheet(['CEX - OKX', 'CEX - OKX Crypto', 'CEX - OKX Stocks'], { legacyHeader: 'autre chose' });
+  const { context: c2 } = okxContext();
+  assert.doesNotThrow(() => c2._okxWriteSheet_(other, { spot: SPOT }));
+});
+
 test('Stocks vide ou onglets absents : creation, jamais d erreur', () => {
   const { context, calls } = okxContext();
   const ss = fakeSpreadsheet([]);
@@ -158,7 +170,7 @@ test('une notification partie avant la scission (ancien nom « CEX - OKX ») rel
   assert.ok(alert.includes('if (!sheet && name === "CEX - OKX Crypto") {') && alert.includes('sheet = ss && ss.getSheetByName("CEX - OKX");'), 'repli sur l ancien onglet pendant la bascule');
   assert.ok(alert.includes('renommage survenu entre les deux recherches'), 'nouvelle recherche si le renommage a lieu entre les deux');
   const heal = fs.readFileSync(path.join(__dirname, '../src/16B_AUTO_HEAL.gs'), 'utf8');
-  assert.ok(heal.includes('"CEX - OKX Crypto"') && heal.includes('"CEX - OKX Stocks"') && !/"CEX - OKX",/.test(heal), 'la fraicheur B1 suit les deux onglets');
+  assert.ok(heal.includes('"CEX - OKX Crypto"') && heal.includes('"CEX - OKX Stocks"') && /"CEX - OKX",/.test(heal), 'la fraicheur B1 suit les deux onglets et l ancien nom tant qu il existe');
 });
 
 // ---- Bascule : le VRAI calcul d'ecriture (35_BITPANDA_SYNC.gs) avec l'ancien contenu de l'onglet ----

@@ -49,7 +49,7 @@ function harness(opts = {}) {
     JSON, Object, String, Number, Math, isFinite,
     Date: { now: () => clock },
     Logger: { log: () => {} },
-    LockService: { getScriptLock: () => ({ tryLock: () => { if (state.locked) return false; state.held = true; return true; }, releaseLock: () => { state.held = false; state.released = (state.released || 0) + 1; } }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => { state.lockCalls = (state.lockCalls || 0) + 1; if (state.locked || state.lockFailAt === state.lockCalls) return false; state.held = true; return true; }, releaseLock: () => { state.held = false; state.released = (state.released || 0) + 1; } }) },
     PropertiesService: { getScriptProperties: () => ({
       getProperty: (k) => (store.has(k) ? store.get(k) : null),
       setProperty: (k, v) => store.set(k, v),
@@ -431,4 +431,59 @@ test('one discarded and one sent in the same pass: each cell settles on its own'
   assert.equal(out.sent, 1);
   assert.equal(out.discarded.length, 1);
   assert.equal(h.posts[0].payload.category, 'action');
+});
+
+const wufSetup = (h, eur) => {
+  h.state.trade['Portefeuille Crypto'] = ['WUF', '>', 'BTC'];
+  h.state.gaps['Portefeuille Crypto'] = [[138, 'WUF', 'V'], [-500, 'BTC', 'X']];
+  h.state.detail = { 'CEX - OKX': okxTab([['WUF', 1, 'x', 'y', eur]]) };
+};
+
+test('a row of the symbol with an unreadable value makes the holding uncertain: the alert goes out', () => {
+  const h = harness();
+  wufSetup(h, 0.1);
+  h.state.detail['CEX - Bybit'] = okxTab([['WUF', 1, 'x', 'y', '#N/A']]);
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h.run().reason, 'SENT');
+});
+
+test('a retry that sees another symbol never judges it against the total of the first one', () => {
+  const h = harness();
+  wufSetup(h, 200); // plausible: sent... but the first send fails
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.code = 502;
+  h.run();
+  assert.equal(h.posts.length, 1);
+  h.state.trade['Portefeuille Crypto'] = ['ABC', '>', 'BTC']; // the pair changed before the retry
+  h.state.gaps['Portefeuille Crypto'] = [[5000, 'ABC', 'V'], [-9000, 'BTC', 'X']];
+  h.state.code = 200;
+  h.tick(60000);
+  assert.equal(h.run().reason, 'SENT');
+  assert.equal(h.posts.length, 2);
+});
+
+test('a discarded alert is not saved in the lines store, so it never evicts the lines of a delivered one', () => {
+  const h = harness();
+  const keep = {};
+  for (let i = 0; i < 12; i++) keep['OLD' + i + '-' + i] = { sell: ['CEX - OKX'], buy: [], announced: true, ts: 1794470000000 - i * 1000 };
+  h.store.set('WCORE_STRAT_ALERT_LINES', JSON.stringify(keep));
+  wufSetup(h, 0.1);
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  assert.equal(h.run().reason, 'DISCARDED');
+  assert.deepEqual(Object.keys(JSON.parse(h.store.get('WCORE_STRAT_ALERT_LINES'))).sort(), Object.keys(keep).sort());
+});
+
+test('a refused final lock leaves a discarded occurrence pending and says so', () => {
+  const h = harness();
+  wufSetup(h, 0.1);
+  h.run(); // lock call 1 (INIT)
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.lockFailAt = h.state.lockCalls + 2; // step 1 passes, the final step is refused
+  assert.equal(h.run().reason, 'DISCARD_UNSETTLED');
+  const st = JSON.parse(h.store.get('WCORE_STRAT_ALERT_LAST'));
+  assert.ok(st.occ && st.occ.AY1, 'still pending');
+  assert.equal(h.run().reason, 'DISCARDED', 'judged again, settled this time');
 });

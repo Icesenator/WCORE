@@ -133,6 +133,8 @@ function _wcoreStratAlertReadTab_(vals, name, out, canon) {
     // "ETHx" in a crypto tab, or in a mixed tab that merely has "Stocks" in its name, is another token.
     var sym = out[rawSym.toUpperCase()] ? rawSym.toUpperCase() : _wcoreStratAlertMatchSymbol_(rawSym, name, canon);
     var v = Number(vals[r][vi]);
+    // A row of a requested symbol whose value is not a number (empty, error text) leaves its holding unknown.
+    if (sym && out[sym] && typeof vals[r][vi] !== "number") out[sym].unvalued = true;
     if (sym && isFinite(v) && out[sym]) sums[sym] = (sums[sym] || 0) + v;
   }
   for (var key in sums) if (sums[key] > 0) out[key].push({ name: name, eur: sums[key] });
@@ -253,7 +255,8 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
     firstEur: sell.length ? sell[0].eur : 0,
     // Total value held of the symbol to sell over every line read (not only the top three): the plausibility
     // guard compares it with the amount announced.
-    sellTotal: (held[sellSym] || []).reduce(function (acc, x) { return acc + x.eur; }, 0),
+    sellTotal: (held[sellSym] || []).unvalued ? null : (held[sellSym] || []).reduce(function (acc, x) { return acc + x.eur; }, 0),
+    sellSym: sellSym,
     enough: sell.length > 0 && amount != null && sell[0].eur >= amount,
     // Set only once the notification carrying these lines was really delivered: until then (or if that
     // mark is lost) an acknowledgement does not use them, so nothing unannounced is ever refreshed.
@@ -265,6 +268,8 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
   keep.sort(function (a, b) { return Number(store[b].ts) - Number(store[a].ts); });
   var next = {};
   for (var n = 0; n < keep.length && n < STRAT_ALERT_LINES_KEEP - 1; n++) next[keep[n]] = store[keep[n]];
+  // A discarded alert is never saved: it must not push the lines of a delivered alert out of the store.
+  if (_wcoreStratAlertImplausible_(entry, trade)) return entry;
   next[id] = entry;
   // Not saved = not proposed: the acknowledgement could not find these lines again, and a retry could
   // propose different ones.
@@ -289,13 +294,15 @@ var STRAT_ALERT_PLAUSIBLE_RATIO = 0.8;
  * Plausibility guard (2026-11-27: an alert asked to sell 138 euros of a token worth 0.10 euro, from a
  * transiently wrong price). True when a COMPLETE read found some value held of the symbol to sell and
  * that total is under 80 % of the amount announced: nobody can sell what the portfolio does not hold.
- * Fail-open: no lines (incomplete or unreadable read), no total saved (older entry), no amount, or nothing
- * found at all (could be a naming mismatch, and the alert then goes out as it did before) never discard.
+ * Fail-open: no lines (incomplete or unreadable read), no total saved (older entry, or a row of the symbol
+ * with an unreadable value), another symbol than the one read, no amount, or nothing found at all (could be a naming mismatch, and the alert then goes out as it did before) never discard.
  */
 function _wcoreStratAlertImplausible_(entry, trade) {
   var sides = [trade && trade.sell ? trade.sell.eur : null, trade && trade.buy ? trade.buy.eur : null]
     .filter(function (v) { return v != null && isFinite(v); });
   if (!sides.length || !entry || entry.sellTotal == null) return false;
+  // The total belongs to the symbol read for that entry (a retry may see another pair).
+  if (!trade.sell || String(trade.sell.symbol).toUpperCase() !== entry.sellSym) return false;
   var total = Number(entry.sellTotal);
   if (!isFinite(total) || total <= 0) return false;
   return total < STRAT_ALERT_PLAUSIBLE_RATIO * Math.min.apply(null, sides);
@@ -458,7 +465,7 @@ function _wcoreCheckStratAlert_(ss) {
     // Step 3 (under lock): mark delivered or abandoned occurrences as X; the others stay pending
     // (V + occ) and are retried next pass with the same id. A lost write only causes a retry,
     // which the API answers as a duplicate.
-    _wcoreStratAlertLocked_(function () {
+    var fin = _wcoreStratAlertLocked_(function () {
       var st = null;
       try { st = JSON.parse(props.getProperty(STRAT_ALERT_STATE_KEY) || "null"); } catch (eSt) { st = null; }
       if (!st || typeof st !== "object") return;
@@ -468,6 +475,8 @@ function _wcoreCheckStratAlert_(ss) {
       }
       props.setProperty(STRAT_ALERT_STATE_KEY, JSON.stringify(st));
     });
+    // The final lock was refused: a discarded occurrence is still pending and will be judged again next pass.
+    if (fin.locked && out.discarded.length) { out.reason = "DISCARD_UNSETTLED"; return out; }
     out.reason = out.sent === todo.length ? "SENT"
       : (out.discarded.length && out.sent + out.discarded.length === todo.length ? (out.sent ? "SENT_SOME_DISCARDED" : "DISCARDED") : "PARTIAL_OR_FAILED");
     Logger.log("[STRAT_ALERT] " + out.reason + " newX=" + out.newX + " sent=" + out.sent + " abandoned=" + out.abandoned);

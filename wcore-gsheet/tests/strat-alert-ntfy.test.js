@@ -487,3 +487,18 @@ test('a refused final lock leaves a discarded occurrence pending and says so', (
   assert.ok(st.occ && st.occ.AY1, 'still pending');
   assert.equal(h.run().reason, 'DISCARDED', 'judged again, settled this time');
 });
+
+test('a retry reuses the saved lines and never judges them again against a changed amount', () => {
+  const h = harness();
+  wufSetup(h, 200); // 200 held for 138: plausible, first send fails
+  h.run();
+  h.state.strat = stratRow({ AY1: 'X' });
+  h.state.code = 502;
+  h.run();
+  h.state.gaps['Portefeuille Crypto'] = [[900, 'WUF', 'V'], [-9000, 'BTC', 'X']]; // the gap grew before the retry
+  h.state.code = 200;
+  h.tick(60000);
+  assert.equal(h.run().reason, 'SENT');
+  assert.equal(h.posts.length, 2);
+  assert.equal(h.posts[1].payload.occurrence, h.posts[0].payload.occurrence);
+});

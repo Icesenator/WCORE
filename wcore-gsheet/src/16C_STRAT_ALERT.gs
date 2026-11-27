@@ -269,11 +269,12 @@ function _wcoreStratAlertLinesFor_(ss, id, trade) {
   var next = {};
   for (var n = 0; n < keep.length && n < STRAT_ALERT_LINES_KEEP - 1; n++) next[keep[n]] = store[keep[n]];
   // A discarded alert is never saved: it must not push the lines of a delivered alert out of the store.
-  if (_wcoreStratAlertImplausible_(entry, trade)) return entry;
+  if (_wcoreStratAlertImplausible_(entry, trade)) { entry.fresh = true; return entry; }
   next[id] = entry;
   // Not saved = not proposed: the acknowledgement could not find these lines again, and a retry could
   // propose different ones.
   try { PropertiesService.getScriptProperties().setProperty(STRAT_ALERT_LINES_KEY, JSON.stringify(next)); } catch (eSave) { return null; }
+  entry.fresh = true; // not persisted: only the pass that read the tabs may judge plausibility
   return entry;
 }
 
@@ -438,7 +439,7 @@ function _wcoreCheckStratAlert_(ss) {
       if (trade) { body.sell = trade.sell; body.buy = trade.buy; }
       var lines = null;
       try { lines = _wcoreStratAlertLinesFor_(ss, todo[t].id, trade); } catch (eLines0) { lines = null; }
-      if (lines && _wcoreStratAlertImplausible_(lines, trade)) {
+      if (lines && lines.fresh === true && _wcoreStratAlertImplausible_(lines, trade)) {
         // Discarded, not sent: settled like a delivery (cell marked X, occurrence dropped), so it is never
         // retried; it is re-armed only when the cell goes back to V. The trace holds the symbol and a code.
         out.discarded.push({ category: c2.category, symbol: trade.sell.symbol, code: "SELL_EXCEEDS_HOLDINGS" });

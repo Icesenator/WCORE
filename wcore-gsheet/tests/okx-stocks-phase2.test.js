@@ -125,7 +125,7 @@ test('lecture OKX : la reconstruction n est tentee que routage actif et Stocks n
 });
 
 // ---- Reconstruction d'Action Details : jamais d'ecrasement des lignes manuelles si leur lecture echoue ----
-function coreContext({ existingReadFails, okxRows }) {
+function coreContext({ existingReadFails, okxRows, okxReadFails = false }) {
   const calls = { batch: [], clear: 0 };
   const ctx = load('40_OKX_SYNC.gs', '44_XSTOCKS_SOLANA.gs');
   const detailsSheet = {
@@ -136,7 +136,7 @@ function coreContext({ existingReadFails, okxRows }) {
   const sheets = {
     'Portefeuille Action Details': detailsSheet,
     'CEX - Bitpanda Stocks': grid([['AAPL', 1.5]]),
-    'CEX - OKX Stocks': okxRows ? grid(okxRows) : null,
+    'CEX - OKX Stocks': okxReadFails ? { getMaxRows: () => { throw new Error('Service Spreadsheets timed out'); }, getRange: () => ({ getValues: () => [] }) } : (okxRows ? grid(okxRows) : null),
     'Portefeuille Action': grid([['NFLX', 5], ['MU', 8], ['AAPL', 1]]),
   };
   const ss = { getSheetByName: (n) => sheets[n] || null, getId: () => 'id', getSheets: () => [] };
@@ -169,4 +169,14 @@ test('reconstruction d Action Details : un statut non OK n est pas annonce comme
   const { ctx, ss } = detailsContext([]);
   ctx.REFRESH_STOCK_PORTFOLIO_DETAILS = () => 'ABORTED: existing rows unreadable';
   assert.match(ctx._okxEnsureActionDetails_(ss, HELD), /^NOT_REFRESHED:/);
+});
+
+test('reconstruction d Action Details : onglet OKX Stocks illisible = arret sans ecriture (ses lignes de Details ne disparaissent pas)', () => {
+  const { ctx, calls } = coreContext({ existingReadFails: false, okxReadFails: true });
+  assert.match(ctx._refreshStockPortfolioDetailsCore_(), /^ABORTED: CEX - OKX Stocks unreadable/);
+  assert.equal(calls.batch.length, 0);
+  assert.equal(calls.clear, 0);
+  // onglet OKX Stocks absent (pas encore cree) : pas une erreur, aucune ligne OKX
+  const absent = coreContext({ existingReadFails: false, okxRows: null });
+  assert.match(absent.ctx._refreshStockPortfolioDetailsCore_(), /^OK/);
 });

@@ -612,6 +612,7 @@ function _refreshStockPortfolioDetailsCore_() {
    }
   // OKX Stocks : lecture facultative (absent ou vide = aucune ligne OKX, jamais une erreur).
   var okxValues = [];
+  var okxReadFailed = false;
   try {
    var okxSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.OKX_STOCKS_SHEET_NAME);
    if (okxSheet) {
@@ -619,7 +620,12 @@ function _refreshStockPortfolioDetailsCore_() {
     var okxDataRowCount = okxAvailableRows - STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW + 1;
     if (okxDataRowCount > 0) okxValues = okxSheet.getRange(STOCK_PORTFOLIO_DETAILS_CONFIG.SOURCE_FIRST_DATA_ROW, 1, okxDataRowCount, 2).getValues();
    }
-  } catch (eOkxRead) { okxValues = []; }
+  } catch (eOkxRead) { okxValues = []; okxReadFailed = true; }
+  // Un onglet OKX Stocks illisible a cet instant ne doit pas faire disparaitre ses lignes de Details : on s'arrete sans rien ecrire.
+  if (okxReadFailed) {
+   try { Logger.log("[XSTOCKS_DETAILS] OKX Stocks unreadable: nothing written"); } catch (eLogOkx) {}
+   return "ABORTED: " + STOCK_PORTFOLIO_DETAILS_CONFIG.OKX_STOCKS_SHEET_NAME + " unreadable; nothing written";
+  }
   var eurcFiatQuantity = null;
   var ledgerSheet = ss.getSheetByName(STOCK_PORTFOLIO_DETAILS_CONFIG.ACTION_LEDGER_SHEET_NAME);
   var address = null;

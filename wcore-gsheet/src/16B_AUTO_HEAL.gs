@@ -237,6 +237,8 @@ function _wcoreAutoHealCexStatus_(props) {
     "CEX - Bybit",
     "CEX - Coinbase",
     "CEX - OKX",
+    "CEX - OKX Crypto",
+    "CEX - OKX Stocks",
     "CEX - Kraken Crypto"
   ];
   var newest = 0;

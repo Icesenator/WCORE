@@ -539,8 +539,15 @@ function _wcoreTradeAckRefreshLines_(ss, names) {
   var krakenBlocked = null;
   for (var i = 0; i < names.length; i++) {
     var name = String(names[i] || "");
+    // Notification partie avant la scission d'OKX (v4.16.103) : l'ancien nom designe maintenant l'onglet Crypto.
+    if (name === "CEX - OKX") name = "CEX - OKX Crypto";
     if (!STRAT_ALERT_LINE_NAME.test(name)) continue;
     var sheet = ss && ss.getSheetByName(name);
+    // Pendant la bascule (publie, pas encore renomme), l'onglet porte encore l'ancien nom : on le relit sous cet ancien nom.
+    if (!sheet && name === "CEX - OKX Crypto") {
+      sheet = ss && ss.getSheetByName("CEX - OKX");
+      if (!sheet) sheet = ss && ss.getSheetByName(name); // renommage survenu entre les deux recherches
+    }
     if (!sheet) { res.skipped.push(name); continue; }
     if (/^CEX - Kraken/i.test(name)) {
       if (krakenBlocked === null) krakenBlocked = _wcoreTradeAckKrakenBlocked_();

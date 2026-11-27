@@ -38,7 +38,7 @@ assert.ok(formulaForLiteral.includes(`$F:$F;${literalTickerCriterion}`), 'le tic
 const positionFormula = context._cexBuildVerifFormula_('CEX - A~*?');
 assert.ok(positionFormula.includes(`$E:$E;"${escapeCriterion('CEX - A~*?')}"`), 'la position E doit aussi etre un critere litteral');
 
-const cryptoSheets = ['CEX - Binance', 'CEX - Bitfinex', 'CEX - Bitpanda Crypto', 'CEX - Bybit', 'CEX - Coinbase', 'CEX - Kraken Crypto', 'CEX - OKX'];
+const cryptoSheets = ['CEX - Binance', 'CEX - Bitfinex', 'CEX - Bitpanda Crypto', 'CEX - Bybit', 'CEX - Coinbase', 'CEX - Kraken Crypto', 'CEX - OKX Crypto'];
 for (const sheet of cryptoSheets) {
   const formula = context._cexBuildVerifFormula_(sheet);
   assert.ok(formula.includes(`'Portefeuille Crypto Details'!$F:$F;${literalTickerCriterion}`), `${sheet} doit rapprocher le ticker F, pas le canonique C`);

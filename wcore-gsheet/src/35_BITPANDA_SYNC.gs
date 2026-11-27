@@ -1912,6 +1912,11 @@ function _cexComputeAndAppendTotal_(ss, sheetName, balances, provider, opt_value
             if (isFinite(pt)) prevInfoTotal = pt;
           }
           if (!prevSym || prevSym === ".") continue; // INFO_TOTAL row
+          // OKX scinde en Crypto / Stocks (v4.16.103) : une ligne de l'autre classe qui figurait encore dans cet onglet
+          // (ex. action tokenisee restee en Crypto avant l'activation du routage) n'est ni reprise ni comptee : elle est
+          // ecrite par l'onglet de sa classe, la garder ici la compterait deux fois.
+          if (String(provider || "").toLowerCase() === "okx" && typeof _okxIsStockToken_ === "function" &&
+              _okxIsStockToken_(prevSym) !== (String(sheetName || "").toLowerCase().indexOf("stocks") >= 0)) continue;
           if (isFinite(prevBal) && prevBal > 0) {
             prevHeldCount++;
             prevHeldRows.push([prevRows[pr][0], prevRows[pr][1], String(prevRows[pr][2] || ""), prevRows[pr][3]]);

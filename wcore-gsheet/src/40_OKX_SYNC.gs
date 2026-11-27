@@ -18,15 +18,26 @@ var OKX_STOCK_TOKENS = {
   "XSPCX": "SPCX",
   "XLRCX": "LRCX",
   "XCGNX": "CGNX",
-  "XFLEX": "FLEX",
-  "XSNXX": "SNX",
-  "XMINIMAX": "MINIMAX"
+  "XFLEX": "FLEX"
+  // XSNXX et XMINIMAX figurent aussi dans les instruments OKX mais leur ticker boursier n'est pas etabli
+  // (ex. SNX est aussi une crypto) : absents de la liste, ils restent en Crypto, donc visibles, jamais mal valorises.
 };
 
-/** True si le symbole OKX (casse indifferente) est une action tokenisee connue. */
-function _okxIsStockToken_(sym) {
+// Interrupteur du routage Crypto / Stocks. FALSE tant que Portefeuille Action et Action Details ne lisent pas
+// « CEX - OKX Stocks » (phase 2) : un titre route en Stocks sans ligne dans Action Details ferait passer la colonne
+// Verif a X. Les deux onglets existent et sont ecrits ; Stocks reste vide, tout reste en Crypto (comportement actuel).
+// Passer a true avec la phase 2 : les lignes deja en Crypto sont alors ignorees par la reprise (filtre de classe, 35).
+var OKX_STOCKS_ROUTING_ENABLED = false;
+
+/** True si le symbole OKX (casse indifferente) figure dans la liste des actions tokenisees connues. */
+function _okxIsListedStockToken_(sym) {
   var s = String(sym == null ? "" : sym).trim().toUpperCase();
   return Object.prototype.hasOwnProperty.call(OKX_STOCK_TOKENS, s);
+}
+
+/** True si la ligne doit etre routee en Stocks : action connue ET routage active. */
+function _okxIsStockToken_(sym) {
+  return OKX_STOCKS_ROUTING_ENABLED === true && _okxIsListedStockToken_(sym);
 }
 
 /** Ticker boursier canonique d'une action tokenisee OKX ; le symbole inchange sinon. */
@@ -198,9 +209,14 @@ function _okxGetOrCreateSheet_(ss, name, legacyName) {
   if (sh) return sh;
   if (legacyName) {
     var old = ss.getSheetByName(legacyName);
-    if (old) { old.setName(name); return old; }
+    // Renomme seulement un onglet qui a bien la forme d'une sortie OKX (en-tete « cryptocoin_symbol » en A2).
+    if (old && _okxLooksLikeOutputSheet_(old)) { old.setName(name); return old; }
   }
   return ss.insertSheet(name);
+}
+
+function _okxLooksLikeOutputSheet_(sh) {
+  try { return String(sh.getRange(2, 1).getValue() || "").trim() === "cryptocoin_symbol"; } catch (e) { return false; }
 }
 
 function _okxSetupOneSheet_(ss, name, legacyName) {

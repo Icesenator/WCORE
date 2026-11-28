@@ -342,7 +342,7 @@ jobs:
           fi
 
       - name: E2E tests (critical flows)
-        run: pnpm --dir apps/web exec playwright test --config=playwright.ci.config.ts e2e/critical-flows.spec.ts
+        run: pnpm --dir apps/web exec playwright test --config=playwright.ci.config.ts e2e/critical-flows.spec.ts e2e/embed-frame.spec.ts
 
       - uses: actions/upload-artifact@v7
         if: always()

@@ -52,7 +52,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
   // Echec de la derniere relecture alors que des bulles sont deja affichees : signale discretement.
   const [reloadFailed, setReloadFailed] = useState(false);
   const [period, setPeriod] = useState<BubblePeriod>("d1");
-  const [mode, setMode] = useState<BubbleMode>("change");
+  const [mode, setMode] = useState<BubbleMode>(popup ? "marketcap" : "change");
   const [count, setCount] = useState<number>(100);
   const [search, setSearch] = useState("");
   const [hideStables, setHideStables] = useState(false);

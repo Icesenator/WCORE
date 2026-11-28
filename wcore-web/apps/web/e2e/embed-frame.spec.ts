@@ -69,11 +69,22 @@ test.describe("Bubbles embed : aucune navigation ni appel de session depuis le c
         route.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
       await page.addInitScript(() => localStorage.setItem("wcore_address", "0x1234567890123456789012345678901234567890"));
 
+      // Le module Wagmi est importe statiquement par le fournisseur (il n'est pas monte ici) : on verifie qu'il
+      // n'en resulte AUCUNE connexion reseau, WebSocket comprise, vers un service de portefeuille.
+      const sockets: string[] = [];
+      const hosts = new Set<string>();
+      page.on("websocket", (ws) => sockets.push(ws.url()));
+      page.on("request", (req) => { try { hosts.add(new URL(req.url()).host); } catch { /* data: etc. */ } });
+
       await page.goto(p);
       await expect(page.locator("main")).toBeVisible();
+      await page.waitForLoadState("networkidle");
+      await page.waitForTimeout(2500); // laisse le temps a une initialisation differee de se manifester
       expect(await page.locator("a[href]").count()).toBe(0);
       expect(await page.locator("nav, aside").count()).toBe(0);
       expect(sessionCalls).toEqual([]);
+      expect(sockets).toEqual([]);
+      expect([...hosts].filter((h) => /walletconnect|reown|coinbase|cb-w|wc\.org/i.test(h))).toEqual([]);
     });
   }
 

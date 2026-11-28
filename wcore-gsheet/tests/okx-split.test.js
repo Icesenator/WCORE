@@ -303,3 +303,13 @@ test('placement : un onglet de reference illisible ne bloque pas la creation', (
   assert.deepEqual(plain(ss.log.inserted), ['CEX - OKX Stocks']);
   assert.equal(ss.log.positions[0], undefined);
 });
+
+test('placement : un index refuse par le service ne bloque pas la creation (repli sur la position par defaut, pas de doublon)', () => {
+  const { context } = okxContext();
+  const ss = fakeSpreadsheet(['Budget', 'CEX - OKX Crypto']);
+  const realInsert = ss.insertSheet;
+  ss.insertSheet = (n, pos) => { if (pos !== undefined) throw new Error('index out of range'); return realInsert(n); };
+  assert.doesNotThrow(() => context._okxWriteSheet_(ss, { spot: SPOT }));
+  assert.deepEqual(plain(ss.log.inserted), ['CEX - OKX Stocks'], 'un seul onglet cree');
+  assert.ok(ss.getSheetByName('CEX - OKX Stocks'));
+});

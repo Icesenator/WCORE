@@ -232,7 +232,11 @@ function _okxGetOrCreateSheet_(ss, name, legacyName, afterName) {
     var ref = afterName ? ss.getSheetByName(afterName) : null;
     if (ref && typeof ref.getIndex === "function") position = ref.getIndex(); // 1-based : l'index 0-based d'insertion est juste apres
   } catch (ePos) { position = undefined; }
-  return position !== undefined ? ss.insertSheet(name, position) : ss.insertSheet(name);
+  if (position !== undefined) {
+    // Un index refuse par le service (ex. au-dela du nombre d'onglets) ne doit jamais empecher la creation : repli sur la position par defaut.
+    try { return ss.insertSheet(name, position); } catch (eInsert) { /* repli ci-dessous : l'onglet n'a pas ete cree */ }
+  }
+  return ss.insertSheet(name);
 }
 
 /** "OKX" : en-tete de sortie OKX (A2 = cryptocoin_symbol) ; "OTHER" : lu, autre chose ; "UNREADABLE" : lecture impossible. */

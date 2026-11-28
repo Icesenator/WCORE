@@ -7,6 +7,7 @@ import { TopBar } from "@/components/TopBar";
 import { Logo } from "@/components/Logo";
 import { getApiUrl } from "@/lib/api";
 import type { CoverageStats } from "@/lib/coverage";
+import { isBareBubblesRoute } from "@/lib/bare-routes";
 
 export function SidebarLayout({ children, coverage }: { children: ReactNode; coverage: CoverageStats }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -46,9 +47,9 @@ export function SidebarLayout({ children, coverage }: { children: ReactNode; cov
     setSidebarOpen(false);
   }, []);
 
-  // Fenêtres détachées (bulles) : la page seule, sans menu, barre ni pied de page.
+  // Fenêtres détachées et pages intégrables (bulles) : la page seule, sans menu, barre, notifications ni pied de page.
   const pathname = usePathname();
-  if (pathname?.endsWith("/bubbles/popup")) return <>{children}</>;
+  if (isBareBubblesRoute(pathname)) return <>{children}</>;
 
   return (
     <>

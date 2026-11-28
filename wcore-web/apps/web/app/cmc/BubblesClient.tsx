@@ -94,7 +94,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch(`${getApiUrl()}${endpoint}`, { signal });
+      const response = await fetch(`${getApiUrl()}${endpoint}`, { signal, credentials: "omit" });
       if (!response.ok) throw new Error(`Request failed with HTTP ${response.status}`);
       setSnapshot(parseMarketCapResponse(await response.json()));
       hasDataRef.current = true;
@@ -300,7 +300,7 @@ export function BubblesClient({ endpoint, title, kind, tablePath, popup = false,
           <h1 className="text-2xl font-bold tracking-tight text-fg sm:text-3xl">{title}</h1>
           <p className="mt-2 text-sm text-muted">
             Size shows the {sizeMode === "change" ? "size of the move" : "market cap"}; green is up, red is down, grey is unknown.{" "}
-            <Link href={tablePath} className="text-accent underline-offset-2 hover:underline">Table view</Link>
+            {popup ? null : <Link href={tablePath} className="text-accent underline-offset-2 hover:underline">Table view</Link>}
           </p>
         </div>
         <div className={popup ? "flex flex-wrap items-center gap-1.5" : "flex flex-wrap items-end gap-2"}>

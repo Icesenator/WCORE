@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { buildHeaders, EMBED_FRAME_ANCESTORS, EMBED_PATHS } from "../lib/security-headers.mjs";
+import { isBareBubblesRoute } from "../lib/bare-routes";
 
 type Rule = { source: string; headers: { key: string; value: string }[] };
 
@@ -49,6 +50,22 @@ describe("en-tetes de securite : cadrage (clickjacking)", () => {
     }
   });
 
+  test("tout chemin cadrable s'affiche SANS l'habillage du site (menu, notifications, session)", () => {
+    // Sinon un Apps Script tiers pourrait cadrer le menu et les actions de compte d'une session reutilisee.
+    for (const p of EMBED_PATHS as string[]) assert.equal(isBareBubblesRoute(p), true, p);
+    for (const p of ["/cmc/crypto/bubbles/popup", "/cmc/stocks/bubbles/popup"]) assert.equal(isBareBubblesRoute(p), true, p);
+    for (const p of ["/", "/profile", "/gm", "/cmc/crypto", "/cmc/crypto/bubbles", "/cmc/stocks/bubbles", "/cmc/crypto/bubbles/embedx"]) {
+      assert.equal(isBareBubblesRoute(p), false, p);
+    }
+  });
+
+  test("une variante de casse d'un chemin embed est cadrable ET sans habillage (Next applique les en-tetes avant de resoudre la casse)", () => {
+    for (const p of ["/CMC/crypto/bubbles/EMBED", "/cmc/Stocks/Bubbles/Embed"]) {
+      assert.equal(effectiveHeaders(p).has("X-Frame-Options"), false, p);
+      assert.equal(isBareBubblesRoute(p), true, p);
+    }
+  });
+
   test("les pages embed gardent les autres protections", () => {
     for (const p of EMBED_PATHS as string[]) {
       const h = effectiveHeaders(p);
@@ -74,11 +91,14 @@ describe("next.config.mjs : fichiers importes presents dans les images Docker", 
 
   for (const dockerfile of ["Dockerfile", "Dockerfile.railway"]) {
     test(`${dockerfile} copie chaque module importe par next.config.mjs`, () => {
-      const copies = readFileSync(path.join(webDir, dockerfile), "utf8").split(/\r?\n/).filter((l) => /^\s*COPY\s/i.test(l));
+      // Seuls les OPERANDES SOURCE d'un COPY comptent (tous sauf le dernier, qui est la destination).
+      const sources = readFileSync(path.join(webDir, dockerfile), "utf8").split(/\r?\n/)
+        .filter((l) => /^\s*COPY\s/i.test(l))
+        .flatMap((l) => l.trim().split(/\s+/).slice(1).filter((t) => !t.startsWith("--")).slice(0, -1))
+        .map((s) => s.replace(/^wcore-web\//, "").replace(/\/+$/, ""));
       for (const rel of imports) {
-        const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
-        const covered = copies.some((l) => (dir ? new RegExp(`apps/web/${dir}(\\s|/|$)`).test(l) : new RegExp(`apps/web/${rel.replace(".", "\\.")}(\\s|$)`).test(l)));
-        assert.ok(covered, `${dockerfile} ne copie ni ${rel} ni son dossier`);
+        const wanted = `apps/web/${rel}`;
+        assert.ok(sources.some((s) => wanted === s || wanted.startsWith(`${s}/`)), `${dockerfile} ne copie ni ${rel} ni son dossier (sources : ${sources.join(", ")})`);
       }
     });
   }

@@ -1,9 +1,19 @@
 // Security headers of the web app, kept apart from next.config.mjs so they can be tested.
 //
 // Every route is served with X-Frame-Options: DENY and frame-ancestors 'none' (clickjacking), except the
-// two public, read-only "embed" bubble pages, which a personal Apps Script page may frame. Their
-// frame-ancestors is limited to Apps Script hosts; they carry no X-Frame-Options (a DENY there would
-// still block the frame in some browsers). The popups keep the strict policy.
+// two public, read-only "embed" bubble pages, which a personal Apps Script page may frame. They carry no
+// X-Frame-Options (a DENY there would still block the frame in some browsers). The popups keep the strict policy.
+//
+// Scope of the exception, stated exactly: frame-ancestors lists https://script.google.com and the wildcard
+// https://*.googleusercontent.com, which covers EVERY https subdomain of googleusercontent.com, not only the
+// Apps Script ones (the sandboxed iframe host of an Apps Script web app is an unstable subdomain, so exact
+// origins cannot be pinned). Accepted by the owner on 2026-11-28 (request relayed by the private Finances
+// project) because these pages are public, read-only, load no session or wallet provider (see
+// components/Web3Provider.tsx), render no site chrome (lib/bare-routes.ts) and link nowhere.
+//
+// Next.js matches `source` case-insensitively and applies headers before resolving the route, so a case
+// variant of an embed path (/CMC/crypto/bubbles/EMBED) gets the same headers and renders the 404 page: that page
+// shows no link on these paths (app/not-found.tsx).
 
 export const EMBED_PATHS = ["/cmc/crypto/bubbles/embed", "/cmc/stocks/bubbles/embed"];
 export const EMBED_FRAME_ANCESTORS = ["https://script.google.com", "https://*.googleusercontent.com"];

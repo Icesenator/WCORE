@@ -11,9 +11,11 @@
 // project) because these pages are public, read-only, load no session or wallet provider (see
 // components/Web3Provider.tsx), render no site chrome (lib/bare-routes.ts) and link nowhere.
 //
-// Next.js matches `source` case-insensitively and applies headers before resolving the route, so a case
-// variant of an embed path (/CMC/crypto/bubbles/EMBED) gets the same headers and renders the 404 page: that page
-// shows no link on these paths (app/not-found.tsx).
+// By default Next.js matches `source` case-insensitively and applies headers before resolving the route, so a
+// case variant of an embed path (/CMC/crypto/bubbles/EMBED) would get the framing exception while rendering the
+// generic 404 page. next.config.mjs therefore sets experimental.caseSensitiveRoutes: variants match no embed
+// rule, get X-Frame-Options DENY and a plain 404. As a second layer, lib/bare-routes.ts is case-insensitive and
+// app/not-found.tsx shows no link on those paths.
 
 export const EMBED_PATHS = ["/cmc/crypto/bubbles/embed", "/cmc/stocks/bubbles/embed"];
 export const EMBED_FRAME_ANCESTORS = ["https://script.google.com", "https://*.googleusercontent.com"];

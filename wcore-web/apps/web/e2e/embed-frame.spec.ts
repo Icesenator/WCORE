@@ -39,6 +39,21 @@ test.describe("Bubbles embed : en-tetes de cadrage", () => {
       expect(res.headers()["x-frame-options"], p).toBe("DENY");
     }
   });
+
+  test("une variante de casse est une 404 interdite au cadrage (casse respectee)", async ({ request }) => {
+    for (const p of ["/CMC/crypto/bubbles/EMBED", "/cmc/stocks/Bubbles/embed"]) {
+      const res = await request.get(p, { maxRedirects: 0 });
+      expect(res.status(), p).toBe(404);
+      expect(res.headers()["x-frame-options"], p).toBe("DENY");
+      expect(res.headers()["content-security-policy"], p).toContain("frame-ancestors 'none'");
+    }
+  });
+
+  test("le slash final redirige (308) vers la route canonique", async ({ request }) => {
+    const res = await request.get("/cmc/crypto/bubbles/embed/", { maxRedirects: 0 });
+    expect(res.status()).toBe(308);
+    expect(new URL(res.headers()["location"] ?? "", "http://localhost:3000").pathname).toBe("/cmc/crypto/bubbles/embed");
+  });
 });
 
 test.describe("Bubbles embed : aucune navigation ni appel de session depuis le cadre", () => {
@@ -46,7 +61,8 @@ test.describe("Bubbles embed : aucune navigation ni appel de session depuis le c
     test(`${p} : pas de menu, pas de lien, pas d'appel de session`, async ({ page }) => {
       const sessionCalls: string[] = [];
       page.on("request", (req) => {
-        if (/\/api\/(auth|me|notifications|profile|wallets|scan)\b/.test(req.url())) sessionCalls.push(req.url());
+        // Session de compte, ou service de connexion de portefeuille (WalletConnect) : rien de tout cela dans un cadre tiers.
+        if (/\/api\/(auth|me|notifications|profile|wallets|scan)\b|walletconnect\.(com|org)/.test(req.url())) sessionCalls.push(req.url());
       });
       // Les donnees de marche ne sont pas l'objet du test : reponse vide, la page affiche son message d'erreur.
       await page.route((url) => url.pathname.startsWith("/api/cmc/"), (route) =>

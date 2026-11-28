@@ -10,7 +10,11 @@ type Rule = { source: string; headers: { key: string; value: string }[] };
 
 // Meme moteur de correspondance que Next.js pour les `source` des en-tetes.
 const require = createRequire(import.meta.url);
-const { match } = require("next/dist/compiled/path-to-regexp") as { match: (source: string) => (path: string) => unknown };
+const { match: rawMatch } = require("next/dist/compiled/path-to-regexp") as {
+  match: (source: string, options?: { sensitive?: boolean }) => (path: string) => unknown;
+};
+// next.config.mjs active experimental.caseSensitiveRoutes : les `source` sont compares en respectant la casse.
+const match = (source: string) => rawMatch(source, { sensitive: true });
 
 // En-tetes effectifs d'une URL : les regles qui correspondent s'appliquent dans l'ordre, la derniere gagne.
 function effectiveHeaders(pathname: string): Map<string, string> {
@@ -59,11 +63,17 @@ describe("en-tetes de securite : cadrage (clickjacking)", () => {
     }
   });
 
-  test("une variante de casse d'un chemin embed est cadrable ET sans habillage (Next applique les en-tetes avant de resoudre la casse)", () => {
+  test("une variante de casse d'un chemin embed N'est PAS cadrable (casse respectee) et reste sans habillage par precaution", () => {
     for (const p of ["/CMC/crypto/bubbles/EMBED", "/cmc/Stocks/Bubbles/Embed"]) {
-      assert.equal(effectiveHeaders(p).has("X-Frame-Options"), false, p);
-      assert.equal(isBareBubblesRoute(p), true, p);
+      assert.equal(effectiveHeaders(p).get("X-Frame-Options"), "DENY", p);
+      assert.match(csp(p), /^frame-ancestors 'none'/, p);
+      assert.equal(isBareBubblesRoute(p), true, p); // defense en profondeur : jamais de menu sur une variante
     }
+  });
+
+  test("next.config.mjs active la correspondance sensible a la casse (sinon l'exception couvrirait les variantes)", () => {
+    const config = readFileSync(path.join(path.resolve(import.meta.dirname, ".."), "next.config.mjs"), "utf8");
+    assert.match(config, /caseSensitiveRoutes:\s*true/);
   });
 
   test("les pages embed gardent les autres protections", () => {

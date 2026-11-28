@@ -15,6 +15,11 @@ const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ["@wcore/shared"],
   typedRoutes: false,
+  // Matching of routes AND of header `source` patterns becomes case-sensitive. Without it Next.js matches
+  // case-insensitively and applies headers before resolving the route, so /CMC/crypto/bubbles/EMBED would
+  // receive the embed framing exception while rendering the generic 404 (see lib/security-headers.mjs).
+  // Consequence: a URL with a capital letter in a static segment (e.g. /Profile) is now a 404.
+  experimental: { caseSensitiveRoutes: true },
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   images: {
     remotePatterns: [

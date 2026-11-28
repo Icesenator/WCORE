@@ -313,3 +313,12 @@ test('placement : un index refuse par le service ne bloque pas la creation (repl
   assert.deepEqual(plain(ss.log.inserted), ['CEX - OKX Stocks'], 'un seul onglet cree');
   assert.ok(ss.getSheetByName('CEX - OKX Stocks'));
 });
+
+test('placement : le nom a ete pris entre-temps (creation en parallele) : l onglet existant est utilise, pas de doublon ni d erreur', () => {
+  const { context } = okxContext();
+  const ss = fakeSpreadsheet(['Budget', 'CEX - OKX Crypto']);
+  const realInsert = ss.insertSheet;
+  ss.insertSheet = (n, pos) => { if (pos !== undefined) { realInsert(n); throw new Error('A sheet with this name already exists'); } throw new Error('doublon interdit'); };
+  assert.doesNotThrow(() => context._okxWriteSheet_(ss, { spot: SPOT }));
+  assert.ok(ss.getSheetByName('CEX - OKX Stocks'));
+});

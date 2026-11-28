@@ -234,7 +234,9 @@ function _okxGetOrCreateSheet_(ss, name, legacyName, afterName) {
   } catch (ePos) { position = undefined; }
   if (position !== undefined) {
     // Un index refuse par le service (ex. au-dela du nombre d'onglets) ne doit jamais empecher la creation : repli sur la position par defaut.
-    try { return ss.insertSheet(name, position); } catch (eInsert) { /* repli ci-dessous : l'onglet n'a pas ete cree */ }
+    try { return ss.insertSheet(name, position); } catch (eInsert) { /* repli ci-dessous : l'onglet n'a pas ete cree... ou vient de l'etre par un autre chemin */ }
+    var taken = ss.getSheetByName(name);
+    if (taken) return taken; // cree entre-temps (ex. SETUP_OKX_SHEET en parallele) : on l'utilise, on ne cree pas de doublon
   }
   return ss.insertSheet(name);
 }

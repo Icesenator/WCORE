@@ -27,12 +27,14 @@ function okxContext({ routing = false, ...extra } = {}) {
 
 function fakeSpreadsheet(names, { legacyHeader = 'cryptocoin_symbol' } = {}) {
   const sheets = new Map();
-  const log = { renamed: [], inserted: [] };
+  const order = [...names];
+  const log = { renamed: [], inserted: [], positions: [], order };
   const make = (name) => ({
     name,
     getName() { return this.name; },
-    setName(n) { log.renamed.push([this.name, n]); sheets.delete(this.name); this.name = n; sheets.set(n, this); },
+    setName(n) { log.renamed.push([this.name, n]); const i = order.indexOf(this.name); if (i >= 0) order[i] = n; sheets.delete(this.name); this.name = n; sheets.set(n, this); },
     getMaxColumns() { return 26; },
+    getIndex() { return order.indexOf(this.name) + 1; },
     getRange: () => ({ getValue: () => (name === 'CEX - OKX' ? legacyHeader : 'cryptocoin_symbol') }),
   });
   for (const n of names) sheets.set(n, make(n));
@@ -40,7 +42,7 @@ function fakeSpreadsheet(names, { legacyHeader = 'cryptocoin_symbol' } = {}) {
     log,
     sheets,
     getSheetByName: (n) => sheets.get(n) || null,
-    insertSheet: (n) => { log.inserted.push(n); const sh = make(n); sheets.set(n, sh); return sh; },
+    insertSheet: (n, pos) => { log.inserted.push(n); log.positions.push(pos); const sh = make(n); sheets.set(n, sh); if (pos === undefined) order.unshift(n); else order.splice(pos, 0, n); return sh; },
   };
 }
 
@@ -271,4 +273,52 @@ test('Stocks sans aucune action : l onglet est ecrit avec un total de 0, sans er
   assert.equal(total, 0);
   const info = stocks.sheet.grid.find((r) => r[1] === 'INFO_TOTAL');
   assert.ok(info && info[6] === 0, 'INFO_TOTAL = 0');
+});
+
+// ---- Placement des onglets crees par le code : juste apres l'onglet de reference, jamais tout a gauche ----
+
+test('Stocks cree par la lecture prend sa place juste apres OKX Crypto', () => {
+  const { context } = okxContext();
+  const ss = fakeSpreadsheet(['Budget', 'Strat', 'CEX - Coinbase', 'CEX - OKX Crypto', 'Ledger - Arbitrum One Action']);
+  context._okxWriteSheet_(ss, { spot: SPOT });
+  assert.deepEqual(plain(ss.log.inserted), ['CEX - OKX Stocks']);
+  assert.deepEqual(plain(ss.log.order), ['Budget', 'Strat', 'CEX - Coinbase', 'CEX - OKX Crypto', 'CEX - OKX Stocks', 'Ledger - Arbitrum One Action']);
+});
+
+test('placement : Crypto absent aussi (aucune reference) = position par defaut, jamais d erreur', () => {
+  const { context } = okxContext();
+  const ss = fakeSpreadsheet(['Budget', 'Strat']);
+  context._okxWriteSheet_(ss, { spot: [['BTC', '1', 'earn', '1', '1']] });
+  assert.deepEqual(plain(ss.log.inserted), ['CEX - OKX Crypto', 'CEX - OKX Stocks']);
+  assert.equal(ss.log.positions[0], undefined, 'Crypto : pas de reference, position par defaut');
+  const order = plain(ss.log.order);
+  assert.equal(order.indexOf('CEX - OKX Stocks'), order.indexOf('CEX - OKX Crypto') + 1, 'Stocks suit Crypto meme quand Crypto vient d etre cree');
+});
+
+test('placement : un onglet de reference illisible ne bloque pas la creation', () => {
+  const { context } = okxContext();
+  const ss = fakeSpreadsheet(['Budget', 'CEX - OKX Crypto']);
+  ss.getSheetByName('CEX - OKX Crypto').getIndex = () => { throw new Error('Service Spreadsheets timed out'); };
+  assert.doesNotThrow(() => context._okxWriteSheet_(ss, { spot: SPOT }));
+  assert.deepEqual(plain(ss.log.inserted), ['CEX - OKX Stocks']);
+  assert.equal(ss.log.positions[0], undefined);
+});
+
+test('placement : un index refuse par le service ne bloque pas la creation (repli sur la position par defaut, pas de doublon)', () => {
+  const { context } = okxContext();
+  const ss = fakeSpreadsheet(['Budget', 'CEX - OKX Crypto']);
+  const realInsert = ss.insertSheet;
+  ss.insertSheet = (n, pos) => { if (pos !== undefined) throw new Error('index out of range'); return realInsert(n); };
+  assert.doesNotThrow(() => context._okxWriteSheet_(ss, { spot: SPOT }));
+  assert.deepEqual(plain(ss.log.inserted), ['CEX - OKX Stocks'], 'un seul onglet cree');
+  assert.ok(ss.getSheetByName('CEX - OKX Stocks'));
+});
+
+test('placement : le nom a ete pris entre-temps (creation en parallele) : l onglet existant est utilise, pas de doublon ni d erreur', () => {
+  const { context } = okxContext();
+  const ss = fakeSpreadsheet(['Budget', 'CEX - OKX Crypto']);
+  const realInsert = ss.insertSheet;
+  ss.insertSheet = (n, pos) => { if (pos !== undefined) { realInsert(n); throw new Error('A sheet with this name already exists'); } throw new Error('doublon interdit'); };
+  assert.doesNotThrow(() => context._okxWriteSheet_(ss, { spot: SPOT }));
+  assert.ok(ss.getSheetByName('CEX - OKX Stocks'));
 });

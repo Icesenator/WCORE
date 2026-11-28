@@ -203,7 +203,7 @@ function DIAG_OKX_RELAY_CONFIG() {
  * Onglet de sortie OKX. Si le nouvel onglet Crypto n'existe pas encore alors que l'ancien « CEX - OKX » existe,
  * l'ancien est renomme (les formules du classeur suivent le renommage) au lieu d'en creer un second vide.
  */
-function _okxGetOrCreateSheet_(ss, name, legacyName) {
+function _okxGetOrCreateSheet_(ss, name, legacyName, afterName) {
   var sh = ss.getSheetByName(name);
   if (sh) {
     // Les deux onglets existent (ex. « CEX - OKX Crypto » cree a la main alors que l'ancien porte encore les soldes) :
@@ -225,6 +225,19 @@ function _okxGetOrCreateSheet_(ss, name, legacyName) {
       throw new Error("OKX_LEGACY_SHEET_UNRECOGNISED: '" + legacyName + "' exists but is not an OKX output tab; not renamed, nothing written");
     }
   }
+  // Un onglet cree par le code prend sa place dans le bloc des plateformes (juste apres afterName) au lieu de la position
+  // par defaut (tout a gauche du classeur). Sans onglet de reference lisible, position par defaut.
+  var position;
+  try {
+    var ref = afterName ? ss.getSheetByName(afterName) : null;
+    if (ref && typeof ref.getIndex === "function") position = ref.getIndex(); // 1-based : l'index 0-based d'insertion est juste apres
+  } catch (ePos) { position = undefined; }
+  if (position !== undefined) {
+    // Un index refuse par le service (ex. au-dela du nombre d'onglets) ne doit jamais empecher la creation : repli sur la position par defaut.
+    try { return ss.insertSheet(name, position); } catch (eInsert) { /* repli ci-dessous : l'onglet n'a pas ete cree... ou vient de l'etre par un autre chemin */ }
+    var taken = ss.getSheetByName(name);
+    if (taken) return taken; // cree entre-temps (ex. SETUP_OKX_SHEET en parallele) : on l'utilise, on ne cree pas de doublon
+  }
   return ss.insertSheet(name);
 }
 
@@ -237,8 +250,8 @@ function _okxLooksLikeOutputSheet_(sh) {
   return _okxSheetKind_(sh) === "OKX";
 }
 
-function _okxSetupOneSheet_(ss, name, legacyName) {
-  var sh = _okxGetOrCreateSheet_(ss, name, legacyName);
+function _okxSetupOneSheet_(ss, name, legacyName, afterName) {
+  var sh = _okxGetOrCreateSheet_(ss, name, legacyName, afterName);
   if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   sh.getRange("A1").insertCheckboxes().setValue(false);
   sh.getRange("B1").setValue(Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss")).setNumberFormat("@");
@@ -249,7 +262,7 @@ function _okxSetupOneSheet_(ss, name, legacyName) {
 function SETUP_OKX_SHEET() {
   var ss = SpreadsheetApp.openById(OKX_SYNC_CONFIG.SPREADSHEET_ID);
   _okxSetupOneSheet_(ss, OKX_SYNC_CONFIG.SHEET, OKX_SYNC_CONFIG.LEGACY_SHEET);
-  _okxSetupOneSheet_(ss, OKX_SYNC_CONFIG.SHEET_STOCKS, null);
+  _okxSetupOneSheet_(ss, OKX_SYNC_CONFIG.SHEET_STOCKS, null, OKX_SYNC_CONFIG.SHEET);
   return "OK_OKX_SHEET_READY";
 }
 
@@ -273,8 +286,8 @@ function _okxBuildValues_(buckets, stamp) {
   return values;
 }
 
-function _okxWriteOneSheet_(ss, sheetName, legacyName, buckets, stamp) {
-  var sh = _okxGetOrCreateSheet_(ss, sheetName, legacyName);
+function _okxWriteOneSheet_(ss, sheetName, legacyName, buckets, stamp, afterName) {
+  var sh = _okxGetOrCreateSheet_(ss, sheetName, legacyName, afterName);
   if (sh.getMaxColumns() < 7) sh.insertColumnsAfter(sh.getMaxColumns(), 7 - sh.getMaxColumns());
   var dataRows = _okxBuildValues_(buckets, stamp);
   var values = [[false, stamp, "", ""], ["cryptocoin_symbol", "balance", "source", "updated_at"]].concat(dataRows);
@@ -349,7 +362,7 @@ function _okxWriteSheet_(ss, buckets) {
   var stamp = Utilities.formatDate(new Date(), "Europe/Paris", "yyyy-MM-dd HH:mm:ss");
   var split = _okxSplitSpot_(buckets);
   var nCrypto = _okxWriteOneSheet_(ss, OKX_SYNC_CONFIG.SHEET, OKX_SYNC_CONFIG.LEGACY_SHEET, split.crypto, stamp);
-  var nStocks = _okxWriteOneSheet_(ss, OKX_SYNC_CONFIG.SHEET_STOCKS, null, split.stocks, stamp);
+  var nStocks = _okxWriteOneSheet_(ss, OKX_SYNC_CONFIG.SHEET_STOCKS, null, split.stocks, stamp, OKX_SYNC_CONFIG.SHEET);
   var details = (OKX_STOCKS_ROUTING_ENABLED === true && nStocks > 0) ? _okxEnsureActionDetails_(ss, split.stocks.spot) : "SKIPPED";
   return { crypto: nCrypto, stocks: nStocks, details: details };
 }

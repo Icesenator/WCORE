@@ -1,7 +1,9 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { buildHeaders, EMBED_FRAME_ANCESTORS, EMBED_PATHS } from "../security-headers.mjs";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { buildHeaders, EMBED_FRAME_ANCESTORS, EMBED_PATHS } from "../lib/security-headers.mjs";
 
 type Rule = { source: string; headers: { key: string; value: string }[] };
 
@@ -57,4 +59,27 @@ describe("en-tetes de securite : cadrage (clickjacking)", () => {
       assert.match(csp(p), /object-src 'none'/, p);
     }
   });
+});
+
+describe("next.config.mjs : fichiers importes presents dans les images Docker", () => {
+  // Les Dockerfiles copient apps/web fichier par fichier ou dossier par dossier : un module importe par la
+  // config et absent de ces COPY fait echouer `next build` dans l'image (constate sur la PR d'origine).
+  const webDir = path.resolve(import.meta.dirname, "..");
+  const config = readFileSync(path.join(webDir, "next.config.mjs"), "utf8");
+  const imports = [...config.matchAll(/from\s+["'](\.\/[^"']+)["']/g)].map((m) => (m[1] ?? "").slice(2));
+
+  test("la config importe au moins le module des en-tetes", () => {
+    assert.ok(imports.includes("lib/security-headers.mjs"), imports.join(", "));
+  });
+
+  for (const dockerfile of ["Dockerfile", "Dockerfile.railway"]) {
+    test(`${dockerfile} copie chaque module importe par next.config.mjs`, () => {
+      const copies = readFileSync(path.join(webDir, dockerfile), "utf8").split(/\r?\n/).filter((l) => /^\s*COPY\s/i.test(l));
+      for (const rel of imports) {
+        const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+        const covered = copies.some((l) => (dir ? new RegExp(`apps/web/${dir}(\\s|/|$)`).test(l) : new RegExp(`apps/web/${rel.replace(".", "\\.")}(\\s|$)`).test(l)));
+        assert.ok(covered, `${dockerfile} ne copie ni ${rel} ni son dossier`);
+      }
+    });
+  }
 });

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildHeaders } from "./security-headers.mjs";
+import { buildHeaders } from "./lib/security-headers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
